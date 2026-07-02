@@ -18,31 +18,87 @@ use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
 /// C language standards Cabin can request, oldest to newest.  The
 /// `Ord` derive follows declaration order, which the interface
-/// compatibility check relies on.
+/// compatibility check relies on: each GNU dialect sits just above
+/// its ISO twin, so a GNU consumer satisfies its twin's interface
+/// requirement while an ISO consumer never satisfies a GNU one
+/// (the dialect is a superset of the twin).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CStandard {
     #[serde(rename = "c89")]
     C89,
+    #[serde(rename = "gnu89")]
+    Gnu89,
     #[serde(rename = "c99")]
     C99,
+    #[serde(rename = "gnu99")]
+    Gnu99,
     #[serde(rename = "c11")]
     C11,
+    #[serde(rename = "gnu11")]
+    Gnu11,
     #[serde(rename = "c17")]
     C17,
+    #[serde(rename = "gnu17")]
+    Gnu17,
     #[serde(rename = "c23")]
     C23,
+    #[serde(rename = "gnu23")]
+    Gnu23,
 }
 
 impl CStandard {
-    pub const ALL: [Self; 5] = [Self::C89, Self::C99, Self::C11, Self::C17, Self::C23];
+    /// ISO spellings first so parse errors read chronologically per
+    /// dialect; iteration order is not the `Ord` order.
+    pub const ALL: [Self; 10] = [
+        Self::C89,
+        Self::C99,
+        Self::C11,
+        Self::C17,
+        Self::C23,
+        Self::Gnu89,
+        Self::Gnu99,
+        Self::Gnu11,
+        Self::Gnu17,
+        Self::Gnu23,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::C89 => "c89",
+            Self::Gnu89 => "gnu89",
             Self::C99 => "c99",
+            Self::Gnu99 => "gnu99",
             Self::C11 => "c11",
+            Self::Gnu11 => "gnu11",
             Self::C17 => "c17",
+            Self::Gnu17 => "gnu17",
             Self::C23 => "c23",
+            Self::Gnu23 => "gnu23",
+        }
+    }
+
+    /// Whether this is a GNU dialect (`gnu*`) rather than an ISO
+    /// standard.
+    #[must_use]
+    pub const fn is_gnu(self) -> bool {
+        matches!(
+            self,
+            Self::Gnu89 | Self::Gnu99 | Self::Gnu11 | Self::Gnu17 | Self::Gnu23
+        )
+    }
+
+    /// The ISO standard a GNU dialect extends; identity for ISO
+    /// values.  Toolchain capability checks key on this: a GNU
+    /// spelling ships alongside its twin on GCC-style compilers.
+    #[must_use]
+    pub const fn iso_twin(self) -> Self {
+        match self {
+            Self::Gnu89 => Self::C89,
+            Self::Gnu99 => Self::C99,
+            Self::Gnu11 => Self::C11,
+            Self::Gnu17 => Self::C17,
+            Self::Gnu23 => Self::C23,
+            iso => iso,
         }
     }
 
@@ -73,28 +129,46 @@ impl std::str::FromStr for CStandard {
     }
 }
 
-/// C++ language standards Cabin can request, oldest to newest.
-/// `c++26` is deferred until its capability thresholds are audited.
+/// C++ language standards Cabin can request, oldest to newest, with
+/// each GNU dialect just above its ISO twin (see [`CStandard`] for
+/// the ordering contract).  `c++26` is deferred until its capability
+/// thresholds are audited.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CxxStandard {
     #[serde(rename = "c++98")]
     Cxx98,
+    #[serde(rename = "gnu++98")]
+    Gnuxx98,
     #[serde(rename = "c++03")]
     Cxx03,
+    #[serde(rename = "gnu++03")]
+    Gnuxx03,
     #[serde(rename = "c++11")]
     Cxx11,
+    #[serde(rename = "gnu++11")]
+    Gnuxx11,
     #[serde(rename = "c++14")]
     Cxx14,
+    #[serde(rename = "gnu++14")]
+    Gnuxx14,
     #[serde(rename = "c++17")]
     Cxx17,
+    #[serde(rename = "gnu++17")]
+    Gnuxx17,
     #[serde(rename = "c++20")]
     Cxx20,
+    #[serde(rename = "gnu++20")]
+    Gnuxx20,
     #[serde(rename = "c++23")]
     Cxx23,
+    #[serde(rename = "gnu++23")]
+    Gnuxx23,
 }
 
 impl CxxStandard {
-    pub const ALL: [Self; 7] = [
+    /// ISO spellings first so parse errors read chronologically per
+    /// dialect; iteration order is not the `Ord` order.
+    pub const ALL: [Self; 14] = [
         Self::Cxx98,
         Self::Cxx03,
         Self::Cxx11,
@@ -102,17 +176,64 @@ impl CxxStandard {
         Self::Cxx17,
         Self::Cxx20,
         Self::Cxx23,
+        Self::Gnuxx98,
+        Self::Gnuxx03,
+        Self::Gnuxx11,
+        Self::Gnuxx14,
+        Self::Gnuxx17,
+        Self::Gnuxx20,
+        Self::Gnuxx23,
     ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Cxx98 => "c++98",
+            Self::Gnuxx98 => "gnu++98",
             Self::Cxx03 => "c++03",
+            Self::Gnuxx03 => "gnu++03",
             Self::Cxx11 => "c++11",
+            Self::Gnuxx11 => "gnu++11",
             Self::Cxx14 => "c++14",
+            Self::Gnuxx14 => "gnu++14",
             Self::Cxx17 => "c++17",
+            Self::Gnuxx17 => "gnu++17",
             Self::Cxx20 => "c++20",
+            Self::Gnuxx20 => "gnu++20",
             Self::Cxx23 => "c++23",
+            Self::Gnuxx23 => "gnu++23",
+        }
+    }
+
+    /// Whether this is a GNU dialect (`gnu++*`) rather than an ISO
+    /// standard.
+    #[must_use]
+    pub const fn is_gnu(self) -> bool {
+        matches!(
+            self,
+            Self::Gnuxx98
+                | Self::Gnuxx03
+                | Self::Gnuxx11
+                | Self::Gnuxx14
+                | Self::Gnuxx17
+                | Self::Gnuxx20
+                | Self::Gnuxx23
+        )
+    }
+
+    /// The ISO standard a GNU dialect extends; identity for ISO
+    /// values.  Toolchain capability checks key on this: a GNU
+    /// spelling ships alongside its twin on GCC-style compilers.
+    #[must_use]
+    pub const fn iso_twin(self) -> Self {
+        match self {
+            Self::Gnuxx98 => Self::Cxx98,
+            Self::Gnuxx03 => Self::Cxx03,
+            Self::Gnuxx11 => Self::Cxx11,
+            Self::Gnuxx14 => Self::Cxx14,
+            Self::Gnuxx17 => Self::Cxx17,
+            Self::Gnuxx20 => Self::Cxx20,
+            Self::Gnuxx23 => Self::Cxx23,
+            iso => iso,
         }
     }
 
@@ -909,6 +1030,26 @@ mod tests {
     }
 
     #[test]
+    fn gnu_dialects_sit_between_their_iso_twin_and_the_next_standard() {
+        // The interface check compares with `Ord`: a GNU consumer
+        // satisfies its ISO twin's requirement (gnu11 > c11), an ISO
+        // consumer never satisfies a GNU requirement (c11 < gnu11),
+        // and the next ISO standard clears both (c17 > gnu11).
+        assert!(CStandard::C11 < CStandard::Gnu11);
+        assert!(CStandard::Gnu11 < CStandard::C17);
+        assert!(CxxStandard::Cxx20 < CxxStandard::Gnuxx20);
+        assert!(CxxStandard::Gnuxx20 < CxxStandard::Cxx23);
+        for standard in CStandard::ALL {
+            assert_eq!(standard.is_gnu(), standard.iso_twin() != standard);
+            assert!(standard >= standard.iso_twin());
+        }
+        for standard in CxxStandard::ALL {
+            assert_eq!(standard.is_gnu(), standard.iso_twin() != standard);
+            assert!(standard >= standard.iso_twin());
+        }
+    }
+
+    #[test]
     fn msvc_spellings_cover_exactly_the_stable_flags() {
         assert_eq!(
             LanguageStandard::Cxx(CxxStandard::Cxx20).msvc_spelling(),
@@ -925,6 +1066,12 @@ mod tests {
         );
         assert_eq!(
             LanguageStandard::Cxx(CxxStandard::Cxx11).msvc_spelling(),
+            None
+        );
+        // No GNU dialect has a `/std:` spelling.
+        assert_eq!(LanguageStandard::C(CStandard::Gnu11).msvc_spelling(), None);
+        assert_eq!(
+            LanguageStandard::Cxx(CxxStandard::Gnuxx20).msvc_spelling(),
             None
         );
     }

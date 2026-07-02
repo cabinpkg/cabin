@@ -168,41 +168,45 @@ pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilit
 /// the backend validation, so their entry here is conservative.
 #[must_use]
 pub fn c_standard_capability(identity: &CompilerIdentity, standard: CStandard) -> Capability {
-    use CStandard::{C11, C17, C23, C89, C99};
+    use CStandard::{C11, C17, C23, C89, C99, Gnu11, Gnu17, Gnu23, Gnu89, Gnu99};
     let version = identity.version.as_ref();
     let always = Capability::supported_from(CapabilitySource::Version);
     let no_flag = Capability::unsupported_from(CapabilitySource::Unsupported);
+    // A GNU dialect spelling (`-std=gnu11`) ships alongside its ISO
+    // twin on the GCC-style compilers, so it shares the twin's
+    // threshold; the MSVC dialect has no `/std:gnu*` spelling at any
+    // version.
     match identity.kind {
         CompilerKind::Gcc => match standard {
-            C89 | C99 | C11 => always,
+            C89 | Gnu89 | C99 | Gnu99 | C11 | Gnu11 => always,
             // `-std=c17` spelling: GCC 8; `-std=c23`: GCC 14.
-            C17 => version_gated_capability(version, 8, 0),
-            C23 => version_gated_capability(version, 14, 0),
+            C17 | Gnu17 => version_gated_capability(version, 8, 0),
+            C23 | Gnu23 => version_gated_capability(version, 14, 0),
         },
         CompilerKind::Clang => match standard {
-            C89 | C99 | C11 => always,
+            C89 | Gnu89 | C99 | Gnu99 | C11 | Gnu11 => always,
             // `-std=c17`: Clang 6; `-std=c23`: Clang 18.
-            C17 => version_gated_capability(version, 6, 0),
-            C23 => version_gated_capability(version, 18, 0),
+            C17 | Gnu17 => version_gated_capability(version, 6, 0),
+            C23 | Gnu23 => version_gated_capability(version, 18, 0),
         },
         CompilerKind::AppleClang => match standard {
-            C89 | C99 | C11 => always,
+            C89 | Gnu89 | C99 | Gnu99 | C11 | Gnu11 => always,
             // Apple clang 10 (Xcode 10) is LLVM-6-based; Apple
             // clang 17 (Xcode 16.3) is LLVM-19-based (>= 18).
-            C17 => version_gated_capability(version, 10, 0),
-            C23 => version_gated_capability(version, 17, 0),
+            C17 | Gnu17 => version_gated_capability(version, 10, 0),
+            C23 | Gnu23 => version_gated_capability(version, 17, 0),
         },
         // `clang-cl` gained `/std:c11` / `/std:c17` in Clang 13
         // (LLVM D95575); there is no `/std:` spelling for the rest.
         CompilerKind::ClangCl => match standard {
             C11 | C17 => version_gated_capability(version, 13, 0),
-            C89 | C99 | C23 => no_flag,
+            C89 | C99 | C23 | Gnu89 | Gnu99 | Gnu11 | Gnu17 | Gnu23 => no_flag,
         },
         // `cl /std:c11` and `/std:c17` arrived together in VS2019
         // 16.8 (`cl` 19.28); C89/C99/C23 have no selection flag.
         CompilerKind::Msvc => match standard {
             C11 | C17 => version_gated_capability(version, 19, 28),
-            C89 | C99 | C23 => no_flag,
+            C89 | C99 | C23 | Gnu89 | Gnu99 | Gnu11 | Gnu17 | Gnu23 => no_flag,
         },
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     }
@@ -211,37 +215,45 @@ pub fn c_standard_capability(identity: &CompilerIdentity, standard: CStandard) -
 /// C++ twin of [`c_standard_capability`].
 #[must_use]
 pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandard) -> Capability {
-    use CxxStandard::{Cxx03, Cxx11, Cxx14, Cxx17, Cxx20, Cxx23, Cxx98};
+    use CxxStandard::{
+        Cxx03, Cxx11, Cxx14, Cxx17, Cxx20, Cxx23, Cxx98, Gnuxx03, Gnuxx11, Gnuxx14, Gnuxx17,
+        Gnuxx20, Gnuxx23, Gnuxx98,
+    };
     let version = identity.version.as_ref();
     let always = Capability::supported_from(CapabilitySource::Version);
     let no_flag = Capability::unsupported_from(CapabilitySource::Unsupported);
+    // As on the C side, a GNU dialect spelling (`-std=gnu++20`)
+    // shares its ISO twin's threshold on the GCC-style compilers and
+    // has no `/std:gnu++*` spelling on the MSVC dialect.
     match identity.kind {
         CompilerKind::Gcc => match standard {
-            Cxx98 | Cxx03 | Cxx11 => always,
+            Cxx98 | Gnuxx98 | Cxx03 | Gnuxx03 | Cxx11 | Gnuxx11 => always,
             // GCC >= 5 for the c++14 / c++17 spellings (the
             // repository's long-standing c++17 gate); `-std=c++20`:
             // GCC 10; `-std=c++23`: GCC 11.
-            Cxx14 | Cxx17 => version_gated_capability(version, 5, 0),
-            Cxx20 => version_gated_capability(version, 10, 0),
-            Cxx23 => version_gated_capability(version, 11, 0),
+            Cxx14 | Gnuxx14 | Cxx17 | Gnuxx17 => version_gated_capability(version, 5, 0),
+            Cxx20 | Gnuxx20 => version_gated_capability(version, 10, 0),
+            Cxx23 | Gnuxx23 => version_gated_capability(version, 11, 0),
         },
         CompilerKind::Clang => match standard {
-            Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
+            Cxx98 | Gnuxx98 | Cxx03 | Gnuxx03 | Cxx11 | Gnuxx11 | Cxx14 | Gnuxx14 | Cxx17
+            | Gnuxx17 => always,
             // `-std=c++20` spelling shipped in Clang 10 (the
             // `release/10.x` LangStandards.def already names
             // `c++20`, with `c++2a` as the deprecated alias; Clang
             // 9 only had `c++2a`); `-std=c++23` in Clang 17.
-            Cxx20 => version_gated_capability(version, 10, 0),
-            Cxx23 => version_gated_capability(version, 17, 0),
+            Cxx20 | Gnuxx20 => version_gated_capability(version, 10, 0),
+            Cxx23 | Gnuxx23 => version_gated_capability(version, 17, 0),
         },
         CompilerKind::AppleClang => match standard {
-            Cxx98 | Cxx03 | Cxx11 | Cxx14 | Cxx17 => always,
+            Cxx98 | Gnuxx98 | Cxx03 | Gnuxx03 | Cxx11 | Gnuxx11 | Cxx14 | Gnuxx14 | Cxx17
+            | Gnuxx17 => always,
             // Xcode <-> LLVM mapping: every Apple clang 12 is at
             // least LLVM-10-based, and LLVM 10 already spells
             // `-std=c++20`.  Apple clang 16 (Xcode 16) is
             // LLVM-17-based for the c++23 spelling.
-            Cxx20 => version_gated_capability(version, 12, 0),
-            Cxx23 => version_gated_capability(version, 16, 0),
+            Cxx20 | Gnuxx20 => version_gated_capability(version, 12, 0),
+            Cxx23 | Gnuxx23 => version_gated_capability(version, 16, 0),
         },
         CompilerKind::ClangCl => match standard {
             Cxx14 | Cxx17 => always,
@@ -249,8 +261,9 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
             Cxx20 => version_gated_capability(version, 13, 0),
             // No stable `/std:c++23` exists as of Clang 22 (only
             // `c++23preview` / `c++latest`), and no `/std:` spelling
-            // for the pre-C++14 standards.
-            Cxx98 | Cxx03 | Cxx11 | Cxx23 => no_flag,
+            // for the pre-C++14 standards or any GNU dialect.
+            Cxx98 | Cxx03 | Cxx11 | Cxx23 | Gnuxx98 | Gnuxx03 | Gnuxx11 | Gnuxx14 | Gnuxx17
+            | Gnuxx20 | Gnuxx23 => no_flag,
         },
         CompilerKind::Msvc => match standard {
             // `/std:` selection starts at C++14 (VS2017 / `cl`
@@ -260,9 +273,11 @@ pub fn cxx_standard_capability(identity: &CompilerIdentity, standard: CxxStandar
             Cxx14 => version_gated_capability(version, 19, 10),
             Cxx17 => version_gated_capability(version, 19, 11),
             Cxx20 => version_gated_capability(version, 19, 29),
-            // No stable flag: C++98/03/11 predate `/std:` and
-            // `/std:c++23` only exists as `c++23preview`.
-            Cxx98 | Cxx03 | Cxx11 | Cxx23 => no_flag,
+            // No stable flag: C++98/03/11 predate `/std:`,
+            // `/std:c++23` only exists as `c++23preview`, and no
+            // GNU dialect has a `/std:` spelling.
+            Cxx98 | Cxx03 | Cxx11 | Cxx23 | Gnuxx98 | Gnuxx03 | Gnuxx11 | Gnuxx14 | Gnuxx17
+            | Gnuxx20 | Gnuxx23 => no_flag,
         },
         CompilerKind::Unknown => Capability::unsupported_from(CapabilitySource::AssumedDefault),
     }
