@@ -68,6 +68,8 @@ entry.
 - [`catch2/3.15.1/`](catch2/3.15.1/) - the Catch2 modern C++ test framework (upstream
   amalgamation, default main plus a `custom-main` feature), version 3.15.1.
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.
+- [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
+  (header-only), version 2.6.2.
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
 - [`googletest/1.17.0/`](googletest/1.17.0/) - Google's C++ testing framework (GoogleTest library
   only, no gtest_main / GoogleMock), version 1.17.0.

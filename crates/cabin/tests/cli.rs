@@ -2571,3 +2571,6 @@ mod foundation_port_catch2;
 
 #[path = "cli/foundation_port_nlohmann_json.rs"]
 mod foundation_port_nlohmann_json;
+
+#[path = "cli/foundation_port_cli11.rs"]
+mod foundation_port_cli11;

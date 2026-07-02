@@ -510,6 +510,22 @@ fn nlohmann_json_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn cli11_usage_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("cli11-usage");
+    // `cabin run` passes no arguments, so the printed count is the
+    // declared default - proving CLI11's parser ran and left it be.
+    run_port_build_then_run(&PortBuildRun {
+        label: "cli11-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["CLI11 parsed count: 3", "CLI11 version: 2.6.2"],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

@@ -1,0 +1,16 @@
+[port]
+name = "CLI11"
+version = "2.6.2"
+description = "Command line parser for C++11 and beyond"
+license = "BSD-3-Clause"
+homepage = "https://github.com/CLIUtils/CLI11"
+upstream = "https://github.com/CLIUtils/CLI11"
+
+[source]
+type = "archive"
+url = "https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.6.2.tar.gz"
+sha256 = "c6ea6b2e5608b3ea8617999bd5f47420c71b2ebdb8dc4767c1034d1da5785711"
+strip_prefix = "CLI11-2.6.2"
+
+[overlay]
+manifest = "cabin.toml"

@@ -1,0 +1,17 @@
+[package]
+name = "CLI11"
+version = "2.6.2"
+
+# CLI11 is consumed in its upstream-default header-only form:
+# consumers include <CLI/CLI.hpp>, which pulls the impl/ headers
+# inline. The opt-in precompiled variant (src/Precompile.cpp with
+# CLI11_COMPILE) is intentionally not offered: it requires every
+# consumer TU to see the same CLI11_COMPILE define, and Cabin
+# propagates include dirs across dependency edges but not defines.
+[target.CLI11]
+type = "header-only"
+include-dirs = ["include"]
+# Upstream builds with C++11 by default (CMAKE_CXX_STANDARD 11);
+# declaring the interface floor keeps Cabin's c++17 fallback from
+# rejecting valid c++11 / c++14 consumers.
+interface-cxx-standard = "c++11"
