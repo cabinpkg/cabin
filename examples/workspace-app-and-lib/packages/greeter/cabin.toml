@@ -1,0 +1,12 @@
+[package]
+name = "greeter"
+version = "0.1.0"
+
+[dependencies]
+fmt = { port = true, version = "^12" }
+
+[target.greeter]
+type = "library"
+sources = ["src/greeter.cc"]
+include-dirs = ["include"]
+deps = ["fmt"]

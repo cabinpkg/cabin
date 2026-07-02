@@ -24,6 +24,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`library-with-tests/`](library-with-tests) | A library plus two `test` targets, run with `cabin test`.  The example to read for unit testing. |
 | [`header-only-lib/`](header-only-lib) | Authoring a `header-only` target (include-dirs, nothing compiled) consumed by an executable in the same package. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
+| [`workspace-app-and-lib/`](workspace-app-and-lib) | A workspace whose internal `greeter` library depends on the fmt foundation port; the `app` member reaches fmt transitively through its path dependency. |
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
 | [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
 | [`xxhash-usage/`](xxhash-usage) | Consuming the curated xxHash foundation port from [`crates/cabin-port/ports/xxhash/`](../crates/cabin-port/ports/xxhash). |

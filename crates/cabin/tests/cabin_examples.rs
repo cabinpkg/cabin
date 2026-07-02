@@ -837,6 +837,42 @@ fn png_info_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn workspace_app_and_lib_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("workspace-app-and-lib");
+    cabin()
+        .args(["build", "--workspace", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    // `default-members = ["packages/app"]` selects the app without
+    // `-p`. The fmt-formatted greeting proves the port's headers and
+    // archive reached `app` transitively through the internal
+    // `greeter` path dependency.
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("Hello, Cabin! (formatted by fmt 120200)"),
+        "workspace-app-and-lib run: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
