@@ -261,6 +261,37 @@ fn package_and_target_language_standards_parse() {
 }
 
 #[test]
+fn gnu_dialect_standards_parse() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            c-standard = "gnu11"
+            cxx-standard = "gnu++20"
+            interface-cxx-standard = "gnu++17"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.language.c_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CStandard::Gnu11
+        ))
+    );
+    assert_eq!(
+        package.language.cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Gnuxx20
+        ))
+    );
+    assert_eq!(
+        package.language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::CxxStandard::Gnuxx17
+        ))
+    );
+}
+
+#[test]
 fn invalid_standard_value_lists_valid_spellings() {
     let manifest = r#"
             [package]
@@ -272,6 +303,7 @@ fn invalid_standard_value_lists_valid_spellings() {
     let message = err.to_string();
     assert!(message.contains("c++2x"), "unexpected error: {message}");
     assert!(message.contains("c++23"), "unexpected error: {message}");
+    assert!(message.contains("gnu++23"), "unexpected error: {message}");
 }
 
 #[test]
