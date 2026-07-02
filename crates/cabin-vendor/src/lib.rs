@@ -302,7 +302,12 @@ pub fn materialize(
             // entry verbatim, then rewrite `source.path` so it
             // points at the new vendor-relative artifact path.
             let mut version_value = entry.index_entry.clone();
-            rewrite_source_path(&mut version_value, &artifact_relative);
+            rewrite_source_path(
+                &mut version_value,
+                &artifact_relative,
+                &entry.name,
+                &entry.version,
+            )?;
             // Drop any other absolute-path leakage that the
             // source index may have carried - only the vendor's
             // own relative source path is meaningful to the
@@ -430,6 +435,18 @@ pub enum VendorError {
     /// destination would escape the vendor directory.
     #[error("unsafe artifact destination `{}`: paths must be relative and must not contain `..`", path.display())]
     UnsafeArtifactPath { path: PathBuf },
+
+    /// The source index's per-version JSON entry is not shaped the
+    /// way the file-registry reader expects, so its `source.path`
+    /// cannot be rewritten to the vendored archive.
+    #[error(
+        "index entry for `{name}` `{version}` is malformed ({reason}); cannot point its `source.path` at the vendored archive"
+    )]
+    MalformedIndexEntry {
+        name: String,
+        version: String,
+        reason: String,
+    },
 
     /// Generic I/O failure with the file path that triggered
     /// it.  Wraps the underlying `io::Error`.
@@ -582,15 +599,45 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
     })
 }
 
-fn rewrite_source_path(value: &mut serde_json::Value, relative: &str) {
-    if let Some(obj) = value.as_object_mut()
-        && let Some(source) = obj.get_mut("source").and_then(|v| v.as_object_mut())
-    {
-        source.insert(
-            "path".to_owned(),
-            serde_json::Value::String(relative.to_owned()),
-        );
-    }
+/// Point the entry's `source.path` at the vendor-relative archive
+/// path, creating the `source` block when the upstream index
+/// omitted it (the vendored archive always exists - it was just
+/// written).  A structurally malformed entry is an error: copying
+/// it through verbatim would leave the vendored index pointing at
+/// the original location, silently breaking offline use.
+fn rewrite_source_path(
+    value: &mut serde_json::Value,
+    relative: &str,
+    name: &PackageName,
+    version: &semver::Version,
+) -> Result<(), VendorError> {
+    let malformed = |reason: &str| VendorError::MalformedIndexEntry {
+        name: name.as_str().to_owned(),
+        version: version.to_string(),
+        reason: reason.to_owned(),
+    };
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| malformed("the version entry is not a JSON object"))?;
+    // The placeholder `path` keeps the created block's key order
+    // canonical (`type`, `path`, `format`): serde_json runs with
+    // `preserve_order`, and the insert below replaces the value
+    // in place.
+    let source = obj.entry("source").or_insert_with(|| {
+        serde_json::json!({
+            "type": "archive",
+            "path": "",
+            "format": "tar.gz",
+        })
+    });
+    let source = source
+        .as_object_mut()
+        .ok_or_else(|| malformed("`source` is not a JSON object"))?;
+    source.insert(
+        "path".to_owned(),
+        serde_json::Value::String(relative.to_owned()),
+    );
+    Ok(())
 }
 
 /// The default vendor directory name used by `cabin vendor`
@@ -639,6 +686,43 @@ mod tests {
                     "format": "tar.gz",
                 },
             }),
+        }
+    }
+
+    #[test]
+    fn rewrite_source_path_creates_missing_source_block() {
+        // Index entries without a `source` block are schema-legal
+        // (resolver-only entries); the vendored copy must still
+        // point at the archive vendor just wrote.
+        let mut value = serde_json::json!({"dependencies": {}, "yanked": false});
+        rewrite_source_path(
+            &mut value,
+            "../artifacts/fmt/fmt-10.2.1.tar.gz",
+            &pkg("fmt"),
+            &ver("10.2.1"),
+        )
+        .unwrap();
+        assert_eq!(
+            value["source"],
+            serde_json::json!({
+                "type": "archive",
+                "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
+                "format": "tar.gz",
+            })
+        );
+    }
+
+    #[test]
+    fn rewrite_source_path_rejects_non_object_source() {
+        let mut value = serde_json::json!({"source": "not-an-object"});
+        let err = rewrite_source_path(&mut value, "../a.tar.gz", &pkg("fmt"), &ver("10.2.1"))
+            .unwrap_err();
+        match err {
+            VendorError::MalformedIndexEntry { name, version, .. } => {
+                assert_eq!(name, "fmt");
+                assert_eq!(version, "10.2.1");
+            }
+            other => panic!("expected MalformedIndexEntry, got {other:?}"),
         }
     }
 
