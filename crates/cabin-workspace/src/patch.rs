@@ -128,6 +128,31 @@ impl ActivePatchSet {
     }
 }
 
+/// The per-dependency filter shared by the patch-side collectors
+/// below: active kind (dev deps are declaration-only here),
+/// host-platform match, non-optional, and a registry `Version`
+/// source.  Returns the requirement when `dep` passes, keeping
+/// [`collect_patched_versioned_deps`] and
+/// [`collect_version_requirements`] on the same policy.
+fn active_versioned_req<'a>(
+    dep: &'a cabin_core::Dependency,
+    host: &cabin_core::TargetPlatform,
+) -> Option<&'a semver::VersionReq> {
+    if !dep.kind.is_resolved_by_default() {
+        return None;
+    }
+    if !dep.matches_platform(host) {
+        return None;
+    }
+    if dep.optional {
+        return None;
+    }
+    match &dep.source {
+        DependencySource::Version(req) => Some(req),
+        _ => None,
+    }
+}
+
 /// Versioned dependencies declared by the patched manifests
 /// themselves.
 ///
@@ -156,24 +181,16 @@ pub fn collect_patched_versioned_deps(
 
     for patch in active_patches {
         for dep in &patch.package.dependencies {
-            if !dep.kind.is_resolved_by_default() {
+            let Some(req) = active_versioned_req(dep, &host_platform) else {
                 continue;
-            }
-            if !dep.matches_platform(&host_platform) {
-                continue;
-            }
-            if dep.optional {
-                continue;
-            }
+            };
             if excluded_names.contains(dep.name.as_str()) {
                 continue;
             }
-            if let DependencySource::Version(req) = &dep.source {
-                combined
-                    .entry(dep.name.clone())
-                    .or_default()
-                    .push(req.to_string());
-            }
+            combined
+                .entry(dep.name.clone())
+                .or_default()
+                .push(req.to_string());
         }
     }
 
@@ -322,18 +339,10 @@ fn collect_version_requirements(
             if !merged.contains_key(&dep.name) {
                 continue;
             }
-            if !dep.kind.is_resolved_by_default() {
+            let Some(req) = active_versioned_req(dep, &host_platform) else {
                 continue;
-            }
-            if !dep.matches_platform(&host_platform) {
-                continue;
-            }
-            if dep.optional {
-                continue;
-            }
-            if let DependencySource::Version(req) = &dep.source {
-                out.entry(dep.name.clone()).or_default().push(req.clone());
-            }
+            };
+            out.entry(dep.name.clone()).or_default().push(req.clone());
         }
     }
     for reqs in out.values_mut() {
@@ -380,7 +389,7 @@ fn resolve_one_patch(
                 PatchResolutionError::ManifestParse {
                     package: name.as_str().to_owned(),
                     path: manifest_path.clone(),
-                    reason: err.to_string(),
+                    source: PatchManifestLoadError::Parse(Box::new(err)),
                 }
             })?;
             let package = parsed
@@ -428,7 +437,7 @@ fn resolve_one_patch(
                 PatchResolutionError::ManifestParse {
                     package: name.as_str().to_owned(),
                     path: manifest_path.clone(),
-                    reason: err.to_string(),
+                    source: PatchManifestLoadError::Canonicalize(err),
                 }
             })?;
             let canonical_dir = canonical_manifest
@@ -464,19 +473,32 @@ pub enum PatchResolutionError {
         source: PatchValidationError,
     },
 
-    /// Cabin could not load the patched manifest.  The inner
-    /// `reason` is the manifest crate's display message - kept
-    /// as a string so this crate stays free of a transitive
-    /// `cabin-manifest` error dependency.
+    /// Cabin could not load the patched manifest.  Wraps the
+    /// typed [`PatchManifestLoadError`] so callers can inspect
+    /// the failure kind; the inline `{source}` keeps the display
+    /// message identical to the historical string form.
     #[error(
-        "failed to parse patch manifest for `{package}` at {path}: {reason}",
+        "failed to parse patch manifest for `{package}` at {path}: {source}",
         path = path.display()
     )]
     ManifestParse {
         package: String,
         path: PathBuf,
-        reason: String,
+        #[source]
+        source: PatchManifestLoadError,
     },
+}
+
+/// Why a patched manifest failed to load: the manifest did not
+/// parse, or its path could not be canonicalized.  The parse error
+/// is boxed to keep this enum (and the containing
+/// [`PatchResolutionError`]) small.
+#[derive(Debug, Error)]
+pub enum PatchManifestLoadError {
+    #[error(transparent)]
+    Parse(Box<cabin_manifest::ManifestError>),
+    #[error(transparent)]
+    Canonicalize(std::io::Error),
 }
 
 #[cfg(test)]

@@ -28,8 +28,8 @@ pub use loader::{
     WorkspaceLoadOptions, load_workspace, load_workspace_skip_ports, load_workspace_with_options,
 };
 pub use patch::{
-    ActivePatch, ActivePatchSet, ConfigPatchInput, PatchResolutionError, PatchResolutionInputs,
-    collect_patched_versioned_deps, resolve_active_patches,
+    ActivePatch, ActivePatchSet, ConfigPatchInput, PatchManifestLoadError, PatchResolutionError,
+    PatchResolutionInputs, collect_patched_versioned_deps, resolve_active_patches,
 };
 pub use selection::{
     PackageSelection, ResolvedSelection, SelectionMode,
