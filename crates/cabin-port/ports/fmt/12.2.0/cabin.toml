@@ -1,0 +1,15 @@
+[package]
+name = "fmt"
+version = "12.2.0"
+
+# {fmt}'s compiled library is exactly two translation units:
+# format.cc (the non-inline formatting engine) and os.cc (the
+# OS-facing helpers such as fmt::ostream). The two other sources
+# under src/ are intentionally not built: fmt.cc is the C++20
+# module interface unit and fmt-c.cc is the optional C API, both
+# separate opt-in surfaces. The library compiles with a strict
+# C++ compiler and needs no defines or extra link libraries.
+[target.fmt]
+type = "library"
+sources = ["src/format.cc", "src/os.cc"]
+include-dirs = ["include"]

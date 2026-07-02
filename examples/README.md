@@ -29,6 +29,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the curated tinyxml2 C++ foundation port from [`crates/cabin-port/ports/tinyxml2/`](../crates/cabin-port/ports/tinyxml2). |
 | [`sqlite3-usage/`](sqlite3-usage) | Consuming the curated SQLite foundation port (amalgamation) from [`crates/cabin-port/ports/sqlite3/`](../crates/cabin-port/ports/sqlite3), including a `single-threaded` feature. |
 | [`libpng-usage/`](libpng-usage) | Consuming the curated libpng foundation port from [`crates/cabin-port/ports/libpng/`](../crates/cabin-port/ports/libpng), which itself depends transitively on the bundled zlib port. |
+| [`fmt-usage/`](fmt-usage) | Consuming the curated {fmt} C++ foundation port from [`crates/cabin-port/ports/fmt/`](../crates/cabin-port/ports/fmt). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually

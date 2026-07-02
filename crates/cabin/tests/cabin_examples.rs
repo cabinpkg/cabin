@@ -396,6 +396,23 @@ fn libpng_usage_cache_lifecycle_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn fmt_usage_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("fmt-usage");
+    // `FMT_VERSION` is a compile-time constant of the pinned release,
+    // and the formatted greeting proves `fmt::format` linked from the
+    // compiled library rather than an arbitrary symbol.
+    run_port_build_then_run(&PortBuildRun {
+        label: "fmt-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["fmt version: 120200", "Hello, Cabin!"],
+    });
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");

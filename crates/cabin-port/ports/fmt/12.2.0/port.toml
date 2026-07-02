@@ -1,0 +1,16 @@
+[port]
+name = "fmt"
+version = "12.2.0"
+description = "Fast and safe C++ formatting library"
+license = "MIT"
+homepage = "https://fmt.dev/"
+upstream = "https://github.com/fmtlib/fmt"
+
+[source]
+type = "archive"
+url = "https://github.com/fmtlib/fmt/archive/refs/tags/12.2.0.tar.gz"
+sha256 = "8b852bb5aa6e7d8564f9e81394055395dd1d1936d38dfd3a17792a02bebd7af0"
+strip_prefix = "fmt-12.2.0"
+
+[overlay]
+manifest = "cabin.toml"

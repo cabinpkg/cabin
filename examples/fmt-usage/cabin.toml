@@ -1,0 +1,11 @@
+[package]
+name = "fmt-usage"
+version = "0.1.0"
+
+[dependencies]
+fmt = { port = true, version = "^12" }
+
+[target.fmt-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmt"]
