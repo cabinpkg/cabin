@@ -413,6 +413,23 @@ fn fmt_usage_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn spdlog_usage_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("spdlog-usage");
+    // The `[info]` log line proves the header-only sink machinery
+    // works (its timestamp prefix stays unasserted); the version line
+    // is a compile-time constant of the pinned release.
+    run_port_build_then_run(&PortBuildRun {
+        label: "spdlog-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["[info] Hello from spdlog!", "spdlog version: 1.17.0"],
+    });
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");

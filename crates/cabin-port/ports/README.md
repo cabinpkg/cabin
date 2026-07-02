@@ -69,6 +69,8 @@ entry.
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
   on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
+- [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),
+  version 1.17.0.
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine
   (amalgamation), version 3.53.2.
 - [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
