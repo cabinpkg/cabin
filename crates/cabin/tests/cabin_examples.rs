@@ -177,6 +177,41 @@ fn library_and_app_builds_and_runs() {
 }
 
 #[test]
+fn header_only_lib_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("header-only-lib");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // Both lines require code compiled against the `header-only`
+    // target's include dir; the target itself contributes no archive
+    // to the link, so a passing run proves the graph-only edge.
+    for expected in [
+        "circle area (r = 2): 12.57",
+        "rectangle area (3 x 4): 12.00",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "header-only-lib run: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+#[test]
 fn workspace_basic_builds_workspace() {
     require_cxx_build_tools();
     let dir = copy_example("workspace-basic");

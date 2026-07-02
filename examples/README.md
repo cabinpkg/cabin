@@ -22,6 +22,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`hello-cpp/`](hello-cpp) | Smallest useful C++ project: one `executable` target with a `.cc` source. |
 | [`library-and-app/`](library-and-app) | A library target consumed by an executable target in the same package, with `include-dirs` propagation. |
 | [`library-with-tests/`](library-with-tests) | A library plus two `test` targets, run with `cabin test`.  The example to read for unit testing. |
+| [`header-only-lib/`](header-only-lib) | Authoring a `header-only` target (include-dirs, nothing compiled) consumed by an executable in the same package. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
 | [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
 | [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
