@@ -106,6 +106,7 @@ pub(crate) fn discovered_msvc_install_applies(
 
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
+    profile_build_root: &std::path::Path,
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
     dialect: cabin_build::Dialect,
@@ -152,6 +153,9 @@ pub(crate) fn run_ninja(
         .map(|pkg| (pkg.package.name.as_str(), pkg))
         .collect();
     let mut announced: HashSet<String> = HashSet::new();
+    // Non-UTF-8 build roots fall back to the unanchored search;
+    // the planner rejects non-UTF-8 paths long before Ninja runs.
+    let profile_root_str = profile_build_root.to_str();
 
     let mut child = cmd
         .stdout(Stdio::piped())
@@ -193,7 +197,7 @@ pub(crate) fn run_ninja(
             captured_stdout.push_str(&line);
             captured_stdout.push('\n');
             if let Some(path) = ninja_progress_path(&line) {
-                if let Some(pkg_name) = package_segment_from_path(path)
+                if let Some(pkg_name) = package_segment_from_path(path, profile_root_str)
                     && announced.insert(pkg_name.to_owned())
                     && let Some(pkg) = pkg_by_name.get(pkg_name)
                 {
@@ -385,14 +389,21 @@ fn ninja_progress_path(line: &str) -> Option<&str> {
 /// Extract the package name from a planner-emitted build path.
 /// Every per-package artifact lives under `<build_dir>/<profile>
 /// /packages/<name>/…`, so locating the first `/packages/`
-/// segment and taking the next path component yields the
-/// owning package's name.  Returns `None` when the path lacks
-/// the segment (a custom-command output the planner did not
+/// segment after the profile build root and taking the next path
+/// component yields the owning package's name.  The search is
+/// anchored past `profile_root` (when it prefixes the path) so a
+/// `packages/` directory in the user's own build path - e.g. a
+/// project checked out under `~/packages/` - cannot shadow the
+/// planner's per-package segment.  Returns `None` when the path
+/// lacks the segment (a custom-command output the planner did not
 /// route through the per-package tree).
-fn package_segment_from_path(path: &str) -> Option<&str> {
+fn package_segment_from_path<'a>(path: &'a str, profile_root: Option<&str>) -> Option<&'a str> {
     const SEGMENT: &str = "/packages/";
-    let after = path.find(SEGMENT)?;
-    let tail = &path[after + SEGMENT.len()..];
+    let search = profile_root
+        .and_then(|root| path.strip_prefix(root))
+        .unwrap_or(path);
+    let after = search.find(SEGMENT)?;
+    let tail = &search[after + SEGMENT.len()..];
     tail.split('/').next().filter(|s| !s.is_empty())
 }
 
@@ -509,6 +520,7 @@ pub(crate) fn invoke_ninja_and_report(
     let build_started = std::time::Instant::now();
     let run = run_ninja(
         ninja_cmd.arg("-C").arg(&profile_build_root),
+        &profile_build_root,
         req.reporter,
         req.graph,
         req.plan_graph.dialect,
@@ -578,5 +590,28 @@ mod tests {
             &toolchain,
             CompilerKind::Msvc
         ));
+    }
+
+    #[test]
+    fn package_segment_anchors_after_the_profile_build_root() {
+        // A project checked out under a `packages/` directory: the
+        // unanchored search would report `proj` (and mislabel the
+        // `Compiling` banner); anchoring past the profile root
+        // finds the planner's own segment.
+        let path = "/home/u/packages/proj/build/dev/packages/foo/src_main.cc.o";
+        assert_eq!(
+            package_segment_from_path(path, Some("/home/u/packages/proj/build/dev")),
+            Some("foo")
+        );
+        assert_eq!(package_segment_from_path(path, None), Some("proj"));
+        // Paths the planner did not route through the per-package
+        // tree stay unattributed.
+        assert_eq!(
+            package_segment_from_path(
+                "/home/u/proj/build/dev/stamp",
+                Some("/home/u/proj/build/dev")
+            ),
+            None
+        );
     }
 }
