@@ -233,7 +233,10 @@ The crate must:
 Owns the source-archive cache.  Given a checksum-and-path-bearing fetch plan, it copies archives
 into a checksum-addressed cache, verifies SHA-256 along the way, safely extracts `.tar.gz` archives
 into the same cache, and validates that each extracted package's `cabin.toml` matches the resolved
-name and version.  The crate must:
+name and version.  It also owns the safe `.zip` extractor (`safe_extract_zip`), used only by the
+foundation-port layer for upstreams whose sole official release artifact is a zip; registry package
+archives remain `.tar.gz`.  Both extractors enforce the same fail-closed rules (decompression-bomb
+caps, symlink rejection, path-traversal protection).  The crate must:
 
 - not run the resolver;
 - not write Ninja;
@@ -296,8 +299,10 @@ directory the workspace loader treats as a normal path dependency.  The crate mu
   `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in `cabin`'s orchestration
   layer;
 - never reimplement extraction safety.  Decompression-bomb caps, symlink rejection, and
-  path-traversal protection belong to `cabin-artifact::safe_extract_tar_gz`; `cabin-port` calls into
-  it with the declared `strip_prefix` but does not duplicate the security rules.
+  path-traversal protection belong to `cabin-artifact::safe_extract_tar_gz` /
+  `cabin-artifact::safe_extract_zip`; `cabin-port` picks the extractor from the `[source].url` path
+  extension (`.zip` opts in, everything else is `.tar.gz`) and calls it with the declared
+  `strip_prefix`, but does not duplicate the security rules.
 
 Foundation ports are local development policy, not published metadata: `cabin-package` rejects port
 deps in its validator and `cabin-publish` never archives them.  See

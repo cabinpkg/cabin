@@ -17,7 +17,10 @@
 //!   loader, or the build planner;
 //! - extraction safety (decompression-bomb caps, symlink
 //!   rejection, path-traversal protection) is delegated to
-//!   `cabin-artifact::safe_extract_tar_gz`.
+//!   `cabin-artifact::safe_extract_tar_gz` /
+//!   `cabin-artifact::safe_extract_zip`; the `[source].url` path
+//!   extension picks the format (`.zip` opts in, everything else
+//!   is `.tar.gz`).
 
 pub mod builtin;
 pub mod cache;
@@ -26,7 +29,7 @@ pub mod model;
 pub mod parse;
 pub mod prepare;
 
-pub use cache::PortCache;
+pub use cache::{ArchiveKind, PortCache};
 pub use error::PortError;
 pub use model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
 pub use parse::{load_port, parse_port_str};

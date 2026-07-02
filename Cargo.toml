@@ -69,6 +69,9 @@ dunce = "1"
 find-msvc-tools = "0.1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 url = "2"
+# Read-side zip support for foundation-port source archives; the
+# deflate-flate2 backend reuses the flate2 already in the tree.
+zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
 
 cabin-artifact = { package = "cabinpkg-artifact", path = "crates/cabin-artifact", version = "0.16.0" }
 cabin-build = { package = "cabinpkg-build", path = "crates/cabin-build", version = "0.16.0" }

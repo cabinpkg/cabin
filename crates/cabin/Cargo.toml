@@ -82,6 +82,7 @@ sha2 = { workspace = true }
 tar = { workspace = true }
 tiny_http = { workspace = true }
 which = "8"
+zip = { workspace = true }
 
 [lints]
 workspace = true

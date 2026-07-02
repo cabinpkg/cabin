@@ -87,7 +87,7 @@ to = "pnglibconf.h"
 | `[port].version` | yes | SemVer string; must equal the overlay manifest's `[package].version`. |
 | `[port].description` / `license` / `homepage` / `upstream` | no | Plain documentation fields.  Surfaced via `cabin metadata`. |
 | `[source].type` | yes | Only `"archive"` is supported.  Every other value (`git`, `tag`, `branch`, `latest`, …) is rejected with `unsupported source type`. |
-| `[source].url` | yes | `file://`, `http://`, or `https://` URL pointing at the upstream `.tar.gz`. |
+| `[source].url` | yes | `file://`, `http://`, or `https://` URL pointing at the upstream archive.  A URL whose path ends in `.zip` (case-insensitive) is treated as a zip archive; every other URL is treated as a `.tar.gz`.  Zip support exists for upstreams whose only official release artifact is a zip (miniz's amalgamation, for example); prefer `.tar.gz` when the upstream publishes one. |
 | `[source].sha256` | yes | Lower-case 64-character hex digest.  Upper-case and wrong-length values are rejected. |
 | `[source].strip_prefix` | no | Single relative path component that must equal the first path segment of every archive entry.  The component is stripped before extraction so the overlay manifest sits at the prepared directory's root. |
 | `[overlay].manifest` | yes | Relative path inside the port directory pointing at the overlay `cabin.toml`.  Absolute paths and `..` are rejected. |
@@ -186,8 +186,9 @@ workspace loader sees the manifest:
 4. Verify the archive's SHA-256 against `port.toml`.  Mismatch surfaces `checksum mismatch for port
    \`<name> <version>\`: expected sha256:..., got sha256:...`.
 5. Safely extract the archive into the port cache with the declared `strip_prefix`.  This step
-   reuses `cabin-artifact`'s extraction primitive, so the decompression-bomb caps, symlink
-   rejection, and path-traversal protection apply identically.
+   reuses `cabin-artifact`'s extraction primitives (tar.gz or zip, chosen by the URL's path
+   extension), so the decompression-bomb caps, symlink rejection, and path-traversal protection
+   apply identically to both formats.
 6. Apply any `[[copy]]` steps, placing prebuilt files under their build-time names inside the
    extracted tree.
 7. Copy the overlay manifest into the extracted source dir as `cabin.toml`.
@@ -207,7 +208,7 @@ Prepared ports live under the same root the rest of Cabin's artifact cache uses:
 
 ```
 <cache>/ports/
-  archives/sha256/<hex>.tar.gz
+  archives/sha256/<hex>.tar.gz   (or <hex>.zip for zip sources)
   sources/<name>/<version>/sha256/<hex>/
     cabin.toml         (overlay)
     <upstream files>

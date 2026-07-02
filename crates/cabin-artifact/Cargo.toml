@@ -19,6 +19,7 @@ semver = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 thiserror = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

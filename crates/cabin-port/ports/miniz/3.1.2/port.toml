@@ -1,0 +1,21 @@
+[port]
+name = "miniz"
+version = "3.1.2"
+description = "Single-file zlib-replacement compression library (amalgamation)"
+license = "MIT"
+homepage = "https://github.com/richgel999/miniz"
+upstream = "https://github.com/richgel999/miniz"
+
+# The release asset is upstream's official amalgamated zip: the
+# repository's split sources cannot build without a CMake-generated
+# miniz_export.h, and the amalgamation (miniz.c + miniz.h with the
+# export machinery resolved) is exactly what upstream publishes for
+# non-CMake consumers.  The zip has no root directory, so there is
+# no strip_prefix.
+[source]
+type = "archive"
+url = "https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip"
+sha256 = "f0446d863f9c19926ad9483c523fdc42e42b8d4a6a431d27e09d49c79a140d9a"
+
+[overlay]
+manifest = "cabin.toml"

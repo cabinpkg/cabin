@@ -75,6 +75,8 @@ entry.
   only, no gtest_main / GoogleMock), version 1.17.0.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
   on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
+- [`miniz/3.1.2/`](miniz/3.1.2/) - the miniz single-file zlib-replacement compression library
+  (upstream amalgamated release zip), version 3.1.2.
 - [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
   3.12.0.
 - [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),

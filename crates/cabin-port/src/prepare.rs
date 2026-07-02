@@ -34,13 +34,13 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use cabin_artifact::cache::{extraction_marker_path, partial_sibling};
-use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
+use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz, safe_extract_zip};
 use cabin_core::PackageName;
 use cabin_fs::write_atomic;
 use semver::Version;
 use url::Url;
 
-use crate::cache::PortCache;
+use crate::cache::{ArchiveKind, PortCache};
 use crate::error::PortError;
 use crate::model::{CopyStep, PortChecksum, PortDescriptor, PortSource};
 
@@ -180,7 +180,8 @@ fn prepare_one(
     } = &entry.descriptor.source;
 
     let expected_hex = sha256.to_hex();
-    let archive_path = cache.archive_path(&expected_hex);
+    let archive_kind = ArchiveKind::from_url(url);
+    let archive_path = cache.archive_path(&expected_hex, archive_kind);
     // Extracted sources are identity-keyed (name + version) so two
     // ports that share the same upstream archive but ship different
     // overlays do not clobber each other's `cabin.toml`.
@@ -201,6 +202,7 @@ fn prepare_one(
     ensure_source(
         entry,
         &archive_path,
+        archive_kind,
         &source_dir,
         strip_prefix.as_deref(),
         &copy_fingerprint,
@@ -313,6 +315,7 @@ fn ensure_archive(
 fn ensure_source(
     entry: &PortEntry,
     archive_path: &Path,
+    archive_kind: ArchiveKind,
     source_dir: &Path,
     strip_prefix: Option<&str>,
     copy_fingerprint: &str,
@@ -376,7 +379,13 @@ fn ensure_source(
         source,
     })?;
 
-    safe_extract_tar_gz(
+    // Both extractors share the same signature, options, and
+    // fail-closed rules; the URL extension picked the kind.
+    let extract = match archive_kind {
+        ArchiveKind::TarGz => safe_extract_tar_gz,
+        ArchiveKind::Zip => safe_extract_zip,
+    };
+    extract(
         archive_path,
         source_dir,
         SafeExtractOptions { strip_prefix },
@@ -565,7 +574,7 @@ fn hash_file(path: &Path) -> Result<String, PortError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::PortCache;
+    use crate::cache::{ArchiveKind, PortCache};
     use crate::model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
@@ -1287,7 +1296,7 @@ mod tests {
         // Pre-populate the content-addressed slot with bytes that
         // do *not* hash to `hex`.  A naive `fs::rename` over this
         // file would error on Windows.
-        let cached_path = cache.archive_path(&hex);
+        let cached_path = cache.archive_path(&hex, ArchiveKind::TarGz);
         assert_fs::fixture::ChildPath::new(&cached_path)
             .write_binary(b"corrupt")
             .unwrap();
