@@ -1,0 +1,11 @@
+[package]
+name = "sqlite-todo"
+version = "0.1.0"
+
+[dependencies]
+sqlite3 = { port = true, version = "^3" }
+
+[target.sqlite-todo]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["sqlite3"]

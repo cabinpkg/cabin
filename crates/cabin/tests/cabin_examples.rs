@@ -768,6 +768,28 @@ fn json_cli_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn sqlite_todo_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("sqlite-todo");
+    // The listing proves the whole in-memory session ran: DDL and
+    // DML through sqlite3_exec (including the UPDATE that checks off
+    // todo #1), then a prepare/step/finalize SELECT loop.
+    run_port_build_then_run(&PortBuildRun {
+        label: "sqlite-todo",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "[x] #1 write the manifest",
+            "[ ] #2 add a lockfile",
+            "[ ] #3 ship v0.1.0",
+            "open todos: 2",
+        ],
+    });
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
