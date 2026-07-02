@@ -42,6 +42,18 @@ pub enum ConfigError {
         source: ConfigParseError,
     },
 
+    /// A config-layer boolean env var (e.g. `CABIN_NO_CONFIG`)
+    /// carried a value outside the documented truthy / falsy
+    /// spellings.  Silently ignoring the value would load config
+    /// files the user asked to disable.
+    #[error("invalid {variable} value {value:?}: {source}")]
+    InvalidBoolEnv {
+        variable: &'static str,
+        value: String,
+        #[source]
+        source: cabin_env::BoolError,
+    },
+
     /// A config file Cabin located lives at a path that is not valid
     /// UTF-8.  Cabin's config model assumes UTF-8 paths, so an
     /// otherwise-readable file under a non-UTF-8 directory surfaces

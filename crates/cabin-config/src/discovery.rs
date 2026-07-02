@@ -132,12 +132,14 @@ pub struct ConfigDiscovery {
 /// [`ConfigError::ConfigRead`] when a located user or
 /// workspace/package file exists but fails to read (errors other
 /// than not-found), [`ConfigError::Parse`] when any read file
-/// is not valid Cabin config TOML, and [`ConfigError::NonUtf8Path`]
-/// when a discovered config file path is not valid UTF-8.
+/// is not valid Cabin config TOML, [`ConfigError::NonUtf8Path`]
+/// when a discovered config file path is not valid UTF-8, and
+/// [`ConfigError::InvalidBoolEnv`] when `CABIN_NO_CONFIG` is set
+/// to a value outside the documented truthy / falsy spellings.
 pub fn discover_config_files(
     inputs: &ConfigDiscoveryInputs<'_>,
 ) -> Result<ConfigDiscovery, ConfigError> {
-    if env_flag_is_truthy(&inputs.env, CABIN_NO_CONFIG_ENV) {
+    if env_flag_is_truthy(&inputs.env, CABIN_NO_CONFIG_ENV)? {
         return Ok(ConfigDiscovery {
             loaded_files: Vec::new(),
             disabled_by_env: true,
@@ -242,12 +244,17 @@ fn locate_user_config(env: &EnvLookup<'_>, xdg_user_config_home: Option<&Path>) 
     xdg_user_config_home.map(|p| p.join("config.toml"))
 }
 
-fn env_flag_is_truthy(env: &EnvLookup<'_>, var: &str) -> bool {
+fn env_flag_is_truthy(env: &EnvLookup<'_>, var: &'static str) -> Result<bool, ConfigError> {
     let Some(value) = env(var) else {
-        return false;
+        return Ok(false);
     };
     let s = value.to_string_lossy();
-    matches!(s.trim(), "1" | "true" | "TRUE" | "True" | "yes")
+    let trimmed = s.trim();
+    cabin_env::parse_bool(trimmed).map_err(|source| ConfigError::InvalidBoolEnv {
+        variable: var,
+        value: trimmed.to_owned(),
+        source,
+    })
 }
 
 #[cfg(test)]
@@ -300,6 +307,47 @@ mod tests {
         let report = discover_config_files(&inputs).unwrap();
         assert!(report.loaded_files.is_empty());
         assert!(report.disabled_by_env);
+    }
+
+    #[test]
+    fn no_config_env_accepts_documented_spellings_case_insensitively() {
+        for value in ["YES", "on", "True"] {
+            let inputs = ConfigDiscoveryInputs {
+                workspace: None,
+                env: env_with(&[("CABIN_NO_CONFIG", value)]),
+                xdg_user_config_home: None,
+            };
+            let report = discover_config_files(&inputs).unwrap();
+            assert!(report.disabled_by_env, "expected truthy: {value:?}");
+        }
+        for value in ["0", "FALSE", "no", ""] {
+            let inputs = ConfigDiscoveryInputs {
+                workspace: None,
+                env: env_with(&[("CABIN_NO_CONFIG", value)]),
+                xdg_user_config_home: None,
+            };
+            let report = discover_config_files(&inputs).unwrap();
+            assert!(!report.disabled_by_env, "expected falsy: {value:?}");
+        }
+    }
+
+    #[test]
+    fn no_config_env_rejects_unknown_spellings() {
+        let inputs = ConfigDiscoveryInputs {
+            workspace: None,
+            env: env_with(&[("CABIN_NO_CONFIG", "maybe")]),
+            xdg_user_config_home: None,
+        };
+        let err = discover_config_files(&inputs).unwrap_err();
+        match err {
+            ConfigError::InvalidBoolEnv {
+                variable, value, ..
+            } => {
+                assert_eq!(variable, "CABIN_NO_CONFIG");
+                assert_eq!(value, "maybe");
+            }
+            other => panic!("expected InvalidBoolEnv, got {other:?}"),
+        }
     }
 
     #[test]
