@@ -2577,3 +2577,6 @@ mod foundation_port_cli11;
 
 #[path = "cli/foundation_port_miniz.rs"]
 mod foundation_port_miniz;
+
+#[path = "cli/foundation_port_stb.rs"]
+mod foundation_port_stb;

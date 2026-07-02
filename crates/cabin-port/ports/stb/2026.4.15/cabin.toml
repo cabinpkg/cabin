@@ -1,0 +1,25 @@
+[package]
+name = "stb"
+version = "2026.4.15"
+
+# The stb libraries are single-file headers designed around the
+# implementation-macro pattern: exactly one consumer translation
+# unit defines STB_<NAME>_IMPLEMENTATION before the include and
+# receives the function bodies; every other TU gets declarations
+# only. A header-only target with the archive root on the include
+# path is therefore the whole port - there is nothing to compile
+# here, and which headers (and which implementation TUs) to use is
+# entirely the consumer's choice.
+[target.stb]
+type = "header-only"
+include-dirs = ["."]
+
+# Several stb implementations call libm routines from the consumer
+# TU that hosts them (stb_truetype's floor/ceil/sqrt/pow, stb_image's
+# HDR pow/ldexp, stb_image_resize, stb_perlin, ...). On Unix that is
+# a separate system library (required on glibc, a no-op on macOS
+# where it lives in libSystem), so the port declares it as a
+# propagating link-lib reaching every consumer's link line - the
+# same policy as the libpng and sqlite3 ports. Windows has no libm.
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["m"]

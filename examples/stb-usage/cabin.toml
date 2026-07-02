@@ -1,0 +1,11 @@
+[package]
+name = "stb-usage"
+version = "0.1.0"
+
+[dependencies]
+stb = { port = true, version = "^2026" }
+
+[target.stb-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["stb"]
