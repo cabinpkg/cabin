@@ -88,4 +88,10 @@ fn stb_overlay_declares_header_only_target() {
         !overlay.contains("sources"),
         "overlay should not list sources: {overlay}"
     );
+    // The math-heavy stb implementations need libm on Unix; the port
+    // propagates it so consumers do not have to know.
+    assert!(
+        overlay.contains("link-libs = [\"m\"]"),
+        "overlay: {overlay}"
+    );
 }
