@@ -157,8 +157,8 @@ pub fn plan_tests(
                 continue;
             };
             entries.push(TestExecutable {
-                package: package.package.name.as_str().to_owned(),
-                target: target.name.as_str().to_owned(),
+                package: package.package.name.to_string(),
+                target: target.name.to_string(),
                 executable: exe.to_path_buf(),
                 working_dir: package.manifest_dir.clone(),
                 env: BTreeMap::new(),
