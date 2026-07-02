@@ -271,15 +271,24 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 }
 
 /// MSVC `cl.exe` compile argv.  Mirrors the GNU layout with MSVC
-/// spellings: `/std:` standard, `/EHsc` for C++ exceptions, `/O`
-/// optimization, `/Z7` debug info (embedded in the object so parallel
-/// compiles never contend on a shared PDB), `/showIncludes` for
-/// dependency discovery (no Makefile depfile), `/D` defines, `/I`
-/// includes, escape-hatch flags, and the mode-specific tail
-/// (`/c /Tp<src> /Fo<obj>` or `/Tp<src> /Zs`, with `/Tc` for C).
+/// spellings: `/std:` standard, `/utf-8` source/execution charset,
+/// `/EHsc` for C++ exceptions, `/O` optimization, `/Z7` debug info
+/// (embedded in the object so parallel compiles never contend on a
+/// shared PDB), `/showIncludes` for dependency discovery (no
+/// Makefile depfile), `/D` defines, `/I` includes, escape-hatch
+/// flags, and the mode-specific tail (`/c /Tp<src> /Fo<obj>` or
+/// `/Tp<src> /Zs`, with `/Tc` for C).
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = vec![compile.compiler.as_str().to_owned(), "/nologo".to_owned()];
+    // GCC and Clang interpret source files as UTF-8 by default, while
+    // `cl` falls back to the machine's active code page unless told
+    // otherwise.  Pinning `/utf-8` makes the dialects agree on what a
+    // source file means, and lets UTF-8-requiring headers (e.g.
+    // {fmt}'s `static_assert` on the literal encoding) compile out of
+    // the box.  Every `cl` new enough to pass Cabin's `/std:`
+    // validation (19.11+) understands the flag, as does `clang-cl`.
+    out.push("/utf-8".to_owned());
     out.push(msvc_std_flag(compile.standard).to_owned());
     if compile.standard.language() == SourceLanguage::Cxx {
         out.push("/EHsc".to_owned());
@@ -499,13 +508,14 @@ mod tests {
         let mut compile = cxx_compile(CompileMode::Object);
         compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
-        assert_eq!(lowered.command[2], "/std:c++20");
+        // `/std:` sits after `cl` `/nologo` `/utf-8`.
+        assert_eq!(lowered.command[3], "/std:c++20");
 
         let mut compile = cxx_compile(CompileMode::Object);
         compile.standard = LanguageStandard::C(CStandard::C17);
         let lowered = lower(Dialect::Msvc, &BuildAction::Compile(compile));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
-        assert_eq!(lowered.command[2], "/std:c17");
+        assert_eq!(lowered.command[3], "/std:c17");
         // The C compile keeps /EHsc off and forces /Tc.
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
         assert!(lowered.command.iter().any(|a| a.starts_with("/Tc")));
@@ -686,6 +696,7 @@ mod tests {
             strs(&[
                 "cl.exe",
                 "/nologo",
+                "/utf-8",
                 "/std:c++17",
                 "/EHsc",
                 "/O2",
@@ -746,6 +757,8 @@ mod tests {
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert!(lowered.command.iter().any(|a| a == "/std:c11"));
         assert!(!lowered.command.iter().any(|a| a == "/EHsc"));
+        // The UTF-8 charset pin is language-independent.
+        assert!(lowered.command.iter().any(|a| a == "/utf-8"));
     }
 
     #[test]
