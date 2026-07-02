@@ -1,5 +1,5 @@
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -194,4 +194,19 @@ pub enum PortError {
         requirement: String,
         available: Vec<String>,
     },
+}
+
+/// Crate-internal sugar for the ubiquitous "map an `io::Error` into
+/// [`PortError::Fs`] with the path that triggered it" pattern.
+pub(crate) trait FsResultExt<T> {
+    fn with_path(self, path: &Path) -> Result<T, PortError>;
+}
+
+impl<T> FsResultExt<T> for Result<T, io::Error> {
+    fn with_path(self, path: &Path) -> Result<T, PortError> {
+        self.map_err(|source| PortError::Fs {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
 }

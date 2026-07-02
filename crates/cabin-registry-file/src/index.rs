@@ -45,7 +45,8 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 }
 
 /// Render `index` as deterministic, pretty-printed JSON with a
-/// trailing newline.
+/// trailing newline.  `path` is the index file's on-disk location,
+/// used only for error context.
 ///
 /// `versions` is serialized in **SemVer-ascending** order so existing
 /// versions stay grouped together for human readers, regardless of
@@ -56,7 +57,7 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
 /// Returns [`RegistryError::PackageIndexInvalid`] when a version key in
 /// `index` is not valid `SemVer`, and [`RegistryError::Json`] (via `?`)
 /// when serializing the document to JSON fails.
-pub fn render(index: &PackageIndex) -> Result<String, RegistryError> {
+pub fn render(index: &PackageIndex, path: &Path) -> Result<String, RegistryError> {
     // Build the JSON value by hand so we can pin version order.  A
     // plain `serde_json::Map` would sort keys lexicographically,
     // which makes "10.x" < "9.x" - confusing for humans.
@@ -66,7 +67,7 @@ pub fn render(index: &PackageIndex) -> Result<String, RegistryError> {
         .map(|(k, v)| {
             let parsed =
                 semver::Version::parse(k).map_err(|err| RegistryError::PackageIndexInvalid {
-                    path: std::path::PathBuf::new(),
+                    path: path.to_path_buf(),
                     message: format!("version key {k:?} is not valid SemVer: {err}"),
                 })?;
             Ok((parsed, v))
@@ -275,29 +276,23 @@ mod tests {
 
     #[test]
     fn render_is_deterministic() {
-        let index = insert_version(
-            insert_version(None, &metadata("fmt", "10.2.1")).ok(),
-            &metadata("fmt", "10.1.0"),
-        )
-        .unwrap();
-        let a = render(&index).unwrap();
-        let b = render(&index).unwrap();
+        let first = insert_version(None, &metadata("fmt", "10.2.1"))
+            .expect("insert_version failed during test setup");
+        let index = insert_version(Some(first), &metadata("fmt", "10.1.0")).unwrap();
+        let a = render(&index, Path::new("packages/fmt.json")).unwrap();
+        let b = render(&index, Path::new("packages/fmt.json")).unwrap();
         assert_eq!(a, b);
         assert!(a.ends_with('\n'));
     }
 
     #[test]
     fn render_orders_versions_by_semver() {
-        let index = insert_version(
-            insert_version(
-                insert_version(None, &metadata("fmt", "9.9.9")).ok(),
-                &metadata("fmt", "10.1.0"),
-            )
-            .ok(),
-            &metadata("fmt", "10.2.1"),
-        )
-        .unwrap();
-        let body = render(&index).unwrap();
+        let first = insert_version(None, &metadata("fmt", "9.9.9"))
+            .expect("insert_version failed during test setup");
+        let second = insert_version(Some(first), &metadata("fmt", "10.1.0"))
+            .expect("insert_version failed during test setup");
+        let index = insert_version(Some(second), &metadata("fmt", "10.2.1")).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let pos_9 = body.find("\"9.9.9\"").unwrap();
         let pos_101 = body.find("\"10.1.0\"").unwrap();
         let pos_102 = body.find("\"10.2.1\"").unwrap();
@@ -310,7 +305,7 @@ mod tests {
     #[test]
     fn render_round_trips() {
         let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
-        let body = render(&index).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let parsed: PackageIndex = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, index);
     }

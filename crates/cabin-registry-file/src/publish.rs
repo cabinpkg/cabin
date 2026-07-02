@@ -143,7 +143,7 @@ fn publish_locked(
     let write_index = || -> Result<(), RegistryError> {
         let existing = read_optional(&plan.package_index_path)?;
         let new_index = insert_version(existing, &metadata)?;
-        let body = render(&new_index)?;
+        let body = render(&new_index, &plan.package_index_path)?;
         atomically_write(&plan.package_index_path, body.as_bytes())
     };
     if let Err(err) = write_index() {
@@ -180,16 +180,16 @@ fn plan_publish(
     registry: &FileRegistry,
     metadata: &PackageMetadata,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
+    let package_index_path = registry.package_index_path(&metadata.name);
     let version = semver::Version::parse(&metadata.version).map_err(|err| {
         RegistryError::PackageIndexInvalid {
-            path: PathBuf::new(),
+            path: package_index_path.clone(),
             message: format!(
                 "metadata version {:?} is not valid SemVer: {err}",
                 metadata.version
             ),
         }
     })?;
-    let package_index_path = registry.package_index_path(&metadata.name);
     let artifact_path = registry.artifact_path(&metadata.name, &version);
 
     let existing = read_optional(&package_index_path)?;

@@ -25,7 +25,7 @@
 //!   index-entry transformation, the path-traversal-safe
 //!   archive copy, and the `cabin-vendor.json` summary file
 //!   that records the vendor invocation;
-//! - the orchestration layer (`cabin/src/vendor_glue.rs`)
+//! - the orchestration layer (`cabin/src/cli/vendor.rs`)
 //!   resolves the closure via the existing artifact pipeline
 //!   and hands a [`VendorPlan`] to [`materialize`];
 //! - this crate must not weaken existing artifact safety:
@@ -322,7 +322,9 @@ pub fn materialize(
             });
 
             outcomes.push(VendorOutcomeEntry {
-                name: entry.name.clone(),
+                // Reuse the group key: every entry in this group has
+                // `entry.name == *name` by construction.
+                name: name.clone(),
                 version: entry.version.clone(),
                 artifact_path,
                 artifact_relative_path: artifact_relative,
@@ -339,8 +341,9 @@ pub fn materialize(
             name: name.as_str().to_owned(),
             versions: version_entries,
         };
-        let body = cabin_registry_file::index::render(&index).map_err(VendorError::Registry)?;
         let target = registry.package_index_path(name.as_str());
+        let body =
+            cabin_registry_file::index::render(&index, &target).map_err(VendorError::Registry)?;
         write_if_changed(&target, body.as_bytes())?;
     }
 
