@@ -2191,6 +2191,29 @@ fn rejects_port_with_optional() {
 }
 
 #[test]
+fn treats_optional_false_as_absent_on_port_path_dep() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port-path = "../ports/zlib/1.3.1", optional = false }
+        "#,
+    );
+    let deps = deps_of_kind(&package, DependencyKind::Normal);
+    assert_eq!(deps.len(), 1);
+    assert!(!deps[0].optional);
+    match &deps[0].source {
+        DependencySource::Port(PortDepSource::Path(p)) => {
+            assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
+        }
+        other => panic!("expected port path source, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_builtin_port_with_version_requirement() {
     let package = parse_project(
         r#"
@@ -2372,6 +2395,29 @@ fn rejects_port_true_combined_with_optional() {
             assert_eq!(conflicting, "optional");
         }
         other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
+    }
+}
+
+#[test]
+fn treats_optional_false_as_absent_on_builtin_port_dep() {
+    let package = parse_project(
+        r#"
+            [package]
+            name = "consumer"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = true, version = "^1.3", optional = false }
+        "#,
+    );
+    let deps = deps_of_kind(&package, DependencyKind::Normal);
+    assert_eq!(deps.len(), 1);
+    assert!(!deps[0].optional);
+    match &deps[0].source {
+        DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
+            assert_eq!(name.as_str(), "zlib");
+        }
+        other => panic!("expected builtin port source, got {other:?}"),
     }
 }
 
