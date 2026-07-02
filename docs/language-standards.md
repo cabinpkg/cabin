@@ -89,12 +89,15 @@ cxx-standard = { workspace = true }   # inherits c++20
 ## Accepted values
 
 Typed value sets; anything else is a manifest parse error listing the valid spellings.  There are no
-aliases and no GNU dialects (`gnu11`, `gnu++20` - see the escape hatch below).
+aliases.
 
-- C: `c89`, `c99`, `c11`, `c17`, `c23`
-- C++: `c++98`, `c++03`, `c++11`, `c++14`, `c++17`, `c++20`, `c++23`
+- C: `c89`, `c99`, `c11`, `c17`, `c23`, plus the GNU dialects `gnu89`, `gnu99`, `gnu11`, `gnu17`,
+  `gnu23`
+- C++: `c++98`, `c++03`, `c++11`, `c++14`, `c++17`, `c++20`, `c++23`, plus the GNU dialects
+  `gnu++98`, `gnu++03`, `gnu++11`, `gnu++14`, `gnu++17`, `gnu++20`, `gnu++23`
 
-`c++26` is deferred until its toolchain-support thresholds are audited.
+Each GNU dialect is its ISO twin plus GNU extensions, and every ISO value has exactly one GNU twin.
+`c++26` (and `gnu++26`) is deferred until its toolchain-support thresholds are audited.
 
 ## Precedence
 
@@ -123,11 +126,11 @@ The standard never appears in `[profile]` flags; the dialect layer spells it:
 
 | Dialect | Spelling |
 | --- | --- |
-| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`) |
+| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`, `-std=gnu++20`) |
 | MSVC (`cl` / `clang-cl`) | `/std:<value>` - only `c11`, `c17`, `c++14`, `c++17`, `c++20` have stable flags |
 
-Standards without a stable MSVC flag (C89/C99/C23, C++98/03/11/23) are rejected before the build on
-the MSVC dialect.  `compile_commands.json` records the same per-file standard the build uses, so
+Standards without a stable MSVC flag (C89/C99/C23, C++98/03/11/23, and every GNU dialect - there is
+no `/std:gnu*` spelling) are rejected before the build on the MSVC dialect.  `compile_commands.json` records the same per-file standard the build uses, so
 clangd and `cabin tidy` see exactly how each translation unit compiles.  Changing a standard changes
 the lowered command, so Ninja rebuilds exactly the affected translation units.
 
@@ -155,6 +158,9 @@ drops do not gate the check.  The thresholds gate acceptance of the exact flag s
 | `c++20` | 10 | 10 | 12 | 13 | 19.29 |
 | `c++23` | 11 | 17 | 16 | n/a | n/a |
 
+A GNU dialect shares its ISO twin's row on GCC / Clang / Apple Clang (the `-std=gnu*` spelling ships
+alongside the ISO spelling) and is `n/a` on `clang-cl` / MSVC `cl`.
+
 `always` means any recognized version; `n/a` means no stable flag exists and the request is rejected
 on that compiler with an actionable error.  A compiler whose version banner cannot be parsed fails
 open (`assumed-default`), matching the rest of capability detection.  The planner additionally
@@ -172,6 +178,10 @@ depends on it, per language, checked after planning and before any Ninja file is
   standard (chronological comparison).  This is a pragmatic compatibility policy, not a proof - it
   assumes headers valid under standard *N* stay valid under newer modes; Cabin does not verify
   header validity per standard.
+- A GNU dialect orders just above its ISO twin: `gnu++20` satisfies a `c++20` requirement (the
+  dialect is a superset of the twin), an ISO consumer never satisfies a GNU requirement (`c++20`
+  does not satisfy `gnu++20` - the extensions may be missing), and the next standard clears both
+  (`c++23` satisfies `gnu++20`).
 - A language is relevant to a dependency only if the dependency has sources of that language,
   declares a target-level field for it, or is `header-only` while its package declares a
   package-level *interface* standard for it.  A package-level *implementation* default alone never
@@ -192,9 +202,9 @@ compiled.
 
 `cflags` / `cxxflags` still accept raw standard flags, and they come later in the argv, so for a
 package that declares **no** first-class standard they keep winning over the built-in default - this
-is the supported route to GNU dialects (`-std=gnu++20`) and the only route to the MSVC
-`/std:c++latest` / `/std:clatest` spellings, which Cabin will not map as first-class standards (see
-[Not supported](#not-supported)).
+is the only route to the MSVC `/std:c++latest` / `/std:clatest` spellings, which Cabin will not map
+as first-class standards (see [Not supported](#not-supported)).  GNU dialects no longer need it:
+`gnu11` / `gnu++20` are first-class values.
 
 Declaring both is ambiguous and rejected: if a planned compile carries both a first-class
 implementation standard declaration for its language (package level, or a target-level field on the
@@ -254,9 +264,8 @@ standard-compatibility filtering remains deferred.
 ## Deferred
 
 - Resolver standard-compatibility filtering.
-- First-class GNU dialect (`gnu11`, `gnu++20`) mapping.
 - `cfg(...)`-conditional or per-profile standards; CLI / env / config overrides.
-- `c++26` (pending threshold audit).
+- `c++26` / `gnu++26` (pending threshold audit).
 - Duplicate build variants (one library compiled once per consumer standard).
 
 ## Not supported
