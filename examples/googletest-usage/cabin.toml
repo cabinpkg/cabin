@@ -1,0 +1,21 @@
+[package]
+name = "googletest-usage"
+version = "0.1.0"
+
+# Declared under [dependencies]: dev path/port dependencies are
+# declaration-only in Cabin today (they never enter the package
+# graph), so a `test` target can only link a port that is a normal
+# dependency. Only the test target references it, so `cabin build`
+# still compiles nothing from the port until `cabin test` needs it.
+[dependencies]
+googletest = { port = true, version = "^1.17" }
+
+[target.calc]
+type = "library"
+sources = ["src/calc.cc"]
+include-dirs = ["include"]
+
+[target.calc_gtest]
+type = "test"
+sources = ["tests/calc_gtest.cc"]
+deps = ["calc", "googletest"]

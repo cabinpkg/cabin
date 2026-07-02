@@ -1,0 +1,31 @@
+[package]
+name = "googletest"
+version = "1.17.0"
+
+# GoogleTest's portable build is the single umbrella translation
+# unit gtest-all.cc, which #includes every gtest-*.cc implementation
+# file (that is also how upstream's own CMake builds the library).
+# Two upstream surfaces are intentionally not built: gtest_main.cc
+# (a Cabin package resolves dependencies to its unique library
+# target, so consumers supply their own main calling InitGoogleTest
+# + RUN_ALL_TESTS - the example shows the two-liner) and GoogleMock
+# (googlemock/ is a separate opt-in library).
+[target.googletest]
+type = "library"
+sources = ["googletest/src/gtest-all.cc"]
+# googletest/include is the public header root (<gtest/gtest.h>);
+# gtest-all.cc additionally includes its sibling implementation
+# files as "src/gtest-*.cc", so the googletest/ directory itself
+# must also be on the include path, exactly like upstream's build.
+include-dirs = ["googletest/include", "googletest"]
+# Upstream requires C++17 to build and to consume the headers; the
+# explicit declaration documents that floor rather than borrowing
+# Cabin's (currently identical) built-in default.
+cxx-standard = "c++17"
+
+# gtest's Unix port uses pthreads (GTEST_HAS_PTHREAD defaults on
+# there); the propagating link-lib reaches every consumer's link
+# line. Folded into libc since glibc 2.34, where the extra
+# -lpthread is a harmless no-op; Windows uses Win32 primitives.
+[target.'cfg(family = "unix")'.profile]
+link-libs = ["pthread"]

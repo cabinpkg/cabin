@@ -31,6 +31,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`libpng-usage/`](libpng-usage) | Consuming the curated libpng foundation port from [`crates/cabin-port/ports/libpng/`](../crates/cabin-port/ports/libpng), which itself depends transitively on the bundled zlib port. |
 | [`fmt-usage/`](fmt-usage) | Consuming the curated {fmt} C++ foundation port from [`crates/cabin-port/ports/fmt/`](../crates/cabin-port/ports/fmt). |
 | [`spdlog-usage/`](spdlog-usage) | Consuming the curated spdlog header-only C++ foundation port from [`crates/cabin-port/ports/spdlog/`](../crates/cabin-port/ports/spdlog). |
+| [`googletest-usage/`](googletest-usage) | A `test` target linking the curated GoogleTest foundation port from [`crates/cabin-port/ports/googletest/`](../crates/cabin-port/ports/googletest), run with `cabin test`. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
