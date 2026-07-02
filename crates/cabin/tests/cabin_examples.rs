@@ -715,6 +715,38 @@ int main(int argc, char* argv[]) {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn unit_test_gtest_runs_tests() {
+    require_cxx_build_tools();
+    let dir = copy_example("unit-test-gtest");
+    // `cabin test` prepares the port, builds the `stats` library and
+    // the gtest target against it, and runs the produced binary; the
+    // TEST_F/TEST cases (fixture, value, and exception assertions)
+    // all pass inside the single target run.
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    for expected in [
+        "test unit-test-gtest:stats_gtest ... ok",
+        "test result: ok. 1 passed; 0 failed;",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "unit-test-gtest test: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
