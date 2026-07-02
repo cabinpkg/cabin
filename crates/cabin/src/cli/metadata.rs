@@ -457,7 +457,7 @@ impl<'a> MetadataView<'a> {
                 } else {
                     None
                 };
-                let system_dependencies: Vec<SystemDependencyView<'_>> = package
+                let mut system_dependencies: Vec<SystemDependencyView<'_>> = package
                     .system_dependencies
                     .iter()
                     .map(|sd| SystemDependencyView {
@@ -470,46 +470,55 @@ impl<'a> MetadataView<'a> {
                         }),
                     })
                     .collect();
+                // The stable sorts below uphold the documented
+                // ordering contract on `PackageView` even when
+                // conditional (target-specific) declarations sit
+                // interleaved in manifest order; ties keep
+                // declaration order.
+                system_dependencies.sort_by(|a, b| a.name.cmp(b.name));
+                let mut dependencies: Vec<DependencyView<'_>> = package
+                    .dependencies
+                    .iter()
+                    .map(|d| DependencyView {
+                        name: d.name.as_str(),
+                        dependency_kind: d.kind,
+                        optional: d.optional,
+                        features: d.features.as_slice(),
+                        default_features: d.default_features,
+                        target: d.condition.as_ref().map(ToString::to_string),
+                        active: d.matches_platform(&host_platform),
+                        source: match &d.source {
+                            DependencySource::Path(p) => DependencySourceView::Path {
+                                path: p.as_std_path(),
+                            },
+                            DependencySource::Version(req) => DependencySourceView::Version {
+                                requirement: req.to_string(),
+                            },
+                            DependencySource::Port(PortDepSource::Path(p)) => {
+                                DependencySourceView::Port {
+                                    origin: PortOriginView::Path {
+                                        port_dir: p.as_std_path(),
+                                    },
+                                }
+                            }
+                            DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
+                                DependencySourceView::Port {
+                                    origin: PortOriginView::Builtin {
+                                        name: name.as_str(),
+                                    },
+                                }
+                            }
+                            DependencySource::Workspace => DependencySourceView::Workspace,
+                        },
+                    })
+                    .collect();
+                dependencies
+                    .sort_by(|a, b| (a.dependency_kind, a.name).cmp(&(b.dependency_kind, b.name)));
                 PackageView {
                     name: package.name.as_str(),
                     version: package.version.to_string(),
                     manifest_path: &pkg.manifest_path,
-                    dependencies: package
-                        .dependencies
-                        .iter()
-                        .map(|d| DependencyView {
-                            name: d.name.as_str(),
-                            dependency_kind: d.kind,
-                            optional: d.optional,
-                            features: d.features.as_slice(),
-                            default_features: d.default_features,
-                            target: d.condition.as_ref().map(ToString::to_string),
-                            active: d.matches_platform(&host_platform),
-                            source: match &d.source {
-                                DependencySource::Path(p) => DependencySourceView::Path {
-                                    path: p.as_std_path(),
-                                },
-                                DependencySource::Version(req) => DependencySourceView::Version {
-                                    requirement: req.to_string(),
-                                },
-                                DependencySource::Port(PortDepSource::Path(p)) => {
-                                    DependencySourceView::Port {
-                                        origin: PortOriginView::Path {
-                                            port_dir: p.as_std_path(),
-                                        },
-                                    }
-                                }
-                                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-                                    DependencySourceView::Port {
-                                        origin: PortOriginView::Builtin {
-                                            name: name.as_str(),
-                                        },
-                                    }
-                                }
-                                DependencySource::Workspace => DependencySourceView::Workspace,
-                            },
-                        })
-                        .collect(),
+                    dependencies,
                     system_dependencies,
                     targets: &package.targets,
                     is_root: graph.root_package == Some(idx),

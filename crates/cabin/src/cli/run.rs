@@ -472,12 +472,18 @@ pub(crate) fn run(
 /// Map the spawned program's exit status onto a `process::ExitCode`
 /// so `cabin run`'s own exit code is the program's exit code.
 /// Signal-terminated children produce exit code `1` because
-/// `ExitCode` cannot represent signal kills directly.
+/// `ExitCode` cannot represent signal kills directly.  Codes
+/// outside `u8` range (Windows reports full 32-bit statuses)
+/// collapse to `1` rather than being masked: `256 & 0xff` would
+/// report a failing program as success.
 fn exit_code_for(status: std::process::ExitStatus) -> ExitCode {
-    match status.code() {
-        Some(0) => ExitCode::SUCCESS,
-        Some(code) => ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1)),
-        None => ExitCode::from(1),
+    ExitCode::from(exit_code_byte(status.code()))
+}
+
+fn exit_code_byte(code: Option<i32>) -> u8 {
+    match code {
+        Some(code) => u8::try_from(code).unwrap_or(1),
+        None => 1,
     }
 }
 
@@ -670,6 +676,19 @@ mod tests {
 
     use cabin_core::{PackageName, Target, TargetName};
     use cabin_workspace::{PackageKind, WorkspacePackage};
+
+    #[test]
+    fn exit_code_byte_maps_out_of_range_codes_to_failure() {
+        assert_eq!(exit_code_byte(Some(0)), 0);
+        assert_eq!(exit_code_byte(Some(3)), 3);
+        assert_eq!(exit_code_byte(Some(255)), 255);
+        // Windows statuses exceed u8; masking with `& 0xff` would
+        // turn 256 into "success".
+        assert_eq!(exit_code_byte(Some(256)), 1);
+        assert_eq!(exit_code_byte(Some(-1)), 1);
+        // Signal-terminated child: no code at all.
+        assert_eq!(exit_code_byte(None), 1);
+    }
 
     fn target(name: &str, kind: TargetKind) -> Target {
         Target {

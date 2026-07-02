@@ -594,21 +594,30 @@ fn build_constraints(
                 had_constraint: false,
             });
         }
-        // We require at least an operator and a version.  A single
+        // We require alternating `op version` pairs.  A single
         // token can never carry both (glued forms like `>=1.2`
-        // parse as SemVer above), so whether it is a bare version
-        // or a bare operator, pkg-config would misread it - reject
-        // it here with a typed error instead.
-        if split.len() == 1 {
+        // parse as SemVer above), and pkg-config's positional
+        // grammar repeats the module name before every constraint
+        // (`name >= 1.0 name < 2.0`) - gluing the pairs after a
+        // single name would make pkg-config read a stray `<` as
+        // another module name.  Anything that does not fit the
+        // pair shape gets a typed error instead of a garbage argv.
+        if !split.len().is_multiple_of(2) {
             return Err(PkgConfigError::InvalidVersionRequirement {
                 name: name.to_owned(),
                 requirement: requirement.to_owned(),
             });
         }
-        let mut iter = split.into_iter();
-        argv.push(OsString::from(name));
-        for tok in &mut iter {
-            argv.push(OsString::from(tok));
+        for pair in split.chunks(2) {
+            if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=") {
+                return Err(PkgConfigError::InvalidVersionRequirement {
+                    name: name.to_owned(),
+                    requirement: requirement.to_owned(),
+                });
+            }
+            argv.push(OsString::from(name));
+            argv.push(OsString::from(pair[0]));
+            argv.push(OsString::from(pair[1]));
         }
         Ok(ConstraintArgv {
             argv,
@@ -1209,6 +1218,37 @@ mod tests {
             argv.argv.windows(2).any(|w| w[0] == "openssl"),
             "should reference the module name",
         );
+    }
+
+    #[test]
+    fn build_constraints_repeats_module_name_per_raw_constraint_pair() {
+        // A raw multi-pair requirement must expand to
+        // `name op ver name op ver`; a single leading name would
+        // make pkg-config read the second operator as a module.
+        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
+        let argv = build_constraints("openssl", ">= 1.0.1f < 3.0.0z", tool.executable()).unwrap();
+        assert!(argv.had_constraint);
+        assert_eq!(
+            argv.argv,
+            vec![
+                OsString::from("openssl"),
+                OsString::from("openssl"),
+                OsString::from(">="),
+                OsString::from("1.0.1f"),
+                OsString::from("openssl"),
+                OsString::from("<"),
+                OsString::from("3.0.0z"),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_constraints_rejects_raw_tokens_that_are_not_op_version_pairs() {
+        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
+        // Odd token count: a trailing dangling operator.
+        build_constraints("openssl", ">= 1.0.1f <", tool.executable()).unwrap_err();
+        // Even count but the pair does not start with an operator.
+        build_constraints("openssl", "one two", tool.executable()).unwrap_err();
     }
 
     #[test]
