@@ -195,12 +195,27 @@ fn zip_eocd_entry_count(f: &mut File) -> Option<u64> {
     f.seek(io::SeekFrom::Start(len - tail_len)).ok()?;
     let mut tail = vec![0u8; usize::try_from(tail_len).ok()?];
     f.read_exact(&mut tail).ok()?;
-    // The record nearest EOF is the real one (an earlier signature
-    // match can only occur inside the trailing comment bytes).
-    let pos = tail.windows(4).rposition(|w| w == EOCD_SIG)?;
-    let total = tail.get(pos + 10..pos + 12)?;
-    let count = u64::from(u16::from_le_bytes([total[0], total[1]]));
-    Some(if count == 0xFFFF { u64::MAX } else { count })
+    // Scan candidates from EOF backwards, but only trust one whose
+    // declared comment length reaches exactly EOF: the archive
+    // comment *follows* the real record, so a stray signature inside
+    // the comment sits nearer EOF than the real EOCD and would
+    // otherwise supply arbitrary comment bytes as the entry count.
+    let mut search_end = tail.len();
+    while let Some(pos) = tail[..search_end].windows(4).rposition(|w| w == EOCD_SIG) {
+        if let Some(cl) = tail.get(pos + 20..pos + 22) {
+            let comment_len = usize::from(u16::from_le_bytes([cl[0], cl[1]]));
+            if pos + 22 + comment_len == tail.len() {
+                let total = &tail[pos + 10..pos + 12];
+                let count = u64::from(u16::from_le_bytes([total[0], total[1]]));
+                return Some(if count == 0xFFFF { u64::MAX } else { count });
+            }
+        }
+        if pos == 0 {
+            break;
+        }
+        search_end = pos;
+    }
+    None
 }
 
 /// Safely extract a `.tar.gz` archive into `dest` with the default
@@ -1357,6 +1372,36 @@ mod tests {
             matches!(err, ArtifactError::ArchiveTooManyEntries { .. }),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn zip_comment_containing_fake_eocd_does_not_defeat_extraction() {
+        // A valid archive whose *comment* embeds an EOCD signature
+        // claiming an enormous entry count: the pre-parse scan must
+        // reject that candidate (its zero comment-length field does
+        // not reach EOF) and find the real record, so the archive
+        // extracts normally instead of being falsely refused.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("commented.zip");
+        let f = File::create(archive.path()).unwrap();
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.start_file("ok.txt", options).unwrap();
+        writer.write_all(b"fine\n").unwrap();
+        let mut comment = vec![0x50, 0x4b, 0x05, 0x06];
+        comment.extend_from_slice(&[0; 4]);
+        comment.extend_from_slice(&50_000u16.to_le_bytes());
+        comment.extend_from_slice(&50_000u16.to_le_bytes());
+        comment.extend_from_slice(&[0; 10]);
+        comment.extend_from_slice(b"trailing bytes");
+        writer.set_raw_comment(comment.into()).unwrap();
+        writer.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default()).unwrap();
+        dest.child("ok.txt").assert(predicate::path::is_file());
     }
 
     #[test]
