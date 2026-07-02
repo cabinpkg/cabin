@@ -747,6 +747,27 @@ fn unit_test_gtest_runs_tests() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn json_cli_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("json-cli");
+    // The summary line proves the full round trip: parse, typed
+    // reads, and re-serialization (nlohmann::json keeps object keys
+    // sorted, so the dump is deterministic).
+    run_port_build_then_run(&PortBuildRun {
+        label: "json-cli",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "package: json-cli v0.1.0",
+            "dependency count: 3",
+            r#"summary: {"deps":["fmt","spdlog","sqlite3"],"name":"json-cli"}"#,
+        ],
+    });
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
