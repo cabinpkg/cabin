@@ -149,20 +149,27 @@ fn safe_extract_zip_with_limits(
         // (symlinks foremost), mirroring the tar entry-type policy;
         // symlinks alone may instead be skipped when the caller
         // opted in (nothing is materialized either way).
-        if let Some(mode) = entry.unix_mode() {
-            let file_type = mode & 0o170_000;
-            if file_type == 0o120_000 && options.skip_symlinks {
-                continue;
-            }
-            if file_type != 0 && file_type != 0o100_000 && file_type != 0o040_000 {
-                return Err(ArtifactError::UnsupportedArchiveEntry(display));
-            }
+        let file_type = entry.unix_mode().map(|mode| mode & 0o170_000);
+        let skip_symlink = file_type == Some(0o120_000) && options.skip_symlinks;
+        if let Some(file_type) = file_type
+            && !skip_symlink
+            && file_type != 0
+            && file_type != 0o100_000
+            && file_type != 0o040_000
+        {
+            return Err(ArtifactError::UnsupportedArchiveEntry(display));
         }
 
+        // Path-safety and prefix checks run for skipped symlinks
+        // too, exactly like the tar path: skipping avoids
+        // materializing the entry, not validating the archive.
         let entry_path = PathBuf::from(entry.name());
         let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)? else {
             continue;
         };
+        if skip_symlink {
+            continue;
+        }
 
         if entry.is_dir() {
             fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
@@ -909,6 +916,42 @@ mod tests {
         .unwrap();
         dest.child("src/ok.h").assert(predicate::path::is_file());
         dest.child("include").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_skip_symlinks_still_validates_symlink_paths() {
+        // Skipping is not a validation bypass: a symlink entry whose
+        // *name* is unsafe fails the whole extraction exactly like
+        // the tar path, even though nothing would be materialized.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bad.zip");
+        let f = File::create(archive.path()).unwrap();
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.start_file("pkg-1.0/ok.h", options).unwrap();
+        writer.write_all(b"#define OK 1\n").unwrap();
+        writer
+            .add_symlink("../escape", "/etc/passwd", options)
+            .unwrap();
+        writer.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("pkg-1.0"),
+                skip_symlinks: true,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsafeArchiveEntry(_)),
+            "{err:?}"
+        );
+        dir.child("escape").assert(predicate::path::missing());
     }
 
     #[test]
