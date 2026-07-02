@@ -47,6 +47,115 @@ pub struct SafeExtractOptions<'a> {
     pub strip_prefix: Option<&'a str>,
 }
 
+/// Safely extract a `.zip` archive into `dest`, with caller-
+/// supplied options.
+///
+/// The same fail-closed rules as [`safe_extract_tar_gz`] apply:
+/// unsafe entry paths are rejected before and after the optional
+/// prefix strip, only regular files and directories are accepted
+/// (a zip entry whose recorded Unix mode is a symlink - or any
+/// other non-file, non-directory type - is refused), and the same
+/// per-entry / aggregate / entry-count decompression-bomb caps are
+/// enforced against the *actual* decompressed bytes, not the sizes
+/// the zip headers claim.
+///
+/// # Errors
+/// Mirrors [`safe_extract_tar_gz`]: [`ArtifactError::Io`] when
+/// `archive` cannot be opened, [`ArtifactError::Extract`] when the
+/// zip structure cannot be read, and the same
+/// `UnsafeArchiveEntry` / `UnsupportedArchiveEntry` /
+/// `ArchiveEntryTooLarge` / `ArchiveTooLarge` /
+/// `ArchiveTooManyEntries` / `MissingStripPrefix` rejections.
+pub fn safe_extract_zip(
+    archive: &Path,
+    dest: &Path,
+    options: SafeExtractOptions<'_>,
+) -> Result<(), ArtifactError> {
+    safe_extract_zip_with_limits(
+        archive,
+        dest,
+        MAX_ENTRY_BYTES,
+        MAX_TOTAL_BYTES,
+        MAX_ENTRIES,
+        options,
+    )
+}
+
+fn safe_extract_zip_with_limits(
+    archive: &Path,
+    dest: &Path,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+    max_entries: usize,
+    options: SafeExtractOptions<'_>,
+) -> Result<(), ArtifactError> {
+    let f = File::open(archive).map_err(|source| ArtifactError::Io {
+        path: archive.to_path_buf(),
+        source,
+    })?;
+    let extract_err = |source: zip::result::ZipError| ArtifactError::Extract {
+        path: archive.to_path_buf(),
+        source: io::Error::other(source),
+    };
+    let mut zip = zip::ZipArchive::new(f).map_err(extract_err)?;
+
+    // Unlike tar, the zip central directory states the entry count
+    // up front; enforcing the cap before touching any entry keeps
+    // header-only inode bombs as cheap to refuse as possible.
+    if zip.len() > max_entries {
+        return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+    }
+
+    let mut total_bytes: u64 = 0;
+    let mut saw_prefix = false;
+
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).map_err(extract_err)?;
+        let display = entry.name().to_owned();
+
+        // Zip has no first-class entry-type field; the Unix mode
+        // bits travel in the external attributes when the archive
+        // was produced on a Unix host.  Reject anything that is
+        // recorded as neither a regular file nor a directory
+        // (symlinks foremost), mirroring the tar entry-type policy.
+        if let Some(mode) = entry.unix_mode() {
+            let file_type = mode & 0o170_000;
+            if file_type != 0 && file_type != 0o100_000 && file_type != 0o040_000 {
+                return Err(ArtifactError::UnsupportedArchiveEntry(display));
+            }
+        }
+
+        let entry_path = PathBuf::from(entry.name());
+        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)? else {
+            continue;
+        };
+
+        if entry.is_dir() {
+            fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
+                path: target.clone(),
+                source,
+            })?;
+            continue;
+        }
+        write_file_capped(
+            &mut entry,
+            &target,
+            &display,
+            max_entry_bytes,
+            max_total_bytes,
+            &mut total_bytes,
+        )?;
+    }
+    if let Some(prefix) = options.strip_prefix
+        && !saw_prefix
+    {
+        return Err(ArtifactError::MissingStripPrefix {
+            strip_prefix: prefix.to_owned(),
+        });
+    }
+    Ok(())
+}
+
 /// Safely extract a `.tar.gz` archive into `dest` with the default
 /// production caps and no prefix stripping.  Kept as the
 /// crate-internal entry point used by the source-archive fetcher.
@@ -285,43 +394,14 @@ fn write_entry<R: Read>(
             })?;
             Ok(())
         }
-        tar::EntryType::Regular => {
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
-                    path: parent.to_path_buf(),
-                    source,
-                })?;
-            }
-            let mut out = File::create(target).map_err(|source| ArtifactError::Io {
-                path: target.to_path_buf(),
-                source,
-            })?;
-            // Cap the read at one byte over the per-entry
-            // limit so a successful copy of exactly the limit
-            // is distinguishable from an overflow.
-            let mut limited = entry.take(max_entry_bytes + 1);
-            let written = io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
-                path: target.to_path_buf(),
-                source,
-            })?;
-            if written > max_entry_bytes {
-                drop(out);
-                let _ = fs::remove_file(target);
-                return Err(ArtifactError::ArchiveEntryTooLarge {
-                    path: display.to_owned(),
-                    limit: max_entry_bytes,
-                });
-            }
-            *total_bytes = total_bytes.saturating_add(written);
-            if *total_bytes > max_total_bytes {
-                drop(out);
-                let _ = fs::remove_file(target);
-                return Err(ArtifactError::ArchiveTooLarge {
-                    limit: max_total_bytes,
-                });
-            }
-            Ok(())
-        }
+        tar::EntryType::Regular => write_file_capped(
+            entry,
+            target,
+            display,
+            max_entry_bytes,
+            max_total_bytes,
+            total_bytes,
+        ),
         // Tar metadata entries carry side-band data the
         // standard tar reader already consumes (long paths, PAX
         // extended headers, global PAX state) - the subsequent
@@ -340,6 +420,55 @@ fn write_entry<R: Read>(
         // directories.
         _ => Err(ArtifactError::UnsupportedArchiveEntry(display.to_owned())),
     }
+}
+
+/// Write one regular-file archive entry's bytes to `target`,
+/// enforcing the per-entry and aggregate decompression caps against
+/// the actual decompressed byte count.  Shared by the tar and zip
+/// extractors; removes any partial file when a cap is exceeded.
+fn write_file_capped<R: Read>(
+    reader: &mut R,
+    target: &Path,
+    display: &str,
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+    total_bytes: &mut u64,
+) -> Result<(), ArtifactError> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    let mut out = File::create(target).map_err(|source| ArtifactError::Io {
+        path: target.to_path_buf(),
+        source,
+    })?;
+    // Cap the read at one byte over the per-entry
+    // limit so a successful copy of exactly the limit
+    // is distinguishable from an overflow.
+    let mut limited = reader.take(max_entry_bytes + 1);
+    let written = io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
+        path: target.to_path_buf(),
+        source,
+    })?;
+    if written > max_entry_bytes {
+        drop(out);
+        let _ = fs::remove_file(target);
+        return Err(ArtifactError::ArchiveEntryTooLarge {
+            path: display.to_owned(),
+            limit: max_entry_bytes,
+        });
+    }
+    *total_bytes = total_bytes.saturating_add(written);
+    if *total_bytes > max_total_bytes {
+        drop(out);
+        let _ = fs::remove_file(target);
+        return Err(ArtifactError::ArchiveTooLarge {
+            limit: max_total_bytes,
+        });
+    }
+    Ok(())
 }
 
 /// Validate that an extracted source tree at `source_dir` matches the
@@ -972,6 +1101,235 @@ mod tests {
             "{err:?}"
         );
         dir.child("escape.txt").assert(predicate::path::missing());
+    }
+
+    /// Build a `.zip` containing the given `(path, body)` file
+    /// entries.  Entries ending in `/` become directory records.
+    fn make_zip(archive_path: &Path, entries: &[(&str, &str)]) {
+        if let Some(parent) = archive_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let f = File::create(archive_path).unwrap();
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (rel_path, body) in entries {
+            if rel_path.ends_with('/') {
+                writer.add_directory(*rel_path, options).unwrap();
+            } else {
+                writer.start_file(*rel_path, options).unwrap();
+                writer.write_all(body.as_bytes()).unwrap();
+            }
+        }
+        writer.finish().unwrap().flush().unwrap();
+    }
+
+    #[test]
+    fn zip_extracts_simple_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("ok.zip");
+        make_zip(
+            archive.path(),
+            &[
+                ("miniz.h", "#define MZ_VERSION \"11.3.2\"\n"),
+                ("examples/", ""),
+                ("examples/example1.c", "int main(void) { return 0; }\n"),
+            ],
+        );
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default()).unwrap();
+        dest.child("miniz.h").assert(predicate::path::is_file());
+        dest.child("examples/example1.c")
+            .assert(predicate::path::is_file());
+    }
+
+    #[test]
+    fn zip_rejects_parent_dir_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bad.zip");
+        make_zip(archive.path(), &[("../escape.txt", "evil")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsafeArchiveEntry(_)),
+            "{err:?}"
+        );
+        dir.child("escape.txt").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_absolute_path_entry() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bad.zip");
+        make_zip(archive.path(), &[("/etc/passwd", "evil")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsafeArchiveEntry(_)),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn zip_rejects_symlink_entry() {
+        // A zip entry whose recorded Unix mode says "symlink" must be
+        // refused like the tar equivalent, not written as a file.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bad.zip");
+        let f = File::create(archive.path()).unwrap();
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.add_symlink("evil", "/etc/passwd", options).unwrap();
+        writer.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsupportedArchiveEntry(_)),
+            "{err:?}"
+        );
+        dest.child("evil").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_entry_exceeding_per_entry_limit() {
+        // The cap must bind on the actual decompressed bytes, not
+        // the size the zip headers claim.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bomb.zip");
+        let body = "x".repeat(2048);
+        make_zip(archive.path(), &[("cabin.toml", body.as_str())]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip_with_limits(
+            archive.path(),
+            dest.path(),
+            1024,
+            1_000_000,
+            1000,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveEntryTooLarge { limit: 1024, .. }),
+            "{err:?}"
+        );
+        dest.child("cabin.toml").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_archive_exceeding_aggregate_size_limit() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("aggregate-bomb.zip");
+        let body = "x".repeat(700);
+        make_zip(
+            archive.path(),
+            &[("a.txt", body.as_str()), ("b.txt", body.as_str())],
+        );
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip_with_limits(
+            archive.path(),
+            dest.path(),
+            1024,
+            1000,
+            1000,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveTooLarge { limit: 1000 }),
+            "{err:?}"
+        );
+        dest.child("b.txt").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_archive_with_too_many_entries() {
+        // The zip central directory states the count up front, so
+        // the cap fires before any entry is materialized.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("many.zip");
+        make_zip(
+            archive.path(),
+            &[
+                ("a.txt", "x"),
+                ("b.txt", "x"),
+                ("c.txt", "x"),
+                ("d.txt", "x"),
+            ],
+        );
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip_with_limits(
+            archive.path(),
+            dest.path(),
+            1024,
+            1_000_000,
+            3,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveTooManyEntries { limit: 3 }),
+            "{err:?}"
+        );
+        dest.child("a.txt").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_strip_prefix_removes_leading_dir() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("miniz.zip");
+        make_zip(
+            archive.path(),
+            &[
+                ("miniz-3.1.2/miniz.h", "#define MZ_VERSION\n"),
+                ("miniz-3.1.2/miniz.c", "int mz(void) { return 0; }\n"),
+            ],
+        );
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        safe_extract_zip(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("miniz-3.1.2"),
+            },
+        )
+        .unwrap();
+        dest.child("miniz.h").assert(predicate::path::is_file());
+        dest.child("miniz.c").assert(predicate::path::is_file());
+        dest.child("miniz-3.1.2").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_strip_prefix_rejects_archive_without_matching_root() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("other.zip");
+        make_zip(archive.path(), &[("not-miniz/miniz.h", "// nope\n")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("miniz-3.1.2"),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::MissingStripPrefix { ref strip_prefix } if strip_prefix == "miniz-3.1.2"),
+            "{err:?}"
+        );
     }
 
     #[test]
