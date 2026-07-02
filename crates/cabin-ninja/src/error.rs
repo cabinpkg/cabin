@@ -23,7 +23,14 @@ pub enum NinjaError {
     #[error(transparent)]
     Lowering(#[from] cabin_build::BuildError),
 
-    #[error("path {} contains a newline; cannot be encoded in Ninja syntax", .0.display())]
+    /// A path token carried a literal `\n` or `\r`.  Ninja has no
+    /// escape for either in token positions: a newline ends the
+    /// build statement, and a lone carriage return trips Ninja's
+    /// lexer with a "lexing error".
+    #[error(
+        "path {} contains a newline or carriage return; cannot be encoded in Ninja syntax",
+        .0.display()
+    )]
     PathHasNewline(PathBuf),
 
     /// A Ninja variable value (e.g. `command` or `description`)
