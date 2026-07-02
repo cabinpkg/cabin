@@ -1,0 +1,11 @@
+[package]
+name = "cli11-usage"
+version = "0.1.0"
+
+[dependencies]
+CLI11 = { port = true, version = "^2.6" }
+
+[target.cli11-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["CLI11"]
