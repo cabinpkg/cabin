@@ -354,9 +354,15 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         // Refreshing a transitive locked package requires
         // re-running `cabin update` without `--package`, or
         // scoping with `--workspace` / `--default-members`.
+        // `root_deps` was gathered from every *selected* package
+        // (plus active patches), so the message names the actual
+        // lookup scope rather than the workspace root.
+        let scope = match resolved_selection.packages.as_slice() {
+            [idx] => format!("`{}`", graph.packages[*idx].package.name.as_str()),
+            _ => "any selected package".to_owned(),
+        };
         bail!(
-            "package {name:?} is not a direct versioned dependency of `{}`; `cabin update --package` only refreshes direct dependencies declared under `[dependencies]`",
-            root_name.as_str(),
+            "package {name:?} is not a direct versioned dependency of {scope}; `cabin update --package` only refreshes direct dependencies declared under `[dependencies]`",
         );
     }
 
