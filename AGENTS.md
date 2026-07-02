@@ -45,9 +45,17 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 
 cd website
+yarn install --frozen-lockfile
+yarn lint
 yarn build
 ```
 
+- `bash scripts/ci.sh` runs the same gate locally, scoping expensive checks
+  to the surfaces changed relative to `origin/main`. Agent stop hooks run
+  `scripts/ci.sh --hook`, which blocks one attempt to finish while the gate
+  is red and tells the agent to iterate until green; if the agent stops
+  again without fixing it, the hook lets the stop through with a warning
+  (`stop_hook_active`) instead of looping the gate forever.
 - Use the full command shapes above when mirroring CI. `--all-features`,
   `--locked`, `RUSTFLAGS="-D warnings"`, `RUSTDOCFLAGS="-D warnings"`, and
   clippy's trailing `-- -D warnings` are intentional.
