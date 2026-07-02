@@ -187,8 +187,12 @@ workspace loader sees the manifest:
    \`<name> <version>\`: expected sha256:..., got sha256:...`.
 5. Safely extract the archive into the port cache with the declared `strip_prefix`.  This step
    reuses `cabin-artifact`'s extraction primitives (tar.gz or zip, chosen by the URL's path
-   extension), so the decompression-bomb caps, symlink rejection, and path-traversal protection
-   apply identically to both formats.
+   extension), so the decompression-bomb caps and path-traversal protection apply identically to
+   both formats.  Symlink entries are **skipped** rather than failing the port: upstream release
+   archives commonly carry convenience symlinks (uthash ships `include -> src`), nothing is ever
+   materialized on disk for a skipped entry, and a port overlay only references real files.  Every
+   other special entry type (hard links, devices, fifos) is still rejected, and package archives
+   keep the strict reject-symlinks default.
 6. Apply any `[[copy]]` steps, placing prebuilt files under their build-time names inside the
    extracted tree.
 7. Copy the overlay manifest into the extracted source dir as `cabin.toml`.

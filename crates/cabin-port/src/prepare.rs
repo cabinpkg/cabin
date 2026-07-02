@@ -388,7 +388,18 @@ fn ensure_source(
     extract(
         archive_path,
         source_dir,
-        SafeExtractOptions { strip_prefix },
+        SafeExtractOptions {
+            strip_prefix,
+            // Upstream release archives commonly carry convenience
+            // symlinks (uthash ships `include -> src`); skip them
+            // instead of refusing the whole port. Nothing is
+            // materialized for a skipped entry, and an overlay only
+            // ever references real files, so the traversal-safety
+            // posture is unchanged. Package archives keep the
+            // strict default: Cabin produces those itself and they
+            // never contain symlinks.
+            skip_symlinks: true,
+        },
     )
     .map_err(|err| match err {
         cabin_artifact::ArtifactError::MissingStripPrefix { strip_prefix } => {

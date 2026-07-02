@@ -2580,3 +2580,6 @@ mod foundation_port_miniz;
 
 #[path = "cli/foundation_port_stb.rs"]
 mod foundation_port_stb;
+
+#[path = "cli/foundation_port_uthash.rs"]
+mod foundation_port_uthash;

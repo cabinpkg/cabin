@@ -236,7 +236,9 @@ into the same cache, and validates that each extracted package's `cabin.toml` ma
 name and version.  It also owns the safe `.zip` extractor (`safe_extract_zip`), used only by the
 foundation-port layer for upstreams whose sole official release artifact is a zip; registry package
 archives remain `.tar.gz`.  Both extractors enforce the same fail-closed rules (decompression-bomb
-caps, symlink rejection, path-traversal protection).  The crate must:
+caps, path-traversal protection, and symlink rejection - with an opt-in `skip_symlinks` mode that
+skips symlink entries without materializing anything, used by the foundation-port layer for
+upstream tarballs that carry convenience symlinks).  The crate must:
 
 - not run the resolver;
 - not write Ninja;
@@ -298,11 +300,13 @@ directory the workspace loader treats as a normal path dependency.  The crate mu
 - never reach into HTTP - like `cabin-artifact`, it accepts archive bytes via a typed
   `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in `cabin`'s orchestration
   layer;
-- never reimplement extraction safety.  Decompression-bomb caps, symlink rejection, and
+- never reimplement extraction safety.  Decompression-bomb caps, symlink handling, and
   path-traversal protection belong to `cabin-artifact::safe_extract_tar_gz` /
   `cabin-artifact::safe_extract_zip`; `cabin-port` picks the extractor from the `[source].url` path
   extension (`.zip` opts in, everything else is `.tar.gz`) and calls it with the declared
-  `strip_prefix`, but does not duplicate the security rules.
+  `strip_prefix`, but does not duplicate the security rules.  Port extraction opts into skipping
+  symlink entries (upstream tarballs commonly carry convenience symlinks; nothing is materialized
+  for a skipped entry), while package archives keep the strict reject-symlinks default.
 
 Foundation ports are local development policy, not published metadata: `cabin-package` rejects port
 deps in its validator and `cabin-publish` never archives them.  See

@@ -1,0 +1,11 @@
+[package]
+name = "uthash-usage"
+version = "0.1.0"
+
+[dependencies]
+uthash = { port = true, version = "^2.4" }
+
+[target.uthash-usage]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["uthash"]

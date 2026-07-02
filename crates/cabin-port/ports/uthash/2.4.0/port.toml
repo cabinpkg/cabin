@@ -1,0 +1,19 @@
+[port]
+name = "uthash"
+version = "2.4.0"
+description = "Hash table and container macros for C structures (header-only)"
+license = "BSD-1-Clause"
+homepage = "https://troydhanson.github.io/uthash/"
+upstream = "https://github.com/troydhanson/uthash"
+
+# The tarball carries a convenience `include -> src` symlink at its
+# root; port extraction skips symlink entries (the overlay references
+# src/ directly), so the archive prepares cleanly.
+[source]
+type = "archive"
+url = "https://github.com/troydhanson/uthash/archive/refs/tags/v2.4.0.tar.gz"
+sha256 = "387ba027946d7c64e9aa19cc53b2edcd714f8f9dca9fa8e3aaef17e0e8e3d736"
+strip_prefix = "uthash-2.4.0"
+
+[overlay]
+manifest = "cabin.toml"
