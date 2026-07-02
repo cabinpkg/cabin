@@ -1142,8 +1142,7 @@ pub(crate) fn profile_selection_from_flags(
     config: &cabin_config::EffectiveConfig,
 ) -> Result<cabin_core::ProfileSelection> {
     if let Some(name) = profile {
-        let pname = cabin_core::ProfileName::new(name.to_owned())
-            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let pname = cabin_core::ProfileName::new(name.to_owned())?;
         return Ok(cabin_core::ProfileSelection::from_name(pname));
     }
     if release {
@@ -1639,7 +1638,7 @@ pub(crate) fn compute_feature_resolution(
     let root_request: cabin_feature::RootFeatureRequest = request.into();
     let platform = cabin_core::TargetPlatform::current();
     cabin_feature::resolve_features(graph, &selection.packages, &root_request, &platform)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))
+        .map_err(anyhow::Error::from)
 }
 
 /// Pick the primary packages that contribute versioned
@@ -1665,19 +1664,51 @@ fn selected_resolution_packages(
 /// so member manifests with `dep = { workspace = true }` reach
 /// `cabin-package` after the workspace loader has substituted the
 /// inherited requirement.
-struct SinglePackageSelection {
-    manifest_path: PathBuf,
-    /// `Some` when the manifest was loaded through a workspace
-    /// (so `cabin-workspace` resolved any `workspace = true` deps).
-    /// `None` when the user passed a standalone manifest path; in
-    /// that case `cabin-package`'s own validator decides what to do
-    /// with any unresolved workspace dep it sees.
-    resolved_project: Option<cabin_core::Package>,
-    /// Raw `[workspace.<kind>-dependencies]` strings from the
-    /// workspace root, so archive staging can rewrite dependency
-    /// `{ workspace = true }` markers to the author's original
-    /// requirement spelling.  Empty for standalone manifests.
-    workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
+enum SinglePackageSelection {
+    /// The user passed a standalone manifest path; `cabin-package`'s
+    /// own validator decides what to do with any unresolved
+    /// workspace dep it sees.
+    Standalone { manifest_path: PathBuf },
+    /// The manifest was loaded through a workspace, so
+    /// `cabin-workspace` resolved any `workspace = true` deps into
+    /// `package`, and the raw `[workspace.<kind>-dependencies]`
+    /// strings from the workspace root travel alongside so archive
+    /// staging can rewrite dependency `{ workspace = true }` markers
+    /// to the author's original requirement spelling.
+    WorkspaceMember {
+        manifest_path: PathBuf,
+        // Boxed: `Package` dwarfs the `Standalone` variant
+        // (clippy::large_enum_variant).
+        package: Box<cabin_core::Package>,
+        workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
+    },
+}
+
+impl SinglePackageSelection {
+    /// Split into the (manifest path, loader-resolved package,
+    /// workspace requirement strings) triple the packaging APIs
+    /// consume.  Standalone manifests carry no workspace
+    /// requirements, so they contribute an empty table.
+    fn into_parts(
+        self,
+    ) -> (
+        PathBuf,
+        Option<cabin_core::Package>,
+        cabin_core::WorkspaceDepRequirements,
+    ) {
+        match self {
+            Self::Standalone { manifest_path } => (
+                manifest_path,
+                None,
+                cabin_core::WorkspaceDepRequirements::default(),
+            ),
+            Self::WorkspaceMember {
+                manifest_path,
+                package,
+                workspace_dep_requirements,
+            } => (manifest_path, Some(*package), workspace_dep_requirements),
+        }
+    }
 }
 
 fn select_single_package_manifest(
@@ -1700,10 +1731,8 @@ fn select_single_package_manifest(
                 "workspace package-selection flags are not valid for `cabin {command}` against a non-workspace manifest"
             );
         }
-        return Ok(SinglePackageSelection {
+        return Ok(SinglePackageSelection::Standalone {
             manifest_path: invocation.to_path_buf(),
-            resolved_project: None,
-            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         });
     }
     // The root manifest parse carries the original requirement
@@ -1742,9 +1771,9 @@ fn select_single_package_manifest(
     if !graph.primary_packages.contains(&idx) {
         bail!("package `{name}` is not a member of this workspace");
     }
-    Ok(SinglePackageSelection {
+    Ok(SinglePackageSelection::WorkspaceMember {
         manifest_path: graph.packages[idx].manifest_path.clone(),
-        resolved_project: Some(graph.packages[idx].package.clone()),
+        package: Box::new(graph.packages[idx].package.clone()),
         workspace_dep_requirements,
     })
 }
@@ -2053,26 +2082,43 @@ fn load_index_for_pipeline(
         (None, None) => {
             bail!("versioned dependencies require --index-path or --index-url")
         }
-        (Some(path), None) => {
-            let index_path = absolutise(path)
-                .with_context(|| format!("failed to resolve {}", path.display()))?;
-            let index = cabin_index::load_index(&index_path)
-                .with_context(|| format!("failed to load index at {}", index_path.display()))?;
-            Ok((index, IndexAccess::Local))
-        }
+        (Some(path), None) => Ok((load_local_index(path)?, IndexAccess::Local)),
         (None, Some(url)) => {
             if frozen {
                 bail!(
                     "cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache, so a frozen run would have to perform network fetches it is not allowed to perform"
                 );
             }
-            let client = cabin_index_http::HttpClient::new();
-            let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
-            let names: Vec<PackageName> = root_deps.keys().cloned().collect();
-            let index = http_index.load_package_index(&names)?;
+            let (index, client) = load_http_index(url, root_deps)?;
             Ok((index, IndexAccess::Http(client)))
         }
     }
+}
+
+/// Load a [`PackageIndex`] from a local directory, resolving the
+/// user-supplied path first so error messages name the absolute
+/// location.  Shared by the resolve pipeline and the fetch / build
+/// pipeline so the two paths cannot drift.
+fn load_local_index(path: &Path) -> Result<PackageIndex> {
+    let index_path =
+        absolutise(path).with_context(|| format!("failed to resolve {}", path.display()))?;
+    cabin_index::load_index(&index_path)
+        .with_context(|| format!("failed to load index at {}", index_path.display()))
+}
+
+/// Load a [`PackageIndex`] over sparse HTTP for the given root
+/// dependencies.  Returns the client alongside the index so the
+/// fetch / build pipeline can reuse the connection for downloads;
+/// the resolve pipeline discards it.
+fn load_http_index(
+    url: &str,
+    root_deps: &BTreeMap<PackageName, semver::VersionReq>,
+) -> Result<(PackageIndex, cabin_index_http::HttpClient)> {
+    let client = cabin_index_http::HttpClient::new();
+    let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
+    let names: Vec<PackageName> = root_deps.keys().cloned().collect();
+    let index = http_index.load_package_index(&names)?;
+    Ok((index, client))
 }
 
 /// Build a [`FetchPlan`] from a resolver output and the index it ran

@@ -11,9 +11,10 @@ use super::{
     ResolveFormat, Result, UpdateArgs, WorkspaceSelectionArgsForUpdate, absolutise, bail,
     build_selection_request, build_workspace_selection, cache_dir_for,
     closure_has_versioned_deps_excluding_patches, collect_closure_versioned_deps_excluding_patches,
-    collect_patched_versioned_deps, compute_feature_resolution, emit_fetch_output,
-    lock_mode_for_flags, lockfile_from_resolution, lockfile_path_for, merge_versioned_deps,
-    resolve_invocation_manifest, run_artifact_pipeline, selected_resolution_packages,
+    collect_patched_versioned_deps, compute_feature_resolution, emit_fetch_output, load_http_index,
+    load_local_index, lock_mode_for_flags, lockfile_from_resolution, lockfile_path_for,
+    merge_versioned_deps, resolve_invocation_manifest, run_artifact_pipeline,
+    selected_resolution_packages,
 };
 
 pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
@@ -102,15 +103,15 @@ pub(super) fn build_update_workspace_selection(
 
 pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let offline_pre = crate::cli::config::effective_offline(args.offline)?;
-    let fetch_selection = build_workspace_selection(&args.workspace_selection);
+    let offline = crate::cli::config::effective_offline(args.offline)?;
+    let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let (_port_sources, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
-        offline_pre,
+        offline,
         args.frozen,
         false,
-        &fetch_selection,
+        &workspace_selection,
         args.no_patches,
     )?;
     let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
@@ -120,7 +121,6 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     // validate the workspace selection up-front so a typo
     // like `--package missing` fails even when there are no
     // versioned deps to fetch.
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     // `cabin fetch` does not currently expose feature flags,
@@ -168,11 +168,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    let fetch_offline = crate::cli::config::effective_offline(args.offline)?;
-    crate::cli::config::enforce_offline_index_source(
-        fetch_offline,
-        resolved_index_source.as_ref(),
-    )?;
+    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
     let Some(index_source) = resolved_index_source.as_ref() else {
@@ -185,7 +181,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         &effective_config,
         args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
-        fetch_offline,
+        offline,
         args.locked,
         args.frozen,
         args.no_patches,
@@ -433,18 +429,11 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
                 "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
             )
         }
-        (Some(path), None) => {
-            let index_path = absolutise(path)
-                .with_context(|| format!("failed to resolve {}", path.display()))?;
-            cabin_index::load_index(&index_path)
-                .with_context(|| format!("failed to load index at {}", index_path.display()))?
-        }
-        (None, Some(url)) => {
-            let client = cabin_index_http::HttpClient::new();
-            let http_index = cabin_index_http::HttpIndex::open(url, client)?;
-            let names: Vec<PackageName> = root_deps.keys().cloned().collect();
-            http_index.load_package_index(&names)?
-        }
+        (Some(path), None) => load_local_index(path)?,
+        // The resolve pipeline performs no artifact downloads, so the
+        // HTTP client the helper returns for connection reuse is
+        // dropped here.
+        (None, Some(url)) => load_http_index(url, &root_deps)?.0,
         (Some(_), Some(_)) => {
             unreachable!("cli::config::resolve_index_source guarantees only one variant is set")
         }
@@ -525,7 +514,11 @@ fn print_resolve_human(output: &ResolveOutput) -> Result<()> {
         .packages
         .iter()
         .find(|p| p.source == ResolvedSource::Root)
-        .ok_or_else(|| anyhow::anyhow!("resolver output is missing a root package"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "failed to render human resolve output: resolver output is missing a root package"
+            )
+        })?;
     println!(
         "Resolved dependencies for {} {}:",
         root.name.as_str(),
@@ -552,7 +545,11 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
         .packages
         .iter()
         .find(|p| p.source == ResolvedSource::Root)
-        .ok_or_else(|| anyhow::anyhow!("resolver output is missing a root package"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "failed to render JSON resolve output: resolver output is missing a root package"
+            )
+        })?;
     let json_root = serde_json::json!({
         "name": root.name.as_str(),
         "version": root.version.to_string(),

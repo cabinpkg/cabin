@@ -216,8 +216,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
 
     let manifest_profiles = crate::cli::workspace_profile_definitions(&graph);
     let profile_selection = cabin_core::ProfileSelection::default_dev();
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
 
     // Detect before resolving flags so `cfg(cc/cxx = ...)` profile
     // layers observe the same identities the build commands use, and

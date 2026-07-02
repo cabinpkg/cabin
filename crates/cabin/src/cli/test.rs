@@ -149,14 +149,14 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     // selected test runners; ports referenced from any
     // workspace member's dev-deps must therefore participate in
     // discovery so the second-pass loader can resolve them.
-    let test_selection = build_workspace_selection(&args.workspace_selection);
+    let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
         args.frozen,
         true,
-        &test_selection,
+        &workspace_selection,
         args.no_patches,
     )?;
     crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
@@ -169,11 +169,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
-    let workspace_selection_for_pipeline = build_workspace_selection(&args.workspace_selection);
-    let initial_resolved_selection = cabin_workspace::resolve_package_selection(
-        &initial_graph,
-        &workspace_selection_for_pipeline,
-    )?;
+    let initial_resolved_selection =
+        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
 
     let initial_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
@@ -240,7 +237,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             frozen: args.frozen,
             cache_dir: &inputs.cache_dir,
             reporter,
-            selection: workspace_selection_for_pipeline,
+            selection: workspace_selection,
             selection_request: &initial_request,
             patched_names: &patched_names,
             active_patches: &active_patches,
@@ -343,8 +340,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let profile_selection =
         profile_selection_from_flags(args.profile.as_deref(), args.release, &effective_config)?;
     let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
 
     // The MSVC backend cannot consume pkg-config's GNU-style flags;
     // reject a test build that would need them before probing.  Scoped to

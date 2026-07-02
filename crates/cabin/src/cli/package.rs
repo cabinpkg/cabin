@@ -5,17 +5,18 @@ use super::{
 
 pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let target =
-        select_single_package_manifest(&manifest_path, &args.workspace_selection, "package")?;
+    let (manifest_path, resolved_project, workspace_dep_requirements) =
+        select_single_package_manifest(&manifest_path, &args.workspace_selection, "package")?
+            .into_parts();
     let output_dir = absolutise(&args.output_dir)
         .with_context(|| format!("failed to resolve {}", args.output_dir.display()))?;
     let artifact = cabin_package::package_with_project(
         cabin_package::PackageRequest {
-            manifest_path: &target.manifest_path,
+            manifest_path: &manifest_path,
             output_dir: &output_dir,
         },
-        target.resolved_project,
-        &target.workspace_dep_requirements,
+        resolved_project,
+        &workspace_dep_requirements,
     )?;
     emit_package_output(&artifact, args.format)?;
     Ok(())
@@ -30,8 +31,9 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
     }
 
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let target =
-        select_single_package_manifest(&manifest_path, &args.workspace_selection, "publish")?;
+    let (manifest_path, resolved_project, workspace_dep_requirements) =
+        select_single_package_manifest(&manifest_path, &args.workspace_selection, "publish")?
+            .into_parts();
 
     match (args.registry_dir.as_deref(), args.dry_run) {
         (Some(registry_dir), true) => {
@@ -39,10 +41,10 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
             let report = cabin_publish::dry_run_against_file_registry(
                 cabin_publish::RegistryPublishWorkflow {
-                    manifest_path: &target.manifest_path,
+                    manifest_path: &manifest_path,
                     registry_dir: &registry_dir,
-                    resolved_project: target.resolved_project.clone(),
-                    workspace_dep_requirements: target.workspace_dep_requirements.clone(),
+                    resolved_project,
+                    workspace_dep_requirements,
                 },
             )?;
             emit_registry_publish_output(&report, args.format)?;
@@ -52,10 +54,10 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
             let report =
                 cabin_publish::publish_to_file_registry(cabin_publish::RegistryPublishWorkflow {
-                    manifest_path: &target.manifest_path,
+                    manifest_path: &manifest_path,
                     registry_dir: &registry_dir,
-                    resolved_project: target.resolved_project.clone(),
-                    workspace_dep_requirements: target.workspace_dep_requirements.clone(),
+                    resolved_project,
+                    workspace_dep_requirements,
                 })?;
             emit_registry_publish_output(&report, args.format)?;
         }
@@ -67,10 +69,10 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
             let output_dir = absolutise(&output_dir)
                 .with_context(|| format!("failed to resolve {}", output_dir.display()))?;
             let report = cabin_publish::dry_run(cabin_publish::DryRunRequest {
-                manifest_path: &target.manifest_path,
+                manifest_path: &manifest_path,
                 output_dir: &output_dir,
-                resolved_project: target.resolved_project.clone(),
-                workspace_dep_requirements: target.workspace_dep_requirements.clone(),
+                resolved_project,
+                workspace_dep_requirements,
             })?;
             emit_dry_run_output(&report, args.format)?;
         }

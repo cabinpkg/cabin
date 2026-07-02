@@ -714,8 +714,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile_selection =
         profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
     let host_platform = cabin_core::TargetPlatform::current();
     let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
     let toolchain = resolve_toolchain_layered(

@@ -24,7 +24,6 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let build_dir = absolutise(&build_dir_input)
         .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
 
-    let workspace_root = graph.root_dir.clone();
     let package_roots: Vec<PathBuf> = graph
         .packages
         .iter()
@@ -41,8 +40,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     let profile_selection =
         profile_selection_from_flags(args.profile.as_deref(), args.release, &effective_config)?;
     let manifest_profiles = workspace_profile_definitions(&graph);
-    let resolved_profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let resolved_profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
     let profile_was_chosen = args.profile.is_some() || args.release;
 
     let scope = if selected_explicitly {
@@ -65,7 +63,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
 
     let plan = plan_clean(&CleanRequest {
         build_dir: &build_dir,
-        workspace_root: &workspace_root,
+        workspace_root: &graph.root_dir,
         package_roots: &package_roots,
         protected_source_paths: &protected_source_paths,
         scope,
