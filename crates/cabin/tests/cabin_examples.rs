@@ -492,6 +492,24 @@ fn catch2_usage_runs_tests() {
     }
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn nlohmann_json_usage_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("nlohmann-json-usage");
+    run_port_build_then_run(&PortBuildRun {
+        label: "nlohmann-json-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "json parsed name: Cabin",
+            "json parsed answer: 42",
+            "nlohmann_json version: 3.12.0",
+        ],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

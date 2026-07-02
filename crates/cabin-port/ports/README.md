@@ -73,6 +73,8 @@ entry.
   only, no gtest_main / GoogleMock), version 1.17.0.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
   on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
+- [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
+  3.12.0.
 - [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),
   version 1.17.0.
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine

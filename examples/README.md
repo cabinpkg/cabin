@@ -33,6 +33,7 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`spdlog-usage/`](spdlog-usage) | Consuming the curated spdlog header-only C++ foundation port from [`crates/cabin-port/ports/spdlog/`](../crates/cabin-port/ports/spdlog). |
 | [`googletest-usage/`](googletest-usage) | A `test` target linking the curated GoogleTest foundation port from [`crates/cabin-port/ports/googletest/`](../crates/cabin-port/ports/googletest), run with `cabin test`. |
 | [`catch2-usage/`](catch2-usage) | A `test` target linking the curated Catch2 foundation port (amalgamation, port-supplied `main`) from [`crates/cabin-port/ports/catch2/`](../crates/cabin-port/ports/catch2), run with `cabin test`. |
+| [`nlohmann-json-usage/`](nlohmann-json-usage) | Consuming the curated header-only nlohmann_json foundation port from [`crates/cabin-port/ports/nlohmann_json/`](../crates/cabin-port/ports/nlohmann_json). |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
