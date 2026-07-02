@@ -1,0 +1,31 @@
+[package]
+name = "catch2"
+version = "3.15.1"
+
+# Catch2 is consumed through its upstream-published amalgamation
+# (extras/catch_amalgamated.cpp + .hpp): the split src/catch2/ tree
+# needs a CMake-generated catch_user_config.hpp, which is exactly
+# the configure step foundation ports never run. Consumers include
+# <catch_amalgamated.hpp> instead of the split <catch2/...> headers.
+#
+# The amalgamated TU also carries Catch2's default main(), so a
+# plain test target only defines TEST_CASEs. A consumer that wants
+# its own entry point enables the `custom-main` feature, which
+# compiles the port with CATCH_AMALGAMATED_CUSTOM_MAIN so the two
+# mains cannot collide at link time (the whole port is one archive
+# member; the linker cannot drop just its main).
+[features]
+default = []
+custom-main = []
+
+[target.catch2]
+type = "library"
+sources = ["extras/catch_amalgamated.cpp"]
+include-dirs = ["extras"]
+# Upstream publishes a C++14 interface requirement
+# (target_compile_features(Catch2 PUBLIC cxx_std_14)); declaring it
+# keeps Cabin's c++17 fallback from rejecting valid c++14 consumers.
+interface-cxx-standard = "c++14"
+
+[target.'cfg(feature = "custom-main")'.profile]
+defines = ["CATCH_AMALGAMATED_CUSTOM_MAIN"]
