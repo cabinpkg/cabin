@@ -816,6 +816,38 @@ exclude = ["packages/skipme"]
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn excluded_symlinked_member_stays_relative() {
+    // A member that is a symlink pointing outside the workspace
+    // root canonicalizes to a path `strip_prefix(root)` cannot
+    // relativize.  `excluded_members` must still surface the
+    // relative path as spelled, per its documented contract.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/*"]
+exclude = ["packages/linked"]
+"#,
+        )
+        .unwrap();
+    dir.child("packages/keep/cabin.toml")
+        .write_str("[package]\nname = \"keep\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    let external = TempDir::new().unwrap();
+    external
+        .child("cabin.toml")
+        .write_str("[package]\nname = \"linked\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    std::os::unix::fs::symlink(external.path(), dir.path().join("packages/linked")).unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    assert_eq!(
+        graph.excluded_members,
+        vec![std::path::PathBuf::from("packages/linked")]
+    );
+}
+
 #[test]
 fn unused_exclude_pattern_errors() {
     let dir = TempDir::new().unwrap();

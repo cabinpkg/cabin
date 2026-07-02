@@ -68,11 +68,15 @@ pub(super) fn expand_workspace_members(
             };
             if included.remove(&canonical_dir) {
                 hit_any = true;
-                if let Ok(rel) = canonical_dir.strip_prefix(&canonical_root) {
-                    excluded.insert(rel.to_path_buf());
-                } else {
-                    excluded.insert(canonical_dir.clone());
-                }
+                // A symlinked member canonicalizes outside the
+                // workspace root; fall back to the matched path as
+                // spelled under the root so `excluded_members`
+                // stays relative, as its docs promise.
+                let rel = canonical_dir
+                    .strip_prefix(&canonical_root)
+                    .or_else(|_| dir.strip_prefix(workspace_dir))
+                    .map_or_else(|_| canonical_dir.clone(), Path::to_path_buf);
+                excluded.insert(rel);
             }
         }
         if !hit_any {
