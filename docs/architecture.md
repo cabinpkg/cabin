@@ -1391,16 +1391,15 @@ The following are *not* part of this repository today:
   / MSVC itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the
   `cabin-driver` crate lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the
   detection and dialect sections above.)
-- **No resolver-side language-standard filtering, workspace-level standard defaults, or GNU
-  dialects.** First-class C/C++ language standards are implemented locally (manifest fields, dialect
-  lowering, pre-build validation, interface enforcement, fingerprint / metadata - see
-  [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, there
-  is no `[workspace]` tier, `gnu11` / `gnu++20` spellings and the MSVC `/std:c++latest` /
-  `/std:clatest` spellings are reachable only through the `cflags` / `cxxflags` escape hatch on
-  packages that declare no first-class standard, and `c++26` is deferred pending a threshold audit.
-  The `/std:c++latest` / `/std:clatest` spellings are intentionally never mapped as first-class
-  standards - they float to the compiler's newest in-progress draft, so the escape hatch is their
-  only supported route.
+- **No resolver-side language-standard filtering.** First-class C/C++ language standards are
+  implemented locally (manifest fields, `[workspace]` defaults, GNU dialects, dialect lowering,
+  pre-build validation, interface enforcement, fingerprint / metadata - see
+  [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, the
+  MSVC `/std:c++latest` / `/std:clatest` spellings are reachable only through the `cflags` /
+  `cxxflags` escape hatch on packages that declare no first-class standard, and `c++26` is deferred
+  pending a threshold audit.  The `/std:c++latest` / `/std:clatest` spellings are intentionally
+  never mapped as first-class standards - they float to the compiler's newest in-progress draft, so
+  the escape hatch is their only supported route.
 - **No workspace-level profile or toolchain overrides beyond the documented root-owned settings.**
   Member manifests cannot carry root-only build policy, and workspace-level profile/toolchain
   expansion beyond the current model is out of scope.
