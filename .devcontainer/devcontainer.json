@@ -1,0 +1,8 @@
+{
+	"name": "cabin",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+	"features": {
+		"ghcr.io/devcontainers/features/rust:1": {}
+	},
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential clang lld ninja-build pkg-config"
+}
