@@ -177,6 +177,41 @@ fn library_and_app_builds_and_runs() {
 }
 
 #[test]
+fn header_only_lib_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("header-only-lib");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    // Both lines require code compiled against the `header-only`
+    // target's include dir; the target itself contributes no archive
+    // to the link, so a passing run proves the graph-only edge.
+    for expected in [
+        "circle area (r = 2): 12.57",
+        "rectangle area (3 x 4): 12.00",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "header-only-lib run: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+#[test]
 fn workspace_basic_builds_workspace() {
     require_cxx_build_tools();
     let dir = copy_example("workspace-basic");
@@ -676,6 +711,164 @@ int main(int argc, char* argv[]) {
     assert!(
         stdout.contains("test result: ok. 1 passed; 0 failed;"),
         "catch2-usage custom-main test: stdout = {stdout}"
+    );
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn cli_with_spdlog_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("cli-with-spdlog");
+    // `cabin run` passes no flags, so the printed lines are the CLI11
+    // defaults; the `[info]` line proves spdlog's sink ran, and the
+    // external-fmt version line proves SPDLOG_FMT_EXTERNAL compiled
+    // spdlog against the fmt port instead of its bundled copy.
+    run_port_build_then_run(&PortBuildRun {
+        label: "cli-with-spdlog",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "[info] preparing 2 greeting(s) for Cabin",
+            "1/2: Hello, Cabin!",
+            "2/2: Hello, Cabin!",
+            "spdlog version: 1.17.0",
+            "fmt version (external): 120200",
+        ],
+    });
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn unit_test_gtest_runs_tests() {
+    require_cxx_build_tools();
+    let dir = copy_example("unit-test-gtest");
+    // `cabin test` prepares the port, builds the `stats` library and
+    // the gtest target against it, and runs the produced binary; the
+    // TEST_F/TEST cases (fixture, value, and exception assertions)
+    // all pass inside the single target run.
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    for expected in [
+        "test unit-test-gtest:stats_gtest ... ok",
+        "test result: ok. 1 passed; 0 failed;",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "unit-test-gtest test: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn json_cli_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("json-cli");
+    // The summary line proves the full round trip: parse, typed
+    // reads, and re-serialization (nlohmann::json keeps object keys
+    // sorted, so the dump is deterministic).
+    run_port_build_then_run(&PortBuildRun {
+        label: "json-cli",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "package: json-cli v0.1.0",
+            "dependency count: 3",
+            r#"summary: {"deps":["fmt","spdlog","sqlite3"],"name":"json-cli"}"#,
+        ],
+    });
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn sqlite_todo_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("sqlite-todo");
+    // The listing proves the whole in-memory session ran: DDL and
+    // DML through sqlite3_exec (including the UPDATE that checks off
+    // todo #1), then a prepare/step/finalize SELECT loop.
+    run_port_build_then_run(&PortBuildRun {
+        label: "sqlite-todo",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "[x] #1 write the manifest",
+            "[ ] #2 add a lockfile",
+            "[ ] #3 ship v0.1.0",
+            "open todos: 2",
+        ],
+    });
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn png_info_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("png-info");
+    // The matching roundtrip proves real DEFLATE data flowed through
+    // the transitive libpng -> zlib port edge in both directions;
+    // the encoded byte count varies with zlib, so it stays
+    // unasserted.
+    run_port_build_then_run(&PortBuildRun {
+        label: "png-info",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &[
+            "png-info: 2x2, 4 channel(s)",
+            "roundtrip pixels match: yes",
+            "libpng version: 1.6.50",
+            "zlib version (transitive port edge): 1.3",
+        ],
+    });
+}
+
+#[test]
+#[ignore = "requires external network"]
+fn workspace_app_and_lib_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("workspace-app-and-lib");
+    cabin()
+        .args(["build", "--workspace", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    // `default-members = ["packages/app"]` selects the app without
+    // `-p`. The fmt-formatted greeting proves the port's headers and
+    // archive reached `app` transitively through the internal
+    // `greeter` path dependency.
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("Hello, Cabin! (formatted by fmt 120200)"),
+        "workspace-app-and-lib run: stdout = {stdout}"
     );
 }
 

@@ -1,0 +1,11 @@
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+greeter = { path = "../greeter" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["greeter"]

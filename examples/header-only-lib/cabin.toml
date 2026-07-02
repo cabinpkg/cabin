@@ -1,0 +1,17 @@
+[package]
+name = "header-only-lib"
+version = "0.1.0"
+
+# A `header-only` target ships include-dirs and no compiled objects;
+# declaring `sources` on one is rejected at manifest-load time. Its
+# include-dirs propagate (transitively) to every dependent target -
+# the same mechanism curated header-only ports such as nlohmann_json,
+# CLI11, and stb are built on.
+[target.geometry]
+type = "header-only"
+include-dirs = ["include"]
+
+[target.header-only-lib]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["geometry"]

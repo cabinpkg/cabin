@@ -1,0 +1,11 @@
+[package]
+name = "json-cli"
+version = "0.1.0"
+
+[dependencies]
+nlohmann_json = { port = true, version = "^3.12" }
+
+[target.json-cli]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["nlohmann_json"]
