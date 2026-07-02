@@ -27,11 +27,12 @@ const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 /// is capped independently of the byte caps.
 const MAX_ENTRIES: usize = 10_000;
 
-/// Options accepted by [`safe_extract_tar_gz`].
+/// Options accepted by [`safe_extract_tar_gz`] and
+/// [`safe_extract_zip`].
 ///
 /// `Default` produces the original artifact-layer behavior: no
-/// prefix stripping, archive is expected to contain `cabin.toml`
-/// at its root.
+/// prefix stripping, symlink entries rejected, archive is expected
+/// to contain `cabin.toml` at its root.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SafeExtractOptions<'a> {
     /// If `Some`, every archive entry must start with this single
@@ -45,6 +46,18 @@ pub struct SafeExtractOptions<'a> {
     /// with `strip_prefix` produces
     /// [`ArtifactError::MissingStripPrefix`].
     pub strip_prefix: Option<&'a str>,
+    /// If `true`, symlink entries are silently skipped instead of
+    /// failing the extraction.  Nothing is ever materialized on
+    /// disk for a skipped entry, so the traversal-safety posture
+    /// is unchanged; the option only decides between "refuse the
+    /// whole archive" (default, right for Cabin-produced package
+    /// archives, which never contain symlinks) and "extract
+    /// everything else" (used for foundation-port upstream
+    /// archives, where a stray convenience symlink like uthash's
+    /// `include -> src` is common and never referenced by the
+    /// overlay).  Every other special entry type (hard links,
+    /// devices, fifos, ...) is still rejected.
+    pub skip_symlinks: bool,
 }
 
 /// Safely extract a `.zip` archive into `dest`, with caller-
@@ -133,9 +146,14 @@ fn safe_extract_zip_with_limits(
         // bits travel in the external attributes when the archive
         // was produced on a Unix host.  Reject anything that is
         // recorded as neither a regular file nor a directory
-        // (symlinks foremost), mirroring the tar entry-type policy.
+        // (symlinks foremost), mirroring the tar entry-type policy;
+        // symlinks alone may instead be skipped when the caller
+        // opted in (nothing is materialized either way).
         if let Some(mode) = entry.unix_mode() {
             let file_type = mode & 0o170_000;
+            if file_type == 0o120_000 && options.skip_symlinks {
+                continue;
+            }
             if file_type != 0 && file_type != 0o100_000 && file_type != 0o040_000 {
                 return Err(ArtifactError::UnsupportedArchiveEntry(display));
             }
@@ -345,6 +363,11 @@ fn safe_extract_tar_gz_with_limits(
             continue;
         };
 
+        // A skipped symlink materializes nothing; every other
+        // special type still fails inside `write_entry`.
+        if entry_kind == tar::EntryType::Symlink && options.skip_symlinks {
+            continue;
+        }
         write_entry(
             &mut entry,
             entry_kind,
@@ -756,6 +779,139 @@ mod tests {
     }
 
     #[test]
+    fn skip_symlinks_extracts_rest_of_tarball() {
+        // An upstream tarball with a convenience symlink (uthash's
+        // `include -> src` shape): with `skip_symlinks` the symlink
+        // entry is skipped without materializing anything and every
+        // regular entry still extracts.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("upstream.tar.gz");
+        let f = File::create(archive.path()).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        {
+            let body = b"#define UT_OK 1\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(
+                    &mut header,
+                    "uthash-2.4.0/src/uthash.h",
+                    &mut std::io::Cursor::new(&body[..]),
+                )
+                .unwrap();
+        }
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_link_name("src").unwrap();
+            header.set_cksum();
+            builder
+                .append_data(
+                    &mut header,
+                    "uthash-2.4.0/include",
+                    &mut std::io::Cursor::new(b""),
+                )
+                .unwrap();
+        }
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        // Default policy still refuses the archive outright.
+        let err = safe_extract_tar_gz(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("uthash-2.4.0"),
+                ..SafeExtractOptions::default()
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsupportedArchiveEntry(_)),
+            "{err:?}"
+        );
+        // Opting in skips the symlink and extracts the rest.
+        safe_extract_tar_gz(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                strip_prefix: Some("uthash-2.4.0"),
+                skip_symlinks: true,
+            },
+        )
+        .unwrap();
+        dest.child("src/uthash.h")
+            .assert(predicate::path::is_file());
+        dest.child("include").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn skip_symlinks_still_rejects_hard_links() {
+        // The opt-in is symlink-specific: every other special entry
+        // type keeps failing the extraction.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bad.tar.gz");
+        make_archive_with_raw_name(
+            archive.path(),
+            "alias",
+            tar::EntryType::Link,
+            Some("cabin.toml"),
+            b"",
+        );
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_tar_gz(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                skip_symlinks: true,
+                ..SafeExtractOptions::default()
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsupportedArchiveEntry(_)),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn zip_skip_symlinks_extracts_rest_of_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("upstream.zip");
+        let f = File::create(archive.path()).unwrap();
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer.start_file("src/ok.h", options).unwrap();
+        writer.write_all(b"#define OK 1\n").unwrap();
+        writer.add_symlink("include", "src", options).unwrap();
+        writer.finish().unwrap().flush().unwrap();
+
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        safe_extract_zip(
+            archive.path(),
+            dest.path(),
+            SafeExtractOptions {
+                skip_symlinks: true,
+                ..SafeExtractOptions::default()
+            },
+        )
+        .unwrap();
+        dest.child("src/ok.h").assert(predicate::path::is_file());
+        dest.child("include").assert(predicate::path::missing());
+    }
+
+    #[test]
     fn validate_extracted_accepts_matching_manifest() {
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
@@ -937,6 +1093,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap();
@@ -973,6 +1130,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap();
@@ -1025,6 +1183,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap();
@@ -1076,6 +1235,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap();
@@ -1094,6 +1254,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap_err();
@@ -1124,6 +1285,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap_err();
@@ -1153,6 +1315,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("zlib-1.3.1"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap_err();
@@ -1436,6 +1599,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("miniz-3.1.2"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap();
@@ -1456,6 +1620,7 @@ mod tests {
             dest.path(),
             SafeExtractOptions {
                 strip_prefix: Some("miniz-3.1.2"),
+                ..SafeExtractOptions::default()
             },
         )
         .unwrap_err();
