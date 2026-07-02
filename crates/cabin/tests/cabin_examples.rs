@@ -580,6 +580,22 @@ fn uthash_usage_builds_and_runs() {
     });
 }
 
+#[test]
+#[ignore = "requires external network"]
+fn inih_usage_builds_and_runs() {
+    require_c_and_cxx_build_tools();
+    let dir = copy_example("inih-usage");
+    // The two parsed values prove ini.c's handler dispatch linked
+    // and ran from the port archive.
+    run_port_build_then_run(&PortBuildRun {
+        label: "inih-usage",
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        expected_stdout: &["inih parsed name: Cabin", "inih parsed port: 8080"],
+    });
+}
+
 /// End-to-end proof that the `custom-main` feature flows to the
 /// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's

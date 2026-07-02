@@ -1,0 +1,15 @@
+[package]
+name = "inih"
+version = "62.0.0"
+
+# inih's C core is a single translation unit: ini.c plus the ini.h
+# header at the archive root. The cpp/ directory's INIReader is a
+# separate, optional C++ convenience API and is intentionally not
+# built - consumers wanting it can vendor it. The library compiles
+# with a strict C compiler using its in-header defaults (INI_API
+# expands to nothing for static builds) and needs no defines or
+# extra link libraries.
+[target.inih]
+type = "library"
+sources = ["ini.c"]
+include-dirs = ["."]
