@@ -430,6 +430,38 @@ fn spdlog_usage_builds_and_runs() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn googletest_usage_runs_tests() {
+    require_cxx_build_tools();
+    let dir = copy_example("googletest-usage");
+    // `cabin test` prepares the port, builds the test target against
+    // it, and runs the produced binary; the port ships no gtest_main,
+    // so the passing run also proves the example's own `main` linked
+    // against the port archive.
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    for expected in [
+        "test googletest-usage:calc_gtest ... ok",
+        "test result: ok. 1 passed; 0 failed;",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "googletest-usage test: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
