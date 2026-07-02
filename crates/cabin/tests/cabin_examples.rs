@@ -462,6 +462,100 @@ fn googletest_usage_runs_tests() {
 }
 
 #[test]
+#[ignore = "requires external network"]
+fn catch2_usage_runs_tests() {
+    require_cxx_build_tools();
+    let dir = copy_example("catch2-usage");
+    // `cabin test` prepares the port, builds the test target, and
+    // runs it; the passing run proves the amalgamated TU's default
+    // main() drove the TEST_CASEs (the test source defines no main).
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    for expected in [
+        "test catch2-usage:calc_catch2 ... ok",
+        "test result: ok. 1 passed; 0 failed;",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "catch2-usage test: missing `{expected}`; stdout = {stdout}"
+        );
+    }
+}
+
+/// End-to-end proof that the `custom-main` feature flows to the
+/// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
+/// amalgamation compiles out its default main(), so the consumer's
+/// own entry point links without a duplicate-symbol error and drives
+/// the TEST_CASEs through Catch::Session.
+#[test]
+#[ignore = "requires external network"]
+fn catch2_custom_main_feature_links_consumer_main() {
+    require_cxx_build_tools();
+    let dir = copy_example("catch2-usage");
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "catch2-usage"
+version = "0.1.0"
+
+[dependencies]
+catch2 = { port = true, version = "^3.15", features = ["custom-main"] }
+
+[target.calc]
+type = "library"
+sources = ["src/calc.cc"]
+include-dirs = ["include"]
+
+[target.calc_catch2]
+type = "test"
+sources = ["tests/calc_catch2.cc"]
+deps = ["calc", "catch2"]
+"#,
+        )
+        .unwrap();
+    dir.child("tests/calc_catch2.cc")
+        .write_str(
+            r#"#include <catch_amalgamated.hpp>
+
+#include "calc.h"
+
+TEST_CASE("triple scales integers") { REQUIRE(triple(2) == 6); }
+
+int main(int argc, char* argv[]) {
+    return Catch::Session().run(argc, argv);
+}
+"#,
+        )
+        .unwrap();
+    let output = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("test result: ok. 1 passed; 0 failed;"),
+        "catch2-usage custom-main test: stdout = {stdout}"
+    );
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
