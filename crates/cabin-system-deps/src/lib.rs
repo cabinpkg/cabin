@@ -594,11 +594,12 @@ fn build_constraints(
                 had_constraint: false,
             });
         }
-        // We require at least an operator and a version, or
-        // a single token that pkg-config itself can interpret.
-        // Treat the operator-less single token as
-        // unsupported because pkg-config will reject it too.
-        if split.len() == 1 && !looks_like_pkg_config_operator(split[0]) {
+        // We require at least an operator and a version.  A single
+        // token can never carry both (glued forms like `>=1.2`
+        // parse as SemVer above), so whether it is a bare version
+        // or a bare operator, pkg-config would misread it - reject
+        // it here with a typed error instead.
+        if split.len() == 1 {
             return Err(PkgConfigError::InvalidVersionRequirement {
                 name: name.to_owned(),
                 requirement: requirement.to_owned(),
@@ -614,10 +615,6 @@ fn build_constraints(
             had_constraint: true,
         })
     }
-}
-
-fn looks_like_pkg_config_operator(tok: &str) -> bool {
-    matches!(tok, "=" | "!=" | "<" | ">" | "<=" | ">=")
 }
 
 /// Convert a Cabin / npm-flavored `SemVer` requirement into a
@@ -1222,6 +1219,22 @@ mod tests {
             PkgConfigError::InvalidVersionRequirement { name, requirement } => {
                 assert_eq!(name, "openssl");
                 assert_eq!(requirement, "weird-token");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_constraints_rejects_operator_only_requirement() {
+        // A bare operator has no version to compare against;
+        // forwarding it would hand pkg-config a malformed module
+        // list, so it is rejected up front.
+        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
+        let err = build_constraints("openssl", ">=", tool.executable()).unwrap_err();
+        match err {
+            PkgConfigError::InvalidVersionRequirement { name, requirement } => {
+                assert_eq!(name, "openssl");
+                assert_eq!(requirement, ">=");
             }
             other => panic!("unexpected error: {other:?}"),
         }

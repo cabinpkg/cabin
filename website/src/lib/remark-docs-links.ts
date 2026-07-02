@@ -22,7 +22,12 @@ interface MarkdownNode {
 // `//`, a root-relative `/`, or an in-page `#`.  Those targets must not be
 // rewritten.
 const EXTERNAL_OR_ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/|#)/i;
-const MARKDOWN_TARGET = /^(.+?)\.md(#.*)?$/;
+// Only bare sibling-file targets (`manifest.md`, `manifest.md#x`) are
+// rewritten.  A target with a directory component (`../manifest.md`,
+// `guides/x.md`) has no `/docs/<name>/` route; leaving it untouched
+// lets `verify:docs-links` report the author's original target instead
+// of a mangled rewrite like `/docs/../manifest/`.
+const MARKDOWN_TARGET = /^([^/]+?)\.md(#.*)?$/;
 
 export function remarkDocsLinks() {
     return (tree: MarkdownNode): void => {

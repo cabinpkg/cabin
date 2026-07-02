@@ -163,7 +163,9 @@ fn builtin_port_dep_from_table(
     // port's overlay can declare `[features]`, and the
     // feature resolver threads per-edge requests onto
     // the prepared port package like a path dep.
-    if optional.is_some() {
+    // `optional = false` is the default and is treated as
+    // if the field were absent, like `workspace = false`.
+    if optional == Some(true) {
         return Err(ManifestError::PortDependencyUnsupportedOption {
             name: name.to_owned(),
             conflicting: "optional",
@@ -223,7 +225,9 @@ fn path_port_dep_from_table(
             conflicting: "workspace",
         });
     }
-    if optional.is_some() {
+    // `optional = false` is the default and is treated as
+    // if the field were absent, like `workspace = false`.
+    if optional == Some(true) {
         return Err(ManifestError::PortDependencyUnsupportedOption {
             name: name.to_owned(),
             conflicting: "optional",

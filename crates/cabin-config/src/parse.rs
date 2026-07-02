@@ -407,10 +407,12 @@ pub fn redact_userinfo(raw: &str) -> String {
 /// cheap structural lookahead so callers can pair it with a
 /// context-specific error variant.
 pub fn url_contains_credentials(raw: &str) -> bool {
-    if let Some(rest) = raw.split_once("://").map(|(_, rest)| rest)
-        && let Some(authority) = rest.split('/').next()
-    {
-        return authority.contains('@');
+    if let Some(rest) = raw.split_once("://").map(|(_, rest)| rest) {
+        // The authority ends at the first `/`, `?`, or `#`, same as
+        // `redact_userinfo`; an `@` in a query or fragment is not
+        // userinfo.
+        let auth_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        return rest[..auth_end].contains('@');
     }
     false
 }
@@ -532,6 +534,22 @@ mod tests {
         );
         // Garbage with no scheme → unchanged.
         assert_eq!(redact_userinfo("not a url"), "not a url");
+    }
+
+    #[test]
+    fn url_contains_credentials_checks_only_the_authority() {
+        assert!(url_contains_credentials("https://user:pass@example.com"));
+        assert!(url_contains_credentials("https://user@example.com?q=1"));
+        assert!(!url_contains_credentials("https://example.com/index"));
+        // An `@` in the query or fragment is not userinfo, even
+        // when the URL has no path component.
+        assert!(!url_contains_credentials(
+            "https://example.com?token=user@domain.com"
+        ));
+        assert!(!url_contains_credentials("https://example.com#a@b"));
+        assert!(!url_contains_credentials(
+            "https://example.com/path?token=a@b"
+        ));
     }
 
     #[test]

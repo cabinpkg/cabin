@@ -57,7 +57,7 @@ pub(crate) fn atomically_write(path: &Path, body: &[u8]) -> Result<(), NinjaErro
 ///
 /// # Errors
 /// Returns [`NinjaError::PathHasNewline`] when a path token contains a
-/// newline, [`NinjaError::ValueHasNewline`] when a command or
+/// newline or carriage return, [`NinjaError::ValueHasNewline`] when a command or
 /// description value contains a newline or carriage return, and
 /// [`NinjaError::UnquotableArgument`] when a command argument cannot be
 /// shell-quoted.
@@ -240,9 +240,10 @@ fn write_var(out: &mut String, key: &str, value: &str) -> Result<(), NinjaError>
 ///
 /// In token positions, Ninja recognizes `$$` for a literal `$`, `$ ` for a
 /// literal space, and `$:` for a literal colon.  A literal newline cannot be
-/// represented and is rejected.
+/// represented and is rejected; a lone carriage return has no escape either
+/// and trips Ninja's lexer ("lexing error"), so it is rejected the same way.
 pub(crate) fn escape_path(s: &str) -> Result<String, NinjaError> {
-    if s.contains('\n') {
+    if s.contains('\n') || s.contains('\r') {
         return Err(NinjaError::PathHasNewline(s.into()));
     }
     let mut out = String::with_capacity(s.len());
@@ -637,6 +638,7 @@ mod tests {
         assert_eq!(escape_path("with$dollar").unwrap(), "with$$dollar");
         assert_eq!(escape_path("foo:bar").unwrap(), "foo$:bar");
         assert!(escape_path("with\nnewline").is_err());
+        assert!(escape_path("with\rcarriage-return").is_err());
     }
 
     #[test]
