@@ -1,0 +1,11 @@
+[package]
+name = "spdlog-usage"
+version = "0.1.0"
+
+[dependencies]
+spdlog = { port = true, version = "^1.17" }
+
+[target.spdlog-usage]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["spdlog"]

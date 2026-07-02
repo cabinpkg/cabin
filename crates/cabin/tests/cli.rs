@@ -2559,3 +2559,6 @@ mod foundation_port_libpng;
 
 #[path = "cli/foundation_port_fmt.rs"]
 mod foundation_port_fmt;
+
+#[path = "cli/foundation_port_spdlog.rs"]
+mod foundation_port_spdlog;
