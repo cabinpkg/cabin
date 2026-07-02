@@ -64,6 +64,13 @@ fn fmt_overlay_declares_single_cxx_library_target() {
         overlay.contains("sources = [\"src/format.cc\", \"src/os.cc\"]"),
         "overlay: {overlay}"
     );
+    // Upstream's public interface requirement is C++11; without the
+    // explicit declaration Cabin would impose the c++17 default on
+    // consumers.
+    assert!(
+        overlay.contains("interface-cxx-standard = \"c++11\""),
+        "overlay: {overlay}"
+    );
     // The C++20 module unit and the optional C API are intentionally
     // not built.
     assert!(

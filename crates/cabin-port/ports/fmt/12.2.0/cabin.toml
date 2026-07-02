@@ -13,3 +13,10 @@ version = "12.2.0"
 type = "library"
 sources = ["src/format.cc", "src/os.cc"]
 include-dirs = ["include"]
+# Upstream publishes a C++11 interface requirement
+# (target_compile_features(fmt PUBLIC cxx_std_11)), so declare it;
+# otherwise Cabin's interface fallback would impose the effective
+# implementation standard (the built-in c++17 default) on every
+# consumer and reject valid c++11 / c++14 projects. The two
+# implementation TUs still compile with the default C++ standard.
+interface-cxx-standard = "c++11"
