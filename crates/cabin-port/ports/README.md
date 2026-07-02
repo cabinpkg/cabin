@@ -81,6 +81,9 @@ entry.
   (upstream amalgamated release zip), version 3.1.2.
 - [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
   3.12.0.
+- [`picohttpparser/2026.4.6/`](picohttpparser/2026.4.6/) - the picohttpparser tiny HTTP
+  request/response parser in C (commit-pinned, date-versioned - upstream publishes no releases),
+  snapshot 2026.4.6.
 - [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),
   version 1.17.0.
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine

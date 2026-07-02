@@ -1,0 +1,15 @@
+[package]
+name = "picohttpparser"
+version = "2026.4.6"
+
+# picohttpparser is a single translation unit: picohttpparser.c plus
+# its header at the archive root. The repository's test.c/bench.c
+# and the picotest/ submodule directory (empty in the tarball) are
+# the upstream test harness, not part of the library. The optional
+# SSE4.2 fast path stays compile-time-gated behind __SSE4_2__, so
+# the default build is portable C; no defines or extra link
+# libraries are needed.
+[target.picohttpparser]
+type = "library"
+sources = ["picohttpparser.c"]
+include-dirs = ["."]

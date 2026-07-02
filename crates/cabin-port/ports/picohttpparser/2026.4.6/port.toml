@@ -1,0 +1,22 @@
+[port]
+name = "picohttpparser"
+version = "2026.4.6"
+description = "Tiny HTTP request/response parser in C"
+license = "MIT OR Artistic-1.0-Perl"
+homepage = "https://github.com/h2o/picohttpparser"
+upstream = "https://github.com/h2o/picohttpparser"
+
+# picohttpparser publishes no tagged releases; the archive pins one
+# upstream commit (f4d94b48b31e0abae029ebeafcfd9ca0680ede58) by its
+# immutable commit tarball URL plus SHA-256, exactly as the policy
+# requires.  The port version is the pinned commit's date spelled as
+# SemVer (YYYY.M.D), the same scheme as the stb port, because the
+# library carries no version number of its own.
+[source]
+type = "archive"
+url = "https://github.com/h2o/picohttpparser/archive/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz"
+sha256 = "bd773fad1e2c6532b7a65ef6b60dec3612a3e566e3c844272cc2cbab89dc7e9c"
+strip_prefix = "picohttpparser-f4d94b48b31e0abae029ebeafcfd9ca0680ede58"
+
+[overlay]
+manifest = "cabin.toml"
