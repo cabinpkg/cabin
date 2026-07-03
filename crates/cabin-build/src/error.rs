@@ -194,6 +194,15 @@ pub enum BuildError {
         standard: &'static str,
     },
 
+    /// A compile that survived into the final build graph belongs to
+    /// a target that enables `gnu-extensions` on the MSVC dialect.
+    /// `cl.exe` has no GNU dialect mode, so the flag cannot be
+    /// honored and is never silently ignored.
+    #[error(
+        "target `{target}` enables `gnu-extensions`, but this compiler has no GNU dialect mode; remove `gnu-extensions` or build with a GCC/Clang toolchain"
+    )]
+    GnuExtensionsUnsupportedOnMsvcDialect { target: String },
+
     /// A planned compile carries both a first-class standard
     /// declaration and an explicit `-std=` / `/std:` token in its
     /// manifest-derived flag list.  Boxed to keep the enum small;

@@ -54,6 +54,16 @@ pub enum StandardViolation {
         /// Object path of the offending compile.
         object: Utf8PathBuf,
     },
+    /// An MSVC-dialect compile whose target enables
+    /// `gnu-extensions` - `cl.exe` has no GNU dialect mode, so the
+    /// planner cannot honor the flag and must not silently ignore
+    /// it (its compile-commands entry is omitted).
+    MsvcGnuExtensions {
+        /// `package:target` of the offending compile.
+        target: String,
+        /// Object path of the offending compile.
+        object: Utf8PathBuf,
+    },
     /// A compile that carries both a first-class standard
     /// declaration and an explicit `-std=` / `/std:` token in its
     /// manifest-derived flag list - the documented escape-hatch
@@ -91,6 +101,7 @@ impl StandardViolation {
     pub fn object(&self) -> &Utf8PathBuf {
         match self {
             Self::MsvcSpelling { object, .. }
+            | Self::MsvcGnuExtensions { object, .. }
             | Self::FlagConflict { object, .. }
             | Self::InterfaceIncompatibility { object, .. } => object,
         }

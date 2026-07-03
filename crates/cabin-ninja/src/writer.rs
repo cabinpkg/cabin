@@ -398,6 +398,7 @@ mod tests {
     fn compile_action() -> BuildAction {
         BuildAction::Compile(CompileAction {
             standard: cabin_core::LanguageStandard::Cxx(cabin_core::CxxStandard::Cxx17),
+            gnu_extensions: false,
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::Object,
@@ -453,6 +454,7 @@ mod tests {
     fn syntax_check_action() -> BuildAction {
         BuildAction::Compile(CompileAction {
             standard: cabin_core::LanguageStandard::Cxx(cabin_core::CxxStandard::Cxx17),
+            gnu_extensions: false,
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode: CompileMode::SyntaxOnly {

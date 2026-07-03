@@ -52,6 +52,13 @@ pub struct CompileAction {
     /// selects the rule / lowered action kind, `/EHsc`, and the
     /// `/Tp` / `/Tc` source-language flag on MSVC.
     pub standard: LanguageStandard,
+    /// Whether this translation unit compiles with GNU language
+    /// extensions.  Strictly per-target: two compiles in one build
+    /// may differ in both level and this flag.  The GNU/Clang
+    /// lowering spells the standard `-std=gnu…` instead of
+    /// `-std=c…`; the planner rejects the flag on the MSVC dialect
+    /// before lowering (`cl.exe` has no GNU dialect mode).
+    pub gnu_extensions: bool,
     /// Absolute path of the translation unit to compile.
     pub source: Utf8PathBuf,
     /// Object file the normal build produces.  Retained even in

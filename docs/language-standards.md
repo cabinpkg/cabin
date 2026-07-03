@@ -48,10 +48,10 @@ gnu-extensions = true             # GNU-extension dialect for this target
   valid only on these two fields.
 - `gnu-extensions` - whether the target's sources rely on GNU language extensions.  A plain boolean
   (no `{ workspace = true }` form), defaulting to `false`; a target-level value overrides the
-  package-level one.  It affects only which compiler flag spelling the standard lowers to and never
-  participates in interface compatibility.  The value is accepted, reported through `cabin
-  metadata`, and folded into the fingerprint today; the GNU flag-spelling emission itself lands in
-  a follow-up (see [Deferred](#deferred)).
+  package-level one.  It affects only which compiler flag spelling the standard lowers to
+  (`-std=gnu++20` instead of `-std=c++20` on GCC/Clang; see [Flag lowering](#flag-lowering)) and
+  never participates in interface compatibility.  On the MSVC dialect it is rejected at planning
+  time - `cl.exe` has no GNU dialect mode - never silently ignored.
 
 Mental model: `c-standard` / `cxx-standard` set how the target is compiled **and** double as its
 interface requirement unless `interface-*` overrides them.  Declare `interface-*` only when the
@@ -165,11 +165,15 @@ The standard never appears in `[profile]` flags; the dialect layer spells it:
 
 | Dialect | Spelling |
 | --- | --- |
-| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`) |
+| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`); with `gnu-extensions = true`, the GNU spelling of the same ISO level (`-std=gnu++20`, `-std=gnu17`) |
 | MSVC (`cl` / `clang-cl`) | `/std:<value>` - only `c11`, `c17`, `c++14`, `c++17`, `c++20` have stable flags |
 
-Standards without a stable MSVC flag (C89/C99/C23, C++98/11/23/26) are rejected before the build on
-the MSVC dialect.  `compile_commands.json` records the same per-file standard the build uses, so
+The GNU spelling is produced by the dialect layer at lowering time from the target's ISO level and
+its effective `gnu-extensions` value - strictly per target, so two targets in one build may differ
+in both.  Standards without a stable MSVC flag (C89/C99/C23, C++98/11/23/26) are rejected before
+the build on the MSVC dialect, as is any target with `gnu-extensions = true` (`cl.exe` has no GNU
+dialect mode; remove the field or build with GCC/Clang).  `compile_commands.json` records the same
+per-file standard the build uses, so
 clangd and `cabin tidy` see exactly how each translation unit compiles.  Changing a standard changes
 the lowered command, so Ninja rebuilds exactly the affected translation units.
 
@@ -308,8 +312,6 @@ standard-compatibility filtering remains deferred.
 
 - Resolver standard-compatibility filtering.
 - `cfg(...)`-conditional or per-profile standards; CLI / env / config overrides.
-- GNU flag-spelling emission for `gnu-extensions` (`-std=gnu++20` instead of `-std=c++20`); the
-  field parses, reports, and fingerprints today but does not yet change the lowered command.
 - Range interface requirements (populating the reserved `max`), and enforcement of `"none"`
   against consumers that compile the language.
 - Duplicate build variants (one library compiled once per consumer standard).

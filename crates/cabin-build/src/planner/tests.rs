@@ -2227,6 +2227,124 @@ fn msvc_dialect_rejects_standards_without_stable_flag() {
 }
 
 #[test]
+fn gnu_extensions_spell_the_gnu_std_flag_per_target() {
+    use cabin_core::{CStandard, CxxStandard, LanguageStandardSettings, StandardDeclaration};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            // `core` opts in at target level (and overrides the
+            // level); `app` stays on the ISO spelling.  Two targets
+            // in one build differ in both level and gnu-extensions.
+            target_with_language(
+                "core",
+                TargetKind::Library,
+                &["src/core.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+                    gnu_extensions: Some(true),
+                    ..Default::default()
+                },
+            ),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc", "src/util.c"],
+                &["core"],
+                LanguageStandardSettings {
+                    c_standard: Some(StandardDeclaration::Declared(CStandard::C17)),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap()
+    .with_language(LanguageStandardSettings {
+        cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+        ..Default::default()
+    });
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert!(bg.standard_violations.is_empty());
+    let flag_for = |suffix: &str| {
+        let cc = bg
+            .compile_commands
+            .iter()
+            .find(|c| c.file.as_str().ends_with(suffix))
+            .unwrap();
+        cc.arguments[1].clone()
+    };
+    assert_eq!(flag_for("core.cc"), "-std=gnu++20");
+    assert_eq!(flag_for("main.cc"), "-std=c++20");
+    assert_eq!(flag_for("util.c"), "-std=c17");
+}
+
+#[test]
+fn msvc_dialect_rejects_gnu_extensions_at_planning_time() {
+    use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![target_with_language(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &[],
+            LanguageStandardSettings {
+                // c++20 has a stable /std: flag; only the
+                // gnu-extensions request is unsatisfiable.
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+                gnu_extensions: Some(true),
+                ..Default::default()
+            },
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    // Recorded (not failed eagerly) for the same check-rewrite
+    // reason as the missing-spelling case, and never silently
+    // ignored: the un-honorable compile-commands entry is omitted.
+    let bg = plan_with_standards(&graph, Dialect::Msvc).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    assert!(matches!(
+        &bg.standard_violations[0],
+        crate::StandardViolation::MsvcGnuExtensions { .. }
+    ));
+    assert!(
+        bg.compile_commands.is_empty(),
+        "a gnu-extensions compile cannot be honored on the MSVC dialect"
+    );
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    match &err {
+        BuildError::GnuExtensionsUnsupportedOnMsvcDialect { target } => {
+            assert_eq!(target, "demo:app");
+            let message = err.to_string();
+            assert!(
+                message.contains("no GNU dialect mode")
+                    && message.contains("remove `gnu-extensions`")
+                    && message.contains("GCC/Clang"),
+                "unexpected message: {message}"
+            );
+        }
+        other => panic!("expected GnuExtensionsUnsupportedOnMsvcDialect, got {other}"),
+    }
+    // The same plan succeeds on the GNU dialect with the GNU
+    // spelling.
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert!(bg.standard_violations.is_empty());
+    assert!(
+        bg.compile_commands[0]
+            .arguments
+            .iter()
+            .any(|a| a == "-std=gnu++20")
+    );
+    crate::validate_planned_standards(&bg).unwrap();
+}
+
+#[test]
 fn interface_requirement_blocks_lower_consumer() {
     use cabin_core::{CxxStandard, LanguageStandardSettings, StandardDeclaration};
     let package = Package::new(

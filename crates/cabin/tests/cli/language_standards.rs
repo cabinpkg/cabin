@@ -1136,6 +1136,94 @@ fn interface_minimum_above_implementation_is_a_manifest_contradiction() {
 
 #[test]
 #[cfg_attr(
+    windows,
+    ignore = "the MSVC dialect has no GNU mode; its rejection is covered by `msvc_dialect_rejects_gnu_extensions_end_to_end`"
+)]
+fn gnu_extensions_reach_ninja_and_compile_commands() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // The ISO levels come from the manifest; the GNU spelling is
+    // produced at lowering time from `gnu-extensions = true`.
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "gnustd"
+version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
+gnu-extensions = true
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc", "src/util.c"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("include/util.h"))
+        .write_str(
+            "#pragma once\n#ifdef __cplusplus\nextern \"C\" {\n#endif\nint util(void);\n#ifdef __cplusplus\n}\n#endif\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/util.c"))
+        .write_str("#include \"util.h\"\nint util(void) { return 1; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+        .write_str("#include \"util.h\"\nint main() { return util() == 1 ? 0 : 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let ninja = build_ninja(dir.path());
+    assert!(
+        ninja.contains("-std=gnu++17") && ninja.contains("-std=gnu11"),
+        "expected the GNU spellings in build.ninja: {ninja}"
+    );
+    let ccdb = fs::read_to_string(dir.path().join("build/dev/compile_commands.json")).unwrap();
+    assert!(
+        ccdb.contains("-std=gnu++17") && ccdb.contains("-std=gnu11"),
+        "expected the GNU spellings in compile_commands.json: {ccdb}"
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "exercises the MSVC no-GNU-mode guard; Windows CI is the MSVC-dialect e2e leg"
+)]
+fn msvc_dialect_rejects_gnu_extensions_end_to_end() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_lib_and_app(
+        dir.path(),
+        "cxx-standard = \"c++20\"\ngnu-extensions = true",
+        "",
+        "",
+    );
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("gnu-extensions") && stderr.contains("no GNU dialect mode"),
+        "expected the no-GNU-mode diagnostic, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("build/dev/build.ninja").exists(),
+        "the build must fail before any Ninja file is written"
+    );
+}
+
+#[test]
+#[cfg_attr(
     not(windows),
     ignore = "exercises the MSVC no-stable-flag guard; Windows CI is the MSVC-dialect e2e leg"
 )]

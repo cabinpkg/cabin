@@ -266,6 +266,11 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
             language,
             standard,
         }),
+        Some(crate::StandardViolation::MsvcGnuExtensions { target, .. }) => {
+            Err(BuildError::GnuExtensionsUnsupportedOnMsvcDialect {
+                target: target.clone(),
+            })
+        }
         Some(crate::StandardViolation::FlagConflict { conflict, .. }) => {
             Err(BuildError::StandardFlagConflict(Box::new(conflict.clone())))
         }
