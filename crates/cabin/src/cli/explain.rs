@@ -293,16 +293,12 @@ fn render_build_config(
         ResolveFormat::Human => {
             println!("package: {name}");
             println!("profile: {}", config.profile.name);
-            println!(
-                "c standard: {} ({})",
-                config.language.c.standard,
-                config.language.c.source.as_key()
-            );
-            println!(
-                "cxx standard: {} ({})",
-                config.language.cxx.standard,
-                config.language.cxx.source.as_key()
-            );
+            if let Some(c) = &config.language.c {
+                println!("c standard: {} ({})", c.standard, c.source.as_key());
+            }
+            if let Some(cxx) = &config.language.cxx {
+                println!("cxx standard: {} ({})", cxx.standard, cxx.source.as_key());
+            }
             println!("fingerprint: {}", config.fingerprint);
             // Stay terse - JSON is the contract for tooling.
         }

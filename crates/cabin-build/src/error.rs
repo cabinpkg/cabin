@@ -79,6 +79,21 @@ pub enum BuildError {
     )]
     MissingCCompiler { target: String, path: Utf8PathBuf },
 
+    /// A planned compile has no effective language standard: the
+    /// target compiles sources of a language neither its
+    /// `[target.<name>]` table nor its `[package]` declares a
+    /// standard for.  Manifest loading rejects this before planning,
+    /// so this fires only for packages constructed outside the
+    /// manifest parser.
+    #[error(
+        "target `{target}` compiles {language} sources but no {language} standard is declared; add `{field} = \"<standard>\"` to its `[package]` or `[target.<name>]` table, or opt into a workspace default with `{field} = {{ workspace = true }}`"
+    )]
+    MissingLanguageStandard {
+        target: String,
+        language: &'static str,
+        field: &'static str,
+    },
+
     /// A consuming target's effective implementation standard is
     /// below a reachable library-like dependency's interface
     /// requirement for the same language.  The planner records the

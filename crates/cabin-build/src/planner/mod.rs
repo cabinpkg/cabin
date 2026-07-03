@@ -386,12 +386,25 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // the underlying compiler. Link and archive commands are
             // deliberately never wrapped.
             let compiler_wrapper = req.compiler_wrapper.map(|wrapper| wrapper.path.clone());
+            // Manifest loading rejects targets that compile a
+            // language without an effective standard, so a `None`
+            // here is a package that bypassed the parser - reject it
+            // with the same actionable message.
+            let missing_standard = |field: &'static str| BuildError::MissingLanguageStandard {
+                target: format_target_id(tid, req.graph),
+                language: ps.language.human_label(),
+                field,
+            };
             let standard = match ps.language {
-                SourceLanguage::C => {
-                    LanguageStandard::C(cabin_core::effective_c(&pkg_standards, target).standard)
-                }
+                SourceLanguage::C => LanguageStandard::C(
+                    cabin_core::effective_c(&pkg_standards, target)
+                        .ok_or_else(|| missing_standard("c-standard"))?
+                        .standard,
+                ),
                 SourceLanguage::Cxx => LanguageStandard::Cxx(
-                    cabin_core::effective_cxx(&pkg_standards, target).standard,
+                    cabin_core::effective_cxx(&pkg_standards, target)
+                        .ok_or_else(|| missing_standard("cxx-standard"))?
+                        .standard,
                 ),
             };
             // An MSVC-dialect compile whose standard has no stable
@@ -654,39 +667,45 @@ fn enforce_interface_standards(
             .get(&dep_tid.0)
             .copied()
             .unwrap_or_default();
+        // A `None` requirement or consumer standard cannot happen
+        // for manifest-derived packages: `imposes_requirement` is
+        // true only when some declaration (or a source file, whose
+        // standard manifest loading guarantees) backs the language,
+        // and the consumer compiles the language, so its own
+        // standard was already demanded at its compile site.
         if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
+            && let Some(required) =
+                cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(consumer) = cabin_core::effective_c(&pkg_standards, target)
+            && consumer.standard < required.standard
         {
-            let required = cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target);
-            let consumer = cabin_core::effective_c(&pkg_standards, target);
-            if consumer.standard < required.standard {
-                violations.push(interface_violation(
-                    format_target_id(tid, req.graph),
-                    format_target_id(dep_tid, req.graph),
-                    SourceLanguage::C,
-                    consumer.standard.as_str(),
-                    required.standard.as_str(),
-                    required.source,
-                    object,
-                ));
-            }
+            violations.push(interface_violation(
+                format_target_id(tid, req.graph),
+                format_target_id(dep_tid, req.graph),
+                SourceLanguage::C,
+                consumer.standard.as_str(),
+                required.standard.as_str(),
+                required.source,
+                object,
+            ));
         }
         if let Some(object) = object_of(SourceLanguage::Cxx)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
+            && let Some(required) =
+                cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(consumer) = cabin_core::effective_cxx(&pkg_standards, target)
+            && consumer.standard < required.standard
         {
-            let required = cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target);
-            let consumer = cabin_core::effective_cxx(&pkg_standards, target);
-            if consumer.standard < required.standard {
-                violations.push(interface_violation(
-                    format_target_id(tid, req.graph),
-                    format_target_id(dep_tid, req.graph),
-                    SourceLanguage::Cxx,
-                    consumer.standard.as_str(),
-                    required.standard.as_str(),
-                    required.source,
-                    object,
-                ));
-            }
+            violations.push(interface_violation(
+                format_target_id(tid, req.graph),
+                format_target_id(dep_tid, req.graph),
+                SourceLanguage::Cxx,
+                consumer.standard.as_str(),
+                required.standard.as_str(),
+                required.source,
+                object,
+            ));
         }
     }
     Ok(())

@@ -102,9 +102,9 @@ mod tests {
     fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
         let standard = match language {
-            SourceLanguage::C => cabin_core::LanguageStandard::C(cabin_core::DEFAULT_C_STANDARD),
+            SourceLanguage::C => cabin_core::LanguageStandard::C(cabin_core::CStandard::C11),
             SourceLanguage::Cxx => {
-                cabin_core::LanguageStandard::Cxx(cabin_core::DEFAULT_CXX_STANDARD)
+                cabin_core::LanguageStandard::Cxx(cabin_core::CxxStandard::Cxx17)
             }
         };
         BuildAction::Compile(CompileAction {
