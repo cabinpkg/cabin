@@ -140,6 +140,7 @@ sources = [
     "trees.c", "uncompr.c", "zutil.c",
 ]
 include-dirs = ["."]
+c-standard = "c11"
 ```
 
 ## Depending on a foundation port

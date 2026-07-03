@@ -13,3 +13,6 @@ version = "62.0.0"
 type = "library"
 sources = ["ini.c"]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"

@@ -227,6 +227,27 @@ pub enum ManifestError {
         field: &'static str,
     },
 
+    /// A target compiles sources of a language with no effective
+    /// implementation standard: neither the target nor `[package]`
+    /// declares one.  Cabin has no built-in default; a
+    /// `{ workspace = true }` opt-in counts as declaring.
+    #[error(
+        "target {target:?} compiles {language} sources but no {language} standard is declared; add `{field} = \"<standard>\"` to `[package]` or `[target.{target}]`, or opt into a workspace default with `{field} = {{ workspace = true }}` on `[package]`"
+    )]
+    MissingLanguageStandard {
+        target: String,
+        language: &'static str,
+        field: &'static str,
+    },
+
+    /// A header-only target declares no interface standard at any
+    /// level, so consumers cannot know what standard its public
+    /// headers require.
+    #[error(
+        "header-only target {target:?} declares no interface language standard; add `interface-c-standard` or `interface-cxx-standard` to `[package]` or `[target.{target}]`, or opt into a workspace default with the field set to `{{ workspace = true }}` on `[package]`"
+    )]
+    HeaderOnlyMissingInterfaceStandard { target: String },
+
     /// A `[package]`-level standard field set `workspace = false`.
     #[error(
         "`{field}` sets `workspace = false`; either remove the field or declare a literal standard value"

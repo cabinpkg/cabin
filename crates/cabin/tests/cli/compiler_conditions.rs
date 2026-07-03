@@ -33,7 +33,7 @@ fn cabin_with_host_toolchain() -> Command {
 
 fn write_condition_package(dir: &TempDir, target_table: &str) {
     let manifest = format!(
-        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[target.demo]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n{target_table}"
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.demo]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n{target_table}"
     );
     dir.child("cabin.toml").write_str(&manifest).unwrap();
     dir.child("src/main.cc")

@@ -13,8 +13,8 @@ version = "1.17.0"
 type = "header-only"
 include-dirs = ["include"]
 # Upstream builds with C++11 by default and declares the header-only
-# interface accordingly; without the declaration Cabin's fallback
-# would impose the built-in c++17 default on consumers.
+# interface accordingly so newer floors are not imposed on
+# consumers.
 interface-cxx-standard = "c++11"
 
 # Upstream links Threads::Threads INTERFACE on the header-only

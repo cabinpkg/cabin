@@ -366,6 +366,7 @@ fn sqlite3_single_threaded_feature_disables_threadsafety() {
             r#"[package]
 name = "sqlite3-usage"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
@@ -666,6 +667,7 @@ fn catch2_custom_main_feature_links_consumer_main() {
             r#"[package]
 name = "catch2-usage"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 catch2 = { port = true, version = "^3.15", features = ["custom-main"] }

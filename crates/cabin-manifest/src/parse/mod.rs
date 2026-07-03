@@ -450,6 +450,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     for (target_name, raw_target) in targets {
         target_models.push(target_from_raw(target_name, raw_target)?);
     }
+    validate_language_standard_coverage(&target_models, language)?;
 
     let (dep_models, system_models) =
         collect_dependency_models(dependencies, dev_dependencies, &conditional_targets)?;
@@ -507,6 +508,56 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_language(language)
     .with_compiler_wrapper(compiler_wrapper)
     .with_patches(patches))
+}
+
+/// Every compiled language needs an effective implementation
+/// standard, and a header-only target must declare at least one
+/// interface standard - Cabin has no built-in defaults.  Field
+/// presence is the test: a `{ workspace = true }` marker counts as
+/// declaring (the workspace loader resolves it or rejects a marker
+/// with no workspace value).
+fn validate_language_standard_coverage(
+    targets: &[cabin_core::Target],
+    package: cabin_core::LanguageStandardSettings,
+) -> Result<(), ManifestError> {
+    use cabin_core::SourceLanguage;
+    for target in targets {
+        let checks = [
+            (
+                SourceLanguage::C,
+                "c-standard",
+                target.language.c_standard.is_some() || package.c_standard.is_some(),
+            ),
+            (
+                SourceLanguage::Cxx,
+                "cxx-standard",
+                target.language.cxx_standard.is_some() || package.cxx_standard.is_some(),
+            ),
+        ];
+        for (language, field, declared) in checks {
+            let compiles = target
+                .sources
+                .iter()
+                .any(|source| cabin_core::classify_source(source) == Some(language));
+            if compiles && !declared {
+                return Err(ManifestError::MissingLanguageStandard {
+                    target: target.name.as_str().to_owned(),
+                    language: language.human_label(),
+                    field,
+                });
+            }
+        }
+        let has_interface = target.language.interface_c_standard.is_some()
+            || target.language.interface_cxx_standard.is_some()
+            || package.interface_c_standard.is_some()
+            || package.interface_cxx_standard.is_some();
+        if target.kind.is_header_only() && !has_interface {
+            return Err(ManifestError::HeaderOnlyMissingInterfaceStandard {
+                target: target.name.as_str().to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Convert one raw standard field (literal string or

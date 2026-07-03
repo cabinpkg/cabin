@@ -40,9 +40,9 @@ filename extension:
 The planner then:
 
 - compiles `.c` sources with the **C compiler driver** (`cc` / `clang` / `gcc`) and the target's
-  effective C standard (default `c11`; see [Language standards](language-standards.md));
+  effective C standard (required; see [Language standards](language-standards.md));
 - compiles C++ sources with the **C++ compiler driver** (`c++` / `clang++` / `g++`) and the target's
-  effective C++ standard (default `c++17`);
+  effective C++ standard (required);
 - chooses the **link driver** by walking the target's own objects plus every transitively reachable
   library object: if any object came from a C++ source, link with the C++ driver; otherwise link
   with the C driver.  Pure-C executables therefore stay off the C++ runtime; mixed targets inherit

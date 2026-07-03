@@ -13,6 +13,7 @@ fn passing_test_project() -> TempDir {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"
@@ -41,6 +42,7 @@ fn project_with_dev_kinds() -> TempDir {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"
@@ -102,6 +104,7 @@ fn invalid_target_kind_is_rejected_with_helpful_message() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.broken]
 type = "cpp_tests"
@@ -194,6 +197,7 @@ fn three_test_project() -> TempDir {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"
@@ -360,6 +364,7 @@ members = ["packages/a", "packages/b"]
                 r#"[package]
 name = "{member}"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.{member}]
 type = "library"
@@ -415,6 +420,7 @@ fn cabin_test_sets_per_test_cabin_env_overlay() {
             r#"[package]
 name = "env_demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.env_test]
 type = "test"
@@ -567,6 +573,7 @@ fn cabin_test_no_targets_errors_by_default() {
             r#"[package]
 name = "lib_only"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.lib_only]
 type = "library"
@@ -599,6 +606,7 @@ fn cabin_test_no_targets_succeeds_with_allow_no_tests() {
             r#"[package]
 name = "lib_only"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.lib_only]
 type = "library"
@@ -646,6 +654,7 @@ members = ["packages/b", "packages/a"]
             r#"[package]
 name = "{member}"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.{member}]
 type = "library"

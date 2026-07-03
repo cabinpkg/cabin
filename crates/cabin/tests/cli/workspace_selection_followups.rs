@@ -3,6 +3,7 @@ use super::*;
 const FMT_PKG_MANIFEST: &str = r#"[package]
 name = "fmt"
 version = "10.2.1"
+cxx-standard = "c++17"
 
 [target.fmt]
 type = "library"
@@ -39,6 +40,7 @@ members = ["packages/*"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"

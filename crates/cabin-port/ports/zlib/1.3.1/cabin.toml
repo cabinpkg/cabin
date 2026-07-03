@@ -22,6 +22,9 @@ sources = [
   "zutil.c",
 ]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
 
 # zlib's gz*.c sources call read(2) / close(2) / lseek(2) through
 # `unistd.h`, which they include only when one of `HAVE_UNISTD_H`

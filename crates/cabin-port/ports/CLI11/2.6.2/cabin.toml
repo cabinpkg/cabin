@@ -12,6 +12,6 @@ version = "2.6.2"
 type = "header-only"
 include-dirs = ["include"]
 # Upstream builds with C++11 by default (CMAKE_CXX_STANDARD 11);
-# declaring the interface floor keeps Cabin's c++17 fallback from
-# rejecting valid c++11 / c++14 consumers.
+# declaring the interface floor keeps valid c++11 / c++14
+# consumers from being rejected.
 interface-cxx-standard = "c++11"

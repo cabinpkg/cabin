@@ -71,14 +71,14 @@ fn declared_cxx_standard_reaches_ninja_and_compile_commands() {
         .success();
     let ninja = build_ninja(dir.path());
     let declared = host_std_flag("c++14");
-    let default = host_std_flag("c++17");
+    let undeclared = host_std_flag("c++17");
     assert!(
         ninja.contains(&declared),
         "expected `{declared}` in build.ninja: {ninja}"
     );
     assert!(
-        !ninja.contains(&default),
-        "the built-in default `{default}` must be replaced: {ninja}"
+        !ninja.contains(&undeclared),
+        "only the declared standard may appear: {ninja}"
     );
     let ccdb = fs::read_to_string(dir.path().join("build/dev/compile_commands.json")).unwrap();
     assert!(
@@ -101,6 +101,7 @@ fn declared_c_standard_applies_to_c_sources_only() {
 name = "mixedstd"
 version = "0.1.0"
 c-standard = "{c_standard}"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
@@ -129,7 +130,7 @@ include-dirs = ["include"]
         .success();
     let ninja = build_ninja(dir.path());
     // The C compile carries the declared C standard; the C++ side
-    // keeps the built-in default.
+    // carries its own declared standard.
     assert!(
         ninja.contains(&host_std_flag(c_standard)),
         "expected `{}` in build.ninja: {ninja}",
@@ -137,11 +138,11 @@ include-dirs = ["include"]
     );
     assert!(
         ninja.contains(&host_std_flag("c++17")),
-        "the C++ compile must keep the default standard: {ninja}"
+        "the C++ compile must carry the declared C++ standard: {ninja}"
     );
     assert!(
         !ninja.contains(&host_std_flag("c11")),
-        "the built-in C default must be replaced: {ninja}"
+        "only the declared C standard may reach a C compile: {ninja}"
     );
 }
 
@@ -199,30 +200,96 @@ fn conflict_between_declared_standard_and_cxxflags_errors() {
 }
 
 #[test]
-fn undeclared_project_with_std_in_cxxflags_still_builds() {
-    require_cxx_build_tools();
+fn undeclared_cxx_standard_fails_to_load_with_actionable_help() {
     let dir = TempDir::new().unwrap();
-    let escape_hatch = host_std_flag("c++14");
+    // No standard anywhere: there is no built-in default, so the
+    // manifest is rejected at load with help naming the field, the
+    // target, and the workspace opt-in.
     write_lib_and_app(dir.path(), "", "", "");
-    let manifest_path = dir.path().join("cabin.toml");
-    let mut manifest = fs::read_to_string(&manifest_path).unwrap();
-    manifest.push_str("\n[profile]\ncxxflags = [\"");
-    manifest.push_str(&escape_hatch);
-    manifest.push_str("\"]\n");
-    assert_fs::fixture::ChildPath::new(&manifest_path)
-        .write_str(&manifest)
-        .unwrap();
-    cabin()
+    let assertion = cabin()
         .args(["build", "--manifest-path"])
-        .arg(&manifest_path)
+        .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
         .assert()
-        .success();
-    // The escape hatch comes later in argv, so it keeps winning over
-    // the built-in default when no first-class standard is declared.
-    let ninja = build_ninja(dir.path());
-    assert!(ninja.contains(&escape_hatch), "{ninja}");
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("cxx-standard")
+            && stderr.contains("\"app\"")
+            && stderr.contains("workspace = true"),
+        "expected the missing-standard diagnostic with actionable help, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("build/dev/build.ninja").exists(),
+        "loading must fail before any Ninja file is written"
+    );
+}
+
+#[test]
+fn undeclared_c_standard_fails_even_when_cxx_is_declared() {
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc", "src/util.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/util.c"))
+        .write_str("int util(void) { return 1; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("c-standard") && stderr.contains("C sources"),
+        "expected the missing C-standard diagnostic, got: {stderr}"
+    );
+}
+
+#[test]
+fn header_only_without_interface_standard_fails_to_load() {
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "hdr"
+version = "0.1.0"
+
+[target.hdr]
+type = "header-only"
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("include/hdr.h"))
+        .write_str("#pragma once\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("interface-c-standard") && stderr.contains("interface-cxx-standard"),
+        "expected the header-only interface-standard diagnostic, got: {stderr}"
+    );
 }
 
 #[test]
@@ -365,6 +432,7 @@ include-dirs = ["include"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = "10.2.1"
@@ -392,7 +460,7 @@ deps = ["fmt"]
         .success();
     let ninja = fs::read_to_string(app_root.join("build/dev/build.ninja")).unwrap();
     // The dependency compiles with its declared c++14; the consumer
-    // keeps the built-in c++17.
+    // with its own declared c++17.
     assert!(ninja.contains(&host_std_flag("c++14")), "{ninja}");
     assert!(ninja.contains(&host_std_flag("c++17")), "{ninja}");
 }
@@ -412,14 +480,19 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
     let language = &config["language"];
     assert_eq!(language["cxx"]["standard"], "c++20");
     assert_eq!(language["cxx"]["source"], "package");
-    assert_eq!(language["c"]["standard"], "c11");
-    assert_eq!(language["c"]["source"], "builtin-default");
+    assert!(
+        language.get("c").is_none(),
+        "an undeclared language reports no entry: {language}"
+    );
     let core = &language["targets"]["core"];
     assert_eq!(core["cxx"]["standard"], "c++20");
     assert_eq!(core["cxx"]["source"], "package");
     assert_eq!(core["interface_cxx"]["standard"], "c++17");
     assert_eq!(core["interface_cxx"]["source"], "target");
-    assert_eq!(core["interface_c"]["source"], "compile-standard");
+    assert!(
+        core.get("interface_c").is_none(),
+        "no C standard anywhere means no C interface entry: {core}"
+    );
     let app = &language["targets"]["app"];
     assert!(
         app.get("interface_cxx").is_none(),
@@ -445,9 +518,7 @@ fn explain_build_config_reports_effective_standards() {
         .assert()
         .success()
         .stdout(predicate::str::contains("cxx standard: c++20 (package)"))
-        .stdout(predicate::str::contains(
-            "c standard: c11 (builtin-default)",
-        ));
+        .stdout(predicate::str::contains("c standard:").not());
 }
 
 #[test]
@@ -463,6 +534,7 @@ fn sibling_target_standard_does_not_gate_selected_target() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
@@ -525,6 +597,7 @@ interface-cxx-standard = "c++17"
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 dep = { path = "../dep" }
@@ -648,22 +721,25 @@ cxx-standard = "c++20"
 
 #[test]
 fn sibling_target_conflict_does_not_gate_selected_target() {
-    require_cxx_build_tools();
+    require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // The conflict candidate (target-level `cxx-standard` on `exotic`
-    // plus a package-level `-std=` escape hatch) covers only
-    // `exotic`'s compiles. `cabin run --bin app` never plans them, so
-    // it must succeed; the default `cabin build` plans both and must
-    // surface the conflict.
-    let escape_hatch = host_std_flag("c++14");
+    // The conflict candidate (target-level `c-standard` on `exotic`
+    // plus a `-std=` token in the `cflags` escape hatch) covers only
+    // `exotic`'s C compiles. `cabin run --bin app` never plans them,
+    // so it must succeed; the default `cabin build` plans both and
+    // must surface the conflict.  (Every C++ compile has a declared
+    // standard, so the C side is the only place a raw standard flag
+    // can sit next to a scoped declaration.)
+    let escape_hatch = host_std_flag("c11");
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
         .write_str(&format!(
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [profile]
-cxxflags = ["{escape_hatch}"]
+cflags = ["{escape_hatch}"]
 
 [target.app]
 type = "executable"
@@ -671,16 +747,16 @@ sources = ["src/main.cc"]
 
 [target.exotic]
 type = "executable"
-sources = ["src/exotic.cc"]
-cxx-standard = "c++17"
+sources = ["src/exotic.c"]
+c-standard = "c17"
 "#
         ))
         .unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("src/main.cc"))
         .write_str("int main() { return 0; }\n")
         .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("src/exotic.cc"))
-        .write_str("int main() { return 0; }\n")
+    assert_fs::fixture::ChildPath::new(dir.path().join("src/exotic.c"))
+        .write_str("int main(void) { return 0; }\n")
         .unwrap();
     cabin()
         .args(["run", "--bin", "app", "--manifest-path"])
@@ -1154,6 +1230,7 @@ cxx-standard = "c++14"
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = "10.2.1"
@@ -1181,7 +1258,7 @@ deps = ["fmt"]
         .success();
     let ninja = fs::read_to_string(app_root.join("build/dev/build.ninja")).unwrap();
     // The dependency compiles with its target-declared c++14; the
-    // consumer keeps the built-in c++17.
+    // consumer with its own declared c++17.
     assert!(ninja.contains(&host_std_flag("c++14")), "{ninja}");
     assert!(ninja.contains(&host_std_flag("c++17")), "{ninja}");
 }

@@ -18,9 +18,7 @@ sources = ["googletest/src/gtest-all.cc"]
 # files as "src/gtest-*.cc", so the googletest/ directory itself
 # must also be on the include path, exactly like upstream's build.
 include-dirs = ["googletest/include", "googletest"]
-# Upstream requires C++17 to build and to consume the headers; the
-# explicit declaration documents that floor rather than borrowing
-# Cabin's (currently identical) built-in default.
+# Upstream requires C++17 to build and to consume the headers.
 cxx-standard = "c++17"
 
 # gtest's Unix port uses pthreads (GTEST_HAS_PTHREAD defaults on

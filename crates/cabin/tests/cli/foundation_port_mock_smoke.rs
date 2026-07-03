@@ -79,9 +79,18 @@ impl FakeConsumer<'_> {
                     .join(", ")
             )
         };
+        let standard = if Path::new(self.source_name)
+            .extension()
+            .is_some_and(|ext| ext == "cpp")
+        {
+            "cxx-standard = \"c++17\""
+        } else {
+            "c-standard = \"c11\""
+        };
         format!(
-            "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n\n[dependencies]\n{} = {{ port-path = \"../ports/{}/{}\"{} }}\n\n[target.{}]\ntype = \"executable\"\nsources = [\"src/{}\"]\ndeps = [\"{}\"]\n",
+            "[package]\nname = \"{}\"\nversion = \"0.1.0\"\n{}\n\n[dependencies]\n{} = {{ port-path = \"../ports/{}/{}\"{} }}\n\n[target.{}]\ntype = \"executable\"\nsources = [\"src/{}\"]\ndeps = [\"{}\"]\n",
             self.name,
+            standard,
             self.dep_name,
             self.dep_name,
             self.dep_version,

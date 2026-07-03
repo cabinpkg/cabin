@@ -286,6 +286,7 @@ fn package_rejects_manifest_with_patch_table() {
         r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "library"
@@ -820,6 +821,7 @@ fn source_replacement_does_not_leak_into_package_metadata() {
         r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"

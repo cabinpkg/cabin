@@ -181,8 +181,8 @@ error: invalid LDFLAGS: could not parse shell words
 Environment flags merge with Cabin's existing build-flag sources in this documented order (later
 layers append to earlier ones; nothing replaces or erases an earlier layer):
 
-1. Built-in backend defaults (the effective per-target standard flag - defaults `-std=c11` /
-   `-std=c++17`, see [Language standards](language-standards.md) - and the profile's `-O ...` /
+1. Built-in backend defaults (the effective per-target standard flag from the manifest-declared
+   standards, see [Language standards](language-standards.md) - and the profile's `-O ...` /
    `-g`, ...).
 2. The package's own `[profile]` table.
 3. The package's matching `[target.'cfg(...)'.profile]` blocks.

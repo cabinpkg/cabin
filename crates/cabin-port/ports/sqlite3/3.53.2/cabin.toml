@@ -17,6 +17,9 @@ single-threaded = []
 type = "library"
 sources = ["sqlite3.c"]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
 
 # The default (threadsafe) build links pthreads; SQLite also calls
 # dlopen for run-time extension loading and a few libm routines.

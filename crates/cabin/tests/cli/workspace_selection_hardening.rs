@@ -16,6 +16,7 @@ members = ["packages/*"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
@@ -149,6 +150,7 @@ members = ["packages/*"]
             r#"[package]
 name = "a"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [features]
 ssl = []
@@ -167,6 +169,7 @@ sources = ["src/main.cc"]
             r#"[package]
 name = "b"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.b]
 type = "executable"

@@ -11,3 +11,6 @@ version = "11.0.0"
 type = "library"
 sources = ["tinyxml2.cpp"]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c++17 is what this port has always compiled as.
+cxx-standard = "c++17"

@@ -1,6 +1,7 @@
 [package]
 name = "sqlite3-usage"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 # Default build is threadsafe. To compile a single-threaded SQLite,

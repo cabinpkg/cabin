@@ -603,7 +603,7 @@ mod tests {
     }
 
     fn ok_overlay() -> &'static str {
-        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\n"
+        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\n"
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod tests {
         // Overlay declares the wrong name/version.
         lay_overlay(
             &port_dir,
-            "[package]\nname = \"other\"\nversion = \"9.9.9\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
+            "[package]\nname = \"other\"\nversion = \"9.9.9\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
         );
         let (archive, hex) = make_archive(
             &dir.path().join("downloads"),

@@ -108,13 +108,19 @@ pub fn collect_requested_standards<S: BuildHasher>(
             if target.kind.is_dev_only() && !include_dev {
                 continue;
             }
+            // A missing effective standard is a manifest-load error;
+            // this over-approximation simply skips such sources.
             for source in &target.sources {
                 match classify_source(source) {
                     Some(SourceLanguage::C) => {
-                        out.c.insert(effective_c(&resolved, target).standard);
+                        if let Some(resolved) = effective_c(&resolved, target) {
+                            out.c.insert(resolved.standard);
+                        }
                     }
                     Some(SourceLanguage::Cxx) => {
-                        out.cxx.insert(effective_cxx(&resolved, target).standard);
+                        if let Some(resolved) = effective_cxx(&resolved, target) {
+                            out.cxx.insert(resolved.standard);
+                        }
                     }
                     None => {}
                 }
@@ -608,7 +614,11 @@ mod tests {
                 include_dirs: Vec::new(),
                 defines: Vec::new(),
                 deps: Vec::new(),
-                language: Default::default(),
+                language: cabin_core::LanguageStandardSettings {
+                    c_standard: Some(StandardDeclaration::Declared(CStandard::C11)),
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                    ..Default::default()
+                },
             };
             let package = Package::new(
                 PackageName::new(name).unwrap(),
@@ -648,15 +658,12 @@ mod tests {
         let cpp_only =
             collect_requested_standards(&graph, &BTreeSet::from([1usize]), &standards, &no_dev);
         assert!(!cpp_only.has_c_sources());
-        assert_eq!(
-            cpp_only.cxx,
-            BTreeSet::from([cabin_core::DEFAULT_CXX_STANDARD])
-        );
+        assert_eq!(cpp_only.cxx, BTreeSet::from([CxxStandard::Cxx17]));
         // Selecting the C package, or the whole workspace, does.
         let with_c =
             collect_requested_standards(&graph, &BTreeSet::from([0usize]), &standards, &no_dev);
         assert!(with_c.has_c_sources());
-        assert_eq!(with_c.c, BTreeSet::from([cabin_core::DEFAULT_C_STANDARD]));
+        assert_eq!(with_c.c, BTreeSet::from([CStandard::C11]));
         let both = collect_requested_standards(
             &graph,
             &BTreeSet::from([0usize, 1usize]),

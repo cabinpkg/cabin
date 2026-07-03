@@ -19,7 +19,7 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
 
             .unwrap();
     let archive = index.join("artifacts/fmt/fmt-10.2.1.tar.gz");
-    let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude-dirs = [\"include\"]\n";
+    let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\ncxx-standard = \"c++17\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude-dirs = [\"include\"]\n";
     let header = "#pragma once\nint fmt_value();\n";
     let body = "#include \"fmt.h\"\nint fmt_value() { return 42; }\n";
     let checksum = make_archive(
@@ -48,6 +48,7 @@ fn stage_consumer_project(root: &Path) {
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = "10.2.1"
@@ -195,6 +196,7 @@ fn vendor_with_no_versioned_deps_writes_skeleton_only() {
             r#"[package]
 name = "lone"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.lone]
 type = "library"

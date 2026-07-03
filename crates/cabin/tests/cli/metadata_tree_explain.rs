@@ -17,6 +17,7 @@ members = ["app", "lib"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 lib = { path = "../lib" }
@@ -35,6 +36,7 @@ sources = ["src/main.cc"]
             r#"[package]
 name = "lib"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.lib]
 type = "library"

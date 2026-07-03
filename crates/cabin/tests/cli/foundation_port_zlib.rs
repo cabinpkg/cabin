@@ -145,6 +145,7 @@ fn lay_fixture(
             r#"[package]
 name = "zlib"
 version = "1.3.1"
+c-standard = "c11"
 
 [target.zlib]
 type = "library"
@@ -160,6 +161,7 @@ include-dirs = ["."]
             r#"[package]
 name = "consumer"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
@@ -581,6 +583,7 @@ fn metadata_discovers_port_introduced_by_patched_manifest() {
             r#"[package]
 name = "zlib"
 version = "1.3.1"
+c-standard = "c11"
 
 [target.zlib]
 type = "library"
@@ -765,6 +768,7 @@ fn build_skips_dev_only_port_preparation() {
             r#"[package]
 name = "consumer"
 version = "0.1.0"
+c-standard = "c11"
 
 [dev-dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
@@ -821,6 +825,7 @@ fn test_skips_transitive_path_dep_dev_only_port_preparation() {
             r#"[package]
 name = "app"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 lib = { path = "../lib" }
@@ -839,6 +844,7 @@ sources = ["src/test.c"]
             r#"[package]
 name = "lib"
 version = "0.1.0"
+c-standard = "c11"
 
 [dev-dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
@@ -888,6 +894,7 @@ fn build_scoped_to_package_ignores_sibling_port() {
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
@@ -938,6 +945,7 @@ fn build_scoped_port_miss_on_selected_package_still_errors() {
             r#"[package]
 name = "consumer"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
@@ -1108,6 +1116,7 @@ fn package_selection_does_not_force_http_port_fetch() {
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"

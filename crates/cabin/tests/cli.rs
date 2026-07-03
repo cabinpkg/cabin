@@ -102,6 +102,7 @@ fn parse_help_commands_block(help: &str) -> Vec<String> {
 const VALID_MANIFEST: &str = r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -284,6 +285,7 @@ fn write_app_using_fmt(dir: &Path, app_main: Option<&str>) {
         r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"
@@ -382,6 +384,7 @@ fn init_creates_manifest_and_main_cc() {
     let manifest = fs::read_to_string(&manifest_path).expect("cabin.toml should be readable");
     assert!(manifest.contains("[package]"));
     assert!(manifest.contains(r#"name = "hello""#));
+    assert!(manifest.contains(r#"cxx-standard = "c++17""#));
     assert!(manifest.contains("[target.hello]"));
 
     let main_cc = dir.path().join("src").join("main.cc");
@@ -553,6 +556,7 @@ fn new_creates_directory_with_manifest_and_main_cc() {
     let manifest = fs::read_to_string(target.join("cabin.toml")).unwrap();
     assert!(manifest.contains("[package]"));
     assert!(manifest.contains(r#"name = "hello""#));
+    assert!(manifest.contains(r#"cxx-standard = "c++17""#));
     assert!(manifest.contains("[target.hello]"));
 
     let main_cc = target.join("src").join("main.cc");
@@ -1228,6 +1232,7 @@ fn build_links_executable_against_same_package_library() {
     let manifest = r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.greet]
 type = "library"
@@ -1314,6 +1319,7 @@ fn target_dependency_cycle_fails_with_clear_error() {
     let manifest = r#"[package]
 name = "cyc"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.a]
 type = "library"
@@ -1354,6 +1360,7 @@ fn write_path_dep_project(root: &Path) {
             r#"[package]
 name = "greet"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.greet]
 type = "library"
@@ -1374,6 +1381,7 @@ include-dirs = ["include"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 greet = { path = "../greet" }
@@ -1833,6 +1841,7 @@ fn build_with_versioned_dependency_requires_index_path() {
     let manifest = r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = "^10"

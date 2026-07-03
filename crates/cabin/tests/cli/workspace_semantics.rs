@@ -26,7 +26,7 @@ fn write_three_member_workspace(
         assert_fs::fixture::ChildPath::new(root.join(format!("packages/{name}/cabin.toml")))
 
                 .write_str(&format!(
-                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[target.{name}]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n"
+                    "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.{name}]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n"
                 ))
 
                 .unwrap();

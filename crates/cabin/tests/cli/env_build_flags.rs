@@ -309,6 +309,7 @@ fn env_flags_append_after_manifest_layer() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -420,6 +421,8 @@ fn cabin_build_emits_cxxflags_only_for_cxx_translation_units() {
             r#"[package]
 name = "mixed"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.mixed]
 type = "executable"
@@ -577,6 +580,7 @@ fn cabin_test_build_phase_uses_env_flags() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.smoke]
 type = "test"
@@ -679,6 +683,7 @@ fn pkg_config_and_env_flags_coexist_in_documented_order() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"

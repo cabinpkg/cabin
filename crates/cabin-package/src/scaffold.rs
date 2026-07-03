@@ -267,11 +267,14 @@ pub fn render_manifest(name: &str, kind: ScaffoldKind) -> String {
     }
 }
 
+// Cabin has no built-in standard defaults, so the generated
+// manifests declare one explicitly for the C++ sources they ship.
 fn render_binary_manifest(name: &str) -> String {
     format!(
         "[package]\n\
          name = \"{name}\"\n\
          version = \"0.1.0\"\n\
+         cxx-standard = \"c++17\"\n\
          \n\
          [target.{name}]\n\
          type = \"executable\"\n\
@@ -285,6 +288,7 @@ fn render_library_manifest(name: &str) -> String {
         "[package]\n\
          name = \"{name}\"\n\
          version = \"0.1.0\"\n\
+         cxx-standard = \"c++17\"\n\
          \n\
          [target.{name}]\n\
          type = \"library\"\n\
@@ -443,6 +447,7 @@ mod tests {
         let manifest = render_manifest("hello", ScaffoldKind::Binary);
         assert!(manifest.contains("[package]"));
         assert!(manifest.contains(r#"name = "hello""#));
+        assert!(manifest.contains(r#"cxx-standard = "c++17""#));
         assert!(manifest.contains("[target.hello]"));
         assert!(manifest.contains(r#"type = "executable""#));
         assert!(manifest.contains(r#"sources = ["src/main.cc"]"#));
@@ -453,10 +458,22 @@ mod tests {
         let manifest = render_manifest("hello", ScaffoldKind::Library);
         assert!(manifest.contains("[package]"));
         assert!(manifest.contains(r#"name = "hello""#));
+        assert!(manifest.contains(r#"cxx-standard = "c++17""#));
         assert!(manifest.contains("[target.hello]"));
         assert!(manifest.contains(r#"type = "library""#));
         assert!(manifest.contains(r#"sources = ["src/hello.cc"]"#));
         assert!(manifest.contains(r#"include-dirs = ["include"]"#));
+    }
+
+    #[test]
+    fn rendered_manifests_parse_with_effective_standards() {
+        // The scaffold's own output must survive manifest loading,
+        // which rejects compiled languages without a standard.
+        for kind in [ScaffoldKind::Binary, ScaffoldKind::Library] {
+            let manifest = render_manifest("hello", kind);
+            cabin_manifest::parse_manifest_str(&manifest)
+                .unwrap_or_else(|err| panic!("generated manifest must load ({kind:?}): {err}"));
+        }
     }
 
     #[test]

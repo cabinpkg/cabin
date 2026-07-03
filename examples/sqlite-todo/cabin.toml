@@ -1,6 +1,7 @@
 [package]
 name = "sqlite-todo"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 sqlite3 = { port = true, version = "^3" }

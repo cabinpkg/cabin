@@ -1,6 +1,7 @@
 [package]
 name = "png-info"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 # libpng depends on the bundled zlib port. The app declares only

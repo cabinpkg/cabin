@@ -1002,10 +1002,10 @@ mod tests {
         use crate::language_standard::{CxxStandard, LanguageStandardSource, ResolvedStandard};
         let baseline = resolve_with_language(LanguageStandardsSummary::default());
         let bumped = resolve_with_language(LanguageStandardsSummary {
-            cxx: ResolvedStandard {
+            cxx: Some(ResolvedStandard {
                 standard: CxxStandard::Cxx20,
                 source: LanguageStandardSource::Package,
-            },
+            }),
             ..Default::default()
         });
         assert_ne!(baseline.fingerprint, bumped.fingerprint);
@@ -1016,10 +1016,10 @@ mod tests {
         use crate::language_standard::{CStandard, LanguageStandardSource, ResolvedStandard};
         let baseline = resolve_with_language(LanguageStandardsSummary::default());
         let bumped = resolve_with_language(LanguageStandardsSummary {
-            c: ResolvedStandard {
+            c: Some(ResolvedStandard {
                 standard: CStandard::C17,
                 source: LanguageStandardSource::Package,
-            },
+            }),
             ..Default::default()
         });
         assert_ne!(baseline.fingerprint, bumped.fingerprint);
@@ -1036,10 +1036,10 @@ mod tests {
             "core".to_owned(),
             TargetStandardsSummary {
                 c: baseline.c,
-                cxx: ResolvedStandard {
+                cxx: Some(ResolvedStandard {
                     standard: CxxStandard::Cxx20,
                     source: LanguageStandardSource::Target,
-                },
+                }),
                 interface_c: None,
                 interface_cxx: None,
             },
@@ -1090,18 +1090,24 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_when_only_standard_provenance_differs() {
-        use crate::language_standard::{LanguageStandardSource, ResolvedStandard};
-        let builtin = LanguageStandardsSummary::default();
-        let mut declared = builtin.clone();
+        use crate::language_standard::{CxxStandard, LanguageStandardSource, ResolvedStandard};
+        let declared = LanguageStandardsSummary {
+            cxx: Some(ResolvedStandard {
+                standard: CxxStandard::Cxx17,
+                source: LanguageStandardSource::Package,
+            }),
+            ..Default::default()
+        };
+        let mut inherited = declared.clone();
         // Same value, different provenance: the fingerprint hashes
         // values only.
-        declared.cxx = ResolvedStandard {
-            standard: declared.cxx.standard,
-            source: LanguageStandardSource::Package,
-        };
+        inherited.cxx = Some(ResolvedStandard {
+            standard: CxxStandard::Cxx17,
+            source: LanguageStandardSource::Workspace,
+        });
         assert_eq!(
-            resolve_with_language(builtin).fingerprint,
-            resolve_with_language(declared).fingerprint
+            resolve_with_language(declared).fingerprint,
+            resolve_with_language(inherited).fingerprint
         );
     }
 

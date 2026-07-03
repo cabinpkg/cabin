@@ -285,6 +285,7 @@ fn populate_workspace(dir: &Path) {
             "[package]\n\
              name = \"hello\"\n\
              version = \"0.1.0\"\n\
+             cxx-standard = \"c++17\"\n\
              \n\
              [target.hello]\n\
              type = \"executable\"\n\
@@ -299,6 +300,7 @@ fn populate_workspace(dir: &Path) {
             "[package]\n\
              name = \"util\"\n\
              version = \"0.1.0\"\n\
+             cxx-standard = \"c++17\"\n\
              \n\
              [target.util]\n\
              type = \"library\"\n\

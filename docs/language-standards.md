@@ -103,17 +103,26 @@ Each GNU dialect is its ISO twin plus GNU extensions, and every ISO value has ex
 
 Per language, per target:
 
-- Effective implementation standard: `[target.<name>].c-standard` - > `[package].c-standard` - >
-  built-in default (same chain for `cxx-standard`).
+- Effective implementation standard: `[target.<name>].c-standard` - > `[package].c-standard`
+  (same chain for `cxx-standard`).
 - Effective interface standard (library-like targets): `[target.<name>].interface-c-standard` - >
   `[package].interface-c-standard` - > the target's effective implementation standard (same chain
   for C++).
 
-The built-in defaults are **`c11`** and **`c++17`**.  A project that declares nothing builds with
-the same compile commands it always has.
+There is **no built-in default**.  Standards are required where they matter:
+
+- A target that compiles C sources must have an effective `c-standard`; one that compiles C++
+  sources must have an effective `cxx-standard`.  A manifest that violates this is rejected at load
+  with an error naming the target, the missing field, and the `{ workspace = true }` opt-in.
+- A `header-only` target must declare at least one interface standard
+  (`interface-c-standard` / `interface-cxx-standard`, at `[target.<name>]` or `[package]` level) so
+  consumers know what its headers require; a header-only target without one is rejected at load.
+- A library that compiles sources may still omit its interface fields: the interface defaults to
+  the (explicitly declared) effective implementation standard.
 
 A workspace-inherited value (see "Workspace defaults" above) occupies the `[package]` slot of the
-chain - inheritance adds no new tier.
+chain - inheritance adds no new tier, and opting in with `{ workspace = true }` counts as
+declaring.
 
 Registry and foundation-port packages keep their own declared standards: unlike the raw `cflags` /
 `cxxflags` escape hatches (dropped for registry packages during flag resolution), a typed standard
@@ -188,9 +197,9 @@ depends on it, per language, checked after planning and before any Ninja file is
   creates relevance - a pure-C library imposes no C++ requirement on C++ consumers.
 - The check applies only to languages the consumer compiles.
 
-Because an omitted interface standard defaults to the effective implementation standard, an
-undeclared `c++20` library implicitly requires C++20 from consumers; declare `interface-cxx-standard
-= "c++17"` to relax that when the public headers permit.
+Because an omitted interface standard defaults to the effective implementation standard, a library
+declaring `cxx-standard = "c++20"` and nothing else implicitly requires C++20 from consumers;
+declare `interface-cxx-standard = "c++17"` to relax that when the public headers permit.
 
 Like the other standards checks, enforcement is scoped to the final planned graph: the planner
 records each incompatibility on the consumer's compiles, so a pair whose compiles `cabin check`
@@ -198,23 +207,23 @@ drops - a dependency built below another dependency's interface requirement - ne
 syntax-only check, while `cabin build` / `run` / `test` / `tidy` still fail before anything is
 compiled.
 
-## Escape hatch and the conflict rule
+## The conflict rule
 
-`cflags` / `cxxflags` still accept raw standard flags, and they come later in the argv, so for a
-package that declares **no** first-class standard they keep winning over the built-in default - this
-is the only route to the MSVC `/std:c++latest` / `/std:clatest` spellings, which Cabin will not map
-as first-class standards (see [Not supported](#not-supported)).  GNU dialects no longer need it:
-`gnu11` / `gnu++20` are first-class values.
+Declaring a first-class standard alongside a raw standard flag is ambiguous and rejected: if a
+planned compile carries both a first-class implementation standard declaration for its language
+(package level, or a target-level field on the compiled target) and a `-std=` / `--std=` / `/std:`
+token in the manifest-derived `cflags` (C) / `cxxflags` (C++), the build fails with
+`cabin::language::standard_flag_conflict`.  The conflict is scoped to the compiles the declaration
+covers - an unbuilt sibling target's declaration never gates a command that does not compile it -
+and environment `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` and `pkg-config` output are exempt (candidates
+are detected before those layers merge).  A workspace-inherited standard counts as a declared
+standard for this rule - opting in is declaring.
 
-Declaring both is ambiguous and rejected: if a planned compile carries both a first-class
-implementation standard declaration for its language (package level, or a target-level field on the
-compiled target) and a `-std=` / `--std=` / `/std:` token in the manifest-derived `cflags` (C) /
-`cxxflags` (C++), the build fails with `cabin::language::standard_flag_conflict`.  The conflict is
-scoped to the compiles the declaration covers - an unbuilt sibling target's declaration never gates
-a command that does not compile it - and environment `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` and
-`pkg-config` output are exempt (candidates are detected before those layers merge).  A
-workspace-inherited standard counts as a declared standard for this rule - opting in is declaring;
-staying on the raw-flag route means not opting in.
+Because every compiled language must declare a standard, a manifest-level raw standard flag always
+sits next to some covering declaration for the compiles it reaches: the raw-flag route through
+`cflags` / `cxxflags` is effectively closed for standard selection.  GNU dialects do not need it
+(`gnu11` / `gnu++20` are first-class values), and the environment variables above remain the
+deliberately unvalidated injection point (see [Not supported](#not-supported)).
 
 ## Fingerprint
 
@@ -229,11 +238,11 @@ provenance labels do not move the fingerprint.
 
 ```json
 "language": {
-  "c":   { "standard": "c11",   "source": "builtin-default" },
+  "c":   { "standard": "c11",   "source": "package" },
   "cxx": { "standard": "c++17", "source": "package" },
   "targets": {
     "core": {
-      "c":   { "standard": "c11",   "source": "builtin-default" },
+      "c":   { "standard": "c11",   "source": "package" },
       "cxx": { "standard": "c++20", "source": "target" },
       "interface_c":   { "standard": "c11",   "source": "compile-standard" },
       "interface_cxx": { "standard": "c++17", "source": "target" }
@@ -242,11 +251,12 @@ provenance labels do not move the fingerprint.
 }
 ```
 
-Sources are `builtin-default` / `package` / `target` / `workspace`, plus `compile-standard` for an
-interface value defaulted from the effective implementation standard.  A workspace-inherited value
-reports `"source": "workspace"` - for implementation standards and for package-level inherited
-interface standards alike.  `interface_*` keys appear only on `library` / `header-only` targets.
-The block is deterministic and additive to the stable metadata contract.
+Sources are `package` / `target` / `workspace`, plus `compile-standard` for an interface value
+defaulted from the effective implementation standard.  A language with no declaration anywhere
+reports no entry at all - there is no built-in default.  A workspace-inherited value reports
+`"source": "workspace"` - for implementation standards and for package-level inherited interface
+standards alike.  `interface_*` keys appear only on `library` / `header-only` targets.  The block
+is deterministic and additive to the stable metadata contract.
 
 `cabin package` / `cabin publish` preserve manifest-declared standard fields in the canonical
 per-version metadata, and the index loaders round-trip them opaquely (older index entries without
@@ -274,6 +284,6 @@ The MSVC `/std:c++latest` and `/std:clatest` spellings are intentionally **not**
 first-class standards, and there is no plan to add them.  They float to the compiler's newest
 in-progress draft rather than naming a concrete standard, so they cannot participate in Cabin's
 typed value set, per-standard toolchain validation, interface enforcement, or the reproducible
-build-configuration fingerprint.  If you need them, pass them through the `cflags` / `cxxflags`
-escape hatch on a package that declares no first-class standard; that route is deliberately
-unvalidated and unpinned.
+build-configuration fingerprint.  If you need them, inject them through the environment
+(`CXXFLAGS` / `CFLAGS`), which merges after the manifest layers and is exempt from the conflict
+rule; that route is deliberately unvalidated and unpinned.

@@ -15,3 +15,6 @@ version = "1.7.18"
 type = "library"
 sources = ["cJSON.c"]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"

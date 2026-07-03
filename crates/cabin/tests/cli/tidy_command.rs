@@ -135,6 +135,7 @@ fn tidy_analyses_test_and_example_sources() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"
@@ -397,7 +398,7 @@ fn exclude_path_skips_named_file() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/extra.cc\"]\n")
 
             .unwrap();
     dir.child("src/main.cc")
@@ -429,7 +430,7 @@ fn repeated_exclude_accumulates() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/a.cc\", \"src/b.cc\"]\n")
 
             .unwrap();
     dir.child("src/main.cc")
@@ -462,7 +463,7 @@ fn vcs_ignored_files_are_skipped_by_default() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
 
             .unwrap();
     dir.child("src/main.cc")
@@ -497,7 +498,7 @@ fn no_ignore_vcs_includes_gitignored_files() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\", \"src/generated.cc\"]\n")
 
             .unwrap();
     dir.child("src/main.cc")
@@ -766,6 +767,7 @@ members = ["outer", "outer/nested"]
             r#"[package]
 name = "outer"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.outer]
 type = "executable"
@@ -781,6 +783,7 @@ sources = ["src/main.cc"]
             r#"[package]
 name = "nested"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.nested]
 type = "executable"
@@ -824,6 +827,7 @@ members = ["clean", "registry-user"]
             r#"[package]
 name = "clean"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.clean]
 type = "executable"
@@ -869,7 +873,7 @@ fn versioned_dependency_produces_actionable_error() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
 
-            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
+            .write_str("[package]\nname = \"hello\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.hello]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n\n[dependencies]\nfmt = \"1.0\"\n")
 
             .unwrap();
     dir.child("src/main.cc")

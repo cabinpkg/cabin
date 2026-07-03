@@ -92,6 +92,29 @@ fn target_name(name: &str) -> TargetName {
     TargetName::new(name).unwrap()
 }
 
+/// Target-level `c11` / `c++17` declarations for exactly the
+/// languages `sources` compile.  Manifest loading requires every
+/// compiled language to declare a standard (there is no built-in
+/// default), so the fixture helpers mirror that invariant without
+/// creating interface relevance for languages a target never
+/// compiles.
+fn language_for_sources(sources: &[&str]) -> cabin_core::LanguageStandardSettings {
+    use cabin_core::{CStandard, CxxStandard, SourceLanguage, StandardDeclaration};
+    let mut language = cabin_core::LanguageStandardSettings::default();
+    for source in sources {
+        match cabin_core::classify_source(Utf8Path::new(source)) {
+            Some(SourceLanguage::C) => {
+                language.c_standard = Some(StandardDeclaration::Declared(CStandard::C11));
+            }
+            Some(SourceLanguage::Cxx) => {
+                language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx17));
+            }
+            None => {}
+        }
+    }
+    language
+}
+
 fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> CoreTarget {
     CoreTarget {
         name: target_name(name),
@@ -100,7 +123,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         include_dirs: Vec::new(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-        language: Default::default(),
+        language: language_for_sources(sources),
     }
 }
 
@@ -118,7 +141,7 @@ fn target_with_includes(
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
-        language: Default::default(),
+        language: language_for_sources(sources),
     }
 }
 
@@ -1425,11 +1448,17 @@ fn compile_actions_carry_per_target_effective_standards() {
                     ..Default::default()
                 },
             ),
-            target(
+            // Declare only the C standard target-level so the C++
+            // side exercises the package tier.
+            target_with_language(
                 "app",
                 TargetKind::Executable,
                 &["src/main.cc", "src/util.c"],
                 &["core"],
+                LanguageStandardSettings {
+                    c_standard: Some(StandardDeclaration::Declared(CStandard::C11)),
+                    ..Default::default()
+                },
             ),
         ],
         Vec::new(),
@@ -1449,7 +1478,7 @@ fn compile_actions_carry_per_target_effective_standards() {
         LanguageStandard::Cxx(CxxStandard::Cxx20)
     );
     // `app`'s C++ source inherits the package-level c++14; its C
-    // source falls back to the built-in default c11.
+    // source uses its target-level c11.
     let compiles = compile_actions(&bg);
     let app_cxx = compiles
         .iter()

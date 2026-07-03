@@ -373,6 +373,7 @@ mod tests {
     const VALID_MANIFEST: &str = r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"
@@ -409,6 +410,7 @@ sources = ["src/lib.cc"]
                 r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"
@@ -584,6 +586,7 @@ sources = ["src/main.cc"]
 name = "demo"
 version = "0.1.0"
 c-standard = { workspace = true }
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"

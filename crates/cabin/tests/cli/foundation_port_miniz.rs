@@ -103,7 +103,7 @@ fn fake_zip_port_builds_downstream_consumer() {
         .unwrap();
     assert_fs::fixture::ChildPath::new(port_dir.join("cabin.toml"))
         .write_str(
-            "[package]\nname = \"fakeminiz\"\nversion = \"1.0.0\"\n\n[target.fakeminiz]\ntype = \"library\"\nsources = [\"fakeminiz.c\"]\ninclude-dirs = [\".\"]\n",
+            "[package]\nname = \"fakeminiz\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n[target.fakeminiz]\ntype = \"library\"\nsources = [\"fakeminiz.c\"]\ninclude-dirs = [\".\"]\n",
         )
         .unwrap();
 
@@ -111,7 +111,7 @@ fn fake_zip_port_builds_downstream_consumer() {
     let consumer_manifest = tmp.path().join("consumer/cabin.toml");
     assert_fs::fixture::ChildPath::new(&consumer_manifest)
         .write_str(
-            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n\n[dependencies]\nfakeminiz = { port-path = \"../ports/fakeminiz/1.0.0\" }\n\n[target.consumer]\ntype = \"executable\"\nsources = [\"src/main.c\"]\ndeps = [\"fakeminiz\"]\n",
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[dependencies]\nfakeminiz = { port-path = \"../ports/fakeminiz/1.0.0\" }\n\n[target.consumer]\ntype = \"executable\"\nsources = [\"src/main.c\"]\ndeps = [\"fakeminiz\"]\n",
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(tmp.path().join("consumer/src/main.c"))

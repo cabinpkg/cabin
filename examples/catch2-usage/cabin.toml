@@ -1,6 +1,7 @@
 [package]
 name = "catch2-usage"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 # Only the test target references the port, so `cabin build`
 # compiles nothing from it until `cabin test` needs it.

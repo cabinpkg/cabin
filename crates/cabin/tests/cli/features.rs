@@ -6,6 +6,7 @@ fn write_demo_with_features(root: &Path) {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [features]
 default = ["simd"]
@@ -76,6 +77,7 @@ fn cabin_package_metadata_includes_declarations() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [features]
 default = ["simd"]
@@ -109,6 +111,7 @@ fn cabin_publish_registry_dir_preserves_declarations() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [features]
 default = []

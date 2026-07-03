@@ -1952,7 +1952,7 @@ fn resolves_port_dep_via_supplied_source() {
     prepared
             .child("cabin.toml")
             .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
             )
             .unwrap();
     prepared
@@ -1970,6 +1970,7 @@ fn resolves_port_dep_via_supplied_source() {
 [package]
 name = "consumer"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 zlib = { port-path = "../ports/zlib/1.3.1" }
@@ -2034,7 +2035,7 @@ fn resolves_builtin_port_dep_by_name() {
     prepared
             .child("cabin.toml")
             .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
+                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
             )
             .unwrap();
     prepared
@@ -2050,6 +2051,7 @@ fn resolves_builtin_port_dep_by_name() {
 [package]
 name = "consumer"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 zlib = { port = true, version = "^1.3" }

@@ -29,6 +29,7 @@ The manifest declares a single `executable` target named after the package:
 [package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -58,6 +59,7 @@ The manifest declares a single `library` target with a public `include/` directo
 [package]
 name = "greeter"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.greeter]
 type = "library"

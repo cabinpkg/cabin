@@ -24,7 +24,11 @@ sources = ["extras/catch_amalgamated.cpp"]
 include-dirs = ["extras"]
 # Upstream publishes a C++14 interface requirement
 # (target_compile_features(Catch2 PUBLIC cxx_std_14)); declaring it
-# keeps Cabin's c++17 fallback from rejecting valid c++14 consumers.
+# keeps the c++17 implementation standard from being imposed on
+# valid c++14 consumers.
+# Cabin requires an explicit standard for every compiled language;
+# c++17 is what this port has always compiled as.
+cxx-standard = "c++17"
 interface-cxx-standard = "c++14"
 
 [target.'cfg(feature = "custom-main")'.profile]

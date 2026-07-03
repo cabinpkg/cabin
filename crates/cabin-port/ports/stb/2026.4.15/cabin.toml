@@ -13,6 +13,10 @@ version = "2026.4.15"
 [target.stb]
 type = "header-only"
 include-dirs = ["."]
+# Header-only targets must declare an interface standard; upstream
+# is portable ANSI C, so c89 is the floor and no consumer's own
+# C standard can fall below it.
+interface-c-standard = "c89"
 
 # Several stb implementations call libm routines from the consumer
 # TU that hosts them (stb_truetype's floor/ceil/sqrt/pow, stb_image's

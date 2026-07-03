@@ -13,3 +13,6 @@ version = "0.8.3"
 type = "library"
 sources = ["xxhash.c"]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
