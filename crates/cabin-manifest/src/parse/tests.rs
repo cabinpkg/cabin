@@ -1415,9 +1415,10 @@ fn same_package_name_across_different_kinds_is_allowed() {
 
 #[test]
 fn dev_dependency_path_dependency_is_accepted_in_metadata() {
-    // Dev deps with `path = "..."` are declaration-only; we
-    // accept them at parse time and surface them through
-    // `package.dependencies` so `cabin metadata` lists them.
+    // Dev deps with `path = "..."` are declaration-only for
+    // ordinary commands; we accept them at parse time and surface
+    // them through `package.dependencies` so `cabin metadata`
+    // lists them (`cabin test` activates them as graph edges).
     let package = parse_project(
         r#"
             [package]

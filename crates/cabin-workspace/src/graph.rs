@@ -100,12 +100,13 @@ pub struct WorkspacePackage {
     /// inside [`PackageGraph::packages`] together with the
     /// [`DependencyKind`] under which it was declared.
     ///
-    /// Only kinds that participate in ordinary resolution
-    /// (`Normal`) appear here today: dev path-deps are
-    /// declaration-only and therefore never enter the package
-    /// graph.  The kind is preserved per-edge so the resolver /
-    /// fetch / closure-walk callers can iterate all edges
-    /// consistently with future kinds.
+    /// `Normal`-kind edges always appear here.  `Dev`-kind edges
+    /// appear only when the loader was asked to activate this
+    /// package's `[dev-dependencies]` via
+    /// `WorkspaceLoadOptions::include_dev_for` - `cabin test` does
+    /// that for the selected packages; ordinary commands keep dev
+    /// deps declaration-only.  The kind is preserved per-edge so
+    /// consumers can filter appropriately.
     pub deps: Vec<DependencyEdge>,
     /// Whether this package was loaded from a local source tree
     /// or from an extracted registry archive.
@@ -120,8 +121,9 @@ pub struct WorkspacePackage {
 
 impl WorkspacePackage {
     /// Iterate dependency edges of a single kind.  Used by the
-    /// build planner so cross-package target lookups stay limited
-    /// to `Normal`-kind edges.
+    /// build planner, which resolves ordinary targets through
+    /// `Normal`-kind edges only and additionally lets dev-only
+    /// targets (`test` / `example`) see activated `Dev`-kind edges.
     pub fn deps_of_kind(&self, kind: DependencyKind) -> impl Iterator<Item = usize> + '_ {
         self.deps
             .iter()

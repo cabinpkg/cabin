@@ -24,8 +24,8 @@ use crate::cli::{
 //
 // Dev edges are intentionally not exposed here: tree/explain build their
 // view through the ordinary workspace loader, which keeps dev deps
-// declaration-only - only `cabin run` / `cabin test` opt them into the
-// graph.  A `--kind dev` filter would walk an empty edge set.
+// declaration-only - only `cabin test` opts them into the graph.  A
+// `--kind dev` filter would walk an empty edge set.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "kebab-case")]
 pub(crate) enum TreeKindFilter {
