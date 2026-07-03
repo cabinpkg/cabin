@@ -127,6 +127,14 @@ pub struct PlanRequest<'a> {
     /// switch an old `cl` would reject.  Ignored by the GCC/Clang
     /// dialect, where `-isystem` is part of the base command line.
     pub msvc_external_includes: bool,
+    /// Per-package enabled feature names from the cross-package
+    /// feature resolver, keyed by `graph.packages` index.  Gates
+    /// targets that declare `required-features`: default
+    /// enumeration skips a target whose required features are not
+    /// all enabled, while naming one explicitly (a selector or a
+    /// `deps` entry) is a hard error.  `None` (and missing
+    /// entries) mean "no features enabled" for gating purposes.
+    pub enabled_features: Option<&'a HashMap<usize, BTreeSet<String>>>,
 }
 
 /// One manifest-declared source resolved to its absolute path and the
@@ -149,18 +157,54 @@ struct PreparedSource {
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
 /// [`BuildError::UnknownTargetInPackage`],
 /// [`BuildError::NoSameNameTargetInDependency`],
-/// [`BuildError::DevDependencyNotActive`]); [`BuildError::DependencyCycle`]
+/// [`BuildError::DevDependencyNotActive`]); required-feature gating
+/// errors ([`BuildError::TargetRequiresFeatures`],
+/// [`BuildError::TargetDepRequiresFeatures`],
+/// [`BuildError::AllDefaultTargetsRequireFeatures`]);
+/// [`BuildError::DependencyCycle`]
 /// when the target dependency graph contains a cycle; and per-target
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
 /// [`BuildError::MissingCCompiler`]).
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
+    let empty_features = BTreeSet::new();
+    let enabled_of = |pkg_idx: usize| -> &BTreeSet<String> {
+        req.enabled_features
+            .and_then(|m| m.get(&pkg_idx))
+            .unwrap_or(&empty_features)
+    };
+
     let selected = if let Some(sel) = &req.selected {
-        resolve_selection(sel, req.graph, req.selected_packages)?
+        let selected = resolve_selection(sel, req.graph, req.selected_packages)?;
+        // Explicitly named targets hard-error when their
+        // `required-features` are not enabled - a silent skip here
+        // would turn a typo'd feature selection into "built
+        // nothing".
+        for tid in &selected {
+            let target = lookup_target(tid, req.graph)?;
+            let missing = target.missing_required_features(enabled_of(tid.0));
+            if !missing.is_empty() {
+                return Err(BuildError::TargetRequiresFeatures {
+                    target: format_target_id(tid, req.graph),
+                    package: req.graph.packages[tid.0].package.name.as_str().to_owned(),
+                    missing,
+                });
+            }
+        }
+        selected
     } else {
-        let chosen = default_selection(req.graph, req.selected_packages);
+        let (chosen, gated) =
+            default_selection(req.graph, req.selected_packages, req.enabled_features);
         if chosen.is_empty() {
-            return Err(BuildError::EmptySelectedPackages);
+            if gated.is_empty() {
+                return Err(BuildError::EmptySelectedPackages);
+            }
+            return Err(BuildError::AllDefaultTargetsRequireFeatures {
+                gated: gated
+                    .into_iter()
+                    .map(|(tid, missing)| (format_target_id(&tid, req.graph), missing))
+                    .collect(),
+            });
         }
         chosen
     };
@@ -184,6 +228,44 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let dev_deps_visible = target.kind.is_dev_only();
         for raw in &target.deps {
             let dep = resolve_target_dep(raw.as_str(), tid.0, dev_deps_visible, req.graph)?;
+            // A dep edge is an explicit request: a feature-gated
+            // dep target whose required features are not enabled
+            // on its package is a hard error, not a skip.
+            let dep_target = lookup_target(&dep, req.graph)?;
+            let missing = dep_target.missing_required_features(enabled_of(dep.0));
+            if !missing.is_empty() {
+                // CLI feature selection applies to the selected
+                // roots only, so the actionable fix depends on how
+                // the gated package entered the graph.  For a
+                // cross-package reference, mirror
+                // `resolve_target_dep`'s edge preference: a Normal
+                // edge wins, so the help only points at
+                // `[dev-dependencies]` when the dep is reachable
+                // through an activated dev edge alone.
+                let gated_pkg_is_root = match req.selected_packages {
+                    Some(s) => s.contains(&dep.0),
+                    None => req.graph.primary_packages.contains(&dep.0),
+                };
+                let fix = if gated_pkg_is_root {
+                    crate::error::FeatureGateFix::RootSelection
+                } else if dep.0 == tid.0 {
+                    crate::error::FeatureGateFix::UpstreamEdge
+                } else if req.graph.packages[tid.0]
+                    .deps_of_kind(cabin_core::DependencyKind::Normal)
+                    .any(|di| di == dep.0)
+                {
+                    crate::error::FeatureGateFix::DependencyEdge
+                } else {
+                    crate::error::FeatureGateFix::DevDependencyEdge
+                };
+                return Err(BuildError::TargetDepRequiresFeatures {
+                    consumer: format_target_id(&tid, req.graph),
+                    dep_target: format_target_id(&dep, req.graph),
+                    dep_package: req.graph.packages[dep.0].package.name.as_str().to_owned(),
+                    missing,
+                    fix,
+                });
+            }
             to_visit.push(dep.clone());
             resolved.push(dep);
         }
@@ -844,21 +926,41 @@ fn resolve_top_level_selector(
     }
 }
 
-fn default_selection(graph: &PackageGraph, selected_packages: Option<&[usize]>) -> Vec<TargetId> {
+/// Default-buildable targets of the selected packages, split into
+/// the buildable set and the targets skipped because their
+/// `required-features` are not enabled (with the missing names, for
+/// the all-gated diagnostic).
+fn default_selection(
+    graph: &PackageGraph,
+    selected_packages: Option<&[usize]>,
+    enabled_features: Option<&HashMap<usize, BTreeSet<String>>>,
+) -> (Vec<TargetId>, Vec<(TargetId, Vec<String>)>) {
+    let empty = BTreeSet::new();
     let mut out = Vec::new();
+    let mut gated = Vec::new();
     let pkg_indices: &[usize] = match selected_packages {
         Some(s) => s,
         None => graph.primary_packages.as_slice(),
     };
     for &pkg_idx in pkg_indices {
         let pkg = &graph.packages[pkg_idx];
+        let enabled = enabled_features
+            .and_then(|m| m.get(&pkg_idx))
+            .unwrap_or(&empty);
         for target in &pkg.package.targets {
-            if target.kind.is_default_buildable() {
-                out.push((pkg_idx, target.name.as_str().to_owned()));
+            if !target.kind.is_default_buildable() {
+                continue;
+            }
+            let tid = (pkg_idx, target.name.as_str().to_owned());
+            let missing = target.missing_required_features(enabled);
+            if missing.is_empty() {
+                out.push(tid);
+            } else {
+                gated.push((tid, missing));
             }
         }
     }
-    out
+    (out, gated)
 }
 
 /// Build-time selector for `cabin test`: expand a package
@@ -868,6 +970,41 @@ fn default_selection(graph: &PackageGraph, selected_packages: Option<&[usize]>) 
 /// order as the planner consumes selectors.  Useful for callers that
 /// want every dev-only target of a given kind without naming each
 /// one explicitly.
+/// Whether the selector's target has all of its
+/// `required-features` enabled under `enabled_features`.  Used by
+/// enumeration-style callers (`cabin test` without `--test`,
+/// `cabin tidy`) to *skip* feature-gated targets; explicitly named
+/// targets go through [`plan`], which hard-errors instead.
+/// Selectors that do not resolve to a target return `true` so
+/// resolution diagnostics stay owned by [`plan`].
+// The map is always the std-hasher one the CLI builds from the
+// feature resolver; a `BuildHasher` parameter would be dead
+// flexibility.
+#[allow(clippy::implicit_hasher)]
+pub fn selector_required_features_met(
+    sel: &ManifestTargetSelector,
+    graph: &PackageGraph,
+    enabled_features: &HashMap<usize, BTreeSet<String>>,
+) -> bool {
+    let empty = BTreeSet::new();
+    let Some(pkg_name) = &sel.package else {
+        return true;
+    };
+    let Some(pkg_idx) = graph.index_of(pkg_name) else {
+        return true;
+    };
+    let Some(target) = graph.packages[pkg_idx]
+        .package
+        .targets
+        .iter()
+        .find(|t| t.name.as_str() == sel.name)
+    else {
+        return true;
+    };
+    let enabled = enabled_features.get(&pkg_idx).unwrap_or(&empty);
+    target.missing_required_features(enabled).is_empty()
+}
+
 pub fn select_targets_of_kind(
     graph: &PackageGraph,
     selected_packages: Option<&[usize]>,

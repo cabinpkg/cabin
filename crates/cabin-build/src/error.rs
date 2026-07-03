@@ -51,6 +51,53 @@ pub enum BuildError {
     )]
     DevDependencyNotActive { dep: String, package: String },
 
+    /// An explicitly selected target's `required-features` are not
+    /// all enabled.  Default enumeration silently skips such
+    /// targets; naming one (`cabin test --test`, `cabin run
+    /// --bin`, a manifest-target selector) is a hard error.
+    #[error(
+        "target `{target}` requires the features [{}] of package {package:?}, which are not enabled; enable them with `--features {}` or add them to `[features].default` of package {package:?}",
+        format_feature_list(.missing), .missing.join(",")
+    )]
+    TargetRequiresFeatures {
+        target: String,
+        package: String,
+        missing: Vec<String>,
+    },
+
+    /// A `deps` entry resolves to a target whose
+    /// `required-features` are not all enabled on the providing
+    /// package.  The attached [`FeatureGateFix`] names the place
+    /// that can actually enable them.
+    #[error(
+        "target `{consumer}` depends on `{dep_target}`, which requires the features [{}] of package {dep_package:?}; {}",
+        format_feature_list(.missing),
+        format_dep_feature_help(.dep_package, .missing, *.fix)
+    )]
+    TargetDepRequiresFeatures {
+        consumer: String,
+        dep_target: String,
+        dep_package: String,
+        missing: Vec<String>,
+        /// Where the missing features can be enabled.
+        fix: FeatureGateFix,
+    },
+
+    /// Every default-buildable target in the selection was skipped
+    /// because its `required-features` are not enabled.  Plain
+    /// [`BuildError::EmptySelectedPackages`] would hide the fix, so
+    /// the gated targets and their missing features are spelled
+    /// out.
+    #[error(
+        "every default-buildable target in the selected packages requires features that are not enabled: {}; enable them with `--features <name>`",
+        format_gated_targets(.gated)
+    )]
+    AllDefaultTargetsRequireFeatures {
+        /// `(package:target, missing features)` pairs, in selection
+        /// order.
+        gated: Vec<(String, Vec<String>)>,
+    },
+
     #[error("target {0:?} has no source files; nothing to build")]
     EmptyTargetSources(String),
 
@@ -162,6 +209,69 @@ fn format_cycle(cycle: &[String]) -> String {
 
 fn format_candidates(candidates: &[String]) -> String {
     candidates.join(", ")
+}
+
+fn format_feature_list(features: &[String]) -> String {
+    features
+        .iter()
+        .map(|f| format!("{f:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Where a gated target's missing `required-features` can be
+/// enabled, driving [`BuildError::TargetDepRequiresFeatures`]'s
+/// help text.  CLI feature selection only applies to selected root
+/// packages, so the actionable fix depends on how the gated
+/// package entered the graph - not on which target referenced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeatureGateFix {
+    /// The gated package is a selected root: `--features` /
+    /// `[features].default` apply to it directly.
+    RootSelection,
+    /// The gated package is reached through the consumer's normal
+    /// `[dependencies]` edge: request the features there.
+    DependencyEdge,
+    /// The gated package is reached through the consumer's
+    /// activated `[dev-dependencies]` edge: request the features
+    /// there, never by promoting the dep to `[dependencies]`.
+    DevDependencyEdge,
+    /// The gate sits inside a dependency package (an ungated dep
+    /// target pulls a gated sibling): the enabling edge belongs to
+    /// whichever package depends on it, upstream of the reported
+    /// consumer.
+    UpstreamEdge,
+}
+
+fn format_dep_feature_help(dep_package: &str, missing: &[String], fix: FeatureGateFix) -> String {
+    let features = missing
+        .iter()
+        .map(|f| format!("{f:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    match fix {
+        FeatureGateFix::RootSelection => format!(
+            "enable them with `--features {}` or add them to `[features].default`",
+            missing.join(",")
+        ),
+        FeatureGateFix::DependencyEdge => format!(
+            "request them on the dependency edge, e.g. `{dep_package} = {{ version = \"...\", features = [{features}] }}` under `[dependencies]`"
+        ),
+        FeatureGateFix::DevDependencyEdge => format!(
+            "request them on the dependency edge, e.g. `{dep_package} = {{ version = \"...\", features = [{features}] }}` under `[dev-dependencies]`"
+        ),
+        FeatureGateFix::UpstreamEdge => format!(
+            "request them on the dependency edge that makes {dep_package:?} available, e.g. `{dep_package} = {{ version = \"...\", features = [{features}] }}` in the depending package's manifest"
+        ),
+    }
+}
+
+fn format_gated_targets(gated: &[(String, Vec<String>)]) -> String {
+    gated
+        .iter()
+        .map(|(target, missing)| format!("`{target}` requires [{}]", format_feature_list(missing)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn format_target_suggestions(package: &str, candidates: &[String]) -> String {

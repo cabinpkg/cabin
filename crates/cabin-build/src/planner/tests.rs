@@ -222,6 +222,7 @@ fn plan_request<'a>(
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
         msvc_external_includes: true,
+        enabled_features: None,
     }
 }
 
@@ -613,6 +614,492 @@ fn bare_dep_shorthand_requires_same_name_target() {
         rendered.contains("`greet:core`"),
         "error should suggest the qualified spelling, got: {rendered}"
     );
+}
+
+#[test]
+fn bare_dep_shorthand_ignores_non_linkable_same_name_target() {
+    // The dependency declares an *executable* named like the
+    // package plus a differently named library.  The shorthand must
+    // not silently pick the executable (it contributes no include
+    // dirs or archives); the error lists the linkable candidates.
+    let tool_proj = Package::new(
+        pkg_name("tool"),
+        version(),
+        vec![
+            target("tool", TargetKind::Executable, &["src/main.cc"], &[]),
+            target("toollib", TargetKind::Library, &["src/lib.cc"], &[]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["tool"],
+        )],
+        vec![dep("tool", "../tool")],
+    )
+    .unwrap();
+    let tool_pkg = make_pkg("tool", "/abs/tool", tool_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![tool_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::NoSameNameTargetInDependency {
+            dep,
+            package,
+            candidates,
+        } => {
+            assert_eq!(dep, "tool");
+            assert_eq!(package, "tool");
+            assert_eq!(candidates, &["tool:toollib".to_owned()]);
+        }
+        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
+    }
+}
+
+// -----------------------------------------------------------------
+// required-features gating.
+// -----------------------------------------------------------------
+
+/// A package whose `[features]` table declares `features` (no
+/// implications), for targets carrying `required-features`.
+fn package_with_features(
+    name: &str,
+    targets: Vec<CoreTarget>,
+    dependencies: Vec<Dependency>,
+    features: &[&str],
+) -> Package {
+    let features = cabin_core::Features::new(
+        Vec::new(),
+        features
+            .iter()
+            .map(|f| ((*f).to_owned(), Vec::new()))
+            .collect(),
+    )
+    .unwrap();
+    Package::with_config(cabin_core::PackageConfigInput {
+        name: pkg_name(name),
+        version: version(),
+        targets,
+        dependencies,
+        system_dependencies: Vec::new(),
+        features,
+    })
+    .unwrap()
+}
+
+fn gated_target(
+    name: &str,
+    kind: TargetKind,
+    sources: &[&str],
+    deps: &[&str],
+    required: &[&str],
+) -> CoreTarget {
+    let mut t = target(name, kind, sources, deps);
+    t.required_features = required.iter().map(|f| (*f).to_owned()).collect();
+    t
+}
+
+/// `demo` with an ungated `core` library and a `tls` library gated
+/// on the `ssl` feature.
+fn gated_single_package_graph() -> PackageGraph {
+    let package = package_with_features(
+        "demo",
+        vec![
+            target("core", TargetKind::Library, &["src/core.cc"], &[]),
+            gated_target("tls", TargetKind::Library, &["src/tls.cc"], &[], &["ssl"]),
+        ],
+        Vec::new(),
+        &["ssl"],
+    );
+    single_package_graph(package, "/abs/demo")
+}
+
+fn enabled(pairs: &[(usize, &[&str])]) -> HashMap<usize, BTreeSet<String>> {
+    pairs
+        .iter()
+        .map(|(idx, names)| {
+            (
+                *idx,
+                names
+                    .iter()
+                    .map(|n| (*n).to_owned())
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn default_selection_skips_target_with_unmet_required_features() {
+    let graph = gated_single_package_graph();
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let outputs: Vec<String> = bg.default_outputs.iter().map(ToString::to_string).collect();
+    assert!(
+        outputs.iter().any(|o| o.contains("libcore.a")),
+        "ungated library must build: {outputs:?}"
+    );
+    assert!(
+        !outputs.iter().any(|o| o.contains("libtls.a")),
+        "feature-gated library must be skipped: {outputs:?}"
+    );
+}
+
+#[test]
+fn default_selection_builds_gated_target_when_feature_enabled() {
+    let graph = gated_single_package_graph();
+    let tc = toolchain();
+    let features = enabled(&[(0, &["ssl"])]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.enabled_features = Some(&features);
+    let bg = plan(&req).unwrap();
+    assert!(
+        bg.default_outputs
+            .iter()
+            .any(|o| o.as_str().contains("libtls.a")),
+        "gated library must build once its required features are enabled"
+    );
+}
+
+#[test]
+fn explicit_selector_on_gated_target_is_a_hard_error() {
+    let graph = gated_single_package_graph();
+    let tc = toolchain();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("tls")]);
+    let err = plan(&req).unwrap_err();
+    match &err {
+        BuildError::TargetRequiresFeatures {
+            target,
+            package,
+            missing,
+        } => {
+            assert_eq!(target, "demo:tls");
+            assert_eq!(package, "demo");
+            assert_eq!(missing, &["ssl".to_owned()]);
+        }
+        other => panic!("expected TargetRequiresFeatures, got {other:?}"),
+    }
+    assert!(
+        err.to_string().contains("--features ssl"),
+        "help must name the flag: {err}"
+    );
+}
+
+#[test]
+fn same_package_dep_on_gated_target_errors_with_features_help() {
+    let package = package_with_features(
+        "demo",
+        vec![
+            gated_target("tls", TargetKind::Library, &["src/tls.cc"], &[], &["ssl"]),
+            target("app", TargetKind::Executable, &["src/main.cc"], &["tls"]),
+        ],
+        Vec::new(),
+        &["ssl"],
+    );
+    let graph = single_package_graph(package, "/abs/demo");
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::TargetDepRequiresFeatures {
+            consumer,
+            dep_target,
+            missing,
+            fix,
+            ..
+        } => {
+            assert_eq!(consumer, "demo:app");
+            assert_eq!(dep_target, "demo:tls");
+            assert_eq!(missing, &["ssl".to_owned()]);
+            // `demo` is the selected root, so CLI selection applies.
+            assert_eq!(*fix, crate::FeatureGateFix::RootSelection);
+        }
+        other => panic!("expected TargetDepRequiresFeatures, got {other:?}"),
+    }
+    assert!(
+        err.to_string().contains("--features ssl"),
+        "same-package help must name the flag: {err}"
+    );
+}
+
+#[test]
+fn cross_package_dep_on_gated_target_errors_with_edge_help() {
+    let foo = package_with_features(
+        "foo",
+        vec![gated_target(
+            "tls",
+            TargetKind::Library,
+            &["src/tls.cc"],
+            &[],
+            &["ssl"],
+        )],
+        Vec::new(),
+        &["ssl"],
+    );
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["foo:tls"],
+        )],
+        vec![dep("foo", "../foo")],
+    )
+    .unwrap();
+    let foo_pkg = make_pkg("foo", "/abs/foo", foo, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app, vec![0]);
+    let graph = graph_with(vec![foo_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::TargetDepRequiresFeatures {
+            consumer,
+            dep_target,
+            dep_package,
+            missing,
+            fix,
+        } => {
+            assert_eq!(consumer, "app:app");
+            assert_eq!(dep_target, "foo:tls");
+            assert_eq!(dep_package, "foo");
+            assert_eq!(missing, &["ssl".to_owned()]);
+            assert_eq!(*fix, crate::FeatureGateFix::DependencyEdge);
+        }
+        other => panic!("expected TargetDepRequiresFeatures, got {other:?}"),
+    }
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("features = [\"ssl\"]"),
+        "cross-package help must show the edge syntax: {rendered}"
+    );
+}
+
+#[test]
+fn dev_edge_dep_on_gated_target_points_help_at_dev_dependencies() {
+    // A test target reaching a gated target through an activated
+    // `[dev-dependencies]` edge must be told to add the feature
+    // request on that edge - not to promote the dep to
+    // `[dependencies]`.
+    let kit = package_with_features(
+        "kit",
+        vec![gated_target(
+            "tls",
+            TargetKind::Library,
+            &["src/tls.cc"],
+            &[],
+            &["ssl"],
+        )],
+        Vec::new(),
+        &["ssl"],
+    );
+    let mut dev = dep("kit", "../kit");
+    dev.kind = cabin_core::DependencyKind::Dev;
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "consumer",
+            TargetKind::Test,
+            &["src/consumer.cc"],
+            &["kit:tls"],
+        )],
+        vec![dev],
+    )
+    .unwrap();
+    let kit_pkg = make_pkg("kit", "/abs/kit", kit, vec![]);
+    let mut app_pkg = make_pkg("app", "/abs/app", app, vec![0]);
+    for edge in &mut app_pkg.deps {
+        edge.kind = cabin_core::DependencyKind::Dev;
+    }
+    let graph = graph_with(vec![kit_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("consumer")]);
+    let err = plan(&req).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            BuildError::TargetDepRequiresFeatures {
+                fix: crate::FeatureGateFix::DevDependencyEdge,
+                ..
+            }
+        ),
+        "expected a dev-edge diagnostic, got {err:?}"
+    );
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("`[dev-dependencies]`"),
+        "help must point at the dev edge: {rendered}"
+    );
+}
+
+#[test]
+fn cross_package_dep_on_gated_target_builds_when_feature_enabled() {
+    let foo = package_with_features(
+        "foo",
+        vec![gated_target(
+            "tls",
+            TargetKind::Library,
+            &["src/tls.cc"],
+            &[],
+            &["ssl"],
+        )],
+        Vec::new(),
+        &["ssl"],
+    );
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["foo:tls"],
+        )],
+        vec![dep("foo", "../foo")],
+    )
+    .unwrap();
+    let foo_pkg = make_pkg("foo", "/abs/foo", foo, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app, vec![0]);
+    let graph = graph_with(vec![foo_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let features = enabled(&[(0, &["ssl"])]);
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.enabled_features = Some(&features);
+    let bg = plan(&req).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs
+            .contains(&Utf8PathBuf::from("/abs/build/dev/packages/foo/libtls.a")),
+        "enabled feature must let the gated dep link: {:?}",
+        link.inputs
+    );
+}
+
+#[test]
+fn transitive_gate_inside_dependency_points_help_upstream() {
+    // app -> foo:api (ungated) -> foo:tls (gated).  `foo` is not a
+    // selected root, so `--features` on the CLI cannot enable its
+    // feature; the help must point at the dependency edge that
+    // makes `foo` available instead.
+    let foo = package_with_features(
+        "foo",
+        vec![
+            {
+                let mut api = target("api", TargetKind::Library, &["src/api.cc"], &["tls"]);
+                api.deps = vec!["tls".to_owned()];
+                api
+            },
+            gated_target("tls", TargetKind::Library, &["src/tls.cc"], &[], &["ssl"]),
+        ],
+        Vec::new(),
+        &["ssl"],
+    );
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["foo:api"],
+        )],
+        vec![dep("foo", "../foo")],
+    )
+    .unwrap();
+    let foo_pkg = make_pkg("foo", "/abs/foo", foo, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app, vec![0]);
+    let graph = graph_with(vec![foo_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            BuildError::TargetDepRequiresFeatures {
+                fix: crate::FeatureGateFix::UpstreamEdge,
+                ..
+            }
+        ),
+        "expected an upstream-edge diagnostic, got {err:?}"
+    );
+    let rendered = err.to_string();
+    assert!(
+        !rendered.contains("--features"),
+        "CLI selection cannot enable a non-root package's feature: {rendered}"
+    );
+    assert!(
+        rendered.contains("features = [\"ssl\"]"),
+        "help must show the edge request: {rendered}"
+    );
+}
+
+#[test]
+fn all_gated_default_selection_reports_actionable_error() {
+    let package = package_with_features(
+        "demo",
+        vec![gated_target(
+            "tls",
+            TargetKind::Library,
+            &["src/tls.cc"],
+            &[],
+            &["ssl"],
+        )],
+        Vec::new(),
+        &["ssl"],
+    );
+    let graph = single_package_graph(package, "/abs/demo");
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::AllDefaultTargetsRequireFeatures { gated } => {
+            assert_eq!(gated.len(), 1);
+            assert_eq!(gated[0].0, "demo:tls");
+            assert_eq!(gated[0].1, vec!["ssl".to_owned()]);
+        }
+        other => panic!("expected AllDefaultTargetsRequireFeatures, got {other:?}"),
+    }
+    assert!(
+        err.to_string().contains("--features"),
+        "all-gated error must point at feature selection: {err}"
+    );
+}
+
+#[test]
+fn selector_required_features_met_matches_gating() {
+    let graph = gated_single_package_graph();
+    let sel = ManifestTargetSelector {
+        package: Some("demo".to_owned()),
+        name: "tls".to_owned(),
+    };
+    assert!(!selector_required_features_met(
+        &sel,
+        &graph,
+        &HashMap::new()
+    ));
+    assert!(selector_required_features_met(
+        &sel,
+        &graph,
+        &enabled(&[(0, &["ssl"])])
+    ));
+    // Unknown selectors stay `true`: resolution errors are plan()'s.
+    let unknown = ManifestTargetSelector {
+        package: Some("nope".to_owned()),
+        name: "tls".to_owned(),
+    };
+    assert!(selector_required_features_met(
+        &unknown,
+        &graph,
+        &HashMap::new()
+    ));
 }
 
 // -----------------------------------------------------------------
