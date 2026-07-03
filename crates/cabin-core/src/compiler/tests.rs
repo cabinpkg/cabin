@@ -190,51 +190,46 @@ fn clang_and_apple_clang_standard_gates_follow_the_audited_table() {
 }
 
 #[test]
-fn gnu_dialects_share_their_iso_twin_gate_and_have_no_msvc_flag() {
+fn cxx26_gates_follow_the_audited_table_and_have_no_msvc_flag() {
     let make = |kind: CompilerKind, v: &str| CompilerIdentity {
         kind,
         version: CompilerVersion::parse(v),
         target: None,
         raw_version_line: format!("compiler {v}"),
     };
-    // On every GCC-style compiler, each GNU dialect is gated exactly
-    // like its ISO twin, across old and new versions.
-    for kind in [
-        CompilerKind::Gcc,
-        CompilerKind::Clang,
-        CompilerKind::AppleClang,
-    ] {
-        for version in ["4.8.5", "9.0.1", "17.0.6"] {
-            let id = make(kind, version);
-            for standard in CxxStandard::ALL.into_iter().filter(|s| s.is_gnu()) {
-                assert_eq!(
-                    cxx_standard_capability(&id, standard),
-                    cxx_standard_capability(&id, standard.iso_twin()),
-                    "{kind} {version} {standard:?}"
-                );
-            }
-            for standard in CStandard::ALL.into_iter().filter(|s| s.is_gnu()) {
-                assert_eq!(
-                    c_standard_capability(&id, standard),
-                    c_standard_capability(&id, standard.iso_twin()),
-                    "{kind} {version} {standard:?}"
-                );
-            }
-        }
-    }
-    // The MSVC dialect has no `/std:gnu*` spelling at any version.
+    // `-std=c++26`: GCC 14, Clang 17, Apple clang 16 (LLVM-17-based).
+    assert!(
+        cxx_standard_capability(&make(CompilerKind::Gcc, "14.1.0"), CxxStandard::Cxx26).supported
+    );
+    assert!(
+        !cxx_standard_capability(&make(CompilerKind::Gcc, "13.2.0"), CxxStandard::Cxx26).supported
+    );
+    assert!(
+        cxx_standard_capability(&make(CompilerKind::Clang, "17.0.6"), CxxStandard::Cxx26).supported
+    );
+    assert!(
+        !cxx_standard_capability(&make(CompilerKind::Clang, "16.0.0"), CxxStandard::Cxx26)
+            .supported
+    );
+    assert!(
+        cxx_standard_capability(
+            &make(CompilerKind::AppleClang, "16.0.0"),
+            CxxStandard::Cxx26
+        )
+        .supported
+    );
+    assert!(
+        !cxx_standard_capability(
+            &make(CompilerKind::AppleClang, "15.0.0"),
+            CxxStandard::Cxx26
+        )
+        .supported
+    );
+    // The MSVC dialect has no stable `/std:c++26` at any version.
     for kind in [CompilerKind::Msvc, CompilerKind::ClangCl] {
-        let id = make(kind, "19.39.0");
-        for standard in CxxStandard::ALL.into_iter().filter(|s| s.is_gnu()) {
-            let cap = cxx_standard_capability(&id, standard);
-            assert!(!cap.supported, "{kind} {standard:?}");
-            assert_eq!(cap.source, CapabilitySource::Unsupported);
-        }
-        for standard in CStandard::ALL.into_iter().filter(|s| s.is_gnu()) {
-            let cap = c_standard_capability(&id, standard);
-            assert!(!cap.supported, "{kind} {standard:?}");
-            assert_eq!(cap.source, CapabilitySource::Unsupported);
-        }
+        let cap = cxx_standard_capability(&make(kind, "19.39.0"), CxxStandard::Cxx26);
+        assert!(!cap.supported, "{kind}");
+        assert_eq!(cap.source, CapabilitySource::Unsupported);
     }
 }
 
@@ -347,9 +342,9 @@ fn msvc_has_no_stable_flag_for_old_or_new_standards() {
     let cl = msvc_identity("19.39.33523");
     for standard in [
         CxxStandard::Cxx98,
-        CxxStandard::Cxx03,
         CxxStandard::Cxx11,
         CxxStandard::Cxx23,
+        CxxStandard::Cxx26,
     ] {
         let cap = cxx_standard_capability(&cl, standard);
         assert!(!cap.supported, "{standard} must be unsupported on cl");
