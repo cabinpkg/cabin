@@ -1,0 +1,18 @@
+name: Conventional Release Labels
+
+# pull_request_target grants label-write access for fork PRs.
+# Never add a checkout step to this workflow.
+on:
+  pull_request_target:
+    types: [ opened, edited ]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: bcoe/conventional-release-labels@v1
+        with:
+          ignored_types: '[]'
