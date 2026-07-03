@@ -269,6 +269,7 @@ fn target_conditioned_build_flags_apply_to_compile_commands() {
         r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -312,6 +313,7 @@ fn build_includes_dirs_from_build_table() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"

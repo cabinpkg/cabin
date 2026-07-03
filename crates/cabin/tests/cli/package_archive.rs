@@ -8,6 +8,7 @@ fn write_simple_package(root: &Path) {
             r#"[package]
 name = "fmt"
 version = "10.2.1"
+cxx-standard = "c++17"
 
 [target.fmt]
 type = "library"

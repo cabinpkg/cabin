@@ -9,6 +9,7 @@ use super::*;
 const PACKAGE_MANIFEST: &str = r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"

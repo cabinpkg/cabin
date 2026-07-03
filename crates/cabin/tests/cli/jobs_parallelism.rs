@@ -4,6 +4,7 @@ use std::path::PathBuf;
 const VALID_C_MANIFEST: &str = r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"

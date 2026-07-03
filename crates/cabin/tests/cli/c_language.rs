@@ -15,6 +15,7 @@ fn write_c_only_library(dir: &Path) {
             r#"[package]
 name = "cdemo"
 version = "0.1.0"
+c-standard = "c11"
 
 [target.cdemo]
 type = "library"
@@ -45,6 +46,8 @@ fn write_mixed_library(dir: &Path) {
             r#"[package]
 name = "mixed"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.mixedlib]
 type = "library"
@@ -238,6 +241,7 @@ fn cabin_test_runs_pure_c_test_executable() {
             r#"[package]
 name = "cdemo"
 version = "0.1.0"
+c-standard = "c11"
 
 [target.cdemo]
 type = "library"
@@ -324,6 +328,8 @@ fn cflags_and_cxxflags_do_not_leak_across_languages() {
             r#"[package]
 name = "splitflags"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [profile]
 cflags = ["-DCABIN_TEST_C_FLAG=1"]
@@ -400,6 +406,8 @@ fn cabin_test_runs_cpp_test_depending_on_c_library() {
             r#"[package]
 name = "interop"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.clib]
 type = "library"
@@ -474,6 +482,8 @@ fn cabin_test_runs_mixed_c_and_cpp_tests_in_deterministic_order() {
             r#"[package]
 name = "mixedtests"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.zz_cpp_test]
 type = "test"
@@ -525,6 +535,7 @@ fn missing_c_compiler_yields_actionable_diagnostic() {
             r#"[package]
 name = "needscc"
 version = "0.1.0"
+c-standard = "c11"
 
 [target.needscc]
 type = "library"
@@ -601,6 +612,7 @@ fn c_registry_dep_headers_are_system_includes() {
             r#"[package]
 name = "app"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 cgreet = ">=1.0.0 <2.0.0"
@@ -622,7 +634,7 @@ deps = ["cgreet"]
         &[
             (
                 "cabin.toml",
-                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude-dirs = [\"include\"]\n",
+                "[package]\nname = \"cgreet\"\nversion = \"1.0.0\"\nc-standard = \"c11\"\n\n[target.cgreet]\ntype = \"library\"\nsources = [\"src/cgreet.c\"]\ninclude-dirs = [\"include\"]\n",
             ),
             ("include/cgreet.h", "#pragma once\nint cgreet(void);\n"),
             (

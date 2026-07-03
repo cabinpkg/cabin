@@ -95,6 +95,7 @@ fn build_with_msvc_compiler_errors_clearly() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"
@@ -138,6 +139,7 @@ fn build_with_unknown_compiler_errors_clearly() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"
@@ -181,6 +183,7 @@ fn package_metadata_does_not_serialize_local_detection() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"

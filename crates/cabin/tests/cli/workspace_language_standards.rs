@@ -70,14 +70,14 @@ fn opted_in_cxx_standard_reaches_member_ninja_and_compile_commands() {
     build_at_root(dir.path()).success();
     let ninja = root_ninja(dir.path());
     let inherited = host_std_flag("c++14");
-    let default = host_std_flag("c++17");
+    let other = host_std_flag("c++17");
     assert!(
         ninja.contains(&inherited),
         "expected the inherited `{inherited}` in build.ninja: {ninja}"
     );
     assert!(
-        !ninja.contains(&default),
-        "the built-in default `{default}` must be replaced: {ninja}"
+        !ninja.contains(&other),
+        "only the inherited standard may appear: {ninja}"
     );
     let ccdb = fs::read_to_string(dir.path().join("build/dev/compile_commands.json")).unwrap();
     assert!(
@@ -90,8 +90,8 @@ fn opted_in_cxx_standard_reaches_member_ninja_and_compile_commands() {
 fn opted_in_c_standard_reaches_member_ninja() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // c17 has a stable MSVC flag and differs from the built-in c11
-    // default, so a single value exercises every CI leg.
+    // c17 has a stable MSVC flag, so a single value exercises every
+    // CI leg.
     write_workspace_root(dir.path(), "c-standard = \"c17\"");
     let base = dir.path().join("packages/capp");
     assert_fs::fixture::ChildPath::new(base.join("cabin.toml"))
@@ -113,34 +113,31 @@ sources = ["src/main.c"]
     build_at_root(dir.path()).success();
     let ninja = root_ninja(dir.path());
     let inherited = host_std_flag("c17");
-    let default = host_std_flag("c11");
+    let other = host_std_flag("c11");
     assert!(
         ninja.contains(&inherited),
         "expected the inherited `{inherited}` in build.ninja: {ninja}"
     );
     assert!(
-        !ninja.contains(&default),
-        "the built-in default `{default}` must be replaced: {ninja}"
+        !ninja.contains(&other),
+        "only the inherited standard may appear: {ninja}"
     );
 }
 
 #[test]
-fn member_without_opt_in_keeps_builtin_default() {
-    require_cxx_build_tools();
+fn member_without_opt_in_gets_no_workspace_default() {
     let dir = TempDir::new().unwrap();
+    // Workspace standard defaults are opt-in per field: a member
+    // that never opts in inherits nothing, and with no built-in
+    // default its compiled C++ has no standard - a load error, not
+    // a silent fallback.
     write_workspace_root(dir.path(), "cxx-standard = \"c++14\"");
     write_member(dir.path(), "app", "");
-    build_at_root(dir.path()).success();
-    let ninja = root_ninja(dir.path());
-    let default = host_std_flag("c++17");
-    let workspace_default = host_std_flag("c++14");
+    let assertion = build_at_root(dir.path()).failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        ninja.contains(&default),
-        "a member without the opt-in keeps the built-in `{default}`: {ninja}"
-    );
-    assert!(
-        !ninja.contains(&workspace_default),
-        "the workspace default `{workspace_default}` must not leak in without an opt-in: {ninja}"
+        stderr.contains("cxx-standard") && stderr.contains("workspace = true"),
+        "expected the missing-standard diagnostic suggesting the opt-in, got: {stderr}"
     );
 }
 
@@ -191,7 +188,10 @@ fn metadata_reports_workspace_source() {
     let language = &package_in(&value, "app")["configuration"]["language"];
     assert_eq!(language["cxx"]["standard"], "c++20");
     assert_eq!(language["cxx"]["source"], "workspace");
-    assert_eq!(language["c"]["source"], "builtin-default");
+    assert!(
+        language.get("c").is_none(),
+        "an undeclared language reports no entry: {language}"
+    );
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn opt_in_without_workspace_declaration_fails() {
     write_member(
         dir.path(),
         "app",
-        "interface-cxx-standard = { workspace = true }",
+        "cxx-standard = \"c++17\"\ninterface-cxx-standard = { workspace = true }",
     );
     let assertion = build_at_root(dir.path()).failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
@@ -282,14 +282,15 @@ fn consumer_below_inherited_interface_requirement_fails() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_workspace_root(dir.path(), "interface-cxx-standard = \"c++20\"");
-    // The member's implementation stays on the built-in c++17, so
-    // `app` (c++17) sits below `core`'s inherited c++20 interface.
+    // The member's implementation is declared c++17, so `app`
+    // (c++17) sits below `core`'s inherited c++20 interface.
     let base = dir.path().join("packages/demo");
     assert_fs::fixture::ChildPath::new(base.join("cabin.toml"))
         .write_str(
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 interface-cxx-standard = { workspace = true }
 
 [target.core]

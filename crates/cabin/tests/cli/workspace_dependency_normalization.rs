@@ -27,6 +27,7 @@ fn write_member(dir: &Path, name: &str, dependency_tables: &str) {
             r#"[package]
 name = "{name}"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 {dependency_tables}
 
@@ -119,6 +120,7 @@ fn published_member_with_workspace_dep_resolves_at_foreign_consumer() {
             r#"[package]
 name = "core"
 version = "1.0.0"
+cxx-standard = "c++17"
 
 [target.core]
 type = "library"
@@ -156,6 +158,7 @@ core = "^1""#,
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 core = { workspace = true }

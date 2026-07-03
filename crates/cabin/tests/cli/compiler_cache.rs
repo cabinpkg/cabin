@@ -239,6 +239,7 @@ fn missing_wrapper_executable_yields_clear_build_error() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "library"

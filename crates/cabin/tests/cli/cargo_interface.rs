@@ -28,6 +28,7 @@ fn write_run_fixture(root: &Path, package: &str, target: &str) {
             r#"[package]
 name = "{package}"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.{target}]
 type = "executable"
@@ -71,6 +72,7 @@ fn run_does_not_materialize_dev_dependencies() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dev-dependencies]
 test_only = "1.0.0"
@@ -109,6 +111,7 @@ fn run_with_bin_flag_picks_named_target() {
             r#"[package]
 name = "two-bins"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.alpha]
 type = "executable"
@@ -156,6 +159,7 @@ members = ["packages/app"]
             r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [features]
 default = []
@@ -200,6 +204,7 @@ fn run_without_bin_when_multiple_executables_errors() {
             r#"[package]
 name = "ambiguous"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.alpha]
 type = "executable"
@@ -255,6 +260,7 @@ fn run_for_c_executable_target() {
             r#"[package]
 name = "c-app"
 version = "0.1.0"
+c-standard = "c11"
 
 [target.c_app]
 type = "executable"
@@ -289,6 +295,8 @@ fn run_for_mixed_c_and_cpp_executable_target() {
             r#"[package]
 name = "mixed-app"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.mixed_app]
 type = "executable"
@@ -464,6 +472,7 @@ fn cabin_run_exits_with_program_status_code() {
             r#"[package]
 name = "exit-code"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.exit_code]
 type = "executable"

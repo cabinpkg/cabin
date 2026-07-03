@@ -106,14 +106,14 @@ fn fake_symlinked_port_builds_downstream_consumer() {
         .unwrap();
     assert_fs::fixture::ChildPath::new(port_dir.join("cabin.toml"))
         .write_str(
-            "[package]\nname = \"fakehash\"\nversion = \"1.0.0\"\n\n[target.fakehash]\ntype = \"header-only\"\ninclude-dirs = [\"src\"]\n",
+            "[package]\nname = \"fakehash\"\nversion = \"1.0.0\"\ninterface-c-standard = \"c11\"\n\n[target.fakehash]\ntype = \"header-only\"\ninclude-dirs = [\"src\"]\n",
         )
         .unwrap();
 
     let consumer_manifest = tmp.path().join("consumer/cabin.toml");
     assert_fs::fixture::ChildPath::new(&consumer_manifest)
         .write_str(
-            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\n\n[dependencies]\nfakehash = { port-path = \"../ports/fakehash/1.0.0\" }\n\n[target.consumer]\ntype = \"executable\"\nsources = [\"src/main.c\"]\ndeps = [\"fakehash\"]\n",
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\nc-standard = \"c11\"\n\n[dependencies]\nfakehash = { port-path = \"../ports/fakehash/1.0.0\" }\n\n[target.consumer]\ntype = \"executable\"\nsources = [\"src/main.c\"]\ndeps = [\"fakehash\"]\n",
         )
         .unwrap();
     assert_fs::fixture::ChildPath::new(tmp.path().join("consumer/src/main.c"))

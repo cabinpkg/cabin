@@ -103,17 +103,26 @@ Each GNU dialect is its ISO twin plus GNU extensions, and every ISO value has ex
 
 Per language, per target:
 
-- Effective implementation standard: `[target.<name>].c-standard` - > `[package].c-standard` - >
-  built-in default (same chain for `cxx-standard`).
+- Effective implementation standard: `[target.<name>].c-standard` - > `[package].c-standard`
+  (same chain for `cxx-standard`).
 - Effective interface standard (library-like targets): `[target.<name>].interface-c-standard` - >
   `[package].interface-c-standard` - > the target's effective implementation standard (same chain
   for C++).
 
-The built-in defaults are **`c11`** and **`c++17`**.  A project that declares nothing builds with
-the same compile commands it always has.
+There is **no built-in default**.  Standards are required where they matter:
+
+- A target that compiles C sources must have an effective `c-standard`; one that compiles C++
+  sources must have an effective `cxx-standard`.  A manifest that violates this is rejected at load
+  with an error naming the target, the missing field, and the `{ workspace = true }` opt-in.
+- A `header-only` target must declare at least one interface standard
+  (`interface-c-standard` / `interface-cxx-standard`, at `[target.<name>]` or `[package]` level) so
+  consumers know what its headers require; a header-only target without one is rejected at load.
+- A library that compiles sources may still omit its interface fields: the interface defaults to
+  the (explicitly declared) effective implementation standard.
 
 A workspace-inherited value (see "Workspace defaults" above) occupies the `[package]` slot of the
-chain - inheritance adds no new tier.
+chain - inheritance adds no new tier, and opting in with `{ workspace = true }` counts as
+declaring.
 
 Registry and foundation-port packages keep their own declared standards: unlike the raw `cflags` /
 `cxxflags` escape hatches (dropped for registry packages during flag resolution), a typed standard

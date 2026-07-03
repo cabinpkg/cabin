@@ -10,6 +10,7 @@ use super::*;
 const MANIFEST_WITH_DEPS: &str = r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 zlib = { port = true, version = "^1.3.1" }

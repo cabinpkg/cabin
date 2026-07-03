@@ -75,6 +75,7 @@ fn fmt_archive_entries() -> Vec<(&'static str, &'static str)> {
 const FMT_PKG_MANIFEST: &str = r#"[package]
 name = "fmt"
 version = "10.2.1"
+cxx-standard = "c++17"
 
 [target.fmt]
 type = "library"
@@ -280,6 +281,7 @@ fn build_handles_transitive_registry_dependency() {
     let app_manifest = r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 spdlog = ">=1.0.0 <2.0.0"
@@ -301,6 +303,7 @@ deps = ["spdlog"]
     let spdlog_manifest = r#"[package]
 name = "spdlog"
 version = "1.13.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt = ">=10.0.0 <11.0.0"

@@ -222,6 +222,7 @@ fn release_flag_and_profile_flag_conflict() {
             r#"[package]
 name = "demo"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.demo]
 type = "executable"
@@ -252,6 +253,7 @@ fn dev_and_release_use_distinct_output_directories() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -314,6 +316,7 @@ fn custom_profile_uses_its_own_output_directory() {
             r#"[package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -597,6 +600,8 @@ fn linux_release_named_overlay_reaches_c_and_cxx_ninja_links() {
             r#"[package]
 name = "links"
 version = "0.1.0"
+c-standard = "c11"
+cxx-standard = "c++17"
 
 [target.c_app]
 type = "executable"
