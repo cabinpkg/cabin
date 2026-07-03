@@ -361,6 +361,20 @@ interface-standard enforcement across the target dependency closure.  The crate 
 - not invoke Ninja;
 - not parse TOML directly.
 
+### `cabin-driver`
+
+Owns compiler-dialect lowering: the single boundary where `cabin-build`'s toolchain-independent
+`BuildAction` IR becomes concrete command lines.  A `Dialect` names a command-line family -
+`GnuLike` (the GCC / Clang driver: `-std=c++17`, `-D` / `-I` / `-isystem`, `-MD -MF` depfiles) or
+`Msvc` (the `cl.exe` / `lib.exe` driver: `/std:c++17`, `/D` / `/I` / `/external:I`,
+`/showIncludes`) - and owns every platform- and toolchain-specific spelling: artifact naming, Ninja
+header-dependency discovery, and how each action is lowered.  The planner and the Ninja writer stay
+dialect-agnostic.  The crate must:
+
+- stay pure and deterministic - no I/O, no process invocation;
+- not parse TOML;
+- not plan builds or write Ninja syntax (it lowers actions; `cabin-ninja` serializes them).
+
 ### `cabin-test`
 
 Owns the test plan and the sequential test runner used by `cabin test`.  Given a finished
