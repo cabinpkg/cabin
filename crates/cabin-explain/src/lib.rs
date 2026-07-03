@@ -485,6 +485,11 @@ pub struct TargetExplanation {
     /// order.  The orchestration layer normalizes each entry's
     /// rendering.
     pub deps: Vec<String>,
+    /// Manifest-declared `required-features`, in declaration
+    /// order.  Empty (and omitted from JSON) for ungated targets
+    /// so the shape older consumers parse stays unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub required_features: Vec<String>,
     /// `true` for every kind that produces a Ninja action
     /// (`library`, `executable`, `test`, `example`). `header-only`
     /// is the only buildable=false kind. `is_test` and
@@ -808,6 +813,7 @@ pub fn explain_target(
         target_kind: kind.as_str().to_owned(),
         languages: languages.into_iter().map(str::to_owned).collect(),
         deps: target.deps.clone(),
+        required_features: target.required_features.clone(),
         // Buildable = anything that emits compile/archive/link
         // actions.  Excludes the header-only kinds because they
         // contribute no translation units of their own.
@@ -978,6 +984,13 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
             }
             if !t.deps.is_empty() {
                 let _ = writeln!(out, "  deps: {}", t.deps.join(", "));
+            }
+            if !t.required_features.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "  required-features: {}",
+                    t.required_features.join(", ")
+                );
             }
             let _ = writeln!(
                 out,
