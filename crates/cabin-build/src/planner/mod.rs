@@ -73,7 +73,9 @@ pub struct PlanRequest<'a> {
     /// resolve flags lazily for the selected closure only.
     pub build_flags: &'a HashMap<usize, ResolvedProfileFlags>,
     /// Per-package effective language standards.  Missing entries
-    /// fall back to the built-in defaults, mirroring `build_flags`.
+    /// resolve to no package-level standards, mirroring
+    /// `build_flags`; a compile of a language with no effective
+    /// standard is then rejected at its compile site.
     pub language_standards: &'a HashMap<usize, ResolvedLanguageStandards>,
     /// Per-package standard-flag conflict candidates, detected by
     /// the CLI on the manifest-derived flags *before* env /

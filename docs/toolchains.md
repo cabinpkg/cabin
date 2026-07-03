@@ -217,7 +217,7 @@ It accepts only the six array fields above; `inherits`, `debug`, `opt-level`, `a
 field):
 
 1. Built-in backend defaults (currently empty for `[profile]` - the effective per-target standard
-   flag (built-in defaults `-std=c11` for C, `-std=c++17` for C++; see
+   flag (from the manifest-declared standards; see
    [Language standards](language-standards.md)) and the profile's `-O0`, `-g`, etc. come from their
    own layers, not from `[profile]`).
 2. The package's own general `[profile]` table.
