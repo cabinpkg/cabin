@@ -614,6 +614,7 @@ mod tests {
                 include_dirs: Vec::new(),
                 defines: Vec::new(),
                 deps: Vec::new(),
+                required_features: Vec::new(),
                 language: cabin_core::LanguageStandardSettings {
                     c_standard: Some(StandardDeclaration::Declared(CStandard::C11)),
                     cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
@@ -688,6 +689,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: LanguageStandardSettings {
                 cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()

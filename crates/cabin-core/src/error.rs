@@ -71,4 +71,9 @@ pub enum ValidationError {
 
     #[error("unknown feature {feature:?} for package {package:?}")]
     UnknownFeature { package: String, feature: String },
+
+    #[error(
+        "target {target:?} requires unknown feature {feature:?}; `required-features` entries must name features declared in this package's `[features]` table"
+    )]
+    UnknownRequiredFeature { target: String, feature: String },
 }

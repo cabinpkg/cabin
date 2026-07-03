@@ -1228,6 +1228,48 @@ fn features_invalid_name_errors() {
 }
 
 #[test]
+fn target_required_features_parse_into_model() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [features]
+            ssl = []
+
+            [target.tls]
+            type = "library"
+            sources = ["src/tls.cc"]
+            required-features = ["ssl"]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.targets[0].required_features, vec!["ssl"]);
+}
+
+#[test]
+fn target_required_features_reject_undeclared_feature() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [target.tls]
+            type = "library"
+            sources = ["src/tls.cc"]
+            required-features = ["ssl"]
+        "#;
+    match parse_manifest_str(manifest).unwrap_err() {
+        ManifestError::Validation(ValidationError::UnknownRequiredFeature { target, feature }) => {
+            assert_eq!(target, "tls");
+            assert_eq!(feature, "ssl");
+        }
+        other => panic!("expected UnknownRequiredFeature, got {other:?}"),
+    }
+}
+
+#[test]
 fn features_cycle_errors() {
     let manifest = r#"
             [package]

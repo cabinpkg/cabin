@@ -560,6 +560,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: Default::default(),
         };
         let package = Package::new(

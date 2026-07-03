@@ -123,6 +123,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         include_dirs: Vec::new(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        required_features: Vec::new(),
         language: language_for_sources(sources),
     }
 }
@@ -141,6 +142,7 @@ fn target_with_includes(
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
         deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        required_features: Vec::new(),
         language: language_for_sources(sources),
     }
 }

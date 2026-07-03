@@ -11,6 +11,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         include_dirs,
         defines,
         deps,
+        required_features,
         c_standard,
         cxx_standard,
         interface_c_standard,
@@ -75,6 +76,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         include_dirs,
         defines,
         deps,
+        required_features,
         language,
     })
 }

@@ -1330,6 +1330,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
         };
         graph.packages[2].package.targets.push(target);
@@ -1353,6 +1354,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
         };
         graph.packages[1].package.targets.push(lib_target);
