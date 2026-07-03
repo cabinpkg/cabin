@@ -26,6 +26,17 @@ pub enum BuildError {
     )]
     DependencyHasNoLibrary { dep: String, package: String },
 
+    /// A target's `deps` entry names a package that the owning
+    /// manifest only declares under `[dev-dependencies]`, but no
+    /// active dev edge backs it: either the referencing target is
+    /// not a dev-only kind (`test` / `example`), or the invocation
+    /// did not activate dev-deps for the owning package (`cabin
+    /// test` activates them for the selected packages only).
+    #[error(
+        "dependency {dep:?} is declared under `[dev-dependencies]` of package {package:?} but is not active here; dev dependencies link only into `test` / `example` targets, and only `cabin test` activates them for the selected packages"
+    )]
+    DevDependencyNotActive { dep: String, package: String },
+
     #[error(
         "dependency {dep:?} resolves to package {package:?} which has multiple library or header-only targets; disambiguate with `{package}:<target>`"
     )]

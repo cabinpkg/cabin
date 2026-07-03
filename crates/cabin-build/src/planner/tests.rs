@@ -562,6 +562,130 @@ fn cross_package_path_dep_links_library() {
     assert!(app_compile.arguments.system_include_dirs.is_empty());
 }
 
+// -----------------------------------------------------------------
+// dev-dependency edge visibility.
+// -----------------------------------------------------------------
+
+/// Two-package fixture for dev-dependency resolution: `app`
+/// declares `gtestish` under `[dev-dependencies]` and a `consumer`
+/// target of the given kind referencing it via `dep_ref`.  The
+/// graph edge is present only when `edge_active` - mirroring the
+/// loader, which materializes dev edges only when the invocation
+/// activates them (`cabin test` for the selected packages).
+fn dev_dep_graph(consumer_kind: TargetKind, dep_ref: &str, edge_active: bool) -> PackageGraph {
+    let gtestish = Package::new(
+        pkg_name("gtestish"),
+        version(),
+        vec![target(
+            "gtestish",
+            TargetKind::Library,
+            &["src/lib.cc"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let mut dev = dep("gtestish", "../gtestish");
+    dev.kind = cabin_core::DependencyKind::Dev;
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "consumer",
+            consumer_kind,
+            &["src/consumer.cc"],
+            &[dep_ref],
+        )],
+        vec![dev],
+    )
+    .unwrap();
+    let gtestish_pkg = make_pkg("gtestish", "/abs/gtestish", gtestish, vec![]);
+    let mut app_pkg = make_pkg(
+        "app",
+        "/abs/app",
+        app,
+        if edge_active { vec![0] } else { vec![] },
+    );
+    for edge in &mut app_pkg.deps {
+        edge.kind = cabin_core::DependencyKind::Dev;
+    }
+    graph_with(vec![gtestish_pkg, app_pkg], vec![1], Some(1))
+}
+
+/// Plan the fixture's `consumer` target explicitly (dev-only kinds
+/// are outside the default selection).
+fn plan_dev_dep_consumer(graph: &PackageGraph) -> Result<BuildGraph, BuildError> {
+    let tc = toolchain();
+    let mut req = plan_request(graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("consumer")]);
+    plan(&req)
+}
+
+#[test]
+fn test_target_links_activated_dev_dependency_edge() {
+    let graph = dev_dep_graph(TargetKind::Test, "gtestish", true);
+    let bg = plan_dev_dep_consumer(&graph).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/gtestish/libgtestish.a"
+        )),
+        "test executable must link the dev dependency's archive: {:?}",
+        link.inputs
+    );
+}
+
+#[test]
+fn example_target_links_activated_dev_dependency_edge() {
+    let graph = dev_dep_graph(TargetKind::Example, "gtestish", true);
+    plan_dev_dep_consumer(&graph).expect("example targets share the dev-only dep policy");
+}
+
+#[test]
+fn qualified_selector_resolves_activated_dev_dependency_edge() {
+    let graph = dev_dep_graph(TargetKind::Test, "gtestish:gtestish", true);
+    plan_dev_dep_consumer(&graph).expect("qualified selector must see the dev edge");
+}
+
+#[test]
+fn ordinary_target_cannot_link_dev_dependency_edge() {
+    // Even with the dev edge activated in the graph (as under
+    // `cabin test`), a non-dev-only target must not resolve
+    // through it: a library or executable linking a dev dep would
+    // build differently under `cabin test` than under `cabin
+    // build`.
+    let graph = dev_dep_graph(TargetKind::Executable, "gtestish", true);
+    let err = plan_dev_dep_consumer(&graph).unwrap_err();
+    assert!(
+        matches!(err, BuildError::DevDependencyNotActive { ref dep, ref package } if dep == "gtestish" && package == "app"),
+        "expected DevDependencyNotActive, got {err:?}"
+    );
+}
+
+#[test]
+fn dev_dependency_without_activated_edge_diagnoses() {
+    // The declaration exists but no edge was materialized - the
+    // ordinary `cabin build` policy.  The failure must name the
+    // dev-dependency policy instead of a generic unknown-target
+    // reference.
+    let graph = dev_dep_graph(TargetKind::Test, "gtestish", false);
+    let err = plan_dev_dep_consumer(&graph).unwrap_err();
+    assert!(
+        matches!(err, BuildError::DevDependencyNotActive { ref dep, ref package } if dep == "gtestish" && package == "app"),
+        "expected DevDependencyNotActive, got {err:?}"
+    );
+}
+
+#[test]
+fn qualified_dev_dependency_without_activated_edge_diagnoses() {
+    let graph = dev_dep_graph(TargetKind::Test, "gtestish:gtestish", false);
+    let err = plan_dev_dep_consumer(&graph).unwrap_err();
+    assert!(
+        matches!(err, BuildError::DevDependencyNotActive { ref dep, .. } if dep == "gtestish"),
+        "expected DevDependencyNotActive, got {err:?}"
+    );
+}
+
 /// Two-package fixture for the include-provenance tests: local `app`
 /// (executable) depends on `greet` (library with an `include` dir),
 /// with greet's provenance set by the caller.

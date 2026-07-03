@@ -148,7 +148,8 @@ struct PreparedSource {
 /// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
 /// [`BuildError::UnknownTargetInPackage`], [`BuildError::DependencyHasNoLibrary`],
-/// [`BuildError::AmbiguousDefaultLibrary`]); [`BuildError::DependencyCycle`]
+/// [`BuildError::AmbiguousDefaultLibrary`],
+/// [`BuildError::DevDependencyNotActive`]); [`BuildError::DependencyCycle`]
 /// when the target dependency graph contains a cycle; and per-target
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
@@ -176,8 +177,13 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         }
         let target = lookup_target(&tid, req.graph)?;
         let mut resolved = Vec::with_capacity(target.deps.len());
+        // Dev-only target kinds (`test` / `example`) may reference
+        // the owning package's activated `[dev-dependencies]`
+        // edges; every other kind resolves through Normal edges
+        // only.
+        let dev_deps_visible = target.kind.is_dev_only();
         for raw in &target.deps {
-            let dep = resolve_target_dep(raw.as_str(), tid.0, req.graph)?;
+            let dep = resolve_target_dep(raw.as_str(), tid.0, dev_deps_visible, req.graph)?;
             to_visit.push(dep.clone());
             resolved.push(dep);
         }

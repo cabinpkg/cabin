@@ -11,26 +11,55 @@ use super::{PlanRequest, TargetId, format_target_id};
 pub(super) fn resolve_target_dep(
     raw: &str,
     pkg_idx: usize,
+    dev_deps_visible: bool,
     graph: &PackageGraph,
 ) -> Result<TargetId, BuildError> {
     let pkg = &graph.packages[pkg_idx];
 
-    // Cross-package target lookups must only see Normal-kind
-    // dependency edges.  Dev dependencies are declaration-only as
-    // far as ordinary `target.<X>.deps` resolution is concerned.
+    // Cross-package target lookups see Normal-kind dependency
+    // edges, plus Dev-kind edges when the referencing target is a
+    // dev-only kind (`test` / `example`).  Dev edges only exist in
+    // the graph when the loader activated them for the owning
+    // package (`cabin test` does, for the selected packages), so
+    // ordinary builds never resolve through them.
+    let find_dep_edge = |name: &str| -> Option<usize> {
+        pkg.deps_of_kind(cabin_core::DependencyKind::Normal)
+            .chain(
+                dev_deps_visible
+                    .then(|| pkg.deps_of_kind(cabin_core::DependencyKind::Dev))
+                    .into_iter()
+                    .flatten(),
+            )
+            .find(|&di| graph.packages[di].package.name.as_str() == name)
+    };
+    // Whether the owning manifest declares `name` under
+    // `[dev-dependencies]` at all - used to turn a failed lookup
+    // into the targeted dev-dependency diagnostic instead of a
+    // generic unknown-reference error.
+    let declared_as_dev = |name: &str| -> bool {
+        pkg.package
+            .dependencies
+            .iter()
+            .any(|d| d.kind == cabin_core::DependencyKind::Dev && d.name.as_str() == name)
+    };
+
     if let Some((p_name, t_name)) = raw.split_once(':') {
         // Qualified `package:target`.  The package must be either this
-        // package itself or one of its declared *normal*
-        // dependencies.
+        // package itself or one of its visible dependency edges.
         let dep_idx = if p_name == pkg.package.name.as_str() {
             pkg_idx
+        } else if let Some(di) = find_dep_edge(p_name) {
+            di
+        } else if declared_as_dev(p_name) {
+            return Err(BuildError::DevDependencyNotActive {
+                dep: p_name.to_owned(),
+                package: pkg.package.name.as_str().to_owned(),
+            });
         } else {
-            pkg.deps_of_kind(cabin_core::DependencyKind::Normal)
-                .find(|&di| graph.packages[di].package.name.as_str() == p_name)
-                .ok_or_else(|| BuildError::UnknownPackageInTargetSelector {
-                    package: p_name.to_owned(),
-                    selector: raw.to_owned(),
-                })?
+            return Err(BuildError::UnknownPackageInTargetSelector {
+                package: p_name.to_owned(),
+                selector: raw.to_owned(),
+            });
         };
         let dep_pkg = &graph.packages[dep_idx];
         if !dep_pkg
@@ -52,14 +81,9 @@ pub(super) fn resolve_target_dep(
         return Ok((pkg_idx, raw.to_owned()));
     }
 
-    // Then, *normal-kind* package dependency name → its default
-    // library or header-only target.  Build / tool / dev deps are
-    // intentionally skipped here so they cannot auto-link into
-    // ordinary targets.
-    if let Some(dep_idx) = pkg
-        .deps_of_kind(cabin_core::DependencyKind::Normal)
-        .find(|&di| graph.packages[di].package.name.as_str() == raw)
-    {
+    // Then, visible package dependency name → its default library
+    // or header-only target.
+    if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
         let libs: Vec<&Target> = dep_pkg
             .package
@@ -80,6 +104,12 @@ pub(super) fn resolve_target_dep(
         };
     }
 
+    if declared_as_dev(raw) {
+        return Err(BuildError::DevDependencyNotActive {
+            dep: raw.to_owned(),
+            package: pkg.package.name.as_str().to_owned(),
+        });
+    }
     Err(BuildError::UnknownTargetReference(raw.to_owned()))
 }
 
