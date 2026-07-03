@@ -505,6 +505,8 @@ fn plans_library_then_executable_within_one_package() {
 #[test]
 fn cross_package_path_dep_links_library() {
     // greet at /abs/greet, app at /abs/app depending on greet.
+    // `deps = ["greet"]` exercises the same-name shorthand
+    // (`greet` -> `greet:greet`).
     let greet_proj = Package::new(
         pkg_name("greet"),
         version(),
@@ -562,6 +564,55 @@ fn cross_package_path_dep_links_library() {
     // A plain path dependency is the user's own code: nothing routes
     // to the system bucket.
     assert!(app_compile.arguments.system_include_dirs.is_empty());
+}
+
+#[test]
+fn bare_dep_shorthand_requires_same_name_target() {
+    // `deps = ["greet"]` is shorthand for `greet:greet` - pure name
+    // matching, never a "default library" pick.  When the dependency
+    // declares no target named like the package, the entry must fail
+    // and spell out the qualified candidates.
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![target("core", TargetKind::Library, &["src/core.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["greet"],
+        )],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::NoSameNameTargetInDependency {
+            dep,
+            package,
+            candidates,
+        } => {
+            assert_eq!(dep, "greet");
+            assert_eq!(package, "greet");
+            assert_eq!(candidates, &["greet:core".to_owned()]);
+        }
+        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
+    }
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("`greet:core`"),
+        "error should suggest the qualified spelling, got: {rendered}"
+    );
 }
 
 // -----------------------------------------------------------------

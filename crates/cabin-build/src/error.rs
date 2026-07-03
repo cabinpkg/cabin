@@ -21,10 +21,24 @@ pub enum BuildError {
     #[error("package {package:?} has no target {target:?}")]
     UnknownTargetInPackage { package: String, target: String },
 
+    /// A target's `deps` entry names a package dependency by its
+    /// bare name, but the dependency declares no library or
+    /// header-only target with that name.  A bare name is shorthand
+    /// for a same-named linkable target (`foo` means `foo:foo`);
+    /// packages never export a *default* target, so anything else -
+    /// including a same-named executable - must be spelled
+    /// `package:target`.
     #[error(
-        "dependency {dep:?} resolves to package {package:?} which has no library or header-only target; use `{package}:<target>` to pick a specific target"
+        "`deps` entry {dep:?} matches package dependency {package:?}, but that package declares no library or header-only target named {dep:?}; a bare name is shorthand for a same-named linkable target (`{dep}:{dep}`), not a default library - use a local target name or an explicit `package:target`{}",
+        format_target_suggestions(.package, .candidates)
     )]
-    DependencyHasNoLibrary { dep: String, package: String },
+    NoSameNameTargetInDependency {
+        dep: String,
+        package: String,
+        /// Qualified `package:target` spellings of the dependency
+        /// package's library and header-only targets.
+        candidates: Vec<String>,
+    },
 
     /// A target's `deps` entry names a package that the owning
     /// manifest only declares under `[dev-dependencies]`, but no
@@ -36,11 +50,6 @@ pub enum BuildError {
         "dependency {dep:?} is declared under `[dev-dependencies]` of package {package:?} but is not active here; dev dependencies link only into `test` / `example` targets, and only `cabin test` activates them for the selected packages"
     )]
     DevDependencyNotActive { dep: String, package: String },
-
-    #[error(
-        "dependency {dep:?} resolves to package {package:?} which has multiple library or header-only targets; disambiguate with `{package}:<target>`"
-    )]
-    AmbiguousDefaultLibrary { dep: String, package: String },
 
     #[error("target {0:?} has no source files; nothing to build")]
     EmptyTargetSources(String),
@@ -153,4 +162,12 @@ fn format_cycle(cycle: &[String]) -> String {
 
 fn format_candidates(candidates: &[String]) -> String {
     candidates.join(", ")
+}
+
+fn format_target_suggestions(package: &str, candidates: &[String]) -> String {
+    if candidates.is_empty() {
+        format!(" (package {package:?} declares no library or header-only targets)")
+    } else {
+        format!(", e.g. `{}`", candidates.join("` or `"))
+    }
 }

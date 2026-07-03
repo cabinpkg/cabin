@@ -345,10 +345,17 @@ pub struct Target {
     pub include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub defines: Vec<String>,
-    /// Same-package target names or cross-package references.  Cross-package
-    /// references take the form `package` (resolves to the package's default
-    /// library target) or `package:target` (qualified).  Resolution against a
-    /// concrete package graph lives in `cabin-build`, not here.
+    /// Explicit references to the linked targets.  A bare name
+    /// resolves to a same-package target first, then as the
+    /// same-name shorthand on a dependency package (`foo` means
+    /// `foo:foo`, matching the dependency's library / header-only
+    /// targets only); every other cross-package reference is the
+    /// qualified `package:target` form.  A package dependency only
+    /// makes the package available - it never exports a *default*
+    /// target, so a bare name that matches neither a local target
+    /// nor a same-named linkable dependency target is a hard error.
+    /// Resolution against a concrete package graph lives in
+    /// `cabin-build`, not here.
     ///
     /// Stored as raw strings, not [`TargetName`], because the qualified
     /// `package:target` form contains a `:` that the path-safe target-name

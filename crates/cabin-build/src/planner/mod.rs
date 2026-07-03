@@ -147,8 +147,8 @@ struct PreparedSource {
 /// when the default selection yields no C/C++ targets; selection
 /// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
-/// [`BuildError::UnknownTargetInPackage`], [`BuildError::DependencyHasNoLibrary`],
-/// [`BuildError::AmbiguousDefaultLibrary`],
+/// [`BuildError::UnknownTargetInPackage`],
+/// [`BuildError::NoSameNameTargetInDependency`],
 /// [`BuildError::DevDependencyNotActive`]); [`BuildError::DependencyCycle`]
 /// when the target dependency graph contains a cycle; and per-target
 /// source errors ([`BuildError::UnrecognizedSourceExtension`],
