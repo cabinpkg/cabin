@@ -87,11 +87,22 @@ Common fields:
   MSVC `/external:I`) so warnings inside dependency headers do not fail a strict warning profile;
   see [System include directories](toolchains.md#system-include-directories).
 - `defines`: preprocessor defines applied to this target's compile actions.
-- `deps`: references to other targets:
+- `deps`: explicit references to the linked targets:
   - same-package by bare name: `deps = ["lib"]`;
-  - cross-package by name (resolves to the dep package's default `library` or `header-only` target):
-    `deps = ["fmt"]`;
-  - qualified `package:target`: `deps = ["fmt:fmt"]`.
+  - cross-package by the same-name shorthand: `deps = ["fmt"]` means `deps = ["fmt:fmt"]` and
+    resolves only because the `fmt` package declares a `library` (or `header-only`) target named
+    `fmt`;
+  - qualified `package:target`: `deps = ["fmt:fmt"]`, and the only spelling for a dependency
+    target named differently from its package (`deps = ["foo:opt"]`) or for a non-library
+    dependency target.
+
+  A bare name resolves to a local target first, then as the shorthand.  The shorthand is pure name
+  matching over the dependency's `library` / `header-only` targets - a package dependency makes
+  the package *available* but never exports a default target, so a bare name whose dependency
+  package has no same-named linkable target is a hard error naming the qualified candidates.
+- `required-features`: package features that must all be enabled for this target to be built or
+  used; see [Feature-gated targets](features.md#feature-gated-targets).  Entries must name features
+  declared in this package's `[features]` table.
 
 Cross-package deps must reach the consumer through a `[dependencies]` edge.  `[dev-dependencies]`
 are never linked into ordinary targets; the dev-only kinds (`test`, `example`) may additionally
@@ -103,7 +114,13 @@ the `[dev-dependencies]` policy.
 ## Default-build vs. explicit selection
 
 `cabin build` enumerates every `library`, `header-only`, and `executable` target in the selected
-packages.  Header-only targets participate in dependency/interface propagation but emit no compile,
+packages.  A target whose [`required-features`](features.md#feature-gated-targets) are not all
+enabled is skipped by this enumeration (a note-worthy exception: when *every* default-buildable
+target is gated off, the build fails with an error naming the missing features instead of silently
+building nothing).  Naming a gated target explicitly - through a `deps` entry, `cabin test --test`,
+or `cabin run --bin` - is always a hard error that spells out the missing features.
+
+Header-only targets participate in dependency/interface propagation but emit no compile,
 archive, or link action.  Dev-only kinds (`test`, `example`) are excluded from the default
 enumeration; they reach the build graph in two ways:
 

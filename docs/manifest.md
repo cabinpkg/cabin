@@ -82,6 +82,7 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
 | `deps` | array of strings | no | `[]` | Target dependencies.  See [Target dependencies](#target-dependencies). |
+| `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
 | `interface-c-standard` | string | no | effective `c-standard` | C interface requirement; `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
@@ -213,10 +214,20 @@ semantics.
 
 Inside a target's `deps` array, each entry is one of:
 
-- `"name"` - same-package target, **or** the name of a declared package dependency (resolves to that
-  package's unique `library` or `header-only` target).
+- `"name"` - a same-package target.  When no local target matches and `name` is a declared package
+  dependency, the entry is *shorthand for `"name:name"`* - it resolves only when that dependency
+  declares a `library` or `header-only` target with the same name.  The shorthand is pure name
+  matching; a package never exports a "default" or "unique" library target, and a bare name that
+  matches neither form (including one that only matches a same-named executable) is a hard error
+  suggesting the qualified spelling.
 - `"package:target"` - qualified reference.  The `package` part must be either the current package
-  or a declared package dependency; the `target` part must exist in that package.
+  or a declared package dependency; the `target` part must exist in that package.  Any dependency
+  target whose name differs from its package name must be spelled this way.
+
+Declaring a package under `[dependencies]` only makes it *available*; nothing links until a target
+names one of its targets in `deps`.  [Features](features.md) never add `deps` entries either - a
+consumer that wants a [feature-gated target](features.md#feature-gated-targets) both enables the
+feature and lists the target explicitly.
 
 Versioned dependencies resolve through the configured local or sparse HTTP index and are
 materialized through the artifact cache when a buildable graph needs them.  Resolved versioned

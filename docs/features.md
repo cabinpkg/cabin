@@ -100,6 +100,68 @@ Effects on commands:
   canonical metadata document.  Bare entries without overrides serialize as plain
   version-requirement strings so older readers stay happy.
 
+## Feature-gated targets
+
+A target may declare `required-features`: package features that must all be enabled for the target
+to be built or used.  Entries name features declared in the *same* package's `[features]` table;
+unknown names are rejected when the manifest loads.
+
+```toml
+[package]
+name = "foo"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[features]
+default = []
+ssl = []
+
+[target.http]
+type = "library"
+sources = ["src/http.cc"]
+
+[target.tls]
+type = "library"
+sources = ["src/tls.cc"]
+deps = ["http"]
+required-features = ["ssl"]
+```
+
+The gating rules are:
+
+- **Default enumeration skips gated targets.**  `cabin build` (and `cabin test`'s no-`--test`
+  enumeration, `cabin run`'s single-executable pick, and `cabin tidy`) simply does not select a
+  target whose required features are not all enabled.  When *every* candidate is gated off, the
+  command fails with an error naming the gated targets and their missing features instead of
+  claiming nothing exists.
+- **Explicit requests hard-error.**  A `deps` entry, a manifest-target selector, `cabin run
+  --bin`, or `cabin test --test` naming a gated target fails with the missing features and the
+  concrete fix (`--features <name>`, or a `features = [...]` request on the consumer's dependency
+  edge).
+
+Features stay purely additive capabilities: enabling a feature makes a gated target *available*
+but never adds a `deps` entry to any consumer.  A consumer that wants an optional target does both
+things explicitly - enables the feature on its dependency edge and names the target in `deps`:
+
+```toml
+[dependencies]
+foo = { version = "1.0.0", features = ["ssl"] }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["foo:http", "foo:tls"]
+```
+
+Dropping the `features = ["ssl"]` request fails the build with the `required-features` error
+above; dropping the `"foo:tls"` entry simply never links `tls`.  The runnable
+[`feature-gated-targets`](https://github.com/cabinpkg/cabin/tree/main/examples/feature-gated-targets)
+example shows the full workspace shape.
+
+`required-features` gates *whether the target builds*; to vary compile flags by feature on a
+target that always builds, use `[target.'cfg(feature = "...")'.profile]` layers instead (see
+[Target / platform-specific dependencies](target-dependencies.md)).
+
 ## CLI selection
 
 `cabin build` / `cabin resolve` / `cabin metadata` accept the same selection flag bundle:

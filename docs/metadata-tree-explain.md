@@ -101,7 +101,8 @@ The JSON shape is `{ "kind": "package", "name", "version", "source", "paths": [ 
 
 Reports a target's owning package, kind (the same string the manifest uses: `library`, `executable`,
 `test`, ...), source-language summary (any subset of `c`, `cxx`, `rust`), declared deps (in
-declaration order), and three classification flags (`is_buildable`, `is_test`, `is_dev_only`).
+declaration order), declared `required-features` (omitted when the target is not feature-gated),
+and three classification flags (`is_buildable`, `is_test`, `is_dev_only`).
 
 The JSON shape uses `"target_kind"` for the target's kind so it does not collide with the outer
 `Explanation` discriminator field `"kind"`.
