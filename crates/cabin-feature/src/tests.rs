@@ -125,6 +125,62 @@ fn names(set: &BTreeSet<String>) -> Vec<&str> {
     set.iter().map(String::as_str).collect()
 }
 
+/// A `[dev-dependencies]` declaration mirroring [`dep_normal`].
+fn dep_dev(name: &str) -> Dependency {
+    Dependency {
+        name: pkg(name),
+        source: DependencySource::Path(Utf8PathBuf::from(format!("../{name}"))),
+        kind: DependencyKind::Dev,
+        optional: false,
+        features: Vec::new(),
+        default_features: true,
+        condition: None,
+    }
+}
+
+#[test]
+fn dev_edge_participates_when_materialized() {
+    // root dev-depends on harness; the loader activated the dev
+    // edge (as `cabin test` does for selected packages).  The
+    // resolver must traverse it: harness's default feature
+    // enables its optional dep.
+    let root = make_project("root", vec![dep_dev("harness")], empty_features());
+    let harness = make_project(
+        "harness",
+        vec![dep_normal("optdep", true)],
+        features(&["withopt"], &[("withopt", &["dep:optdep"])]),
+    );
+    let graph = make_graph(vec![
+        (root, vec![(1, DependencyKind::Dev)]),
+        (harness, Vec::new()),
+    ]);
+    let res = resolve_features(&graph, &[0], &RootFeatureRequest::default(), &host()).unwrap();
+    let harness_res = res.for_package(1);
+    assert_eq!(
+        names(&harness_res.enabled_features),
+        vec!["default", "withopt"]
+    );
+    assert_eq!(names(&harness_res.enabled_optional_deps), vec!["optdep"]);
+}
+
+#[test]
+fn dev_declaration_without_edge_stays_inert() {
+    // Same manifests, but the loader did not materialize the dev
+    // edge (ordinary `cabin build` policy, or a transitive dep's
+    // own dev-deps).  The declaration must not be traversed.
+    let root = make_project("root", vec![dep_dev("harness")], empty_features());
+    let harness = make_project(
+        "harness",
+        vec![dep_normal("optdep", true)],
+        features(&["withopt"], &[("withopt", &["dep:optdep"])]),
+    );
+    let graph = make_graph(vec![(root, Vec::new()), (harness, Vec::new())]);
+    let res = resolve_features(&graph, &[0], &RootFeatureRequest::default(), &host()).unwrap();
+    let harness_res = res.for_package(1);
+    assert!(harness_res.enabled_features.is_empty());
+    assert!(harness_res.enabled_optional_deps.is_empty());
+}
+
 #[test]
 fn enables_default_feature_for_root() {
     // Given a single root with default = ["a"], `a = ["b"]`,

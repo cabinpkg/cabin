@@ -399,6 +399,130 @@ deps = ["harness"]
 
 #[test]
 #[test]
+fn test_resolves_feature_gated_optional_dep_of_dev_path_dependency() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // `app` dev-depends on path package `harness`, whose default
+    // feature enables the optional registry dep `optdep`.
+    // Feature resolution must traverse the activated dev edge so
+    // the optional dep reaches the resolver, fetches, links, and
+    // locks.
+    let archive = dir.path().join("artifacts/optdep-1.0.0.tar.gz");
+    let hex = make_archive(
+        &archive,
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "optdep"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.optdep]
+type = "library"
+sources = ["src/optdep.cc"]
+include-dirs = ["include"]
+"#,
+            ),
+            ("include/optdep.h", "#pragma once\nint optdep_answer();\n"),
+            (
+                "src/optdep.cc",
+                "#include \"optdep.h\"\nint optdep_answer() { return 21; }\n",
+            ),
+        ],
+    );
+    write_index_entry(
+        &dir.path().join("index"),
+        "optdep",
+        "1.0.0",
+        "{}",
+        &hex,
+        "../artifacts/optdep-1.0.0.tar.gz",
+    );
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "harness"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+optdep = { version = ">=1", optional = true }
+
+[features]
+withopt = ["dep:optdep"]
+default = ["withopt"]
+
+[target.harness]
+type = "library"
+sources = ["src/harness.cc"]
+include-dirs = ["include"]
+deps = ["optdep"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/include/harness.h"))
+        .write_str("#pragma once\nint harness_answer();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/src/harness.cc"))
+        .write_str(
+            "#include \"harness.h\"\n#include \"optdep.h\"\nint harness_answer() { return optdep_answer(); }\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dev-dependencies]
+harness = { path = "../harness" }
+
+[target.applib]
+type = "library"
+sources = ["src/applib.cc"]
+
+[target.app_test]
+type = "test"
+sources = ["tests/app_test.cc"]
+deps = ["harness"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/applib.cc"))
+        .write_str("int applib_answer() { return 21; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/tests/app_test.cc"))
+        .write_str(
+            "#include \"harness.h\"\nint main() { return harness_answer() == 21 ? 0 : 1; }\n",
+        )
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(
+        stdout.contains("test app:app_test ... ok"),
+        "test linking the dev path dep's feature-gated optional dep should run: {stdout}"
+    );
+    let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
+    assert!(
+        lock.contains(r#"name = "optdep""#),
+        "the feature-gated optional dep should be locked: {lock}"
+    );
+}
+
+#[test]
 fn allow_no_tests_skips_dev_dep_resolution_without_index() {
     // No test targets are selected, so `--allow-no-tests` must
     // succeed before the versioned-dep check - even though the

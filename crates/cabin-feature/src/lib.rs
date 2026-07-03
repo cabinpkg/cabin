@@ -334,6 +334,27 @@ enum WorkItem {
     },
 }
 
+/// Whether a declared dependency participates in feature
+/// resolution.  `Normal`-kind declarations always do.  `Dev`-kind
+/// declarations participate only when the loader materialized a
+/// matching dev edge - i.e. the invocation activated the owning
+/// package's `[dev-dependencies]` (`cabin test` does, for the
+/// selected packages).  The graph encodes that activation, so
+/// ordinary commands (whose graphs carry no dev edges) are
+/// unaffected, and activation never propagates: a transitive
+/// package's dev declarations have no edges to match.
+fn dep_participates(
+    graph: &PackageGraph,
+    pkg: &WorkspacePackage,
+    declared: &cabin_core::Dependency,
+) -> bool {
+    declared.kind.is_resolved_by_default()
+        || pkg.deps.iter().any(|edge| {
+            edge.kind == declared.kind
+                && graph.packages[edge.index].package.name.as_str() == declared.name.as_str()
+        })
+}
+
 impl ResolverState {
     fn new(graph: &PackageGraph, platform: &TargetPlatform) -> Self {
         let per_package: BTreeMap<usize, ResolvedPackageFeatures> = (0..graph.packages.len())
@@ -427,7 +448,7 @@ impl ResolverState {
                     // When inactive on this host, a `dep:foo` entry
                     // is a silent no-op.  When active, the dep must be
                     // declared optional.
-                    if self.assert_optional_dep_active_or_skip(pkg, feature, &dep_name)? {
+                    if self.assert_optional_dep_active_or_skip(graph, pkg, feature, &dep_name)? {
                         self.work
                             .push_back(WorkItem::EnableOptionalDep { package, dep_name });
                     }
@@ -436,7 +457,8 @@ impl ResolverState {
                     dep,
                     feature: requested_feature,
                 } => {
-                    let Some(dep_entry) = self.lookup_declared_dep(pkg, feature, &dep)? else {
+                    let Some(dep_entry) = self.lookup_declared_dep(graph, pkg, feature, &dep)?
+                    else {
                         // Dep is declared only under a
                         // non-matching `cfg(...)` on this host -
                         // no work to enqueue for this evaluation.
@@ -464,7 +486,7 @@ impl ResolverState {
             return;
         }
         let pkg = &graph.packages[package];
-        // Expand every non-optional resolvable-kind edge so the
+        // Expand every non-optional participating edge so the
         // target package receives the per-edge `default-features`
         // / `features = [...]` requests (and inherits its own
         // included status through the queued `IncludePackage`).
@@ -472,7 +494,7 @@ impl ResolverState {
         // not match the evaluation platform are skipped here so
         // their feature requests do not propagate.
         for declared in &pkg.package.dependencies {
-            if !declared.kind.is_resolved_by_default() {
+            if !dep_participates(graph, pkg, declared) {
                 continue;
             }
             if declared.optional {
@@ -507,7 +529,8 @@ impl ResolverState {
         // deps of a resolvable kind always include; optional deps
         // include only after `apply_optional_dep` ran.
         let pkg = &graph.packages[from_package];
-        let Some(dep_entry) = self.lookup_declared_dep(pkg, "<dep-feature-request>", dep_name)?
+        let Some(dep_entry) =
+            self.lookup_declared_dep(graph, pkg, "<dep-feature-request>", dep_name)?
         else {
             // Inactive on this host - nothing to propagate.
             return Ok(());
@@ -567,7 +590,7 @@ impl ResolverState {
             if declared.name.as_str() != dep_name {
                 continue;
             }
-            if !declared.kind.is_resolved_by_default() {
+            if !dep_participates(graph, pkg, declared) {
                 continue;
             }
             if !declared.matches_platform(&self.platform) {
@@ -611,23 +634,24 @@ impl ResolverState {
     /// Look up a dependency by name.  Returns:
     ///
     /// - `Ok(Some(dep))` for an active declaration of a
-    ///   resolvable kind;
+    ///   participating kind;
     /// - `Ok(None)` when every declaration matching `dep_name`
     ///   is gated by a non-matching `cfg(...)` on this host -
     ///   feature entries that reference such a dep become a
     ///   no-op for this evaluation, mirroring Cargo's behavior
     ///   for inactive target-conditional optional deps;
     /// - `Err(UnknownDependency)` when no declaration of any
-    ///   resolvable kind names `dep_name`.
+    ///   participating kind names `dep_name`.
     fn lookup_declared_dep<'a>(
         &self,
+        graph: &PackageGraph,
         pkg: &'a WorkspacePackage,
         referring_feature: &str,
         dep_name: &str,
     ) -> Result<Option<&'a cabin_core::Dependency>, FeatureResolverError> {
         let mut declared_anywhere = false;
         for dep in &pkg.package.dependencies {
-            if dep.name.as_str() != dep_name || !dep.kind.is_resolved_by_default() {
+            if dep.name.as_str() != dep_name || !dep_participates(graph, pkg, dep) {
                 continue;
             }
             declared_anywhere = true;
@@ -653,11 +677,12 @@ impl ResolverState {
     /// declared with `optional = true`.
     fn assert_optional_dep_active_or_skip(
         &self,
+        graph: &PackageGraph,
         pkg: &WorkspacePackage,
         referring_feature: &str,
         dep_name: &str,
     ) -> Result<bool, FeatureResolverError> {
-        let Some(dep) = self.lookup_declared_dep(pkg, referring_feature, dep_name)? else {
+        let Some(dep) = self.lookup_declared_dep(graph, pkg, referring_feature, dep_name)? else {
             return Ok(false);
         };
         if !dep.optional {
