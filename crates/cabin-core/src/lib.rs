@@ -61,12 +61,14 @@ pub use config::{
 pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
 pub use language_standard::{
-    CStandard, CxxStandard, InterfaceStandard, InterfaceStandardSource, LanguageStandard,
+    CStandard, CxxStandard, InterfaceRequirement, InterfaceStandard,
+    InterfaceStandardContradiction, InterfaceStandardSource, LanguageStandard,
     LanguageStandardParseError, LanguageStandardSettings, LanguageStandardSource,
     LanguageStandardsSummary, ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES,
-    StandardDeclaration, StandardFlagConflict, TargetStandardsSummary, WorkspaceStandardDefaults,
-    effective_c, effective_cxx, find_standard_flag_conflicts, imposes_requirement, interface_c,
-    interface_cxx, resolve_language_standards,
+    StandardDeclaration, StandardFlagConflict, StandardRequirement, TargetStandardsSummary,
+    WorkspaceStandardDefaults, effective_c, effective_cxx, effective_gnu_extensions,
+    find_interface_standard_contradictions, find_standard_flag_conflicts, imposes_requirement,
+    interface_c, interface_cxx, parse_interface_c, parse_interface_cxx, resolve_language_standards,
 };
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,

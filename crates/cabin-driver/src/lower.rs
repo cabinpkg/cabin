@@ -134,8 +134,16 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
 // GNU / Clang dialect.
 // ---------------------------------------------------------------
 
-fn gnu_std_flag(standard: LanguageStandard) -> String {
-    format!("-std={standard}")
+fn gnu_std_flag(standard: LanguageStandard, gnu_extensions: bool) -> String {
+    if gnu_extensions {
+        // The GNU spelling of every ISO level swaps the leading `c`
+        // for `gnu`: `c++20` → `gnu++20`, `c17` → `gnu17`.  The data
+        // model carries ISO levels only; this spelling exists at
+        // lowering time alone.
+        format!("-std=gnu{}", &standard.as_str()[1..])
+    } else {
+        format!("-std={standard}")
+    }
 }
 
 /// GNU/Clang compile argv.  The layout is fixed so it reproduces the
@@ -148,7 +156,7 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
     out.push(compile.compiler.to_string());
-    out.push(gnu_std_flag(compile.standard));
+    out.push(gnu_std_flag(compile.standard, compile.gnu_extensions));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
         out.push("-g".to_owned());
@@ -279,6 +287,10 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 /// flags, and the mode-specific tail (`/c /Tp<src> /Fo<obj>` or
 /// `/Tp<src> /Zs`, with `/Tc` for C).
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
+    debug_assert!(
+        !compile.gnu_extensions,
+        "the planner rejects `gnu-extensions` on the MSVC dialect before lowering"
+    );
     let args = &compile.arguments;
     let mut out: Vec<String> = vec![compile.compiler.to_string(), "/nologo".to_owned()];
     // GCC and Clang interpret source files as UTF-8 by default, while
@@ -430,6 +442,7 @@ mod tests {
     fn cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
             standard: LanguageStandard::Cxx(CxxStandard::Cxx17),
+            gnu_extensions: false,
             source: Utf8PathBuf::from("/abs/src/main.cc"),
             object: Utf8PathBuf::from("/abs/build/main.o"),
             mode,
@@ -501,6 +514,53 @@ mod tests {
         let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
         assert_eq!(lowered.kind, LoweredActionKind::CompileC);
         assert_eq!(lowered.command[1], "-std=c99");
+    }
+
+    #[test]
+    fn gnu_dialect_spells_gnu_extensions_from_the_iso_level() {
+        // `gnu-extensions` swaps the spelling only; the IR still
+        // carries the ISO level.
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
+        compile.gnu_extensions = true;
+        let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
+        assert_eq!(lowered.command[1], "-std=gnu++20");
+
+        let mut compile = cxx_compile(CompileMode::Object);
+        compile.standard = LanguageStandard::C(CStandard::C17);
+        compile.gnu_extensions = true;
+        let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
+        assert_eq!(lowered.kind, LoweredActionKind::CompileC);
+        assert_eq!(lowered.command[1], "-std=gnu17");
+
+        // Every level maps 1:1 onto its GNU spelling.
+        for (standard, flag) in [
+            (LanguageStandard::C(CStandard::C89), "-std=gnu89"),
+            (LanguageStandard::C(CStandard::C23), "-std=gnu23"),
+            (LanguageStandard::Cxx(CxxStandard::Cxx98), "-std=gnu++98"),
+            (LanguageStandard::Cxx(CxxStandard::Cxx26), "-std=gnu++26"),
+        ] {
+            let mut compile = cxx_compile(CompileMode::Object);
+            compile.standard = standard;
+            compile.gnu_extensions = true;
+            let lowered = lower(Dialect::GnuLike, &BuildAction::Compile(compile));
+            assert_eq!(lowered.command[1], flag);
+        }
+    }
+
+    #[test]
+    fn gnu_extensions_is_strictly_per_compile() {
+        // Two compiles in one build may differ in both level and
+        // `gnu-extensions`; lowering reads each action alone.
+        let mut with_extensions = cxx_compile(CompileMode::Object);
+        with_extensions.standard = LanguageStandard::Cxx(CxxStandard::Cxx20);
+        with_extensions.gnu_extensions = true;
+        let mut without = cxx_compile(CompileMode::Object);
+        without.standard = LanguageStandard::Cxx(CxxStandard::Cxx17);
+        let lowered_with = lower(Dialect::GnuLike, &BuildAction::Compile(with_extensions));
+        let lowered_without = lower(Dialect::GnuLike, &BuildAction::Compile(without));
+        assert_eq!(lowered_with.command[1], "-std=gnu++20");
+        assert_eq!(lowered_without.command[1], "-std=c++17");
     }
 
     #[test]
@@ -661,6 +721,7 @@ mod tests {
     fn msvc_cxx_compile(mode: CompileMode) -> CompileAction {
         CompileAction {
             standard: LanguageStandard::Cxx(CxxStandard::Cxx17),
+            gnu_extensions: false,
             source: Utf8PathBuf::from("C:/src/main.cc"),
             object: Utf8PathBuf::from("C:/build/main.obj"),
             mode,

@@ -1040,8 +1040,7 @@ mod tests {
                     standard: CxxStandard::Cxx20,
                     source: LanguageStandardSource::Target,
                 }),
-                interface_c: None,
-                interface_cxx: None,
+                ..Default::default()
             },
         );
         let mut inherited = baseline.clone();
@@ -1050,8 +1049,7 @@ mod tests {
             TargetStandardsSummary {
                 c: baseline.c,
                 cxx: baseline.cxx,
-                interface_c: None,
-                interface_cxx: None,
+                ..Default::default()
             },
         );
         assert_ne!(
@@ -1063,21 +1061,25 @@ mod tests {
     #[test]
     fn fingerprint_differs_when_interface_standard_changes() {
         use crate::language_standard::{
-            CxxStandard, InterfaceStandard, InterfaceStandardSource, TargetStandardsSummary,
+            CxxStandard, InterfaceRequirement, InterfaceStandard, InterfaceStandardSource,
+            StandardRequirement, TargetStandardsSummary,
         };
         let base = LanguageStandardsSummary::default();
-        let summary_with_interface = |standard: CxxStandard| {
+        let summary_with_interface = |min: CxxStandard| {
             let mut s = base.clone();
             s.targets.insert(
                 "core".to_owned(),
                 TargetStandardsSummary {
                     c: base.c,
                     cxx: base.cxx,
-                    interface_c: None,
                     interface_cxx: Some(InterfaceStandard {
-                        standard,
+                        requirement: InterfaceRequirement::Requirement(StandardRequirement {
+                            min,
+                            max: None,
+                        }),
                         source: InterfaceStandardSource::Target,
                     }),
+                    ..Default::default()
                 },
             );
             s

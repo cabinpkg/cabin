@@ -1,117 +1,69 @@
 //! Typed C/C++ language standards.
 //!
-//! Owns the standard enums, the manifest declaration shape shared by
-//! `[package]` and `[target.<name>]`, effective-standard resolution
-//! (target ▶ package; there is no built-in default - a target that
-//! compiles a language without a declared standard is a manifest
-//! error), interface-requirement
-//! relevance and fallback, the escape-hatch conflict detector, and
-//! the per-package summary that feeds `BuildConfiguration`
-//! fingerprinting and the metadata view.  Pure data and logic only;
-//! no I/O.  See `docs/language-standards.md` for the user-facing
-//! contract.
+//! Owns the standard enums (ISO levels only; GNU extensions are the
+//! orthogonal per-target `gnu-extensions` boolean), the manifest
+//! declaration shape shared by `[package]` and `[target.<name>]`,
+//! effective-standard resolution (target ▶ package; there is no
+//! built-in default - a target that compiles a language without a
+//! declared standard is a manifest error), interface-requirement
+//! relevance and fallback, the escape-hatch conflict detector, the
+//! interface/implementation contradiction lint, and the per-package
+//! summary that feeds `BuildConfiguration` fingerprinting and the
+//! metadata view.  Pure data and logic only; no I/O.  See
+//! `docs/language-standards.md` for the user-facing contract.
 
 use std::collections::BTreeMap;
+use std::marker::PhantomData;
 
+use serde::de::{MapAccess, Visitor, value::MapAccessDeserializer};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
 /// C language standards Cabin can request, oldest to newest.  The
-/// `Ord` derive follows declaration order, which the interface
-/// compatibility check relies on: each GNU dialect sits just above
-/// its ISO twin, so a GNU consumer satisfies its twin's interface
-/// requirement while an ISO consumer never satisfies a GNU one
-/// (the dialect is a superset of the twin).
+/// `Ord` derive follows declaration order, which is the plain
+/// chronological chain (in particular `c11 < c17`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CStandard {
     #[serde(rename = "c89")]
     C89,
-    #[serde(rename = "gnu89")]
-    Gnu89,
     #[serde(rename = "c99")]
     C99,
-    #[serde(rename = "gnu99")]
-    Gnu99,
     #[serde(rename = "c11")]
     C11,
-    #[serde(rename = "gnu11")]
-    Gnu11,
     #[serde(rename = "c17")]
     C17,
-    #[serde(rename = "gnu17")]
-    Gnu17,
     #[serde(rename = "c23")]
     C23,
-    #[serde(rename = "gnu23")]
-    Gnu23,
 }
 
 impl CStandard {
-    /// ISO spellings first so parse errors read chronologically per
-    /// dialect; iteration order is not the `Ord` order.
-    pub const ALL: [Self; 10] = [
-        Self::C89,
-        Self::C99,
-        Self::C11,
-        Self::C17,
-        Self::C23,
-        Self::Gnu89,
-        Self::Gnu99,
-        Self::Gnu11,
-        Self::Gnu17,
-        Self::Gnu23,
-    ];
+    pub const ALL: [Self; 5] = [Self::C89, Self::C99, Self::C11, Self::C17, Self::C23];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::C89 => "c89",
-            Self::Gnu89 => "gnu89",
             Self::C99 => "c99",
-            Self::Gnu99 => "gnu99",
             Self::C11 => "c11",
-            Self::Gnu11 => "gnu11",
             Self::C17 => "c17",
-            Self::Gnu17 => "gnu17",
             Self::C23 => "c23",
-            Self::Gnu23 => "gnu23",
-        }
-    }
-
-    /// Whether this is a GNU dialect (`gnu*`) rather than an ISO
-    /// standard.
-    #[must_use]
-    pub const fn is_gnu(self) -> bool {
-        matches!(
-            self,
-            Self::Gnu89 | Self::Gnu99 | Self::Gnu11 | Self::Gnu17 | Self::Gnu23
-        )
-    }
-
-    /// The ISO standard a GNU dialect extends; identity for ISO
-    /// values.  Toolchain capability checks key on this: a GNU
-    /// spelling ships alongside its twin on GCC-style compilers.
-    #[must_use]
-    pub const fn iso_twin(self) -> Self {
-        match self {
-            Self::Gnu89 => Self::C89,
-            Self::Gnu99 => Self::C99,
-            Self::Gnu11 => Self::C11,
-            Self::Gnu17 => Self::C17,
-            Self::Gnu23 => Self::C23,
-            iso => iso,
         }
     }
 
     /// # Errors
-    /// Returns [`LanguageStandardParseError`] listing the valid
-    /// spellings when `value` is not a recognized C standard.
+    /// Returns [`LanguageStandardParseError`] when `value` is not a
+    /// recognized C standard: a dedicated variant for range-like
+    /// inputs and for the interface-only `none`, otherwise the
+    /// invalid-value error listing the accepted identifiers.
+    /// `c90` parses as an alias of `c89`, normalized immediately.
     pub fn parse(value: &str) -> Result<Self, LanguageStandardParseError> {
+        reject_non_identifier(SourceLanguage::C, value)?;
+        let normalized = if value == "c90" { "c89" } else { value };
         Self::ALL
             .into_iter()
-            .find(|s| s.as_str() == value)
-            .ok_or_else(|| LanguageStandardParseError {
+            .find(|s| s.as_str() == normalized)
+            .ok_or_else(|| LanguageStandardParseError::Unknown {
                 language: SourceLanguage::C,
                 value: value.to_owned(),
             })
@@ -131,122 +83,63 @@ impl std::str::FromStr for CStandard {
     }
 }
 
-/// C++ language standards Cabin can request, oldest to newest, with
-/// each GNU dialect just above its ISO twin (see [`CStandard`] for
-/// the ordering contract).  `c++26` is deferred until its capability
-/// thresholds are audited.
+/// C++ language standards Cabin can request, oldest to newest, in
+/// the plain chronological chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CxxStandard {
     #[serde(rename = "c++98")]
     Cxx98,
-    #[serde(rename = "gnu++98")]
-    Gnuxx98,
-    #[serde(rename = "c++03")]
-    Cxx03,
-    #[serde(rename = "gnu++03")]
-    Gnuxx03,
     #[serde(rename = "c++11")]
     Cxx11,
-    #[serde(rename = "gnu++11")]
-    Gnuxx11,
     #[serde(rename = "c++14")]
     Cxx14,
-    #[serde(rename = "gnu++14")]
-    Gnuxx14,
     #[serde(rename = "c++17")]
     Cxx17,
-    #[serde(rename = "gnu++17")]
-    Gnuxx17,
     #[serde(rename = "c++20")]
     Cxx20,
-    #[serde(rename = "gnu++20")]
-    Gnuxx20,
     #[serde(rename = "c++23")]
     Cxx23,
-    #[serde(rename = "gnu++23")]
-    Gnuxx23,
+    #[serde(rename = "c++26")]
+    Cxx26,
 }
 
 impl CxxStandard {
-    /// ISO spellings first so parse errors read chronologically per
-    /// dialect; iteration order is not the `Ord` order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 7] = [
         Self::Cxx98,
-        Self::Cxx03,
         Self::Cxx11,
         Self::Cxx14,
         Self::Cxx17,
         Self::Cxx20,
         Self::Cxx23,
-        Self::Gnuxx98,
-        Self::Gnuxx03,
-        Self::Gnuxx11,
-        Self::Gnuxx14,
-        Self::Gnuxx17,
-        Self::Gnuxx20,
-        Self::Gnuxx23,
+        Self::Cxx26,
     ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Cxx98 => "c++98",
-            Self::Gnuxx98 => "gnu++98",
-            Self::Cxx03 => "c++03",
-            Self::Gnuxx03 => "gnu++03",
             Self::Cxx11 => "c++11",
-            Self::Gnuxx11 => "gnu++11",
             Self::Cxx14 => "c++14",
-            Self::Gnuxx14 => "gnu++14",
             Self::Cxx17 => "c++17",
-            Self::Gnuxx17 => "gnu++17",
             Self::Cxx20 => "c++20",
-            Self::Gnuxx20 => "gnu++20",
             Self::Cxx23 => "c++23",
-            Self::Gnuxx23 => "gnu++23",
-        }
-    }
-
-    /// Whether this is a GNU dialect (`gnu++*`) rather than an ISO
-    /// standard.
-    #[must_use]
-    pub const fn is_gnu(self) -> bool {
-        matches!(
-            self,
-            Self::Gnuxx98
-                | Self::Gnuxx03
-                | Self::Gnuxx11
-                | Self::Gnuxx14
-                | Self::Gnuxx17
-                | Self::Gnuxx20
-                | Self::Gnuxx23
-        )
-    }
-
-    /// The ISO standard a GNU dialect extends; identity for ISO
-    /// values.  Toolchain capability checks key on this: a GNU
-    /// spelling ships alongside its twin on GCC-style compilers.
-    #[must_use]
-    pub const fn iso_twin(self) -> Self {
-        match self {
-            Self::Gnuxx98 => Self::Cxx98,
-            Self::Gnuxx03 => Self::Cxx03,
-            Self::Gnuxx11 => Self::Cxx11,
-            Self::Gnuxx14 => Self::Cxx14,
-            Self::Gnuxx17 => Self::Cxx17,
-            Self::Gnuxx20 => Self::Cxx20,
-            Self::Gnuxx23 => Self::Cxx23,
-            iso => iso,
+            Self::Cxx26 => "c++26",
         }
     }
 
     /// # Errors
-    /// Returns [`LanguageStandardParseError`] listing the valid
-    /// spellings when `value` is not a recognized C++ standard.
+    /// Returns [`LanguageStandardParseError`] when `value` is not a
+    /// recognized C++ standard: a dedicated variant for range-like
+    /// inputs and for the interface-only `none`, otherwise the
+    /// invalid-value error listing the accepted identifiers.
+    /// `c++03` parses as an alias of `c++98`, normalized
+    /// immediately.
     pub fn parse(value: &str) -> Result<Self, LanguageStandardParseError> {
+        reject_non_identifier(SourceLanguage::Cxx, value)?;
+        let normalized = if value == "c++03" { "c++98" } else { value };
         Self::ALL
             .into_iter()
-            .find(|s| s.as_str() == value)
-            .ok_or_else(|| LanguageStandardParseError {
+            .find(|s| s.as_str() == normalized)
+            .ok_or_else(|| LanguageStandardParseError::Unknown {
                 language: SourceLanguage::Cxx,
                 value: value.to_owned(),
             })
@@ -266,23 +159,69 @@ impl std::str::FromStr for CxxStandard {
     }
 }
 
-/// An invalid manifest standard value, with the valid spellings for
-/// the diagnostic.
+/// The shared pre-lookup checks: range-like inputs and the
+/// interface-only `none` get dedicated diagnostics on every field
+/// that parses a standard value.
+fn reject_non_identifier(
+    language: SourceLanguage,
+    value: &str,
+) -> Result<(), LanguageStandardParseError> {
+    // `>=` / `<=` are covered by their first character.
+    if value.contains(['>', '<', ',']) {
+        return Err(LanguageStandardParseError::RangeReserved {
+            language,
+            value: value.to_owned(),
+        });
+    }
+    if value == "none" {
+        return Err(LanguageStandardParseError::NoneOnImplementation { language });
+    }
+    Ok(())
+}
+
+/// An invalid manifest standard value.  Range-like inputs and the
+/// misplaced interface-only `none` get dedicated variants; anything
+/// else is the invalid-value error listing the accepted
+/// identifiers.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error(
-    "unknown {} standard `{value}`: expected one of {}",
-    .language.human_label(),
-    valid_standard_values(*.language)
-)]
-pub struct LanguageStandardParseError {
-    pub language: SourceLanguage,
-    pub value: String,
+pub enum LanguageStandardParseError {
+    #[error(
+        "unknown {} standard `{value}`: expected one of {}",
+        .language.human_label(),
+        valid_standard_values(*.language)
+    )]
+    Unknown {
+        language: SourceLanguage,
+        value: String,
+    },
+    #[error(
+        "range requirement `{value}` is reserved for a future version of Cabin; declare a single {} standard",
+        .language.human_label()
+    )]
+    RangeReserved {
+        language: SourceLanguage,
+        value: String,
+    },
+    #[error(
+        "`none` is only valid on `interface-c-standard` / `interface-cxx-standard`, where it marks the target's headers as not consumable from that language; compiled {} sources need a concrete standard",
+        .language.human_label()
+    )]
+    NoneOnImplementation { language: SourceLanguage },
 }
 
 fn valid_standard_values(language: SourceLanguage) -> String {
     match language {
         SourceLanguage::C => CStandard::ALL.map(CStandard::as_str).join(", "),
         SourceLanguage::Cxx => CxxStandard::ALL.map(CxxStandard::as_str).join(", "),
+    }
+}
+
+/// The implementation-standard field family for `language`
+/// (`c-standard` / `cxx-standard`), for diagnostics.
+const fn implementation_field(language: SourceLanguage) -> &'static str {
+    match language {
+        SourceLanguage::C => "c-standard",
+        SourceLanguage::Cxx => "cxx-standard",
     }
 }
 
@@ -312,7 +251,7 @@ impl LanguageStandard {
 
     /// The `/std:` value `cl.exe` accepts for this standard, when a
     /// stable one exists.  `None` marks the MSVC-dialect gaps
-    /// (C89/C99/C23, C++98/03/11/23); the planner rejects those
+    /// (C89/C99/C23, C++98/11/23/26); the planner rejects those
     /// before lowering on the MSVC dialect.
     pub const fn msvc_spelling(self) -> Option<&'static str> {
         match self {
@@ -329,6 +268,143 @@ impl LanguageStandard {
 impl std::fmt::Display for LanguageStandard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+/// One interface standard requirement: the minimum standard the
+/// target's public headers require from consumers.  `max` is
+/// reserved for future range requirements and is never populated
+/// today, but it stays in the type and every serialized form so the
+/// wire shape does not change when ranges land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StandardRequirement<S> {
+    pub min: S,
+    #[serde(default = "none")]
+    pub max: Option<S>,
+}
+
+// `#[serde(default)]` needs a fn item; `Option::default` would also
+// work but reads as a value default rather than "absent max".
+fn none<S>() -> Option<S> {
+    None
+}
+
+/// One declared interface-standard value: either a requirement or
+/// the explicit `none`, meaning the target's headers are not
+/// consumable from that language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceRequirement<S> {
+    /// The target's headers are not consumable from this language.
+    None,
+    Requirement(StandardRequirement<S>),
+}
+
+impl<S> InterfaceRequirement<S> {
+    /// The minimum standard, when this is a requirement.
+    #[must_use]
+    pub fn min(self) -> Option<S> {
+        match self {
+            Self::None => None,
+            Self::Requirement(requirement) => Some(requirement.min),
+        }
+    }
+}
+
+/// Parse one `interface-c-standard` value: `none` or a single C
+/// standard (ranges are reserved; see [`CStandard::parse`]).
+///
+/// # Errors
+/// Propagates [`CStandard::parse`] errors for anything but `none`.
+pub fn parse_interface_c(
+    value: &str,
+) -> Result<InterfaceRequirement<CStandard>, LanguageStandardParseError> {
+    if value == "none" {
+        return Ok(InterfaceRequirement::None);
+    }
+    CStandard::parse(value)
+        .map(|min| InterfaceRequirement::Requirement(StandardRequirement { min, max: None }))
+}
+
+/// Parse one `interface-cxx-standard` value: `none` or a single C++
+/// standard.
+///
+/// # Errors
+/// Propagates [`CxxStandard::parse`] errors for anything but `none`.
+pub fn parse_interface_cxx(
+    value: &str,
+) -> Result<InterfaceRequirement<CxxStandard>, LanguageStandardParseError> {
+    if value == "none" {
+        return Ok(InterfaceRequirement::None);
+    }
+    CxxStandard::parse(value)
+        .map(|min| InterfaceRequirement::Requirement(StandardRequirement { min, max: None }))
+}
+
+impl<S: std::fmt::Display> std::fmt::Display for InterfaceRequirement<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => f.write_str("none"),
+            Self::Requirement(StandardRequirement { min, max: None }) => min.fmt(f),
+            Self::Requirement(StandardRequirement {
+                min,
+                max: Some(max),
+            }) => write!(f, "{min}..{max}"),
+        }
+    }
+}
+
+// `none` serializes as the bare string; a requirement serializes as
+// its `{ min, max }` table (with `max` present even while reserved)
+// so the canonical-metadata / index wire format is stable when
+// range support lands.
+impl<S: Serialize> Serialize for InterfaceRequirement<S> {
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
+    where
+        Ser: serde::Serializer,
+    {
+        match self {
+            Self::None => serializer.serialize_str("none"),
+            Self::Requirement(requirement) => requirement.serialize(serializer),
+        }
+    }
+}
+
+impl<'de, S: Deserialize<'de>> Deserialize<'de> for InterfaceRequirement<S> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct InterfaceRequirementVisitor<S>(PhantomData<S>);
+
+        impl<'de, S: Deserialize<'de>> Visitor<'de> for InterfaceRequirementVisitor<S> {
+            type Value = InterfaceRequirement<S>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("`none` or a `{ min, max }` requirement table")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v == "none" {
+                    Ok(InterfaceRequirement::None)
+                } else {
+                    Err(E::invalid_value(serde::de::Unexpected::Str(v), &self))
+                }
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                StandardRequirement::deserialize(MapAccessDeserializer::new(map))
+                    .map(InterfaceRequirement::Requirement)
+            }
+        }
+
+        deserializer.deserialize_any(InterfaceRequirementVisitor(PhantomData))
     }
 }
 
@@ -376,10 +452,10 @@ impl<S> StandardDeclaration<S> {
     }
 }
 
-// `Declared` and `Inherited` serialize as the bare standard string
-// so the canonical-metadata / index wire format is identical to a
-// literal declaration (publish bakes inherited values).  An
-// unresolved marker must never reach a serialization boundary.
+// `Declared` and `Inherited` serialize as the bare value so the
+// canonical-metadata / index wire format is identical to a literal
+// declaration (publish bakes inherited values).  An unresolved
+// marker must never reach a serialization boundary.
 impl<S: Serialize> Serialize for StandardDeclaration<S> {
     fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
@@ -394,7 +470,7 @@ impl<S: Serialize> Serialize for StandardDeclaration<S> {
     }
 }
 
-// A bare string deserializes as `Declared`: a consumer re-parsing
+// A bare value deserializes as `Declared`: a consumer re-parsing
 // published metadata sees a plain declaration.
 impl<'de, S: Deserialize<'de>> Deserialize<'de> for StandardDeclaration<S> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -405,12 +481,16 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for StandardDeclaration<S> {
     }
 }
 
-/// The four manifest fields, shared by `[package]` and
-/// `[target.<name>]` (`c-standard` / `cxx-standard` /
-/// `interface-c-standard` / `interface-cxx-standard`).  At
-/// `[package]` level each field may also be the
-/// `{ workspace = true }` opt-in marker; target-level fields are
-/// always `Declared` (the parser rejects markers there).
+/// The language fields shared by `[package]` and `[target.<name>]`:
+/// the four standard fields (`c-standard` / `cxx-standard` /
+/// `interface-c-standard` / `interface-cxx-standard`) plus the
+/// `gnu-extensions` boolean.  At `[package]` level each standard
+/// field may also be the `{ workspace = true }` opt-in marker;
+/// target-level fields are always `Declared` (the parser rejects
+/// markers there).  `gnu-extensions` is a plain boolean (no marker
+/// form): target level overrides package level, defaulting to
+/// `false`.  It selects GNU-extension compiler flag spellings only
+/// and never participates in interface compatibility.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LanguageStandardSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -418,9 +498,11 @@ pub struct LanguageStandardSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cxx_standard: Option<StandardDeclaration<CxxStandard>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface_c_standard: Option<StandardDeclaration<CStandard>>,
+    pub interface_c_standard: Option<StandardDeclaration<InterfaceRequirement<CStandard>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interface_cxx_standard: Option<StandardDeclaration<CxxStandard>>,
+    pub interface_cxx_standard: Option<StandardDeclaration<InterfaceRequirement<CxxStandard>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gnu_extensions: Option<bool>,
 }
 
 impl LanguageStandardSettings {
@@ -430,6 +512,7 @@ impl LanguageStandardSettings {
             && self.cxx_standard.is_none()
             && self.interface_c_standard.is_none()
             && self.interface_cxx_standard.is_none()
+            && self.gnu_extensions.is_none()
     }
 
     /// Resolved C implementation standard, when declared or
@@ -446,17 +529,17 @@ impl LanguageStandardSettings {
         self.cxx_standard.and_then(StandardDeclaration::value)
     }
 
-    /// Resolved C interface standard, when declared or inherited.
+    /// Resolved C interface requirement, when declared or inherited.
     #[must_use]
-    pub fn interface_c_standard_value(&self) -> Option<CStandard> {
+    pub fn interface_c_standard_value(&self) -> Option<InterfaceRequirement<CStandard>> {
         self.interface_c_standard
             .and_then(StandardDeclaration::value)
     }
 
-    /// Resolved C++ interface standard, when declared or
+    /// Resolved C++ interface requirement, when declared or
     /// inherited.
     #[must_use]
-    pub fn interface_cxx_standard_value(&self) -> Option<CxxStandard> {
+    pub fn interface_cxx_standard_value(&self) -> Option<InterfaceRequirement<CxxStandard>> {
         self.interface_cxx_standard
             .and_then(StandardDeclaration::value)
     }
@@ -481,6 +564,17 @@ impl LanguageStandardSettings {
     }
 }
 
+/// Effective `gnu-extensions` value for one target: target override
+/// ▶ package ▶ `false`.
+#[must_use]
+pub fn effective_gnu_extensions(package: &LanguageStandardSettings, target: &Target) -> bool {
+    target
+        .language
+        .gnu_extensions
+        .or(package.gnu_extensions)
+        .unwrap_or(false)
+}
+
 /// Literal `[workspace]`-level standard default values that member
 /// packages opt into per field with `<field> = { workspace = true }`
 /// on `[package]`.  Plain values only - the opt-in marker is not
@@ -495,12 +589,12 @@ pub struct WorkspaceStandardDefaults {
         rename = "interface-c-standard",
         skip_serializing_if = "Option::is_none"
     )]
-    pub interface_c_standard: Option<CStandard>,
+    pub interface_c_standard: Option<InterfaceRequirement<CStandard>>,
     #[serde(
         rename = "interface-cxx-standard",
         skip_serializing_if = "Option::is_none"
     )]
-    pub interface_cxx_standard: Option<CxxStandard>,
+    pub interface_cxx_standard: Option<InterfaceRequirement<CxxStandard>>,
 }
 
 impl WorkspaceStandardDefaults {
@@ -563,10 +657,10 @@ pub struct ResolvedStandard<S> {
     pub source: LanguageStandardSource,
 }
 
-/// A resolved interface standard plus where it came from.
+/// A resolved interface requirement plus where it came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceStandard<S> {
-    pub standard: S,
+    pub requirement: InterfaceRequirement<S>,
     pub source: InterfaceStandardSource,
 }
 
@@ -656,15 +750,15 @@ pub fn effective_cxx(
 /// Map a package-level *interface* declaration to its provenance:
 /// literal → `package`, workspace-inherited → `workspace`.
 fn interface_resolution<S: Copy>(
-    declaration: Option<StandardDeclaration<S>>,
+    declaration: Option<StandardDeclaration<InterfaceRequirement<S>>>,
 ) -> Option<InterfaceStandard<S>> {
     match declaration {
-        Some(StandardDeclaration::Declared(standard)) => Some(InterfaceStandard {
-            standard,
+        Some(StandardDeclaration::Declared(requirement)) => Some(InterfaceStandard {
+            requirement,
             source: InterfaceStandardSource::Package,
         }),
-        Some(StandardDeclaration::Inherited(standard)) => Some(InterfaceStandard {
-            standard,
+        Some(StandardDeclaration::Inherited(requirement)) => Some(InterfaceStandard {
+            requirement,
             source: InterfaceStandardSource::Workspace,
         }),
         Some(StandardDeclaration::Workspace) => {
@@ -678,7 +772,7 @@ fn interface_resolution<S: Copy>(
     }
 }
 
-/// Effective C interface standard for a library-like target:
+/// Effective C interface requirement for a library-like target:
 /// target interface ▶ package interface (literal or
 /// workspace-inherited) ▶ the target's effective implementation
 /// standard, when one is declared (an interface may still default
@@ -690,9 +784,9 @@ pub fn interface_c(
     package_settings: &LanguageStandardSettings,
     target: &Target,
 ) -> Option<InterfaceStandard<CStandard>> {
-    if let Some(standard) = target.language.interface_c_standard_value() {
+    if let Some(requirement) = target.language.interface_c_standard_value() {
         return Some(InterfaceStandard {
-            standard,
+            requirement,
             source: InterfaceStandardSource::Target,
         });
     }
@@ -700,21 +794,24 @@ pub fn interface_c(
         return Some(interface);
     }
     effective_c(package, target).map(|resolved| InterfaceStandard {
-        standard: resolved.standard,
+        requirement: InterfaceRequirement::Requirement(StandardRequirement {
+            min: resolved.standard,
+            max: None,
+        }),
         source: InterfaceStandardSource::CompileStandard,
     })
 }
 
-/// Effective C++ interface standard for a library-like target.
+/// Effective C++ interface requirement for a library-like target.
 #[must_use]
 pub fn interface_cxx(
     package: &ResolvedLanguageStandards,
     package_settings: &LanguageStandardSettings,
     target: &Target,
 ) -> Option<InterfaceStandard<CxxStandard>> {
-    if let Some(standard) = target.language.interface_cxx_standard_value() {
+    if let Some(requirement) = target.language.interface_cxx_standard_value() {
         return Some(InterfaceStandard {
-            standard,
+            requirement,
             source: InterfaceStandardSource::Target,
         });
     }
@@ -722,7 +819,10 @@ pub fn interface_cxx(
         return Some(interface);
     }
     effective_cxx(package, target).map(|resolved| InterfaceStandard {
-        standard: resolved.standard,
+        requirement: InterfaceRequirement::Requirement(StandardRequirement {
+            min: resolved.standard,
+            max: None,
+        }),
         source: InterfaceStandardSource::CompileStandard,
     })
 }
@@ -866,6 +966,89 @@ pub fn find_standard_flag_conflicts(
     out
 }
 
+/// A target whose declared interface minimum is newer than the
+/// implementation standard its own sources compile with - a
+/// manifest contradiction, rejected at load.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error(
+    "target `{target}` in package `{package}` sets `{field} = \"{interface_min}\"` but compiles its {} sources as `{implementation}`; the target's own translation units could not include its own public headers - raise `{}` or lower the interface minimum",
+    .language.human_label(),
+    implementation_field(*.language)
+)]
+pub struct InterfaceStandardContradiction {
+    pub package: String,
+    pub target: String,
+    pub language: SourceLanguage,
+    /// The interface field family that was declared
+    /// (`interface-c-standard` or `interface-cxx-standard`).
+    pub field: &'static str,
+    pub implementation: LanguageStandard,
+    pub interface_min: LanguageStandard,
+}
+
+/// Detect interface/implementation contradictions: for each
+/// library-like target and language it compiles, the effective
+/// interface minimum must not be newer than the effective
+/// implementation standard (the target's own translation units
+/// include its own public headers).  Runs on resolved declarations,
+/// after workspace-marker resolution.  The compile-standard
+/// interface fallback equals the implementation standard, so it can
+/// never contradict.
+#[must_use]
+pub fn find_interface_standard_contradictions(
+    package: &crate::Package,
+) -> Vec<InterfaceStandardContradiction> {
+    let resolved = resolve_language_standards(&package.language);
+    let mut out = Vec::new();
+    for target in &package.targets {
+        let library_like = target.kind.produces_archive() || target.kind.is_header_only();
+        if !library_like {
+            continue;
+        }
+        let compiles = |language: SourceLanguage| {
+            target
+                .sources
+                .iter()
+                .any(|s| classify_source(s) == Some(language))
+        };
+        if compiles(SourceLanguage::C)
+            && let (Some(implementation), Some(interface)) = (
+                effective_c(&resolved, target),
+                interface_c(&resolved, &package.language, target),
+            )
+            && let Some(min) = interface.requirement.min()
+            && min > implementation.standard
+        {
+            out.push(InterfaceStandardContradiction {
+                package: package.name.as_str().to_owned(),
+                target: target.name.as_str().to_owned(),
+                language: SourceLanguage::C,
+                field: "interface-c-standard",
+                implementation: LanguageStandard::C(implementation.standard),
+                interface_min: LanguageStandard::C(min),
+            });
+        }
+        if compiles(SourceLanguage::Cxx)
+            && let (Some(implementation), Some(interface)) = (
+                effective_cxx(&resolved, target),
+                interface_cxx(&resolved, &package.language, target),
+            )
+            && let Some(min) = interface.requirement.min()
+            && min > implementation.standard
+        {
+            out.push(InterfaceStandardContradiction {
+                package: package.name.as_str().to_owned(),
+                target: target.name.as_str().to_owned(),
+                language: SourceLanguage::Cxx,
+                field: "interface-cxx-standard",
+                implementation: LanguageStandard::Cxx(implementation.standard),
+                interface_min: LanguageStandard::Cxx(min),
+            });
+        }
+    }
+    out
+}
+
 /// Per-package language-standard summary carried by
 /// `BuildConfiguration`: package-level effective standards plus the
 /// effective values for every target.  Values (not provenance) feed
@@ -894,6 +1077,10 @@ pub struct TargetStandardsSummary {
     pub interface_c: Option<InterfaceStandard<CStandard>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interface_cxx: Option<InterfaceStandard<CxxStandard>>,
+    /// Effective `gnu-extensions` value (target ▶ package ▶
+    /// `false`).  Omitted from the serialized form when `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gnu_extensions: bool,
 }
 
 impl LanguageStandardsSummary {
@@ -915,6 +1102,7 @@ impl LanguageStandardsSummary {
                     interface_cxx: library_like
                         .then(|| interface_cxx(&resolved, &package.language, target))
                         .flatten(),
+                    gnu_extensions: effective_gnu_extensions(&package.language, target),
                 };
                 (target.name.as_str().to_owned(), summary)
             })
@@ -928,7 +1116,8 @@ impl LanguageStandardsSummary {
 
     /// Stable line serialization for the build-configuration
     /// fingerprint.  Values only - provenance must not move the
-    /// fingerprint, and absent standards contribute no line.
+    /// fingerprint, and absent standards (and the default
+    /// `gnu-extensions = false`) contribute no line.
     #[must_use]
     pub fn fingerprint_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
@@ -947,10 +1136,13 @@ impl LanguageStandardsSummary {
                 lines.push(format!("cxx={}", resolved.standard));
             }
             if let Some(interface) = &target.interface_c {
-                lines.push(format!("interface-c={}", interface.standard));
+                lines.push(format!("interface-c={}", interface.requirement));
             }
             if let Some(interface) = &target.interface_cxx {
-                lines.push(format!("interface-cxx={}", interface.standard));
+                lines.push(format!("interface-cxx={}", interface.requirement));
+            }
+            if target.gnu_extensions {
+                lines.push("gnu-extensions=true".to_owned());
             }
         }
         lines
@@ -976,57 +1168,148 @@ mod tests {
         }
     }
 
+    fn requirement<S>(min: S) -> InterfaceRequirement<S> {
+        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+    }
+
     #[test]
-    fn standards_parse_round_trip_and_reject_unknown_values() {
+    fn every_accepted_identifier_parses_and_round_trips() {
         for s in CStandard::ALL {
             assert_eq!(CStandard::parse(s.as_str()).unwrap(), s);
         }
         for s in CxxStandard::ALL {
             assert_eq!(CxxStandard::parse(s.as_str()).unwrap(), s);
         }
+    }
+
+    #[test]
+    fn aliases_normalize_immediately() {
+        assert_eq!(CStandard::parse("c90").unwrap(), CStandard::C89);
+        assert_eq!(CxxStandard::parse("c++03").unwrap(), CxxStandard::Cxx98);
+        // The alias never survives as a spelling of its own.
+        assert_eq!(CStandard::parse("c90").unwrap().as_str(), "c89");
+        assert_eq!(CxxStandard::parse("c++03").unwrap().as_str(), "c++98");
+    }
+
+    #[test]
+    fn unknown_values_list_the_accepted_identifiers() {
         let err = CStandard::parse("c++17").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("expected one of c89, c99, c11, c17, c23"),
-            "unexpected message: {err}"
+        assert_eq!(
+            err.to_string(),
+            "unknown C standard `c++17`: expected one of c89, c99, c11, c17, c23"
         );
-        let err = CxxStandard::parse("c++26").unwrap_err();
-        assert!(
-            err.to_string().contains("c++23"),
-            "unexpected message: {err}"
+        let err = CxxStandard::parse("c++29").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "unknown C++ standard `c++29`: expected one of c++98, c++11, c++14, c++17, c++20, c++23, c++26"
         );
+    }
+
+    #[test]
+    fn gnu_spellings_are_ordinary_unknown_values() {
+        for value in ["gnu89", "gnu99", "gnu11", "gnu17", "gnu23", "gnu90"] {
+            let err = CStandard::parse(value).unwrap_err();
+            assert!(
+                matches!(&err, LanguageStandardParseError::Unknown { value: v, .. } if v == value),
+                "unexpected error for {value}: {err}"
+            );
+            // No special-cased hint: gnu spellings are unknown
+            // values like any other.
+            assert!(!err.to_string().contains("gnu-extensions"));
+        }
+        for value in [
+            "gnu++98", "gnu++03", "gnu++11", "gnu++14", "gnu++17", "gnu++20", "gnu++23", "gnu++26",
+        ] {
+            let err = CxxStandard::parse(value).unwrap_err();
+            assert!(
+                matches!(&err, LanguageStandardParseError::Unknown { value: v, .. } if v == value),
+                "unexpected error for {value}: {err}"
+            );
+            assert!(!err.to_string().contains("gnu-extensions"));
+        }
+    }
+
+    #[test]
+    fn range_like_values_get_the_reserved_diagnostic() {
+        for value in [">=c11", "<=c17", ">c99", "<c23", "c11,c17", "c11, c17"] {
+            let err = CStandard::parse(value).unwrap_err();
+            assert!(
+                matches!(err, LanguageStandardParseError::RangeReserved { .. }),
+                "expected reserved-range error for {value}, got: {err}"
+            );
+            assert!(err.to_string().contains("reserved for a future version"));
+        }
+        for value in [">=c++17", "<=c++20", ">c++11", "<c++23", "c++17,c++20"] {
+            let err = CxxStandard::parse(value).unwrap_err();
+            assert!(
+                matches!(err, LanguageStandardParseError::RangeReserved { .. }),
+                "expected reserved-range error for {value}, got: {err}"
+            );
+        }
+        // The interface parsers share the same rejection.
+        assert!(matches!(
+            parse_interface_c(">=c11").unwrap_err(),
+            LanguageStandardParseError::RangeReserved { .. }
+        ));
+        assert!(matches!(
+            parse_interface_cxx(">=c++17").unwrap_err(),
+            LanguageStandardParseError::RangeReserved { .. }
+        ));
+    }
+
+    #[test]
+    fn none_is_interface_only() {
+        assert_eq!(
+            parse_interface_c("none").unwrap(),
+            InterfaceRequirement::None
+        );
+        assert_eq!(
+            parse_interface_cxx("none").unwrap(),
+            InterfaceRequirement::None
+        );
+        let err = CStandard::parse("none").unwrap_err();
         assert!(
-            err.to_string().contains("unknown C++ standard `c++26`"),
-            "unexpected message: {err}"
+            matches!(err, LanguageStandardParseError::NoneOnImplementation { .. }),
+            "expected misplaced-none error, got: {err}"
+        );
+        assert!(err.to_string().contains("interface-c-standard"));
+        let err = CxxStandard::parse("none").unwrap_err();
+        assert!(matches!(
+            err,
+            LanguageStandardParseError::NoneOnImplementation { .. }
+        ));
+    }
+
+    #[test]
+    fn interface_parsers_accept_every_identifier_and_alias() {
+        for s in CStandard::ALL {
+            assert_eq!(parse_interface_c(s.as_str()).unwrap(), requirement(s));
+        }
+        for s in CxxStandard::ALL {
+            assert_eq!(parse_interface_cxx(s.as_str()).unwrap(), requirement(s));
+        }
+        assert_eq!(
+            parse_interface_c("c90").unwrap(),
+            requirement(CStandard::C89)
+        );
+        assert_eq!(
+            parse_interface_cxx("c++03").unwrap(),
+            requirement(CxxStandard::Cxx98)
         );
     }
 
     #[test]
     fn standards_order_chronologically() {
-        assert!(CStandard::C99 < CStandard::C23);
+        assert!(CStandard::C89 < CStandard::C99);
+        assert!(CStandard::C99 < CStandard::C11);
         assert!(CStandard::C11 < CStandard::C17);
-        assert!(CxxStandard::Cxx14 < CxxStandard::Cxx20);
-        assert!(CxxStandard::Cxx98 < CxxStandard::Cxx03);
-    }
-
-    #[test]
-    fn gnu_dialects_sit_between_their_iso_twin_and_the_next_standard() {
-        // The interface check compares with `Ord`: a GNU consumer
-        // satisfies its ISO twin's requirement (gnu11 > c11), an ISO
-        // consumer never satisfies a GNU requirement (c11 < gnu11),
-        // and the next ISO standard clears both (c17 > gnu11).
-        assert!(CStandard::C11 < CStandard::Gnu11);
-        assert!(CStandard::Gnu11 < CStandard::C17);
-        assert!(CxxStandard::Cxx20 < CxxStandard::Gnuxx20);
-        assert!(CxxStandard::Gnuxx20 < CxxStandard::Cxx23);
-        for standard in CStandard::ALL {
-            assert_eq!(standard.is_gnu(), standard.iso_twin() != standard);
-            assert!(standard >= standard.iso_twin());
-        }
-        for standard in CxxStandard::ALL {
-            assert_eq!(standard.is_gnu(), standard.iso_twin() != standard);
-            assert!(standard >= standard.iso_twin());
-        }
+        assert!(CStandard::C17 < CStandard::C23);
+        assert!(CxxStandard::Cxx98 < CxxStandard::Cxx11);
+        assert!(CxxStandard::Cxx11 < CxxStandard::Cxx14);
+        assert!(CxxStandard::Cxx14 < CxxStandard::Cxx17);
+        assert!(CxxStandard::Cxx17 < CxxStandard::Cxx20);
+        assert!(CxxStandard::Cxx20 < CxxStandard::Cxx23);
+        assert!(CxxStandard::Cxx23 < CxxStandard::Cxx26);
     }
 
     #[test]
@@ -1045,15 +1328,120 @@ mod tests {
             None
         );
         assert_eq!(
+            LanguageStandard::Cxx(CxxStandard::Cxx26).msvc_spelling(),
+            None
+        );
+        assert_eq!(
             LanguageStandard::Cxx(CxxStandard::Cxx11).msvc_spelling(),
             None
         );
-        // No GNU dialect has a `/std:` spelling.
-        assert_eq!(LanguageStandard::C(CStandard::Gnu11).msvc_spelling(), None);
-        assert_eq!(
-            LanguageStandard::Cxx(CxxStandard::Gnuxx20).msvc_spelling(),
-            None
+    }
+
+    #[test]
+    fn standard_requirement_serde_round_trips_preserving_max() {
+        let min_only = StandardRequirement {
+            min: CxxStandard::Cxx17,
+            max: None,
+        };
+        let json = serde_json::to_string(&min_only).unwrap();
+        // `max` stays in the serialized form even while reserved.
+        assert_eq!(json, r#"{"min":"c++17","max":null}"#);
+        let parsed: StandardRequirement<CxxStandard> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, min_only);
+
+        let with_max = StandardRequirement {
+            min: CStandard::C11,
+            max: Some(CStandard::C17),
+        };
+        let json = serde_json::to_string(&with_max).unwrap();
+        assert_eq!(json, r#"{"min":"c11","max":"c17"}"#);
+        let parsed: StandardRequirement<CStandard> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, with_max);
+
+        // A missing `max` still deserializes (as unpopulated).
+        let parsed: StandardRequirement<CStandard> =
+            serde_json::from_str(r#"{"min":"c11"}"#).unwrap();
+        assert_eq!(parsed.max, None);
+        // Unknown future range syntax falls through
+        // `deny_unknown_fields`.
+        assert!(
+            serde_json::from_str::<StandardRequirement<CStandard>>(
+                r#"{"min":"c11","exact":"c17"}"#
+            )
+            .is_err()
         );
+    }
+
+    #[test]
+    fn interface_requirement_serde_round_trips() {
+        let none: InterfaceRequirement<CxxStandard> = InterfaceRequirement::None;
+        let json = serde_json::to_string(&none).unwrap();
+        assert_eq!(json, "\"none\"");
+        let parsed: InterfaceRequirement<CxxStandard> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, none);
+
+        let req = requirement(CxxStandard::Cxx20);
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, r#"{"min":"c++20","max":null}"#);
+        let parsed: InterfaceRequirement<CxxStandard> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, req);
+
+        // A bare standard string is not a serialized requirement.
+        assert!(serde_json::from_str::<InterfaceRequirement<CxxStandard>>("\"c++20\"").is_err());
+    }
+
+    #[test]
+    fn interface_requirement_displays_min_max_and_none() {
+        assert_eq!(
+            InterfaceRequirement::<CxxStandard>::None.to_string(),
+            "none"
+        );
+        assert_eq!(requirement(CxxStandard::Cxx17).to_string(), "c++17");
+        assert_eq!(
+            InterfaceRequirement::Requirement(StandardRequirement {
+                min: CStandard::C11,
+                max: Some(CStandard::C17),
+            })
+            .to_string(),
+            "c11..c17"
+        );
+    }
+
+    #[test]
+    fn gnu_extensions_default_false_with_target_over_package() {
+        let plain = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings::default(),
+        );
+        let none = LanguageStandardSettings::default();
+        assert!(!effective_gnu_extensions(&none, &plain));
+
+        let package_on = LanguageStandardSettings {
+            gnu_extensions: Some(true),
+            ..Default::default()
+        };
+        assert!(effective_gnu_extensions(&package_on, &plain));
+
+        let target_off = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings {
+                gnu_extensions: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(!effective_gnu_extensions(&package_on, &target_off));
+
+        let target_on = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings {
+                gnu_extensions: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(effective_gnu_extensions(&none, &target_on));
     }
 
     #[test]
@@ -1103,7 +1491,7 @@ mod tests {
             LanguageStandardSettings::default(),
         );
         let interface = interface_cxx(&resolved, &package_settings, &lib).unwrap();
-        assert_eq!(interface.standard, CxxStandard::Cxx20);
+        assert_eq!(interface.requirement, requirement(CxxStandard::Cxx20));
         assert_eq!(interface.source, InterfaceStandardSource::CompileStandard);
         // No implementation or interface standard anywhere: no
         // interface value either (there is no built-in default).
@@ -1114,25 +1502,52 @@ mod tests {
 
         let package_interface = LanguageStandardSettings {
             cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
-            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                CxxStandard::Cxx17,
+            ))),
             ..Default::default()
         };
         let resolved = resolve_language_standards(&package_interface);
         let interface = interface_cxx(&resolved, &package_interface, &lib).unwrap();
-        assert_eq!(interface.standard, CxxStandard::Cxx17);
+        assert_eq!(interface.requirement, requirement(CxxStandard::Cxx17));
         assert_eq!(interface.source, InterfaceStandardSource::Package);
 
         let lib_override = target(
             TargetKind::Library,
             &["a.cc"],
             LanguageStandardSettings {
-                interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx14,
+                ))),
                 ..Default::default()
             },
         );
         let interface = interface_cxx(&resolved, &package_interface, &lib_override).unwrap();
-        assert_eq!(interface.standard, CxxStandard::Cxx14);
+        assert_eq!(interface.requirement, requirement(CxxStandard::Cxx14));
         assert_eq!(interface.source, InterfaceStandardSource::Target);
+    }
+
+    #[test]
+    fn declared_none_interface_survives_resolution() {
+        let package_settings = LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            ..Default::default()
+        };
+        let resolved = resolve_language_standards(&package_settings);
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::None,
+                )),
+                ..Default::default()
+            },
+        );
+        let interface = interface_cxx(&resolved, &package_settings, &lib).unwrap();
+        assert_eq!(interface.requirement, InterfaceRequirement::None);
+        assert_eq!(interface.source, InterfaceStandardSource::Target);
+        assert_eq!(interface.requirement.min(), None);
     }
 
     #[test]
@@ -1164,7 +1579,9 @@ mod tests {
             TargetKind::Library,
             &["a.c"],
             LanguageStandardSettings {
-                interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx17,
+                ))),
                 ..Default::default()
             },
         );
@@ -1182,7 +1599,9 @@ mod tests {
             SourceLanguage::Cxx
         ));
         let package_interface = LanguageStandardSettings {
-            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                CxxStandard::Cxx20,
+            ))),
             ..Default::default()
         };
         assert!(imposes_requirement(
@@ -1264,6 +1683,183 @@ mod tests {
         assert!(!find_standard_flag_conflicts("p", &declared_cxx, &[], &msvc_flags).is_empty());
     }
 
+    fn package_with(targets: Vec<Target>, language: LanguageStandardSettings) -> crate::Package {
+        use crate::{Package, PackageName};
+        Package::new(
+            PackageName::new("demo").unwrap(),
+            semver::Version::parse("0.1.0").unwrap(),
+            targets,
+            Vec::new(),
+        )
+        .unwrap()
+        .with_language(language)
+    }
+
+    #[test]
+    fn contradiction_fires_when_interface_minimum_exceeds_implementation() {
+        // Target-level interface newer than the package
+        // implementation standard the target compiles with.
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx20,
+                ))),
+                ..Default::default()
+            },
+        );
+        let package = package_with(
+            vec![lib],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                ..Default::default()
+            },
+        );
+        let contradictions = find_interface_standard_contradictions(&package);
+        assert_eq!(contradictions.len(), 1);
+        let contradiction = &contradictions[0];
+        assert_eq!(contradiction.target, "t");
+        assert_eq!(contradiction.field, "interface-cxx-standard");
+        assert_eq!(
+            contradiction.implementation,
+            LanguageStandard::Cxx(CxxStandard::Cxx17)
+        );
+        assert_eq!(
+            contradiction.interface_min,
+            LanguageStandard::Cxx(CxxStandard::Cxx20)
+        );
+        let message = contradiction.to_string();
+        assert!(
+            message.contains("could not include its own public headers"),
+            "message must state the reason plainly: {message}"
+        );
+
+        // Same shape on the C side, via package-level interface.
+        let c_lib = target(
+            TargetKind::Library,
+            &["a.c"],
+            LanguageStandardSettings::default(),
+        );
+        let package = package_with(
+            vec![c_lib],
+            LanguageStandardSettings {
+                c_standard: Some(StandardDeclaration::Declared(CStandard::C11)),
+                interface_c_standard: Some(StandardDeclaration::Declared(requirement(
+                    CStandard::C23,
+                ))),
+                ..Default::default()
+            },
+        );
+        let contradictions = find_interface_standard_contradictions(&package);
+        assert_eq!(contradictions.len(), 1);
+        assert_eq!(contradictions[0].field, "interface-c-standard");
+    }
+
+    #[test]
+    fn contradiction_ignores_equal_older_none_and_non_compiling_targets() {
+        // Interface at or below the implementation standard is fine.
+        for interface in [CxxStandard::Cxx17, CxxStandard::Cxx14] {
+            let lib = target(
+                TargetKind::Library,
+                &["a.cc"],
+                LanguageStandardSettings {
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                        interface,
+                    ))),
+                    ..Default::default()
+                },
+            );
+            let package = package_with(
+                vec![lib],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                    ..Default::default()
+                },
+            );
+            assert!(find_interface_standard_contradictions(&package).is_empty());
+        }
+
+        // `none` imposes no minimum, so it cannot contradict.
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::None,
+                )),
+                ..Default::default()
+            },
+        );
+        let package = package_with(
+            vec![lib],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                ..Default::default()
+            },
+        );
+        assert!(find_interface_standard_contradictions(&package).is_empty());
+
+        // A header-only target has no translation units, so a newer
+        // interface minimum is not a contradiction.
+        let header_only = target(
+            TargetKind::HeaderOnly,
+            &[],
+            LanguageStandardSettings::default(),
+        );
+        let package = package_with(
+            vec![header_only],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx20,
+                ))),
+                ..Default::default()
+            },
+        );
+        assert!(find_interface_standard_contradictions(&package).is_empty());
+
+        // A pure-C library with a newer C++ interface minimum has no
+        // C++ translation units of its own.
+        let c_lib = target(
+            TargetKind::Library,
+            &["a.c"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx26,
+                ))),
+                ..Default::default()
+            },
+        );
+        let package = package_with(
+            vec![c_lib],
+            LanguageStandardSettings {
+                c_standard: Some(StandardDeclaration::Declared(CStandard::C11)),
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                ..Default::default()
+            },
+        );
+        assert!(find_interface_standard_contradictions(&package).is_empty());
+
+        // Executables never carry interface requirements.
+        let exe = target(
+            TargetKind::Executable,
+            &["a.cc"],
+            LanguageStandardSettings::default(),
+        );
+        let package = package_with(
+            vec![exe],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                    CxxStandard::Cxx20,
+                ))),
+                ..Default::default()
+            },
+        );
+        assert!(find_interface_standard_contradictions(&package).is_empty());
+    }
+
     #[test]
     fn summary_lists_every_target_with_interface_only_for_library_like() {
         use crate::{Package, PackageName};
@@ -1286,9 +1882,10 @@ mod tests {
                     required_features: Vec::new(),
                     language: LanguageStandardSettings {
                         cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
-                        interface_cxx_standard: Some(StandardDeclaration::Declared(
+                        interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
                             CxxStandard::Cxx17,
-                        )),
+                        ))),
+                        gnu_extensions: Some(true),
                         ..Default::default()
                     },
                 },
@@ -1306,9 +1903,14 @@ mod tests {
         assert_eq!(summary.targets.len(), 2);
         let exe = &summary.targets["t"];
         assert!(exe.interface_c.is_none() && exe.interface_cxx.is_none());
+        assert!(!exe.gnu_extensions);
         let core = &summary.targets["core"];
         assert_eq!(core.cxx.unwrap().standard, CxxStandard::Cxx20);
-        assert_eq!(core.interface_cxx.unwrap().standard, CxxStandard::Cxx17);
+        assert_eq!(
+            core.interface_cxx.unwrap().requirement,
+            requirement(CxxStandard::Cxx17)
+        );
+        assert!(core.gnu_extensions);
         // No C standard is declared anywhere, so the library gets
         // no C interface entry either.
         assert_eq!(core.interface_c, None);
@@ -1333,8 +1935,10 @@ mod tests {
         )
         .unwrap()
         .with_language(LanguageStandardSettings {
-            interface_c_standard: Some(StandardDeclaration::Declared(CStandard::C17)),
-            interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+            interface_c_standard: Some(StandardDeclaration::Declared(requirement(CStandard::C17))),
+            interface_cxx_standard: Some(StandardDeclaration::Declared(requirement(
+                CxxStandard::Cxx20,
+            ))),
             ..Default::default()
         });
         let summary = LanguageStandardsSummary::from_package(&package);
@@ -1377,11 +1981,15 @@ mod tests {
                     standard: CxxStandard::Cxx20,
                     source: LanguageStandardSource::Target,
                 }),
-                interface_c: None,
-                interface_cxx: Some(InterfaceStandard {
-                    standard: CxxStandard::Cxx17,
+                interface_c: Some(InterfaceStandard {
+                    requirement: InterfaceRequirement::None,
                     source: InterfaceStandardSource::Target,
                 }),
+                interface_cxx: Some(InterfaceStandard {
+                    requirement: requirement(CxxStandard::Cxx17),
+                    source: InterfaceStandardSource::Target,
+                }),
+                gnu_extensions: true,
             },
         );
         assert_eq!(
@@ -1392,13 +2000,15 @@ mod tests {
                 "target=core".to_owned(),
                 "c=c11".to_owned(),
                 "cxx=c++20".to_owned(),
+                "interface-c=none".to_owned(),
                 "interface-cxx=c++17".to_owned(),
+                "gnu-extensions=true".to_owned(),
             ]
         );
     }
 
     #[test]
-    fn standard_declaration_serde_is_a_bare_string_and_rejects_markers() {
+    fn standard_declaration_serde_is_a_bare_value_and_rejects_markers() {
         let declared: StandardDeclaration<CxxStandard> =
             StandardDeclaration::Declared(CxxStandard::Cxx20);
         let inherited: StandardDeclaration<CxxStandard> =
@@ -1409,6 +2019,25 @@ mod tests {
         assert!(serde_json::to_string(&marker).is_err());
         let parsed: StandardDeclaration<CxxStandard> = serde_json::from_str("\"c++20\"").unwrap();
         assert_eq!(parsed, StandardDeclaration::Declared(CxxStandard::Cxx20));
+
+        // Interface declarations carry the `{ min, max }` shape (or
+        // `none`) through the same bare-value contract.
+        let declared_interface: StandardDeclaration<InterfaceRequirement<CxxStandard>> =
+            StandardDeclaration::Declared(requirement(CxxStandard::Cxx20));
+        let json = serde_json::to_string(&declared_interface).unwrap();
+        assert_eq!(json, r#"{"min":"c++20","max":null}"#);
+        let parsed: StandardDeclaration<InterfaceRequirement<CxxStandard>> =
+            serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed,
+            StandardDeclaration::Declared(requirement(CxxStandard::Cxx20))
+        );
+        let parsed: StandardDeclaration<InterfaceRequirement<CxxStandard>> =
+            serde_json::from_str("\"none\"").unwrap();
+        assert_eq!(
+            parsed,
+            StandardDeclaration::Declared(InterfaceRequirement::None)
+        );
     }
 
     #[test]
@@ -1428,7 +2057,9 @@ mod tests {
     fn inherited_interface_standard_resolves_with_workspace_source() {
         let settings = LanguageStandardSettings {
             cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
-            interface_cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx17)),
+            interface_cxx_standard: Some(StandardDeclaration::Inherited(requirement(
+                CxxStandard::Cxx17,
+            ))),
             ..Default::default()
         };
         let resolved = resolve_language_standards(&settings);
@@ -1438,14 +2069,14 @@ mod tests {
             LanguageStandardSettings::default(),
         );
         let interface = interface_cxx(&resolved, &settings, &lib).unwrap();
-        assert_eq!(interface.standard, CxxStandard::Cxx17);
+        assert_eq!(interface.requirement, requirement(CxxStandard::Cxx17));
         assert_eq!(interface.source, InterfaceStandardSource::Workspace);
     }
 
     #[test]
     fn inherited_values_behave_like_declarations_for_conflicts_and_relevance() {
         let flags = ResolvedProfileFlags {
-            cxxflags: vec!["-std=gnu++20".to_owned()],
+            cxxflags: vec!["-std=c++20".to_owned()],
             ..Default::default()
         };
         let inherited = LanguageStandardSettings {
@@ -1463,7 +2094,9 @@ mod tests {
             LanguageStandardSettings::default(),
         );
         let pkg = LanguageStandardSettings {
-            interface_cxx_standard: Some(StandardDeclaration::Inherited(CxxStandard::Cxx20)),
+            interface_cxx_standard: Some(StandardDeclaration::Inherited(requirement(
+                CxxStandard::Cxx20,
+            ))),
             ..Default::default()
         };
         assert!(imposes_requirement(&header_only, &pkg, SourceLanguage::Cxx));

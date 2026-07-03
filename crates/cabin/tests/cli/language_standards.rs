@@ -379,11 +379,13 @@ include-dirs = ["include"]
     let body = fs::read_to_string(registry.join("packages/fmt.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let entry = &value["versions"]["10.2.1"];
+    // Interface requirements carry the reserved `max` slot in every
+    // serialized form.
     assert_eq!(
         entry["language"],
         serde_json::json!({
             "cxx_standard": "c++20",
-            "interface_cxx_standard": "c++17",
+            "interface_cxx_standard": { "min": "c++17", "max": null },
         })
     );
 }
@@ -471,7 +473,7 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
     write_lib_and_app(
         dir.path(),
         "cxx-standard = \"c++20\"",
-        "interface-cxx-standard = \"c++17\"",
+        "interface-cxx-standard = \"c++17\"\ngnu-extensions = true",
         "",
     );
     let manifest = dir.path().join("cabin.toml");
@@ -487,16 +489,29 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
     let core = &language["targets"]["core"];
     assert_eq!(core["cxx"]["standard"], "c++20");
     assert_eq!(core["cxx"]["source"], "package");
-    assert_eq!(core["interface_cxx"]["standard"], "c++17");
+    assert_eq!(core["interface_cxx"]["requirement"]["min"], "c++17");
+    assert_eq!(
+        core["interface_cxx"]["requirement"]["max"],
+        serde_json::Value::Null,
+        "the reserved max slot stays in the serialized form"
+    );
     assert_eq!(core["interface_cxx"]["source"], "target");
     assert!(
         core.get("interface_c").is_none(),
         "no C standard anywhere means no C interface entry: {core}"
     );
+    assert_eq!(
+        core["gnu_extensions"], true,
+        "the effective gnu-extensions value reports per target: {core}"
+    );
     let app = &language["targets"]["app"];
     assert!(
         app.get("interface_cxx").is_none(),
         "executables carry no interface standards: {app}"
+    );
+    assert!(
+        app.get("gnu_extensions").is_none(),
+        "the default gnu-extensions = false reports no entry: {app}"
     );
     // Deterministic across runs.
     let again = run_metadata(&manifest);
@@ -1060,22 +1075,83 @@ fn cabin_tidy_surfaces_standard_violations() {
 }
 
 #[test]
+fn gnu_dialect_spellings_are_rejected_as_unknown_values() {
+    // GNU dialects are not standard identifiers; the per-target
+    // `gnu-extensions` boolean is the only GNU knob.  The spellings
+    // fail at manifest load as ordinary unknown values, without any
+    // special-cased hint.
+    for (field, value) in [("c-standard", "gnu11"), ("cxx-standard", "gnu++17")] {
+        let dir = TempDir::new().unwrap();
+        write_lib_and_app(dir.path(), &format!("{field} = \"{value}\""), "", "");
+        let assertion = cabin()
+            .args(["build", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--build-dir")
+            .arg(dir.path().join("build"))
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+        assert!(
+            stderr.contains(&format!("standard `{value}`")) && stderr.contains("expected one of"),
+            "expected the unknown-value diagnostic for {value}, got: {stderr}"
+        );
+        assert!(
+            !stderr.contains("gnu-extensions"),
+            "the unknown-value diagnostic must not special-case gnu spellings: {stderr}"
+        );
+        assert!(
+            !dir.path().join("build/dev/build.ninja").exists(),
+            "loading must fail before any Ninja file is written"
+        );
+    }
+}
+
+#[test]
+fn interface_minimum_above_implementation_is_a_manifest_contradiction() {
+    let dir = TempDir::new().unwrap();
+    write_lib_and_app(
+        dir.path(),
+        "cxx-standard = \"c++17\"",
+        "interface-cxx-standard = \"c++20\"",
+        "",
+    );
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("cabin::language::interface_standard_contradiction")
+            && stderr.contains("could not include its own public headers"),
+        "expected the contradiction diagnostic with its reason, got: {stderr}"
+    );
+    assert!(
+        !dir.path().join("build/dev/build.ninja").exists(),
+        "loading must fail before any Ninja file is written"
+    );
+}
+
+#[test]
 #[cfg_attr(
     windows,
-    ignore = "the MSVC dialect has no `/std:gnu*` spelling; its rejection is covered by `msvc_dialect_rejects_gnu_dialect_end_to_end`"
+    ignore = "the MSVC dialect has no GNU mode; its rejection is covered by `msvc_dialect_rejects_gnu_extensions_end_to_end`"
 )]
-fn gnu_dialect_standards_reach_ninja_and_compile_commands() {
+fn gnu_extensions_reach_ninja_and_compile_commands() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // gnu++17 / gnu11 are accepted by every GCC/Clang CI toolchain;
-    // newer GNU spellings are gated by the capability unit tests.
+    // The ISO levels come from the manifest; the GNU spelling is
+    // produced at lowering time from `gnu-extensions = true`.
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
         .write_str(
             r#"[package]
 name = "gnustd"
 version = "0.1.0"
-c-standard = "gnu11"
-cxx-standard = "gnu++17"
+c-standard = "c11"
+cxx-standard = "c++17"
+gnu-extensions = true
 
 [target.app]
 type = "executable"
@@ -1117,12 +1193,17 @@ include-dirs = ["include"]
 #[test]
 #[cfg_attr(
     not(windows),
-    ignore = "exercises the MSVC no-stable-flag guard; Windows CI is the MSVC-dialect e2e leg"
+    ignore = "exercises the MSVC no-GNU-mode guard; Windows CI is the MSVC-dialect e2e leg"
 )]
-fn msvc_dialect_rejects_gnu_dialect_end_to_end() {
+fn msvc_dialect_rejects_gnu_extensions_end_to_end() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_lib_and_app(dir.path(), "cxx-standard = \"gnu++20\"", "", "");
+    write_lib_and_app(
+        dir.path(),
+        "cxx-standard = \"c++20\"\ngnu-extensions = true",
+        "",
+        "",
+    );
     let assertion = cabin()
         .args(["build", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -1132,8 +1213,8 @@ fn msvc_dialect_rejects_gnu_dialect_end_to_end() {
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("gnu++20") && stderr.contains("no stable MSVC"),
-        "expected the MSVC no-stable-flag diagnostic, got: {stderr}"
+        stderr.contains("gnu-extensions") && stderr.contains("no GNU dialect mode"),
+        "expected the no-GNU-mode diagnostic, got: {stderr}"
     );
     assert!(
         !dir.path().join("build/dev/build.ninja").exists(),

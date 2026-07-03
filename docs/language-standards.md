@@ -15,7 +15,8 @@ agree on.
 
 ## Manifest fields
 
-Four kebab-case fields, accepted at both `[package]` and `[target.<name>]` level:
+Four kebab-case standard fields plus the `gnu-extensions` boolean, accepted at both `[package]` and
+`[target.<name>]` level:
 
 ```toml
 [package]
@@ -31,23 +32,33 @@ sources = ["src/core.cc"]
 include-dirs = ["include"]
 cxx-standard = "c++20"            # implementation standard override
 interface-cxx-standard = "c++17"  # consumers only need C++17
+gnu-extensions = true             # GNU-extension dialect for this target
 ```
 
 - `c-standard` / `cxx-standard` - the **implementation standard**: how this package's (or target's)
   sources are compiled.  `.c` sources use the effective C standard; `.cc` / `.cpp` / `.cxx` / `.c++`
   / `.C` sources use the effective C++ standard.  A mixed-language target compiles each source with
   its language's standard.
-- `interface-c-standard` / `interface-cxx-standard` - the **interface standard**: what consumers of
-  the target's public headers need.  Only meaningful on `library` / `header-only` targets; a
-  target-level interface field on an `executable` / `test` / `example` target is a manifest error.
-  Package-level interface fields are defaults consumed only by library-like targets (they are
-  allowed, and inert, in packages without any).
+- `interface-c-standard` / `interface-cxx-standard` - the **interface requirement**: the minimum
+  standard consumers of the target's public headers need.  Only meaningful on `library` /
+  `header-only` targets; a target-level interface field on an `executable` / `test` / `example`
+  target is a manifest error.  Package-level interface fields are defaults consumed only by
+  library-like targets (they are allowed, and inert, in packages without any).  The special value
+  `"none"` declares that the target's headers are not consumable from that language at all; it is
+  valid only on these two fields.
+- `gnu-extensions` - whether the target's sources rely on GNU language extensions.  A plain boolean
+  (no `{ workspace = true }` form), defaulting to `false`; a target-level value overrides the
+  package-level one.  It affects only which compiler flag spelling the standard lowers to
+  (`-std=gnu++20` instead of `-std=c++20` on GCC/Clang; see [Flag lowering](#flag-lowering)) and
+  never participates in interface compatibility.  On the MSVC dialect it is rejected at planning
+  time - `cl.exe` has no GNU dialect mode - never silently ignored.
 
 Mental model: `c-standard` / `cxx-standard` set how the target is compiled **and** double as its
-interface standard unless `interface-*` overrides them.  Declare `interface-*` only when the public
-interface requires a different standard than the implementation - for example a library compiled as
-C++20 whose public headers only use C++17 (headers and implementation sources are separate
-translation units, so the interface standard may also *exceed* the implementation standard).
+interface requirement unless `interface-*` overrides them.  Declare `interface-*` only when the
+public interface requires an *older* standard than the implementation - for example a library
+compiled as C++20 whose public headers only use C++17.  An interface minimum *newer* than the
+implementation standard is rejected as a contradiction (see
+[Precedence](#precedence)).
 
 ### Workspace defaults
 
@@ -88,16 +99,27 @@ cxx-standard = { workspace = true }   # inherits c++20
 
 ## Accepted values
 
-Typed value sets; anything else is a manifest parse error listing the valid spellings.  There are no
-aliases.
+Typed value sets of ISO levels; anything else is a manifest parse error listing the valid
+identifiers.
 
-- C: `c89`, `c99`, `c11`, `c17`, `c23`, plus the GNU dialects `gnu89`, `gnu99`, `gnu11`, `gnu17`,
-  `gnu23`
-- C++: `c++98`, `c++03`, `c++11`, `c++14`, `c++17`, `c++20`, `c++23`, plus the GNU dialects
-  `gnu++98`, `gnu++03`, `gnu++11`, `gnu++14`, `gnu++17`, `gnu++20`, `gnu++23`
+- C: `c89`, `c99`, `c11`, `c17`, `c23`.  `c90` is a parse alias of `c89`, normalized immediately.
+- C++: `c++98`, `c++11`, `c++14`, `c++17`, `c++20`, `c++23`, `c++26`.  `c++03` is a parse alias of
+  `c++98`, normalized immediately.
 
-Each GNU dialect is its ISO twin plus GNU extensions, and every ISO value has exactly one GNU twin.
-`c++26` (and `gnu++26`) is deferred until its toolchain-support thresholds are audited.
+Ordering is the plain chronological chain per language (in particular `c11 < c17`).  GNU dialect
+spellings (`gnu11`, `gnu++20`, …) are not standard values - GNU extensions are the orthogonal
+per-target `gnu-extensions` boolean - so they are rejected as ordinary unknown values.
+
+Two further shapes get dedicated diagnostics instead of the generic unknown-value error:
+
+- Range-like inputs (anything containing `>=`, `<=`, `>`, `<`, or `,`) are rejected with an error
+  saying range requirements are reserved for a future version.  Internally each interface
+  requirement is already a `{ min, max }` pair whose `max` slot is reserved for that future range
+  support and never populated today, but the slot stays in every serialized form so the wire shape
+  will not change when ranges land.
+- `"none"` is valid only on `interface-c-standard` / `interface-cxx-standard`; on `c-standard` /
+  `cxx-standard` it is rejected with an error naming the interface fields, because compiled sources
+  always need a concrete standard.
 
 ## Precedence
 
@@ -118,7 +140,15 @@ There is **no built-in default**.  Standards are required where they matter:
   (`interface-c-standard` / `interface-cxx-standard`, at `[target.<name>]` or `[package]` level) so
   consumers know what its headers require; a header-only target without one is rejected at load.
 - A library that compiles sources may still omit its interface fields: the interface defaults to
-  the (explicitly declared) effective implementation standard.
+  the (explicitly declared) effective implementation standard.  A declared `"none"` occupies the
+  same slot in the chain, so it also suppresses that fallback.
+
+One combination is rejected outright, after workspace markers resolve: for the same language, an
+effective interface minimum **newer** than the target's effective implementation standard is a
+contradiction - the target's own translation units could not include its own public headers.  The
+load fails with `cabin::language::interface_standard_contradiction` naming the target, both values,
+and that reason.  The check applies per library-like target and only to languages the target
+actually compiles (a header-only target has no translation units, so it is exempt).
 
 A workspace-inherited value (see "Workspace defaults" above) occupies the `[package]` slot of the
 chain - inheritance adds no new tier, and opting in with `{ workspace = true }` counts as
@@ -135,11 +165,15 @@ The standard never appears in `[profile]` flags; the dialect layer spells it:
 
 | Dialect | Spelling |
 | --- | --- |
-| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`, `-std=gnu++20`) |
+| GCC / Clang | `-std=<value>` (e.g. `-std=c++20`); with `gnu-extensions = true`, the GNU spelling of the same ISO level (`-std=gnu++20`, `-std=gnu17`) |
 | MSVC (`cl` / `clang-cl`) | `/std:<value>` - only `c11`, `c17`, `c++14`, `c++17`, `c++20` have stable flags |
 
-Standards without a stable MSVC flag (C89/C99/C23, C++98/03/11/23, and every GNU dialect - there is
-no `/std:gnu*` spelling) are rejected before the build on the MSVC dialect.  `compile_commands.json` records the same per-file standard the build uses, so
+The GNU spelling is produced by the dialect layer at lowering time from the target's ISO level and
+its effective `gnu-extensions` value - strictly per target, so two targets in one build may differ
+in both.  Standards without a stable MSVC flag (C89/C99/C23, C++98/11/23/26) are rejected before
+the build on the MSVC dialect, as is any target with `gnu-extensions = true` (`cl.exe` has no GNU
+dialect mode; remove the field or build with GCC/Clang).  `compile_commands.json` records the same
+per-file standard the build uses, so
 clangd and `cabin tidy` see exactly how each translation unit compiles.  Changing a standard changes
 the lowered command, so Ninja rebuilds exactly the affected translation units.
 
@@ -161,14 +195,12 @@ drops do not gate the check.  The thresholds gate acceptance of the exact flag s
 
 | C++ standard | GCC | Clang | Apple Clang | `clang-cl` | MSVC `cl` |
 | --- | --- | --- | --- | --- | --- |
-| `c++98` / `c++03` / `c++11` | always | always | always | n/a | n/a |
+| `c++98` / `c++11` | always | always | always | n/a | n/a |
 | `c++14` | 5 | always | always | always | 19.10 |
 | `c++17` | 5 | always | always | always | 19.11 |
 | `c++20` | 10 | 10 | 12 | 13 | 19.29 |
 | `c++23` | 11 | 17 | 16 | n/a | n/a |
-
-A GNU dialect shares its ISO twin's row on GCC / Clang / Apple Clang (the `-std=gnu*` spelling ships
-alongside the ISO spelling) and is `n/a` on `clang-cl` / MSVC `cl`.
+| `c++26` | 14 | 17 | 16 | n/a | n/a |
 
 `always` means any recognized version; `n/a` means no stable flag exists and the request is rejected
 on that compiler with an actionable error.  A compiler whose version banner cannot be parsed fails
@@ -184,13 +216,11 @@ A library-like target imposes its effective interface standard on every target t
 depends on it, per language, checked after planning and before any Ninja file is written:
 
 - The consumer's effective implementation standard must be **at least** the dependency's interface
-  standard (chronological comparison).  This is a pragmatic compatibility policy, not a proof - it
+  minimum (chronological comparison).  This is a pragmatic compatibility policy, not a proof - it
   assumes headers valid under standard *N* stay valid under newer modes; Cabin does not verify
-  header validity per standard.
-- A GNU dialect orders just above its ISO twin: `gnu++20` satisfies a `c++20` requirement (the
-  dialect is a superset of the twin), an ISO consumer never satisfies a GNU requirement (`c++20`
-  does not satisfy `gnu++20` - the extensions may be missing), and the next standard clears both
-  (`c++23` satisfies `gnu++20`).
+  header validity per standard.  `gnu-extensions` never participates in this comparison.
+- An explicit `"none"` requirement carries no minimum, so it imposes nothing on consumers today;
+  rejecting consumers of not-consumable headers is deferred alongside range support.
 - A language is relevant to a dependency only if the dependency has sources of that language,
   declares a target-level field for it, or is `header-only` while its package declares a
   package-level *interface* standard for it.  A package-level *implementation* default alone never
@@ -221,15 +251,16 @@ standard for this rule - opting in is declaring.
 
 Because every compiled language must declare a standard, a manifest-level raw standard flag always
 sits next to some covering declaration for the compiles it reaches: the raw-flag route through
-`cflags` / `cxxflags` is effectively closed for standard selection.  GNU dialects do not need it
-(`gnu11` / `gnu++20` are first-class values), and the environment variables above remain the
+`cflags` / `cxxflags` is effectively closed for standard selection.  GNU extensions do not need it
+(`gnu-extensions = true` is the first-class knob), and the environment variables above remain the
 deliberately unvalidated injection point (see [Not supported](#not-supported)).
 
 ## Fingerprint
 
 The effective standards (package level plus every target, implementation and interface) are folded
 into `BuildConfiguration::fingerprint` under a labeled `language-standards` section - values only;
-provenance labels do not move the fingerprint.
+provenance labels do not move the fingerprint.  A target's effective `gnu-extensions` contributes a
+line only when `true`, so the default moves nothing.
 
 ## Metadata
 
@@ -244,8 +275,9 @@ provenance labels do not move the fingerprint.
     "core": {
       "c":   { "standard": "c11",   "source": "package" },
       "cxx": { "standard": "c++20", "source": "target" },
-      "interface_c":   { "standard": "c11",   "source": "compile-standard" },
-      "interface_cxx": { "standard": "c++17", "source": "target" }
+      "interface_c":   { "requirement": { "min": "c11",   "max": null }, "source": "compile-standard" },
+      "interface_cxx": { "requirement": { "min": "c++17", "max": null }, "source": "target" },
+      "gnu_extensions": true
     }
   }
 }
@@ -255,12 +287,17 @@ Sources are `package` / `target` / `workspace`, plus `compile-standard` for an i
 defaulted from the effective implementation standard.  A language with no declaration anywhere
 reports no entry at all - there is no built-in default.  A workspace-inherited value reports
 `"source": "workspace"` - for implementation standards and for package-level inherited interface
-standards alike.  `interface_*` keys appear only on `library` / `header-only` targets.  The block
-is deterministic and additive to the stable metadata contract.
+standards alike.  `interface_*` keys appear only on `library` / `header-only` targets; their
+`requirement` is the `{ min, max }` pair (an explicit `"none"` reports as the string `"none"`),
+with `max` present-but-null while range support stays reserved.  `gnu_extensions` is the target's
+effective value and appears only when `true`.  The block is deterministic and additive to the
+stable metadata contract.
 
 `cabin package` / `cabin publish` preserve manifest-declared standard fields in the canonical
 per-version metadata, and the index loaders round-trip them opaquely (older index entries without
-the field keep loading).  A workspace-inherited value is baked in as a bare string, and the archived
+the field keep loading).  Implementation standards serialize as bare strings; interface fields
+serialize as their `{ min, max }` requirement (or `"none"`), keeping the reserved `max` slot on the
+wire.  A workspace-inherited value is baked in as a literal, and the archived
 `cabin.toml` is normalized: a targeted, format-preserving rewrite replaces the marker-bearing
 standard fields with their resolved literals (the dependency-marker rewrite shares the same pass -
 see [`package-format.md`](package-format.md)), so packaging an inherited member produces an archive
@@ -275,7 +312,8 @@ standard-compatibility filtering remains deferred.
 
 - Resolver standard-compatibility filtering.
 - `cfg(...)`-conditional or per-profile standards; CLI / env / config overrides.
-- `c++26` / `gnu++26` (pending threshold audit).
+- Range interface requirements (populating the reserved `max`), and enforcement of `"none"`
+  against consumers that compile the language.
 - Duplicate build variants (one library compiled once per consumer standard).
 
 ## Not supported

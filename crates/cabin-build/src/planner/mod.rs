@@ -446,6 +446,12 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let cxxflags: &[String] = pkg_flags.map_or(&[], |f| f.cxxflags.as_slice());
         let ldflags: &[String] = pkg_flags.map_or(&[], |f| f.ldflags.as_slice());
 
+        // Strictly per-target: two targets in one build may differ in
+        // both level and `gnu-extensions`.
+        let gnu_extensions = cabin_core::effective_gnu_extensions(
+            &req.graph.packages[tid.0].package.language,
+            target,
+        );
         let mut objects: Vec<Utf8PathBuf> = Vec::with_capacity(prepared.len());
         for ps in &prepared {
             let depfile = depfile_path(&ps.object);
@@ -515,6 +521,17 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     object: ps.object.clone(),
                 });
             }
+            // `cl.exe` has no GNU dialect mode, so `gnu-extensions`
+            // cannot be honored - and must never be silently
+            // ignored.  Recorded (not failed eagerly) for the same
+            // check-rewrite reason as the missing-spelling case.
+            let msvc_gnu_extensions = req.dialect == Dialect::Msvc && gnu_extensions;
+            if msvc_gnu_extensions {
+                standard_violations.push(StandardViolation::MsvcGnuExtensions {
+                    target: format_target_id(tid, req.graph),
+                    object: ps.object.clone(),
+                });
+            }
             // Escape-hatch conflicts: a candidate covers this
             // compile when its language matches and its scope is the
             // whole package or this specific target.
@@ -535,6 +552,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             }
             let compile = CompileAction {
                 standard,
+                gnu_extensions,
                 source: ps.abs_source.clone(),
                 object: ps.object.clone(),
                 mode: CompileMode::Object,
@@ -559,7 +577,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             // violating compile has no lowerable argv, so its entry is
             // omitted - the violation above makes that loud, never
             // silent.
-            if !msvc_spelling_missing {
+            if !msvc_spelling_missing && !msvc_gnu_extensions {
                 compile_commands.push(CompileCommand {
                     directory: build_dir.to_path_buf(),
                     file: ps.abs_source.clone(),
@@ -763,19 +781,23 @@ fn enforce_interface_standards(
         // standard manifest loading guarantees) backs the language,
         // and the consumer compiles the language, so its own
         // standard was already demanded at its compile site.
+        // An explicit `none` requirement carries no minimum to
+        // compare against; rejecting consumers of not-consumable
+        // headers is deferred alongside the rest of the range work.
         if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
             && let Some(required) =
                 cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_c(&pkg_standards, target)
-            && consumer.standard < required.standard
+            && consumer.standard < required_min
         {
             violations.push(interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::C,
                 consumer.standard.as_str(),
-                required.standard.as_str(),
+                required_min.as_str(),
                 required.source,
                 object,
             ));
@@ -784,15 +806,16 @@ fn enforce_interface_standards(
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
             && let Some(required) =
                 cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_cxx(&pkg_standards, target)
-            && consumer.standard < required.standard
+            && consumer.standard < required_min
         {
             violations.push(interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::Cxx,
                 consumer.standard.as_str(),
-                required.standard.as_str(),
+                required_min.as_str(),
                 required.source,
                 object,
             ));

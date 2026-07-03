@@ -93,6 +93,15 @@ pub enum PackageError {
     )]
     UnresolvedWorkspaceStandard { field: &'static str },
 
+    /// A target's declared interface minimum is newer than the
+    /// implementation standard its own sources compile with.
+    /// Workspace loads reject this at load time; the packaging
+    /// validator repeats the check so the standalone
+    /// `cabin package` / `publish` path cannot archive a manifest
+    /// no consumer could load.
+    #[error(transparent)]
+    InterfaceStandardContradiction(#[from] cabin_core::InterfaceStandardContradiction),
+
     #[error(
         "failed to normalize `{{ workspace = true }}` standard fields in the archived manifest at {}: {source}",
         path.display()

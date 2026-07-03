@@ -114,7 +114,8 @@ target-condition AST also lives here as `Condition`, `ConditionKey`, and `Target
 build-profile model lives here as `ProfileName`, `OptLevel`, `BuiltinProfile`, `ProfileDefinition`,
 `ProfileSelection`, `ResolvedProfile`, `ProfileSource`, and `resolve_profile`, and the typed
 language-standard model lives here as `cabin_core::language_standard` (`CStandard`, `CxxStandard`,
-`LanguageStandard`, the resolution / interface / relevance helpers, the conflict detector, and the
+`LanguageStandard`, the `gnu-extensions` boolean, the `{ min, max }` interface-requirement types,
+the resolution / interface / relevance helpers, the conflict and contradiction detectors, and the
 per-standard compiler capability tables in `cabin_core::compiler`).  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
@@ -1416,12 +1417,13 @@ The following are *not* part of this repository today:
   detection and dialect sections above.)
 - **No resolver-side language-standard filtering.** First-class C/C++ language standards are
   implemented locally (required manifest fields with no built-in default, `[workspace]` defaults,
-  GNU dialects, dialect lowering, pre-build validation, interface enforcement, fingerprint /
-  metadata - see [`language-standards.md`](language-standards.md)); the resolver does not yet
-  consult them, and `c++26` is deferred pending a threshold audit.  The MSVC `/std:c++latest` /
-  `/std:clatest` spellings are intentionally never mapped as first-class standards - they float to
-  the compiler's newest in-progress draft, so the unvalidated environment flag route
-  (`CXXFLAGS` / `CFLAGS`) is their only supported injection point.
+  the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface
+  enforcement, fingerprint / metadata - see
+  [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, and
+  range interface requirements (the reserved `max` slot) belong to a future version.  The MSVC
+  `/std:c++latest` / `/std:clatest` spellings are intentionally never mapped as first-class
+  standards - they float to the compiler's newest in-progress draft, so the unvalidated
+  environment flag route (`CXXFLAGS` / `CFLAGS`) is their only supported injection point.
 - **No workspace-level profile or toolchain overrides beyond the documented root-owned settings.**
   Member manifests cannot carry root-only build policy, and workspace-level profile/toolchain
   expansion beyond the current model is out of scope.

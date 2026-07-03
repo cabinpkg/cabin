@@ -109,6 +109,7 @@ mod tests {
         };
         BuildAction::Compile(CompileAction {
             standard,
+            gnu_extensions: false,
             source: Utf8PathBuf::from("/src/a.cc"),
             object: Utf8PathBuf::from(object),
             mode: CompileMode::Object,

@@ -431,6 +431,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         cxx_standard,
         interface_c_standard,
         interface_cxx_standard,
+        gnu_extensions,
     } = package;
 
     let package_name = PackageName::new(name)?;
@@ -444,6 +445,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         cxx_standard.as_ref(),
         interface_c_standard.as_ref(),
         interface_cxx_standard.as_ref(),
+        gnu_extensions,
     )?;
 
     let mut target_models = Vec::with_capacity(targets.len());
@@ -591,15 +593,31 @@ fn parse_cxx_standard(value: &str) -> Result<cabin_core::CxxStandard, ManifestEr
     cabin_core::CxxStandard::parse(value).map_err(ManifestError::InvalidLanguageStandard)
 }
 
-/// Validate the four raw language-standard fields shared by
-/// `[package]` and `[target.<name>]` into the typed settings.
-/// Target-level markers are rejected by the caller before this
-/// runs (`target_from_raw`).
+/// Parse a literal `interface-c-standard` value (`none` or a single
+/// C standard) into the typed requirement.
+fn parse_interface_c(
+    value: &str,
+) -> Result<cabin_core::InterfaceRequirement<cabin_core::CStandard>, ManifestError> {
+    cabin_core::parse_interface_c(value).map_err(ManifestError::InvalidLanguageStandard)
+}
+
+/// Parse a literal `interface-cxx-standard` value (`none` or a
+/// single C++ standard) into the typed requirement.
+fn parse_interface_cxx(
+    value: &str,
+) -> Result<cabin_core::InterfaceRequirement<cabin_core::CxxStandard>, ManifestError> {
+    cabin_core::parse_interface_cxx(value).map_err(ManifestError::InvalidLanguageStandard)
+}
+
+/// Validate the raw language fields shared by `[package]` and
+/// `[target.<name>]` into the typed settings.  Target-level markers
+/// are rejected by the caller before this runs (`target_from_raw`).
 pub(crate) fn language_settings_from_raw(
     c_standard: Option<&RawStandardField>,
     cxx_standard: Option<&RawStandardField>,
     interface_c_standard: Option<&RawStandardField>,
     interface_cxx_standard: Option<&RawStandardField>,
+    gnu_extensions: Option<bool>,
 ) -> Result<cabin_core::LanguageStandardSettings, ManifestError> {
     Ok(cabin_core::LanguageStandardSettings {
         c_standard: standard_field_from_raw(c_standard, "c-standard", parse_c_standard)?,
@@ -607,13 +625,14 @@ pub(crate) fn language_settings_from_raw(
         interface_c_standard: standard_field_from_raw(
             interface_c_standard,
             "interface-c-standard",
-            parse_c_standard,
+            parse_interface_c,
         )?,
         interface_cxx_standard: standard_field_from_raw(
             interface_cxx_standard,
             "interface-cxx-standard",
-            parse_cxx_standard,
+            parse_interface_cxx,
         )?,
+        gnu_extensions,
     })
 }
 
@@ -652,12 +671,12 @@ fn workspace_standards_from_raw(
         interface_c_standard: raw
             .interface_c_standard
             .as_deref()
-            .map(parse_c_standard)
+            .map(parse_interface_c)
             .transpose()?,
         interface_cxx_standard: raw
             .interface_cxx_standard
             .as_deref()
-            .map(parse_cxx_standard)
+            .map(parse_interface_cxx)
             .transpose()?,
     })
 }

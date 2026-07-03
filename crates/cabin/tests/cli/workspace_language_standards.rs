@@ -282,8 +282,9 @@ fn consumer_below_inherited_interface_requirement_fails() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_workspace_root(dir.path(), "interface-cxx-standard = \"c++20\"");
-    // The member's implementation is declared c++17, so `app`
-    // (c++17) sits below `core`'s inherited c++20 interface.
+    // `core` compiles as c++20 and inherits the workspace's c++20
+    // interface requirement; `app` compiles with the package-level
+    // c++17 and so sits below it.
     let base = dir.path().join("packages/demo");
     assert_fs::fixture::ChildPath::new(base.join("cabin.toml"))
         .write_str(
@@ -297,6 +298,7 @@ interface-cxx-standard = { workspace = true }
 type = "library"
 sources = ["src/core.cc"]
 include-dirs = ["include"]
+cxx-standard = "c++20"
 
 [target.app]
 type = "executable"

@@ -161,6 +161,17 @@ pub fn load_and_validate_with_project(
         return Err(PackageError::UnresolvedWorkspaceStandard { field });
     }
 
+    // Workspace loads reject interface/implementation contradictions
+    // at load time, but the standalone `cabin package` / `publish`
+    // path never runs that loader - repeat the check here so an
+    // archive no consumer could load is never published.
+    if let Some(contradiction) = cabin_core::find_interface_standard_contradictions(&package)
+        .into_iter()
+        .next()
+    {
+        return Err(PackageError::from(contradiction));
+    }
+
     for target in &package.targets {
         for source in &target.sources {
             ensure_within_root(&package_root, source.as_std_path()).map_err(|path| {
@@ -331,6 +342,37 @@ include-dirs = ["../include"]
             err,
             PackageError::IncludeEscapesPackageRoot { .. }
         ));
+    }
+
+    #[test]
+    fn rejects_interface_minimum_above_implementation_standard() {
+        // The standalone path never runs the workspace loader, so the
+        // packaging validator must repeat the contradiction check.
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml")
+            .write_str(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.app]
+type = "library"
+sources = ["src/app.cc"]
+interface-cxx-standard = "c++20"
+"#,
+            )
+            .unwrap();
+        let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
+        assert!(
+            matches!(err, PackageError::InterfaceStandardContradiction(_)),
+            "got {err:?}"
+        );
+        assert!(
+            err.to_string()
+                .contains("could not include its own public headers"),
+            "unexpected message: {err}"
+        );
     }
 
     #[test]

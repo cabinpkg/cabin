@@ -245,13 +245,13 @@ fn substitute_standard_markers_in(
             "interface-c-standard",
             resolved
                 .interface_c_standard_value()
-                .map(cabin_core::CStandard::as_str),
+                .map(|req| interface_literal(req, cabin_core::CStandard::as_str)),
         ),
         (
             "interface-cxx-standard",
             resolved
                 .interface_cxx_standard_value()
-                .map(cabin_core::CxxStandard::as_str),
+                .map(|req| interface_literal(req, cabin_core::CxxStandard::as_str)),
         ),
     ];
     let mut changed = false;
@@ -281,6 +281,26 @@ fn substitute_standard_markers_in(
         changed = true;
     }
     Ok(changed)
+}
+
+/// The manifest string literal for a resolved interface
+/// requirement: `"none"` or the minimum standard.  `max` is
+/// reserved for future range support and never populated, so there
+/// is no range literal to render.
+fn interface_literal<S: Copy>(
+    requirement: cabin_core::InterfaceRequirement<S>,
+    as_str: fn(S) -> &'static str,
+) -> &'static str {
+    match requirement {
+        cabin_core::InterfaceRequirement::None => "none",
+        cabin_core::InterfaceRequirement::Requirement(requirement) => {
+            debug_assert!(
+                requirement.max.is_none(),
+                "range requirements are reserved and never populated"
+            );
+            as_str(requirement.min)
+        }
+    }
 }
 
 /// Whether a dependency entry's value is the `workspace = true`

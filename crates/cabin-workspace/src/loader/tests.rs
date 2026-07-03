@@ -1157,6 +1157,84 @@ cxx-standard = { workspace = true }
 }
 
 #[test]
+fn workspace_interface_none_inheritance() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+interface-cxx-standard = "none"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+interface-cxx-standard = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let app = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "app")
+        .unwrap();
+    assert_eq!(
+        app.package.language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Inherited(
+            cabin_core::InterfaceRequirement::None
+        ))
+    );
+}
+
+#[test]
+fn interface_minimum_newer_than_implementation_is_rejected_at_load() {
+    // The lint runs after marker resolution, so a workspace-inherited
+    // interface minimum contradicts a member's literal implementation
+    // standard exactly like a literal one would.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+interface-cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+interface-cxx-standard = { workspace = true }
+
+[target.core]
+type = "library"
+sources = ["src/core.cc"]
+"#,
+        )
+        .unwrap();
+    let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
+    match err {
+        WorkspaceError::InterfaceStandardContradiction { source, .. } => {
+            assert_eq!(source.target, "core");
+            assert_eq!(source.field, "interface-cxx-standard");
+            assert!(
+                source
+                    .to_string()
+                    .contains("could not include its own public headers"),
+                "unexpected message: {source}"
+            );
+        }
+        other => panic!("expected InterfaceStandardContradiction, got {other:?}"),
+    }
+}
+
+#[test]
 fn workspace_standard_opt_in_without_declaration_errors() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")

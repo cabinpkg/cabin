@@ -15,6 +15,13 @@ fn parse_project_err(input: &str) -> ManifestError {
     parse_manifest_str(input).expect_err("manifest should fail to parse")
 }
 
+fn requirement<S>(min: S) -> cabin_core::InterfaceRequirement<S> {
+    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement {
+        min,
+        max: None,
+    })
+}
+
 const MINIMAL: &str = r#"
         [package]
         name = "hello"
@@ -243,9 +250,9 @@ fn package_and_target_language_standards_parse() {
     );
     assert_eq!(
         package.language.interface_cxx_standard,
-        Some(cabin_core::StandardDeclaration::Declared(
+        Some(cabin_core::StandardDeclaration::Declared(requirement(
             cabin_core::CxxStandard::Cxx14
-        ))
+        )))
     );
     assert_eq!(package.language.interface_c_standard, None);
     let core = &package.targets[0];
@@ -257,42 +264,170 @@ fn package_and_target_language_standards_parse() {
     );
     assert_eq!(
         core.language.interface_cxx_standard,
-        Some(cabin_core::StandardDeclaration::Declared(
+        Some(cabin_core::StandardDeclaration::Declared(requirement(
             cabin_core::CxxStandard::Cxx17
-        ))
+        )))
     );
     assert_eq!(core.language.c_standard, None);
 }
 
 #[test]
-fn gnu_dialect_standards_parse() {
+fn gnu_dialect_spellings_are_rejected_as_unknown_values() {
+    for (field, value) in [
+        ("c-standard", "gnu11"),
+        ("cxx-standard", "gnu++20"),
+        ("interface-cxx-standard", "gnu++17"),
+    ] {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                {field} = "{value}"
+            "#
+        );
+        let err = parse_project_err(&manifest);
+        let message = err.to_string();
+        assert!(
+            message.contains(&format!("standard `{value}`")),
+            "unexpected error for {field}: {message}"
+        );
+        // Plain unknown-value diagnostics: no gnu-extensions hint.
+        assert!(
+            !message.contains("gnu-extensions"),
+            "unexpected error for {field}: {message}"
+        );
+    }
+}
+
+#[test]
+fn standard_aliases_normalize_immediately() {
     let manifest = r#"
             [package]
             name = "foo"
             version = "0.1.0"
-            c-standard = "gnu11"
-            cxx-standard = "gnu++20"
-            interface-cxx-standard = "gnu++17"
+            c-standard = "c90"
+            cxx-standard = "c++03"
+            interface-cxx-standard = "c++03"
         "#;
     let package = parse_project(manifest);
     assert_eq!(
         package.language.c_standard,
         Some(cabin_core::StandardDeclaration::Declared(
-            cabin_core::CStandard::Gnu11
+            cabin_core::CStandard::C89
         ))
     );
     assert_eq!(
         package.language.cxx_standard,
         Some(cabin_core::StandardDeclaration::Declared(
-            cabin_core::CxxStandard::Gnuxx20
+            cabin_core::CxxStandard::Cxx98
         ))
     );
     assert_eq!(
         package.language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(requirement(
+            cabin_core::CxxStandard::Cxx98
+        )))
+    );
+}
+
+#[test]
+fn gnu_extensions_parses_at_package_and_target_level() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            gnu-extensions = true
+
+            [target.core]
+            type = "library"
+            sources = ["src/core.cc"]
+            gnu-extensions = false
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.language.gnu_extensions, Some(true));
+    assert_eq!(package.targets[0].language.gnu_extensions, Some(false));
+
+    // Non-boolean values are rejected by the manifest schema.
+    let err = parse_project_err(
+        r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            gnu-extensions = "true"
+        "#,
+    );
+    assert!(matches!(err, ManifestError::Toml(_)), "got {err:?}");
+}
+
+#[test]
+fn none_is_accepted_only_on_interface_fields() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-c-standard = "none"
+
+            [target.core]
+            type = "library"
+            sources = ["src/core.cc"]
+            interface-cxx-standard = "none"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.language.interface_c_standard,
         Some(cabin_core::StandardDeclaration::Declared(
-            cabin_core::CxxStandard::Gnuxx17
+            cabin_core::InterfaceRequirement::None
         ))
     );
+    assert_eq!(
+        package.targets[0].language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::InterfaceRequirement::None
+        ))
+    );
+
+    for field in ["c-standard", "cxx-standard"] {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                {field} = "none"
+            "#
+        );
+        let err = parse_project_err(&manifest);
+        assert!(
+            err.to_string().contains("`none` is only valid on"),
+            "unexpected error for {field}: {err}"
+        );
+    }
+}
+
+#[test]
+fn range_like_standard_values_get_the_reserved_diagnostic() {
+    for (field, value) in [
+        ("c-standard", ">=c11"),
+        ("cxx-standard", "c++17,c++20"),
+        ("interface-c-standard", "<=c17"),
+        ("interface-cxx-standard", ">=c++17"),
+    ] {
+        let manifest = format!(
+            r#"
+                [package]
+                name = "foo"
+                version = "0.1.0"
+                {field} = "{value}"
+            "#
+        );
+        let err = parse_project_err(&manifest);
+        assert!(
+            err.to_string().contains("reserved for a future version"),
+            "unexpected error for {field}: {err}"
+        );
+    }
 }
 
 #[test]
@@ -306,8 +441,10 @@ fn invalid_standard_value_lists_valid_spellings() {
     let err = parse_project_err(manifest);
     let message = err.to_string();
     assert!(message.contains("c++2x"), "unexpected error: {message}");
-    assert!(message.contains("c++23"), "unexpected error: {message}");
-    assert!(message.contains("gnu++23"), "unexpected error: {message}");
+    assert!(
+        message.contains("c++98, c++11, c++14, c++17, c++20, c++23, c++26"),
+        "unexpected error: {message}"
+    );
 }
 
 #[test]
@@ -3061,7 +3198,7 @@ fn workspace_table_invalid_standard_value_is_rejected() {
     let err = parse_manifest_str(
         r#"[workspace]
 members = ["packages/*"]
-cxx-standard = "c++26"
+cxx-standard = "c++2x"
 "#,
     )
     .unwrap_err();
