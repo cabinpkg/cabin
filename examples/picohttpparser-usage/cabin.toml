@@ -1,6 +1,7 @@
 [package]
 name = "picohttpparser-usage"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 picohttpparser = { port = true, version = "^2026" }

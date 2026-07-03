@@ -1,6 +1,7 @@
 [package]
 name = "cli"
 version = "0.1.0"
+cxx-standard = { workspace = true }
 
 [dependencies]
 util = { path = "../util" }

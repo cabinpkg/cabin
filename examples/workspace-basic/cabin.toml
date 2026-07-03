@@ -1,3 +1,5 @@
 [workspace]
 members = ["packages/*"]
 default-members = ["packages/cli"]
+# Shared standard members opt into with `{ workspace = true }`.
+cxx-standard = "c++17"

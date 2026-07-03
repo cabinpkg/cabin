@@ -1,6 +1,7 @@
 [package]
 name = "xxhash-usage"
 version = "0.1.0"
+c-standard = "c11"
 
 [dependencies]
 xxhash = { port = true, version = "^0.8" }
