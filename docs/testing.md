@@ -37,6 +37,13 @@ is an error, even under `--allow-no-tests`.  Every match across the selected pac
 workspace members may share a test name.  Package selection composes with `--test`: names are looked
 up in the selected packages only.
 
+A `test` target with [`required-features`](features.md#feature-gated-targets) follows the general
+gating rules: the no-`--test` enumeration skips it when its features are not enabled (it counts as
+`filtered out` in the summary), while naming it with `--test <NAME>` is a hard error that spells
+out the missing features.  When *every* declared test is gated off, `cabin test` fails with an
+error naming the gated targets (or, under `--allow-no-tests`, reports the filtered-out count) so
+the outcome stays distinguishable from a package with no tests at all.
+
 `cabin test` shares its core flags with `cabin build`: `--profile`, `--release`, `--features`,
 `--no-default-features`, `--all-features`, `--locked`, `--frozen`, `--no-patches`, the toolchain
 overrides (`--cc` / `--cxx` / `--ar` / `--compiler-wrapper`), the workspace-selection bundle
@@ -62,8 +69,9 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 Cabin has no ignore or benchmark mechanism, so `ignored` and `measured` are constant zeros - they
 keep the summary line shaped exactly like `cargo test`'s.  `filtered out` counts the `test` targets
-in the selected packages that the invocation deselected via `--test <NAME>`.  `finished in` is the
-wall-clock time of the test run (the build is not included).
+in the selected packages that the invocation deselected via `--test <NAME>` or skipped because
+their [`required-features`](features.md#feature-gated-targets) are not enabled.  `finished in` is
+the wall-clock time of the test run (the build is not included).
 
 A test executable's stdout / stderr stream live while it runs, prefixed by `---- stdout:
 <pkg>:<target> ----` / `---- stderr: <pkg>:<target> ----` headers.  Unlike `cargo test`, output is

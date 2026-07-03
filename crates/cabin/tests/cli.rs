@@ -2452,6 +2452,12 @@ mod dev_dependencies;
 #[path = "cli/optional_dependencies_and_features.rs"]
 mod optional_dependencies_and_features;
 
+#[path = "cli/required_features.rs"]
+mod required_features;
+
+#[path = "cli/explicit_target_deps.rs"]
+mod explicit_target_deps;
+
 #[path = "cli/target_dependencies.rs"]
 mod target_dependencies;
 

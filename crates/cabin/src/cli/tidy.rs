@@ -298,11 +298,39 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // Tidy is asymmetric to fmt without those kinds, so enumerate
     // every C/C++ kind explicitly here - both the `cpp_*` family
     // and the `c_*` family.
-    let tidy_selectors: Vec<ManifestTargetSelector> = TargetKind::all()
+    // Feature-gated targets are skipped like the default build
+    // enumeration skips them: tidy analyzes what would build under
+    // the default feature set.
+    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
+    let all_selectors: Vec<ManifestTargetSelector> = TargetKind::all()
         .iter()
         .copied()
         .flat_map(|kind| select_targets_of_kind(&graph, Some(&resolved_selection.packages), kind))
         .collect();
+    let tidy_selectors: Vec<ManifestTargetSelector> = all_selectors
+        .iter()
+        .filter(|sel| cabin_build::selector_required_features_met(sel, &graph, &enabled_features))
+        .cloned()
+        .collect();
+    // Every target gated off is a dead end, not a clean pass: an
+    // empty explicit selection would plan an empty compile database
+    // and end in a misleading "no C/C++ source files" success.
+    if tidy_selectors.is_empty() && !all_selectors.is_empty() {
+        let gated: Vec<String> = all_selectors
+            .iter()
+            .map(|sel| {
+                format!(
+                    "{}:{}",
+                    sel.package.as_deref().unwrap_or_default(),
+                    sel.name
+                )
+            })
+            .collect();
+        bail!(
+            "every C/C++ target in the selected packages requires features that are not enabled ({}); `cabin tidy` analyzes the default feature set - add the features to `[features].default` to include those targets",
+            gated.join(", ")
+        );
+    }
 
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
@@ -332,6 +360,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
                 .has_c_sources(),
             )
         }),
+        enabled_features: Some(&enabled_features),
     })?;
     // `cabin tidy` skips the fail-hard toolchain validation, so it
     // must surface planner-recorded MSVC standard violations itself -
@@ -560,6 +589,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: Default::default(),
         };
         let package = Package::new(

@@ -110,6 +110,13 @@ Selection works through three other surfaces:
 Each explicit-kind selector uses a distinct flag name (`--bin`, `--test`), keeping `--target`
 reserved for the future platform / toolchain target.
 
+Targets may declare `required-features` - the same feature-gating knob Cargo puts on `[[bin]]` /
+`[[test]]` sections.  Enumeration skips a gated target; explicitly selecting one without its
+features is a hard error (see [Feature-gated targets](features.md#feature-gated-targets)).  One
+deliberate difference from Cargo: linking is always explicit through each target's `deps` list, so
+enabling a feature never changes what a consumer links - it only makes the gated target available
+to name.
+
 ### Per-language separation
 
 Cabin keeps CC vs.  CXX, and CFLAGS vs.  CXXFLAGS (whether passed via manifest, profile, or env

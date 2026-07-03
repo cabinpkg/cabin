@@ -288,6 +288,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         .root_package
         .and_then(|i| configurations.get(&i))
         .cloned();
+    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
     let plan_graph = plan(&PlanRequest {
         graph: &graph,
         toolchain: &toolchain,
@@ -305,6 +306,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             &detection_report,
             approx_standards.has_c_sources(),
         ),
+        enabled_features: Some(&enabled_features),
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected

@@ -172,6 +172,79 @@ deps = ["demo"]
 }
 
 #[test]
+fn tidy_skips_gated_target_but_errors_when_everything_is_gated() {
+    let _guard = tidy_record_lock();
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[features]
+ssl = []
+
+[target.demo]
+type = "library"
+sources = ["src/lib.cc"]
+
+[target.tls]
+type = "library"
+sources = ["src/tls.cc"]
+required-features = ["ssl"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/lib.cc")
+        .write_str("int demo() { return 1; }\n")
+        .unwrap();
+    dir.child("src/tls.cc")
+        .write_str("int tls() { return 2; }\n")
+        .unwrap();
+    // The gated target's source stays out of the analyzed set.
+    cabin_with_fake_tidy()
+        .current_dir(dir.path())
+        .arg("tidy")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Checked 1 file"));
+
+    // With *every* target gated, tidy must fail loudly instead of
+    // reporting a clean empty run.
+    let all_gated = TempDir::new().unwrap();
+    all_gated
+        .child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[features]
+ssl = []
+
+[target.tls]
+type = "library"
+sources = ["src/tls.cc"]
+required-features = ["ssl"]
+"#,
+        )
+        .unwrap();
+    all_gated
+        .child("src/tls.cc")
+        .write_str("int tls() { return 2; }\n")
+        .unwrap();
+    cabin_with_fake_tidy()
+        .current_dir(all_gated.path())
+        .arg("tidy")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("demo:tls"))
+        .stderr(predicate::str::contains("[features].default"));
+}
+
+#[test]
 fn compile_database_is_generated_at_profile_root() {
     let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();

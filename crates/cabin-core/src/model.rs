@@ -345,10 +345,17 @@ pub struct Target {
     pub include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub defines: Vec<String>,
-    /// Same-package target names or cross-package references.  Cross-package
-    /// references take the form `package` (resolves to the package's default
-    /// library target) or `package:target` (qualified).  Resolution against a
-    /// concrete package graph lives in `cabin-build`, not here.
+    /// Explicit references to the linked targets.  A bare name
+    /// resolves to a same-package target first, then as the
+    /// same-name shorthand on a dependency package (`foo` means
+    /// `foo:foo`, matching the dependency's library / header-only
+    /// targets only); every other cross-package reference is the
+    /// qualified `package:target` form.  A package dependency only
+    /// makes the package available - it never exports a *default*
+    /// target, so a bare name that matches neither a local target
+    /// nor a same-named linkable dependency target is a hard error.
+    /// Resolution against a concrete package graph lives in
+    /// `cabin-build`, not here.
     ///
     /// Stored as raw strings, not [`TargetName`], because the qualified
     /// `package:target` form contains a `:` that the path-safe target-name
@@ -357,6 +364,16 @@ pub struct Target {
     /// directly into a filesystem path.
     #[serde(default)]
     pub deps: Vec<String>,
+    /// Package features that must all be enabled for this target
+    /// to be built or used.  Entries name features declared in the
+    /// owning package's `[features]` table;
+    /// [`Package::with_config`] rejects unknown names.  Default
+    /// target enumeration skips a target whose required features
+    /// are not enabled; naming one explicitly (a `deps` entry, a
+    /// manifest-target selector, `cabin test --test`) is a hard
+    /// error instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_features: Vec<String>,
     /// Per-target `c-standard` / `cxx-standard` /
     /// `interface-c-standard` / `interface-cxx-standard` overrides.
     /// Interface fields are only meaningful on `library` /
@@ -364,6 +381,22 @@ pub struct Target {
     /// executable-like targets.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
+}
+
+impl Target {
+    /// The subset of this target's `required-features` that is not
+    /// in `enabled`, in declaration order.  Empty when the target
+    /// is buildable under the given feature set.
+    pub fn missing_required_features(
+        &self,
+        enabled: &std::collections::BTreeSet<String>,
+    ) -> Vec<String> {
+        self.required_features
+            .iter()
+            .filter(|f| !enabled.contains(*f))
+            .cloned()
+            .collect()
+    }
 }
 
 fn default_true() -> bool {
@@ -798,6 +831,7 @@ impl Package {
         Self::validate_dependencies(&dependencies)?;
         Self::validate_system_dependencies(&system_dependencies)?;
         features.validate()?;
+        Self::validate_required_features(&targets, &features)?;
         Ok(Self {
             name,
             version,
@@ -908,6 +942,28 @@ impl Package {
         Ok(())
     }
 
+    /// Every `required-features` entry must satisfy the feature
+    /// identifier grammar and name a feature declared in this
+    /// package's `[features]` table.  The reserved `default` key is
+    /// not a declared feature, so requiring it is rejected too.
+    fn validate_required_features(
+        targets: &[Target],
+        features: &Features,
+    ) -> Result<(), ValidationError> {
+        for target in targets {
+            for name in &target.required_features {
+                crate::config::validate_feature_identifier(name)?;
+                if !features.features.contains_key(name) {
+                    return Err(ValidationError::UnknownRequiredFeature {
+                        target: target.name.as_str().to_owned(),
+                        feature: name.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_dependencies(deps: &[Dependency]) -> Result<(), ValidationError> {
         let mut seen: HashSet<(DependencyKind, &str)> = HashSet::with_capacity(deps.len());
         for dep in deps {
@@ -973,6 +1029,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+            required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
         }
     }
@@ -1260,6 +1317,84 @@ mod tests {
         )
         .unwrap();
         assert_eq!(package.targets[0].deps[0].as_str(), "external");
+    }
+
+    #[test]
+    fn project_rejects_required_feature_not_declared() {
+        let mut gated = target("tls", TargetKind::Library, &[]);
+        gated.required_features = vec!["ssl".into()];
+        let err = Package::with_config(PackageConfigInput {
+            name: pkg("hello"),
+            version: version(),
+            targets: vec![gated],
+            dependencies: Vec::new(),
+            system_dependencies: Vec::new(),
+            features: Features::default(),
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            ValidationError::UnknownRequiredFeature {
+                target: "tls".into(),
+                feature: "ssl".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn project_accepts_required_feature_declared_in_features_table() {
+        let mut gated = target("tls", TargetKind::Library, &[]);
+        gated.required_features = vec!["ssl".into()];
+        let features = Features::new(
+            Vec::new(),
+            [("ssl".to_owned(), Vec::new())].into_iter().collect(),
+        )
+        .unwrap();
+        let package = Package::with_config(PackageConfigInput {
+            name: pkg("hello"),
+            version: version(),
+            targets: vec![gated],
+            dependencies: Vec::new(),
+            system_dependencies: Vec::new(),
+            features,
+        })
+        .unwrap();
+        assert_eq!(package.targets[0].required_features, vec!["ssl"]);
+    }
+
+    #[test]
+    fn project_rejects_required_feature_with_invalid_grammar() {
+        // `dep:` / `pkg/feature` entry forms are feature-list
+        // syntax, not feature names; `required-features` only
+        // accepts local feature identifiers.
+        let mut gated = target("tls", TargetKind::Library, &[]);
+        gated.required_features = vec!["dep:openssl".into()];
+        let err = Package::with_config(PackageConfigInput {
+            name: pkg("hello"),
+            version: version(),
+            targets: vec![gated],
+            dependencies: Vec::new(),
+            system_dependencies: Vec::new(),
+            features: Features::default(),
+        })
+        .unwrap_err();
+        assert_eq!(
+            err,
+            ValidationError::InvalidConfigName {
+                kind: "feature",
+                value: "dep:openssl".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn missing_required_features_reports_unmet_subset_in_order() {
+        let mut gated = target("tls", TargetKind::Library, &[]);
+        gated.required_features = vec!["ssl".into(), "net".into()];
+        let enabled: std::collections::BTreeSet<String> = ["net".to_owned()].into();
+        assert_eq!(gated.missing_required_features(&enabled), vec!["ssl"]);
+        let both: std::collections::BTreeSet<String> = ["net".to_owned(), "ssl".to_owned()].into();
+        assert!(gated.missing_required_features(&both).is_empty());
     }
 
     fn dep(name: &str, kind: DependencyKind) -> Dependency {

@@ -346,8 +346,16 @@ pub(crate) fn run(
 
     // Pick the run target. `--bin` narrows the search to a
     // named `executable`; otherwise we look for a single
-    // `executable` in the selected closure.
-    let run_target = pick_run_target(&graph, &resolved_selection.packages, args.bin.as_deref())?;
+    // buildable `executable` in the selected closure
+    // (feature-gated executables are skipped, like the default
+    // build enumeration).
+    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
+    let run_target = pick_run_target(
+        &graph,
+        &resolved_selection.packages,
+        args.bin.as_deref(),
+        &enabled_features,
+    )?;
 
     let configurations = resolve_build_configurations(
         &graph,
@@ -382,6 +390,7 @@ pub(crate) fn run(
             &detection_report,
             approx_standards.has_c_sources(),
         ),
+        enabled_features: Some(&enabled_features),
     })?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
@@ -503,6 +512,7 @@ fn pick_run_target(
     graph: &cabin_workspace::PackageGraph,
     selected_packages: &[usize],
     bin: Option<&str>,
+    enabled_features: &std::collections::HashMap<usize, BTreeSet<String>>,
 ) -> Result<RunTarget> {
     let pool: Vec<usize> = if selected_packages.is_empty() {
         (0..graph.packages.len()).collect()
@@ -510,26 +520,44 @@ fn pick_run_target(
         selected_packages.to_vec()
     };
     if let Some(name) = bin {
+        // Explicit `--bin` requests stay hard errors on gated
+        // targets: the planner reports the missing features.
         return find_target(graph, &pool, name, TargetKind::Executable, "--bin");
     }
     // Default: pick a single executable in the selected
-    // packages.  Ambiguous selections produce a diagnostic
-    // listing every candidate so users can decide.
+    // packages.  Enumeration skips feature-gated executables
+    // (like the default build selection); ambiguous selections
+    // produce a diagnostic listing every candidate so users can
+    // decide.
+    let empty_features = BTreeSet::new();
     let mut candidates: Vec<RunTarget> = Vec::new();
+    let mut gated: Vec<RunTarget> = Vec::new();
     for &idx in &pool {
         let pkg = &graph.packages[idx];
+        let enabled = enabled_features.get(&idx).unwrap_or(&empty_features);
         for target in &pkg.package.targets {
             if target.kind == TargetKind::Executable {
-                candidates.push(make_run_target(
+                let run_target = make_run_target(
                     &pkg.package,
                     &graph.packages[idx].manifest_path,
                     &graph.packages[idx].manifest_dir,
                     target.name.as_str(),
-                ));
+                );
+                if target.missing_required_features(enabled).is_empty() {
+                    candidates.push(run_target);
+                } else {
+                    gated.push(run_target);
+                }
             }
         }
     }
     if candidates.is_empty() {
+        // Every executable is feature-gated: hand the first one to
+        // the planner so the failure names the missing features
+        // instead of claiming no executable exists.
+        if let Some(first) = gated.into_iter().next() {
+            return Ok(first);
+        }
         bail!("no `executable` target found in the selected packages; declare one to run it");
     }
     if candidates.len() > 1 {
@@ -699,6 +727,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: Default::default(),
         }
     }

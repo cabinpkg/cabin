@@ -76,32 +76,41 @@ pub(super) fn resolve_target_dep(
         return Ok((dep_idx, t_name.to_owned()));
     }
 
-    // Unqualified.  Same-package match wins.
+    // Unqualified.  A bare name is a same-package target reference
+    // first.
     if pkg.package.targets.iter().any(|t| t.name.as_str() == raw) {
         return Ok((pkg_idx, raw.to_owned()));
     }
 
-    // Then, visible package dependency name → its default library
-    // or header-only target.
+    // Otherwise a bare name that matches a visible dependency
+    // package is the same-name shorthand: `deps = ["foo"]` means
+    // `foo:foo`.  This is pure name matching - a package never
+    // exports a *default* target, so a dependency whose targets are
+    // all named differently must be spelled `package:target`.  The
+    // shorthand only accepts a link/interface-bearing target
+    // (library / header-only): a same-named executable would build
+    // but contribute no include dirs or archives, which reads as a
+    // silent no-op link.  The exotic executable-dep case keeps its
+    // explicit `package:target` spelling.
     if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
-        let libs: Vec<&Target> = dep_pkg
+        if dep_pkg.package.targets.iter().any(|t| {
+            t.name.as_str() == raw && (t.kind.produces_archive() || t.kind.is_header_only())
+        }) {
+            return Ok((dep_idx, raw.to_owned()));
+        }
+        let candidates: Vec<String> = dep_pkg
             .package
             .targets
             .iter()
             .filter(|t| t.kind.produces_archive() || t.kind.is_header_only())
+            .map(|t| format!("{}:{}", dep_pkg.package.name.as_str(), t.name.as_str()))
             .collect();
-        return match libs.len() {
-            0 => Err(BuildError::DependencyHasNoLibrary {
-                dep: raw.to_owned(),
-                package: dep_pkg.package.name.as_str().to_owned(),
-            }),
-            1 => Ok((dep_idx, libs[0].name.as_str().to_owned())),
-            _ => Err(BuildError::AmbiguousDefaultLibrary {
-                dep: raw.to_owned(),
-                package: dep_pkg.package.name.as_str().to_owned(),
-            }),
-        };
+        return Err(BuildError::NoSameNameTargetInDependency {
+            dep: raw.to_owned(),
+            package: dep_pkg.package.name.as_str().to_owned(),
+            candidates,
+        });
     }
 
     if declared_as_dev(raw) {

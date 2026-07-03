@@ -226,6 +226,11 @@ pub(crate) struct RawTarget {
     pub(crate) defines: Vec<String>,
     #[serde(default)]
     pub(crate) deps: Vec<String>,
+    /// Package features that must be enabled for this target to be
+    /// built or used.  Validated against the package's `[features]`
+    /// table by `cabin_core::Package::with_config`.
+    #[serde(default, rename = "required-features")]
+    pub(crate) required_features: Vec<String>,
     /// Per-target language standard overrides.  Interface fields are
     /// rejected on executable-like kinds by the parser.
     #[serde(default, rename = "c-standard")]

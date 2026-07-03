@@ -1648,6 +1648,20 @@ pub(crate) fn compute_feature_resolution(
     .map_err(anyhow::Error::from)
 }
 
+/// Flatten a [`cabin_feature::FeatureResolution`] into the
+/// per-package enabled-feature map the build planner consumes for
+/// `required-features` gating ([`cabin_build::PlanRequest`]'s
+/// `enabled_features`).
+pub(crate) fn enabled_features_by_package(
+    resolution: &cabin_feature::FeatureResolution,
+) -> std::collections::HashMap<usize, BTreeSet<String>> {
+    resolution
+        .per_package
+        .iter()
+        .map(|(idx, resolved)| (*idx, resolved.enabled_features.clone()))
+        .collect()
+}
+
 /// Pick the primary packages that contribute versioned
 /// deps to a resolve / fetch / update run.  When the user passed
 /// workspace-selection flags, only their selected packages

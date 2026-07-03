@@ -1,0 +1,23 @@
+[package]
+name = "netlib"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[features]
+default = []
+tls = []
+
+[target.net]
+type = "library"
+sources = ["src/net.cc"]
+include-dirs = ["include"]
+
+# Optional capability: only built when the `tls` feature is
+# enabled.  Consumers must both enable the feature and link the
+# target explicitly.
+[target.tls]
+type = "library"
+sources = ["src/tls.cc"]
+include-dirs = ["include"]
+deps = ["net"]
+required-features = ["tls"]

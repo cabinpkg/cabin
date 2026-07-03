@@ -429,8 +429,19 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let all_test_selectors: Vec<ManifestTargetSelector> =
         select_targets_of_kind(&graph, Some(&resolved_selection.packages), TargetKind::Test);
     let total_test_targets = all_test_selectors.len();
+    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
     let test_selectors: Vec<ManifestTargetSelector> = if args.test.is_empty() {
+        // Enumeration skips feature-gated tests (they count as
+        // filtered out below).  A test named via `--test` is an
+        // explicit request instead: it stays selected here and the
+        // planner hard-errors with the missing features.
         all_test_selectors
+            .iter()
+            .filter(|sel| {
+                cabin_build::selector_required_features_met(sel, &graph, &enabled_features)
+            })
+            .cloned()
+            .collect()
     } else {
         select_named_test_targets(
             &graph,
@@ -442,6 +453,31 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let filtered_out = total_test_targets - test_selectors.len();
 
     if test_selectors.is_empty() {
+        // Distinguish "no tests declared" from "every declared test
+        // is feature-gated": the latter must name the gate, not
+        // suggest declaring a test target.
+        if filtered_out > 0 {
+            let gated: Vec<String> = all_test_selectors
+                .iter()
+                .map(|sel| {
+                    format!(
+                        "{}:{}",
+                        sel.package.as_deref().unwrap_or_default(),
+                        sel.name
+                    )
+                })
+                .collect();
+            if args.allow_no_tests {
+                println!(
+                    "cabin test: no runnable test targets ({filtered_out} filtered out by required-features)"
+                );
+                return Ok(());
+            }
+            bail!(
+                "every test target in the selected packages requires features that are not enabled ({}); enable them with `--features <name>`, or run `cabin test --test <name>` to see a target's missing features",
+                gated.join(", ")
+            );
+        }
         if args.allow_no_tests {
             println!("cabin test: no test targets found");
             return Ok(());
@@ -481,6 +517,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             &detection_report,
             approx_standards.has_c_sources(),
         ),
+        enabled_features: Some(&enabled_features),
     })?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
@@ -670,6 +707,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: Default::default(),
         };
         let package = Package::new(
@@ -711,6 +749,7 @@ mod tests {
             include_dirs: Vec::new(),
             defines: Vec::new(),
             deps: Vec::new(),
+            required_features: Vec::new(),
             language: Default::default(),
         };
         let alpha = Package::new(

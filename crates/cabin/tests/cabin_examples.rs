@@ -875,6 +875,55 @@ fn workspace_app_and_lib_builds_and_runs() {
 }
 
 #[test]
+fn feature_gated_targets_builds_and_runs() {
+    require_cxx_build_tools();
+    let dir = copy_example("feature-gated-targets");
+    // `--workspace` builds netlib too; the `tls` feature enabled on
+    // app's dependency edge makes the gated `netlib:tls` target
+    // buildable, and app's explicit `deps` entries link it.
+    cabin()
+        .args(["build", "--workspace", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let output = cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(output.stdout).expect("stdout is utf-8");
+    assert!(
+        stdout.contains("TLS GET example.org"),
+        "feature-gated-targets run: stdout = {stdout}"
+    );
+    // With only netlib's default (empty) feature set, the gated
+    // target is skipped rather than built.
+    cabin()
+        .args(["build", "-p", "netlib", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build2"))
+        .assert()
+        .success();
+    // Archive naming is dialect-specific (`libtls.a` vs `tls.lib`);
+    // assert on both spellings so the check holds on MSVC too.
+    for name in ["libtls.a", "tls.lib"] {
+        let gated_lib = dir.path().join("build2/dev/packages/netlib").join(name);
+        assert!(
+            !gated_lib.exists(),
+            "gated target must not build without its required feature: {}",
+            gated_lib.display()
+        );
+    }
+}
+
+#[test]
 fn library_with_tests_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("library-with-tests");
