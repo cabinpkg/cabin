@@ -145,8 +145,12 @@ pub(crate) fn vendor(
         cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let initial_features =
-        compute_feature_resolution(&initial_graph, &resolved_selection, &selection_request)?;
+    let initial_features = compute_feature_resolution(
+        &initial_graph,
+        &resolved_selection,
+        &selection_request,
+        &BTreeSet::new(),
+    )?;
 
     let dev_for: BTreeSet<String> = BTreeSet::new();
     let patched_root_deps_preview =

@@ -398,7 +398,6 @@ deps = ["harness"]
 }
 
 #[test]
-#[test]
 fn test_resolves_feature_gated_optional_dep_of_dev_path_dependency() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
@@ -591,6 +590,113 @@ sources = ["src/applib.cc"]
         .stdout(predicate::str::contains("no test targets found"));
 }
 
+#[test]
+fn test_resolves_feature_entry_referencing_versioned_dev_dep() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // A `[features]` entry of the selected package references its
+    // *versioned* dev dep (`devkit/simd`).  Feature resolution
+    // must treat the activated dev dep as declared even before
+    // its registry edge is fetched - the pre-resolution probe
+    // would otherwise fail with `UnknownDependency`.
+    let archive = dir.path().join("artifacts/devkit-1.0.0.tar.gz");
+    let hex = make_archive(
+        &archive,
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "devkit"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[features]
+simd = []
+
+[target.devkit]
+type = "library"
+sources = ["src/devkit.cc"]
+include-dirs = ["include"]
+"#,
+            ),
+            ("include/devkit.h", "#pragma once\nint devkit_answer();\n"),
+            (
+                "src/devkit.cc",
+                "#include \"devkit.h\"\nint devkit_answer() { return 8; }\n",
+            ),
+        ],
+    );
+    write_index_entry(
+        &dir.path().join("index"),
+        "devkit",
+        "1.0.0",
+        "{}",
+        &hex,
+        "../artifacts/devkit-1.0.0.tar.gz",
+    );
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dev-dependencies]
+devkit = ">=1"
+
+[features]
+simd-tests = ["devkit/simd"]
+default = ["simd-tests"]
+
+[target.applib]
+type = "library"
+sources = ["src/applib.cc"]
+
+[target.app_test]
+type = "test"
+sources = ["tests/app_test.cc"]
+deps = ["devkit"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/applib.cc"))
+        .write_str("int applib_answer() { return 8; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/tests/app_test.cc"))
+        .write_str("#include \"devkit.h\"\nint main() { return devkit_answer() == 8 ? 0 : 1; }\n")
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(
+        stdout.contains("test app:app_test ... ok"),
+        "feature entry referencing the versioned dev dep should not break cabin test: {stdout}"
+    );
+
+    // Under `cabin build` the dev dep is not activated, so the
+    // enabled default feature's `devkit/simd` entry still
+    // surfaces the unknown-dependency error - the ordinary
+    // command behavior is unchanged.
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build-ordinary"))
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_resolves_versioned_dev_dependency_and_locks_it() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();

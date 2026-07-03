@@ -134,6 +134,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         &initial_graph,
         &resolved_selection,
         &cabin_core::SelectionRequest::default(),
+        &BTreeSet::new(),
     )?;
 
     // scope the index requirement to the selected
@@ -305,8 +306,12 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // packages, including non-root workspace members.  Pure-workspace roots
     // (no `[package]`) work too - they take a synthetic identity.
     let resolved_selection = selected_resolution_packages(&graph, &request.selection)?;
-    let features =
-        compute_feature_resolution(&graph, &resolved_selection, &request.selection_request)?;
+    let features = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &request.selection_request,
+        &BTreeSet::new(),
+    )?;
     let dev_for: BTreeSet<String> = BTreeSet::new();
     let mut root_deps = collect_closure_versioned_deps_excluding_patches(
         &graph,

@@ -125,6 +125,11 @@ fn names(set: &BTreeSet<String>) -> Vec<&str> {
     set.iter().map(String::as_str).collect()
 }
 
+/// The empty activation set ordinary commands pass.
+fn no_dev() -> BTreeSet<String> {
+    BTreeSet::new()
+}
+
 /// A `[dev-dependencies]` declaration mirroring [`dep_normal`].
 fn dep_dev(name: &str) -> Dependency {
     Dependency {
@@ -138,12 +143,20 @@ fn dep_dev(name: &str) -> Dependency {
     }
 }
 
+/// The activation set `cabin test` passes for a selected `root`.
+fn dev_on_root() -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
+    set.insert("root".to_owned());
+    set
+}
+
 #[test]
-fn dev_edge_participates_when_materialized() {
-    // root dev-depends on harness; the loader activated the dev
-    // edge (as `cabin test` does for selected packages).  The
-    // resolver must traverse it: harness's default feature
-    // enables its optional dep.
+fn dev_edge_participates_when_activated() {
+    // root dev-depends on harness; the invocation activated
+    // root's dev-deps and the loader materialized the edge (as
+    // `cabin test` does for selected packages).  The resolver
+    // must traverse it: harness's default feature enables its
+    // optional dep.
     let root = make_project("root", vec![dep_dev("harness")], empty_features());
     let harness = make_project(
         "harness",
@@ -154,7 +167,14 @@ fn dev_edge_participates_when_materialized() {
         (root, vec![(1, DependencyKind::Dev)]),
         (harness, Vec::new()),
     ]);
-    let res = resolve_features(&graph, &[0], &RootFeatureRequest::default(), &host()).unwrap();
+    let res = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        &host(),
+        &dev_on_root(),
+    )
+    .unwrap();
     let harness_res = res.for_package(1);
     assert_eq!(
         names(&harness_res.enabled_features),
@@ -164,10 +184,11 @@ fn dev_edge_participates_when_materialized() {
 }
 
 #[test]
-fn dev_declaration_without_edge_stays_inert() {
-    // Same manifests, but the loader did not materialize the dev
-    // edge (ordinary `cabin build` policy, or a transitive dep's
-    // own dev-deps).  The declaration must not be traversed.
+fn dev_declaration_without_activation_stays_inert() {
+    // Same manifests, but the invocation did not activate
+    // root's dev-deps (ordinary `cabin build` policy; the loader
+    // materialized no edge either).  The declaration must not be
+    // traversed.
     let root = make_project("root", vec![dep_dev("harness")], empty_features());
     let harness = make_project(
         "harness",
@@ -175,10 +196,73 @@ fn dev_declaration_without_edge_stays_inert() {
         features(&["withopt"], &[("withopt", &["dep:optdep"])]),
     );
     let graph = make_graph(vec![(root, Vec::new()), (harness, Vec::new())]);
-    let res = resolve_features(&graph, &[0], &RootFeatureRequest::default(), &host()).unwrap();
+    let res = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        &host(),
+        &no_dev(),
+    )
+    .unwrap();
     let harness_res = res.for_package(1);
     assert!(harness_res.enabled_features.is_empty());
     assert!(harness_res.enabled_optional_deps.is_empty());
+}
+
+/// A versioned `[dev-dependencies]` declaration (registry
+/// requirement, no path).
+fn dep_dev_versioned(name: &str) -> Dependency {
+    Dependency {
+        name: pkg(name),
+        source: DependencySource::Version(semver::VersionReq::parse(">=1").unwrap()),
+        kind: DependencyKind::Dev,
+        optional: false,
+        features: Vec::new(),
+        default_features: true,
+        condition: None,
+    }
+}
+
+#[test]
+fn activated_versioned_dev_dep_participates_before_fetch() {
+    // A feature entry referencing an activated *versioned* dev
+    // dep must resolve even though no registry edge exists yet
+    // (pre-fetch probe graph).  The request is deferred, not an
+    // `UnknownDependency` error; the registry-materialized reload
+    // propagates it later.
+    let root = make_project(
+        "root",
+        vec![dep_dev_versioned("devcheck")],
+        features(&["simd-tests"], &[("simd-tests", &["devcheck/simd"])]),
+    );
+    let graph = make_graph(vec![(root, Vec::new())]);
+    let res = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        &host(),
+        &dev_on_root(),
+    )
+    .unwrap();
+    let root_res = res.for_package(0);
+    assert_eq!(
+        names(&root_res.enabled_features),
+        vec!["default", "simd-tests"]
+    );
+    // Without activation the same entry is an error - the
+    // ordinary-command behavior is unchanged.
+    let err = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        &host(),
+        &no_dev(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        FeatureResolverError::UnknownDependency { .. }
+    ));
 }
 
 #[test]
@@ -191,7 +275,14 @@ fn enables_default_feature_for_root() {
         features(&["a"], &[("a", &["b"]), ("b", &[])]),
     );
     let graph = make_graph(vec![(package, Vec::new())]);
-    let res = resolve_features(&graph, &[0], &RootFeatureRequest::default(), &host()).unwrap();
+    let res = resolve_features(
+        &graph,
+        &[0],
+        &RootFeatureRequest::default(),
+        &host(),
+        &no_dev(),
+    )
+    .unwrap();
     let r = res.for_package(0);
     assert_eq!(names(&r.enabled_features), vec!["a", "b", "default"]);
 }
@@ -209,7 +300,7 @@ fn no_default_features_skips_default_chain() {
         all_features: false,
         explicit_features: BTreeSet::new(),
     };
-    let res = resolve_features(&graph, &[0], &request, &host()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert!(r.enabled_features.is_empty());
 }
@@ -229,7 +320,7 @@ fn explicit_features_request_only_those_features() {
         all_features: false,
         explicit_features: explicit,
     };
-    let res = resolve_features(&graph, &[0], &request, &host()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert_eq!(names(&r.enabled_features), vec!["b"]);
 }
@@ -243,7 +334,7 @@ fn all_features_includes_every_declared_feature() {
         all_features: true,
         explicit_features: BTreeSet::new(),
     };
-    let res = resolve_features(&graph, &[0], &request, &host()).unwrap();
+    let res = resolve_features(&graph, &[0], &request, &host(), &no_dev()).unwrap();
     let r = res.for_package(0);
     assert_eq!(names(&r.enabled_features), vec!["a", "b"]);
 }
@@ -263,6 +354,7 @@ fn unknown_root_feature_errors_clearly() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap_err();
     match err {
@@ -299,6 +391,7 @@ fn dep_colon_enables_optional_dependency() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap();
     let r = res.for_package(1);
@@ -329,6 +422,7 @@ fn dep_colon_on_non_optional_dep_errors_clearly() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap_err();
     match err {
@@ -370,6 +464,7 @@ fn dep_slash_feature_requests_dep_feature_and_enables_optional() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap();
     let openssl_features = res.for_package(0);
@@ -398,6 +493,7 @@ fn dep_colon_referencing_undeclared_dependency_errors_clearly() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap_err();
     match err {
@@ -438,6 +534,7 @@ fn dep_slash_requesting_unknown_dep_feature_errors_clearly() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap_err();
     match err {
@@ -488,6 +585,7 @@ fn additive_unification_across_paths() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap();
     let r = res.for_package(0);
@@ -505,7 +603,14 @@ fn default_features_request_is_default_on() {
         (dep, Vec::new()),
         (root, vec![(0, DependencyKind::Normal)]),
     ]);
-    let res = resolve_features(&graph, &[1], &RootFeatureRequest::default(), &host()).unwrap();
+    let res = resolve_features(
+        &graph,
+        &[1],
+        &RootFeatureRequest::default(),
+        &host(),
+        &no_dev(),
+    )
+    .unwrap();
     let r = res.for_package(0);
     assert!(r.enabled_features.contains("d"));
 }
@@ -524,7 +629,14 @@ fn default_features_false_does_not_globally_disable() {
         (dep, Vec::new()),
         (root, vec![(0, DependencyKind::Normal)]),
     ]);
-    let res = resolve_features(&graph, &[1], &RootFeatureRequest::default(), &host()).unwrap();
+    let res = resolve_features(
+        &graph,
+        &[1],
+        &RootFeatureRequest::default(),
+        &host(),
+        &no_dev(),
+    )
+    .unwrap();
     let r = res.for_package(0);
     // Per-edge `features = ["d"]` plus `default-features = false`
     // means the unified result includes only the explicit set.
@@ -555,6 +667,7 @@ fn local_feature_cycle_is_terminating_and_recorded() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap();
     let r = res.for_package(0);
@@ -595,6 +708,7 @@ fn unknown_local_feature_in_chain_errors_clearly() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap_err();
     assert!(matches!(err, FeatureResolverError::UnknownFeature { .. }));
@@ -617,8 +731,8 @@ fn deterministic_output_for_identical_inputs() {
         (root, vec![(0, DependencyKind::Normal)]),
     ]);
     let req = RootFeatureRequest::default();
-    let r1 = resolve_features(&graph, &[1], &req, &host()).unwrap();
-    let r2 = resolve_features(&graph, &[1], &req, &host()).unwrap();
+    let r1 = resolve_features(&graph, &[1], &req, &host(), &no_dev()).unwrap();
+    let r2 = resolve_features(&graph, &[1], &req, &host(), &no_dev()).unwrap();
     assert_eq!(r1, r2);
 }
 
@@ -656,6 +770,7 @@ fn dep_colon_skips_optional_dep_when_target_does_not_match() {
             explicit_features: explicit,
         },
         &host(),
+        &no_dev(),
     )
     .unwrap();
     let r = res.for_package(1);

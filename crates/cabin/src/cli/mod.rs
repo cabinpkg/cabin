@@ -1634,11 +1634,18 @@ pub(crate) fn compute_feature_resolution(
     graph: &PackageGraph,
     selection: &cabin_workspace::ResolvedSelection,
     request: &cabin_core::SelectionRequest,
+    dev_for: &BTreeSet<String>,
 ) -> Result<cabin_feature::FeatureResolution> {
     let root_request: cabin_feature::RootFeatureRequest = request.into();
     let platform = cabin_core::TargetPlatform::current();
-    cabin_feature::resolve_features(graph, &selection.packages, &root_request, &platform)
-        .map_err(anyhow::Error::from)
+    cabin_feature::resolve_features(
+        graph,
+        &selection.packages,
+        &root_request,
+        &platform,
+        dev_for,
+    )
+    .map_err(anyhow::Error::from)
 }
 
 /// Pick the primary packages that contribute versioned
@@ -1926,8 +1933,12 @@ pub(crate) fn run_artifact_pipeline(
     let manifest_path = request.manifest_path;
     let graph = request.initial_graph;
     let resolved_selection = selected_resolution_packages(graph, &request.selection)?;
-    let features =
-        compute_feature_resolution(graph, &resolved_selection, request.selection_request)?;
+    let features = compute_feature_resolution(
+        graph,
+        &resolved_selection,
+        request.selection_request,
+        request.dev_for,
+    )?;
     let mut root_deps = collect_closure_versioned_deps_excluding_patches(
         graph,
         &resolved_selection,

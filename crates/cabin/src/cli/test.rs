@@ -233,8 +233,12 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let probe_selection =
         cabin_workspace::resolve_package_selection(&dev_probe_graph, &workspace_selection)?;
 
-    let initial_features =
-        compute_feature_resolution(&dev_probe_graph, &probe_selection, &initial_request)?;
+    let initial_features = compute_feature_resolution(
+        &dev_probe_graph,
+        &probe_selection,
+        &initial_request,
+        &dev_for,
+    )?;
 
     let resolved_index_source = crate::cli::config::resolve_index_source(
         args.index_path.as_deref(),
@@ -402,7 +406,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
     let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+        compute_feature_resolution(&graph, &resolved_selection, &selection_request, &dev_for)?;
     let prep =
         crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,

@@ -138,7 +138,12 @@ pub(crate) fn explain(
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
-    let feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
+    let feature_resolution = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &request,
+        &std::collections::BTreeSet::new(),
+    )?;
 
     let explanation = match &args.command {
         ExplainCommand::Package { name } => {
@@ -220,8 +225,12 @@ pub(crate) fn explain(
             let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             // Feature-gated profile flags need the resolved feature
             // set; compute it before the build-flag preamble.
-            let feature_resolution =
-                crate::cli::compute_feature_resolution(&graph, &resolved_selection, &request)?;
+            let feature_resolution = crate::cli::compute_feature_resolution(
+                &graph,
+                &resolved_selection,
+                &request,
+                &std::collections::BTreeSet::new(),
+            )?;
             let prep = crate::cli::build_prep::resolve_build_prep(
                 crate::cli::build_prep::BuildConfigInputs {
                     graph: &graph,
