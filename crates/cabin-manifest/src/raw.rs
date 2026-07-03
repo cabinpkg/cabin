@@ -200,9 +200,9 @@ pub(crate) struct RawPackage {
     /// `[package]`-level language standard defaults.  Validated into
     /// typed `cabin_core::CStandard` / `CxxStandard` values by the
     /// parser; the interface fields are defaults for library-like
-    /// targets only.  Each field accepts either a literal standard
-    /// string or the `{ workspace = true }` marker that opts into
-    /// the matching `[workspace]` default.
+    /// targets only (and also accept `"none"`).  Each field accepts
+    /// either a literal standard string or the `{ workspace = true }`
+    /// marker that opts into the matching `[workspace]` default.
     #[serde(default, rename = "c-standard")]
     pub(crate) c_standard: Option<RawStandardField>,
     #[serde(default, rename = "cxx-standard")]
@@ -211,6 +211,11 @@ pub(crate) struct RawPackage {
     pub(crate) interface_c_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-cxx-standard")]
     pub(crate) interface_cxx_standard: Option<RawStandardField>,
+    /// `[package]`-level default for the per-target `gnu-extensions`
+    /// boolean.  Plain boolean only - no `{ workspace = true }`
+    /// marker form.
+    #[serde(default, rename = "gnu-extensions")]
+    pub(crate) gnu_extensions: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -241,6 +246,10 @@ pub(crate) struct RawTarget {
     pub(crate) interface_c_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-cxx-standard")]
     pub(crate) interface_cxx_standard: Option<RawStandardField>,
+    /// Per-target `gnu-extensions` override (target ▶ package ▶
+    /// `false`).
+    #[serde(default, rename = "gnu-extensions")]
+    pub(crate) gnu_extensions: Option<bool>,
 }
 
 /// Cabin package dependency entry, e.g. one row of

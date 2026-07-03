@@ -16,6 +16,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         cxx_standard,
         interface_c_standard,
         interface_cxx_standard,
+        gnu_extensions,
     } = raw;
 
     let target_name = TargetName::new(name.clone())?;
@@ -48,6 +49,7 @@ pub(super) fn target_from_raw(name: String, raw: RawTarget) -> Result<Target, Ma
         cxx_standard.as_ref(),
         interface_c_standard.as_ref(),
         interface_cxx_standard.as_ref(),
+        gnu_extensions,
     )?;
     // Interface standards describe what consumers of a library's
     // public headers need; executable-like targets have no
