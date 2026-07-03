@@ -11,6 +11,5 @@ type = "header-only"
 include-dirs = ["include"]
 # Upstream publishes a C++11 interface requirement
 # (target_compile_features(... INTERFACE cxx_std_11)); declaring it
-# keeps Cabin's c++17 fallback from rejecting valid c++11 / c++14
-# consumers.
+# keeps valid c++11 / c++14 consumers from being rejected.
 interface-cxx-standard = "c++11"

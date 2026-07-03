@@ -11,3 +11,7 @@ version = "2.4.0"
 [target.uthash]
 type = "header-only"
 include-dirs = ["src"]
+# Header-only targets must declare an interface standard; upstream
+# is portable ANSI C, so c89 is the floor and no consumer's own
+# C standard can fall below it.
+interface-c-standard = "c89"

@@ -33,6 +33,9 @@ sources = [
   "pngwutil.c",
 ]
 include-dirs = ["."]
+# Cabin requires an explicit standard for every compiled language;
+# c11 is what this port has always compiled as.
+c-standard = "c11"
 # The portable sources reference the SIMD init hooks
 # (png_init_filter_functions_neon, _sse2) under the prebuilt config's
 # defaults, but those hooks live in translation units not built above.
