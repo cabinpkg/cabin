@@ -88,14 +88,14 @@ export function getSearchCountLabel(
     if (pagination.total === 0) {
         return query
             ? `No packages match "${query}".`
-            : "No packages are available.";
+            : "No packages are published yet.";
     }
 
-    return `Displaying ${pagination.first}-${pagination.last} of ${pagination.total} packages`;
+    return `Showing ${pagination.first}-${pagination.last} of ${pagination.total} packages`;
 }
 
 export function getEmptySearchMessage(query: string): string {
     return query
-        ? `We couldn't find any packages matching "${query}". Try a different search term.`
-        : "No packages are available at the moment.";
+        ? `Try a shorter or different search term.`
+        : "No packages are published yet.";
 }

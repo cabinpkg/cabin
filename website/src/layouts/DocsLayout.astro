@@ -32,10 +32,10 @@ const editUrl = docEditUrl(id);
     >
         <div class="lg:sticky lg:top-[86px] lg:self-start">
             <details
-                class="rounded-2xl border border-slate-800/80 bg-slate-950/40 lg:hidden"
+                class="rounded-sm border border-line bg-night-raised lg:hidden"
             >
                 <summary
-                    class="cursor-pointer list-none px-4 py-3 text-sm font-bold text-slate-200"
+                    class="cursor-pointer list-none px-4 py-3 text-sm font-bold text-ink"
                 >
                     Documentation menu
                 </summary>
@@ -57,7 +57,7 @@ const editUrl = docEditUrl(id);
                     href={editUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="inline-flex items-center gap-1.5 text-sm text-slate-400 transition hover:text-sky-300"
+                    class="inline-flex items-center gap-1.5 text-sm text-ink-muted transition hover:text-steel-bright"
                 >
                     <Icon name="external" class="h-4 w-4" />
                     Edit this page on GitHub
@@ -65,7 +65,7 @@ const editUrl = docEditUrl(id);
             </div>
 
             <div
-                class="prose prose-invert docs-prose max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-300 prose-a:no-underline hover:prose-a:underline prose-code:text-sky-100 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-800 prose-img:rounded-lg"
+                class="prose prose-invert docs-prose max-w-none prose-headings:scroll-mt-24 prose-a:text-steel prose-a:no-underline hover:prose-a:underline prose-pre:rounded-md prose-pre:border prose-pre:border-line prose-img:rounded-md"
             >
                 <slot />
             </div>
@@ -74,15 +74,15 @@ const editUrl = docEditUrl(id);
                 (prev || next) && (
                     <nav
                         aria-label="Documentation pages"
-                        class="mt-12 flex flex-col gap-4 border-t border-slate-800/80 pt-6 sm:flex-row sm:justify-between"
+                        class="mt-12 flex flex-col gap-4 border-t border-line pt-6 sm:flex-row sm:justify-between"
                     >
                         {prev ? (
                             <a
                                 href={docPath(prev.slug)}
-                                class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-sky-400/50 sm:max-w-[48%]"
+                                class="group flex flex-col rounded-sm border border-line bg-night-raised px-4 py-3 transition-colors hover:border-steel/60 sm:max-w-[48%]"
                             >
-                                <span class="text-xs text-slate-400">Previous</span>
-                                <span class="font-semibold text-slate-200 group-hover:text-sky-200">
+                                <span class="font-mono text-xs text-ink-faint">Previous</span>
+                                <span class="font-semibold text-ink group-hover:text-steel-bright">
                                     {prev.label}
                                 </span>
                             </a>
@@ -92,10 +92,10 @@ const editUrl = docEditUrl(id);
                         {next && (
                             <a
                                 href={docPath(next.slug)}
-                                class="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 text-right transition hover:border-sky-400/50 sm:ml-auto sm:max-w-[48%]"
+                                class="group flex flex-col rounded-sm border border-line bg-night-raised px-4 py-3 text-right transition-colors hover:border-steel/60 sm:ml-auto sm:max-w-[48%]"
                             >
-                                <span class="text-xs text-slate-400">Next</span>
-                                <span class="font-semibold text-slate-200 group-hover:text-sky-200">
+                                <span class="font-mono text-xs text-ink-faint">Next</span>
+                                <span class="font-semibold text-ink group-hover:text-steel-bright">
                                     {next.label}
                                 </span>
                             </a>
@@ -111,17 +111,17 @@ const editUrl = docEditUrl(id);
                     aria-label="On this page"
                     class="hidden xl:sticky xl:top-[86px] xl:block xl:self-start"
                 >
-                    <p class="pb-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                    <p class="pb-2 font-mono text-xs font-medium uppercase tracking-wider text-ink-faint">
                         On this page
                     </p>
-                    <ul data-toc class="space-y-1 border-l border-slate-800">
+                    <ul data-toc class="space-y-1 border-l border-line">
                         {toc.map((heading) => (
                             <li>
                                 <a
                                     href={`#${heading.slug}`}
                                     data-toc-link={heading.slug}
                                     class:list={[
-                                        "toc-link block border-l border-transparent py-1 text-sm text-slate-400 transition hover:border-sky-400 hover:text-slate-100",
+                                        "toc-link block border-l border-transparent py-1 text-sm text-ink-muted transition hover:border-steel hover:text-ink",
                                         heading.depth === 3 ? "pl-6" : "pl-3",
                                     ]}
                                 >

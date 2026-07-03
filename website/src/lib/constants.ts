@@ -1,7 +1,7 @@
 export const SITE_URL = "https://cabinpkg.com";
 export const SITE_NAME = "Cabin";
 export const SITE_DESCRIPTION =
-    "Cargo-style package manager and build system for conventional C/C++ projects.";
+    "C/C++ package manager and build system, inspired by Cargo";
 
 export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;

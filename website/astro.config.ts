@@ -17,6 +17,10 @@ export default defineConfig({
     // both satisfy the strict CSP (script-src 'self', connect-src 'self').
     prefetch: { prefetchAll: true },
     markdown: {
+        // Cool terminal palette for code blocks, matching the site's
+        // steel/pine color system (the block background itself is pinned to
+        // the surface scale in global.css).
+        shikiConfig: { theme: "nord" },
         // Build the default Astro markdown pipeline (GFM, Shiki, heading IDs)
         // plus: a remark step mapping the docs' relative `*.md` cross-links to
         // `/docs/<slug>/`, and rehype steps that give each heading an id and

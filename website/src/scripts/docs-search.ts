@@ -69,7 +69,7 @@ fetchDocsIndex()
         }
         if (emptyState && emptyMessage) {
             emptyState.classList.remove("hidden");
-            emptyMessage.textContent = `The documentation index could not be loaded: ${error.message}`;
+            emptyMessage.textContent = `Loading the docs index failed: ${error.message}`;
         }
     });
 

@@ -1,0 +1,36 @@
+---
+import Icon from "./Icon.astro";
+import type { IconName } from "./Icon.astro";
+
+interface Props {
+    name: IconName;
+    size?: "sm" | "md" | "lg" | "xl";
+    class?: string;
+}
+
+const { name, size = "md", class: className = "" } = Astro.props;
+
+const sizes = {
+    sm: "h-8 w-8",
+    md: "h-10 w-10",
+    lg: "h-12 w-12",
+    xl: "h-16 w-16",
+};
+
+const iconSizes = {
+    sm: "h-4 w-4",
+    md: "h-4 w-4",
+    lg: "h-5 w-5",
+    xl: "h-7 w-7",
+};
+---
+
+<span
+    class:list={[
+        "inline-flex items-center justify-center rounded-sm border border-line bg-night-lifted text-steel",
+        sizes[size],
+        className,
+    ]}
+>
+    <Icon name={name} class={iconSizes[size]} />
+</span>

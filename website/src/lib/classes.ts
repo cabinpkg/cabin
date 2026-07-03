@@ -5,29 +5,28 @@ export function joinClasses(...classes: ClassValue[]): string {
 }
 
 export const focusRingClass =
-    "focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-sky-300/75";
-export const surfaceClass =
-    "border border-slate-800 bg-slate-950/70 shadow-xl shadow-black/10";
+    "focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-steel";
+export const surfaceClass = "border border-line bg-night-raised";
 export const interactiveSurfaceClass =
-    "transition hover:-translate-y-0.5 hover:border-sky-400/50 hover:bg-slate-900/90";
+    "transition-colors hover:border-steel/60 hover:bg-night-lifted";
 
 export const buttonBaseClass =
-    "inline-flex items-center justify-center gap-2 rounded-full text-sm font-bold transition";
+    "inline-flex items-center justify-center gap-2 rounded-sm text-sm font-semibold transition-colors";
 export const buttonVariantClasses = {
-    primary:
-        "bg-gradient-to-br from-sky-500 to-violet-600 px-5 py-3 text-white shadow-lg shadow-sky-950/40 hover:-translate-y-0.5 hover:shadow-violet-950/40",
+    primary: "bg-steel px-5 py-3 text-steel-ink hover:bg-steel-bright",
     secondary:
-        "border border-sky-400/45 px-5 py-3 text-sky-200 hover:-translate-y-0.5 hover:bg-sky-400/10 hover:text-white",
-    ghost: "border border-slate-700/80 bg-slate-900/70 px-3 py-2 text-slate-300 hover:border-sky-400/60 hover:bg-sky-400/10 hover:text-white",
+        "border border-line-strong px-5 py-3 text-ink hover:border-steel hover:text-steel-bright",
+    ghost: "border border-transparent px-3 py-2 text-ink-muted hover:border-line hover:bg-night-lifted hover:text-ink",
 } as const;
 export const iconButtonClass = "h-10 w-10 px-0 py-0";
 
 export const badgeToneClasses = {
-    default: "border-sky-400/24 bg-sky-400/12 text-sky-200",
-    success: "border-emerald-400/24 bg-emerald-400/12 text-emerald-200",
-    warning: "border-amber-400/24 bg-amber-400/12 text-amber-200",
-    muted: "border-slate-700 bg-slate-800/80 text-slate-200",
+    default: "border-steel/35 bg-steel/10 text-steel-bright",
+    success: "border-pine/35 bg-pine/10 text-pine",
+    warning: "border-steel/35 bg-steel/10 text-steel-bright",
+    muted: "border-line-strong bg-night-lifted text-ink-muted",
 } as const;
 
-export const sponsorButtonClass =
-    "border-rose-400/30 bg-rose-500/10 text-rose-200 hover:border-rose-300/70 hover:bg-rose-500/20";
+// Rendered as a ghost button; only the heart icon carries the steel accent,
+// so no utilities here may conflict with the ghost variant's own colors.
+export const sponsorButtonClass = "[&_svg]:text-steel";

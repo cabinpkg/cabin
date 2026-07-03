@@ -13,7 +13,7 @@ const { tone = "default", class: className = "", ...attrs } = Astro.props;
 <span
     {...attrs}
     class={joinClasses(
-        "inline-flex items-center justify-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold",
+        "inline-flex items-center justify-center gap-1.5 rounded-sm border px-2 py-1 font-mono text-xs font-medium",
         badgeToneClasses[tone],
         className,
     )}

@@ -19,6 +19,8 @@
         "generate": "graphql-codegen --config codegen.ts"
     },
     "dependencies": {
+        "@fontsource-variable/cabin": "^5.2.8",
+        "@fontsource/ibm-plex-mono": "^5.2.7",
         "@github/combobox-nav": "^3.0.2",
         "@lucide/astro": "^1.23.0",
         "fuse.js": "^7.4.2",

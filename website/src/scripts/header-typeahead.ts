@@ -102,12 +102,12 @@ function initHeaderTypeahead() {
         item.setAttribute("role", "option");
         item.dataset.href = suggestion.href;
         item.className =
-            "aria-selected:bg-sky-500/20 aria-selected:text-white hover:bg-sky-500/10";
+            "aria-selected:bg-steel/15 aria-selected:text-ink hover:bg-night-lifted";
 
         const link = document.createElement("a");
         link.href = suggestion.href;
         link.tabIndex = -1;
-        link.className = "block px-4 py-2 text-sm text-slate-200 transition";
+        link.className = "block px-4 py-2 text-sm text-ink transition-colors";
 
         const name = document.createElement("span");
         name.className = "block truncate font-semibold";
@@ -116,7 +116,7 @@ function initHeaderTypeahead() {
 
         if (suggestion.meta) {
             const metaLine = document.createElement("span");
-            metaLine.className = "block truncate text-xs text-slate-400";
+            metaLine.className = "block truncate text-xs text-ink-faint";
             metaLine.textContent = suggestion.meta;
             link.appendChild(metaLine);
         }

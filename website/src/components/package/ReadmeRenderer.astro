@@ -13,11 +13,11 @@ const readmeHtml = renderReadmeMarkdown(readme);
 
 <Card class="p-6">
     <div class="mb-4 flex items-center gap-2">
-        <Icon name="book" class="h-5 w-5 text-sky-300" />
+        <Icon name="book" class="h-5 w-5 text-steel" />
         <h2 class="text-xl font-bold">README</h2>
     </div>
     <div
-        class="prose prose-invert max-w-none prose-a:text-sky-300 prose-code:text-sky-100 prose-pre:border prose-pre:border-slate-800 prose-pre:bg-slate-950"
+        class="prose prose-invert max-w-none prose-a:text-steel prose-pre:border prose-pre:border-line"
         set:html={readmeHtml}
     />
 </Card>

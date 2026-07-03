@@ -806,6 +806,16 @@
   resolved "https://registry.yarnpkg.com/@fastify/busboy/-/busboy-3.2.0.tgz#13ed8212f3b9ba697611529d15347f8528058cea"
   integrity sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA==
 
+"@fontsource-variable/cabin@^5.2.8":
+  version "5.2.8"
+  resolved "https://registry.yarnpkg.com/@fontsource-variable/cabin/-/cabin-5.2.8.tgz#fcf4387377536d3fbb443de346ac404731c9a5ab"
+  integrity sha512-6zCXSPy1ULBct/we+0oV1l+JoGqljyU4lVmEETb+5qSaNLeisZ3zRmm1+F7o6yXbJOt/K1wMBeVFYWm6GS9aWw==
+
+"@fontsource/ibm-plex-mono@^5.2.7":
+  version "5.2.7"
+  resolved "https://registry.yarnpkg.com/@fontsource/ibm-plex-mono/-/ibm-plex-mono-5.2.7.tgz#ef5b6f052115fdf6666208a5f8a0f13fcd7ba1fd"
+  integrity sha512-MKAb8qV+CaiMQn2B0dIi1OV3565NYzp3WN5b4oT6LTkk+F0jR6j0ZN+5BKJiIhffDC3rtBULsYZE65+0018z9w==
+
 "@github/combobox-nav@^3.0.2":
   version "3.0.2"
   resolved "https://registry.yarnpkg.com/@github/combobox-nav/-/combobox-nav-3.0.2.tgz#e3a0ca40d8944cd775795f0348ca4a557334a2ae"

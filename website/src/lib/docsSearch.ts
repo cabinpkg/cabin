@@ -49,7 +49,7 @@ export function getDocsSearchCountLabel(
     query: string,
 ): string {
     if (total === 0) {
-        return "No documentation is available.";
+        return "No documentation is published yet.";
     }
     if (query === "") {
         return `${total} documentation ${pages(total)}`;
@@ -62,8 +62,8 @@ export function getDocsSearchCountLabel(
 
 export function getDocsEmptySearchMessage(query: string): string {
     return query
-        ? `We couldn't find any documentation matching "${query}". Try a different search term.`
-        : "No documentation is available at the moment.";
+        ? `Try a shorter or different search term.`
+        : "No documentation is published yet.";
 }
 
 function pages(count: number): string {

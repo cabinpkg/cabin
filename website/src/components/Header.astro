@@ -24,9 +24,7 @@ const searchPlaceholder = isDocs ? "Search docs..." : "Search packages...";
 const searchLabel = isDocs ? "Search documentation" : "Search packages";
 ---
 
-<header
-    class="sticky top-0 z-50 border-b border-slate-800/80 bg-[#05070d]/82 backdrop-blur-xl"
->
+<header class="sticky top-0 z-50 border-b border-line bg-night">
     <nav
         class="mx-auto flex h-[70px] w-full max-w-screen-2xl items-center gap-4 px-4 sm:px-6"
         aria-label="Main navigation"
@@ -45,25 +43,25 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
             <label class="sr-only" for="site-search">{searchLabel}</label>
             <div class="relative">
                 <div
-                    class="flex h-10 items-center gap-2 rounded-full border border-slate-700/80 bg-slate-950/70 px-4 shadow-lg shadow-black/10 transition focus-within:border-sky-400/70"
+                    class="flex h-10 items-center gap-2 rounded-sm border border-line bg-night-raised px-3.5 transition-colors focus-within:border-steel"
                 >
                     <Icon
                         name="search"
-                        class="h-4 w-4 shrink-0 text-slate-500"
+                        class="h-4 w-4 shrink-0 text-ink-faint"
                     />
                     <input
                         id="site-search"
                         name="q"
                         type="search"
                         placeholder={searchPlaceholder}
-                        class="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                        class="w-full bg-transparent font-mono text-sm text-ink placeholder:text-ink-faint focus:outline-none"
                     />
                 </div>
                 <ul
                     id="site-search-suggestions"
                     role="listbox"
                     hidden
-                    class="absolute inset-x-0 top-full z-40 mt-2 max-h-80 overflow-y-auto rounded-2xl border border-slate-700/80 bg-slate-950/95 py-2 shadow-2xl shadow-black/50 backdrop-blur-xl"
+                    class="absolute inset-x-0 top-full z-40 mt-2 max-h-80 overflow-y-auto rounded-sm border border-line-strong bg-night-raised py-2 shadow-lg shadow-black/50"
                 >
                 </ul>
             </div>
@@ -81,7 +79,7 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                 iconOnly
                 ariaLabel={NAV_LINKS.github.label}
             >
-                <BrandIcon name="github" class="h-4 w-4" />
+                <BrandIcon name="github" class="h-5 w-5" />
             </Button>
             <ExternalLink
                 href={NAV_LINKS.sponsor.href}
