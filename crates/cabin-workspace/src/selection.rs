@@ -7,6 +7,7 @@
 //! ordered list of selected primary-package indices.  Centralizing
 //! this here keeps CLI code free of workspace-graph algorithms.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::WorkspaceError;
@@ -134,8 +135,10 @@ pub fn resolve_package_selection(
 
     let exclude_indices = exclude_indices(graph, &selection.exclude)?;
 
-    let candidates: Vec<usize> = match &selection.mode {
-        SelectionMode::CurrentPackage => current_package_default(graph),
+    // Borrow the graph's index lists where possible; only the
+    // `ExplicitPackages` arm needs an owned, freshly-built list.
+    let candidates: Cow<'_, [usize]> = match &selection.mode {
+        SelectionMode::CurrentPackage => Cow::Borrowed(current_package_default(graph)),
         SelectionMode::DefaultMembers => {
             if !graph.is_workspace_root {
                 return Err(WorkspaceError::DefaultMembersWithoutWorkspace);
@@ -145,16 +148,16 @@ pub fn resolve_package_selection(
                     member: "<no default-members declared>".to_owned(),
                 });
             }
-            graph.default_members.clone()
+            Cow::Borrowed(graph.default_members.as_slice())
         }
         SelectionMode::WholeWorkspace => {
             if graph.is_workspace_root {
-                graph.primary_packages.clone()
+                Cow::Borrowed(graph.primary_packages.as_slice())
             } else {
                 // `--workspace` against a single-package package
                 // selects that package - keeps CI users from
                 // having to special-case a non-workspace tree.
-                current_package_default(graph)
+                Cow::Borrowed(current_package_default(graph))
             }
         }
         SelectionMode::ExplicitPackages(names) => {
@@ -177,12 +180,13 @@ pub fn resolve_package_selection(
                     out.push(idx);
                 }
             }
-            out
+            Cow::Owned(out)
         }
     };
 
     let mut packages: Vec<usize> = candidates
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|i| !exclude_indices.contains(i))
         .collect();
     // Stable, deterministic ordering: by package name.
@@ -199,19 +203,19 @@ pub fn resolve_package_selection(
     Ok(ResolvedSelection { packages })
 }
 
-fn current_package_default(graph: &PackageGraph) -> Vec<usize> {
+fn current_package_default(graph: &PackageGraph) -> &[usize] {
     if graph.is_workspace_root {
         if graph.default_members.is_empty() {
             // Documented fallback: all workspace members
             // when default-members is absent.
-            graph.primary_packages.clone()
+            &graph.primary_packages
         } else {
-            graph.default_members.clone()
+            &graph.default_members
         }
-    } else if let Some(root) = graph.root_package {
-        vec![root]
+    } else if let Some(root) = &graph.root_package {
+        std::slice::from_ref(root)
     } else {
-        graph.primary_packages.clone()
+        &graph.primary_packages
     }
 }
 

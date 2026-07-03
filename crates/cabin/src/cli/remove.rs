@@ -38,9 +38,9 @@ pub(crate) struct RemoveArgs {
 
 pub(crate) fn remove(args: &RemoveArgs, reporter: Reporter) -> Result<()> {
     let invocation = super::resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let manifest_path =
+    let (manifest_path, _, _) =
         super::select_single_package_manifest(&invocation, &args.workspace_selection, "remove")?
-            .manifest_path;
+            .into_parts();
     let mut doc = super::manifest_edit::read_document(&manifest_path)?;
 
     let table = if args.dev {

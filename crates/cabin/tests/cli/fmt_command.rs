@@ -41,19 +41,6 @@ fn fake_formatter_path() -> PathBuf {
     candidate
 }
 
-/// Single-package fixture used by most fmt tests.  The
-/// manifest declares an `executable` target so the
-/// surrounding workspace bits look real, but `cabin fmt`
-/// only cares about the on-disk source files.
-fn write_minimal_project(root: &Path) {
-    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
-        .write_str("int main() { return 0; }\n")
-        .unwrap();
-}
-
 fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap()
 }

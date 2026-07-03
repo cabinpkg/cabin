@@ -3,9 +3,11 @@
 //! Cabin recognizes explicit, semantic build flags that compose
 //! across these layers, in order:
 //!
-//! 1. Built-in backend defaults (today: the planner adds
-//!    `-std=c11` for C compiles and `-std=c++17` for C++
-//!    compiles).
+//! 1. Built-in backend defaults (currently empty for `[profile]`:
+//!    the effective per-target standard flag comes from the
+//!    language-standard model in [`crate::language_standard`], and
+//!    the profile's `-O0` / `-g` etc. come from the resolved
+//!    profile - neither is a `[profile]` layer).
 //! 2. Per-package general `[profile]` flags from the manifest.
 //! 3. Per-package matching `[target.'cfg(...)'.profile]` flags.
 //! 4. For each profile in the selected root-to-leaf inheritance
@@ -243,12 +245,12 @@ impl ResolvedProfileFlags {
             "include_dirs": self
                 .include_dirs
                 .iter()
-                .map(|p| p.as_str().to_owned())
+                .map(|p| p.as_str())
                 .collect::<Vec<_>>(),
             "system_include_dirs": self
                 .system_include_dirs
                 .iter()
-                .map(|p| p.as_str().to_owned())
+                .map(|p| p.as_str())
                 .collect::<Vec<_>>(),
             "extra_compile_args": self.extra_compile_args,
             "cflags": self.cflags,
@@ -361,11 +363,7 @@ macro_rules! append_profile_flag_layer {
         // semantics expected by the inherits-chain merge accumulator,
         // which is itself a layer for that same finalize step.
         target.defines.extend(layer.defines.iter().cloned());
-        for inc in &layer.include_dirs {
-            if !target.include_dirs.iter().any(|existing| existing == inc) {
-                target.include_dirs.push(inc.clone());
-            }
-        }
+        extend_dedup_first_occurrence(&mut target.include_dirs, &layer.include_dirs);
         target.cflags.extend(layer.cflags.iter().cloned());
         target.cxxflags.extend(layer.cxxflags.iter().cloned());
         target.ldflags.extend(layer.ldflags.iter().cloned());
@@ -373,12 +371,18 @@ macro_rules! append_profile_flag_layer {
         // `-l` resolution is order-sensitive, and a duplicate `-lm`
         // is noise, so we mirror the include-dir treatment rather
         // than the append-verbatim used for the raw flag arrays.
-        for lib in &layer.link_libs {
-            if !target.link_libs.iter().any(|existing| existing == lib) {
-                target.link_libs.push(lib.clone());
-            }
-        }
+        extend_dedup_first_occurrence(&mut target.link_libs, &layer.link_libs);
     }};
+}
+
+/// Append `items` into `target`, skipping any item already present,
+/// so the first occurrence wins and order is preserved.
+fn extend_dedup_first_occurrence<T: PartialEq + Clone>(target: &mut Vec<T>, items: &[T]) {
+    for item in items {
+        if !target.iter().any(|existing| existing == item) {
+            target.push(item.clone());
+        }
+    }
 }
 
 impl ProfileFlags {
@@ -1110,6 +1114,31 @@ mod tests {
         );
         assert_eq!(r.link_libs, vec!["pthread".to_owned()]);
         assert!(r.ldflags.is_empty(), "untrusted ldflags must be dropped");
+    }
+
+    #[test]
+    fn is_safe_link_lib_accepts_bare_library_names() {
+        for good in ["pthread", "m", "dl", "stdc++", "c++_shared", "libname_v1.2"] {
+            assert!(is_safe_link_lib(good), "expected {good:?} to be accepted");
+        }
+    }
+
+    #[test]
+    fn is_safe_link_lib_rejects_flags_paths_and_whitespace() {
+        for bad in [
+            "",
+            "-lm",
+            "-Wl,--foo",
+            "+atomic",
+            ".hidden",
+            "../foo",
+            "a/b",
+            "/abs",
+            "has space",
+            "tab\tname",
+        ] {
+            assert!(!is_safe_link_lib(bad), "expected {bad:?} to be rejected");
+        }
     }
 
     #[test]

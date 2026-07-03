@@ -978,7 +978,7 @@ fn resolve_dep_manifest_path(
             }
             canonicalize(&candidate)?
         }
-        DependencySource::Port(PortDepSource::Path(rel)) => {
+        DependencySource::Port(port_source) => {
             if ctx.skip_port_edges {
                 return Ok(None);
             }
@@ -992,48 +992,44 @@ fn resolve_dep_manifest_path(
             let tolerate = ctx
                 .tolerate_strict_set
                 .is_some_and(|set| !set.contains(parent_name));
-            let port_dir = manifest_dir.join(rel);
-            if !port_dir.is_dir() {
-                if tolerate {
-                    return Ok(None);
+            // Locate the prepared port entry plus the typed error
+            // to raise when it is missing; the tolerate policy
+            // below is shared by both port sources.
+            let (entry, missing) = match port_source {
+                PortDepSource::Path(rel) => {
+                    let port_dir = manifest_dir.join(rel);
+                    if !port_dir.is_dir() {
+                        if tolerate {
+                            return Ok(None);
+                        }
+                        return Err(WorkspaceError::PortDirectoryMissing {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: parent_name.to_owned(),
+                            port_dir,
+                        });
+                    }
+                    let port_dir_canonical = canonicalize(&port_dir)?;
+                    (
+                        ctx.ports.by_canonical_dir.get(&port_dir_canonical),
+                        WorkspaceError::PortDependencyNotPrepared {
+                            dep_name: dep.name.as_str().to_owned(),
+                            parent: parent_name.to_owned(),
+                            port_dir: port_dir_canonical,
+                        },
+                    )
                 }
-                return Err(WorkspaceError::PortDirectoryMissing {
-                    dep_name: dep.name.as_str().to_owned(),
-                    parent: parent_name.to_owned(),
-                    port_dir,
-                });
-            }
-            let port_dir_canonical = canonicalize(&port_dir)?;
-            if let Some(manifest_path) = ctx.ports.by_canonical_dir.get(&port_dir_canonical) {
-                canonicalize(manifest_path)?
-            } else {
-                if tolerate {
-                    return Ok(None);
-                }
-                return Err(WorkspaceError::PortDependencyNotPrepared {
-                    dep_name: dep.name.as_str().to_owned(),
-                    parent: parent_name.to_owned(),
-                    port_dir: port_dir_canonical,
-                });
-            }
-        }
-        DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-            if ctx.skip_port_edges {
-                return Ok(None);
-            }
-            let tolerate = ctx
-                .tolerate_strict_set
-                .is_some_and(|set| !set.contains(parent_name));
-            if let Some(manifest_path) = ctx.ports.by_name.get(name.as_str()) {
-                canonicalize(manifest_path)?
-            } else {
-                if tolerate {
-                    return Ok(None);
-                }
-                return Err(WorkspaceError::BuiltinPortDependencyNotPrepared {
-                    dep_name: dep.name.as_str().to_owned(),
-                    parent: parent_name.to_owned(),
-                });
+                PortDepSource::Builtin { name, .. } => (
+                    ctx.ports.by_name.get(name.as_str()),
+                    WorkspaceError::BuiltinPortDependencyNotPrepared {
+                        dep_name: dep.name.as_str().to_owned(),
+                        parent: parent_name.to_owned(),
+                    },
+                ),
+            };
+            match entry {
+                Some(manifest_path) => canonicalize(manifest_path)?,
+                None if tolerate => return Ok(None),
+                None => return Err(missing),
             }
         }
         DependencySource::Version(_) => {

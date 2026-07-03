@@ -167,16 +167,37 @@ fn toolchain_with_cc() -> ResolvedToolchain {
     tc
 }
 
-fn empty_build_flags() -> HashMap<usize, ResolvedProfileFlags> {
-    HashMap::new()
-}
-
-fn no_language_standards() -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
-    HashMap::new()
-}
-
-fn no_flag_conflicts() -> HashMap<usize, Vec<cabin_core::StandardFlagConflict>> {
-    HashMap::new()
+/// A [`PlanRequest`] carrying the constant defaults nearly every
+/// planner test uses: empty build flags, no language standards, no
+/// flag conflicts, the dev profile, the default selection, and the
+/// GNU dialect.  Tests override only the fields they exercise.
+fn plan_request<'a>(
+    graph: &'a PackageGraph,
+    tc: &'a ResolvedToolchain,
+    build_dir: &str,
+) -> PlanRequest<'a> {
+    use std::sync::LazyLock;
+    static EMPTY_BUILD_FLAGS: LazyLock<HashMap<usize, ResolvedProfileFlags>> =
+        LazyLock::new(HashMap::new);
+    static NO_LANGUAGE_STANDARDS: LazyLock<HashMap<usize, cabin_core::ResolvedLanguageStandards>> =
+        LazyLock::new(HashMap::new);
+    static NO_FLAG_CONFLICTS: LazyLock<HashMap<usize, Vec<cabin_core::StandardFlagConflict>>> =
+        LazyLock::new(HashMap::new);
+    PlanRequest {
+        graph,
+        toolchain: tc,
+        build_flags: &EMPTY_BUILD_FLAGS,
+        language_standards: &NO_LANGUAGE_STANDARDS,
+        standard_flag_conflicts: &NO_FLAG_CONFLICTS,
+        build_dir: PathBuf::from(build_dir),
+        profile: dev_profile(),
+        selected: None,
+        configuration: None,
+        selected_packages: None,
+        compiler_wrapper: None,
+        dialect: Dialect::GnuLike,
+        msvc_external_includes: true,
+    }
 }
 
 fn make_pkg(
@@ -248,22 +269,7 @@ fn plans_single_executable() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let req = PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    };
-    let bg = plan(&req).unwrap();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/proj/build")).unwrap();
     assert_eq!(bg.actions.len(), 2);
     assert_eq!(
         lowered_kinds(&bg),
@@ -300,21 +306,7 @@ fn default_selection_without_buildable_targets_errors() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let req = PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    };
+    let req = plan_request(&graph, &tc, "/abs/proj/build");
     assert!(matches!(plan(&req), Err(BuildError::EmptySelectedPackages)));
 }
 
@@ -341,21 +333,8 @@ fn compiler_wrapper_prefixes_only_the_ninja_command() {
         source: cabin_core::CompilerWrapperSource::Cli,
         identity: None,
     };
-    let req = PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: Some(&wrapper),
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    };
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.compiler_wrapper = Some(&wrapper);
     let bg = plan(&req).unwrap();
     let compile = lowered(
         bg.actions
@@ -407,21 +386,8 @@ fn compiler_wrapper_prefixes_c_compile_commands() {
         source: cabin_core::CompilerWrapperSource::Cli,
         identity: None,
     };
-    let req = PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: Some(&wrapper),
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    };
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.compiler_wrapper = Some(&wrapper);
     let bg = plan(&req).unwrap();
     let compile = lowered(
         bg.actions
@@ -449,22 +415,9 @@ fn release_profile_uses_release_flags() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: release_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.profile = release_profile();
+    let bg = plan(&req).unwrap();
     let cc = &bg.compile_commands[0];
     assert!(cc.arguments.iter().any(|a| a == "-O3"));
     assert!(cc.arguments.iter().any(|a| a == "-DNDEBUG"));
@@ -496,22 +449,7 @@ fn plans_library_then_executable_within_one_package() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/proj/build")).unwrap();
     assert_eq!(
         lowered_kinds(&bg),
         vec![
@@ -571,22 +509,7 @@ fn cross_package_path_dep_links_library() {
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
     let tc = toolchain();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
 
     // Outputs should be namespaced by package.
     let greet_lib = Utf8PathBuf::from("/abs/build/dev/packages/greet/libgreet.a");
@@ -667,22 +590,10 @@ fn plan_provenance_graph(
     msvc_external_includes: bool,
 ) -> BuildGraph {
     let tc = toolchain();
-    plan(&PlanRequest {
-        graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect,
-        msvc_external_includes,
-    })
-    .unwrap()
+    let mut req = plan_request(graph, &tc, "/abs/build");
+    req.dialect = dialect;
+    req.msvc_external_includes = msvc_external_includes;
+    plan(&req).unwrap()
 }
 
 #[test]
@@ -826,22 +737,9 @@ fn flag_system_include_dirs_route_to_system_bucket() {
             ..Default::default()
         },
     );
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &flags,
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/proj/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/proj/build");
+    req.build_flags = &flags;
+    let bg = plan(&req).unwrap();
     let compile = compile_for(&bg, "/hello/");
     assert!(
         compile
@@ -905,22 +803,9 @@ fn link_libs_propagate_to_consumer_link_after_archives() {
         },
     );
 
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &build_flags,
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.build_flags = &build_flags;
+    let bg = plan(&req).unwrap();
 
     let link = link_action(&bg);
     assert_eq!(
@@ -974,22 +859,9 @@ fn qualified_target_selector_picks_specific_target() {
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
     let tc = toolchain();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("app:app")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("app:app")]);
+    let bg = plan(&req).unwrap();
     // Only app:app and greet:greet should appear; not app:other.
     let outs: Vec<String> = bg
         .actions
@@ -1023,22 +895,9 @@ fn ambiguous_unqualified_target_errors() {
     let mut graph = graph_with(vec![pkg_a, pkg_b], vec![0, 1], None);
     graph.is_workspace_root = true;
     let tc = toolchain();
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("build")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("build")]);
+    let err = plan(&req).unwrap_err();
     assert!(matches!(err, BuildError::AmbiguousTarget(_, _)));
 }
 
@@ -1058,22 +917,9 @@ fn unknown_package_in_qualified_selector_errors() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("nope:thing")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("nope:thing")]);
+    let err = plan(&req).unwrap_err();
     assert!(matches!(
         err,
         BuildError::UnknownPackageInTargetSelector { .. }
@@ -1101,22 +947,7 @@ fn target_dep_cycle_within_package_is_reported() {
     };
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
     match err {
         BuildError::DependencyCycle(cycle) => {
             assert_eq!(cycle.first(), cycle.last());
@@ -1143,22 +974,9 @@ fn unknown_target_in_qualified_selector_errors() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("hello:missing")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let mut req = plan_request(&graph, &tc, "/abs/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("hello:missing")]);
+    let err = plan(&req).unwrap_err();
     assert!(matches!(err, BuildError::UnknownTargetInPackage { .. }));
 }
 
@@ -1192,22 +1010,7 @@ fn link_driver_is_c_when_target_has_only_c_sources() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/cdemo");
     let tc = toolchain_with_cc();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/cdemo/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/cdemo/build")).unwrap();
     let link = link_command(&bg);
     assert_eq!(link[0], "/usr/bin/cc");
 }
@@ -1231,22 +1034,7 @@ fn link_driver_is_cxx_when_target_has_any_cpp_source() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/mixed");
     let tc = toolchain_with_cc();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/mixed/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/mixed/build")).unwrap();
     let link = link_command(&bg);
     assert_eq!(link[0], "/usr/bin/g++");
 }
@@ -1272,22 +1060,9 @@ fn link_driver_is_cxx_when_dependency_has_cpp_objects() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/interop");
     let tc = toolchain_with_cc();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/interop/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/interop/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("c_runner")]);
+    let bg = plan(&req).unwrap();
     let link = link_command(&bg);
     assert_eq!(link[0], "/usr/bin/g++");
 }
@@ -1312,22 +1087,9 @@ fn link_driver_stays_c_when_dependency_is_also_pure_c() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/clib_only");
     let tc = toolchain_with_cc();
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/clib_only/build"),
-        profile: dev_profile(),
-        selected: Some(vec![ManifestTargetSelector::parse("c_runner")]),
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/clib_only/build");
+    req.selected = Some(vec![ManifestTargetSelector::parse("c_runner")]);
+    let bg = plan(&req).unwrap();
     let link = link_command(&bg);
     assert_eq!(link[0], "/usr/bin/cc");
 }
@@ -1352,22 +1114,7 @@ fn missing_c_compiler_yields_actionable_error_with_target_id() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/cdemo");
     let tc = toolchain(); // no cc populated
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/cdemo/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let err = plan(&plan_request(&graph, &tc, "/abs/cdemo/build")).unwrap_err();
     let rendered = err.to_string();
     assert!(
         rendered.contains("cdemo:cdemo_exe"),
@@ -1395,22 +1142,7 @@ fn unrecognized_source_extension_yields_actionable_error() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/broken");
     let tc = toolchain_with_cc();
-    let err = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/broken/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap_err();
+    let err = plan(&plan_request(&graph, &tc, "/abs/broken/build")).unwrap_err();
     let rendered = err.to_string();
     assert!(
         rendered.contains("broken:broken"),
@@ -1462,22 +1194,9 @@ fn plan_compile_actions(flags: ResolvedProfileFlags) -> Vec<CompileAction> {
     let graph = graph_with_mixed_sources();
     let tc = toolchain_with_cc();
     let map = build_flags_map(flags);
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &map,
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/mixed/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/mixed/build");
+    req.build_flags = &map;
+    let bg = plan(&req).unwrap();
     bg.actions
         .into_iter()
         .filter_map(|a| match a {
@@ -1612,22 +1331,9 @@ fn ldflags_appear_on_link_command_only() {
         ..ResolvedProfileFlags::default()
     };
     map.insert(0usize, flags);
-    let bg = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &tc,
-        build_flags: &map,
-        language_standards: &no_language_standards(),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/mixed/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect: Dialect::GnuLike,
-        msvc_external_includes: true,
-    })
-    .unwrap();
+    let mut req = plan_request(&graph, &tc, "/abs/mixed/build");
+    req.build_flags = &map;
+    let bg = plan(&req).unwrap();
     let link = link_action(&bg);
     assert!(
         link.arguments.iter().any(|a| a == "-Wl,--as-needed"),
@@ -1678,21 +1384,11 @@ fn standards_for(graph: &PackageGraph) -> HashMap<usize, cabin_core::ResolvedLan
 
 fn plan_with_standards(graph: &PackageGraph, dialect: Dialect) -> Result<BuildGraph, BuildError> {
     let tc = toolchain_with_cc();
-    plan(&PlanRequest {
-        graph,
-        toolchain: &tc,
-        build_flags: &empty_build_flags(),
-        language_standards: &standards_for(graph),
-        standard_flag_conflicts: &no_flag_conflicts(),
-        build_dir: PathBuf::from("/abs/build"),
-        profile: dev_profile(),
-        selected: None,
-        configuration: None,
-        selected_packages: None,
-        compiler_wrapper: None,
-        dialect,
-        msvc_external_includes: true,
-    })
+    let standards = standards_for(graph);
+    let mut req = plan_request(graph, &tc, "/abs/build");
+    req.language_standards = &standards;
+    req.dialect = dialect;
+    plan(&req)
 }
 
 fn target_with_language(
@@ -2162,23 +1858,12 @@ fn requested_standards_follow_the_planned_selection() {
     .unwrap();
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();
+    let standards = standards_for(&graph);
     let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
-        plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            language_standards: &standards_for(&graph),
-            standard_flag_conflicts: &no_flag_conflicts(),
-            build_dir: PathBuf::from("/abs/build"),
-            profile: dev_profile(),
-            selected,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-            dialect: Dialect::GnuLike,
-            msvc_external_includes: true,
-        })
-        .unwrap()
+        let mut req = plan_request(&graph, &tc, "/abs/build");
+        req.language_standards = &standards;
+        req.selected = selected;
+        plan(&req).unwrap()
     };
 
     let narrowed = plan_for(Some(vec![ManifestTargetSelector::parse("app")]));
@@ -2241,23 +1926,13 @@ fn flag_conflicts_scope_to_planned_compiles() {
         }],
     )]);
     let tc = toolchain();
+    let standards = standards_for(&graph);
     let plan_for = |selected: Option<Vec<ManifestTargetSelector>>| {
-        plan(&PlanRequest {
-            graph: &graph,
-            toolchain: &tc,
-            build_flags: &empty_build_flags(),
-            language_standards: &standards_for(&graph),
-            standard_flag_conflicts: &conflicts,
-            build_dir: PathBuf::from("/abs/build"),
-            profile: dev_profile(),
-            selected,
-            configuration: None,
-            selected_packages: None,
-            compiler_wrapper: None,
-            dialect: Dialect::GnuLike,
-            msvc_external_includes: true,
-        })
-        .unwrap()
+        let mut req = plan_request(&graph, &tc, "/abs/build");
+        req.language_standards = &standards;
+        req.standard_flag_conflicts = &conflicts;
+        req.selected = selected;
+        plan(&req).unwrap()
     };
 
     // Only `app` planned: the candidate's scope is never compiled.

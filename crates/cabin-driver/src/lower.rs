@@ -95,7 +95,7 @@ fn lower_compile(dialect: Dialect, compile: &CompileAction) -> LoweredAction {
     // `compile_commands.json` keeps the underlying compiler).
     let mut command = compile_argv(dialect, compile);
     if let Some(wrapper) = &compile.compiler_wrapper {
-        command.insert(0, wrapper.as_str().to_owned());
+        command.insert(0, wrapper.to_string());
     }
     let (kind, outputs) = match &compile.mode {
         CompileMode::Object => {
@@ -147,7 +147,7 @@ fn gnu_std_flag(standard: LanguageStandard) -> String {
 fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
     let mut out: Vec<String> = Vec::new();
-    out.push(compile.compiler.as_str().to_owned());
+    out.push(compile.compiler.to_string());
     out.push(gnu_std_flag(compile.standard));
     out.push(args.opt_level.as_flag().to_owned());
     if args.debug_info {
@@ -163,13 +163,13 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
         // pkg-config dir) would stop invalidating rebuilds.
         out.push("-MD".to_owned());
         out.push("-MF".to_owned());
-        out.push(depfile.as_str().to_owned());
+        out.push(depfile.to_string());
         // In syntax-only mode the depfile records the stamp (not an
         // object) as its target, so header edits still invalidate the
         // check via Ninja's `deps = gcc` machinery.
         if let CompileMode::SyntaxOnly { stamp } = &compile.mode {
             out.push("-MT".to_owned());
-            out.push(stamp.as_str().to_owned());
+            out.push(stamp.to_string());
         }
     }
     for define in &args.defines {
@@ -177,25 +177,25 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     }
     for include in &args.include_dirs {
         out.push("-I".to_owned());
-        out.push(include.as_str().to_owned());
+        out.push(include.to_string());
     }
     // System include dirs come after the user dirs: `-isystem`
     // paths are searched after every `-I` path, so spelling them
     // last keeps argv order aligned with the actual search order.
     for include in &args.system_include_dirs {
         out.push("-isystem".to_owned());
-        out.push(include.as_str().to_owned());
+        out.push(include.to_string());
     }
     out.extend(args.extra_flags.iter().cloned());
     match &compile.mode {
         CompileMode::Object => {
             out.push("-c".to_owned());
-            out.push(compile.source.as_str().to_owned());
+            out.push(compile.source.to_string());
             out.push("-o".to_owned());
-            out.push(compile.object.as_str().to_owned());
+            out.push(compile.object.to_string());
         }
         CompileMode::SyntaxOnly { .. } => {
-            out.push(compile.source.as_str().to_owned());
+            out.push(compile.source.to_string());
             out.push("-fsyntax-only".to_owned());
         }
     }
@@ -206,12 +206,12 @@ fn lower_archive_gnu(archive: &ArchiveAction) -> Vec<String> {
     // GNU `ar` archives with the `crs` mode flags (create, replace,
     // write index): `ar crs <lib> <obj>...`.
     let mut command = vec![
-        archive.archiver.as_str().to_owned(),
+        archive.archiver.to_string(),
         "crs".to_owned(),
-        archive.output.as_str().to_owned(),
+        archive.output.to_string(),
     ];
     for input in &archive.inputs {
-        command.push(input.as_str().to_owned());
+        command.push(input.to_string());
     }
     command
 }
@@ -220,16 +220,16 @@ fn lower_link_gnu(link: &LinkAction) -> Vec<String> {
     // `<driver> <inputs...> <ldflags...> -l<lib>... -o <exe>`.
     // System libraries follow the archives so a static library's
     // dependencies resolve left-to-right under GNU `ld`.
-    let mut command = vec![link.linker.as_str().to_owned()];
+    let mut command = vec![link.linker.to_string()];
     for input in &link.inputs {
-        command.push(input.as_str().to_owned());
+        command.push(input.to_string());
     }
     command.extend(link.arguments.iter().cloned());
     for lib in &link.link_libs {
         command.push(format!("-l{lib}"));
     }
     command.push("-o".to_owned());
-    command.push(link.output.as_str().to_owned());
+    command.push(link.output.to_string());
     command
 }
 
@@ -280,7 +280,7 @@ fn msvc_opt_flag(opt: OptLevel) -> &'static str {
 /// `/Tp<src> /Zs`, with `/Tc` for C).
 fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     let args = &compile.arguments;
-    let mut out: Vec<String> = vec![compile.compiler.as_str().to_owned(), "/nologo".to_owned()];
+    let mut out: Vec<String> = vec![compile.compiler.to_string(), "/nologo".to_owned()];
     // GCC and Clang interpret source files as UTF-8 by default, while
     // `cl` falls back to the machine's active code page unless told
     // otherwise.  Pinning `/utf-8` makes the dialects agree on what a
@@ -311,7 +311,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     }
     for include in &args.include_dirs {
         out.push("/I".to_owned());
-        out.push(include.as_str().to_owned());
+        out.push(include.to_string());
     }
     // `/external:I` marks the directory as external; `/external:W0`
     // (emitted once, ahead of the block) silences warnings inside
@@ -323,7 +323,7 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
     }
     for include in &args.system_include_dirs {
         out.push("/external:I".to_owned());
-        out.push(include.as_str().to_owned());
+        out.push(include.to_string());
     }
     out.extend(args.extra_flags.iter().cloned());
     let source = format!(
@@ -348,12 +348,12 @@ fn compile_argv_msvc(compile: &CompileAction) -> Vec<String> {
 fn lower_archive_msvc(archive: &ArchiveAction) -> Vec<String> {
     // `lib /nologo /OUT:<lib> <obj>...`.
     let mut command = vec![
-        archive.archiver.as_str().to_owned(),
+        archive.archiver.to_string(),
         "/nologo".to_owned(),
         format!("/OUT:{}", archive.output),
     ];
     for input in &archive.inputs {
-        command.push(input.as_str().to_owned());
+        command.push(input.to_string());
     }
     command
 }
@@ -364,9 +364,9 @@ fn lower_link_msvc(link: &LinkAction) -> Vec<String> {
     // forwards `/link` options to the linker, so system libraries are
     // spelled `<name>.lib` and passed as positional inputs after the
     // archives rather than as GNU `-l<name>` flags.
-    let mut command = vec![link.linker.as_str().to_owned(), "/nologo".to_owned()];
+    let mut command = vec![link.linker.to_string(), "/nologo".to_owned()];
     for input in &link.inputs {
-        command.push(input.as_str().to_owned());
+        command.push(input.to_string());
     }
     for lib in &link.link_libs {
         command.push(format!("{lib}.lib"));
@@ -421,7 +421,7 @@ mod tests {
     use crate::action::CompileArguments;
 
     fn strs(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| (*s).to_owned()).collect()
+        v.iter().map(|&s| s.to_string()).collect()
     }
 
     /// A C++ compile exercising every argv segment: optimization +

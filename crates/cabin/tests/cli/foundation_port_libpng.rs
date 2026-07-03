@@ -49,36 +49,9 @@ fn lay_consumer_fixture(tmp: &Path) -> PathBuf {
 
 #[test]
 fn port_toml_schema_for_real_ports_libpng_matches_published_values() {
-    let manifest_dir =
-        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
-    let port_toml = PathBuf::from(manifest_dir)
-        .join("../cabin-port/ports/libpng/1.6.50/port.toml")
-        .canonicalize()
-        .expect("canonicalize ports/libpng/1.6.50/port.toml");
     let descriptor =
-        cabin_port::load_port(&port_toml).expect("ports/libpng/1.6.50/port.toml should parse");
-    assert_eq!(descriptor.name.as_str(), "libpng");
-    assert_eq!(descriptor.version, semver::Version::new(1, 6, 50));
-    match &descriptor.source {
-        cabin_port::PortSource::Archive {
-            url,
-            sha256,
-            strip_prefix,
-        } => {
-            assert!(
-                url.as_str().ends_with(".tar.gz"),
-                "expected a .tar.gz URL, got {url}"
-            );
-            assert_eq!(url.scheme(), "https");
-            assert_eq!(sha256.to_hex().len(), 64);
-            assert_eq!(strip_prefix.as_deref(), Some("libpng-1.6.50"));
-        }
-    }
-    assert_eq!(
-        descriptor.overlay.relative_path,
-        PathBuf::from("cabin.toml")
-    );
-    assert_eq!(descriptor.metadata.license.as_deref(), Some("libpng-2.0"));
+        load_real_port_and_assert_schema("libpng", &semver::Version::new(1, 6, 50), "libpng-2.0");
+    assert_tar_gz_source(&descriptor, "libpng-1.6.50");
 
     // libpng ships its build config as a prebuilt header; the port
     // declares a single [[copy]] step to place it under its build-time
@@ -93,23 +66,12 @@ fn port_toml_schema_for_real_ports_libpng_matches_published_values() {
 
 #[test]
 fn libpng_is_bundled_and_parses() {
-    let entry = cabin_port::builtin::lookup("libpng", &semver::VersionReq::parse("^1.6").unwrap())
-        .expect("libpng should be bundled");
-    assert_eq!(entry.name, "libpng");
-    assert_eq!(entry.version, "1.6.50");
-    let descriptor = cabin_port::parse_port_str(
-        entry.port_toml,
-        std::path::Path::new("<builtin:libpng>/port.toml"),
-    )
-    .expect("embedded libpng port.toml parses");
-    assert_eq!(descriptor.name.as_str(), "libpng");
+    assert_builtin_port_bundled_and_parses("libpng", "^1.6", "1.6.50");
 }
 
 #[test]
 fn libpng_overlay_declares_zlib_edge_simd_off_and_link_libs() {
-    let entry =
-        cabin_port::builtin::lookup("libpng", &semver::VersionReq::parse(">=0").unwrap()).unwrap();
-    let overlay = entry.overlay_toml;
+    let overlay = builtin_overlay("libpng");
     // The 15-source portable set, with the CLI/test units excluded.
     assert!(overlay.contains("\"pngread.c\""), "overlay: {overlay}");
     assert!(
@@ -135,9 +97,7 @@ fn libpng_overlay_declares_zlib_edge_simd_off_and_link_libs() {
 /// Network-free: parses the embedded overlay text only.
 #[test]
 fn libpng_overlay_depends_on_bundled_zlib() {
-    let entry =
-        cabin_port::builtin::lookup("libpng", &semver::VersionReq::parse(">=0").unwrap()).unwrap();
-    let manifest = cabin_manifest::parse_manifest_str(entry.overlay_toml)
+    let manifest = cabin_manifest::parse_manifest_str(builtin_overlay("libpng"))
         .expect("overlay parses as a manifest");
     let package = manifest.package.expect("[package]");
     let zlib = package

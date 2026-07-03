@@ -650,36 +650,9 @@ fn port_toml_schema_for_real_ports_zlib_matches_published_values() {
     // Regression test that locks the on-disk port.toml in
     // crates/cabin-port/ports/zlib/1.3.1/ against the typed parser.
     // Catches accidental edits without requiring any network.
-    let manifest_dir =
-        std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set during tests");
-    let port_toml = PathBuf::from(manifest_dir)
-        .join("../cabin-port/ports/zlib/1.3.1/port.toml")
-        .canonicalize()
-        .expect("canonicalize ports/zlib/1.3.1/port.toml");
     let descriptor =
-        cabin_port::load_port(&port_toml).expect("ports/zlib/1.3.1/port.toml should parse");
-    assert_eq!(descriptor.name.as_str(), "zlib");
-    assert_eq!(descriptor.version, semver::Version::new(1, 3, 1));
-    match &descriptor.source {
-        cabin_port::PortSource::Archive {
-            url,
-            sha256,
-            strip_prefix,
-        } => {
-            assert!(
-                url.as_str().ends_with(".tar.gz"),
-                "expected a .tar.gz URL, got {url}"
-            );
-            assert_eq!(url.scheme(), "https");
-            assert_eq!(sha256.to_hex().len(), 64);
-            assert_eq!(strip_prefix.as_deref(), Some("zlib-1.3.1"));
-        }
-    }
-    assert_eq!(
-        descriptor.overlay.relative_path,
-        PathBuf::from("cabin.toml")
-    );
-    assert_eq!(descriptor.metadata.license.as_deref(), Some("Zlib"));
+        load_real_port_and_assert_schema("zlib", &semver::Version::new(1, 3, 1), "Zlib");
+    assert_tar_gz_source(&descriptor, "zlib-1.3.1");
 }
 
 #[test]

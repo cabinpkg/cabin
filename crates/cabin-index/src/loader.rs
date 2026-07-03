@@ -243,11 +243,7 @@ pub fn parse_package_entry(
         });
     }
 
-    let package_name =
-        PackageName::new(raw.name.clone()).map_err(|err| IndexError::InvalidPackageName {
-            package: raw.name.clone(),
-            message: err.to_string(),
-        })?;
+    let package_name = validated_package_name(&raw.name)?;
 
     let mut versions: BTreeMap<semver::Version, VersionMetadata> = BTreeMap::new();
     for (ver_str, raw_ver) in raw.versions {
@@ -262,12 +258,7 @@ pub fn parse_package_entry(
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
         let mut system_dependencies: BTreeMap<PackageName, IndexSystemDependency> = BTreeMap::new();
         for (sys_name, raw_sys) in raw_ver.system_dependencies {
-            let validated = PackageName::new(sys_name.clone()).map_err(|err| {
-                IndexError::InvalidPackageName {
-                    package: sys_name.clone(),
-                    message: err.to_string(),
-                }
-            })?;
+            let validated = validated_package_name(&sys_name)?;
             // Same platform-only invariant as package dependencies:
             // system-dependency activation never sees toolchain
             // detection, so a compiler-conditioned gate is rejected.
@@ -312,6 +303,15 @@ pub fn parse_package_entry(
     })
 }
 
+/// Validate `name` as a [`PackageName`], mapping failure to
+/// [`IndexError::InvalidPackageName`].
+fn validated_package_name(name: &str) -> Result<PackageName, IndexError> {
+    PackageName::new(name).map_err(|err| IndexError::InvalidPackageName {
+        package: name.to_owned(),
+        message: err.to_string(),
+    })
+}
+
 /// Parse one per-kind dependency table (`dependencies` /
 /// `dev_dependencies`) of an index version entry. `package` and
 /// `version` only feed the error context.
@@ -322,11 +322,7 @@ fn parse_kinded_dependencies(
 ) -> Result<BTreeMap<PackageName, IndexPackageDependency>, IndexError> {
     let mut deps: BTreeMap<PackageName, IndexPackageDependency> = BTreeMap::new();
     for (dep_name, raw_dep) in raw_table {
-        let dep_name_validated =
-            PackageName::new(dep_name.clone()).map_err(|err| IndexError::InvalidPackageName {
-                package: dep_name.clone(),
-                message: err.to_string(),
-            })?;
+        let dep_name_validated = validated_package_name(&dep_name)?;
         let req_str = raw_dep.version_str();
         let req = cabin_core::version_req::parse_lenient(req_str).map_err(|source| {
             IndexError::InvalidRequirement {

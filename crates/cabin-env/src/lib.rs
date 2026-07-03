@@ -328,6 +328,14 @@ mod tests {
         assert_eq!(env.get(CABIN_BUILD_DIR).unwrap(), "/abs/app/build");
     }
 
+    // Pre-release drafts of the Rust rewrite injected a wider
+    // overlay (bare `CABIN`, canonicalized name variants, per-target
+    // name/kind, host/target triples, and the build-configuration
+    // fingerprint).  The overlay was cut down to the six strict keys
+    // before the first Rust release (0.14.0), so no released Cabin
+    // has ever emitted these variables; this test pins that they do
+    // not creep back in.  The shipped contract is documented in
+    // `docs/environment-variables.md`.
     #[test]
     fn package_env_does_not_emit_any_removed_variable() {
         use std::path::PathBuf;

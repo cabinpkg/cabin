@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 ///
 /// ```text
 /// <root>/
-/// Archives/sha256/<hex>.tar.gz
-/// Sources/sha256/<hex>/cabin.toml
+/// archives/sha256/<hex>.tar.gz
+/// sources/sha256/<hex>/cabin.toml
 /// /...
 /// ```
 ///

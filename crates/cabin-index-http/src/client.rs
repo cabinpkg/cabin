@@ -162,8 +162,9 @@ mod tests {
     use std::thread::JoinHandle;
 
     /// Tiny HTTP server that answers `/from` with a 302 redirect to
-    /// `/to`, and `/to` with `200 OK` carrying a known body.  Used to
-    /// verify the client does not silently follow registry redirects.
+    /// `/to`, `/to` with `200 OK` carrying a known body, `/boom` with
+    /// a 500, and anything else with a 404.  Used to exercise each
+    /// `get_bytes` response branch without external network access.
     struct RedirectServer {
         server: Arc<tiny_http::Server>,
         thread: Option<JoinHandle<()>>,
@@ -190,6 +191,8 @@ mod tests {
                         let _ = req.respond(tiny_http::Response::empty(302).with_header(header));
                     } else if path == "/to" {
                         let _ = req.respond(tiny_http::Response::from_string("followed"));
+                    } else if path == "/boom" {
+                        let _ = req.respond(tiny_http::Response::empty(500));
                     } else {
                         let _ = req.respond(tiny_http::Response::empty(404));
                     }
@@ -235,6 +238,93 @@ mod tests {
                 String::from_utf8_lossy(&body)
             ),
             Err(other) => panic!("expected ServerError(302), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_bytes_returns_body_on_success() {
+        let server = RedirectServer::start();
+        let client = HttpClient::new();
+
+        let body = client
+            .get_bytes(&format!("{}/to", server.url()), "pkg")
+            .expect("2xx response with a small body succeeds");
+
+        assert_eq!(body, b"followed");
+    }
+
+    #[test]
+    fn get_bytes_maps_404_to_package_not_found() {
+        let server = RedirectServer::start();
+        let client = HttpClient::new();
+
+        let result = client.get_bytes(&format!("{}/missing", server.url()), "pkg");
+
+        match result {
+            Err(IndexHttpError::PackageNotFound { name }) => assert_eq!(name, "pkg"),
+            other => panic!("expected PackageNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_bytes_maps_5xx_to_server_error() {
+        let server = RedirectServer::start();
+        let client = HttpClient::new();
+
+        let result = client.get_bytes(&format!("{}/boom", server.url()), "pkg");
+
+        match result {
+            Err(IndexHttpError::ServerError { name, status }) => {
+                assert_eq!(name, "pkg");
+                assert_eq!(status, 500);
+            }
+            other => panic!("expected ServerError(500), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_bytes_rejects_body_exceeding_cap() {
+        let server = RedirectServer::start();
+        // Shrink the cap below the 8-byte "followed" body so the
+        // test does not have to stream 64 MiB through loopback.
+        let client = HttpClient {
+            agent: ureq::AgentBuilder::new()
+                .timeout(DEFAULT_TIMEOUT)
+                .redirects(0)
+                .build(),
+            max_body_bytes: 4,
+        };
+
+        let result = client.get_bytes(&format!("{}/to", server.url()), "pkg");
+
+        match result {
+            Err(IndexHttpError::Transport { name, message }) => {
+                assert_eq!(name, "pkg");
+                assert!(
+                    message.contains("exceeded 4 bytes"),
+                    "message should mention the cap, got: {message}"
+                );
+            }
+            other => panic!("expected Transport error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn get_bytes_surfaces_transport_errors() {
+        // Bind an ephemeral loopback port, then drop the listener so
+        // the port is closed; connecting must fail at the transport
+        // layer rather than with an HTTP status.
+        let addr = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+            listener.local_addr().expect("loopback addr")
+        };
+        let client = HttpClient::new();
+
+        let result = client.get_bytes(&format!("http://{addr}/pkg.json"), "pkg");
+
+        match result {
+            Err(IndexHttpError::Transport { name, .. }) => assert_eq!(name, "pkg"),
+            other => panic!("expected Transport error, got {other:?}"),
         }
     }
 }

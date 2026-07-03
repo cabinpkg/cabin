@@ -2060,64 +2060,44 @@ fn parses_port_dependency() {
     }
 }
 
-#[test]
-fn rejects_port_combined_with_path() {
-    let err = parse_project_err(
+/// Shared body for the `rejects_port_combined_with_*` cases: a
+/// `port-path` dependency combined with `extra` must surface
+/// [`ManifestError::PortDependencyHasOtherSource`] naming
+/// `conflicting_field`.
+fn assert_port_rejects_other_source(extra: &str, conflicting_field: &str) {
+    let err = parse_project_err(&format!(
         r#"
             [package]
             name = "consumer"
             version = "0.1.0"
 
             [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", path = "../zlib" }
-        "#,
-    );
+            zlib = {{ port-path = "../ports/zlib/1.3.1", {extra} }}
+        "#
+    ));
     match err {
         ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "path");
+            assert_eq!(conflicting, conflicting_field, "case `{conflicting_field}`");
         }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
+        other => panic!(
+            "case `{conflicting_field}`: expected PortDependencyHasOtherSource, got {other:?}"
+        ),
     }
+}
+
+#[test]
+fn rejects_port_combined_with_path() {
+    assert_port_rejects_other_source(r#"path = "../zlib""#, "path");
 }
 
 #[test]
 fn rejects_port_combined_with_version() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", version = "1.0" }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "version");
-        }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
-    }
+    assert_port_rejects_other_source(r#"version = "1.0""#, "version");
 }
 
 #[test]
 fn rejects_port_combined_with_workspace() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", workspace = true }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "workspace");
-        }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
-    }
+    assert_port_rejects_other_source("workspace = true", "workspace");
 }
 
 #[test]

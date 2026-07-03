@@ -10,16 +10,6 @@
 use super::*;
 use std::path::PathBuf;
 
-fn cabin_with_config() -> Command {
-    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
-    cmd.env_remove("CABIN_NO_CONFIG")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    super::pin_test_cache_home(&mut cmd);
-    cmd
-}
-
 fn write_workspace_config(workspace_root: &Path, body: &str) -> PathBuf {
     let dir = workspace_root.join(".cabin");
     assert_fs::fixture::ChildPath::new(&dir)

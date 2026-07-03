@@ -25,14 +25,14 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // also surfaces manifest / workspace errors before we touch
     // the index.
     let offline = crate::cli::config::effective_offline(args.offline)?;
-    let build_selection = build_workspace_selection(&args.workspace_selection);
+    let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
         args.frozen,
         false,
-        &build_selection,
+        &workspace_selection,
         args.no_patches,
     )?;
     crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
@@ -52,11 +52,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         args.index_url.as_deref(),
         &effective_config,
     )?;
-    let build_offline = crate::cli::config::effective_offline(args.offline)?;
-    crate::cli::config::enforce_offline_index_source(
-        build_offline,
-        resolved_index_source.as_ref(),
-    )?;
+    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
 
@@ -64,11 +60,8 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // requirement.  An unrelated workspace member's versioned dep
     // must not force the user to pass `--index-path` when
     // `cabin build -p selected` is run on a C/C++-only selection.
-    let workspace_selection_for_pipeline = build_workspace_selection(&args.workspace_selection);
-    let initial_resolved_selection = cabin_workspace::resolve_package_selection(
-        &initial_graph,
-        &workspace_selection_for_pipeline,
-    )?;
+    let initial_resolved_selection =
+        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     let initial_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
     let initial_features = compute_feature_resolution(
@@ -99,7 +92,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             &effective_config,
             args.cache_dir.as_deref(),
             resolved_cache_dir.as_ref(),
-            build_offline,
+            offline,
             args.locked,
             args.frozen,
             args.no_patches,
@@ -115,7 +108,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             frozen: args.frozen,
             cache_dir: &inputs.cache_dir,
             reporter,
-            selection: workspace_selection_for_pipeline,
+            selection: workspace_selection,
             selection_request: &initial_request,
             patched_names: &patched_names,
             active_patches: &active_patches,
@@ -228,8 +221,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // flag and the built-in `dev` default.
     let profile_selection = profile_selection_for_build(args, &effective_config)?;
     let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
 
     // Per-package resolved build flags.  Each package's own
     // `[profile]` / `[target.'cfg(...)'.profile]` plus the active

@@ -211,15 +211,18 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     for tid in &topo {
         let target = lookup_target(tid, req.graph)?;
+        // Vec keeps first-occurrence order; the HashSet is only a
+        // seen-filter so membership checks stay O(1).
         let mut dep_closure: Vec<TargetId> = Vec::new();
+        let mut seen: HashSet<TargetId> = HashSet::new();
         if let Some(deps) = resolved_deps.get(tid) {
             for dep in deps {
-                if !dep_closure.contains(dep) {
+                if seen.insert(dep.clone()) {
                     dep_closure.push(dep.clone());
                 }
                 if let Some(transitive) = transitive_deps.get(dep) {
                     for transitive_dep in transitive {
-                        if !dep_closure.contains(transitive_dep) {
+                        if seen.insert(transitive_dep.clone()) {
                             dep_closure.push(transitive_dep.clone());
                         }
                     }

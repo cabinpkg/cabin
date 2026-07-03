@@ -39,15 +39,6 @@ fn fingerprint_for(dir: &Path, cmd_env: &[(&str, &str)], package: &str) -> Strin
         .to_owned()
 }
 
-fn write_simple_project(dir: &Path) {
-    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
-        .write_str(HELLO_MAIN_CC)
-        .unwrap();
-}
-
 fn metadata_view(cmd_env: &[(&str, &str)], dir: &Path) -> serde_json::Value {
     let mut cmd = cabin();
     for (k, v) in cmd_env {
@@ -61,7 +52,7 @@ fn metadata_view(cmd_env: &[(&str, &str)], dir: &Path) -> serde_json::Value {
 #[test]
 fn cppflags_appear_in_language_neutral_compile_args() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let view = metadata_view(
         &[("CPPFLAGS", "-DENV_FROM_CPP=1 -I/opt/include")],
         dir.path(),
@@ -109,7 +100,7 @@ fn cppflags_appear_in_language_neutral_compile_args() {
 #[test]
 fn cflags_only_reach_c_compile_bucket() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let view = metadata_view(&[("CFLAGS", "-std=c11 -Wmissing-prototypes")], dir.path());
     let pkg = package_build_flags(&view);
     let c_only: Vec<String> = pkg["cflags"]
@@ -144,7 +135,7 @@ fn cflags_only_reach_c_compile_bucket() {
 #[test]
 fn cxxflags_only_reach_cxx_compile_bucket() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let view = metadata_view(&[("CXXFLAGS", "-fno-rtti -fno-exceptions")], dir.path());
     let pkg = package_build_flags(&view);
     let cxx_only: Vec<String> = pkg["cxxflags"]
@@ -169,7 +160,7 @@ fn cxxflags_only_reach_cxx_compile_bucket() {
 #[test]
 fn ldflags_only_reach_link_bucket() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let view = metadata_view(&[("LDFLAGS", "-L/opt/lib -lextra")], dir.path());
     let pkg = package_build_flags(&view);
     let link: Vec<String> = pkg["ldflags"]
@@ -194,7 +185,7 @@ fn ldflags_only_reach_link_bucket() {
 #[test]
 fn empty_and_whitespace_env_vars_are_ignored() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     // Metadata only emits a per-package build-flags block
     // when the package contributes at least one non-empty
     // bucket.  Empty / whitespace env vars must produce no
@@ -236,7 +227,7 @@ fn empty_and_whitespace_env_vars_are_ignored() {
 #[test]
 fn quoted_and_escaped_arguments_parse_correctly() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     // Single-quoted run preserves spaces verbatim; the whole
     // -DNAME="hello world" is one argv element.
     let view = metadata_view(&[("CXXFLAGS", "-DNAME='hello world' -O\\ 2")], dir.path());
@@ -256,7 +247,7 @@ fn quoted_and_escaped_arguments_parse_correctly() {
 #[test]
 fn malformed_quote_errors_name_variable() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .env("CXXFLAGS", "'oops")
@@ -277,7 +268,7 @@ fn malformed_quote_errors_name_variable() {
 #[test]
 fn malformed_escape_errors_name_variable() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .env("LDFLAGS", "-L/lib\\")
@@ -298,7 +289,7 @@ fn malformed_escape_errors_name_variable() {
 #[test]
 fn order_preserved_within_a_single_variable() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let view = metadata_view(&[("CPPFLAGS", "-Dfirst -Dsecond -Dthird")], dir.path());
     let pkg = package_build_flags(&view);
     let extras: Vec<String> = pkg["extra_compile_args"]
@@ -358,7 +349,7 @@ ldflags = ["-Wl,--as-needed"]
 #[test]
 fn fingerprint_changes_when_env_flag_changes() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
 
     let base_fp = fingerprint_for(dir.path(), &[], "hello");
 
@@ -385,7 +376,7 @@ fn fingerprint_changes_when_env_flag_changes() {
 #[test]
 fn fingerprint_is_deterministic_for_identical_env() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let env: &[(&str, &str)] = &[
         ("CPPFLAGS", "-DSHARED=1"),
         ("CFLAGS", "-std=c11"),
@@ -403,7 +394,7 @@ fn fingerprint_is_deterministic_for_identical_env() {
 fn cabin_build_emits_cppflags_into_compile_commands_for_cxx_sources() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     cabin()
         .current_dir(dir.path())
@@ -499,7 +490,7 @@ fn cabin_build_ldflags_appear_in_ninja_link_command() {
     // generated artifacts. `-L<path>` adds a library search
     // path with no requirement that the path exist.
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     let distinctive = "-L/this/path/should/not/exist/very-distinctive";
     cabin()
@@ -527,7 +518,7 @@ fn cabin_build_ldflags_appear_in_ninja_link_command() {
 fn ninja_rebuilds_when_cxxflags_change() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     cabin()
         .current_dir(dir.path())
@@ -560,7 +551,7 @@ fn ninja_rebuilds_when_cxxflags_change() {
 fn cabin_run_build_phase_uses_env_flags() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     cabin()
         .current_dir(dir.path())
@@ -624,7 +615,7 @@ fn cabin_tidy_compile_db_sees_env_flags() {
     // tidy` reads the build directory via `CABIN_BUILD_DIR`.
     let fake_tidy = fake_tidy_path();
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let build_dir = dir.path().join("build");
     cabin()
         .current_dir(dir.path())
@@ -763,7 +754,7 @@ fn cabin_fmt_unaffected_by_build_flag_env() {
     // env-flag parser leaking through - stderr must never
     // name CXXFLAGS for an `fmt` invocation.
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .env("CXXFLAGS", "'never parsed")
@@ -813,7 +804,7 @@ fn cabin_init_unaffected_by_build_flag_env() {
 #[test]
 fn cabin_clean_unaffected_by_build_flag_env() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .env("LDFLAGS", "-L/lib\\")
@@ -831,7 +822,7 @@ fn cabin_clean_unaffected_by_build_flag_env() {
 #[test]
 fn metadata_stdout_stays_clean_with_env_flags_under_verbose() {
     let dir = TempDir::new().unwrap();
-    write_simple_project(dir.path());
+    write_hello_project(dir.path());
     let assertion = cabin()
         .current_dir(dir.path())
         .env("CPPFLAGS", "-DCHATTY=1")

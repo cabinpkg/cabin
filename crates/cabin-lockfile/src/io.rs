@@ -227,9 +227,9 @@ fn patch_from_raw(raw: RawPatch) -> Result<LockedPatch, LockfileError> {
         path,
     } = raw;
     let package_name =
-        PackageName::new(package.clone()).map_err(|err| LockfileError::InvalidPackageName {
+        PackageName::new(package.clone()).map_err(|reason| LockfileError::InvalidPackageName {
             name: package.clone(),
-            message: err.to_string(),
+            reason,
         })?;
     let parsed_version =
         semver::Version::parse(&version).map_err(|source| LockfileError::InvalidVersion {
@@ -296,9 +296,9 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
     } = raw;
 
     let package_name =
-        PackageName::new(name.clone()).map_err(|err| LockfileError::InvalidPackageName {
+        PackageName::new(name.clone()).map_err(|reason| LockfileError::InvalidPackageName {
             name: name.clone(),
-            message: err.to_string(),
+            reason,
         })?;
     let parsed_version =
         semver::Version::parse(&version).map_err(|source| LockfileError::InvalidVersion {
@@ -317,12 +317,10 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
     };
     let mut deps: Vec<PackageName> = Vec::with_capacity(dependencies.len());
     for d in dependencies {
-        deps.push(PackageName::new(d.clone()).map_err(|err| {
-            LockfileError::InvalidPackageName {
-                name: d,
-                message: err.to_string(),
-            }
-        })?);
+        deps.push(
+            PackageName::new(d.clone())
+                .map_err(|reason| LockfileError::InvalidPackageName { name: d, reason })?,
+        );
     }
 
     Ok(LockedPackage {

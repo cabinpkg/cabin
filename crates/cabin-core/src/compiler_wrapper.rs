@@ -235,14 +235,15 @@ impl ResolvedCompilerWrapper {
 /// Carried inside [`crate::ToolchainSummary`] so the build
 /// configuration fingerprint reflects "which wrapper did this build
 /// use" without pinning the local absolute path.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompilerWrapperSummary {
-    /// Executable-family key derived from the selected spec.
-    pub kind: String,
+    /// Executable-family kind derived from the selected spec.
+    pub kind: CompilerWrapperKind,
     /// User-visible spec spelling.
     pub spec: String,
-    /// Source label (matches [`CompilerWrapperSource::as_key`]).
-    pub source: String,
+    /// Where the selection came from; serializes to the same
+    /// kebab-case label as [`CompilerWrapperSource::as_key`].
+    pub source: CompilerWrapperSource,
     /// Detected version, when probing succeeded.  Stored as a
     /// display string so the summary stays portable across
     /// `CompilerVersion` schema changes.
@@ -254,9 +255,9 @@ impl CompilerWrapperSummary {
     /// Build a summary from a resolved wrapper.
     pub fn from_resolved(resolved: &ResolvedCompilerWrapper) -> Self {
         Self {
-            kind: resolved.kind.as_key().to_owned(),
+            kind: resolved.kind.clone(),
             spec: resolved.spec.clone(),
-            source: resolved.source.as_key().to_owned(),
+            source: resolved.source,
             version: resolved
                 .identity
                 .as_ref()
@@ -409,8 +410,8 @@ mod tests {
             }),
         };
         let summary = CompilerWrapperSummary::from_resolved(&resolved);
-        assert_eq!(summary.kind, "ccache");
-        assert_eq!(summary.source, "env");
+        assert_eq!(summary.kind.as_key(), "ccache");
+        assert_eq!(summary.source, CompilerWrapperSource::Env);
         assert_eq!(summary.version.as_deref(), Some("4.10.2"));
     }
 }

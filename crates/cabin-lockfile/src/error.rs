@@ -1,6 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use cabin_core::ValidationError;
 use thiserror::Error;
 
 /// Errors produced while reading, parsing, or writing a `cabin.lock`.
@@ -35,8 +36,15 @@ pub enum LockfileError {
         source: semver::Error,
     },
 
-    #[error("invalid cabin.lock package name {name:?}: {message}")]
-    InvalidPackageName { name: String, message: String },
+    /// A package name failed [`cabin_core::PackageName`] validation.
+    /// The typed failure is rendered inline (deliberately not
+    /// `#[source]`) so the top-level message the CLI prints stays a
+    /// single line.
+    #[error("invalid cabin.lock package name {name:?}: {reason}")]
+    InvalidPackageName {
+        name: String,
+        reason: ValidationError,
+    },
 
     #[error(
         "unknown source {value:?} for cabin.lock package {name:?}; only \"index\" is supported"

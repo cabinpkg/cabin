@@ -102,39 +102,6 @@ include-dirs = ["include"]
     registry
 }
 
-fn write_app_using_fmt(dir: &Path, app_main: Option<&str>) {
-    let manifest = if app_main.is_some() {
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-fmt = ">=10.0.0 <11.0.0"
-
-[target.app]
-type = "executable"
-sources = ["src/main.cc"]
-deps = ["fmt"]
-"#
-    } else {
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-fmt = ">=10.0.0 <11.0.0"
-"#
-    };
-    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
-        .write_str(manifest)
-        .unwrap();
-    if let Some(body) = app_main {
-        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
-            .write_str(body)
-            .unwrap();
-    }
-}
-
 #[test]
 fn resolve_via_index_url_finds_published_package() {
     let dir = TempDir::new().unwrap();

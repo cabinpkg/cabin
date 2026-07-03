@@ -41,7 +41,7 @@ use semver::Version;
 use url::Url;
 
 use crate::cache::{ArchiveKind, PortCache};
-use crate::error::PortError;
+use crate::error::{FsResultExt, PortError};
 use crate::model::{CopyStep, PortChecksum, PortDescriptor, PortSource};
 
 /// Where to read archive bytes from. `cabin-port` stays HTTP-free:
@@ -268,10 +268,7 @@ fn ensure_archive(
     }
 
     if let Some(parent) = archive_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| PortError::Fs {
-            path: parent.to_path_buf(),
-            source,
-        })?;
+        fs::create_dir_all(parent).with_path(parent)?;
     }
 
     let tmp_target = partial_sibling(archive_path);
@@ -305,10 +302,7 @@ fn ensure_archive(
             });
         }
     }
-    fs::rename(&tmp_target, archive_path).map_err(|source| PortError::Fs {
-        path: archive_path.to_path_buf(),
-        source,
-    })?;
+    fs::rename(&tmp_target, archive_path).with_path(archive_path)?;
     Ok(())
 }
 
@@ -343,10 +337,7 @@ fn ensure_source(
         //    than treating an unreadable marker as the empty (no-copy)
         //    fingerprint, which would silently reuse an unverified tree.  A
         //    legacy empty marker reads as "" and matches the empty plan.
-        let recorded = fs::read_to_string(&marker).map_err(|source| PortError::Fs {
-            path: marker.clone(),
-            source,
-        })?;
+        let recorded = fs::read_to_string(&marker).with_path(&marker)?;
         if recorded == copy_fingerprint {
             return Ok(());
         }
@@ -363,21 +354,12 @@ fn ensure_source(
     // the new marker is written cannot leave a previous run's
     // "complete" flag pointing at a partially overwritten tree.
     if marker.exists() {
-        fs::remove_file(&marker).map_err(|source| PortError::Fs {
-            path: marker.clone(),
-            source,
-        })?;
+        fs::remove_file(&marker).with_path(&marker)?;
     }
     if source_dir.exists() {
-        fs::remove_dir_all(source_dir).map_err(|source| PortError::Fs {
-            path: source_dir.to_path_buf(),
-            source,
-        })?;
+        fs::remove_dir_all(source_dir).with_path(source_dir)?;
     }
-    fs::create_dir_all(source_dir).map_err(|source| PortError::Fs {
-        path: source_dir.to_path_buf(),
-        source,
-    })?;
+    fs::create_dir_all(source_dir).with_path(source_dir)?;
 
     // Both extractors share the same signature, options, and
     // fail-closed rules; the URL extension picked the kind.
@@ -439,15 +421,9 @@ fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
             });
         }
         if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent).map_err(|source| PortError::Fs {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            fs::create_dir_all(parent).with_path(parent)?;
         }
-        fs::copy(&from, &to).map_err(|source| PortError::Fs {
-            path: to.clone(),
-            source,
-        })?;
+        fs::copy(&from, &to).with_path(&to)?;
     }
     Ok(())
 }
@@ -464,10 +440,7 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
                     path: overlay_source,
                 });
             }
-            fs::read(&overlay_source).map_err(|source| PortError::Fs {
-                path: overlay_source,
-                source,
-            })?
+            fs::read(&overlay_source).with_path(&overlay_source)?
         }
         PortOrigin::Builtin(name) => {
             // Pin the lookup to the version `build_plan_entries` already
@@ -484,10 +457,7 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
             recipe.overlay_toml.as_bytes().to_vec()
         }
     };
-    write_atomic(&overlay_dest, &overlay_bytes).map_err(|source| PortError::Fs {
-        path: overlay_dest,
-        source,
-    })?;
+    write_atomic(&overlay_dest, &overlay_bytes).with_path(&overlay_dest)?;
     Ok(())
 }
 
@@ -519,10 +489,7 @@ fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<
 
 fn write_marker(source_dir: &Path, copy_fingerprint: &str) -> Result<(), PortError> {
     let marker = extraction_marker_path(source_dir);
-    fs::write(&marker, copy_fingerprint).map_err(|source| PortError::Fs {
-        path: marker,
-        source,
-    })
+    fs::write(&marker, copy_fingerprint).with_path(&marker)
 }
 
 /// Deterministic fingerprint of a port's `[[copy]]` plan, stored in
@@ -543,43 +510,22 @@ fn copy_plan_fingerprint(copies: &[CopyStep]) -> String {
 }
 
 fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<String, PortError> {
-    let mut src = File::open(source_path).map_err(|source| PortError::Fs {
-        path: source_path.to_path_buf(),
-        source,
-    })?;
-    let mut dst = File::create(tmp_target).map_err(|source| PortError::Fs {
-        path: tmp_target.to_path_buf(),
-        source,
-    })?;
+    let mut src = File::open(source_path).with_path(source_path)?;
+    let mut dst = File::create(tmp_target).with_path(tmp_target)?;
     // Errors mapped to `tmp_target`: a mid-stream failure is far more
     // likely to be a write to the cache target than the local source
     // going unreadable after a successful open.
-    cabin_core::hash::hash_copy(&mut src, &mut dst).map_err(|source| PortError::Fs {
-        path: tmp_target.to_path_buf(),
-        source,
-    })
+    cabin_core::hash::hash_copy(&mut src, &mut dst).with_path(tmp_target)
 }
 
 fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, PortError> {
-    let mut dst = File::create(tmp_target).map_err(|source| PortError::Fs {
-        path: tmp_target.to_path_buf(),
-        source,
-    })?;
-    cabin_core::hash::hash_copy(bytes, &mut dst).map_err(|source| PortError::Fs {
-        path: tmp_target.to_path_buf(),
-        source,
-    })
+    let mut dst = File::create(tmp_target).with_path(tmp_target)?;
+    cabin_core::hash::hash_copy(bytes, &mut dst).with_path(tmp_target)
 }
 
 fn hash_file(path: &Path) -> Result<String, PortError> {
-    let f = File::open(path).map_err(|source| PortError::Fs {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    cabin_core::hash::hash_reader(f).map_err(|source| PortError::Fs {
-        path: path.to_path_buf(),
-        source,
-    })
+    let f = File::open(path).with_path(path)?;
+    cabin_core::hash::hash_reader(f).with_path(path)
 }
 
 #[cfg(test)]

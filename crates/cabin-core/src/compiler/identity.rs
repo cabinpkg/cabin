@@ -254,26 +254,43 @@ impl CompilerIdentity {
 
     /// Compact JSON view used by `cabin metadata`.
     pub fn as_json(&self) -> serde_json::Value {
-        let mut obj = serde_json::Map::new();
-        obj.insert(
-            "kind".to_owned(),
-            serde_json::Value::String(self.kind.as_key().to_owned()),
-        );
-        if let Some(v) = &self.version {
-            obj.insert(
-                "version".to_owned(),
-                serde_json::Value::String(v.to_display_string()),
-            );
-        }
-        if let Some(t) = &self.target {
-            obj.insert("target".to_owned(), serde_json::Value::String(t.clone()));
-        }
-        obj.insert(
-            "raw_version_line".to_owned(),
-            serde_json::Value::String(self.raw_version_line.clone()),
-        );
-        serde_json::Value::Object(obj)
+        identity_json(
+            self.kind.as_key(),
+            self.version.as_ref(),
+            self.target.as_deref(),
+            &self.raw_version_line,
+        )
     }
+}
+
+/// Shared JSON shape for detected tool identities: `kind`, optional
+/// `version`, optional `target`, and `raw_version_line`, in that
+/// insertion order.
+fn identity_json(
+    kind: &str,
+    version: Option<&CompilerVersion>,
+    target: Option<&str>,
+    raw_version_line: &str,
+) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "kind".to_owned(),
+        serde_json::Value::String(kind.to_owned()),
+    );
+    if let Some(v) = version {
+        obj.insert(
+            "version".to_owned(),
+            serde_json::Value::String(v.to_display_string()),
+        );
+    }
+    if let Some(t) = target {
+        obj.insert("target".to_owned(), serde_json::Value::String(t.to_owned()));
+    }
+    obj.insert(
+        "raw_version_line".to_owned(),
+        serde_json::Value::String(raw_version_line.to_owned()),
+    );
+    serde_json::Value::Object(obj)
 }
 
 /// Detected identity of a static-library archiver.
@@ -295,21 +312,11 @@ impl ArchiverIdentity {
     }
 
     pub fn as_json(&self) -> serde_json::Value {
-        let mut obj = serde_json::Map::new();
-        obj.insert(
-            "kind".to_owned(),
-            serde_json::Value::String(self.kind.as_key().to_owned()),
-        );
-        if let Some(v) = &self.version {
-            obj.insert(
-                "version".to_owned(),
-                serde_json::Value::String(v.to_display_string()),
-            );
-        }
-        obj.insert(
-            "raw_version_line".to_owned(),
-            serde_json::Value::String(self.raw_version_line.clone()),
-        );
-        serde_json::Value::Object(obj)
+        identity_json(
+            self.kind.as_key(),
+            self.version.as_ref(),
+            None,
+            &self.raw_version_line,
+        )
     }
 }

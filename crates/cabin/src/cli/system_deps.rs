@@ -87,9 +87,11 @@ pub(crate) fn augment_build_flags_with_system_deps(
     // Check availability up-front so the user gets a single
     // actionable diagnostic when pkg-config is missing,
     // regardless of which package declares the first system
-    // dependency.
+    // dependency.  Keep the typed error as the anyhow source so
+    // the diagnostic registry can render its code and help text,
+    // exactly as the probe path below does.
     if let Err(err) = tool.check_available() {
-        return Err(anyhow::anyhow!(err));
+        return Err(err.into());
     }
 
     let mut reports: BTreeMap<usize, Vec<SystemDependencyResolution>> = BTreeMap::new();

@@ -110,6 +110,31 @@ sources = ["src/main.cc"]
 
 const HELLO_MAIN_CC: &str = "#include <iostream>\n\nint main() {\n    std::cout << \"Hello from Cabin\\n\";\n    return 0;\n}\n";
 
+/// Write the canonical single-package hello fixture at `root`:
+/// `VALID_MANIFEST` plus the greeting `src/main.cc`.  The shared
+/// starting point for tests that need a loadable (and buildable)
+/// package on disk.
+fn write_hello_project(root: &Path) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(VALID_MANIFEST)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+        .write_str(HELLO_MAIN_CC)
+        .unwrap();
+}
+
+/// Like [`write_hello_project`] but with a trivial `src/main.cc`
+/// body.  Used by the fmt / tidy tests, which assert on the exact
+/// on-disk source bytes rather than the program's behavior.
+fn write_minimal_project(root: &Path) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(VALID_MANIFEST)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+}
+
 /// Pin `HOME` and `XDG_CONFIG_HOME` to deterministic temp paths
 /// that contain no Cabin config.  The user config home resolver
 /// falls back to `getpwuid_r` when `HOME` is unset, so
@@ -134,6 +159,21 @@ fn pin_test_user_config_home_to_empty(cmd: &mut Command) {
     });
     cmd.env("HOME", &base);
     cmd.env("XDG_CONFIG_HOME", base.join("xdg-config"));
+}
+
+/// Build a `cabin` command that re-enables config discovery
+/// for a single test.  Mirrors the default test-harness
+/// helper but drops the `CABIN_NO_CONFIG=1` opt-out applied
+/// to every other integration test.  Shared by the config and
+/// patch/override test modules.
+fn cabin_with_config() -> Command {
+    let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
+    cmd.env_remove("CABIN_NO_CONFIG")
+        .env_remove("CABIN_CONFIG")
+        .env_remove("CABIN_CONFIG_HOME");
+    pin_test_user_config_home_to_empty(&mut cmd);
+    pin_test_cache_home(&mut cmd);
+    cmd
 }
 
 fn require_external_tool(name: &str) {
@@ -230,6 +270,46 @@ fn write_index_entry(
     assert_fs::fixture::ChildPath::new(index_dir.join(format!("{package}.json")))
         .write_str(&body)
         .unwrap();
+}
+
+/// Write an `app/` package whose root manifest depends on
+/// `fmt = ">=10 <11"`.  With `app_main` set, the manifest also
+/// declares a `[target.app]` executable linking against `fmt` and
+/// `app/src/main.cc` is written with the given body; with `None`
+/// the package has no targets (resolver / registry-only tests).
+/// Shared by the artifact-fetch, file-registry, and sparse-HTTP
+/// test modules.
+fn write_app_using_fmt(dir: &Path, app_main: Option<&str>) {
+    let manifest = if app_main.is_some() {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmt"]
+"#
+    } else {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#
+    };
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(manifest)
+        .unwrap();
+    if let Some(body) = app_main {
+        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+            .write_str(body)
+            .unwrap();
+    }
 }
 
 /// Like [`write_index_entry`] but without a `source` block, for index
@@ -1073,12 +1153,7 @@ mod remove_cmd;
 /// Set up a hello-world C++ package in `dir` and run a default build.
 /// Returns `dir/build/packages/hello/` for output assertions.
 fn build_simple_executable(dir: &Path, extra_args: &[&str]) {
-    assert_fs::fixture::ChildPath::new(dir.join("cabin.toml"))
-        .write_str(VALID_MANIFEST)
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.join("src/main.cc"))
-        .write_str(HELLO_MAIN_CC)
-        .unwrap();
+    write_hello_project(dir);
 
     let build_dir = dir.join("build");
     let mut cmd = cabin();

@@ -18,12 +18,18 @@ use cabin_build::Dialect;
 
 mod fake_ports;
 mod foundation_port_smoke;
+mod port_schema;
 
 #[allow(unused_imports)]
 pub use fake_ports::{FakeArchiveServer, FakePortRepo};
 #[allow(unused_imports)]
 pub use foundation_port_smoke::{
     PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,
+};
+#[allow(unused_imports)]
+pub use port_schema::{
+    assert_builtin_port_bundled_and_parses, assert_tar_gz_source, builtin_overlay,
+    load_real_port_and_assert_schema,
 };
 
 /// File name of the executable built from `stem` in the host's

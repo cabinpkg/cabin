@@ -562,68 +562,58 @@ fn build_constraints(
     let raw = requirement.trim();
     let mut argv: Vec<OsString> = Vec::new();
     argv.push(OsString::from(name));
-    if raw.is_empty() {
-        return Ok(ConstraintArgv {
-            argv,
-            had_constraint: false,
-        });
-    }
-    if let Some(constraints) = convert_requirement(raw) {
-        let had_constraint = !constraints.is_empty();
-        for (op, ver) in constraints {
-            argv.push(OsString::from(name));
-            argv.push(OsString::from(op));
-            argv.push(OsString::from(ver));
-        }
-        Ok(ConstraintArgv {
-            argv,
-            had_constraint,
-        })
-    } else {
-        // The requirement is not recognizable SemVer.
-        // Cabin's version field is documented as free-form,
-        // so we forward the raw text directly. pkg-config
-        // accepts a single positional `name op version`
-        // when the whole argument is a single token; if it
-        // contains whitespace, split it so each token lands
-        // in a separate argv slot.
-        let split: Vec<&str> = raw.split_whitespace().collect();
-        if split.is_empty() {
-            return Ok(ConstraintArgv {
-                argv,
-                had_constraint: false,
-            });
-        }
-        // We require alternating `op version` pairs.  A single
-        // token can never carry both (glued forms like `>=1.2`
-        // parse as SemVer above), and pkg-config's positional
-        // grammar repeats the module name before every constraint
-        // (`name >= 1.0 name < 2.0`) - gluing the pairs after a
-        // single name would make pkg-config read a stray `<` as
-        // another module name.  Anything that does not fit the
-        // pair shape gets a typed error instead of a garbage argv.
-        if !split.len().is_multiple_of(2) {
-            return Err(PkgConfigError::InvalidVersionRequirement {
+    if !raw.is_empty() {
+        if let Some(constraints) = convert_requirement(raw) {
+            for (op, ver) in constraints {
+                argv.push(OsString::from(name));
+                argv.push(OsString::from(op));
+                argv.push(OsString::from(ver));
+            }
+        } else {
+            // The requirement is not recognizable SemVer.
+            // Cabin's version field is documented as free-form,
+            // so we forward the raw text directly. pkg-config
+            // accepts a single positional `name op version`
+            // when the whole argument is a single token; if it
+            // contains whitespace, split it so each token lands
+            // in a separate argv slot.
+            let invalid = || PkgConfigError::InvalidVersionRequirement {
                 name: name.to_owned(),
                 requirement: requirement.to_owned(),
-            });
-        }
-        for pair in split.chunks(2) {
-            if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=") {
-                return Err(PkgConfigError::InvalidVersionRequirement {
-                    name: name.to_owned(),
-                    requirement: requirement.to_owned(),
-                });
+            };
+            // `raw` is non-empty after trimming, so `split` always
+            // carries at least one token and a successful parse
+            // below pushes at least one `name op version` triple.
+            let split: Vec<&str> = raw.split_whitespace().collect();
+            // We require alternating `op version` pairs.  A single
+            // token can never carry both (glued forms like `>=1.2`
+            // parse as SemVer above), and pkg-config's positional
+            // grammar repeats the module name before every constraint
+            // (`name >= 1.0 name < 2.0`) - gluing the pairs after a
+            // single name would make pkg-config read a stray `<` as
+            // another module name.  Anything that does not fit the
+            // pair shape gets a typed error instead of a garbage argv.
+            if !split.len().is_multiple_of(2) {
+                return Err(invalid());
             }
-            argv.push(OsString::from(name));
-            argv.push(OsString::from(pair[0]));
-            argv.push(OsString::from(pair[1]));
+            for pair in split.chunks(2) {
+                if !matches!(pair[0], "=" | "!=" | "<" | "<=" | ">" | ">=") {
+                    return Err(invalid());
+                }
+                argv.push(OsString::from(name));
+                argv.push(OsString::from(pair[0]));
+                argv.push(OsString::from(pair[1]));
+            }
         }
-        Ok(ConstraintArgv {
-            argv,
-            had_constraint: true,
-        })
     }
+    // Single rule shared by every path above: a constraint
+    // contributed exactly when op/version tokens follow the
+    // leading module name.
+    let had_constraint = argv.len() > 1;
+    Ok(ConstraintArgv {
+        argv,
+        had_constraint,
+    })
 }
 
 /// Convert a Cabin / npm-flavored `SemVer` requirement into a
@@ -639,9 +629,10 @@ fn convert_requirement(raw: &str) -> Option<Vec<(String, String)>> {
         }
     }
     // `*` parses as `VersionReq` with no comparators; the call site
-    // treats `Some(empty)` as "no pkg-config version constraint" and
-    // sets `had_constraint = false` so the wildcard does not flow into
-    // the verbatim-fallback path that would reject `*` as unparsable.
+    // treats `Some(empty)` as "no pkg-config version constraint"
+    // (nothing follows the module name, so `had_constraint` stays
+    // false) and the wildcard does not flow into the verbatim
+    // fallback path that would reject `*` as unparsable.
     Some(out)
 }
 
@@ -1277,6 +1268,41 @@ mod tests {
                 assert_eq!(requirement, ">=");
             }
             other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_constraints_treats_whitespace_only_requirement_as_empty() {
+        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
+        let argv = build_constraints("zlib", "   ", tool.executable()).unwrap();
+        assert!(!argv.had_constraint);
+        assert_eq!(argv.argv, vec![OsString::from("zlib")]);
+    }
+
+    #[test]
+    fn build_constraints_had_constraint_matches_argv_shape_on_every_path() {
+        // Characterization: the SemVer-conversion path and the raw
+        // forwarding path must agree on one rule for `had_constraint`:
+        // it is true exactly when op/version tokens follow the leading
+        // module name in `argv`.  Pin the rule across empty, wildcard,
+        // SemVer, and raw inputs so the two paths cannot silently
+        // diverge.
+        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
+        for requirement in [
+            "",
+            "   ",
+            "*",
+            "1.2.3",
+            "^1.2",
+            ">= 1.0.1f",
+            ">= 1.0.1f < 3.0.0z",
+        ] {
+            let constraints = build_constraints("zlib", requirement, tool.executable()).unwrap();
+            assert_eq!(
+                constraints.had_constraint,
+                constraints.argv.len() > 1,
+                "requirement: {requirement:?}"
+            );
         }
     }
 
