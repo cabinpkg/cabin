@@ -37,7 +37,7 @@ const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/site.webmanifest" />
         <meta name="description" content={description} />
-        <meta name="theme-color" content="#05070d" />
+        <meta name="theme-color" content="#10151b" />
         <link rel="canonical" href={canonicalUrl.toString()} />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content={SITE_NAME} />
@@ -52,7 +52,7 @@ const canonicalUrl = new URL(canonicalPath ?? Astro.url.pathname, SITE_URL);
     <body>
         <a
             href="#main-content"
-            class="sr-only rounded-lg bg-slate-900 px-4 py-2 font-semibold text-sky-200 focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100]"
+            class="sr-only rounded-sm bg-night-lifted px-4 py-2 font-semibold text-steel focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100]"
         >
             Skip to main content
         </a>

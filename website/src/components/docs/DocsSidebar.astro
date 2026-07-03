@@ -9,8 +9,8 @@ const { slug } = Astro.props;
 
 const linkClass = (itemSlug: string) =>
     itemSlug === slug
-        ? "block rounded-lg bg-sky-400/10 px-3 py-1.5 text-sm font-semibold text-sky-200"
-        : "block rounded-lg px-3 py-1.5 text-sm text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-100";
+        ? "block rounded-sm bg-steel/10 px-3 py-1.5 text-sm font-semibold text-steel-bright"
+        : "block rounded-sm px-3 py-1.5 text-sm text-ink-muted transition-colors hover:bg-night-lifted hover:text-ink";
 ---
 
 <a
@@ -23,7 +23,7 @@ const linkClass = (itemSlug: string) =>
 {
     DOCS_NAV.map((section) => (
         <div class="mt-4">
-            <p class="px-3 pb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+            <p class="px-3 pb-1 font-mono text-xs font-medium uppercase tracking-wider text-ink-faint">
                 {section.title}
             </p>
             <ul class="space-y-0.5">

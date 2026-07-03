@@ -67,7 +67,7 @@ fetchPackageIndex()
         }
         if (emptyState && emptyMessage) {
             emptyState.classList.remove("hidden");
-            emptyMessage.textContent = `The static package index could not be loaded: ${error.message}`;
+            emptyMessage.textContent = `Loading the package index failed: ${error.message}`;
         }
     });
 
@@ -214,7 +214,7 @@ function renderPagination(currentPage: number, totalPages: number) {
 function createPaginationControl(item: PaginationItem) {
     if (item.type === "ellipsis") {
         const ellipsis = document.createElement("span");
-        ellipsis.className = "px-2 py-2 text-slate-500";
+        ellipsis.className = "px-2 py-2 text-ink-faint";
         ellipsis.textContent = item.label;
         return ellipsis;
     }

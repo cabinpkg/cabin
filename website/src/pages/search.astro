@@ -1,5 +1,5 @@
 ---
-import GradientIcon from "../components/GradientIcon.astro";
+import IconTile from "../components/IconTile.astro";
 import Icon from "../components/Icon.astro";
 import PackageCard from "../components/package/PackageCard.astro";
 import Pagination from "../components/ui/Pagination.astro";
@@ -29,15 +29,15 @@ const initialPagination = paginateItems(
 >
     <section class="mb-8">
         <div class="flex items-start gap-4">
-            <GradientIcon name="search" size="lg" />
+            <IconTile name="search" size="lg" />
             <div>
                 <h1
                     id="search-title"
-                    class="text-3xl font-black tracking-tight md:text-4xl"
+                    class="text-3xl font-bold tracking-tight md:text-4xl"
                 >
                     {getSearchTitle("")}
                 </h1>
-                <p id="result-count" class="mt-2 text-slate-400">
+                <p id="result-count" class="mt-2 text-ink-muted">
                     {getSearchCountLabel(initialPagination, "")}
                 </p>
             </div>
@@ -47,16 +47,16 @@ const initialPagination = paginateItems(
     <section
         id="empty-state"
         class:list={[
-            "rounded-3xl border border-slate-800 bg-slate-950/60 px-6 py-16 text-center",
+            "rounded-md border border-line bg-night-raised px-6 py-16 text-center",
             initialPagination.total > 0 && "hidden",
         ]}
         aria-live="polite"
     >
-        <div class="mb-6 flex justify-center text-slate-600">
+        <div class="mb-6 flex justify-center text-ink-faint">
             <Icon name="box" class="h-16 w-16" />
         </div>
-        <h2 class="mb-3 text-2xl font-bold">No packages found</h2>
-        <p id="empty-message" class="text-lg text-slate-500">
+        <h2 class="mb-3 text-2xl font-bold tracking-tight">No packages found</h2>
+        <p id="empty-message" class="text-lg text-ink-muted">
             {getEmptySearchMessage("")}
         </p>
     </section>

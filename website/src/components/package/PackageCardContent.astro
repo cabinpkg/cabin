@@ -34,14 +34,14 @@ const publishedLabel = publishedAt ? formatRelativeTime(publishedAt) : "";
             <div class="min-w-0">
                 <h2
                     class:list={[
-                        "truncate text-lg font-bold text-white transition",
-                        isLinkable && "group-hover:text-sky-200",
+                        "truncate text-lg font-bold text-ink transition",
+                        isLinkable && "group-hover:text-steel-bright",
                     ]}
                     data-package-field="name"
                 >
                     {packageName}
                 </h2>
-                <p class="mt-1 text-sm text-slate-500">
+                <p class="mt-1 font-mono text-sm text-ink-faint">
                     v<span data-package-field="version">{version}</span>
                 </p>
             </div>
@@ -55,7 +55,7 @@ const publishedLabel = publishedAt ? formatRelativeTime(publishedAt) : "";
                 {edition}
             </Badge>
             <p
-                class="text-xs text-slate-500"
+                class="text-xs text-ink-faint"
                 data-package-field="published"
                 data-package-published-at={publishedAt}
             >
@@ -66,7 +66,7 @@ const publishedLabel = publishedAt ? formatRelativeTime(publishedAt) : "";
 
     <p
         class:list={[
-            "mt-4 line-clamp-2 border-t border-slate-800 pt-4 leading-7 text-slate-400",
+            "mt-4 line-clamp-2 border-t border-line pt-4 leading-7 text-ink-muted",
             !description && "hidden",
         ]}
         data-package-field="description"

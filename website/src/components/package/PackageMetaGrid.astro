@@ -33,7 +33,7 @@ const editionLabel = formatEdition(pack.edition);
         <h2 class="mb-4 text-lg font-bold">Package Info</h2>
         <dl class="space-y-4">
             <div class="flex items-center justify-between gap-4">
-                <dt class="flex items-center gap-2 text-slate-400">
+                <dt class="flex items-center gap-2 text-ink-muted">
                     <Icon name="box" class="h-4 w-4" />
                     Versions
                 </dt>
@@ -42,7 +42,7 @@ const editionLabel = formatEdition(pack.edition);
                 </dd>
             </div>
             <div class="flex items-center justify-between gap-4">
-                <dt class="flex items-center gap-2 text-slate-400">
+                <dt class="flex items-center gap-2 text-ink-muted">
                     <Icon name="branch" class="h-4 w-4" />
                     Dependencies
                 </dt>
@@ -51,16 +51,16 @@ const editionLabel = formatEdition(pack.edition);
                 </dd>
             </div>
             <div class="flex items-center justify-between gap-4">
-                <dt class="flex items-center gap-2 text-slate-400">
+                <dt class="flex items-center gap-2 text-ink-muted">
                     <Icon name="calendar" class="h-4 w-4" />
                     Published
                 </dt>
-                <dd class="text-sm font-semibold text-slate-200">
+                <dd class="text-sm font-semibold text-ink">
                     {publishedAt ? formatRelativeTime(publishedAt) : "Unknown"}
                 </dd>
             </div>
             <div class="flex items-center justify-between gap-4">
-                <dt class="flex items-center gap-2 text-slate-400">
+                <dt class="flex items-center gap-2 text-ink-muted">
                     <Icon name="gavel" class="h-4 w-4" />
                     License
                 </dt>
@@ -71,12 +71,12 @@ const editionLabel = formatEdition(pack.edition);
                                 href={licenseHref}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                class="text-sm font-semibold text-sky-300 hover:text-sky-200"
+                                class="text-sm font-semibold text-steel hover:text-steel-bright"
                             >
                                 {license}
                             </a>
                         ) : (
-                            <span class="text-sm text-slate-500">Unknown</span>
+                            <span class="text-sm text-ink-faint">Unknown</span>
                         )
                     }
                 </dd>
@@ -84,7 +84,7 @@ const editionLabel = formatEdition(pack.edition);
             {
                 editionLabel && (
                     <div class="flex items-center justify-between gap-4">
-                        <dt class="flex items-center gap-2 text-slate-400">
+                        <dt class="flex items-center gap-2 text-ink-muted">
                             <Icon name="code" class="h-4 w-4" />
                             Edition
                         </dt>
@@ -137,8 +137,8 @@ const editionLabel = formatEdition(pack.edition);
                 !metadata.links.homepage &&
                     !metadata.links.documentation &&
                     !metadata.links.repository && (
-                        <p class="text-sm text-slate-500">
-                            No package links are available.
+                        <p class="text-sm text-ink-faint">
+                            This package has no links.
                         </p>
                     )
             }

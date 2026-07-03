@@ -2,7 +2,7 @@
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { formatEdition } from "../../lib/format";
 import type { PackageRecord } from "../../lib/packages";
-import GradientIcon from "../GradientIcon.astro";
+import IconTile from "../IconTile.astro";
 import Icon from "../Icon.astro";
 import Badge from "../ui/Badge.astro";
 import InstallSnippet from "./InstallSnippet.astro";
@@ -31,12 +31,12 @@ const editionLabel = formatEdition(pack.edition);
         <div class="flex flex-col gap-4">
             <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <div class="flex items-center gap-3">
-                    <GradientIcon name="cube" size="lg" />
+                    <IconTile name="cube" size="lg" />
                     <div>
-                        <h1 class="text-3xl font-black md:text-4xl">
+                        <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
                             {pack.name}
                         </h1>
-                        <p class="mt-1 flex items-center gap-2 text-lg text-slate-500">
+                        <p class="mt-1 flex items-center gap-2 font-mono text-base text-ink-faint">
                             <Icon name="tag" class="h-4 w-4" />
                             v{pack.version}
                         </p>
@@ -56,7 +56,7 @@ const editionLabel = formatEdition(pack.edition);
 
             {
                 pack.description && (
-                    <p class="max-w-3xl text-xl leading-8 text-slate-400">
+                    <p class="max-w-3xl text-xl leading-8 text-ink-muted">
                         {pack.description}
                     </p>
                 )
