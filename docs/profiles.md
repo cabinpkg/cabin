@@ -23,8 +23,8 @@ Cabin always provides two profiles, even when the manifest has no `[profile.*]` 
 invocation produce.
 
 The standard flag comes from the language-standards layer, not from the profile: `<c-standard>` /
-`<cxx-standard>` are the target's effective standards (`c11` / `c++17` unless the manifest declares
-otherwise - see [Language standards](language-standards.md)).
+`<cxx-standard>` are the target's effective standards, which the manifest must declare - see
+[Language standards](language-standards.md).
 
 ## CLI selection
 

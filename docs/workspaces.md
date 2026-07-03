@@ -95,7 +95,9 @@ cxx-standard = { workspace = true }
 
 - `c-standard`, `cxx-standard`, `interface-c-standard`, and `interface-cxx-standard` are accepted on
   `[workspace]` with literal values only.
-- A member opts in per field with `<field> = { workspace = true }` on `[package]`.
+- A member opts in per field with `<field> = { workspace = true }` on `[package]`.  Opting in
+  counts as declaring; a member that does not opt in inherits nothing, and - since Cabin has no
+  built-in standard defaults - must declare its own standard for every language it compiles.
 - The lookup is field-specific.  If the workspace root does not declare the opted-into field, Cabin
   reports a clear error naming the package, the field, and the expected `[workspace]` location.
 - The marker is only valid on `[package]`-level fields; a `{ workspace = true }` on a

@@ -55,8 +55,8 @@ deps = ["greet", "fmt"]
 | --- | --- | --- | --- |
 | `name` | string | yes | Package name.  Must be non-empty and contain no whitespace. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
-| `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`).  Defaults to `c11`.  See [Language standards](language-standards.md). |
-| `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++23`).  Defaults to `c++17`. |
+| `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
+| `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++23`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
 | `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets. |
 | `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets. |
 
@@ -83,7 +83,7 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `deps` | array of strings | no | `[]` | Target dependencies.  See [Target dependencies](#target-dependencies). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
-| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement; `library` / `header-only` only. |
+| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement; `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
 | `interface-cxx-standard` | string | no | effective `cxx-standard` | C++ interface requirement; `library` / `header-only` only. |
 
 `include-dirs` of a `library` or `header-only` target are visible (transitively) to any target that
