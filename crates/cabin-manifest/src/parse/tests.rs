@@ -25,6 +25,7 @@ const FULL: &str = r#"
         [package]
         name = "hello"
         version = "0.1.0"
+        cxx-standard = "c++17"
 
         [target.hello]
         type = "executable"
@@ -65,6 +66,7 @@ fn target_source_and_include_paths_with_spaces_round_trip_as_utf8() {
             [package]
             name = "hello"
             version = "0.1.0"
+            cxx-standard = "c++17"
 
             [target.hello]
             type = "executable"
@@ -111,6 +113,7 @@ fn target_include_dirs_is_kebab_case() {
 [package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -159,6 +162,7 @@ fn header_only_kind_is_accepted() {
             [target.hdr]
             type = "header-only"
             include-dirs = ["include"]
+            interface-cxx-standard = "c++17"
         "#;
     let package = parse_project(manifest);
     let target = &package.targets[0];
@@ -371,6 +375,161 @@ fn implementation_standard_on_executable_is_accepted() {
 }
 
 #[test]
+fn compiled_language_without_standard_is_rejected() {
+    // No built-in defaults: a compiled language must have an
+    // effective standard from the target or `[package]` tier.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.cc"]
+        "#;
+    let err = parse_project_err(manifest);
+    match &err {
+        ManifestError::MissingLanguageStandard {
+            target,
+            language,
+            field,
+        } => {
+            assert_eq!(target, "app");
+            assert_eq!(*language, "C++");
+            assert_eq!(*field, "cxx-standard");
+        }
+        other => panic!("expected MissingLanguageStandard, got {other:?}"),
+    }
+    let message = err.to_string();
+    assert!(
+        message.contains("cxx-standard") && message.contains("workspace = true"),
+        "message must name the field and the workspace opt-in: {message}"
+    );
+
+    // A declared C++ standard does not cover C sources.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.cc", "src/util.c"]
+        "#;
+    let err = parse_project_err(manifest);
+    match &err {
+        ManifestError::MissingLanguageStandard {
+            language, field, ..
+        } => {
+            assert_eq!(*language, "C");
+            assert_eq!(*field, "c-standard");
+        }
+        other => panic!("expected MissingLanguageStandard, got {other:?}"),
+    }
+}
+
+#[test]
+fn target_level_standard_covers_its_compiled_language() {
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.c"]
+            c-standard = "c17"
+        "#;
+    parse_project(manifest);
+}
+
+#[test]
+fn workspace_marker_counts_as_declared_standard() {
+    // The marker resolves (or errors) at workspace load; for
+    // coverage purposes opting in is declaring.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = { workspace = true }
+
+            [target.app]
+            type = "executable"
+            sources = ["src/main.cc"]
+        "#;
+    parse_project(manifest);
+}
+
+#[test]
+fn header_only_without_interface_standard_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "hdr"
+            version = "0.1.0"
+
+            [target.hdr]
+            type = "header-only"
+            include-dirs = ["include"]
+        "#;
+    let err = parse_project_err(manifest);
+    match &err {
+        ManifestError::HeaderOnlyMissingInterfaceStandard { target } => {
+            assert_eq!(target, "hdr");
+        }
+        other => panic!("expected HeaderOnlyMissingInterfaceStandard, got {other:?}"),
+    }
+    let message = err.to_string();
+    assert!(
+        message.contains("interface-c-standard") && message.contains("interface-cxx-standard"),
+        "message must name both interface fields: {message}"
+    );
+
+    // An implementation standard alone does not describe the
+    // headers' requirement.
+    let manifest = r#"
+            [package]
+            name = "hdr"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [target.hdr]
+            type = "header-only"
+            include-dirs = ["include"]
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(matches!(
+        err,
+        ManifestError::HeaderOnlyMissingInterfaceStandard { .. }
+    ));
+}
+
+#[test]
+fn header_only_interface_standard_at_either_level_is_accepted() {
+    for fields in [
+        ("", "interface-c-standard = \"c11\""),
+        ("interface-cxx-standard = \"c++17\"", ""),
+        ("interface-c-standard = { workspace = true }", ""),
+    ] {
+        let (package_field, target_field) = fields;
+        let manifest = format!(
+            r#"
+                [package]
+                name = "hdr"
+                version = "0.1.0"
+                {package_field}
+
+                [target.hdr]
+                type = "header-only"
+                include-dirs = ["include"]
+                {target_field}
+            "#
+        );
+        parse_project(&manifest);
+    }
+}
+
+#[test]
 fn misspelled_standard_field_hits_generic_unknown_field_path() {
     let manifest = r#"
             [package]
@@ -399,6 +558,8 @@ fn executable_accepts_mixed_c_and_cpp_sources() {
             [package]
             name = "exe"
             version = "0.1.0"
+            c-standard = "c11"
+            cxx-standard = "c++17"
 
             [target.exe]
             type = "executable"
@@ -440,6 +601,8 @@ fn parses_all_supported_target_kinds() {
             [package]
             name = "many"
             version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-cxx-standard = "c++17"
 
             [target.a]
             type = "library"

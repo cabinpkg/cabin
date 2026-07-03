@@ -297,6 +297,7 @@ fmt = ">=10.0.0 <11.0.0"
                 r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
@@ -316,6 +317,7 @@ sources = ["../outside.cc"]
                 r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "library"
@@ -344,6 +346,7 @@ include-dirs = ["../include"]
                 r#"[package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.app]
 type = "executable"
