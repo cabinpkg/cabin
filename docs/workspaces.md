@@ -275,6 +275,7 @@ spdlog = "^1.12"
 [package]
 name = "api"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 fmt    = { workspace = true }

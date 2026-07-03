@@ -83,6 +83,7 @@ A minimal `cabin.toml`:
 [package]
 name = "hello"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.hello]
 type = "executable"
@@ -102,6 +103,7 @@ members = ["app", "lib"]
 [package]
 name = "app"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 lib = { path = "../lib" }
@@ -116,6 +118,7 @@ sources = ["src/main.cc"]
 [package]
 name = "lib"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [target.lib]
 type = "library"

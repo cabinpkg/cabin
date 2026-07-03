@@ -38,6 +38,7 @@ Naming convention: manifest field names and value strings are kebab-case (`inclu
 [package]
 name = "my-project"
 version = "0.1.0"
+cxx-standard = "c++17"
 
 [dependencies]
 greet = { path = "../greet" }
