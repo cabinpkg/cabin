@@ -124,8 +124,12 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selection_request = SelectionRequest::default();
-    let feature_resolution =
-        crate::cli::compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+    let feature_resolution = crate::cli::compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &selection_request,
+        &BTreeSet::new(),
+    )?;
 
     // `cabin tidy` does not run the artifact pipeline or load
     // extracted registry manifests, so selected packages with

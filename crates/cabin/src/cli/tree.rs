@@ -24,8 +24,8 @@ use crate::cli::{
 //
 // Dev edges are intentionally not exposed here: tree/explain build their
 // view through the ordinary workspace loader, which keeps dev deps
-// declaration-only - only `cabin run` / `cabin test` opt them into the
-// graph.  A `--kind dev` filter would walk an empty edge set.
+// declaration-only - only `cabin test` opts them into the graph.  A
+// `--kind dev` filter would walk an empty edge set.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 #[clap(rename_all = "kebab-case")]
 pub(crate) enum TreeKindFilter {
@@ -120,7 +120,12 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
-    let _feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
+    let _feature_resolution = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &request,
+        &std::collections::BTreeSet::new(),
+    )?;
 
     let inputs = cabin_explain::TreeInputs {
         graph: &graph,

@@ -26,8 +26,8 @@ test unit-test-gtest:stats_gtest ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 ```
 
-Because only the `test` target references `googletest`, a plain `cabin build` compiles just the
-`stats` library and touches nothing from the port.
+Because `googletest` is a `[dev-dependencies]` entry, a plain `cabin build` compiles just the
+`stats` library and touches nothing from the port - only `cabin test` activates it.
 
 The googletest port ships no `gtest_main`, so `tests/stats_gtest.cc` supplies its own `main` that
 calls `::testing::InitGoogleTest` and `RUN_ALL_TESTS()`.

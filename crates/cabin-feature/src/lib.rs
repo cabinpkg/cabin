@@ -205,6 +205,15 @@ impl std::fmt::Display for FeatureRequestSource {
 /// dependencies cannot be enabled, and dependency feature
 /// requests against non-matching declarations do not propagate.
 ///
+/// `dev_active_for` names the packages whose `[dev-dependencies]`
+/// are activated for this invocation (`cabin test` passes the
+/// selected primary packages; ordinary commands pass an empty
+/// set).  Dev declarations of listed packages participate in
+/// resolution even before a registry edge is materialized, so a
+/// feature entry referencing a versioned dev dep resolves instead
+/// of erroring pre-fetch.  Activation never propagates: only the
+/// listed packages' dev declarations participate.
+///
 /// The resolver is deterministic: feature names sort, dependency
 /// names sort, and the worklist is drained FIFO so identical
 /// inputs always yield identical outputs.
@@ -225,8 +234,9 @@ pub fn resolve_features(
     selected_roots: &[usize],
     request: &RootFeatureRequest,
     platform: &TargetPlatform,
+    dev_active_for: &BTreeSet<String>,
 ) -> Result<FeatureResolution, FeatureResolverError> {
-    let mut state = ResolverState::new(graph, platform);
+    let mut state = ResolverState::new(graph, platform, dev_active_for);
 
     // Seed: every selected root is *included* and receives the
     // root request.  `IncludePackage` triggers expansion of its
@@ -308,6 +318,10 @@ struct ResolverState {
     work: VecDeque<WorkItem>,
     /// Evaluation context for `[target.'cfg(...)']` filtering.
     platform: TargetPlatform,
+    /// Names of packages whose `[dev-dependencies]` are activated
+    /// for this invocation.  Mirrors the workspace loader's
+    /// `include_dev_for` policy.
+    dev_active_for: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -335,7 +349,27 @@ enum WorkItem {
 }
 
 impl ResolverState {
-    fn new(graph: &PackageGraph, platform: &TargetPlatform) -> Self {
+    /// Whether a declared dependency participates in feature
+    /// resolution.  `Normal`-kind declarations always do.
+    /// `Dev`-kind declarations participate only when the owning
+    /// package is in `dev_active_for` - the same name-set policy
+    /// the workspace loader applies via `include_dev_for`, so a
+    /// versioned dev dep participates even before its registry
+    /// edge is materialized.  Ordinary commands pass an empty set
+    /// and see the historical Normal-only behavior; activation
+    /// never propagates because only the selected packages are
+    /// listed.
+    fn dep_participates(&self, pkg: &WorkspacePackage, declared: &cabin_core::Dependency) -> bool {
+        declared.kind.is_resolved_by_default()
+            || (declared.kind == DependencyKind::Dev
+                && self.dev_active_for.contains(pkg.package.name.as_str()))
+    }
+
+    fn new(
+        graph: &PackageGraph,
+        platform: &TargetPlatform,
+        dev_active_for: &BTreeSet<String>,
+    ) -> Self {
         let per_package: BTreeMap<usize, ResolvedPackageFeatures> = (0..graph.packages.len())
             .map(|i| (i, ResolvedPackageFeatures::default()))
             .collect();
@@ -345,6 +379,7 @@ impl ResolverState {
             edges_expanded: BTreeSet::new(),
             work: VecDeque::new(),
             platform: platform.clone(),
+            dev_active_for: dev_active_for.clone(),
         }
     }
 
@@ -464,7 +499,7 @@ impl ResolverState {
             return;
         }
         let pkg = &graph.packages[package];
-        // Expand every non-optional resolvable-kind edge so the
+        // Expand every non-optional participating edge so the
         // target package receives the per-edge `default-features`
         // / `features = [...]` requests (and inherits its own
         // included status through the queued `IncludePackage`).
@@ -472,7 +507,7 @@ impl ResolverState {
         // not match the evaluation platform are skipped here so
         // their feature requests do not propagate.
         for declared in &pkg.package.dependencies {
-            if !declared.kind.is_resolved_by_default() {
+            if !self.dep_participates(pkg, declared) {
                 continue;
             }
             if declared.optional {
@@ -567,7 +602,7 @@ impl ResolverState {
             if declared.name.as_str() != dep_name {
                 continue;
             }
-            if !declared.kind.is_resolved_by_default() {
+            if !self.dep_participates(pkg, declared) {
                 continue;
             }
             if !declared.matches_platform(&self.platform) {
@@ -611,14 +646,14 @@ impl ResolverState {
     /// Look up a dependency by name.  Returns:
     ///
     /// - `Ok(Some(dep))` for an active declaration of a
-    ///   resolvable kind;
+    ///   participating kind;
     /// - `Ok(None)` when every declaration matching `dep_name`
     ///   is gated by a non-matching `cfg(...)` on this host -
     ///   feature entries that reference such a dep become a
     ///   no-op for this evaluation, mirroring Cargo's behavior
     ///   for inactive target-conditional optional deps;
     /// - `Err(UnknownDependency)` when no declaration of any
-    ///   resolvable kind names `dep_name`.
+    ///   participating kind names `dep_name`.
     fn lookup_declared_dep<'a>(
         &self,
         pkg: &'a WorkspacePackage,
@@ -627,7 +662,7 @@ impl ResolverState {
     ) -> Result<Option<&'a cabin_core::Dependency>, FeatureResolverError> {
         let mut declared_anywhere = false;
         for dep in &pkg.package.dependencies {
-            if dep.name.as_str() != dep_name || !dep.kind.is_resolved_by_default() {
+            if dep.name.as_str() != dep_name || !self.dep_participates(pkg, dep) {
                 continue;
             }
             declared_anywhere = true;

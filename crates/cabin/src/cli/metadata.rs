@@ -710,7 +710,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     // Run the cross-package feature resolver so unknown features,
     // `dep:` entries on non-optional deps, and other feature-graph
     // errors surface here and in `cabin build`.
-    let feature_resolution = compute_feature_resolution(&graph, &resolved_selection, &request)?;
+    let feature_resolution =
+        compute_feature_resolution(&graph, &resolved_selection, &request, &BTreeSet::new())?;
     let manifest_profiles = workspace_profile_definitions(&graph);
     let profile_selection =
         profile_selection_for_metadata(args.profile.as_deref(), &effective_config)?;

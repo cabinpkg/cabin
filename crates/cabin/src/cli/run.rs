@@ -174,6 +174,7 @@ pub(crate) fn run(
         &initial_graph,
         &initial_resolved_selection,
         &initial_request,
+        &dev_for,
     )?;
 
     let resolved_index_source = crate::cli::config::resolve_index_source(
@@ -322,8 +323,12 @@ pub(crate) fn run(
     // the selected feature set.
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+    let feature_resolution = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &selection_request,
+        &BTreeSet::new(),
+    )?;
     let prep =
         crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,

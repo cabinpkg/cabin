@@ -3,12 +3,10 @@ name = "unit-test-gtest"
 version = "0.1.0"
 cxx-standard = "c++17"
 
-# Declared under [dependencies]: dev path/port dependencies are
-# declaration-only in Cabin today (they never enter the package
-# graph), so a `test` target can only link a port that is a normal
-# dependency. Only the test target references it, so `cabin build`
-# still compiles nothing from the port until `cabin test` needs it.
-[dependencies]
+# Test-only: `cabin test` activates dev dependencies for the
+# selected packages, so the `test` target can link the port while
+# `cabin build` ignores it entirely.
+[dev-dependencies]
 googletest = { port = true, version = "^1.17" }
 
 [target.stats]

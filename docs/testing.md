@@ -122,6 +122,16 @@ sources = ["tests/lib_test.cc"]
 deps = ["demo", "gtest"]
 ```
 
+Every dependency source form works under `[dev-dependencies]`: versioned registry requirements
+(resolved and fetched like normal deps, and recorded in the lockfile), `path` deps, and foundation
+ports (`port = true` / `port-path`).  The
+[`unit-test-gtest`](https://github.com/cabinpkg/cabin/tree/main/examples/unit-test-gtest) example
+links the `googletest` port from `[dev-dependencies]` this way.
+
+Only dev-only target kinds (`test`, `example`) may list dev dependencies in `deps`; an ordinary
+`library` / `executable` target referencing one fails with a diagnostic naming the
+`[dev-dependencies]` policy, so a production target cannot accidentally link test-only code.
+
 `cabin build` continues to ignore `[dev-dependencies]`, so ordinary production builds remain
 unaffected.  Dev-dep activation never propagates: a transitive package's own `[dev-dependencies]`
 stay declaration-only even under `cabin test`.

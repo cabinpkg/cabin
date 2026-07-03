@@ -150,6 +150,32 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     // workspace member's dev-deps must therefore participate in
     // discovery so the second-pass loader can resolve them.
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
+
+    // `--allow-no-tests` succeeds without building anything, so an
+    // empty test selection must not activate dev deps at all - not
+    // even the dev-aware port discovery below, which would fail on
+    // a missing dev path dep or download dev ports for a run that
+    // builds nothing.  Targets are manifest-level, so a ports-free,
+    // dev-blind skeleton enumerates them exactly like the final
+    // strict graph will.  `--test <NAME>` is excluded: an unknown
+    // name must keep erroring even under `--allow-no-tests`, and
+    // that validation lives on the fully loaded pipeline path.
+    if args.allow_no_tests && args.test.is_empty() {
+        let skeleton = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
+        let skeleton_selection =
+            cabin_workspace::resolve_package_selection(&skeleton, &workspace_selection)?;
+        if select_targets_of_kind(
+            &skeleton,
+            Some(&skeleton_selection.packages),
+            TargetKind::Test,
+        )
+        .is_empty()
+        {
+            println!("cabin test: no test targets found");
+            return Ok(());
+        }
+    }
+
     let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
@@ -184,10 +210,34 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         .map(|i| initial_graph.packages[*i].package.name.as_str().to_owned())
         .collect();
 
+    // `initial_graph` was loaded without dev edges, so a closure
+    // walk over it cannot reach packages that only become
+    // reachable through a dev edge - and their *normal* versioned
+    // deps would silently miss the resolver.  Re-load a
+    // pre-resolution dev-aware skeleton (no registry yet, tolerant
+    // policies) and drive the versioned-dep detection and the
+    // artifact pipeline from it, so e.g. a dev path dep's own
+    // registry dependency resolves and fetches like any other.
+    let patched_sources = active_patches.workspace_sources();
+    let dev_probe_graph = load_workspace_with_options(
+        &manifest_path,
+        &WorkspaceLoadOptions {
+            registry: &[],
+            patches: &patched_sources,
+            ports: &port_sources,
+            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
+            include_dev_for: &dev_for,
+            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
+        },
+    )?;
+    let probe_selection =
+        cabin_workspace::resolve_package_selection(&dev_probe_graph, &workspace_selection)?;
+
     let initial_features = compute_feature_resolution(
-        &initial_graph,
-        &initial_resolved_selection,
+        &dev_probe_graph,
+        &probe_selection,
         &initial_request,
+        &dev_for,
     )?;
 
     let resolved_index_source = crate::cli::config::resolve_index_source(
@@ -203,8 +253,8 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         collect_patched_versioned_deps(&active_patches, &patched_names)?;
     let has_versioned = !patched_root_deps_preview.is_empty()
         || closure_has_versioned_deps_excluding_patches(
-            &initial_graph,
-            &initial_resolved_selection,
+            &dev_probe_graph,
+            &probe_selection,
             &initial_features,
             &patched_names,
             &dev_for,
@@ -229,7 +279,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
         )?;
         let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
             manifest_path: &manifest_path,
-            initial_graph: &initial_graph,
+            initial_graph: &dev_probe_graph,
             index_path: inputs.index_path.as_deref(),
             index_url: inputs.index_url.as_deref(),
             mode: inputs.mode,
@@ -257,13 +307,11 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     // dev edge would be missing from the strict set, and its
     // broken port edge would silently drop instead of surfacing
     // the typed `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    // diagnostic. `initial_graph` was loaded with
-    // `include_dev_for: &BTreeSet::new()`, so its closure misses
-    // dev-activated edges.  Re-load a permissive dev-aware
-    // skeleton with the resolver's full registry + active patches
-    // + prepared ports so the closure walk reaches every active
-    //   edge the upcoming strict load will validate.
-    let patched_sources = active_patches.workspace_sources();
+    // diagnostic.  The pre-resolution `dev_probe_graph` carries
+    // dev edges but not the resolver's registry, so re-load a
+    // permissive dev-aware skeleton with the full registry +
+    // active patches + prepared ports so the closure walk reaches
+    // every active edge the upcoming strict load will validate.
     let dev_aware_skeleton = load_workspace_with_options(
         &manifest_path,
         &WorkspaceLoadOptions {
@@ -358,7 +406,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
     let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+        compute_feature_resolution(&graph, &resolved_selection, &selection_request, &dev_for)?;
     let prep =
         crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
             graph: &graph,

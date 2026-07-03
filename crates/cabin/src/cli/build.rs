@@ -68,6 +68,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
         &initial_graph,
         &initial_resolved_selection,
         &initial_request,
+        &BTreeSet::new(),
     )?;
     let dev_for: BTreeSet<String> = BTreeSet::new();
     let patched_root_deps_preview =
@@ -249,8 +250,12 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     // must precede `resolve_build_prep`.
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request)?;
+    let feature_resolution = compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &selection_request,
+        &BTreeSet::new(),
+    )?;
 
     // Per-package build flags + the (fail-hard) compiler
     // wrapper, folded into a toolchain summary.  Shared with

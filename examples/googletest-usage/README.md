@@ -3,10 +3,10 @@
 A consumer example for the curated
 [`crates/cabin-port/ports/googletest/1.17.0/`](../../crates/cabin-port/ports/googletest/1.17.0/)
 foundation port.  The package has a small `calc` library and one
-`test` target that links GoogleTest from the port.  (The port is a
-normal `[dependencies]` entry: Cabin's dev path/port dependencies
-are declaration-only today and never enter the package graph, so a
-`test` target cannot link them.)
+`test` target that links GoogleTest from the port.  The port is a
+`[dev-dependencies]` entry: `cabin test` activates dev dependencies
+for the selected packages, so the `test` target links it while
+`cabin build` ignores it entirely.
 
 The port builds the GoogleTest library only (no `gtest_main`, no
 GoogleMock), so the test source supplies its own two-line `main`
