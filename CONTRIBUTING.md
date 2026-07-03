@@ -68,8 +68,7 @@ The separate CI workflow also runs workflow linting and commit-message linting. 
 validated with `commitlint` against `@commitlint/config-conventional`, so every subject must follow
 [Conventional Commits](https://www.conventionalcommits.org/) (`<type>(<scope>)?: <subject>`,
 lower-case subject, <= 100 characters).  Body and footer lines, if present, must also stay <= 100
-characters per line.  See the "Commit messages" section of [`AGENTS.md`](AGENTS.md) for the full
-rule set.
+characters per line.
 
 The test suite includes external-tool smoke tests for `ninja`, `clang-format`, `run-clang-tidy`, and
 `pkg-config`.  Those tests fail when the real tools are missing, so install them to run the suite.
