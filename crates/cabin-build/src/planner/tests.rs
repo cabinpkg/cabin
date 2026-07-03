@@ -16,6 +16,15 @@ use std::collections::BTreeMap;
 
 use cabin_driver::{LoweredAction, LoweredActionKind, lower};
 
+/// Wrap a single standard as the `{ min, max }` interface
+/// requirement shape the interface fields carry.
+fn interface_req<S>(min: S) -> cabin_core::InterfaceRequirement<S> {
+    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement {
+        min,
+        max: None,
+    })
+}
+
 /// Lower a semantic action to inspect the concrete argv / backend
 /// kind the Ninja writer will render.  Lowering is infallible because
 /// the semantic IR already carries UTF-8 paths.  These tests anchor
@@ -2108,7 +2117,9 @@ fn compile_actions_carry_per_target_effective_standards() {
                     cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                     // Keep the interface at the package default so the
                     // c++14 consumer below stays compatible.
-                    interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(interface_req(
+                        CxxStandard::Cxx14,
+                    ))),
                     ..Default::default()
                 },
             ),
@@ -2289,7 +2300,9 @@ fn interface_override_unblocks_consumer() {
                 &[],
                 LanguageStandardSettings {
                     cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
-                    interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(interface_req(
+                        CxxStandard::Cxx17,
+                    ))),
                     ..Default::default()
                 },
             ),
@@ -2399,7 +2412,9 @@ fn header_only_package_interface_standard_binds_consumers() {
     )
     .unwrap()
     .with_language(LanguageStandardSettings {
-        interface_cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+        interface_cxx_standard: Some(StandardDeclaration::Declared(interface_req(
+            CxxStandard::Cxx20,
+        ))),
         ..Default::default()
     });
     let app_proj = Package::new(

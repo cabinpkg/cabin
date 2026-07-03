@@ -641,9 +641,15 @@ sources = ["src/main.cc"]
             package.language.cxx_standard = Some(cabin_core::StandardDeclaration::Inherited(
                 cabin_core::CxxStandard::Cxx20,
             ));
-            package.language.interface_cxx_standard = Some(
-                cabin_core::StandardDeclaration::Inherited(cabin_core::CxxStandard::Cxx17),
-            );
+            package.language.interface_cxx_standard =
+                Some(cabin_core::StandardDeclaration::Inherited(
+                    cabin_core::InterfaceRequirement::Requirement(
+                        cabin_core::StandardRequirement {
+                            min: cabin_core::CxxStandard::Cxx17,
+                            max: None,
+                        },
+                    ),
+                ));
             package
         };
         let staged = stage_with_project(

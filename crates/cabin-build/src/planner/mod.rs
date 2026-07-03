@@ -763,19 +763,23 @@ fn enforce_interface_standards(
         // standard manifest loading guarantees) backs the language,
         // and the consumer compiles the language, so its own
         // standard was already demanded at its compile site.
+        // An explicit `none` requirement carries no minimum to
+        // compare against; rejecting consumers of not-consumable
+        // headers is deferred alongside the rest of the range work.
         if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
             && let Some(required) =
                 cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_c(&pkg_standards, target)
-            && consumer.standard < required.standard
+            && consumer.standard < required_min
         {
             violations.push(interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::C,
                 consumer.standard.as_str(),
-                required.standard.as_str(),
+                required_min.as_str(),
                 required.source,
                 object,
             ));
@@ -784,15 +788,16 @@ fn enforce_interface_standards(
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
             && let Some(required) =
                 cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target)
+            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_cxx(&pkg_standards, target)
-            && consumer.standard < required.standard
+            && consumer.standard < required_min
         {
             violations.push(interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::Cxx,
                 consumer.standard.as_str(),
-                required.standard.as_str(),
+                required_min.as_str(),
                 required.source,
                 object,
             ));
