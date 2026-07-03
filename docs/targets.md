@@ -94,7 +94,11 @@ Common fields:
   - qualified `package:target`: `deps = ["fmt:fmt"]`.
 
 Cross-package deps must reach the consumer through a `[dependencies]` edge.  `[dev-dependencies]`
-are not auto-linked into ordinary targets.
+are never linked into ordinary targets; the dev-only kinds (`test`, `example`) may additionally
+reference the owning package's `[dev-dependencies]`, which `cabin test` activates for the selected
+packages (see [`testing.md`](testing.md)).  An ordinary target referencing a dev dependency - or a
+dev-only target referencing one outside `cabin test`'s activation - fails with a diagnostic naming
+the `[dev-dependencies]` policy.
 
 ## Default-build vs. explicit selection
 
