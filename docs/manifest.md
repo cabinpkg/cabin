@@ -56,14 +56,15 @@ deps = ["greet", "fmt"]
 | --- | --- | --- | --- |
 | `name` | string | yes | Package name.  Must be non-empty and contain no whitespace. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
-| `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
-| `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++23`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
-| `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets. |
-| `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets. |
+| `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
+| `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
+| `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets.  Also accepts `"none"` (headers not consumable from C). |
+| `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets.  Also accepts `"none"`. |
+| `gnu-extensions` | boolean | no | Package-wide default for the per-target GNU-extensions dialect knob (default `false`).  See [Language standards](language-standards.md). |
 
 Inside a workspace, each of the four standard fields also accepts the `{ workspace = true }` opt-in
 form, inheriting the literal declared on the workspace root's `[workspace]` table - see
-[Language standards](language-standards.md).
+[Language standards](language-standards.md).  `gnu-extensions` has no marker form.
 
 Source-language *classification* stays per-file (target kinds, `.c` vs `.cc` extensions - see
 [Targets](targets.md)); the standard each language compiles with is governed by the fields above and
@@ -85,8 +86,9 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
-| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement; `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
-| `interface-cxx-standard` | string | no | effective `cxx-standard` | C++ interface requirement; `library` / `header-only` only. |
+| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement (or `"none"`); `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
+| `interface-cxx-standard` | string | no | effective `cxx-standard` | C++ interface requirement (or `"none"`); `library` / `header-only` only. |
+| `gnu-extensions` | boolean | no | package value, else `false` | Per-target GNU-extensions dialect override. |
 
 `include-dirs` of a `library` or `header-only` target are visible (transitively) to any target that
 depends on it.
