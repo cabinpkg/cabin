@@ -2446,6 +2446,9 @@ mod workspace_selection_followups;
 #[path = "cli/dependency_kinds.rs"]
 mod dependency_kinds;
 
+#[path = "cli/dev_dependencies.rs"]
+mod dev_dependencies;
+
 #[path = "cli/optional_dependencies_and_features.rs"]
 mod optional_dependencies_and_features;
 
