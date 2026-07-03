@@ -108,6 +108,13 @@ pub mod code {
     /// while its manifest-derived `cflags` / `cxxflags` also
     /// pin one via `-std=` / `/std:`.
     pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
+    /// `cabin::language::interface_standard_contradiction` - a
+    /// target's declared interface minimum is newer than the
+    /// implementation standard its own sources compile with, so
+    /// its own translation units could not include its own
+    /// public headers.
+    pub const LANGUAGE_INTERFACE_STANDARD_CONTRADICTION: &str =
+        "cabin::language::interface_standard_contradiction";
     /// `cabin::package::error` - package validation, archive
     /// creation, or metadata rendering failed.
     pub const PACKAGE_ERROR: &str = "cabin::package::error";

@@ -418,6 +418,20 @@ fn load_workspace_inner(
         // declaration, mirroring the dependency rewrite above.
         let package = resolve_workspace_standards(package, workspace_standards, &manifest_path)?;
 
+        // With every declaration resolved, reject interface minimums
+        // newer than the implementation standard the target's own
+        // sources compile with - such a target could not include its
+        // own public headers.
+        if let Some(contradiction) = cabin_core::find_interface_standard_contradictions(&package)
+            .into_iter()
+            .next()
+        {
+            return Err(WorkspaceError::InterfaceStandardContradiction {
+                path: manifest_path,
+                source: contradiction,
+            });
+        }
+
         let dep_paths = resolve_dep_paths(&ctx, &package, &manifest_path, &manifest_dir)?;
         verify_dep_path_names(&dep_paths)?;
 
