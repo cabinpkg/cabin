@@ -274,6 +274,199 @@ fn build_diagnoses_ordinary_target_referencing_dev_dependency() {
 }
 
 #[test]
+fn test_resolves_versioned_deps_of_dev_path_dependency() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // `app` dev-depends on path package `harness`, whose *normal*
+    // `[dependencies]` include registry package `depcheck`.  The
+    // dev edge makes `harness` reachable, so its versioned dep
+    // must resolve, fetch, link, and lock like any other - the
+    // resolver input walks the dev-aware closure, not the
+    // dev-blind initial graph.
+    let archive = dir.path().join("artifacts/depcheck-1.0.0.tar.gz");
+    let hex = make_archive(
+        &archive,
+        &[
+            (
+                "cabin.toml",
+                r#"[package]
+name = "depcheck"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.depcheck]
+type = "library"
+sources = ["src/depcheck.cc"]
+include-dirs = ["include"]
+"#,
+            ),
+            (
+                "include/depcheck.h",
+                "#pragma once\nint depcheck_answer();\n",
+            ),
+            (
+                "src/depcheck.cc",
+                "#include \"depcheck.h\"\nint depcheck_answer() { return 11; }\n",
+            ),
+        ],
+    );
+    write_index_entry(
+        &dir.path().join("index"),
+        "depcheck",
+        "1.0.0",
+        "{}",
+        &hex,
+        "../artifacts/depcheck-1.0.0.tar.gz",
+    );
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "harness"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+depcheck = ">=1"
+
+[target.harness]
+type = "library"
+sources = ["src/harness.cc"]
+include-dirs = ["include"]
+deps = ["depcheck"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/include/harness.h"))
+        .write_str("#pragma once\nint harness_answer();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/src/harness.cc"))
+        .write_str(
+            "#include \"harness.h\"\n#include \"depcheck.h\"\nint harness_answer() { return depcheck_answer(); }\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dev-dependencies]
+harness = { path = "../harness" }
+
+[target.applib]
+type = "library"
+sources = ["src/applib.cc"]
+
+[target.app_test]
+type = "test"
+sources = ["tests/app_test.cc"]
+deps = ["harness"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/applib.cc"))
+        .write_str("int applib_answer() { return 11; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/tests/app_test.cc"))
+        .write_str(
+            "#include \"harness.h\"\nint main() { return harness_answer() == 11 ? 0 : 1; }\n",
+        )
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(
+        stdout.contains("test app:app_test ... ok"),
+        "test linking through the dev path dep's registry dep should run: {stdout}"
+    );
+    let lock = fs::read_to_string(dir.path().join("app/cabin.lock")).unwrap();
+    assert!(
+        lock.contains(r#"name = "depcheck""#),
+        "the dev path dep's registry dep should be locked: {lock}"
+    );
+}
+
+#[test]
+#[test]
+fn allow_no_tests_skips_dev_dep_resolution_without_index() {
+    // No test targets are selected, so `--allow-no-tests` must
+    // succeed before the versioned-dep check - even though the
+    // dev path dep's own registry dependency would otherwise
+    // require an index.  No build tools needed: the command
+    // exits before toolchain detection.
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "harness"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+depcheck = ">=1"
+
+[target.harness]
+type = "library"
+sources = ["src/harness.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("harness/src/harness.cc"))
+        .write_str("int h() { return 1; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dev-dependencies]
+harness = { path = "../harness" }
+
+[target.applib]
+type = "library"
+sources = ["src/applib.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/applib.cc"))
+        .write_str("int a() { return 1; }\n")
+        .unwrap();
+    cabin()
+        .args(["test", "--allow-no-tests", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no test targets found"));
+
+    // A *missing* dev path dep directory must not fail the run
+    // either: the no-tests shortcut fires before port discovery
+    // or any dev-aware load touches the dev edge.
+    fs::remove_dir_all(dir.path().join("harness")).unwrap();
+    cabin()
+        .args(["test", "--allow-no-tests", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no test targets found"));
+}
+
 fn test_resolves_versioned_dev_dependency_and_locks_it() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
