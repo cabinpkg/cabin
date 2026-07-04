@@ -543,7 +543,8 @@ deps = ["libnone"]
             .success()
     };
 
-    // Fresh resolution: no lockfile exists yet.
+    // Fresh resolution: no lockfile exists yet, so the warning
+    // carries no lockfile note.
     assert!(!app_root.join("cabin.lock").exists());
     let first = build("build");
     let first_stderr = String::from_utf8_lossy(&first.get_output().stderr).to_string();
@@ -561,14 +562,173 @@ deps = ["libnone"]
         first_flat.contains("or pin `libnone` to an older version (currently 0.1.0)"),
         "expected the pin remedy in: {first_flat}"
     );
+    assert!(
+        !first_flat.contains("cabin update"),
+        "a fresh-resolution warning must not mention the lockfile: {first_flat}"
+    );
 
     // The first build wrote the lockfile; the second run resolves
-    // through it and must warn identically.
+    // through it, warns identically, and adds the staleness note.
     assert!(app_root.join("cabin.lock").exists());
     let second = build("build2");
     let second_stderr = String::from_utf8_lossy(&second.get_output().stderr).to_string();
+    let second_flat = flatten(&second_stderr);
     assert!(
         second_stderr.contains(WARNING_CODE),
         "expected the warning on the lockfile-load path: {second_stderr}"
+    );
+    assert!(
+        second_flat.contains(
+            "this dependency's resolved version was loaded from cabin.lock, which records version"
+        ),
+        "expected the lockfile note on the lockfile-load path: {second_flat}"
+    );
+}
+
+/// A lockfile generated while every standard was compatible keeps
+/// its bytes when a manifest later lowers the consumer's standard:
+/// the lockfile-loaded `cabin build` and `cabin test` both warn
+/// with the staleness explanation and the `cabin update` remedy,
+/// and the pass never rewrites `cabin.lock` - which records
+/// version pins only, no standards and no toolchain information.
+#[test]
+fn lockfile_loaded_violation_explains_staleness_and_suggests_update() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+
+    let pkg_root = dir.path().join("pkg");
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "libiface"
+version = "0.1.0"
+cxx-standard = "c++20"
+interface-cxx-standard = "c++20"
+
+[target.libiface]
+type = "library"
+sources = ["src/libiface.cc"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("include/libiface.h"))
+        .write_str("#pragma once\nint libiface_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("src/libiface.cc"))
+        .write_str("#include \"libiface.h\"\nint libiface_value() { return 4; }\n")
+        .unwrap();
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    let app_root = dir.path().join("app");
+    let app_manifest = |cxx_standard: &str| {
+        format!(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "{cxx_standard}"
+
+[dependencies]
+libiface = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["libiface"]
+
+[target.app_test]
+type = "test"
+sources = ["tests/app_test.cc"]
+deps = ["libiface"]
+"#
+        )
+    };
+    assert_fs::fixture::ChildPath::new(app_root.join("cabin.toml"))
+        .write_str(&app_manifest("c++20"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(app_root.join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(app_root.join("tests/app_test.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    let run = |subcommand: &str, build_dir: &str| {
+        cabin()
+            .args([subcommand, "-Z", "standard-compat", "--manifest-path"])
+            .arg(app_root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&registry)
+            .arg("--cache-dir")
+            .arg(dir.path().join("cache"))
+            .arg("--build-dir")
+            .arg(app_root.join(build_dir))
+            .assert()
+    };
+
+    // Compatible standards: the build succeeds silently and writes
+    // the lockfile.
+    let clean = run("build", "build");
+    clean.success();
+    let lock_path = app_root.join("cabin.lock");
+    let locked_bytes = std::fs::read(&lock_path).unwrap();
+    let lock_text = String::from_utf8(locked_bytes.clone()).unwrap();
+    // Version pins only: standards, toolchains, and fingerprints
+    // never reach the lockfile, so it stays shareable across
+    // platforms and toolchains even though every manifest in this
+    // fixture declares a standard.
+    for needle in ["standard", "c++", "toolchain", "fingerprint"] {
+        assert!(
+            !lock_text.contains(needle),
+            "the lockfile must not record `{needle}`: {lock_text}"
+        );
+    }
+
+    // Lower the consumer's standard *after* the lockfile was
+    // generated - exactly the staleness story the note explains.
+    assert_fs::fixture::ChildPath::new(app_root.join("cabin.toml"))
+        .write_str(&app_manifest("c++17"))
+        .unwrap();
+
+    for (subcommand, build_dir) in [("build", "build2"), ("test", "build3")] {
+        let assertion = run(subcommand, build_dir);
+        // The always-on build-time enforcement still fails the
+        // command; the warning renders first.
+        let assertion = assertion.failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        let flat = flatten(&stderr);
+        assert!(
+            stderr.contains(WARNING_CODE),
+            "expected the warning from `cabin {subcommand}` on the lockfile path: {stderr}"
+        );
+        assert!(
+            flat.contains(
+                "this dependency's resolved version was loaded from cabin.lock, which \
+                 records version pins only"
+            ),
+            "expected the pins-only explanation from `cabin {subcommand}`: {flat}"
+        );
+        assert!(
+            flat.contains(
+                "if a standard declaration changed in a manifest after the lockfile was \
+                 generated, run `cabin update` to re-resolve"
+            ),
+            "expected the staleness cause and update remedy from `cabin {subcommand}`: {flat}"
+        );
+    }
+
+    // The warning pass validated a lockfile-loaded graph twice and
+    // never rewrote the lockfile.
+    assert_eq!(
+        std::fs::read(&lock_path).unwrap(),
+        locked_bytes,
+        "validation must not modify cabin.lock"
     );
 }
