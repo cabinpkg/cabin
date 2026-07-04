@@ -26,17 +26,25 @@ pub(crate) fn requested(unstable: &BTreeSet<ExperimentalFeature>) -> bool {
 
 /// Render every violation as a warning diagnostic on stderr.
 /// Violations arrive pre-sorted from the planner; rendering keeps
-/// that order.
+/// that order.  `lockfile_pinned` holds the (name, version)
+/// selections that came straight out of a pre-existing
+/// `cabin.lock`; a violation whose dependency is among them also
+/// explains the likely staleness cause and the re-resolve remedy.
 pub(crate) fn report_warnings(
     warnings: &[StandardCompatViolation],
     color: cabin_core::ColorChoice,
+    lockfile_pinned: &BTreeSet<(String, String)>,
 ) -> Result<()> {
     if warnings.is_empty() {
         return Ok(());
     }
     let mut stderr = termcolor::StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
     for violation in warnings {
-        let diagnostic = warning_diagnostic(violation);
+        let from_lockfile = lockfile_pinned.contains(&(
+            violation.dependency_package.clone(),
+            violation.dependency_version.clone(),
+        ));
+        let diagnostic = warning_diagnostic(violation, from_lockfile);
         cabin_diagnostics::render(&diagnostic, &mut stderr, color)?;
     }
     Ok(())
@@ -91,7 +99,10 @@ impl miette::Diagnostic for StandardCompatWarning {
     }
 }
 
-fn warning_diagnostic(violation: &StandardCompatViolation) -> StandardCompatWarning {
+fn warning_diagnostic(
+    violation: &StandardCompatViolation,
+    from_lockfile: bool,
+) -> StandardCompatWarning {
     let lang = violation.language.human_label();
 
     // "imposed by `origin` via public dependency chain `a` -> `b`"
@@ -158,13 +169,25 @@ fn warning_diagnostic(violation: &StandardCompatViolation) -> StandardCompatWarn
     } else {
         String::new()
     };
+    // `cabin.lock` records version pins only - never standards - so
+    // a violation whose dependency version came straight out of the
+    // lockfile usually means a manifest's standard declaration
+    // changed after the lockfile was generated.  Path dependencies
+    // are never locked, so the note would only mislead there.
+    let lockfile_note = if from_lockfile && violation.dependency_is_registry {
+        "; this dependency's resolved version was loaded from cabin.lock, which records \
+         version pins only - if a standard declaration changed in a manifest after the \
+         lockfile was generated, run `cabin update` to re-resolve"
+    } else {
+        ""
+    };
     let help = match violation.requirement {
         EdgeRequirement::Min(min) => format!(
-            "raise `{}`'s {lang} standard to at least `{min}`{pin}",
+            "raise `{}`'s {lang} standard to at least `{min}`{pin}{lockfile_note}",
             violation.consumer,
         ),
         EdgeRequirement::Forbidden => format!(
-            "`{}` cannot be consumed from {lang} at any standard level{pin}",
+            "`{}` cannot be consumed from {lang} at any standard level{pin}{lockfile_note}",
             violation.origin_target,
         ),
     };
@@ -259,7 +282,7 @@ mod tests {
     /// citation, chain, and both remedies.
     #[test]
     fn renders_transitive_minimum_violation() {
-        let rendered = render(&warning_diagnostic(&min_violation()));
+        let rendered = render(&warning_diagnostic(&min_violation(), false));
         assert!(
             rendered.contains("cabin::language::standard_compat_violation"),
             "expected the stable code in: {rendered}"
@@ -299,7 +322,7 @@ mod tests {
         violation.dependency = "libb:libb".to_owned();
         violation.chain = vec!["libb:libb".to_owned()];
         violation.dependency_is_registry = false;
-        let rendered = render(&warning_diagnostic(&violation));
+        let rendered = render(&warning_diagnostic(&violation, false));
         assert!(
             !rendered.contains("public dependency chain"),
             "a single-hop origin must not mention a chain: {rendered}"
@@ -325,7 +348,7 @@ mod tests {
                 field: "cxx-standard",
             },
         };
-        let rendered = render(&warning_diagnostic(&violation));
+        let rendered = render(&warning_diagnostic(&violation, false));
         assert!(
             rendered.contains(
                 "(inferred from implementation standard: `cxx-standard` in \
@@ -350,7 +373,7 @@ mod tests {
                 field: "interface-cxx-standard",
             },
         };
-        let rendered = render(&warning_diagnostic(&violation));
+        let rendered = render(&warning_diagnostic(&violation, false));
         assert!(
             rendered
                 .contains("C++ consumption was disabled by `interface-cxx-standard = \"none\"`"),
@@ -375,7 +398,7 @@ mod tests {
         violation.dependency_is_registry = false;
         violation.requirement = EdgeRequirement::Forbidden;
         violation.origin = RequirementOrigin::CrossLanguageDefault;
-        let rendered = render(&warning_diagnostic(&violation));
+        let rendered = render(&warning_diagnostic(&violation, false));
         assert!(
             rendered.contains(
                 "implements no C and declares no `interface-c-standard`, so it cannot be \
@@ -399,7 +422,7 @@ mod tests {
         .unwrap();
         let mut violation = min_violation();
         violation.consumer_site.manifest_path = manifest;
-        let rendered = render(&warning_diagnostic(&violation));
+        let rendered = render(&warning_diagnostic(&violation, false));
         assert!(
             rendered.contains("cxx-standard = \"c++17\""),
             "expected the manifest snippet line in: {rendered}"
@@ -410,11 +433,66 @@ mod tests {
         );
     }
 
+    /// A dependency whose resolved version came out of the lockfile
+    /// appends the staleness explanation and the `cabin update`
+    /// remedy to its warning, after the usual remedies.
+    #[test]
+    fn renders_lockfile_staleness_note_when_seeded() {
+        let rendered = render(&warning_diagnostic(&min_violation(), true));
+        assert!(
+            rendered.contains("this dependency's resolved version was loaded from cabin.lock"),
+            "expected the lockfile provenance in: {rendered}"
+        );
+        assert!(
+            rendered.contains("records version pins only"),
+            "expected the pins-only explanation in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "if a standard declaration changed in a manifest after the lockfile was \
+                 generated, run `cabin update` to re-resolve"
+            ),
+            "expected the likely cause and the update remedy in: {rendered}"
+        );
+        // The usual remedies stay in place, ahead of the note.
+        assert!(
+            rendered.contains("raise `app:app`'s C++ standard to at least `c++20`"),
+            "expected the raise remedy in: {rendered}"
+        );
+        assert!(
+            rendered.contains("or pin `liba` to an older version (currently 1.2.0)"),
+            "expected the pin remedy in: {rendered}"
+        );
+    }
+
+    /// Fresh resolution renders no lockfile note.
+    #[test]
+    fn fresh_resolution_renders_no_lockfile_note() {
+        let rendered = render(&warning_diagnostic(&min_violation(), false));
+        assert!(
+            !rendered.contains("cabin.lock") && !rendered.contains("cabin update"),
+            "a fresh-resolution warning must not mention the lockfile: {rendered}"
+        );
+    }
+
+    /// Path dependencies are never locked, so the note is withheld
+    /// even when a caller flags the violation as lockfile-loaded.
+    #[test]
+    fn path_dependency_renders_no_lockfile_note_even_when_seeded() {
+        let mut violation = min_violation();
+        violation.dependency_is_registry = false;
+        let rendered = render(&warning_diagnostic(&violation, true));
+        assert!(
+            !rendered.contains("cabin.lock") && !rendered.contains("cabin update"),
+            "a path dependency's warning must not mention the lockfile: {rendered}"
+        );
+    }
+
     /// Warning severity renders with miette's warning glyph, not
     /// the error cross.
     #[test]
     fn renders_as_warning_severity() {
-        let rendered = render(&warning_diagnostic(&min_violation()));
+        let rendered = render(&warning_diagnostic(&min_violation(), false));
         assert!(
             rendered.contains('⚠'),
             "expected the warning glyph in: {rendered}"
