@@ -184,8 +184,8 @@ are intentionally not traversed here.  Current invariants:
   for later diagnostics.  The module does not resolve target references itself: `cabin-build` owns
   turning raw manifest `deps` into a concrete target graph, and `cabin-resolver` owns enumerating
   candidates; both hand this module resolved nodes and edges.  Its first consumer is
-  `cabin_build::standard_compat`, the experimental (`-Z standard-compat`) post-resolution warning
-  pass.
+  `cabin_build::standard_compat`, the experimental (`-Z standard-compat`) post-resolution
+  check.
 
 The crate must:
 
@@ -1437,8 +1437,9 @@ The following are *not* part of this repository today:
   enforcement, fingerprint / metadata - see
   [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, and
   range interface requirements (the reserved `max` slot) belong to a future version.  The
-  experimental `-Z standard-compat` pass (`cabin_build::standard_compat`) evaluates the spec's
-  edge-compatibility model over the *resolved* graph and warns on violated edges, but it observes
+  experimental `-Z standard-compat` check (`cabin_build::standard_compat`) evaluates the spec's
+  edge-compatibility model over the *resolved* graph and fails the command on violated edges (see
+  [`language-standards.md`](language-standards.md)), but it observes
   resolution output only - version selection remains standard-blind.  The MSVC
   `/std:c++latest` / `/std:clatest` spellings are intentionally never mapped as first-class
   standards - they float to the compiler's newest in-progress draft, so the unvalidated

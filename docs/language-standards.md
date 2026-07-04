@@ -308,33 +308,60 @@ package's compile standard is never chosen by the consuming workspace.  This is 
 preservation only - the registry build honors the extracted manifest, and resolver-side
 standard-compatibility filtering remains deferred.
 
-## Experimental: post-resolution compatibility warnings
+## Experimental: post-resolution compatibility errors
 
-`-Z standard-compat` (experimental; behavior may change or disappear) enables a diagnostic-only
-pass in `cabin build` / `check` / `run` / `test` that evaluates the edge-compatibility model of
+`-Z standard-compat` (experimental; behavior may change or disappear) enables a check in
+`cabin build` / `check` / `run` / `test` that evaluates the edge-compatibility model of
 [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md) over the resolved
 target graph - after resolution, whether fresh or lockfile-seeded - and reports every violated
-dependency edge as a warning, one per violated language.  Each warning names the consuming target
-and its effective standard (with the declaring manifest and span), the dependency and its
-effective requirement - marked as inferred for header-only inference, or noting that consumption
-was disabled by an interface `"none"` - the public-edge provenance chain when the requirement is
-transitive, and the remedies: raise the consumer's standard, or pin an older version of a registry
-dependency.  A registry dependency whose resolved version came out of an existing `cabin.lock`
-additionally notes that the lockfile records version pins only - so the likely cause is a standard
-declaration that changed in a manifest after the lockfile was generated - and suggests
-`cabin update` to re-resolve (see [`lockfile.md`](lockfile.md)).  The pass never influences
-version selection and never fails a command; with the flag
-off, behavior is unchanged.  The resolver-level defaults apply (see Deferred below): no
+dependency edge as an error, one per violated language.  Any violation fails the command with exit
+code 1 after all diagnostics have rendered.  Each error renders the provenance chain with manifest
+`path:line` references - for example:
+
+```text
+`app:app` (c++17, app/cabin.toml:12) -> `foo:bar` requires C++ consumers at `c++20`
+or newer via public dependency `baz:baz` (`interface-cxx-standard`, baz/cabin.toml:8)
+```
+
+naming the consuming target and its effective standard (with the declaring manifest and line), the
+dependency and its effective requirement - marked as inferred for header-only inference, or noting
+that consumption was disabled by an interface `"none"` - and the origin declaration, hop by hop
+when the requirement arrives over more than one public edge.  The remedies, in order: raise the
+consumer's standard; pin an older version of a registry dependency; and, as a last resort, exempt
+the edge with `ignore-interface-standard = true` (below).  The exemption is only offered for the
+forbidden classes (an interface `"none"`, the strict cross-language default) - exactly the ones the
+always-on build-time enforcement deliberately accepts; a minimum violation is independently
+rejected by that enforcement, so exempting it here could not unblock the command.  A registry
+dependency whose resolved
+version came out of an existing `cabin.lock` additionally notes that the lockfile records version
+pins only - so the likely cause is a standard declaration that changed in a manifest after the
+lockfile was generated - and suggests `cabin update` to re-resolve (see
+[`lockfile.md`](lockfile.md)).  The check never influences version selection; with the flag off,
+behavior is unchanged.  The resolver-level defaults apply (see Deferred below): no
 implementation-standard fallback for compiled libraries, and `"none"` is unsatisfiable - so the
-warnings can disagree with the build-time enforcement above by design, in both directions.
+check can disagree with the build-time enforcement above by design, in both directions.
+
+Two escape hatches exist, one broad and temporary, one narrow and per-edge:
+
+- **Migration switch (temporary).**  `standard-compat-errors = false` under `[build]` in
+  `.cabin/config.toml` demotes every violation to a warning so a workspace can adopt the check
+  incrementally (see [`config.md`](config.md#build)).  The switch is a migration aid and is
+  expected to be removed when the feature stabilizes; treat a demoted violation as a bug to fix,
+  not a state to stay in.
+- **Per-edge override.**  `ignore-interface-standard = true` on a `[dependencies]` /
+  `[dev-dependencies]` table entry (see
+  [`manifest.md`](manifest.md#ignore-interface-standard)) exempts exactly that edge.  The check
+  still evaluates the edge and prints a downgraded note that the edge is unchecked - the override
+  suppresses the failure, not the evaluation.  It is deliberately narrow: there is no
+  package-wide or global variant.
 
 ## Deferred
 
 - Resolver standard-compatibility filtering.  The normative model it will implement (requirement
   domain, propagation along public dependency edges, edge compatibility, version viability) is
   specified in [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md);
-  the experimental `-Z standard-compat` warning pass above already evaluates the edge-compatibility
-  part of that model diagnostically, but the resolver still does not consult it when selecting
+  the experimental `-Z standard-compat` check above already evaluates the edge-compatibility
+  part of that model post-resolution, but the resolver still does not consult it when selecting
   versions.  Its defaults deliberately differ from the build-time enforcement above, which is
   unchanged and still runs after resolution: at resolve time a compiled library with no declared
   interface field imposes no constraint (no implementation-standard fallback), while an explicit

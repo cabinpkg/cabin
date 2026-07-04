@@ -118,8 +118,8 @@ Each entry declares a package-level dependency.  The dependency value is either:
 - a **string** - interpreted as a SemVer requirement;
 - a **table** - must specify exactly one source: `path`, `version`, `port = true`, `port-path`,
   `workspace = true`, or `system = true` (`port = false` is treated as absent).  The source may be
-  combined with `features`, `default-features`, or `optional` (subject to per-source rules below).
-  Unknown keys are rejected by the manifest parser.
+  combined with `features`, `default-features`, `optional`, or `ignore-interface-standard`
+  (subject to per-source rules below).  Unknown keys are rejected by the manifest parser.
 
 Foundation-port dependencies use one of two mutually-exclusive fields:
 
@@ -138,6 +138,20 @@ per edge), but do not support `optional`.
 
 The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above) must equal the depended-on package's
 `[package].name` (path deps, port deps) or the registry package name (version deps).
+
+### `ignore-interface-standard`
+
+`ignore-interface-standard = true` exempts exactly this dependency edge from the experimental
+`-Z standard-compat` check (see
+[`language-standards.md`](language-standards.md#experimental-post-resolution-compatibility-errors)).
+The check still evaluates the edge and prints a downgraded note that the edge is unchecked, so the
+override cannot silently rot.  The exemption covers this check only: the always-on build-time
+interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
+violation classes but not interface-minimum violations (which that enforcement independently
+rejects).  The field is deliberately per-edge: there is no package-wide or global variant, and it
+is inert when the feature is off.  It is accepted on every package-sourced
+form (path, version, port, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
+alongside `system = true` (system dependencies never enter the check).
 
 ### Version requirement syntax
 
