@@ -63,6 +63,14 @@ export function markdownToPlainText(markdown: string): string {
             // code contents: example file paths, manifest snippets, and command
             // lines are prime full-text search targets in C/C++ build-tool docs.
             .replace(/^[ \t]*(?:```|~~~)[^\n]*$/gm, " ")
+            // Drop TeX math entirely: KaTeX markup (`\mathrm{Req}_L`, ...) is
+            // noise for full-text search, and the surrounding prose carries
+            // the searchable terms.  Inline `$...$` must open and close
+            // against non-space characters (the remark-math rule) and cannot
+            // span a backtick, so the shell `$VARS` living inside code spans
+            // never pair up as math.
+            .replace(/\$\$[\s\S]*?\$\$/g, " ") // display math
+            .replace(/\$(?!\s)[^$\n`]*?(?<!\s)\$/g, " ") // inline math
             .replace(/`([^`]+)`/g, "$1") // inline code -> keep the identifier text
             .replace(/<!--[\s\S]*?-->/g, " ") // HTML comments
             .replace(/^\s{0,3}\[[^\]]+\]:\s*\S+(?:\s+"[^"]*")?\s*$/gm, " ") // reference link definitions

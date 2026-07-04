@@ -27,7 +27,10 @@
         "graphql": "^16.14.2",
         "graphql-request": "^7.4.0",
         "graphql-tag": "^2.12.7",
+        "katex": "^0.17.0",
         "markdown-it": "^14.2.0",
+        "rehype-katex": "^7.0.1",
+        "remark-math": "^6.0.0",
         "semver": "^7.8.5",
         "smol-toml": "^1.7.0"
     },
