@@ -100,6 +100,11 @@ Common fields:
   matching over the dependency's `library` / `header-only` targets - a package dependency makes
   the package *available* but never exports a default target, so a bare name whose dependency
   package has no same-named linkable target is a hard error naming the qualified candidates.
+
+  Any of these references may be wrapped in the table form `{ name = "fmt", public = true }` to
+  declare the edge **public** - meaning this target's public headers include headers of that
+  dependency.  String entries are private edges.  The flag is declarative today; see
+  [Edge visibility](manifest.md#edge-visibility).
 - `required-features`: package features that must all be enabled for this target to be built or
   used; see [Feature-gated targets](features.md#feature-gated-targets).  Entries must name features
   declared in this package's `[features]` table.

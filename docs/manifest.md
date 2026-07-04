@@ -82,7 +82,7 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
 | `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
-| `deps` | array of strings | no | `[]` | Target dependencies.  See [Target dependencies](#target-dependencies). |
+| `deps` | array of strings or tables | no | `[]` | Target dependencies.  A string entry declares a private edge; the table form adds per-edge visibility: `{ name = "foo", public = true }`.  See [Target dependencies](#target-dependencies). |
 | `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
@@ -214,7 +214,7 @@ semantics.
 
 ## Target dependencies
 
-Inside a target's `deps` array, each entry is one of:
+Inside a target's `deps` array, each entry is a reference string or a table wrapping one:
 
 - `"name"` - a same-package target.  When no local target matches and `name` is a declared package
   dependency, the entry is *shorthand for `"name:name"`* - it resolves only when that dependency
@@ -225,6 +225,34 @@ Inside a target's `deps` array, each entry is one of:
 - `"package:target"` - qualified reference.  The `package` part must be either the current package
   or a declared package dependency; the `target` part must exist in that package.  Any dependency
   target whose name differs from its package name must be spelled this way.
+- `{ name = "<reference>", public = <bool> }` - table form.  `name` takes either reference
+  spelling above; `public` (default `false`) declares the edge's visibility.  A string entry is
+  exactly equivalent to `{ name = "<reference>", public = false }`.
+
+### Edge visibility
+
+Every dependency edge is **private** unless the entry declares `public = true`:
+
+```toml
+[target.net]
+type = "library"
+sources = ["src/net.cc"]
+deps = [
+    "util",                            # private edge
+    { name = "fmt", public = true },   # public edge, same-name shorthand
+    { name = "foo:opt", public = true } # public edge, qualified reference
+]
+```
+
+Rule of thumb: **an edge is public iff the target's public headers include headers of that
+dependency.**  If only the target's `.c` / `.cc` files include the dependency's headers, the edge
+is private.  Visibility applies to the resolved edge - the same-name shorthand resolves first, so
+`{ name = "fmt", public = true }` declares a public edge to `fmt:fmt`.
+
+Today the flag is declarative: it does not change how anything builds or links.  It exists so
+interface requirements (see [Language standards](language-standards.md)) can propagate along
+public edges only.  A linter that flags under-declaration - public headers including headers of a
+dependency whose edge is private - may come later.
 
 Declaring a package under `[dependencies]` only makes it *available*; nothing links until a target
 names one of its targets in `deps`.  [Features](features.md) never add `deps` entries either - a

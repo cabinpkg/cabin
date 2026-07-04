@@ -316,8 +316,9 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
             .deps
             .iter()
             .map(|d| {
-                d.split_once(':')
-                    .map_or(d.as_str(), |(pkg, _)| pkg)
+                d.reference
+                    .split_once(':')
+                    .map_or(d.reference.as_str(), |(pkg, _)| pkg)
                     .to_owned()
             })
             .collect();

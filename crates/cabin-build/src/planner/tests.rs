@@ -131,7 +131,10 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         sources: sources.iter().map(Utf8PathBuf::from).collect(),
         include_dirs: Vec::new(),
         defines: Vec::new(),
-        deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        deps: deps
+            .iter()
+            .map(|d| cabin_core::TargetDep::from(*d))
+            .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
     }
@@ -150,7 +153,10 @@ fn target_with_includes(
         sources: sources.iter().map(Utf8PathBuf::from).collect(),
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
-        deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        deps: deps
+            .iter()
+            .map(|d| cabin_core::TargetDep::from(*d))
+            .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
     }
@@ -673,6 +679,145 @@ fn bare_dep_shorthand_ignores_non_linkable_same_name_target() {
 }
 
 // -----------------------------------------------------------------
+// per-edge dependency visibility.
+// -----------------------------------------------------------------
+
+/// greet at index 0 (library target `greet`), app at index 1
+/// depending on greet.  The shared fixture for edge-visibility
+/// resolution tests.
+fn visibility_fixture() -> PackageGraph {
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![
+            target("greet", TargetKind::Library, &["src/greet.cc"], &[]),
+            target("extras", TargetKind::Library, &["src/extras.cc"], &[]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![
+            target("core", TargetKind::Library, &["src/core.cc"], &[]),
+            target("app", TargetKind::Executable, &["src/main.cc"], &[]),
+        ],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1))
+}
+
+fn resolve_edge(decl: &cabin_core::TargetDep, graph: &PackageGraph) -> TargetDepEdge {
+    lowering::resolve_target_dep_edge(decl, 1, false, graph).unwrap()
+}
+
+#[test]
+fn dep_edge_visibility_defaults_private() {
+    // The string shorthand is a private edge, across every
+    // reference form: same-package bare name, same-name shorthand,
+    // and qualified `package:target`.
+    let graph = visibility_fixture();
+    for reference in ["core", "greet", "greet:extras"] {
+        let edge = resolve_edge(&cabin_core::TargetDep::private(reference), &graph);
+        assert!(!edge.public, "edge for {reference:?} must default private");
+    }
+}
+
+#[test]
+fn dep_edge_visibility_survives_same_name_alias_resolution() {
+    // `{ name = "greet", public = true }` resolves through the
+    // same-name shorthand (`greet` -> `greet:greet`).  The recorded
+    // edge names the concrete (package, target) - never the
+    // pre-alias spelling - and still carries the declared
+    // visibility.
+    let graph = visibility_fixture();
+    let decl = cabin_core::TargetDep {
+        reference: "greet".to_owned(),
+        public: true,
+    };
+    let edge = resolve_edge(&decl, &graph);
+    assert_eq!(
+        edge,
+        TargetDepEdge {
+            to: (0, "greet".to_owned()),
+            public: true,
+        }
+    );
+}
+
+#[test]
+fn dep_edge_visibility_attaches_to_qualified_and_local_references() {
+    let graph = visibility_fixture();
+    // Qualified reference to a dependency target named differently
+    // from its package.
+    let qualified = cabin_core::TargetDep {
+        reference: "greet:extras".to_owned(),
+        public: true,
+    };
+    let edge = resolve_edge(&qualified, &graph);
+    assert_eq!(
+        edge,
+        TargetDepEdge {
+            to: (0, "extras".to_owned()),
+            public: true,
+        }
+    );
+    // Same-package bare name.
+    let local = cabin_core::TargetDep {
+        reference: "core".to_owned(),
+        public: true,
+    };
+    let edge = resolve_edge(&local, &graph);
+    assert_eq!(
+        edge,
+        TargetDepEdge {
+            to: (1, "core".to_owned()),
+            public: true,
+        }
+    );
+}
+
+#[test]
+fn public_dep_edge_plans_like_a_private_one() {
+    // Visibility is declarative only today: a public edge must not
+    // change planning output.  Same shape as
+    // `cross_package_path_dep_links_library`, with the dep declared
+    // public.
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![target("greet", TargetKind::Library, &["src/greet.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let mut app_target = target("app", TargetKind::Executable, &["src/main.cc"], &[]);
+    app_target.deps = vec![cabin_core::TargetDep {
+        reference: "greet".to_owned(),
+        public: true,
+    }];
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![app_target],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(link.inputs.contains(&Utf8PathBuf::from(
+        "/abs/build/dev/packages/greet/libgreet.a"
+    )));
+}
+
+// -----------------------------------------------------------------
 // required-features gating.
 // -----------------------------------------------------------------
 
@@ -1005,7 +1150,7 @@ fn transitive_gate_inside_dependency_points_help_upstream() {
         vec![
             {
                 let mut api = target("api", TargetKind::Library, &["src/api.cc"], &["tls"]);
-                api.deps = vec!["tls".to_owned()];
+                api.deps = vec![cabin_core::TargetDep::private("tls")];
                 api
             },
             gated_target("tls", TargetKind::Library, &["src/tls.cc"], &[], &["ssl"]),

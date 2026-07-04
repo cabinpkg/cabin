@@ -20,7 +20,7 @@ mod tests;
 
 use self::lowering::{
     collect_include_dirs, collect_link_lib_names, collect_link_libs, compile_dispatch,
-    depfile_path, object_path, promote_dir, resolve_target_dep, topo_sort_targets,
+    depfile_path, object_path, promote_dir, resolve_target_dep_edge, topo_sort_targets,
 };
 
 /// Reference to a manifest target - one of the `[target.<name>]`
@@ -210,8 +210,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     };
 
     // Walk the target dep graph, resolving each raw `deps` entry to a
-    // concrete (package, target) ID and recording the edges.
-    let mut resolved_deps: HashMap<TargetId, Vec<TargetId>> = HashMap::new();
+    // concrete (package, target) ID and recording the edges together
+    // with their declared visibility.
+    let mut resolved_deps: HashMap<TargetId, Vec<TargetDepEdge>> = HashMap::new();
     let mut reachable: HashSet<TargetId> = HashSet::new();
     let mut to_visit: Vec<TargetId> = selected.clone();
 
@@ -226,8 +227,9 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         // edges; every other kind resolves through Normal edges
         // only.
         let dev_deps_visible = target.kind.is_dev_only();
-        for raw in &target.deps {
-            let dep = resolve_target_dep(raw.as_str(), tid.0, dev_deps_visible, req.graph)?;
+        for decl in &target.deps {
+            let edge = resolve_target_dep_edge(decl, tid.0, dev_deps_visible, req.graph)?;
+            let dep = edge.to.clone();
             // A dep edge is an explicit request: a feature-gated
             // dep target whose required features are not enabled
             // on its package is a hard error, not a skip.
@@ -266,8 +268,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     fix,
                 });
             }
-            to_visit.push(dep.clone());
-            resolved.push(dep);
+            to_visit.push(dep);
+            resolved.push(edge);
         }
         resolved_deps.insert(tid, resolved);
     }
@@ -306,7 +308,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let mut dep_closure: Vec<TargetId> = Vec::new();
         let mut seen: HashSet<TargetId> = HashSet::new();
         if let Some(deps) = resolved_deps.get(tid) {
-            for dep in deps {
+            for edge in deps {
+                let dep = &edge.to;
                 if seen.insert(dep.clone()) {
                     dep_closure.push(dep.clone());
                 }
@@ -596,8 +599,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         let mut languages_here: BTreeSet<SourceLanguage> =
             prepared.iter().map(|p| p.language).collect();
         if let Some(deps) = resolved_deps.get(tid) {
-            for dep in deps {
-                if let Some(dep_langs) = target_languages.get(dep) {
+            for edge in deps {
+                if let Some(dep_langs) = target_languages.get(&edge.to) {
                     languages_here.extend(dep_langs.iter().copied());
                 }
             }
@@ -715,6 +718,20 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 /// Stable identifier for a target within a [`PackageGraph`]: the index of
 /// its package in `graph.packages` and its target name.
 pub(super) type TargetId = (usize, String);
+
+/// One resolved edge of the target dependency graph.  Alias
+/// resolution has already happened - `to` is a concrete
+/// (package, target), never a pre-alias bare name - and the edge
+/// carries the visibility declared on the manifest entry.  Nothing
+/// consumes `public` yet: it is recorded so interface-requirement
+/// propagation along public edges
+/// (`docs/design/standard-compatibility/spec.md`, D5) has the
+/// per-edge classification it needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TargetDepEdge {
+    pub(super) to: TargetId,
+    pub(super) public: bool,
+}
 
 fn lookup_target<'a>(tid: &TargetId, graph: &'a PackageGraph) -> Result<&'a Target, BuildError> {
     let pkg = &graph.packages[tid.0];
