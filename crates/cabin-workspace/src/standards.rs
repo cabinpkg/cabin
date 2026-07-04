@@ -348,3 +348,451 @@ fn topo_order(targets: &[TargetNode]) -> Vec<usize> {
     }
     order
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cabin_core::standard_compatibility::DependencyKind;
+    use cabin_core::{InterfaceRequirement, StandardRequirement};
+
+    fn interface_min<S>(min: S) -> InterfaceRequirement<S> {
+        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+    }
+
+    /// A compiled target with no declarations - D9 row 4 for
+    /// languages it implements, rows 5-6 otherwise.
+    fn compiled(impl_c: Option<CStandard>, impl_cxx: Option<CxxStandard>) -> DependencyAttributes {
+        DependencyAttributes {
+            kind: DependencyKind::Compiled,
+            impl_c,
+            impl_cxx,
+            decl_c: None,
+            decl_cxx: None,
+        }
+    }
+
+    fn site(path: &str, offset: usize) -> DeclarationSite {
+        DeclarationSite {
+            manifest_path: PathBuf::from(path),
+            span: Some(miette::SourceSpan::new(offset.into(), 8)),
+        }
+    }
+
+    /// Fake relative manifest paths are fine here: these are pure
+    /// model tests that never touch the filesystem.
+    fn node(name: &str, attributes: DependencyAttributes, deps: &[(usize, bool)]) -> TargetNode {
+        TargetNode {
+            name: name.to_owned(),
+            manifest_path: PathBuf::from(format!("{name}/cabin.toml")),
+            attributes,
+            sites: DeclarationSites::default(),
+            deps: deps
+                .iter()
+                .map(|&(to, public)| TargetEdge { to, public })
+                .collect(),
+        }
+    }
+
+    /// Linear chain root → a → b over public edges: b's explicit
+    /// interface declarations (D9 row 2) propagate to the root by
+    /// D10's join, in both languages, and the provenance chain
+    /// carries b's manifest path and span - everything a diagnostic
+    /// needs to render "requires c++20 via public dependency b:b
+    /// (b/cabin.toml, line N)".
+    #[test]
+    fn linear_chain_propagates_declarations_with_provenance() {
+        let mut b = node(
+            "b:b",
+            compiled(Some(CStandard::C17), Some(CxxStandard::Cxx23)),
+            &[],
+        );
+        b.attributes.decl_c = Some(interface_min(CStandard::C17));
+        b.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx20));
+        b.sites.decl_c = Some(site("b/cabin.toml", 100));
+        b.sites.decl_cxx = Some(site("b/cabin.toml", 200));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(1, true)],
+            ),
+            node(
+                "a:a",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(2, true)],
+            ),
+            b,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(
+            results[0].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert_eq!(results[0].c.requirement, Requirement::Min(CStandard::C17));
+        assert_eq!(
+            results[1].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+
+        let cxx = provenance_cxx(&results, 0);
+        assert_eq!(cxx.path, [0, 1, 2]);
+        assert_eq!(cxx.origin.source, ReqOfSource::Declared);
+        assert_eq!(cxx.origin.site, site("b/cabin.toml", 200));
+
+        let c = provenance_c(&results, 0);
+        assert_eq!(c.path, [0, 1, 2]);
+        assert_eq!(c.origin.source, ReqOfSource::Declared);
+        assert_eq!(c.origin.site, site("b/cabin.toml", 100));
+
+        // The chain's names and site suffice for the rendered form.
+        assert_eq!(targets[*cxx.path.last().unwrap()].name, "b:b");
+    }
+
+    /// Diamond root → {a, b} → z: z's requirement is joined into
+    /// the root once even though z is publicly reachable along two
+    /// paths, because idempotence of D4's join means path
+    /// multiplicity cannot double-count (T1's closed form is over
+    /// the *set* `PubReach`).  The kept chain is the first attaining
+    /// one in declaration order (any one chain is acceptable; see
+    /// [`Attained`]).
+    #[test]
+    fn diamond_joins_once_and_keeps_one_chain() {
+        let mut a = node(
+            "a:a",
+            compiled(Some(CStandard::C11), Some(CxxStandard::Cxx23)),
+            &[(3, true)],
+        );
+        a.attributes.decl_c = Some(interface_min(CStandard::C99));
+        a.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx17));
+        let mut z = node(
+            "z:z",
+            compiled(Some(CStandard::C11), Some(CxxStandard::Cxx23)),
+            &[],
+        );
+        z.attributes.decl_c = Some(interface_min(CStandard::C11));
+        z.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx20));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(1, true), (2, true)],
+            ),
+            a,
+            node(
+                "b:b",
+                compiled(Some(CStandard::C11), Some(CxxStandard::Cxx23)),
+                &[(3, true)],
+            ),
+            z,
+        ];
+        let results = effective_requirements(&targets);
+
+        // The join over PubReach(root) = {root, a, b, z}: z's
+        // declarations are the maximum in both languages.
+        assert_eq!(
+            results[0].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert_eq!(results[0].c.requirement, Requirement::Min(CStandard::C11));
+
+        // Both root → a → z and root → b → z attain the join; the
+        // first declared edge (a) is kept, deterministically.
+        assert_eq!(provenance_cxx(&results, 0).path, [0, 1, 3]);
+        assert_eq!(provenance_c(&results, 0).path, [0, 1, 3]);
+
+        // a's own c++17 declaration is exceeded by z's c++20.
+        assert_eq!(
+            results[1].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert_eq!(provenance_cxx(&results, 1).path, [1, 3]);
+    }
+
+    /// When the target's own declaration attains the join, the chain
+    /// ends at the target itself even if a public dependency imposes
+    /// the same requirement (the documented tie preference).
+    #[test]
+    fn own_declaration_wins_ties_over_dependencies() {
+        let mut root = node(
+            "root:root",
+            compiled(None, Some(CxxStandard::Cxx23)),
+            &[(1, true)],
+        );
+        root.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx20));
+        root.sites.decl_cxx = Some(site("root/cabin.toml", 40));
+        let mut dep = node("dep:dep", compiled(None, Some(CxxStandard::Cxx23)), &[]);
+        dep.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx20));
+        let targets = vec![root, dep];
+        let results = effective_requirements(&targets);
+
+        let cxx = provenance_cxx(&results, 0);
+        assert_eq!(
+            results[0].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert_eq!(cxx.path, [0]);
+        assert_eq!(cxx.origin.site, site("root/cabin.toml", 40));
+    }
+
+    /// Private edges do not propagate (D10 folds public dependencies
+    /// only): even a forbidden requirement behind a private edge
+    /// leaves the consumer and its ancestors untouched - Example 3's
+    /// private variant.
+    #[test]
+    fn private_edges_do_not_propagate() {
+        let mut b = node(
+            "b:b",
+            compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+            &[],
+        );
+        b.attributes.decl_cxx = Some(InterfaceRequirement::None);
+        b.attributes.decl_c = Some(interface_min(CStandard::C23));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(1, true)],
+            ),
+            node(
+                "a:a",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(2, false)],
+            ),
+            b,
+        ];
+        let results = effective_requirements(&targets);
+
+        // b itself is forbidden for C++ (D9 row 1) ...
+        assert_eq!(results[2].cxx.requirement, Requirement::Forbidden);
+        // ... but a's private edge keeps it out of the join: a and
+        // the root stay at their own row-4 / row-6 requirements.
+        assert_eq!(results[1].cxx.requirement, Requirement::Unconstrained);
+        assert_eq!(results[0].cxx.requirement, Requirement::Unconstrained);
+        assert_eq!(results[1].c.requirement, Requirement::Forbidden);
+        assert_eq!(provenance_cxx(&results, 1).path, [1]);
+        assert_eq!(
+            provenance_cxx(&results, 0).origin.source,
+            ReqOfSource::CompiledNoDeclaration
+        );
+    }
+
+    /// Example 3: a declared `"none"` on a transitive public
+    /// dependency poisons every ancestor for that language, and the
+    /// provenance chain points at the origin of the `none` - its
+    /// manifest path and span included.
+    #[test]
+    fn declared_none_poisons_public_ancestors_with_provenance() {
+        let mut b = node("b:b", compiled(None, Some(CxxStandard::Cxx17)), &[]);
+        b.attributes.decl_cxx = Some(InterfaceRequirement::None);
+        b.sites.decl_cxx = Some(site("b/cabin.toml", 64));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx26)),
+                &[(1, true)],
+            ),
+            node(
+                "a:a",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(2, true)],
+            ),
+            b,
+        ];
+        let results = effective_requirements(&targets);
+
+        // The absorbing element of L2: once forbidden enters the
+        // join, nothing recovers, at any consumer level.
+        assert_eq!(results[0].cxx.requirement, Requirement::Forbidden);
+        assert_eq!(results[1].cxx.requirement, Requirement::Forbidden);
+
+        let cxx = provenance_cxx(&results, 0);
+        assert_eq!(cxx.path, [0, 1, 2]);
+        assert_eq!(cxx.origin.source, ReqOfSource::DeclaredNone);
+        assert_eq!(cxx.origin.site, site("b/cabin.toml", 64));
+    }
+
+    /// The strict C++-to-C default (D9 row 6) poisons C consumers
+    /// through public chains the same way an explicit `"none"` does,
+    /// with provenance pointing at the C++-only dependency - there
+    /// is no declaration to cite, so the site is its manifest,
+    /// spanless.
+    #[test]
+    fn strict_cxx_to_c_default_poisons_c_ancestors() {
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(Some(CStandard::C17), None),
+                &[(1, true)],
+            ),
+            node(
+                "mid:mid",
+                compiled(Some(CStandard::C17), None),
+                &[(2, true)],
+            ),
+            node(
+                "cxxlib:cxxlib",
+                compiled(None, Some(CxxStandard::Cxx20)),
+                &[],
+            ),
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(results[0].c.requirement, Requirement::Forbidden);
+        let c = provenance_c(&results, 0);
+        assert_eq!(c.path, [0, 1, 2]);
+        assert_eq!(c.origin.source, ReqOfSource::CrossLanguageDefault);
+        assert_eq!(
+            c.origin.site,
+            DeclarationSite {
+                manifest_path: PathBuf::from("cxxlib:cxxlib/cabin.toml"),
+                span: None,
+            }
+        );
+
+        // The permissive C-to-C++ default (row 5) leaves the C++
+        // side of the same chain unconstrained below cxxlib.
+        assert_eq!(results[1].cxx.requirement, Requirement::Unconstrained);
+    }
+
+    /// Header-only inference (D9 row 3) feeds composition: the
+    /// inferred minimum joins into every public ancestor, with the
+    /// origin pointing at the implementation-standard site that the
+    /// inference read.
+    #[test]
+    fn header_only_inference_feeds_composition() {
+        let mut h = TargetNode {
+            name: "h:h".to_owned(),
+            manifest_path: PathBuf::from("h/cabin.toml"),
+            attributes: DependencyAttributes {
+                kind: DependencyKind::HeaderOnly,
+                impl_c: Some(CStandard::C17),
+                impl_cxx: Some(CxxStandard::Cxx20),
+                decl_c: None,
+                decl_cxx: None,
+            },
+            sites: DeclarationSites::default(),
+            deps: Vec::new(),
+        };
+        h.sites.impl_c = Some(site("h/cabin.toml", 10));
+        h.sites.impl_cxx = Some(site("h/cabin.toml", 20));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(1, true)],
+            ),
+            node(
+                "a:a",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(2, true)],
+            ),
+            h,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(
+            results[0].cxx.requirement,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert_eq!(results[0].c.requirement, Requirement::Min(CStandard::C17));
+
+        let cxx = provenance_cxx(&results, 0);
+        assert_eq!(cxx.path, [0, 1, 2]);
+        assert_eq!(cxx.origin.source, ReqOfSource::HeaderOnlyInference);
+        assert_eq!(cxx.origin.site, site("h/cabin.toml", 20));
+        assert_eq!(
+            provenance_c(&results, 0).origin.site,
+            site("h/cabin.toml", 10)
+        );
+    }
+
+    /// T1 (confluence): computing `R_L` along two different
+    /// topological orders of the same DAG yields identical results.
+    /// The pass derives its processing order from the node slice's
+    /// layout, so materializing the same logical graph under two
+    /// index assignments makes it run in two genuinely different
+    /// topological orders; T1's uniqueness proof says the values
+    /// must agree, and the deterministic tie policy makes even the
+    /// kept chains agree.
+    #[test]
+    fn confluence_across_two_topological_orders() {
+        // Logical graph: root → {a, b} public, a → z, b → z public,
+        // z → w public; z declares c++20 / c11, w declares c++23
+        // (the join's maximum) and c99.
+        fn build(mapping: [usize; 5]) -> Vec<TargetNode> {
+            let [root, a, b, z, w] = mapping;
+            let mut nodes = vec![node("placeholder", compiled(None, None), &[]); 5];
+            nodes[root] = node(
+                "root:root",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(a, true), (b, true)],
+            );
+            nodes[a] = node(
+                "a:a",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(z, true)],
+            );
+            nodes[b] = node(
+                "b:b",
+                compiled(Some(CStandard::C23), Some(CxxStandard::Cxx23)),
+                &[(z, true)],
+            );
+            nodes[z] = {
+                let mut z_node = node(
+                    "z:z",
+                    compiled(Some(CStandard::C11), Some(CxxStandard::Cxx20)),
+                    &[(w, true)],
+                );
+                z_node.attributes.decl_c = Some(interface_min(CStandard::C11));
+                z_node.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx20));
+                z_node
+            };
+            nodes[w] = {
+                let mut w_node = node(
+                    "w:w",
+                    compiled(Some(CStandard::C99), Some(CxxStandard::Cxx23)),
+                    &[],
+                );
+                w_node.attributes.decl_c = Some(interface_min(CStandard::C99));
+                w_node.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx23));
+                w_node
+            };
+            nodes
+        }
+
+        // Identity layout processes root-first (DFS discovers w
+        // deepest); the reversed layout starts its scan at w, so the
+        // pass folds targets in a different topological order.
+        let forward: [usize; 5] = [0, 1, 2, 3, 4];
+        let backward: [usize; 5] = [4, 3, 2, 1, 0];
+        let forward_results = effective_requirements(&build(forward));
+        let backward_results = effective_requirements(&build(backward));
+
+        for logical in 0..5 {
+            let fwd = &forward_results[forward[logical]];
+            let bwd = &backward_results[backward[logical]];
+            assert_eq!(
+                fwd.requirements(),
+                bwd.requirements(),
+                "T1 confluence at logical node {logical}"
+            );
+        }
+
+        // The kept chains also agree once mapped back to logical
+        // indices, because ties break by declaration order in both
+        // layouts.
+        let map_back = |path: &[usize], mapping: [usize; 5]| -> Vec<usize> {
+            path.iter()
+                .map(|&index| mapping.iter().position(|&m| m == index).unwrap())
+                .collect()
+        };
+        let fwd_chain = map_back(&provenance_cxx(&forward_results, forward[0]).path, forward);
+        let bwd_chain = map_back(
+            &provenance_cxx(&backward_results, backward[0]).path,
+            backward,
+        );
+        assert_eq!(fwd_chain, bwd_chain);
+        assert_eq!(fwd_chain, [0, 1, 3, 4]);
+    }
+}
