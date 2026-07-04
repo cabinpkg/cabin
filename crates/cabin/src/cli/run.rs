@@ -140,6 +140,8 @@ pub(crate) struct RunArgs {
 pub(crate) fn run(
     args: &RunArgs,
     reporter: crate::cli::term_verbosity::Reporter,
+    unstable: &BTreeSet<cabin_core::ExperimentalFeature>,
+    color: cabin_core::ColorChoice,
 ) -> Result<ExitCode> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
@@ -391,8 +393,9 @@ pub(crate) fn run(
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
-        standard_compat: false,
+        standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
+    crate::cli::standard_compat::report_warnings(&plan_graph.standard_compat_warnings, color)?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
         &toolchain,
