@@ -28,6 +28,7 @@ pub mod profile;
 pub mod registry;
 pub mod source_language;
 pub mod source_replacement;
+pub mod standard_compatibility;
 pub mod term_color;
 pub mod term_verbosity;
 pub mod toolchain;
