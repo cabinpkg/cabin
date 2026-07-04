@@ -7,7 +7,8 @@ use super::*;
 
 /// Workspace whose `toolkit` package exports a target named `kit`
 /// (not `toolkit`), plus an `app` whose `deps` entry is set by the
-/// caller.
+/// caller.  `app_dep` is spliced into the array verbatim, so it can
+/// be a quoted string (`"\"toolkit:kit\""`) or an inline table.
 fn write_shorthand_workspace(root: &Path, app_dep: &str) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
@@ -50,7 +51,7 @@ toolkit = {{ path = "../toolkit" }}
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["{app_dep}"]
+deps = [{app_dep}]
 "#
         ))
         .unwrap();
@@ -66,7 +67,7 @@ fn bare_name_without_same_name_target_fails_with_suggestion() {
     // `deps = ["toolkit"]` is shorthand for `toolkit:toolkit`,
     // which does not exist; the error must not silently pick `kit`
     // as a "default library" and must suggest the qualified form.
-    write_shorthand_workspace(dir.path(), "toolkit");
+    write_shorthand_workspace(dir.path(), "\"toolkit\"");
     cabin()
         .args(["build", "-p", "app", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -84,7 +85,23 @@ fn bare_name_without_same_name_target_fails_with_suggestion() {
 fn qualified_reference_links_differently_named_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    write_shorthand_workspace(dir.path(), "toolkit:kit");
+    write_shorthand_workspace(dir.path(), "\"toolkit:kit\"");
+    cabin()
+        .args(["build", "-p", "app", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}
+
+#[test]
+fn public_table_form_dep_builds_like_a_string_entry() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // `{ name = ..., public = true }` is declarative today: the
+    // build must behave exactly like the string spelling.
+    write_shorthand_workspace(dir.path(), r#"{ name = "toolkit:kit", public = true }"#);
     cabin()
         .args(["build", "-p", "app", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
