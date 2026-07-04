@@ -3553,3 +3553,54 @@ fn standard_compat_keeps_requirements_through_executable_deps() {
         vec!["tools:tool".to_owned(), "libb:libb".to_owned()]
     );
 }
+
+/// The pass's inputs are manifest-declared values only: the same
+/// graph yields identical C and C++ violations when every
+/// toolchain-shaped planner input changes at once (compiler paths,
+/// dialect, MSVC include spelling).  No toolchain probing, nothing
+/// read from the environment - so a lockfile-loaded graph warns
+/// identically on every machine that shares the manifests.
+#[test]
+fn standard_compat_violations_are_toolchain_independent() {
+    let mut w_lib = target("w", TargetKind::Library, &["src/w.c"], &[]);
+    w_lib.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C17));
+    w_lib.language.interface_c_standard =
+        Some(StandardDeclaration::Declared(interface_req(CStandard::C17)));
+    w_lib.language.interface_cxx_standard = Some(StandardDeclaration::Declared(interface_req(
+        CxxStandard::Cxx23,
+    )));
+    let w_pkg = Package::new(pkg_name("w"), version(), vec![w_lib], Vec::new()).unwrap();
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c", "src/main.cc"],
+            &["w"],
+        )],
+        vec![dep("w", "../w")],
+    )
+    .unwrap();
+    let graph = app_dep_graph(app, w_pkg, "w");
+
+    let gnu_tc = toolchain_with_cc();
+    let mut gnu_req = plan_request(&graph, &gnu_tc, "/abs/app/build");
+    gnu_req.standard_compat = true;
+    let gnu = plan(&gnu_req).unwrap().standard_compat_warnings;
+
+    let mut msvc_tc = toolchain_with_cc();
+    msvc_tc.cxx.path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
+    msvc_tc.cc.as_mut().unwrap().path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
+    let mut msvc_req = plan_request(&graph, &msvc_tc, "/abs/app/build");
+    msvc_req.dialect = Dialect::Msvc;
+    msvc_req.msvc_external_includes = false;
+    msvc_req.standard_compat = true;
+    let msvc = plan(&msvc_req).unwrap().standard_compat_warnings;
+
+    assert_eq!(gnu.len(), 2, "the fixture violates both languages");
+    assert_eq!(
+        gnu, msvc,
+        "violations must not depend on the resolved toolchain or dialect"
+    );
+}
