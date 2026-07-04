@@ -16,6 +16,7 @@ pub mod graph;
 pub mod loader;
 pub mod patch;
 pub mod selection;
+pub mod standards;
 
 pub use discovery::{DiscoveredManifest, discover_workspace_root};
 pub use error::WorkspaceError;

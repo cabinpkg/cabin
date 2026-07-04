@@ -8,7 +8,9 @@
 //!
 //! The effective-requirement recursion `R_L` (spec D10/T1 -
 //! transitive composition over the dependency graph) is deliberately
-//! not implemented here.  This module operates on already-composed
+//! not implemented here: it is a graph algorithm, and graph
+//! algorithms live in `cabin-workspace` (`cabin_workspace::standards`
+//! is the implementation).  This module operates on already-composed
 //! requirements: callers fold [`req_of_c`] / [`req_of_cxx`] values
 //! with [`Requirement::join`] along public edges and hand the result
 //! to [`edge_compatible`] as [`EffectiveRequirements`].
@@ -120,11 +122,42 @@ pub struct DependencyAttributes {
     pub decl_cxx: Option<InterfaceRequirement<CxxStandard>>,
 }
 
+/// Spec D9: which row of the declaration-to-requirement table
+/// produced a `ReqOf` value.  Provenance-tracking callers (the
+/// effective-requirement composition of D10) record this alongside
+/// the requirement so a diagnostic can say *why* a target imposes
+/// what it imposes; the rows are the routing of D9, so this enum is
+/// derived here and nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReqOfSource {
+    /// Row 1: the explicit interface declaration `"none"`.
+    DeclaredNone,
+    /// Row 2: an explicit declared interface minimum.
+    Declared,
+    /// Row 3: header-only inference from the implementation
+    /// standard.
+    HeaderOnlyInference,
+    /// Row 4: a compiled target without an interface declaration
+    /// imposes no constraint.
+    CompiledNoDeclaration,
+    /// Rows 5-6: the cross-language default - permissive
+    /// (`unconstrained`) toward C++, strict (`forbidden`) toward C.
+    CrossLanguageDefault,
+}
+
 /// Spec D9: `ReqOf(d, C)`.  Shares rows 1-4 with the C++ side and
 /// lands on row 6 - the strict C++-to-C default `forbidden` - when
 /// the target neither declares a C interface nor implements C.
 #[must_use]
 pub fn req_of_c(dependency: &DependencyAttributes) -> Requirement<CStandard> {
+    req_of_c_with_source(dependency).0
+}
+
+/// Spec D9: `ReqOf(d, C)` together with the row that produced it.
+#[must_use]
+pub fn req_of_c_with_source(
+    dependency: &DependencyAttributes,
+) -> (Requirement<CStandard>, ReqOfSource) {
     req_of(
         dependency.kind,
         dependency.decl_c,
@@ -139,6 +172,14 @@ pub fn req_of_c(dependency: &DependencyAttributes) -> Requirement<CStandard> {
 /// C++.
 #[must_use]
 pub fn req_of_cxx(dependency: &DependencyAttributes) -> Requirement<CxxStandard> {
+    req_of_cxx_with_source(dependency).0
+}
+
+/// Spec D9: `ReqOf(d, C++)` together with the row that produced it.
+#[must_use]
+pub fn req_of_cxx_with_source(
+    dependency: &DependencyAttributes,
+) -> (Requirement<CxxStandard>, ReqOfSource) {
     req_of(
         dependency.kind,
         dependency.decl_cxx,
@@ -154,25 +195,30 @@ fn req_of<S: Copy + Ord>(
     decl: Option<InterfaceRequirement<S>>,
     implementation: Option<S>,
     absent_default: Requirement<S>,
-) -> Requirement<S> {
+) -> (Requirement<S>, ReqOfSource) {
     match (decl, implementation) {
         // Row 1: the declared `"none"` is forbidden.
-        (Some(InterfaceRequirement::None), _) => Requirement::Forbidden,
+        (Some(InterfaceRequirement::None), _) => {
+            (Requirement::Forbidden, ReqOfSource::DeclaredNone)
+        }
         // Row 2: an explicit declaration always wins, over inference
         // and over both cross-language defaults.  `max` is reserved
         // and always absent in v1 (spec D4 remark).
         (Some(InterfaceRequirement::Requirement(requirement)), _) => {
-            Requirement::Min(requirement.min)
+            (Requirement::Min(requirement.min), ReqOfSource::Declared)
         }
         // Row 3: header-only inference from the implementation
         // standard.  Row 4: a compiled target without an interface
         // declaration imposes no constraint.
         (None, Some(min)) => match kind {
-            DependencyKind::HeaderOnly => Requirement::Min(min),
-            DependencyKind::Compiled => Requirement::Unconstrained,
+            DependencyKind::HeaderOnly => (Requirement::Min(min), ReqOfSource::HeaderOnlyInference),
+            DependencyKind::Compiled => (
+                Requirement::Unconstrained,
+                ReqOfSource::CompiledNoDeclaration,
+            ),
         },
         // Rows 5-6: the cross-language defaults.
-        (None, None) => absent_default,
+        (None, None) => (absent_default, ReqOfSource::CrossLanguageDefault),
     }
 }
 
@@ -577,22 +623,22 @@ mod tests {
         for kind in KINDS {
             for implementation in optional_levels(&CStandard::ALL) {
                 assert_eq!(
-                    req_of_c(&c_attrs(
+                    req_of_c_with_source(&c_attrs(
                         kind,
                         Some(InterfaceRequirement::None),
                         implementation
                     )),
-                    Requirement::Forbidden
+                    (Requirement::Forbidden, ReqOfSource::DeclaredNone)
                 );
             }
             for implementation in optional_levels(&CxxStandard::ALL) {
                 assert_eq!(
-                    req_of_cxx(&cxx_attrs(
+                    req_of_cxx_with_source(&cxx_attrs(
                         kind,
                         Some(InterfaceRequirement::None),
                         implementation
                     )),
-                    Requirement::Forbidden
+                    (Requirement::Forbidden, ReqOfSource::DeclaredNone)
                 );
             }
         }
@@ -606,16 +652,24 @@ mod tests {
             for min in CStandard::ALL {
                 for implementation in optional_levels(&CStandard::ALL) {
                     assert_eq!(
-                        req_of_c(&c_attrs(kind, Some(interface_min(min)), implementation)),
-                        Requirement::Min(min)
+                        req_of_c_with_source(&c_attrs(
+                            kind,
+                            Some(interface_min(min)),
+                            implementation
+                        )),
+                        (Requirement::Min(min), ReqOfSource::Declared)
                     );
                 }
             }
             for min in CxxStandard::ALL {
                 for implementation in optional_levels(&CxxStandard::ALL) {
                     assert_eq!(
-                        req_of_cxx(&cxx_attrs(kind, Some(interface_min(min)), implementation)),
-                        Requirement::Min(min)
+                        req_of_cxx_with_source(&cxx_attrs(
+                            kind,
+                            Some(interface_min(min)),
+                            implementation
+                        )),
+                        (Requirement::Min(min), ReqOfSource::Declared)
                     );
                 }
             }
@@ -628,14 +682,14 @@ mod tests {
     fn d9_row_3_header_only_inference() {
         for min in CStandard::ALL {
             assert_eq!(
-                req_of_c(&c_attrs(DependencyKind::HeaderOnly, None, Some(min))),
-                Requirement::Min(min)
+                req_of_c_with_source(&c_attrs(DependencyKind::HeaderOnly, None, Some(min))),
+                (Requirement::Min(min), ReqOfSource::HeaderOnlyInference)
             );
         }
         for min in CxxStandard::ALL {
             assert_eq!(
-                req_of_cxx(&cxx_attrs(DependencyKind::HeaderOnly, None, Some(min))),
-                Requirement::Min(min)
+                req_of_cxx_with_source(&cxx_attrs(DependencyKind::HeaderOnly, None, Some(min))),
+                (Requirement::Min(min), ReqOfSource::HeaderOnlyInference)
             );
         }
     }
@@ -646,22 +700,28 @@ mod tests {
     fn d9_row_4_compiled_absence_is_unconstrained() {
         for implementation in CStandard::ALL {
             assert_eq!(
-                req_of_c(&c_attrs(
+                req_of_c_with_source(&c_attrs(
                     DependencyKind::Compiled,
                     None,
                     Some(implementation)
                 )),
-                Requirement::Unconstrained
+                (
+                    Requirement::Unconstrained,
+                    ReqOfSource::CompiledNoDeclaration
+                )
             );
         }
         for implementation in CxxStandard::ALL {
             assert_eq!(
-                req_of_cxx(&cxx_attrs(
+                req_of_cxx_with_source(&cxx_attrs(
                     DependencyKind::Compiled,
                     None,
                     Some(implementation)
                 )),
-                Requirement::Unconstrained
+                (
+                    Requirement::Unconstrained,
+                    ReqOfSource::CompiledNoDeclaration
+                )
             );
         }
     }
@@ -673,8 +733,11 @@ mod tests {
     fn d9_row_5_permissive_c_to_cxx_default() {
         for kind in KINDS {
             assert_eq!(
-                req_of_cxx(&cxx_attrs(kind, None, None)),
-                Requirement::Unconstrained
+                req_of_cxx_with_source(&cxx_attrs(kind, None, None)),
+                (
+                    Requirement::Unconstrained,
+                    ReqOfSource::CrossLanguageDefault
+                )
             );
         }
     }
@@ -684,7 +747,10 @@ mod tests {
     #[test]
     fn d9_row_6_strict_cxx_to_c_default() {
         for kind in KINDS {
-            assert_eq!(req_of_c(&c_attrs(kind, None, None)), Requirement::Forbidden);
+            assert_eq!(
+                req_of_c_with_source(&c_attrs(kind, None, None)),
+                (Requirement::Forbidden, ReqOfSource::CrossLanguageDefault)
+            );
         }
     }
 
