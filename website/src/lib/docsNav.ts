@@ -114,6 +114,10 @@ export const DOCS_NAV: DocsNavSection[] = [
                 label: "Standard compatibility publish lints",
                 slug: "design/standard-compatibility/publish-lints",
             },
+            {
+                label: "Standard compatibility preference mode",
+                slug: "design/standard-compatibility/preference-mode",
+            },
         ],
     },
 ];

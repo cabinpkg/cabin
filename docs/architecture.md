@@ -97,6 +97,12 @@ docs/
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
   foundation-ports.md  curated foundation-port recipes + `cabin port list`
+  design/
+    standard-compatibility/
+      spec.md            normative resolver-level standard-compatibility model
+      registry-index.md  standard metadata in the package index (design)
+      publish-lints.md   publish-time standard-compatibility lints (design)
+      preference-mode.md standard-aware version preference (design, deferred)
 ```
 
 ## Crate responsibilities and rules

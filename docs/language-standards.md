@@ -357,12 +357,15 @@ Two escape hatches exist, one broad and temporary, one narrow and per-edge:
 
 ## Deferred
 
-- Resolver standard-compatibility filtering.  The normative model it will implement (requirement
-  domain, propagation along public dependency edges, edge compatibility, version viability) is
+- Resolver standard-compatibility filtering.  The normative model (requirement domain,
+  propagation along public dependency edges, edge compatibility, version viability) is
   specified in [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md);
   the experimental `-Z standard-compat` check above already evaluates the edge-compatibility
   part of that model post-resolution, but the resolver still does not consult it when selecting
-  versions.  Its defaults deliberately differ from the build-time enforcement above, which is
+  versions.  The recorded selection-time design is the (likewise deferred) soft preference mode
+  of
+  [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md) -
+  viability-informed candidate ordering with held-back reports, not hard in-resolver filtering.  Its defaults deliberately differ from the build-time enforcement above, which is
   unchanged and still runs after resolution: at resolve time a compiled library with no declared
   interface field imposes no constraint (no implementation-standard fallback), while an explicit
   `"none"` makes the dependency unsatisfiable from that language instead of imposing nothing.
