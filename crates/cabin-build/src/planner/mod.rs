@@ -135,6 +135,12 @@ pub struct PlanRequest<'a> {
     /// `deps` entry) is a hard error.  `None` (and missing
     /// entries) mean "no features enabled" for gating purposes.
     pub enabled_features: Option<&'a HashMap<usize, BTreeSet<String>>>,
+    /// Whether the experimental `standard-compat` post-resolution
+    /// warning pass runs over the resolved target graph
+    /// ([`crate::standard_compat`]).  When `false` - the default
+    /// unless the user opts in with `-Z standard-compat` - the
+    /// planner records no warnings and its output is unchanged.
+    pub standard_compat: bool,
 }
 
 /// One manifest-declared source resolved to its absolute path and the
@@ -275,6 +281,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
     }
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
+
+    // Experimental post-resolution standard-compatibility warnings
+    // (spec D13 over every resolved edge).  Behind the gate the
+    // planner's output is byte-for-byte what it was before the pass
+    // existed.
+    let standard_compat_warnings = if req.standard_compat {
+        crate::standard_compat::edge_violations(&topo, &resolved_deps, req)?
+    } else {
+        Vec::new()
+    };
 
     // Promote the OS-supplied build directory to UTF-8 once: it
     // prefixes every object, archive, and executable path in the
@@ -708,6 +724,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         default_outputs,
         compile_commands,
         standard_violations,
+        standard_compat_warnings,
     })
 }
 
@@ -717,23 +734,25 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
 /// Stable identifier for a target within a [`PackageGraph`]: the index of
 /// its package in `graph.packages` and its target name.
-pub(super) type TargetId = (usize, String);
+pub(crate) type TargetId = (usize, String);
 
 /// One resolved edge of the target dependency graph.  Alias
 /// resolution has already happened - `to` is a concrete
 /// (package, target), never a pre-alias bare name - and the edge
-/// carries the visibility declared on the manifest entry.  Nothing
-/// consumes `public` yet: it is recorded so interface-requirement
-/// propagation along public edges
-/// (`docs/design/standard-compatibility/spec.md`, D5) has the
-/// per-edge classification it needs.
+/// carries the visibility declared on the manifest entry.  The
+/// `public` classification feeds the experimental `standard-compat`
+/// pass, which propagates interface requirements along public edges
+/// (`docs/design/standard-compatibility/spec.md`, D5).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct TargetDepEdge {
-    pub(super) to: TargetId,
-    pub(super) public: bool,
+pub(crate) struct TargetDepEdge {
+    pub(crate) to: TargetId,
+    pub(crate) public: bool,
 }
 
-fn lookup_target<'a>(tid: &TargetId, graph: &'a PackageGraph) -> Result<&'a Target, BuildError> {
+pub(crate) fn lookup_target<'a>(
+    tid: &TargetId,
+    graph: &'a PackageGraph,
+) -> Result<&'a Target, BuildError> {
     let pkg = &graph.packages[tid.0];
     pkg.package
         .targets
@@ -745,7 +764,7 @@ fn lookup_target<'a>(tid: &TargetId, graph: &'a PackageGraph) -> Result<&'a Targ
         })
 }
 
-pub(super) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
+pub(crate) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
     format!("{}:{}", graph.packages[tid.0].package.name.as_str(), tid.1)
 }
 

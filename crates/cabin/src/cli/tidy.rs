@@ -361,6 +361,7 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
             )
         }),
         enabled_features: Some(&enabled_features),
+        standard_compat: false,
     })?;
     // `cabin tidy` skips the fail-hard toolchain validation, so it
     // must surface planner-recorded MSVC standard violations itself -

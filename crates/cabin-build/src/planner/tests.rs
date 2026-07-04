@@ -238,6 +238,7 @@ fn plan_request<'a>(
         dialect: Dialect::GnuLike,
         msvc_external_includes: true,
         enabled_features: None,
+        standard_compat: false,
     }
 }
 
@@ -2922,4 +2923,423 @@ fn flag_conflicts_scope_to_planned_compiles() {
         std::error::Error::source(&err).is_some_and(|s| s.to_string().contains("cxx-standard")),
         "the typed conflict must stay on the error chain: {err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// experimental standard-compat pass (spec D13 over resolved edges)
+// ---------------------------------------------------------------------------
+
+use crate::standard_compat::{
+    DeclScope, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
+};
+use cabin_core::{CStandard, CxxStandard, StandardDeclaration};
+
+/// A library package named `name` exposing one same-named target,
+/// compiled from one C++ source at `impl_std`, with the given
+/// interface declaration (target level).
+fn cxx_lib_package(
+    name: &str,
+    impl_std: CxxStandard,
+    interface: Option<cabin_core::InterfaceRequirement<CxxStandard>>,
+    deps: &[cabin_core::TargetDep],
+) -> Package {
+    let mut lib = target(name, TargetKind::Library, &["src/lib.cc"], &[]);
+    lib.language.cxx_standard = Some(StandardDeclaration::Declared(impl_std));
+    lib.language.interface_cxx_standard = interface.map(StandardDeclaration::Declared);
+    lib.deps = deps.to_vec();
+    Package::new(pkg_name(name), version(), vec![lib], Vec::new()).unwrap()
+}
+
+/// An `app` package whose executable target depends on the given
+/// references, compiled from one C++ source at c++17.
+fn cxx_app_package(deps: &[&str], pkg_deps: Vec<Dependency>) -> Package {
+    Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            deps,
+        )],
+        pkg_deps,
+    )
+    .unwrap()
+}
+
+/// Two-package graph: `app` (primary, index 0) depending on `dep`
+/// (index 1).
+fn app_dep_graph(app: Package, dep_pkg: Package, dep_name: &str) -> PackageGraph {
+    graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1]),
+            make_pkg(dep_name, &format!("/abs/{dep_name}"), dep_pkg, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    )
+}
+
+fn standard_compat_warnings(graph: &PackageGraph) -> Vec<StandardCompatViolation> {
+    let tc = toolchain_with_cc();
+    let mut req = plan_request(graph, &tc, "/abs/app/build");
+    req.standard_compat = true;
+    plan(&req).unwrap().standard_compat_warnings
+}
+
+/// Feature-off no-op: with `standard_compat: false` (the default) a
+/// graph carrying a clear violation records no warnings, so the
+/// planner's output is exactly what it was before the pass existed.
+#[test]
+fn standard_compat_off_records_nothing() {
+    let graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/app/build")).unwrap();
+    assert!(bg.standard_compat_warnings.is_empty());
+}
+
+/// Spec D9 row 2 / D13: an explicit interface minimum above the
+/// consumer's effective level violates the edge, with the origin at
+/// the dependency's own declaration.
+#[test]
+fn standard_compat_reports_direct_interface_minimum_violation() {
+    let graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.consumer, "app:app");
+    assert_eq!(w.language, SourceLanguage::Cxx);
+    assert_eq!(w.consumer_standard, "c++17");
+    assert_eq!(w.consumer_site.field, "cxx-standard");
+    assert_eq!(w.consumer_site.scope, DeclScope::Target("app".to_owned()));
+    assert_eq!(
+        w.consumer_site.manifest_path,
+        PathBuf::from("/abs/app/cabin.toml")
+    );
+    assert_eq!(w.dependency, "lib:lib");
+    assert_eq!(w.requirement, EdgeRequirement::Min("c++20"));
+    assert_eq!(w.origin_target, "lib:lib");
+    assert_eq!(w.chain, vec!["lib:lib".to_owned()]);
+    let RequirementOrigin::Declared { site } = &w.origin else {
+        panic!("expected a declared origin, got {:?}", w.origin);
+    };
+    assert_eq!(site.field, "interface-cxx-standard");
+    assert_eq!(site.scope, DeclScope::Target("lib".to_owned()));
+    assert_eq!(site.manifest_path, PathBuf::from("/abs/lib/cabin.toml"));
+    assert!(!w.dependency_is_registry);
+}
+
+/// Spec D9 row 4: a compiled dependency with *no* interface
+/// declaration imposes nothing at this layer - deliberately unlike
+/// the build-time enforcement, whose implementation-standard
+/// fallback still records its own violation for the same graph.
+#[test]
+fn standard_compat_imposes_nothing_for_compiled_without_declaration() {
+    let graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package("lib", CxxStandard::Cxx20, None, &[]),
+        "lib",
+    );
+    let tc = toolchain();
+    let mut req = plan_request(&graph, &tc, "/abs/app/build");
+    req.standard_compat = true;
+    let bg = plan(&req).unwrap();
+    assert!(bg.standard_compat_warnings.is_empty());
+    // The build-time layer still catches it through its documented
+    // implementation-standard fallback - the two layers differ here
+    // by design (spec section 1, out-of-scope note).
+    assert!(matches!(
+        bg.standard_violations.first(),
+        Some(crate::StandardViolation::InterfaceIncompatibility { .. })
+    ));
+}
+
+/// Spec D9 row 1: `interface-cxx-standard = "none"` is forbidden -
+/// unsatisfiable at every consumer level.
+#[test]
+fn standard_compat_reports_declared_none_as_forbidden() {
+    let graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(cabin_core::InterfaceRequirement::None),
+            &[],
+        ),
+        "lib",
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.requirement, EdgeRequirement::Forbidden);
+    let RequirementOrigin::DeclaredNone { site } = &w.origin else {
+        panic!("expected a declared-none origin, got {:?}", w.origin);
+    };
+    assert_eq!(site.field, "interface-cxx-standard");
+}
+
+/// Spec D10 / Example 3's mechanism: a requirement declared two
+/// levels down reaches the consumer through a public edge, and the
+/// provenance chain names every hop down to the origin declaration.
+#[test]
+fn standard_compat_propagates_through_public_edges_with_provenance() {
+    let bottom = cxx_lib_package(
+        "libb",
+        CxxStandard::Cxx20,
+        Some(interface_req(CxxStandard::Cxx20)),
+        &[],
+    );
+    let middle = cxx_lib_package(
+        "liba",
+        CxxStandard::Cxx20,
+        None,
+        &[cabin_core::TargetDep {
+            reference: "libb".to_owned(),
+            public: true,
+        }],
+    );
+    let app = cxx_app_package(&["liba"], vec![dep("liba", "../liba")]);
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1]),
+            make_pkg("liba", "/abs/liba", middle, vec![2]),
+            make_pkg("libb", "/abs/libb", bottom, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    // `liba` itself compiles c++20, so only the app edge violates.
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.consumer, "app:app");
+    assert_eq!(w.dependency, "liba:liba");
+    assert_eq!(w.origin_target, "libb:libb");
+    assert_eq!(
+        w.chain,
+        vec!["liba:liba".to_owned(), "libb:libb".to_owned()]
+    );
+    assert_eq!(w.requirement, EdgeRequirement::Min("c++20"));
+    assert!(matches!(w.origin, RequirementOrigin::Declared { .. }));
+}
+
+/// Spec D10: private edges do not propagate - the same graph with a
+/// private `liba -> libb` edge is clean at every consumer.
+#[test]
+fn standard_compat_does_not_propagate_through_private_edges() {
+    let bottom = cxx_lib_package(
+        "libb",
+        CxxStandard::Cxx20,
+        Some(interface_req(CxxStandard::Cxx20)),
+        &[],
+    );
+    let middle = cxx_lib_package(
+        "liba",
+        CxxStandard::Cxx20,
+        None,
+        &[cabin_core::TargetDep::private("libb")],
+    );
+    let app = cxx_app_package(&["liba"], vec![dep("liba", "../liba")]);
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1]),
+            make_pkg("liba", "/abs/liba", middle, vec![2]),
+            make_pkg("libb", "/abs/libb", bottom, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    );
+    assert!(standard_compat_warnings(&graph).is_empty());
+}
+
+/// Spec D9 row 3: a header-only dependency without an interface
+/// declaration infers its minimum from its (target-level)
+/// implementation standard, and the origin says so.
+#[test]
+fn standard_compat_reports_header_only_inference() {
+    let mut hdr = target("hdr", TargetKind::HeaderOnly, &[], &[]);
+    hdr.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx20));
+    let hdr_pkg = Package::new(pkg_name("hdr"), version(), vec![hdr], Vec::new()).unwrap();
+    let graph = app_dep_graph(
+        cxx_app_package(&["hdr"], vec![dep("hdr", "../hdr")]),
+        hdr_pkg,
+        "hdr",
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.dependency, "hdr:hdr");
+    assert_eq!(w.requirement, EdgeRequirement::Min("c++20"));
+    let RequirementOrigin::HeaderOnlyInference { site } = &w.origin else {
+        panic!("expected header-only inference, got {:?}", w.origin);
+    };
+    assert_eq!(site.field, "cxx-standard");
+    assert_eq!(site.scope, DeclScope::Target("hdr".to_owned()));
+}
+
+/// Spec D13: a mixed-language consumer checks every language it
+/// compiles on the same edge, and each violated language reports
+/// separately (sorted C before C++).
+#[test]
+fn standard_compat_reports_each_violated_language_separately() {
+    let mut w_lib = target("w", TargetKind::Library, &["src/w.c"], &[]);
+    w_lib.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C17));
+    w_lib.language.interface_c_standard =
+        Some(StandardDeclaration::Declared(interface_req(CStandard::C17)));
+    w_lib.language.interface_cxx_standard = Some(StandardDeclaration::Declared(interface_req(
+        CxxStandard::Cxx23,
+    )));
+    let w_pkg = Package::new(pkg_name("w"), version(), vec![w_lib], Vec::new()).unwrap();
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c", "src/main.cc"],
+            &["w"],
+        )],
+        vec![dep("w", "../w")],
+    )
+    .unwrap();
+    let graph = app_dep_graph(app, w_pkg, "w");
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 2);
+    assert_eq!(warnings[0].language, SourceLanguage::C);
+    assert_eq!(warnings[0].consumer_standard, "c11");
+    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c17"));
+    assert_eq!(warnings[1].language, SourceLanguage::Cxx);
+    assert_eq!(warnings[1].consumer_standard, "c++17");
+    assert_eq!(warnings[1].requirement, EdgeRequirement::Min("c++23"));
+    assert_eq!(warnings[0].dependency, warnings[1].dependency);
+}
+
+/// Spec D9 row 6: a C consumer of a C++-only dependency with no
+/// declared C interface hits the strict cross-language default.
+#[test]
+fn standard_compat_reports_strict_cxx_to_c_default() {
+    let cxxlib = cxx_lib_package("cxxlib", CxxStandard::Cxx17, None, &[]);
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.c"],
+            &["cxxlib"],
+        )],
+        vec![dep("cxxlib", "../cxxlib")],
+    )
+    .unwrap();
+    let graph = app_dep_graph(app, cxxlib, "cxxlib");
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.language, SourceLanguage::C);
+    assert_eq!(w.requirement, EdgeRequirement::Forbidden);
+    assert_eq!(w.origin, RequirementOrigin::CrossLanguageDefault);
+}
+
+/// Spec D13's vacuous case plus D10 propagation: a header-only
+/// consumer's own edges never violate, but requirements flow
+/// through it to the compiling consumer above, chain included.
+#[test]
+fn standard_compat_chains_through_header_only_dependencies() {
+    let libb = cxx_lib_package(
+        "libb",
+        CxxStandard::Cxx20,
+        Some(interface_req(CxxStandard::Cxx20)),
+        &[],
+    );
+    let mut hdr = target("hdr", TargetKind::HeaderOnly, &[], &[]);
+    hdr.language.interface_c_standard =
+        Some(StandardDeclaration::Declared(interface_req(CStandard::C99)));
+    hdr.deps = vec![cabin_core::TargetDep {
+        reference: "libb".to_owned(),
+        public: true,
+    }];
+    let hdr_pkg = Package::new(pkg_name("hdr"), version(), vec![hdr], Vec::new()).unwrap();
+    let app = cxx_app_package(&["hdr"], vec![dep("hdr", "../hdr")]);
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1]),
+            make_pkg("hdr", "/abs/hdr", hdr_pkg, vec![2]),
+            make_pkg("libb", "/abs/libb", libb, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.consumer, "app:app");
+    assert_eq!(w.dependency, "hdr:hdr");
+    assert_eq!(w.origin_target, "libb:libb");
+    assert_eq!(w.chain, vec!["hdr:hdr".to_owned(), "libb:libb".to_owned()]);
+}
+
+/// Workspace-inherited declarations cite the workspace root
+/// manifest: the consumer's standard and the origin's interface
+/// both carry `Workspace` / `Package` scopes with the manifest that
+/// actually declares the value.
+#[test]
+fn standard_compat_sites_follow_declaration_tiers() {
+    // app: no target-level cxx standard; the package opted into the
+    // workspace default (rewritten to `Inherited` by the loader).
+    let mut app_target = target("app", TargetKind::Executable, &["src/main.cc"], &["lib"]);
+    app_target.language = Default::default();
+    let mut app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![app_target],
+        vec![dep("lib", "../lib")],
+    )
+    .unwrap();
+    app.language.cxx_standard = Some(StandardDeclaration::Inherited(CxxStandard::Cxx17));
+    // lib: package-level interface declaration (no target override).
+    let mut lib_target = target("lib", TargetKind::Library, &["src/lib.cc"], &[]);
+    lib_target.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx20));
+    let mut lib = Package::new(pkg_name("lib"), version(), vec![lib_target], Vec::new()).unwrap();
+    lib.language.interface_cxx_standard = Some(StandardDeclaration::Declared(interface_req(
+        CxxStandard::Cxx20,
+    )));
+    let graph = app_dep_graph(app, lib, "lib");
+    let tc = toolchain();
+    let standards = standards_for(&graph);
+    let mut req = plan_request(&graph, &tc, "/abs/app/build");
+    req.language_standards = &standards;
+    req.standard_compat = true;
+    let warnings = plan(&req).unwrap().standard_compat_warnings;
+    assert_eq!(warnings.len(), 1);
+    let w = &warnings[0];
+    assert_eq!(w.consumer_standard, "c++17");
+    assert_eq!(w.consumer_site.scope, DeclScope::Workspace);
+    // `graph_with` roots the graph at the first package's manifest.
+    assert_eq!(
+        w.consumer_site.manifest_path,
+        Path::new("/abs/app/cabin.toml")
+    );
+    let RequirementOrigin::Declared { site } = &w.origin else {
+        panic!("expected a declared origin, got {:?}", w.origin);
+    };
+    assert_eq!(site.scope, DeclScope::Package);
+    assert_eq!(site.manifest_path, Path::new("/abs/lib/cabin.toml"));
 }

@@ -518,6 +518,7 @@ pub(crate) fn test(args: &TestArgs, reporter: crate::cli::term_verbosity::Report
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
+        standard_compat: false,
     })?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
@@ -880,6 +881,7 @@ mod tests {
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
             standard_violations: Vec::new(),
+            standard_compat_warnings: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

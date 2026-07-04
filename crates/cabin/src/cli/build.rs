@@ -307,6 +307,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
+        standard_compat: false,
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected

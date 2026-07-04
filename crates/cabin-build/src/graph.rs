@@ -3,6 +3,8 @@ use camino::Utf8PathBuf;
 
 use cabin_driver::{BuildAction, Dialect};
 
+use crate::standard_compat::StandardCompatViolation;
+
 /// Backend-independent description of everything that needs to happen to
 /// realize a build.  A backend (currently `cabin-ninja`) walks this graph,
 /// lowers each semantic [`BuildAction`] to a concrete command via
@@ -33,6 +35,14 @@ pub struct BuildGraph {
     /// survivors through [`crate::validate_planned_standards`]
     /// before anything is lowered or written.
     pub standard_violations: Vec<StandardViolation>,
+    /// Violated dependency edges from the experimental
+    /// `standard-compat` post-resolution pass
+    /// ([`crate::standard_compat`]).  Always empty unless the pass
+    /// was requested.  Diagnostic-only: the CLI renders these as
+    /// warnings and nothing gates on them, so the `cabin check`
+    /// rewrite carries them through unchanged (they describe
+    /// resolved edges, not planned compiles).
+    pub standard_compat_warnings: Vec<StandardCompatViolation>,
 }
 
 /// One standards problem recorded against a planned compile.  Each

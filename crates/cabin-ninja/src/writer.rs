@@ -484,6 +484,7 @@ mod tests {
             default_outputs: defaults,
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
+            standard_compat_warnings: Vec::new(),
         }
     }
 
@@ -538,6 +539,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
+            standard_compat_warnings: Vec::new(),
         }
     }
 

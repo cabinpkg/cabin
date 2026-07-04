@@ -391,6 +391,7 @@ pub(crate) fn run(
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
+        standard_compat: false,
     })?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
