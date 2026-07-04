@@ -116,7 +116,11 @@ build-profile model lives here as `ProfileName`, `OptLevel`, `BuiltinProfile`, `
 language-standard model lives here as `cabin_core::language_standard` (`CStandard`, `CxxStandard`,
 `LanguageStandard`, the `gnu-extensions` boolean, the `{ min, max }` interface-requirement types,
 the resolution / interface / relevance helpers, the conflict and contradiction detectors, and the
-per-standard compiler capability tables in `cabin_core::compiler`).  Manifest, index, lockfile,
+per-standard compiler capability tables in `cabin_core::compiler`).  The resolver-level
+standard-compatibility core of `docs/design/standard-compatibility/spec.md` lives next to it as
+`cabin_core::standard_compatibility` (the requirement chain and join, `ReqOf`, edge compatibility,
+and package-version viability, each item citing the spec identifier it implements; the
+graph-composition recursion `R_L` is not implemented yet).  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
 
