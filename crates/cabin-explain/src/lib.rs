@@ -481,9 +481,10 @@ pub struct TargetExplanation {
     /// Names of source-language families the target carries
     /// (`c`, `cxx`, `rust`).  Sorted alphabetically.
     pub languages: Vec<String>,
-    /// Manifest-declared deps for this target, in declaration
-    /// order.  The orchestration layer normalizes each entry's
-    /// rendering.
+    /// Manifest-declared dep references for this target, in
+    /// declaration order (the raw spellings; per-edge visibility is
+    /// not part of this view).  The orchestration layer normalizes
+    /// each entry's rendering.
     pub deps: Vec<String>,
     /// Manifest-declared `required-features`, in declaration
     /// order.  Empty (and omitted from JSON) for ungated targets
@@ -812,7 +813,7 @@ pub fn explain_target(
         target: target.name.as_str().to_owned(),
         target_kind: kind.as_str().to_owned(),
         languages: languages.into_iter().map(str::to_owned).collect(),
-        deps: target.deps.clone(),
+        deps: target.deps.iter().map(|d| d.reference.clone()).collect(),
         required_features: target.required_features.clone(),
         // Buildable = anything that emits compile/archive/link
         // actions.  Excludes the header-only kinds because they

@@ -229,8 +229,11 @@ pub(crate) struct RawTarget {
     pub(crate) include_dirs: Vec<Utf8PathBuf>,
     #[serde(default)]
     pub(crate) defines: Vec<String>,
+    /// Entries accept the string shorthand (a private edge) or the
+    /// `{ name = "...", public = <bool> }` table form;
+    /// `cabin_core::TargetDep`'s deserialiser handles both shapes.
     #[serde(default)]
-    pub(crate) deps: Vec<String>,
+    pub(crate) deps: Vec<cabin_core::TargetDep>,
     /// Package features that must be enabled for this target to be
     /// built or used.  Validated against the package's `[features]`
     /// table by `cabin_core::Package::with_config`.

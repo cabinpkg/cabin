@@ -226,8 +226,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         // edges; every other kind resolves through Normal edges
         // only.
         let dev_deps_visible = target.kind.is_dev_only();
-        for raw in &target.deps {
-            let dep = resolve_target_dep(raw.as_str(), tid.0, dev_deps_visible, req.graph)?;
+        for decl in &target.deps {
+            let dep = resolve_target_dep(decl.reference.as_str(), tid.0, dev_deps_visible, req.graph)?;
             // A dep edge is an explicit request: a feature-gated
             // dep target whose required features are not enabled
             // on its package is a hard error, not a skip.

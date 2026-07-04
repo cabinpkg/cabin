@@ -334,6 +334,125 @@ impl std::fmt::Display for TargetKind {
     }
 }
 
+/// One declared entry of a target's `deps` array.
+///
+/// The manifest accepts two spellings: a bare reference string
+/// (`"foo"`, `"pkg:target"`), which declares a *private* edge, and
+/// the table form (`{ name = "foo", public = true }`), which
+/// additionally sets the per-edge visibility.  Both forms keep the
+/// reference exactly as written; alias resolution (`foo` ->
+/// `foo:foo`) happens in `cabin-build` against a concrete package
+/// graph, and the resolved edge carries this declaration's
+/// visibility.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetDep {
+    /// Raw target reference exactly as written in the manifest -
+    /// a bare name or a qualified `package:target`.  See
+    /// [`Target::deps`] for why this is a `String`, not a
+    /// [`TargetName`].
+    pub reference: String,
+    /// Whether this edge re-exports the dependency's public
+    /// headers to the target's own consumers.  Declarative only
+    /// today: recorded on the resolved dependency graph, consumed
+    /// by nothing yet.
+    pub public: bool,
+}
+
+impl TargetDep {
+    /// A private edge to `reference` - the meaning of the string
+    /// shorthand in manifests.
+    pub fn private(reference: impl Into<String>) -> Self {
+        Self {
+            reference: reference.into(),
+            public: false,
+        }
+    }
+}
+
+impl From<&str> for TargetDep {
+    fn from(reference: &str) -> Self {
+        Self::private(reference)
+    }
+}
+
+// The serialized shape mirrors the manifest surface: a private
+// edge stays a bare string (so existing manifests and the
+// `cabin metadata` JSON view keep their previous shape), and a
+// public edge serializes as the `{ name, public }` table.
+impl Serialize for TargetDep {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.public {
+            use serde::ser::SerializeMap;
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("name", &self.reference)?;
+            map.serialize_entry("public", &self.public)?;
+            map.end()
+        } else {
+            serializer.serialize_str(&self.reference)
+        }
+    }
+}
+
+// Hand-rolled Deserialize so the table form reports its own typed
+// errors (including the `deny_unknown_fields` "unknown field
+// `<name>`" message); an untagged derive would collapse every
+// failure to "data did not match any variant".
+impl<'de> Deserialize<'de> for TargetDep {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct TargetDepTable {
+            name: String,
+            #[serde(default)]
+            public: bool,
+        }
+
+        struct TargetDepVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TargetDepVisitor {
+            type Value = TargetDep;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a target reference string or a `{ name, public }` table")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(TargetDep::private(v))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(TargetDep::private(v))
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let table =
+                    TargetDepTable::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+                Ok(TargetDep {
+                    reference: table.name,
+                    public: table.public,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(TargetDepVisitor)
+    }
+}
+
 /// A buildable unit within a package.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -357,13 +476,15 @@ pub struct Target {
     /// Resolution against a concrete package graph lives in
     /// `cabin-build`, not here.
     ///
-    /// Stored as raw strings, not [`TargetName`], because the qualified
-    /// `package:target` form contains a `:` that the path-safe target-name
-    /// grammar rejects.  Validation happens at resolution time against the
-    /// already-validated package / target graph; dep strings never flow
-    /// directly into a filesystem path.
+    /// References are stored as raw strings, not [`TargetName`], because
+    /// the qualified `package:target` form contains a `:` that the
+    /// path-safe target-name grammar rejects.  Validation happens at
+    /// resolution time against the already-validated package / target
+    /// graph; dep strings never flow directly into a filesystem path.
+    /// Each entry also carries the declared per-edge visibility - see
+    /// [`TargetDep`].
     #[serde(default)]
-    pub deps: Vec<String>,
+    pub deps: Vec<TargetDep>,
     /// Package features that must all be enabled for this target
     /// to be built or used.  Entries name features declared in the
     /// owning package's `[features]` table;
@@ -1028,7 +1149,7 @@ mod tests {
             sources: Vec::new(),
             include_dirs: Vec::new(),
             defines: Vec::new(),
-            deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+            deps: deps.iter().map(|d| TargetDep::from(*d)).collect(),
             required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
         }
@@ -1316,7 +1437,28 @@ mod tests {
             Vec::new(),
         )
         .unwrap();
-        assert_eq!(package.targets[0].deps[0].as_str(), "external");
+        assert_eq!(package.targets[0].deps[0], TargetDep::private("external"));
+    }
+
+    #[test]
+    fn target_dep_serde_round_trips_both_shapes() {
+        // A private edge keeps the bare-string shape (existing
+        // manifests and the `cabin metadata` JSON view are
+        // unchanged); a public edge serializes as the table form.
+        let private = TargetDep::private("fmt");
+        assert_eq!(serde_json::to_string(&private).unwrap(), "\"fmt\"");
+        let public = TargetDep {
+            reference: "fmt:core".to_owned(),
+            public: true,
+        };
+        assert_eq!(
+            serde_json::to_string(&public).unwrap(),
+            r#"{"name":"fmt:core","public":true}"#
+        );
+        for dep in [private, public] {
+            let json = serde_json::to_string(&dep).unwrap();
+            assert_eq!(serde_json::from_str::<TargetDep>(&json).unwrap(), dep);
+        }
     }
 
     #[test]

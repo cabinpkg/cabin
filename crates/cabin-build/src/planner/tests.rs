@@ -131,7 +131,10 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
         sources: sources.iter().map(Utf8PathBuf::from).collect(),
         include_dirs: Vec::new(),
         defines: Vec::new(),
-        deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        deps: deps
+            .iter()
+            .map(|d| cabin_core::TargetDep::from(*d))
+            .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
     }
@@ -150,7 +153,10 @@ fn target_with_includes(
         sources: sources.iter().map(Utf8PathBuf::from).collect(),
         include_dirs: includes.iter().map(Utf8PathBuf::from).collect(),
         defines: Vec::new(),
-        deps: deps.iter().map(|d| (*d).to_owned()).collect(),
+        deps: deps
+            .iter()
+            .map(|d| cabin_core::TargetDep::from(*d))
+            .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
     }
@@ -1005,7 +1011,7 @@ fn transitive_gate_inside_dependency_points_help_upstream() {
         vec![
             {
                 let mut api = target("api", TargetKind::Library, &["src/api.cc"], &["tls"]);
-                api.deps = vec!["tls".to_owned()];
+                api.deps = vec![cabin_core::TargetDep::private("tls")];
                 api
             },
             gated_target("tls", TargetKind::Library, &["src/tls.cc"], &[], &["ssl"]),

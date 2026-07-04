@@ -867,7 +867,10 @@ fn unknown_target_dep_now_passes_through_to_planner() {
             deps = ["external"]
         "#;
     let package = parse_project(manifest);
-    assert_eq!(package.targets[0].deps[0].as_str(), "external");
+    assert_eq!(
+        package.targets[0].deps[0],
+        cabin_core::TargetDep::private("external")
+    );
 }
 
 #[test]
@@ -974,7 +977,125 @@ fn qualified_cross_package_dep_round_trips_as_raw_string() {
             deps = ["other-pkg:lib"]
         "#;
     let package = parse_project(manifest);
-    assert_eq!(package.targets[0].deps, vec!["other-pkg:lib".to_owned()]);
+    assert_eq!(
+        package.targets[0].deps,
+        vec![cabin_core::TargetDep::private("other-pkg:lib")]
+    );
+}
+
+/// The `{ name = ... }` table form without `public` means the same
+/// private edge as the string shorthand.
+#[test]
+fn target_dep_table_form_defaults_private() {
+    let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.exe]
+            type = "executable"
+            deps = [{ name = "fmt" }]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.targets[0].deps,
+        vec![cabin_core::TargetDep::private("fmt")]
+    );
+}
+
+#[test]
+fn target_dep_table_form_accepts_explicit_public() {
+    let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.exe]
+            type = "executable"
+            deps = ["local", { name = "fmt", public = true }, { name = "ssl", public = false }]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.targets[0].deps,
+        vec![
+            cabin_core::TargetDep::private("local"),
+            cabin_core::TargetDep {
+                reference: "fmt".to_owned(),
+                public: true,
+            },
+            cabin_core::TargetDep::private("ssl"),
+        ]
+    );
+}
+
+/// The table form keeps the reference exactly as written: a bare
+/// name that will later resolve through the same-name shorthand
+/// (`fmt` -> `fmt:fmt`) stays pre-alias here, because alias
+/// resolution happens in the planner against a concrete package
+/// graph - visibility is attached to the *resolved* edge there.
+#[test]
+fn target_dep_public_works_on_alias_and_qualified_references() {
+    let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.exe]
+            type = "executable"
+            deps = [{ name = "fmt", public = true }, { name = "foo:opt", public = true }]
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.targets[0].deps,
+        vec![
+            cabin_core::TargetDep {
+                reference: "fmt".to_owned(),
+                public: true,
+            },
+            cabin_core::TargetDep {
+                reference: "foo:opt".to_owned(),
+                public: true,
+            },
+        ]
+    );
+}
+
+#[test]
+fn target_dep_table_form_rejects_unknown_fields() {
+    let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.exe]
+            type = "executable"
+            deps = [{ name = "fmt", export = true }]
+        "#;
+    let err = parse_project_err(manifest);
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("export"),
+        "error should name the unknown field, got: {rendered}"
+    );
+}
+
+#[test]
+fn target_dep_table_form_requires_name() {
+    let manifest = r#"
+            [package]
+            name = "hello"
+            version = "0.1.0"
+
+            [target.exe]
+            type = "executable"
+            deps = [{ public = true }]
+        "#;
+    let err = parse_project_err(manifest);
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("name"),
+        "error should name the missing field, got: {rendered}"
+    );
 }
 
 #[test]
