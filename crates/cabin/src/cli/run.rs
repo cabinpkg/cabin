@@ -397,7 +397,7 @@ pub(crate) fn run(
         standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
     crate::cli::standard_compat::report_warnings(
-        &plan_graph.standard_compat_warnings,
+        &plan_graph.standard_compat_violations,
         color,
         &lockfile_pinned,
     )?;

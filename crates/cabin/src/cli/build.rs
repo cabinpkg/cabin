@@ -335,7 +335,7 @@ pub(super) fn build(
     // visible even when the command then fails.  Warnings never
     // affect the exit status.
     crate::cli::standard_compat::report_warnings(
-        &plan_graph.standard_compat_warnings,
+        &plan_graph.standard_compat_violations,
         color,
         &lockfile_pinned,
     )?;

@@ -2982,15 +2982,15 @@ fn app_dep_graph(app: Package, dep_pkg: Package, dep_name: &str) -> PackageGraph
     )
 }
 
-fn standard_compat_warnings(graph: &PackageGraph) -> Vec<StandardCompatViolation> {
+fn standard_compat_violations(graph: &PackageGraph) -> Vec<StandardCompatViolation> {
     let tc = toolchain_with_cc();
     let mut req = plan_request(graph, &tc, "/abs/app/build");
     req.standard_compat = true;
-    plan(&req).unwrap().standard_compat_warnings
+    plan(&req).unwrap().standard_compat_violations
 }
 
 /// Feature-off no-op: with `standard_compat: false` (the default) a
-/// graph carrying a clear violation records no warnings, so the
+/// graph carrying a clear violation records no violations, so the
 /// planner's output is exactly what it was before the pass existed.
 #[test]
 fn standard_compat_off_records_nothing() {
@@ -3006,7 +3006,7 @@ fn standard_compat_off_records_nothing() {
     );
     let tc = toolchain();
     let bg = plan(&plan_request(&graph, &tc, "/abs/app/build")).unwrap();
-    assert!(bg.standard_compat_warnings.is_empty());
+    assert!(bg.standard_compat_violations.is_empty());
 }
 
 /// Spec D9 row 2 / D13: an explicit interface minimum above the
@@ -3024,9 +3024,9 @@ fn standard_compat_reports_direct_interface_minimum_violation() {
         ),
         "lib",
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.consumer, "app:app");
     assert_eq!(w.language, SourceLanguage::Cxx);
     assert_eq!(w.consumer_standard, "c++17");
@@ -3049,6 +3049,165 @@ fn standard_compat_reports_direct_interface_minimum_violation() {
     assert!(!w.dependency_is_registry);
 }
 
+/// A consuming package's `ignore-interface-standard = true` edge
+/// still evaluates - the violation is recorded, marked `ignored`,
+/// so the CLI can report the edge as unchecked instead of failing.
+#[test]
+fn standard_compat_marks_ignored_edge_violations() {
+    let mut graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    assert!(!standard_compat_violations(&graph)[0].ignored);
+    graph.packages[0].deps[0].ignore_interface_standard = true;
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let v = &violations[0];
+    assert!(v.ignored);
+    assert_eq!(
+        v.consumer_manifest_path,
+        PathBuf::from("/abs/app/cabin.toml")
+    );
+}
+
+/// The opt-out only counts on package-dependency edges the
+/// consuming target could resolve through (the planner's own
+/// visibility rule): a flag on an activated `[dev-dependencies]`
+/// edge must not suppress an ordinary target's `[dependencies]`
+/// edge to the same package.
+#[test]
+fn standard_compat_dev_edge_flag_does_not_cover_ordinary_targets() {
+    let mut graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    // A second, dev-kind package edge to the same dependency
+    // carries the opt-out; the Normal edge does not.
+    graph.packages[0]
+        .deps
+        .push(cabin_workspace::DependencyEdge {
+            index: 1,
+            kind: cabin_core::DependencyKind::Dev,
+            condition: None,
+            ignore_interface_standard: true,
+        });
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    assert!(
+        !violations[0].ignored,
+        "a dev-only opt-out must not cover an executable's edge"
+    );
+}
+
+/// The opt-out must sit on the package-dependency entry that
+/// resolution actually selected (`resolve_target_dep`: Normal
+/// wins): a dev-only target consuming a package declared under
+/// both kinds resolves through the Normal entry, so an opt-out on
+/// the dev entry alone suppresses nothing - until the Normal
+/// entry is gone and the dev entry is the one selected.
+#[test]
+fn standard_compat_matches_override_to_the_selected_edge() {
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app_test",
+            TargetKind::Test,
+            &["src/main.cc"],
+            &["lib"],
+        )],
+        vec![dep("lib", "../lib")],
+    )
+    .unwrap();
+    let mut graph = app_dep_graph(
+        app,
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    // Both kinds of package edge exist; only the dev entry opts
+    // out.
+    graph.packages[0]
+        .deps
+        .push(cabin_workspace::DependencyEdge {
+            index: 1,
+            kind: cabin_core::DependencyKind::Dev,
+            condition: None,
+            ignore_interface_standard: true,
+        });
+    let tc = toolchain_with_cc();
+    let violations_of = |graph: &PackageGraph| {
+        let mut req = plan_request(graph, &tc, "/abs/app/build");
+        req.standard_compat = true;
+        req.selected = Some(vec![ManifestTargetSelector::parse("app_test")]);
+        plan(&req).unwrap().standard_compat_violations
+    };
+    let violations = violations_of(&graph);
+    assert_eq!(violations.len(), 1);
+    assert!(
+        !violations[0].ignored,
+        "resolution selected the [dependencies] entry, whose edge does not opt out"
+    );
+    assert_eq!(
+        violations[0].override_section.as_deref(),
+        Some("[dependencies]")
+    );
+    // With the Normal edge gone, the dev-only target resolves
+    // through the dev entry and its opt-out applies.
+    graph.packages[0]
+        .deps
+        .retain(|pkg_edge| pkg_edge.kind == cabin_core::DependencyKind::Dev);
+    let violations = violations_of(&graph);
+    assert_eq!(violations.len(), 1);
+    assert!(violations[0].ignored);
+    assert_eq!(
+        violations[0].override_section.as_deref(),
+        Some("[dev-dependencies]")
+    );
+}
+
+/// A conditional dependency entry's edge names its
+/// condition-qualified table in the violation, so the override
+/// remedy never points at a top-level table that
+/// `Package::validate_dependencies` would reject as a duplicate.
+#[test]
+fn standard_compat_names_the_conditional_table_for_cfg_edges() {
+    let mut graph = app_dep_graph(
+        cxx_app_package(&["lib"], vec![dep("lib", "../lib")]),
+        cxx_lib_package(
+            "lib",
+            CxxStandard::Cxx20,
+            Some(interface_req(CxxStandard::Cxx20)),
+            &[],
+        ),
+        "lib",
+    );
+    graph.packages[0].deps[0].condition =
+        Some(cabin_core::Condition::parse_cfg("cfg(os = \"linux\")").unwrap());
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(
+        violations[0].override_section.as_deref(),
+        Some("[target.'cfg(os = \"linux\")'.dependencies]")
+    );
+}
+
 /// Spec D9 row 4: a compiled dependency with *no* interface
 /// declaration imposes nothing at this layer - deliberately unlike
 /// the build-time enforcement, whose implementation-standard
@@ -3064,7 +3223,7 @@ fn standard_compat_imposes_nothing_for_compiled_without_declaration() {
     let mut req = plan_request(&graph, &tc, "/abs/app/build");
     req.standard_compat = true;
     let bg = plan(&req).unwrap();
-    assert!(bg.standard_compat_warnings.is_empty());
+    assert!(bg.standard_compat_violations.is_empty());
     // The build-time layer still catches it through its documented
     // implementation-standard fallback - the two layers differ here
     // by design (spec section 1, out-of-scope note).
@@ -3088,9 +3247,9 @@ fn standard_compat_reports_declared_none_as_forbidden() {
         ),
         "lib",
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.requirement, EdgeRequirement::Forbidden);
     let RequirementOrigin::DeclaredNone { site } = &w.origin else {
         panic!("expected a declared-none origin, got {:?}", w.origin);
@@ -3128,10 +3287,10 @@ fn standard_compat_propagates_through_public_edges_with_provenance() {
         vec![0],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
+    let violations = standard_compat_violations(&graph);
     // `liba` itself compiles c++20, so only the app edge violates.
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.consumer, "app:app");
     assert_eq!(w.dependency, "liba:liba");
     assert_eq!(w.origin_target, "libb:libb");
@@ -3169,7 +3328,7 @@ fn standard_compat_does_not_propagate_through_private_edges() {
         vec![0],
         Some(0),
     );
-    assert!(standard_compat_warnings(&graph).is_empty());
+    assert!(standard_compat_violations(&graph).is_empty());
 }
 
 /// Spec D9 row 3: a header-only dependency without an interface
@@ -3185,9 +3344,9 @@ fn standard_compat_reports_header_only_inference() {
         hdr_pkg,
         "hdr",
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.dependency, "hdr:hdr");
     assert_eq!(w.requirement, EdgeRequirement::Min("c++20"));
     let RequirementOrigin::HeaderOnlyInference { site } = &w.origin else {
@@ -3223,15 +3382,15 @@ fn standard_compat_reports_each_violated_language_separately() {
     )
     .unwrap();
     let graph = app_dep_graph(app, w_pkg, "w");
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 2);
-    assert_eq!(warnings[0].language, SourceLanguage::C);
-    assert_eq!(warnings[0].consumer_standard, "c11");
-    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c17"));
-    assert_eq!(warnings[1].language, SourceLanguage::Cxx);
-    assert_eq!(warnings[1].consumer_standard, "c++17");
-    assert_eq!(warnings[1].requirement, EdgeRequirement::Min("c++23"));
-    assert_eq!(warnings[0].dependency, warnings[1].dependency);
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 2);
+    assert_eq!(violations[0].language, SourceLanguage::C);
+    assert_eq!(violations[0].consumer_standard, "c11");
+    assert_eq!(violations[0].requirement, EdgeRequirement::Min("c17"));
+    assert_eq!(violations[1].language, SourceLanguage::Cxx);
+    assert_eq!(violations[1].consumer_standard, "c++17");
+    assert_eq!(violations[1].requirement, EdgeRequirement::Min("c++23"));
+    assert_eq!(violations[0].dependency, violations[1].dependency);
 }
 
 /// Spec D9 row 6: a C consumer of a C++-only dependency with no
@@ -3252,9 +3411,9 @@ fn standard_compat_reports_strict_cxx_to_c_default() {
     )
     .unwrap();
     let graph = app_dep_graph(app, cxxlib, "cxxlib");
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.language, SourceLanguage::C);
     assert_eq!(w.requirement, EdgeRequirement::Forbidden);
     assert_eq!(w.origin, RequirementOrigin::CrossLanguageDefault);
@@ -3289,9 +3448,9 @@ fn standard_compat_chains_through_header_only_dependencies() {
         vec![0],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.consumer, "app:app");
     assert_eq!(w.dependency, "hdr:hdr");
     assert_eq!(w.origin_target, "libb:libb");
@@ -3329,9 +3488,9 @@ fn standard_compat_sites_follow_declaration_tiers() {
     let mut req = plan_request(&graph, &tc, "/abs/app/build");
     req.language_standards = &standards;
     req.standard_compat = true;
-    let warnings = plan(&req).unwrap().standard_compat_warnings;
-    assert_eq!(warnings.len(), 1);
-    let w = &warnings[0];
+    let violations = plan(&req).unwrap().standard_compat_violations;
+    assert_eq!(violations.len(), 1);
+    let w = &violations[0];
     assert_eq!(w.consumer_standard, "c++17");
     assert_eq!(w.consumer_site.scope, DeclScope::Workspace);
     // `graph_with` roots the graph at the first package's manifest.
@@ -3360,7 +3519,7 @@ fn standard_compat_permissive_c_to_cxx_default_imposes_nothing() {
         c_pkg,
         "clib",
     );
-    assert!(standard_compat_warnings(&graph).is_empty());
+    assert!(standard_compat_violations(&graph).is_empty());
 }
 
 /// Spec Example 2's diamond: two consumers at different levels
@@ -3394,11 +3553,11 @@ fn standard_compat_diamond_reports_only_the_violating_edge() {
         vec![0, 1],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].consumer, "app:app");
-    assert_eq!(warnings[0].dependency, "z:z");
-    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c++20"));
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].consumer, "app:app");
+    assert_eq!(violations[0].dependency, "z:z");
+    assert_eq!(violations[0].requirement, EdgeRequirement::Min("c++20"));
 }
 
 /// One C library shared by a C++ consumer and a C consumer: the
@@ -3431,13 +3590,13 @@ fn standard_compat_judges_shared_c_library_per_consumer_language() {
         vec![0, 1],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
+    let violations = standard_compat_violations(&graph);
     // Only the C consumer's edge is violated; the C++ consumer
     // rides the permissive default silently.
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].consumer, "capp:capp");
-    assert_eq!(warnings[0].language, SourceLanguage::C);
-    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c17"));
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].consumer, "capp:capp");
+    assert_eq!(violations[0].language, SourceLanguage::C);
+    assert_eq!(violations[0].requirement, EdgeRequirement::Min("c17"));
 }
 
 /// Package-level interface defaults describe a library's public
@@ -3466,13 +3625,13 @@ fn standard_compat_package_interface_default_skips_executable_targets() {
         vec![dep("tools", "../tools")],
     );
     let graph = app_dep_graph(app, tools_pkg, "tools");
-    let warnings = standard_compat_warnings(&graph);
+    let violations = standard_compat_violations(&graph);
     // Only the library edge violates; the executable edge takes no
     // package-level interface default.
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].dependency, "tools:toollib");
-    let RequirementOrigin::Declared { site } = &warnings[0].origin else {
-        panic!("expected a declared origin, got {:?}", warnings[0].origin);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].dependency, "tools:toollib");
+    let RequirementOrigin::Declared { site } = &violations[0].origin else {
+        panic!("expected a declared origin, got {:?}", violations[0].origin);
     };
     assert_eq!(site.scope, DeclScope::Package);
 }
@@ -3510,12 +3669,15 @@ fn standard_compat_skips_cross_language_default_of_executable_deps() {
         vec![0],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
+    let violations = standard_compat_violations(&graph);
     // The library edge keeps its row-6 warning; the executable
     // edge is interface-less and stays silent.
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].dependency, "cxxlib:cxxlib");
-    assert_eq!(warnings[0].origin, RequirementOrigin::CrossLanguageDefault);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].dependency, "cxxlib:cxxlib");
+    assert_eq!(
+        violations[0].origin,
+        RequirementOrigin::CrossLanguageDefault
+    );
 }
 
 /// A requirement passing *through* an executable-like target from
@@ -3546,12 +3708,12 @@ fn standard_compat_keeps_requirements_through_executable_deps() {
         vec![0],
         Some(0),
     );
-    let warnings = standard_compat_warnings(&graph);
-    assert_eq!(warnings.len(), 1);
-    assert_eq!(warnings[0].dependency, "tools:tool");
-    assert_eq!(warnings[0].origin_target, "libb:libb");
+    let violations = standard_compat_violations(&graph);
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].dependency, "tools:tool");
+    assert_eq!(violations[0].origin_target, "libb:libb");
     assert_eq!(
-        warnings[0].chain,
+        violations[0].chain,
         vec!["tools:tool".to_owned(), "libb:libb".to_owned()]
     );
 }
@@ -3589,7 +3751,7 @@ fn standard_compat_violations_are_toolchain_independent() {
     let gnu_tc = toolchain_with_cc();
     let mut gnu_req = plan_request(&graph, &gnu_tc, "/abs/app/build");
     gnu_req.standard_compat = true;
-    let gnu = plan(&gnu_req).unwrap().standard_compat_warnings;
+    let gnu = plan(&gnu_req).unwrap().standard_compat_violations;
 
     let mut msvc_tc = toolchain_with_cc();
     msvc_tc.cxx.path = Utf8PathBuf::from("C:/tools/msvc/cl.exe");
@@ -3598,7 +3760,7 @@ fn standard_compat_violations_are_toolchain_independent() {
     msvc_req.dialect = Dialect::Msvc;
     msvc_req.msvc_external_includes = false;
     msvc_req.standard_compat = true;
-    let msvc = plan(&msvc_req).unwrap().standard_compat_warnings;
+    let msvc = plan(&msvc_req).unwrap().standard_compat_violations;
 
     assert_eq!(gnu.len(), 2, "the fixture violates both languages");
     assert_eq!(

@@ -1,4 +1,4 @@
-//! Post-resolution language-standard compatibility warnings
+//! Post-resolution language-standard compatibility checking
 //! (experimental `standard-compat`).
 //!
 //! Evaluates the edge-compatibility model of
@@ -9,16 +9,22 @@
 //! and every resolved dependency edge is checked per D13 for every
 //! language the consumer compiles.  Violated edges become
 //! [`StandardCompatViolation`] records on the [`crate::BuildGraph`];
-//! the CLI renders them as warnings.
+//! the CLI renders them as errors that fail the command (or as
+//! warnings under the temporary `standard-compat-errors = false`
+//! config migration switch).  An edge whose consuming package
+//! declares `ignore-interface-standard = true` on the matching
+//! `[dependencies]` entry is still evaluated, but its violations
+//! are marked [`StandardCompatViolation::ignored`] so the CLI
+//! downgrades them to unchecked-edge notes.
 //!
-//! This pass is diagnostic-only.  It runs strictly after resolution
-//! (fresh or lockfile-seeded - both produce the same loaded graph),
-//! never feeds back into version selection, and never gates a
-//! command.  Its defaults deliberately differ from the build-time
-//! interface enforcement in `planner::enforce_interface_standards`:
-//! a compiled dependency with no interface declaration imposes
-//! nothing here (spec D9 row 4 - no implementation-standard
-//! fallback), while an explicit `"none"` is unsatisfiable (row 1).
+//! The pass runs strictly after resolution (fresh or
+//! lockfile-seeded - both produce the same loaded graph) and never
+//! feeds back into version selection.  Its defaults deliberately
+//! differ from the build-time interface enforcement in
+//! `planner::enforce_interface_standards`: a compiled dependency
+//! with no interface declaration imposes nothing here (spec D9 row
+//! 4 - no implementation-standard fallback), while an explicit
+//! `"none"` is unsatisfiable (row 1).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -53,7 +59,7 @@ pub enum DeclScope {
     Workspace,
 }
 
-/// A manifest declaration a warning cites: file, table, and field.
+/// A manifest declaration a violation cites: file, table, and field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeclSite {
     /// Manifest that carries the declaration.  The workspace root
@@ -128,6 +134,24 @@ pub struct StandardCompatViolation {
     /// ends; a single entry when the dependency's own declaration
     /// attains the join.
     pub chain: Vec<String>,
+    /// Manifest of the consuming target's own package - where a
+    /// per-edge `ignore-interface-standard = true` override would
+    /// be declared.  Distinct from
+    /// [`StandardCompatViolation::consumer_site`], which points at
+    /// the workspace root manifest for inherited standards.
+    pub consumer_manifest_path: PathBuf,
+    /// Whether the consuming package opted this edge out of the
+    /// check with `ignore-interface-standard = true` on the
+    /// selected dependency entry.  The CLI renders ignored
+    /// violations as unchecked-edge notes instead of errors.
+    pub ignored: bool,
+    /// Manifest table of the package-dependency entry that
+    /// resolved this edge - where a per-edge override lives or
+    /// would live: `[dependencies]`, `[dev-dependencies]`, or the
+    /// condition-qualified `[target.'cfg(...)'.<kind>]` form the
+    /// entry was declared under.  `None` for intra-package edges,
+    /// which have no entry to carry one.
+    pub override_section: Option<String>,
 }
 
 /// Per-node declaration-site bookkeeping, parallel to the
@@ -215,8 +239,51 @@ pub(crate) fn edge_violations(
         };
         let compiles_c = has_sources_of(consumer_target, SourceLanguage::C);
         let compiles_cxx = has_sources_of(consumer_target, SourceLanguage::Cxx);
+        // Which package-dependency edge resolved this target's
+        // deps - the planner's own lookup rule
+        // (`resolve_target_dep`): Normal-kind edges win, and
+        // Dev-kind edges participate only for dev-only target
+        // kinds (`test` / `example`) and only when no Normal edge
+        // to the package exists.  The opt-out must sit on the
+        // entry resolution actually selected: a flag on an
+        // unselected (or invisible) edge suppresses nothing.
+        let dev_edges_visible = consumer_target.kind.is_dev_only();
+        let selected_pkg_edge = |dep_pkg: usize| -> Option<&cabin_workspace::DependencyEdge> {
+            let pkg_edges = &req.graph.packages[tid.0].deps;
+            pkg_edges
+                .iter()
+                .find(|pkg_edge| {
+                    pkg_edge.kind == cabin_core::DependencyKind::Normal && pkg_edge.index == dep_pkg
+                })
+                .or_else(|| {
+                    dev_edges_visible
+                        .then(|| {
+                            pkg_edges.iter().find(|pkg_edge| {
+                                pkg_edge.kind == cabin_core::DependencyKind::Dev
+                                    && pkg_edge.index == dep_pkg
+                            })
+                        })
+                        .flatten()
+                })
+        };
         for edge in edges {
             let dep_index = index_of[&edge.to];
+            // Per-edge opt-out: the consuming package's own
+            // dependency entry for the dependency's package
+            // carries `ignore-interface-standard = true`.  The
+            // check still runs so the CLI can report the edge as
+            // unchecked; only cross-package edges are overridable
+            // (an intra-package edge has no `[dependencies]`
+            // entry to carry the flag).  The selected entry's
+            // manifest section travels on the violation so the
+            // remedies name the table resolution actually read.
+            let selected = if tid.0 == edge.to.0 {
+                None
+            } else {
+                selected_pkg_edge(edge.to.0)
+            };
+            let edge_ignored = selected.is_some_and(|pkg_edge| pkg_edge.ignore_interface_standard);
+            let override_section = selected.map(section_of);
             // D13's conjunction ranges over the languages the
             // consumer compiles; an absent effective standard for a
             // compiled language is a manifest error surfaced at the
@@ -238,6 +305,8 @@ pub(crate) fn edge_violations(
                         &provenance,
                         tid,
                         edge,
+                        edge_ignored,
+                        override_section.clone(),
                         &nodes,
                         &sites,
                         req,
@@ -261,6 +330,8 @@ pub(crate) fn edge_violations(
                         &provenance,
                         tid,
                         edge,
+                        edge_ignored,
+                        override_section.clone(),
                         &nodes,
                         &sites,
                         req,
@@ -281,6 +352,25 @@ pub(crate) fn edge_violations(
         ))
     });
     Ok(violations)
+}
+
+/// The manifest table a package-dependency edge was declared
+/// under, exactly as a user would spell it: the plain kind table
+/// for unconditional entries, the condition-qualified
+/// `[target.'cfg(...)'.<kind>]` form otherwise.  Remedies must
+/// name the declaring table - `Package::validate_dependencies`
+/// rejects a second same-kind entry for the same package, so
+/// pointing a conditional edge's user at the top-level table
+/// would send them into a rejected manifest.
+fn section_of(pkg_edge: &cabin_workspace::DependencyEdge) -> String {
+    let table = match pkg_edge.kind {
+        cabin_core::DependencyKind::Normal => "dependencies",
+        cabin_core::DependencyKind::Dev => "dev-dependencies",
+    };
+    match &pkg_edge.condition {
+        Some(condition) => format!("[target.'cfg({condition})'.{table}]"),
+        None => format!("[{table}]"),
+    }
 }
 
 /// Whether a violated requirement originates at an interface-less
@@ -557,6 +647,8 @@ fn violation(
     provenance: &Provenance<'_>,
     consumer_tid: &TargetId,
     edge: &TargetDepEdge,
+    ignored: bool,
+    override_section: Option<String>,
     nodes: &[TargetNode],
     sites: &[NodeSites],
     req: &PlanRequest<'_>,
@@ -607,6 +699,9 @@ fn violation(
             .iter()
             .map(|&index| nodes[index].name.clone())
             .collect(),
+        consumer_manifest_path: req.graph.packages[consumer_tid.0].manifest_path.clone(),
+        ignored,
+        override_section,
     }
 }
 

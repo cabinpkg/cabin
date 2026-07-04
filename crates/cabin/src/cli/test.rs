@@ -527,7 +527,7 @@ pub(crate) fn test(
         standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
     crate::cli::standard_compat::report_warnings(
-        &plan_graph.standard_compat_warnings,
+        &plan_graph.standard_compat_violations,
         color,
         &lockfile_pinned,
     )?;
@@ -892,7 +892,7 @@ mod tests {
             default_outputs: vec![Utf8PathBuf::from("build/dev/packages/demo/demo_test")],
             compile_commands: Vec::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

@@ -274,6 +274,8 @@ mod tests {
                 },
             },
             chain: vec!["liba:liba".to_owned(), "libb:libb".to_owned()],
+            consumer_manifest_path: PathBuf::from("/nonexistent/app/cabin.toml"),
+            ignored: false,
         }
     }
 

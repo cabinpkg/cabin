@@ -136,10 +136,10 @@ pub struct PlanRequest<'a> {
     /// entries) mean "no features enabled" for gating purposes.
     pub enabled_features: Option<&'a HashMap<usize, BTreeSet<String>>>,
     /// Whether the experimental `standard-compat` post-resolution
-    /// warning pass runs over the resolved target graph
+    /// check runs over the resolved target graph
     /// ([`crate::standard_compat`]).  When `false` - the default
     /// unless the user opts in with `-Z standard-compat` - the
-    /// planner records no warnings and its output is unchanged.
+    /// planner records no violations and its output is unchanged.
     pub standard_compat: bool,
 }
 
@@ -282,11 +282,11 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
-    // Experimental post-resolution standard-compatibility warnings
+    // Experimental post-resolution standard-compatibility check
     // (spec D13 over every resolved edge).  Behind the gate the
     // planner's output is byte-for-byte what it was before the pass
     // existed.
-    let standard_compat_warnings = if req.standard_compat {
+    let standard_compat_violations = if req.standard_compat {
         crate::standard_compat::edge_violations(&topo, &resolved_deps, req)?
     } else {
         Vec::new()
@@ -724,7 +724,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         default_outputs,
         compile_commands,
         standard_violations,
-        standard_compat_warnings,
+        standard_compat_violations,
     })
 }
 
