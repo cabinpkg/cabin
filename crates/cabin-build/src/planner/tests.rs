@@ -3474,3 +3474,82 @@ fn standard_compat_package_interface_default_skips_executable_targets() {
     };
     assert_eq!(site.scope, DeclScope::Package);
 }
+
+/// An executable-like dependency target has no consumable
+/// interface: the strict C++-to-C default never fires for a
+/// qualified edge onto it, while the same consumer's edge onto a
+/// C++ library still does.
+#[test]
+fn standard_compat_skips_cross_language_default_of_executable_deps() {
+    let mut tool = target("tool", TargetKind::Executable, &["src/tool.cc"], &[]);
+    tool.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx17));
+    let tools_pkg = Package::new(pkg_name("tools"), version(), vec![tool], Vec::new()).unwrap();
+    let cxxlib = cxx_lib_package("cxxlib", CxxStandard::Cxx17, None, &[]);
+    let mut c_app = target(
+        "app",
+        TargetKind::Executable,
+        &["src/main.c"],
+        &["tools:tool", "cxxlib"],
+    );
+    c_app.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C11));
+    let app = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![c_app],
+        vec![dep("tools", "../tools"), dep("cxxlib", "../cxxlib")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1, 2]),
+            make_pkg("tools", "/abs/tools", tools_pkg, vec![]),
+            make_pkg("cxxlib", "/abs/cxxlib", cxxlib, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    // The library edge keeps its row-6 warning; the executable
+    // edge is interface-less and stays silent.
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].dependency, "cxxlib:cxxlib");
+    assert_eq!(warnings[0].origin, RequirementOrigin::CrossLanguageDefault);
+}
+
+/// A requirement passing *through* an executable-like target from
+/// a library behind it keeps warning: the origin is the library,
+/// not the interface-less intermediary.
+#[test]
+fn standard_compat_keeps_requirements_through_executable_deps() {
+    let libb = cxx_lib_package(
+        "libb",
+        CxxStandard::Cxx20,
+        Some(interface_req(CxxStandard::Cxx20)),
+        &[],
+    );
+    let mut tool = target("tool", TargetKind::Executable, &["src/tool.cc"], &[]);
+    tool.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx20));
+    tool.deps = vec![cabin_core::TargetDep {
+        reference: "libb".to_owned(),
+        public: true,
+    }];
+    let tools_pkg = Package::new(pkg_name("tools"), version(), vec![tool], Vec::new()).unwrap();
+    let app = cxx_app_package(&["tools:tool"], vec![dep("tools", "../tools")]);
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", app, vec![1]),
+            make_pkg("tools", "/abs/tools", tools_pkg, vec![2]),
+            make_pkg("libb", "/abs/libb", libb, vec![]),
+        ],
+        vec![0],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].dependency, "tools:tool");
+    assert_eq!(warnings[0].origin_target, "libb:libb");
+    assert_eq!(
+        warnings[0].chain,
+        vec!["tools:tool".to_owned(), "libb:libb".to_owned()]
+    );
+}
