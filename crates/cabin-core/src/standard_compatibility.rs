@@ -8,7 +8,9 @@
 //!
 //! The effective-requirement recursion `R_L` (spec D10/T1 -
 //! transitive composition over the dependency graph) is deliberately
-//! not implemented here.  This module operates on already-composed
+//! not implemented here: it is a graph algorithm, and graph
+//! algorithms live in `cabin-workspace` (`cabin_workspace::standards`
+//! is the implementation).  This module operates on already-composed
 //! requirements: callers fold [`req_of_c`] / [`req_of_cxx`] values
 //! with [`Requirement::join`] along public edges and hand the result
 //! to [`edge_compatible`] as [`EffectiveRequirements`].

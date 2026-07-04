@@ -120,7 +120,8 @@ per-standard compiler capability tables in `cabin_core::compiler`).  The resolve
 standard-compatibility core of `docs/design/standard-compatibility/spec.md` lives next to it as
 `cabin_core::standard_compatibility` (the requirement chain and join, `ReqOf`, edge compatibility,
 and package-version viability, each item citing the spec identifier it implements; the
-graph-composition recursion `R_L` is not implemented yet).  Manifest, index, lockfile,
+graph-composition recursion `R_L` is a graph algorithm and therefore lives in
+`cabin_workspace::standards`, not here).  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
 
@@ -174,6 +175,15 @@ are intentionally not traversed here.  Current invariants:
   and is enforced by `PackageName::new` so URL-reserved characters cannot reach `Url::join` through
   any code path.  The diagnostic emitted on rejection echoes the offending name and describes the
   grammar.
+- `cabin_workspace::standards` implements the effective-requirement recursion `R_L` of
+  `docs/design/standard-compatibility/spec.md` (D10) over an already-resolved target graph: one
+  topological pass per language over the public-edge subgraph, `O(|V| + |E|)` per language (spec
+  T3(2)), folding the `ReqOf` values of `cabin_core::standard_compatibility`.  Alongside each value
+  it records provenance - the chain of public edges to the declaration, header-only inference, or
+  cross-language default that attains the join, carrying manifest paths and optional `miette` spans
+  for later diagnostics.  The module does not resolve target references itself: `cabin-build` owns
+  turning raw manifest `deps` into a concrete target graph, and `cabin-resolver` owns enumerating
+  candidates; both hand this module resolved nodes and edges.
 
 The crate must:
 
