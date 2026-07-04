@@ -19,6 +19,7 @@ pub mod condition;
 pub mod config;
 pub mod config_source;
 pub mod error;
+pub mod experimental;
 pub mod hash;
 pub mod language_standard;
 pub mod model;
@@ -61,6 +62,7 @@ pub use config::{
 };
 pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
+pub use experimental::{ExperimentalFeature, UnknownExperimentalFeature};
 pub use language_standard::{
     CStandard, CxxStandard, InterfaceRequirement, InterfaceStandard,
     InterfaceStandardContradiction, InterfaceStandardSource, LanguageStandard,

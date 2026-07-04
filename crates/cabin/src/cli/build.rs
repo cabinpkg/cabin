@@ -17,7 +17,13 @@ pub(super) enum BuildMode {
     Check,
 }
 
-pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Result<()> {
+pub(super) fn build(
+    args: &BuildArgs,
+    reporter: Reporter,
+    mode: BuildMode,
+    unstable: &BTreeSet<cabin_core::ExperimentalFeature>,
+    color: cabin_core::ColorChoice,
+) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
     // First-pass load: needed to detect versioned dependencies
@@ -307,6 +313,7 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
+        standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected
@@ -322,6 +329,11 @@ pub(super) fn build(args: &BuildArgs, reporter: Reporter, mode: BuildMode) -> Re
     } else {
         plan_graph
     };
+    // Experimental standard-compat warnings render before the hard
+    // build-time enforcement below: a violated edge should stay
+    // visible even when the command then fails.  Warnings never
+    // affect the exit status.
+    crate::cli::standard_compat::report_warnings(&plan_graph.standard_compat_warnings, color)?;
     // Validate the plan-dependent toolchain contract against exactly
     // the compiles the final graph runs - after the check rewrite
     // (which drops dependency compiles) and before any Ninja file is

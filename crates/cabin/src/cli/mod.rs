@@ -30,6 +30,7 @@ pub(crate) mod port;
 pub(crate) mod remove;
 pub(crate) mod run;
 pub(crate) mod source_tooling;
+pub(crate) mod standard_compat;
 pub(crate) mod system_deps;
 pub(crate) mod term_color;
 pub(crate) mod term_verbosity;
@@ -189,6 +190,23 @@ pub struct Cli {
     #[arg(long, display_order = 4)]
     pub(crate) list: bool,
 
+    /// Enable an experimental feature (may be repeated).
+    //
+    // Mirrors cargo's `-Z`.  The recognized names live in
+    // `cabin_core::ExperimentalFeature`; an unknown name is
+    // rejected by the value parser with the full list, so
+    // future features fall out of the enum rather than a
+    // feature-specific arm here.
+    #[arg(
+        short = 'Z',
+        value_name = "FEATURE",
+        global = true,
+        action = clap::ArgAction::Append,
+        value_parser = parse_experimental_feature,
+        display_order = 5,
+    )]
+    pub(crate) unstable: Vec<cabin_core::ExperimentalFeature>,
+
     /// Print version info and exit.
     //
     // Replaces clap's auto `--version` so the flag can route
@@ -211,6 +229,15 @@ pub struct Cli {
     // both `--list` is unset and `command` is `None`.
     #[command(subcommand)]
     pub(crate) command: Option<Command>,
+}
+
+/// clap value parser for `-Z`: exact-match against the typed
+/// feature list, surfacing the enum's own error wording (which
+/// names every recognized feature).
+fn parse_experimental_feature(
+    raw: &str,
+) -> Result<cabin_core::ExperimentalFeature, cabin_core::UnknownExperimentalFeature> {
+    raw.parse()
 }
 
 // `cabin --help` is the curated, day-to-day surface and
@@ -1053,6 +1080,10 @@ pub(crate) fn run(
         // arguments.  Cabin matches that.
         return Ok(ExitCode::SUCCESS);
     };
+    // Typed `-Z` set, deduplicated.  Only the commands that gate
+    // behavior on a feature receive it.
+    let unstable: BTreeSet<cabin_core::ExperimentalFeature> =
+        cli.unstable.iter().copied().collect();
     match command {
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
@@ -1064,14 +1095,16 @@ pub(crate) fn run(
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Build(args) => {
-            build(&args, reporter, BuildMode::Build).map(|()| ExitCode::SUCCESS)
+            build(&args, reporter, BuildMode::Build, &unstable, color).map(|()| ExitCode::SUCCESS)
         }
         Command::Check(args) => {
-            build(&args, reporter, BuildMode::Check).map(|()| ExitCode::SUCCESS)
+            build(&args, reporter, BuildMode::Check, &unstable, color).map(|()| ExitCode::SUCCESS)
         }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Run(args) => crate::cli::run::run(&args, reporter),
-        Command::Test(args) => crate::cli::test::test(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Run(args) => crate::cli::run::run(&args, reporter, &unstable, color),
+        Command::Test(args) => {
+            crate::cli::test::test(&args, reporter, &unstable, color).map(|()| ExitCode::SUCCESS)
+        }
         Command::Resolve(args) => resolve(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Update(args) => update(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Fetch(args) => fetch(&args, reporter).map(|()| ExitCode::SUCCESS),

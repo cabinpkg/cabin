@@ -24,6 +24,7 @@ pub mod error;
 pub mod graph;
 pub mod link_diagnostics;
 pub mod planner;
+pub mod standard_compat;
 pub mod validate;
 
 // The toolchain-independent build IR and its dialect selector live in
@@ -40,6 +41,9 @@ pub use graph::{BuildGraph, CompileCommand, StandardViolation};
 pub use planner::{
     ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind,
     selector_required_features_met,
+};
+pub use standard_compat::{
+    DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
 };
 pub use validate::{
     RequestedStandards, collect_requested_standards, msvc_external_includes_supported,

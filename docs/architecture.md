@@ -183,7 +183,9 @@ are intentionally not traversed here.  Current invariants:
   cross-language default that attains the join, carrying manifest paths and optional `miette` spans
   for later diagnostics.  The module does not resolve target references itself: `cabin-build` owns
   turning raw manifest `deps` into a concrete target graph, and `cabin-resolver` owns enumerating
-  candidates; both hand this module resolved nodes and edges.
+  candidates; both hand this module resolved nodes and edges.  Its first consumer is
+  `cabin_build::standard_compat`, the experimental (`-Z standard-compat`) post-resolution warning
+  pass.
 
 The crate must:
 
@@ -1434,7 +1436,10 @@ The following are *not* part of this repository today:
   the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface
   enforcement, fingerprint / metadata - see
   [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, and
-  range interface requirements (the reserved `max` slot) belong to a future version.  The MSVC
+  range interface requirements (the reserved `max` slot) belong to a future version.  The
+  experimental `-Z standard-compat` pass (`cabin_build::standard_compat`) evaluates the spec's
+  edge-compatibility model over the *resolved* graph and warns on violated edges, but it observes
+  resolution output only - version selection remains standard-blind.  The MSVC
   `/std:c++latest` / `/std:clatest` spellings are intentionally never mapped as first-class
   standards - they float to the compiler's newest in-progress draft, so the unvalidated
   environment flag route (`CXXFLAGS` / `CFLAGS`) is their only supported injection point.

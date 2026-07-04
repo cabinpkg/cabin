@@ -115,6 +115,14 @@ pub mod code {
     /// public headers.
     pub const LANGUAGE_INTERFACE_STANDARD_CONTRADICTION: &str =
         "cabin::language::interface_standard_contradiction";
+    /// `cabin::language::standard_compat_violation` - experimental
+    /// (`-Z standard-compat`) post-resolution warning: a resolved
+    /// dependency edge violates the standard-compatibility model of
+    /// `docs/design/standard-compatibility/spec.md` for a language
+    /// the consuming target compiles.  Diagnostic-only; never gates
+    /// a command.
+    pub const LANGUAGE_STANDARD_COMPAT_VIOLATION: &str =
+        "cabin::language::standard_compat_violation";
     /// `cabin::package::error` - package validation, archive
     /// creation, or metadata rendering failed.
     pub const PACKAGE_ERROR: &str = "cabin::package::error";
