@@ -171,6 +171,7 @@ fn dep(name: &str, path: &str) -> Dependency {
         features: Vec::new(),
         default_features: true,
         condition: None,
+        ignore_interface_standard: false,
     }
 }
 
@@ -260,6 +261,7 @@ fn make_pkg(
                 index,
                 kind: cabin_core::DependencyKind::Normal,
                 condition: None,
+                ignore_interface_standard: false,
             })
             .collect(),
         kind: PackageKind::Local,

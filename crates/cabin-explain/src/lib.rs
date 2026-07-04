@@ -1146,6 +1146,7 @@ mod tests {
                     features: Vec::new(),
                     default_features: true,
                     condition: None,
+                    ignore_interface_standard: false,
                 })
                 .collect(),
         )
@@ -1170,11 +1171,13 @@ mod tests {
             index: 1,
             kind: DependencyKind::Normal,
             condition: None,
+            ignore_interface_standard: false,
         }];
         lib.deps = vec![DependencyEdge {
             index: 2,
             kind: DependencyKind::Normal,
             condition: None,
+            ignore_interface_standard: false,
         }];
         let packages = vec![app, lib, util];
         PackageGraph {
@@ -1234,6 +1237,7 @@ mod tests {
             index: 1,
             kind: DependencyKind::Normal,
             condition: None,
+            ignore_interface_standard: false,
         }];
         let mut libport = make_pkg("libport", "1.2.3", &[]);
         libport.is_port = true;
