@@ -112,6 +112,14 @@ pub(crate) struct RawBuild {
     /// [`cabin_core::BuildJobs`] validator.
     #[serde(default)]
     pub(crate) jobs: Option<i64>,
+    /// `build.standard-compat-errors` - whether the experimental
+    /// `-Z standard-compat` check fails the command on violated
+    /// dependency edges (the default) or demotes them to
+    /// warnings.  A temporary migration switch: it exists so a
+    /// workspace can adopt the check incrementally and is
+    /// expected to disappear when the feature stabilizes.
+    #[serde(default, rename = "standard-compat-errors")]
+    pub(crate) standard_compat_errors: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

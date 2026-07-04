@@ -86,10 +86,10 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         default_outputs,
         compile_commands: graph.compile_commands,
         standard_violations,
-        // Edge-level standard-compat warnings describe the resolved
-        // dependency graph, not planned compiles, so the check
-        // rewrite's compile pruning does not apply to them.
-        standard_compat_warnings: graph.standard_compat_warnings,
+        // Edge-level standard-compat violations describe the
+        // resolved dependency graph, not planned compiles, so the
+        // check rewrite's compile pruning does not apply to them.
+        standard_compat_violations: graph.standard_compat_violations,
     }
 }
 
@@ -164,7 +164,7 @@ mod tests {
             default_outputs: vec![Utf8PathBuf::from("/b/dev/packages/app/app")],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
 
@@ -230,7 +230,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
@@ -252,7 +252,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1, "only the compile survives");
@@ -278,7 +278,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         let lowered = lower(Dialect::GnuLike, &out.actions[0]);
@@ -302,7 +302,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1);
@@ -333,7 +333,7 @@ mod tests {
             default_outputs: vec![],
             compile_commands: vec![cc.clone()],
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let out = into_check_graph(graph, &[]);
         assert_eq!(out.compile_commands, vec![cc]);
@@ -360,7 +360,7 @@ mod tests {
                 violation("/abs/build/dev/packages/dep/lib/dep.o"),
                 violation("/abs/build/dev/packages/app/app/exotic.o"),
             ],
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let selected = vec![PathBuf::from("/abs/build/dev/packages/app")];
         let checked = into_check_graph(graph, &selected);

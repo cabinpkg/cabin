@@ -57,6 +57,7 @@ fn dep_normal(name: &str, optional: bool) -> Dependency {
         features: Vec::new(),
         default_features: true,
         condition: None,
+        ignore_interface_standard: false,
     }
 }
 
@@ -74,6 +75,7 @@ fn dep_normal_with(
         features: features.iter().map(|s| (*s).to_owned()).collect(),
         default_features,
         condition: None,
+        ignore_interface_standard: false,
     }
 }
 
@@ -102,6 +104,7 @@ fn make_graph(packages: Vec<(Package, Vec<(usize, DependencyKind)>)>) -> Package
                     index,
                     kind,
                     condition: None,
+                    ignore_interface_standard: false,
                 })
                 .collect(),
             kind: PackageKind::Local,
@@ -140,6 +143,7 @@ fn dep_dev(name: &str) -> Dependency {
         features: Vec::new(),
         default_features: true,
         condition: None,
+        ignore_interface_standard: false,
     }
 }
 
@@ -220,6 +224,7 @@ fn dep_dev_versioned(name: &str) -> Dependency {
         features: Vec::new(),
         default_features: true,
         condition: None,
+        ignore_interface_standard: false,
     }
 }
 

@@ -70,7 +70,7 @@ mod tests {
             dialect: Dialect::GnuLike,
             default_outputs: Vec::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
             compile_commands: vec![CompileCommand {
                 directory: Utf8PathBuf::from("/abs/build"),
                 file: Utf8PathBuf::from("/abs/src/main.cc"),
@@ -118,7 +118,7 @@ mod tests {
             default_outputs: Vec::new(),
             compile_commands: Vec::new(),
             standard_violations: Vec::new(),
-            standard_compat_warnings: Vec::new(),
+            standard_compat_violations: Vec::new(),
         };
         let body = render_compile_commands(&graph).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();

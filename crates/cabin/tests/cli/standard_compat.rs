@@ -1,5 +1,5 @@
 //! End-to-end coverage for the experimental `standard-compat`
-//! post-resolution warning pass (`-Z standard-compat`).
+//! post-resolution check (`-Z standard-compat`).
 //!
 //! Each violation class of
 //! `docs/design/standard-compatibility/spec.md` D9 gets a fixture:
@@ -11,27 +11,46 @@
 //! registry fixture covers both the fresh-resolution and the
 //! lockfile-load paths.
 //!
-//! The warnings are diagnostic-only.  Where the always-on
-//! build-time interface enforcement also trips (it deliberately
-//! differs from the resolver-level model), the command still
-//! fails, and the warning must render *before* that failure.  The
-//! `"none"` fixtures succeed, proving warnings never gate a
-//! command.
+//! Violations are errors: they render with the provenance chain
+//! (manifest `path:line` references) and fail the command with
+//! exit code 1.  The `"none"` fixtures - which the always-on
+//! build-time enforcement deliberately accepts - prove the gating
+//! comes from this check alone.  Two escape hatches are covered:
+//! the temporary `[build] standard-compat-errors = false` config
+//! switch demotes every violation to a warning, and a per-edge
+//! `ignore-interface-standard = true` dependency override
+//! downgrades exactly that edge to an unchecked-edge note.
 
 use super::*;
 
-/// Collapse miette's graphical wrapping so phrase assertions hold
-/// regardless of where long messages (which embed tempdir paths)
-/// wrap: drop the box-drawing gutter and rejoin whitespace.
+/// Collapse miette's graphical wrapping so failure messages stay
+/// readable: drop the box-drawing gutter, normalize Windows path
+/// separators, and rejoin whitespace.
 fn flatten(stderr: &str) -> String {
     stderr
         .replace(['│', '╰', '╭', '─', '·'], " ")
+        .replace('\\', "/")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-const WARNING_CODE: &str = "cabin::language::standard_compat_violation";
+/// Whitespace-insensitive phrase containment.  miette wraps long
+/// messages (which embed tempdir paths) at spaces *and* at hyphens
+/// inside words like `interface-cxx-standard`, so the only stable
+/// comparison strips all whitespace from both sides.
+fn flat_contains(stderr: &str, phrase: &str) -> bool {
+    fn squash(text: &str) -> String {
+        text.replace('\\', "/")
+            .chars()
+            .filter(|c| !c.is_whitespace() && !matches!(c, '│' | '╰' | '╭' | '─' | '·'))
+            .collect()
+    }
+    squash(stderr).contains(&squash(phrase))
+}
+
+const VIOLATION_CODE: &str = "cabin::language::standard_compat_violation";
+const UNCHECKED_CODE: &str = "cabin::language::standard_compat_unchecked_edge";
 
 /// app (c++17) -> lib declaring `interface-cxx-standard = "c++20"`.
 fn write_direct_minimum_fixture(dir: &Path) {
@@ -78,8 +97,42 @@ cxx-standard = "c++17"
         .unwrap();
 }
 
+/// One library package whose C++ interface is declared `"none"`,
+/// plus headers/sources so the build itself is clean: the
+/// always-on build-time enforcement accepts these graphs, so any
+/// failure is the standard-compat gate itself.
+fn write_none_library(dir: &Path, name: &str) {
+    assert_fs::fixture::ChildPath::new(dir.join(format!("{name}/cabin.toml")))
+        .write_str(&format!(
+            r#"[package]
+name = "{name}"
+version = "0.1.0"
+
+[target.{name}]
+type = "library"
+sources = ["src/{name}.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++17"
+interface-cxx-standard = "none"
+"#
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join(format!("{name}/include/{name}.h")))
+        .write_str(&format!("#pragma once\nint {name}_value();\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join(format!("{name}/src/{name}.cc")))
+        .write_str(&format!(
+            "#include \"{name}.h\"\nint {name}_value() {{ return 7; }}\n"
+        ))
+        .unwrap();
+}
+
+/// A violated dependency edge fails the build with exit code 1:
+/// the error carries the provenance arrow with `path:line`
+/// references into both manifests, and the remedies read raise ->
+/// override (a path dependency offers no pin).
 #[test]
-fn direct_minimum_violation_warns_before_the_build_fails() {
+fn direct_minimum_violation_fails_with_provenance_error() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_direct_minimum_fixture(dir.path());
@@ -89,25 +142,33 @@ fn direct_minimum_violation_warns_before_the_build_fails() {
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
         .assert()
-        // The always-on build-time enforcement still fails this
-        // graph; the warning renders first.
-        .failure();
+        .failure()
+        .code(1);
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
     assert!(
-        stderr.contains(WARNING_CODE),
+        stderr.contains(VIOLATION_CODE),
         "expected the stable code in: {stderr}"
     );
+    // Diagnostics v2: `consumer (standard, path:line) -> dependency
+    // requires ... (field, path:line)`.  `cxx-standard` sits on
+    // line 12 of app/cabin.toml, `interface-cxx-standard` on line
+    // 10 of lib/cabin.toml.
     assert!(
-        flat.contains(
-            "target `app:app` compiles C++ as `c++17`, but its dependency `lib:lib` requires \
-             C++ consumers at `c++20` or newer"
-        ),
-        "expected the core warning sentence in: {flat}"
+        flat_contains(&stderr, "`app:app` (c++17,"),
+        "expected the consumer half of the provenance arrow in: {flat}"
     );
     assert!(
-        flat.contains("`interface-cxx-standard` in"),
-        "expected the origin declaration citation in: {flat}"
+        flat_contains(
+            &stderr,
+            "app/cabin.toml:12) -> `lib:lib` requires C++ consumers at `c++20` or newer \
+             (`interface-cxx-standard`,"
+        ),
+        "expected the line-referenced provenance arrow in: {flat}"
+    );
+    assert!(
+        flat_contains(&stderr, "lib/cabin.toml:10)"),
+        "expected the origin declaration line in: {flat}"
     );
     // The label points at the consumer's own standard declaration.
     assert!(
@@ -115,19 +176,32 @@ fn direct_minimum_violation_warns_before_the_build_fails() {
         "expected the consumer manifest snippet in: {stderr}"
     );
     assert!(
-        flat.contains("`app:app` compiles C++ as `c++17`"),
-        "expected the snippet label in: {flat}"
+        flat_contains(
+            &stderr,
+            "raise `app:app`'s C++ standard to at least `c++20`"
+        ),
+        "expected the raise remedy in: {flat}"
+    );
+    // The always-on build-time enforcement also rejects this
+    // minimum violation, so the override remedy - which could not
+    // unblock the command - is withheld.
+    assert!(
+        !flat_contains(&stderr, "ignore-interface-standard"),
+        "a minimum violation must not offer the override: {flat}"
     );
     assert!(
-        flat.contains("raise `app:app`'s C++ standard to at least `c++20`"),
-        "expected the raise remedy in: {flat}"
+        flat_contains(
+            &stderr,
+            "1 standard compatibility violation (`-Z standard-compat`)"
+        ),
+        "expected the gating summary in: {flat}"
     );
 }
 
 /// The no-op guarantee: without `-Z standard-compat`, the same
-/// graph produces no trace of the pass.
+/// graph produces no trace of the check.
 #[test]
-fn feature_off_emits_no_warning() {
+fn feature_off_emits_no_violation() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_direct_minimum_fixture(dir.path());
@@ -137,46 +211,29 @@ fn feature_off_emits_no_warning() {
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
         .assert()
+        // The always-on build-time enforcement still fails this
+        // graph on its own.
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
         !stderr.contains("standard_compat"),
-        "the pass must leave no trace when off: {stderr}"
+        "the check must leave no trace when off: {stderr}"
     );
     assert!(
-        !stderr.contains('⚠'),
-        "no warning may render when the feature is off: {stderr}"
+        !stderr.contains("standard compatibility violation"),
+        "no gating summary may render when the feature is off: {stderr}"
     );
 }
 
-/// `interface-cxx-standard = "none"` warns as forbidden, and -
-/// unlike the minimum-violation fixtures - the build succeeds:
-/// warnings never gate a command.
+/// `interface-cxx-standard = "none"` is a violation the always-on
+/// build-time enforcement deliberately does not share, so the exit
+/// code isolates the promotion: the command fails with exit code 1
+/// purely because of the standard-compat error.
 #[test]
-fn declared_none_warns_without_failing_the_build() {
+fn declared_none_fails_the_build_with_an_error() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("lib/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "lib"
-version = "0.1.0"
-
-[target.lib]
-type = "library"
-sources = ["src/lib.cc"]
-include-dirs = ["include"]
-cxx-standard = "c++17"
-interface-cxx-standard = "none"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("lib/include/lib.h"))
-        .write_str("#pragma once\nint lib_value();\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("lib/src/lib.cc"))
-        .write_str("#include \"lib.h\"\nint lib_value() { return 7; }\n")
-        .unwrap();
+    write_none_library(dir.path(), "lib");
     assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
         .write_str(
             r#"[package]
@@ -203,28 +260,232 @@ cxx-standard = "c++17"
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
         .assert()
-        .success();
+        .failure()
+        .code(1);
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
     assert!(
-        stderr.contains(WARNING_CODE),
+        stderr.contains(VIOLATION_CODE),
         "expected the stable code in: {stderr}"
     );
+    assert!(stderr.contains('×'), "expected error severity in: {stderr}");
     assert!(
-        flat.contains(
-            "its dependency `lib:lib` cannot be consumed from C++: C++ consumption was \
-             disabled by `interface-cxx-standard = \"none\"`"
+        flat_contains(
+            &stderr,
+            "-> `lib:lib` cannot be consumed from C++: C++ consumption was disabled by \
+             `interface-cxx-standard = \"none\"`"
         ),
         "expected the disabled-consumption wording in: {flat}"
     );
     assert!(
-        flat.contains("`lib:lib` cannot be consumed from C++ at any standard level"),
+        flat_contains(
+            &stderr,
+            "`lib:lib` cannot be consumed from C++ at any standard level"
+        ),
         "expected the forbidden help in: {flat}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "1 standard compatibility violation (`-Z standard-compat`)"
+        ),
+        "expected the gating summary in: {flat}"
+    );
+}
+
+/// The temporary migration switch: `standard-compat-errors = false`
+/// under `[build]` in `.cabin/config.toml` demotes the same
+/// violation to a warning and the command succeeds.
+#[test]
+fn migration_switch_demotes_violations_to_warnings() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_none_library(dir.path(), "lib");
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+lib = { path = "../lib" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["lib"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
+        .write_str("[build]\nstandard-compat-errors = false\n")
+        .unwrap();
+    let user_home = TempDir::new().unwrap();
+    let assertion = cabin_with_config()
+        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    let flat = flatten(&stderr);
+    assert!(
+        stderr.contains(VIOLATION_CODE),
+        "the demoted violation still renders, as a warning: {stderr}"
+    );
+    assert!(
+        stderr.contains('⚠') && !stderr.contains('×'),
+        "expected warning severity under the migration switch: {stderr}"
+    );
+    assert!(
+        !flat_contains(
+            &stderr,
+            "standard compatibility violation (`-Z standard-compat`)"
+        ),
+        "no gating summary may render when demoted: {flat}"
+    );
+}
+
+/// The per-edge override suppresses exactly one edge: the
+/// overridden edge downgrades to an unchecked-edge note while the
+/// second violated edge still fails the command.
+#[test]
+fn override_suppresses_exactly_one_edge() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_none_library(dir.path(), "liba");
+    write_none_library(dir.path(), "libb");
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+liba = { path = "../liba", ignore-interface-standard = true }
+libb = { path = "../libb" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["liba", "libb"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .failure()
+        .code(1);
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    let flat = flatten(&stderr);
+    // Exactly one edge errors (libb) and exactly one goes
+    // unchecked (liba).
+    assert_eq!(
+        stderr.matches(VIOLATION_CODE).count(),
+        1,
+        "only the non-overridden edge may error: {stderr}"
+    );
+    assert_eq!(
+        stderr.matches(UNCHECKED_CODE).count(),
+        1,
+        "the overridden edge downgrades to one note: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "-> `libb:libb` cannot be consumed from C++"),
+        "expected the libb error in: {flat}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "dependency edge `app:app` -> `liba:liba` is unchecked: \
+             `ignore-interface-standard = true` is set for `liba` in"
+        ),
+        "expected the unchecked-edge note in: {flat}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "1 standard compatibility violation (`-Z standard-compat`)"
+        ),
+        "the suppressed edge must not count toward the gate: {flat}"
+    );
+}
+
+/// With every violated edge overridden, the command succeeds and
+/// the downgraded note is the only trace: the edge is unchecked,
+/// not silently forgotten.
+#[test]
+fn override_downgrades_to_note_and_succeeds() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    write_none_library(dir.path(), "liba");
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+liba = { path = "../liba", ignore-interface-standard = true }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["liba"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    let flat = flatten(&stderr);
+    assert!(
+        stderr.contains(UNCHECKED_CODE),
+        "expected the unchecked-edge note in: {stderr}"
+    );
+    assert!(
+        !stderr.contains(VIOLATION_CODE),
+        "no violation may render for an overridden edge: {stderr}"
+    );
+    assert!(
+        !stderr.contains('×') && !stderr.contains('⚠'),
+        "the note renders below warning severity: {stderr}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "remove `ignore-interface-standard` from the `[dependencies]` entry to \
+             re-enable the check"
+        ),
+        "expected the re-enable help in: {flat}"
     );
 }
 
 /// A requirement declared two public edges down reaches the
-/// consumer, and the warning names the chain and the origin.
+/// consumer, and the error names the origin and its manifest line.
 #[test]
 fn transitive_public_requirement_names_the_chain() {
     require_cxx_build_tools();
@@ -304,21 +565,26 @@ cxx-standard = "c++17"
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
     assert!(
-        stderr.contains(WARNING_CODE),
+        stderr.contains(VIOLATION_CODE),
         "expected the stable code in: {stderr}"
     );
     assert!(
-        flat.contains(
-            "its dependency `liba:liba` requires C++ consumers at `c++20` or newer, imposed \
-             by `libb:libb` via public dependency chain `liba:liba` -> `libb:libb`"
+        flat_contains(
+            &stderr,
+            "-> `liba:liba` requires C++ consumers at `c++20` or newer via public \
+             dependency `libb:libb` (`interface-cxx-standard`,"
         ),
         "expected the provenance chain in: {flat}"
+    );
+    assert!(
+        flat_contains(&stderr, "libb/cabin.toml:10)"),
+        "expected the origin declaration line in: {flat}"
     );
 }
 
 /// A header-only dependency without a C++ interface declaration
 /// infers its minimum from its implementation standard, and the
-/// warning is marked as inferred.
+/// error is marked as inferred.
 #[test]
 fn header_only_inference_is_marked_as_inferred() {
     require_cxx_build_tools();
@@ -373,22 +639,24 @@ cxx-standard = "c++17"
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
     assert!(
-        stderr.contains(WARNING_CODE),
+        stderr.contains(VIOLATION_CODE),
         "expected the stable code in: {stderr}"
     );
     assert!(
-        flat.contains(
-            "its dependency `hdr:hdr` requires C++ consumers at `c++20` or newer (inferred \
-             from implementation standard: `cxx-standard` in"
+        flat_contains(
+            &stderr,
+            "-> `hdr:hdr` requires C++ consumers at `c++20` or newer (inferred from \
+             implementation standard `cxx-standard`,"
         ),
         "expected the inference marker in: {flat}"
     );
 }
 
 /// A mixed-language consumer reports each violated language as its
-/// own warning on the same edge, C first.
+/// own error on the same edge, C first, and the gating summary
+/// counts both.
 #[test]
-fn mixed_language_consumer_warns_per_language() {
+fn mixed_language_consumer_errors_per_language() {
     require_c_and_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     assert_fs::fixture::ChildPath::new(dir.path().join("w/cabin.toml"))
@@ -447,32 +715,39 @@ deps = ["w"]
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     let flat = flatten(&stderr);
     assert!(
-        flat.contains(
-            "target `app:app` compiles C as `c11`, but its dependency `w:w` requires C \
-             consumers at `c17` or newer"
-        ),
-        "expected the C-side warning in: {flat}"
+        flat_contains(&stderr, "`app:app` (c11,")
+            && flat_contains(&stderr, "-> `w:w` requires C consumers at `c17` or newer"),
+        "expected the C-side error in: {flat}"
     );
     assert!(
-        flat.contains(
-            "target `app:app` compiles C++ as `c++20`, but its dependency `w:w` requires \
-             C++ consumers at `c++23` or newer"
-        ),
-        "expected the C++-side warning in: {flat}"
+        flat_contains(&stderr, "`app:app` (c++20,")
+            && flat_contains(
+                &stderr,
+                "-> `w:w` requires C++ consumers at `c++23` or newer"
+            ),
+        "expected the C++-side error in: {flat}"
     );
-    // Two warnings on the one edge: the code renders once each.
+    // Two errors on the one edge: the code renders once each.
     assert_eq!(
-        stderr.matches(WARNING_CODE).count(),
+        stderr.matches(VIOLATION_CODE).count(),
         2,
-        "expected exactly two warnings in: {stderr}"
+        "expected exactly two errors in: {stderr}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "2 standard compatibility violations (`-Z standard-compat`)"
+        ),
+        "expected the gating summary to count both in: {flat}"
     );
 }
 
-/// A registry dependency warns on the fresh-resolution build, gets
-/// the pin remedy, and warns again on the follow-up build that
-/// loads the existing lockfile.
+/// A registry dependency errors on the fresh-resolution build -
+/// which still writes the lockfile - gets the pin and override
+/// remedies, and errors again on the follow-up build that loads
+/// the existing lockfile, now with the staleness note.
 #[test]
-fn registry_dependency_warns_on_fresh_and_lockfile_paths() {
+fn registry_dependency_errors_on_fresh_and_lockfile_paths() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
 
@@ -540,45 +815,63 @@ deps = ["libnone"]
             .arg("--build-dir")
             .arg(app_root.join(build_dir))
             .assert()
-            .success()
+            .failure()
+            .code(1)
     };
 
-    // Fresh resolution: no lockfile exists yet, so the warning
+    // Fresh resolution: no lockfile exists yet, so the error
     // carries no lockfile note.
     assert!(!app_root.join("cabin.lock").exists());
     let first = build("build");
     let first_stderr = String::from_utf8_lossy(&first.get_output().stderr).to_string();
     let first_flat = flatten(&first_stderr);
     assert!(
-        first_stderr.contains(WARNING_CODE),
-        "expected the warning on the fresh-resolution path: {first_stderr}"
+        first_stderr.contains(VIOLATION_CODE),
+        "expected the error on the fresh-resolution path: {first_stderr}"
     );
     assert!(
-        first_flat.contains("C++ consumption was disabled by `interface-cxx-standard = \"none\"`"),
+        flat_contains(
+            &first_stderr,
+            "C++ consumption was disabled by `interface-cxx-standard = \"none\"`"
+        ),
         "expected the disabled-consumption wording in: {first_flat}"
     );
-    // The registry dependency gets the pin remedy.
+    // The registry dependency gets the pin remedy, then the
+    // override as the last resort.
     assert!(
-        first_flat.contains("or pin `libnone` to an older version (currently 0.1.0)"),
+        flat_contains(
+            &first_stderr,
+            "or pin `libnone` to an older version (currently 0.1.0)"
+        ),
         "expected the pin remedy in: {first_flat}"
     );
     assert!(
-        !first_flat.contains("cabin update"),
-        "a fresh-resolution warning must not mention the lockfile: {first_flat}"
+        flat_contains(
+            &first_stderr,
+            "as a last resort, `libnone = { ..., ignore-interface-standard = true }` in the \
+             `[dependencies]` table of"
+        ),
+        "expected the override remedy in: {first_flat}"
+    );
+    assert!(
+        !flat_contains(&first_stderr, "cabin update"),
+        "a fresh-resolution error must not mention the lockfile: {first_flat}"
     );
 
-    // The first build wrote the lockfile; the second run resolves
-    // through it, warns identically, and adds the staleness note.
+    // The failing first build still resolved and wrote the
+    // lockfile; the second run resolves through it, errors
+    // identically, and adds the staleness note.
     assert!(app_root.join("cabin.lock").exists());
     let second = build("build2");
     let second_stderr = String::from_utf8_lossy(&second.get_output().stderr).to_string();
     let second_flat = flatten(&second_stderr);
     assert!(
-        second_stderr.contains(WARNING_CODE),
-        "expected the warning on the lockfile-load path: {second_stderr}"
+        second_stderr.contains(VIOLATION_CODE),
+        "expected the error on the lockfile-load path: {second_stderr}"
     );
     assert!(
-        second_flat.contains(
+        flat_contains(
+            &second_stderr,
             "this dependency's resolved version was loaded from cabin.lock, which records version"
         ),
         "expected the lockfile note on the lockfile-load path: {second_flat}"
@@ -587,9 +880,9 @@ deps = ["libnone"]
 
 /// A lockfile generated while every standard was compatible keeps
 /// its bytes when a manifest later lowers the consumer's standard:
-/// the lockfile-loaded `cabin build` and `cabin test` both warn
+/// the lockfile-loaded `cabin build` and `cabin test` both fail
 /// with the staleness explanation and the `cabin update` remedy,
-/// and the pass never rewrites `cabin.lock` - which records
+/// and the check never rewrites `cabin.lock` - which records
 /// version pins only, no standards and no toolchain information.
 #[test]
 fn lockfile_loaded_violation_explains_staleness_and_suggests_update() {
@@ -699,24 +992,25 @@ deps = ["libiface"]
 
     for (subcommand, build_dir) in [("build", "build2"), ("test", "build3")] {
         let assertion = run(subcommand, build_dir);
-        // The always-on build-time enforcement still fails the
-        // command; the warning renders first.
-        let assertion = assertion.failure();
+        // The standard-compat error gates the command itself now.
+        let assertion = assertion.failure().code(1);
         let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
         let flat = flatten(&stderr);
         assert!(
-            stderr.contains(WARNING_CODE),
-            "expected the warning from `cabin {subcommand}` on the lockfile path: {stderr}"
+            stderr.contains(VIOLATION_CODE),
+            "expected the error from `cabin {subcommand}` on the lockfile path: {stderr}"
         );
         assert!(
-            flat.contains(
+            flat_contains(
+                &stderr,
                 "this dependency's resolved version was loaded from cabin.lock, which \
                  records version pins only"
             ),
             "expected the pins-only explanation from `cabin {subcommand}`: {flat}"
         );
         assert!(
-            flat.contains(
+            flat_contains(
+                &stderr,
                 "if a standard declaration changed in a manifest after the lockfile was \
                  generated, run `cabin update` to re-resolve"
             ),
@@ -724,8 +1018,8 @@ deps = ["libiface"]
         );
     }
 
-    // The warning pass validated a lockfile-loaded graph twice and
-    // never rewrote the lockfile.
+    // The check validated a lockfile-loaded graph twice and never
+    // rewrote the lockfile.
     assert_eq!(
         std::fs::read(&lock_path).unwrap(),
         locked_bytes,

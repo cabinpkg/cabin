@@ -966,6 +966,7 @@ fn resolve_dep_paths(
             path: canonical,
             kind: dep.kind,
             condition: dep.condition.clone(),
+            ignore_interface_standard: dep.ignore_interface_standard,
         });
     }
     Ok(dep_paths)
@@ -1155,6 +1156,7 @@ fn link_workspace_packages(
                 index: idx,
                 kind: dep.kind,
                 condition: dep.condition.clone(),
+                ignore_interface_standard: dep.ignore_interface_standard,
             });
         }
         let kind = if registry.patch_canonical_paths.contains(&pkg.manifest_path) {
@@ -1282,6 +1284,10 @@ struct DepPath {
     /// non-matching conditional edges before reaching this
     /// point, so any value here matches the host platform.
     condition: Option<cabin_core::Condition>,
+    /// The declaration's `ignore-interface-standard` opt-out,
+    /// carried onto the graph edge for the experimental
+    /// `standard-compat` check.
+    ignore_interface_standard: bool,
 }
 
 /// Best-effort recovery of a friendly name to mention in the error when a

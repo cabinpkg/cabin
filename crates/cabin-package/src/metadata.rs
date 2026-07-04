@@ -321,6 +321,7 @@ mod tests {
             features: Vec::new(),
             default_features: true,
             condition: None,
+            ignore_interface_standard: false,
         }
     }
 
@@ -333,6 +334,7 @@ mod tests {
             features: Vec::new(),
             default_features: true,
             condition: None,
+            ignore_interface_standard: false,
         }
     }
 

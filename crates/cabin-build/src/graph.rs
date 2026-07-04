@@ -38,11 +38,13 @@ pub struct BuildGraph {
     /// Violated dependency edges from the experimental
     /// `standard-compat` post-resolution pass
     /// ([`crate::standard_compat`]).  Always empty unless the pass
-    /// was requested.  Diagnostic-only: the CLI renders these as
-    /// warnings and nothing gates on them, so the `cabin check`
+    /// was requested.  The CLI renders non-ignored records as
+    /// errors that fail the command (warnings under the
+    /// `standard-compat-errors = false` migration switch) and
+    /// `ignored` records as unchecked-edge notes; the `cabin check`
     /// rewrite carries them through unchanged (they describe
     /// resolved edges, not planned compiles).
-    pub standard_compat_warnings: Vec<StandardCompatViolation>,
+    pub standard_compat_violations: Vec<StandardCompatViolation>,
 }
 
 /// One standards problem recorded against a planned compile.  Each

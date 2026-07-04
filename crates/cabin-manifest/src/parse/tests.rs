@@ -1803,6 +1803,87 @@ fn optional_on_system_dependency_is_rejected() {
 }
 
 #[test]
+fn ignore_interface_standard_is_parsed_per_edge() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [dependencies]
+            fmt = { version = ">=10", ignore-interface-standard = true }
+            zlib = { version = ">=1.2" }
+
+            [dev-dependencies]
+            gtest = { version = "^1", ignore-interface-standard = true }
+        "#;
+    let package = parse_project(manifest);
+    let flag_of = |name: &str| {
+        package
+            .dependencies
+            .iter()
+            .find(|d| d.name.as_str() == name)
+            .unwrap()
+            .ignore_interface_standard
+    };
+    assert!(flag_of("fmt"));
+    assert!(!flag_of("zlib"), "the opt-out is per-edge, never implied");
+    assert!(flag_of("gtest"), "dev edges accept the opt-out too");
+}
+
+#[test]
+fn ignore_interface_standard_string_form_stays_unset() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [dependencies]
+            fmt = ">=10"
+        "#;
+    let package = parse_project(manifest);
+    assert!(!package.dependencies[0].ignore_interface_standard);
+}
+
+#[test]
+fn ignore_interface_standard_is_parsed_on_conditional_dependencies() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [target.'cfg(os = "linux")'.dependencies]
+            fmt = { version = ">=10", ignore-interface-standard = true }
+        "#;
+    let package = parse_project(manifest);
+    let dep = package
+        .dependencies
+        .iter()
+        .find(|d| d.name.as_str() == "fmt")
+        .unwrap();
+    assert!(dep.ignore_interface_standard);
+    assert!(dep.condition.is_some(), "the condition must be preserved");
+}
+
+#[test]
+fn ignore_interface_standard_on_system_dependency_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { version = ">=1.2", system = true, ignore-interface-standard = true }
+        "#;
+    match parse_manifest_str(manifest).unwrap_err() {
+        ManifestError::SystemConflictsWith { name, field, .. } => {
+            assert_eq!(name, "zlib");
+            assert_eq!(field, "ignore-interface-standard");
+        }
+        other => panic!("expected SystemConflictsWith, got {other:?}"),
+    }
+}
+
+#[test]
 fn unsupported_dependency_section_yields_toml_error() {
     // `[test-dependencies]` is not a recognized top-level
     // section.  `RawManifest` declares `deny_unknown_fields`

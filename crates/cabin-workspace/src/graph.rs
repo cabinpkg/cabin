@@ -158,6 +158,11 @@ pub struct DependencyEdge {
     /// `[target.'cfg(...)'.<kind>]` table that matched the
     /// evaluation platform; `None` for unconditional edges.
     pub condition: Option<Condition>,
+    /// Whether the declaration opted this edge out of the
+    /// experimental `standard-compat` check with
+    /// `ignore-interface-standard = true`.  Per-edge by design;
+    /// inert unless the check runs.
+    pub ignore_interface_standard: bool,
 }
 
 /// Where a [`WorkspacePackage`] came from.

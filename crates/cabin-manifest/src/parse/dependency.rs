@@ -47,6 +47,7 @@ struct ResolvedDep {
     optional: bool,
     features: Vec<String>,
     default_features: bool,
+    ignore_interface_standard: bool,
 }
 
 pub(super) fn package_dependency_from_raw(
@@ -62,6 +63,7 @@ pub(super) fn package_dependency_from_raw(
             optional: false,
             features: Vec::new(),
             default_features: true,
+            ignore_interface_standard: false,
         },
         RawDependency::Table(mut table) => {
             // The router catches `system = true`.  Reaching this
@@ -103,6 +105,7 @@ pub(super) fn package_dependency_from_raw(
         optional,
         features,
         default_features,
+        ignore_interface_standard,
     } = raw_outcome;
     // `workspace = true` inside a target-conditional table is
     // not currently supported - workspace inheritance has no
@@ -125,6 +128,7 @@ pub(super) fn package_dependency_from_raw(
         features,
         default_features,
         condition,
+        ignore_interface_standard,
     })
 }
 
@@ -144,6 +148,7 @@ fn builtin_port_dep_from_table(
         optional,
         features,
         default_features,
+        ignore_interface_standard,
     } = table;
     if path.is_some() {
         return Err(ManifestError::PortDependencyHasOtherSource {
@@ -185,6 +190,7 @@ fn builtin_port_dep_from_table(
         optional: false,
         features: features_vec,
         default_features: default_features_flag,
+        ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
     })
 }
 
@@ -206,6 +212,7 @@ fn path_port_dep_from_table(
         optional,
         features,
         default_features,
+        ignore_interface_standard,
     } = table;
     if path.is_some() {
         return Err(ManifestError::PortDependencyHasOtherSource {
@@ -240,6 +247,7 @@ fn path_port_dep_from_table(
         optional: false,
         features: features_vec,
         default_features: default_features_flag,
+        ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
     })
 }
 
@@ -260,6 +268,7 @@ fn ordinary_dep_from_table(
         optional,
         features,
         default_features,
+        ignore_interface_standard,
     } = table;
     // `optional = true` is supported only for normal
     // dependencies.  Dev declarations remain not-optional
@@ -314,6 +323,7 @@ fn ordinary_dep_from_table(
         optional: optional_flag,
         features: features_vec,
         default_features: default_features_flag,
+        ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
     })
 }
 
@@ -358,6 +368,7 @@ pub(super) fn system_dependency_from_raw_table(
         optional,
         features,
         default_features,
+        ignore_interface_standard,
     } = table;
     debug_assert!(system, "router only dispatches here when system = true");
     let _ = system;
@@ -374,6 +385,10 @@ pub(super) fn system_dependency_from_raw_table(
         ("features", features.is_some()),
         ("default-features", default_features.is_some()),
         ("optional", optional.is_some()),
+        (
+            "ignore-interface-standard",
+            ignore_interface_standard.is_some(),
+        ),
     ];
     for &(field, present) in forbidden {
         if present {
