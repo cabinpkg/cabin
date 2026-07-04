@@ -23,7 +23,13 @@ use crate::{ResolvedProfileFlags, SourceLanguage, Target, classify_source};
 
 /// C language standards Cabin can request, oldest to newest.  The
 /// `Ord` derive follows declaration order, which is the plain
-/// chronological chain (in particular `c11 < c17`).
+/// chronological chain (in particular `c11 < c17`).  Implements the
+/// level chain `Level_C` of spec D2
+/// (`docs/design/standard-compatibility/spec.md`): chronological
+/// enumeration order, not numeric (`c89 < c11`), with no
+/// equivalence special case anywhere in the chain.  The `c90` alias
+/// is normalized away by [`Self::parse`] and is not an element of
+/// the chain (D2 remark).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CStandard {
     #[serde(rename = "c89")]
@@ -84,7 +90,13 @@ impl std::str::FromStr for CStandard {
 }
 
 /// C++ language standards Cabin can request, oldest to newest, in
-/// the plain chronological chain.
+/// the plain chronological chain.  Implements the level chain
+/// `Level_C++` of spec D2
+/// (`docs/design/standard-compatibility/spec.md`): chronological
+/// enumeration order, not numeric (`c++98 < c++11`), with no
+/// equivalence special case anywhere in the chain.  The `c++03`
+/// alias is normalized away by [`Self::parse`] and is not an
+/// element of the chain (D2 remark).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum CxxStandard {
     #[serde(rename = "c++98")]
@@ -275,7 +287,13 @@ impl std::fmt::Display for LanguageStandard {
 /// target's public headers require from consumers.  `max` is
 /// reserved for future range requirements and is never populated
 /// today, but it stays in the type and every serialized form so the
-/// wire shape does not change when ranges land.
+/// wire shape does not change when ranges land.  This is the
+/// `{ min, max }` pair of spec D4's remark
+/// (`docs/design/standard-compatibility/spec.md`): with `max`
+/// always absent in v1, a requirement denotes the declared minimum
+/// `decl_L(t) = m` of spec D6, which D9 row 2 maps to the
+/// compatibility requirement `[m]`
+/// ([`crate::standard_compatibility::Requirement::Min`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StandardRequirement<S> {
@@ -292,10 +310,17 @@ fn none<S>() -> Option<S> {
 
 /// One declared interface-standard value: either a requirement or
 /// the explicit `none`, meaning the target's headers are not
-/// consumable from that language.
+/// consumable from that language.  Implements the explicit
+/// interface declaration `decl_L(t)` of spec D6
+/// (`docs/design/standard-compatibility/spec.md`); D6's `⊥` (no
+/// declaration) is an absent `Option<InterfaceRequirement>` at the
+/// use sites.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceRequirement<S> {
-    /// The target's headers are not consumable from this language.
+    /// The target's headers are not consumable from this language:
+    /// the declared `"none"` of spec D6, which D9 row 1 maps to the
+    /// unsatisfiable requirement
+    /// ([`crate::standard_compatibility::Requirement::Forbidden`]).
     None,
     Requirement(StandardRequirement<S>),
 }
