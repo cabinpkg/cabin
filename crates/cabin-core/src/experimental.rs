@@ -79,7 +79,9 @@ impl fmt::Display for UnknownExperimentalFeature {
             f,
             "unknown experimental feature '{}'; expected one of: {}",
             self.value,
-            ExperimentalFeature::ALL.map(ExperimentalFeature::as_str).join(", ")
+            ExperimentalFeature::ALL
+                .map(ExperimentalFeature::as_str)
+                .join(", ")
         )
     }
 }
