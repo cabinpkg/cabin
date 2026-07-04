@@ -310,7 +310,13 @@ standard-compatibility filtering remains deferred.
 
 ## Deferred
 
-- Resolver standard-compatibility filtering.
+- Resolver standard-compatibility filtering.  The normative model it will implement (requirement
+  domain, propagation along public dependency edges, edge compatibility, version viability) is
+  specified in [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md).
+  Its defaults deliberately differ from the build-time enforcement above, which is unchanged and
+  still runs after resolution: at resolve time a compiled library with no declared interface
+  field imposes no constraint (no implementation-standard fallback), while an explicit `"none"`
+  makes the dependency unsatisfiable from that language instead of imposing nothing.
 - `cfg(...)`-conditional or per-profile standards; CLI / env / config overrides.
 - Range interface requirements (populating the reserved `max`), and enforcement of `"none"`
   against consumers that compile the language.
