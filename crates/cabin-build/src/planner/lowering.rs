@@ -6,7 +6,25 @@ use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::{PlanRequest, TargetId, format_target_id};
+use super::{PlanRequest, TargetDepEdge, TargetId, format_target_id};
+
+/// Resolve one declared `deps` entry into a graph edge.  The alias
+/// forms (`foo` as a same-package target or as the `foo:foo`
+/// shorthand) resolve *before* the declared visibility is attached,
+/// so the recorded edge always names the concrete (package, target)
+/// and downstream code never sees pre-alias names.
+pub(super) fn resolve_target_dep_edge(
+    decl: &cabin_core::TargetDep,
+    pkg_idx: usize,
+    dev_deps_visible: bool,
+    graph: &PackageGraph,
+) -> Result<TargetDepEdge, BuildError> {
+    let to = resolve_target_dep(&decl.reference, pkg_idx, dev_deps_visible, graph)?;
+    Ok(TargetDepEdge {
+        to,
+        public: decl.public,
+    })
+}
 
 pub(super) fn resolve_target_dep(
     raw: &str,
@@ -128,7 +146,7 @@ pub(super) fn resolve_target_dep(
 
 pub(super) fn topo_sort_targets(
     reachable: &HashSet<TargetId>,
-    resolved: &HashMap<TargetId, Vec<TargetId>>,
+    resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
 ) -> Result<Vec<TargetId>, BuildError> {
     #[derive(Clone, Copy)]
@@ -139,7 +157,7 @@ pub(super) fn topo_sort_targets(
 
     fn visit(
         node: &TargetId,
-        resolved: &HashMap<TargetId, Vec<TargetId>>,
+        resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
         graph: &PackageGraph,
         state: &mut HashMap<TargetId, Color>,
         path: &mut Vec<TargetId>,
@@ -162,7 +180,7 @@ pub(super) fn topo_sort_targets(
         path.push(node.clone());
         if let Some(deps) = resolved.get(node) {
             for d in deps {
-                visit(d, resolved, graph, state, path, order)?;
+                visit(&d.to, resolved, graph, state, path, order)?;
             }
         }
         path.pop();
@@ -203,7 +221,7 @@ pub(super) struct CollectedIncludeDirs {
 pub(super) fn collect_include_dirs(
     start: &TargetId,
     target: &Target,
-    resolved: &HashMap<TargetId, Vec<TargetId>>,
+    resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
 ) -> Result<CollectedIncludeDirs, BuildError> {
     let manifest_dir = promote_dir(&graph.packages[start.0].manifest_dir)?;
@@ -215,8 +233,13 @@ pub(super) fn collect_include_dirs(
     let mut system: Vec<Utf8PathBuf> = Vec::new();
 
     let mut seen: HashSet<TargetId> = HashSet::new();
-    let empty: Vec<TargetId> = Vec::new();
-    let mut stack: Vec<&TargetId> = resolved.get(start).unwrap_or(&empty).iter().collect();
+    let empty: Vec<TargetDepEdge> = Vec::new();
+    let mut stack: Vec<&TargetId> = resolved
+        .get(start)
+        .unwrap_or(&empty)
+        .iter()
+        .map(|e| &e.to)
+        .collect();
     while let Some(tid) = stack.pop() {
         if !seen.insert(tid.clone()) {
             continue;
@@ -254,7 +277,7 @@ pub(super) fn collect_include_dirs(
         }
         if let Some(deps) = resolved.get(tid) {
             for d in deps {
-                stack.push(d);
+                stack.push(&d.to);
             }
         }
     }
@@ -276,7 +299,7 @@ pub(super) fn collect_include_dirs(
 /// that references them.
 pub(super) fn collect_link_lib_names(
     start: &TargetId,
-    resolved: &HashMap<TargetId, Vec<TargetId>>,
+    resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
 ) -> Vec<String> {
     fn add_package(
@@ -303,8 +326,13 @@ pub(super) fn collect_link_lib_names(
     add_package(start.0, build_flags, &mut result, &mut seen_packages);
 
     let mut seen_targets: HashSet<TargetId> = HashSet::new();
-    let empty: Vec<TargetId> = Vec::new();
-    let mut stack: Vec<&TargetId> = resolved.get(start).unwrap_or(&empty).iter().collect();
+    let empty: Vec<TargetDepEdge> = Vec::new();
+    let mut stack: Vec<&TargetId> = resolved
+        .get(start)
+        .unwrap_or(&empty)
+        .iter()
+        .map(|e| &e.to)
+        .collect();
     while let Some(tid) = stack.pop() {
         if !seen_targets.insert(tid.clone()) {
             continue;
@@ -312,7 +340,7 @@ pub(super) fn collect_link_lib_names(
         add_package(tid.0, build_flags, &mut result, &mut seen_packages);
         if let Some(deps) = resolved.get(tid) {
             for d in deps {
-                stack.push(d);
+                stack.push(&d.to);
             }
         }
     }
@@ -322,13 +350,13 @@ pub(super) fn collect_link_lib_names(
 
 pub(super) fn collect_link_libs(
     start: &TargetId,
-    resolved: &HashMap<TargetId, Vec<TargetId>>,
+    resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
     graph: &PackageGraph,
     output_for_target: &HashMap<TargetId, Utf8PathBuf>,
 ) -> Vec<Utf8PathBuf> {
     fn visit(
         node: &TargetId,
-        resolved: &HashMap<TargetId, Vec<TargetId>>,
+        resolved: &HashMap<TargetId, Vec<TargetDepEdge>>,
         graph: &PackageGraph,
         seen: &mut HashSet<TargetId>,
         post: &mut Vec<TargetId>,
@@ -338,7 +366,7 @@ pub(super) fn collect_link_libs(
         }
         if let Some(deps) = resolved.get(node) {
             for d in deps {
-                visit(d, resolved, graph, seen, post);
+                visit(&d.to, resolved, graph, seen, post);
             }
         }
         let Some(target) = graph.packages[node.0]
@@ -358,7 +386,7 @@ pub(super) fn collect_link_libs(
     let mut post: Vec<TargetId> = Vec::new();
     if let Some(deps) = resolved.get(start) {
         for d in deps {
-            visit(d, resolved, graph, &mut seen, &mut post);
+            visit(&d.to, resolved, graph, &mut seen, &mut post);
         }
     }
     post.iter()
