@@ -772,6 +772,103 @@ provenance = \"user-config\"\n\
         assert_eq!(body, expected);
     }
 
+    /// The lockfile is version pins only: package identity, source,
+    /// checksum, dependency names, and the recorded patch /
+    /// source-replacement policy.  No language standards, no
+    /// toolchain information, no fingerprints - resolution inputs
+    /// are manifest-declared values only, so one lockfile stays
+    /// shareable across platforms and toolchains.  Parsing the
+    /// rendered output generically and whitelisting every key makes
+    /// any new field an explicit, reviewed decision here.
+    #[test]
+    fn render_writes_version_pins_only() {
+        fn collect_keys(
+            prefix: &str,
+            value: &toml::Value,
+            keys: &mut std::collections::BTreeSet<String>,
+        ) {
+            match value {
+                toml::Value::Table(table) => {
+                    for (key, nested) in table {
+                        let path = if prefix.is_empty() {
+                            key.clone()
+                        } else {
+                            format!("{prefix}.{key}")
+                        };
+                        keys.insert(path.clone());
+                        collect_keys(&path, nested, keys);
+                    }
+                }
+                toml::Value::Array(items) => {
+                    for item in items {
+                        collect_keys(prefix, item, keys);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Every optional section populated, so every key the writer
+        // can ever emit is on the table.
+        let lock = Lockfile {
+            version: 1,
+            packages: vec![LockedPackage {
+                name: pkg("spdlog"),
+                version: ver("1.13.0"),
+                source: LockedSource::Index,
+                checksum: Some("sha256:zzz".into()),
+                dependencies: vec![pkg("fmt")],
+            }],
+            patches: vec![LockedPatch {
+                package: pkg("fmt"),
+                version: ver("10.2.1"),
+                kind: LockedPatchKind::Path,
+                provenance: "manifest".into(),
+                path: Utf8PathBuf::from("../fmt"),
+            }],
+            source_replacements: vec![LockedSourceReplacement {
+                original: "https://example.com/index".into(),
+                original_kind: LockedSourceLocatorKind::IndexUrl,
+                replacement: "../mirror".into(),
+                replacement_kind: LockedSourceLocatorKind::IndexPath,
+                provenance: "user-config".into(),
+            }],
+        };
+        let body = render_lockfile(&lock).unwrap();
+        let value: toml::Value = toml::from_str(&body).unwrap();
+        let mut keys = std::collections::BTreeSet::new();
+        collect_keys("", &value, &mut keys);
+        let allowed: std::collections::BTreeSet<&str> = [
+            "version",
+            "package",
+            "package.name",
+            "package.version",
+            "package.source",
+            "package.checksum",
+            "package.dependencies",
+            "patch",
+            "patch.package",
+            "patch.version",
+            "patch.kind",
+            "patch.provenance",
+            "patch.path",
+            "source-replacement",
+            "source-replacement.original",
+            "source-replacement.original-kind",
+            "source-replacement.replacement",
+            "source-replacement.replacement-kind",
+            "source-replacement.provenance",
+        ]
+        .into();
+        for key in &keys {
+            assert!(
+                allowed.contains(key.as_str()),
+                "unexpected lockfile key `{key}` - the lockfile records version pins only, \
+                 never standards, toolchains, or fingerprints"
+            );
+        }
+    }
+
     #[test]
     fn unknown_patch_kind_in_lockfile_yields_clear_error() {
         let body = r#"

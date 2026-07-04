@@ -1944,6 +1944,13 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
 
 pub(crate) struct ArtifactPipeline {
     pub(crate) fetched: Vec<FetchedPackage>,
+    /// Registry selections that came straight out of a pre-existing
+    /// `cabin.lock`: the (name, version) pairs recorded there that
+    /// resolution re-selected.  Empty when no lockfile existed, when
+    /// an update mode ignored it, and never containing a selection
+    /// the resolver re-resolved past a stale pin.  Drives the
+    /// lockfile-staleness note on standard-compat warnings.
+    pub(crate) lockfile_pinned: BTreeSet<(String, String)>,
 }
 
 impl ArtifactPipeline {
@@ -2008,6 +2015,7 @@ pub(crate) fn run_artifact_pipeline(
     if root_deps.is_empty() {
         return Ok(ArtifactPipeline {
             fetched: Vec::new(),
+            lockfile_pinned: BTreeSet::new(),
         });
     }
     // pick a stable synthetic root identity for pure
@@ -2122,6 +2130,22 @@ pub(crate) fn run_artifact_pipeline(
     )?;
     Ok(ArtifactPipeline {
         fetched: result.packages,
+        // `PreferLocked` falls back to a fresh selection when a pin
+        // no longer satisfies its constraint, so membership is
+        // checked selection by selection - a re-resolved package
+        // must not carry the lockfile-staleness note.  Update modes
+        // ignore the locked map entirely.
+        lockfile_pinned: match &existing_lockfile {
+            Some(lock) if matches!(request.mode, LockMode::PreferLocked | LockMode::Locked) => {
+                output
+                    .packages
+                    .iter()
+                    .filter(|p| lock.find(&p.name).is_some_and(|l| l.version == p.version))
+                    .map(|p| (p.name.as_str().to_owned(), p.version.to_string()))
+                    .collect()
+            }
+            _ => BTreeSet::new(),
+        },
     })
 }
 

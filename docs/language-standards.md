@@ -319,7 +319,11 @@ and its effective standard (with the declaring manifest and span), the dependenc
 effective requirement - marked as inferred for header-only inference, or noting that consumption
 was disabled by an interface `"none"` - the public-edge provenance chain when the requirement is
 transitive, and the remedies: raise the consumer's standard, or pin an older version of a registry
-dependency.  The pass never influences version selection and never fails a command; with the flag
+dependency.  A registry dependency whose resolved version came out of an existing `cabin.lock`
+additionally notes that the lockfile records version pins only - so the likely cause is a standard
+declaration that changed in a manifest after the lockfile was generated - and suggests
+`cabin update` to re-resolve (see [`lockfile.md`](lockfile.md)).  The pass never influences
+version selection and never fails a command; with the flag
 off, behavior is unchanged.  The resolver-level defaults apply (see Deferred below): no
 implementation-standard fallback for compiled libraries, and `"none"` is unsatisfiable - so the
 warnings can disagree with the build-time enforcement above by design, in both directions.

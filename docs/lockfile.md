@@ -136,6 +136,23 @@ renderer emits, so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
+## Version pins only
+
+`cabin.lock` records the resolver's version choices and the local override policy above - nothing
+else.  No language standards, no toolchain information, and no build fingerprints are written.
+Resolution inputs are manifest-declared values only, so one lockfile stays shareable across
+platforms and toolchains.
+
+The experimental `-Z standard-compat` warning pass (see
+[`language-standards.md`](language-standards.md)) validates manifest-declared standards over the
+resolved graph on every command that consumes it from the lockfile - `cabin build` / `check` /
+`run` / `test` - exactly as on fresh resolution.  The pass reads manifests only: it probes no
+toolchain, reads nothing from the environment, and never modifies `cabin.lock`.  Because the
+lockfile pins versions and not standards, a violation against a dependency whose resolved version
+came out of the lockfile usually means a standard declaration changed in a manifest after the
+lockfile was generated; the warning says so and suggests `cabin update` to re-resolve, alongside
+the usual remedies.  A selection the resolver re-resolved past a stale pin carries no such note.
+
 ## Commands
 
 ### `cabin resolve`

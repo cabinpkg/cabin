@@ -199,45 +199,46 @@ pub(crate) fn run(
             &dev_for,
         );
 
-    let registry: Vec<RegistryPackageSource> = if has_versioned {
-        let Some(index_source) = resolved_index_source.as_ref() else {
-            bail!(
-                "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
-            );
+    let (registry, lockfile_pinned): (Vec<RegistryPackageSource>, BTreeSet<(String, String)>) =
+        if has_versioned {
+            let Some(index_source) = resolved_index_source.as_ref() else {
+                bail!(
+                    "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
+                );
+            };
+            let inputs = crate::cli::config::resolve_pipeline_inputs(
+                index_source,
+                &effective_config,
+                args.cache_dir.as_deref(),
+                resolved_cache_dir.as_ref(),
+                offline,
+                args.locked,
+                args.frozen,
+                args.no_patches,
+                false,
+            )?;
+            let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
+                manifest_path: &manifest_path,
+                initial_graph: &initial_graph,
+                index_path: inputs.index_path.as_deref(),
+                index_url: inputs.index_url.as_deref(),
+                mode: inputs.mode,
+                allow_write: inputs.allow_write,
+                frozen: args.frozen,
+                cache_dir: &inputs.cache_dir,
+                reporter,
+                selection: workspace_selection,
+                selection_request: &initial_request,
+                patched_names: &patched_names,
+                active_patches: &active_patches,
+                source_replacements: &effective_config.source_replacements,
+                no_patches: args.no_patches,
+                dev_for: &dev_for,
+            })?;
+            (pipeline.registry_sources(), pipeline.lockfile_pinned)
+        } else {
+            (Vec::new(), BTreeSet::new())
         };
-        let inputs = crate::cli::config::resolve_pipeline_inputs(
-            index_source,
-            &effective_config,
-            args.cache_dir.as_deref(),
-            resolved_cache_dir.as_ref(),
-            offline,
-            args.locked,
-            args.frozen,
-            args.no_patches,
-            false,
-        )?;
-        let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
-            manifest_path: &manifest_path,
-            initial_graph: &initial_graph,
-            index_path: inputs.index_path.as_deref(),
-            index_url: inputs.index_url.as_deref(),
-            mode: inputs.mode,
-            allow_write: inputs.allow_write,
-            frozen: args.frozen,
-            cache_dir: &inputs.cache_dir,
-            reporter,
-            selection: workspace_selection,
-            selection_request: &initial_request,
-            patched_names: &patched_names,
-            active_patches: &active_patches,
-            source_replacements: &effective_config.source_replacements,
-            no_patches: args.no_patches,
-            dev_for: &dev_for,
-        })?;
-        pipeline.registry_sources()
-    } else {
-        Vec::new()
-    };
 
     // Mirror `cabin build`: the strict set is the selection's
     // closure on `initial_graph` plus every patched name plus
@@ -395,7 +396,11 @@ pub(crate) fn run(
         enabled_features: Some(&enabled_features),
         standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
-    crate::cli::standard_compat::report_warnings(&plan_graph.standard_compat_warnings, color)?;
+    crate::cli::standard_compat::report_warnings(
+        &plan_graph.standard_compat_warnings,
+        color,
+        &lockfile_pinned,
+    )?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
         &toolchain,
