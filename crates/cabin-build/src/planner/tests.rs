@@ -3335,11 +3335,142 @@ fn standard_compat_sites_follow_declaration_tiers() {
     // `graph_with` roots the graph at the first package's manifest.
     assert_eq!(
         w.consumer_site.manifest_path,
-        Path::new("/abs/app/cabin.toml")
+        PathBuf::from("/abs/app/cabin.toml")
     );
     let RequirementOrigin::Declared { site } = &w.origin else {
         panic!("expected a declared origin, got {:?}", w.origin);
     };
     assert_eq!(site.scope, DeclScope::Package);
-    assert_eq!(site.manifest_path, Path::new("/abs/lib/cabin.toml"));
+    assert_eq!(site.manifest_path, PathBuf::from("/abs/lib/cabin.toml"));
+}
+
+/// Spec D9 row 5: the permissive C-to-C++ default - a pure-C
+/// library with no C++ implementation and no C++ interface
+/// declaration imposes nothing on C++ consumers, so the pass stays
+/// silent.
+#[test]
+fn standard_compat_permissive_c_to_cxx_default_imposes_nothing() {
+    let mut c_lib = target("clib", TargetKind::Library, &["src/c.c"], &[]);
+    c_lib.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C17));
+    let c_pkg = Package::new(pkg_name("clib"), version(), vec![c_lib], Vec::new()).unwrap();
+    let graph = app_dep_graph(
+        cxx_app_package(&["clib"], vec![dep("clib", "../clib")]),
+        c_pkg,
+        "clib",
+    );
+    assert!(standard_compat_warnings(&graph).is_empty());
+}
+
+/// Spec Example 2's diamond: two consumers at different levels
+/// share one dependency; only the too-old consumer's edge is
+/// violated - a compatible sibling edge neither rescues nor taints
+/// it (D13 is per edge).
+#[test]
+fn standard_compat_diamond_reports_only_the_violating_edge() {
+    let z = cxx_lib_package(
+        "z",
+        CxxStandard::Cxx20,
+        Some(interface_req(CxxStandard::Cxx20)),
+        &[],
+    );
+    let x = cxx_app_package(&["z"], vec![dep("z", "../z")]);
+    let mut y_target = target("y", TargetKind::Executable, &["src/main.cc"], &["z"]);
+    y_target.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx23));
+    let y = Package::new(
+        pkg_name("y"),
+        version(),
+        vec![y_target],
+        vec![dep("z", "../z")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", x, vec![2]),
+            make_pkg("y", "/abs/y", y, vec![2]),
+            make_pkg("z", "/abs/z", z, vec![]),
+        ],
+        vec![0, 1],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].consumer, "app:app");
+    assert_eq!(warnings[0].dependency, "z:z");
+    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c++20"));
+}
+
+/// One C library shared by a C++ consumer and a C consumer: the
+/// C++ side rides the permissive row-5 default (no warning), while
+/// the C side violates the library's declared C interface minimum -
+/// the two languages are judged independently per edge.
+#[test]
+fn standard_compat_judges_shared_c_library_per_consumer_language() {
+    let mut c_lib = target("clib", TargetKind::Library, &["src/c.c"], &[]);
+    c_lib.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C17));
+    c_lib.language.interface_c_standard =
+        Some(StandardDeclaration::Declared(interface_req(CStandard::C17)));
+    let c_pkg = Package::new(pkg_name("clib"), version(), vec![c_lib], Vec::new()).unwrap();
+    let cxx_app = cxx_app_package(&["clib"], vec![dep("clib", "../clib")]);
+    let mut c_target = target("capp", TargetKind::Executable, &["src/main.c"], &["clib"]);
+    c_target.language.c_standard = Some(StandardDeclaration::Declared(CStandard::C11));
+    let c_app = Package::new(
+        pkg_name("capp"),
+        version(),
+        vec![c_target],
+        vec![dep("clib", "../clib")],
+    )
+    .unwrap();
+    let graph = graph_with(
+        vec![
+            make_pkg("app", "/abs/app", cxx_app, vec![2]),
+            make_pkg("capp", "/abs/capp", c_app, vec![2]),
+            make_pkg("clib", "/abs/clib", c_pkg, vec![]),
+        ],
+        vec![0, 1],
+        Some(0),
+    );
+    let warnings = standard_compat_warnings(&graph);
+    // Only the C consumer's edge is violated; the C++ consumer
+    // rides the permissive default silently.
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].consumer, "capp:capp");
+    assert_eq!(warnings[0].language, SourceLanguage::C);
+    assert_eq!(warnings[0].requirement, EdgeRequirement::Min("c17"));
+}
+
+/// Package-level interface defaults describe a library's public
+/// interface: a qualified edge to an executable-like target in a
+/// package carrying an `interface-cxx-standard` default takes no
+/// requirement from it, while a library target in the same package
+/// still does.
+#[test]
+fn standard_compat_package_interface_default_skips_executable_targets() {
+    let mut tool = target("tool", TargetKind::Executable, &["src/tool.cc"], &[]);
+    tool.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx20));
+    let mut toollib = target("toollib", TargetKind::Library, &["src/lib.cc"], &[]);
+    toollib.language.cxx_standard = Some(StandardDeclaration::Declared(CxxStandard::Cxx20));
+    let mut tools_pkg = Package::new(
+        pkg_name("tools"),
+        version(),
+        vec![tool, toollib],
+        Vec::new(),
+    )
+    .unwrap();
+    tools_pkg.language.interface_cxx_standard = Some(StandardDeclaration::Declared(interface_req(
+        CxxStandard::Cxx20,
+    )));
+    let app = cxx_app_package(
+        &["tools:tool", "tools:toollib"],
+        vec![dep("tools", "../tools")],
+    );
+    let graph = app_dep_graph(app, tools_pkg, "tools");
+    let warnings = standard_compat_warnings(&graph);
+    // Only the library edge violates; the executable edge takes no
+    // package-level interface default.
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].dependency, "tools:toollib");
+    let RequirementOrigin::Declared { site } = &warnings[0].origin else {
+        panic!("expected a declared origin, got {:?}", warnings[0].origin);
+    };
+    assert_eq!(site.scope, DeclScope::Package);
 }
