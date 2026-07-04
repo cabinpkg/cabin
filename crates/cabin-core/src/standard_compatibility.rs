@@ -209,9 +209,7 @@ fn req_of<S: Copy + Ord>(
         // standard.  Row 4: a compiled target without an interface
         // declaration imposes no constraint.
         (None, Some(min)) => match kind {
-            DependencyKind::HeaderOnly => {
-                (Requirement::Min(min), ReqOfSource::HeaderOnlyInference)
-            }
+            DependencyKind::HeaderOnly => (Requirement::Min(min), ReqOfSource::HeaderOnlyInference),
             DependencyKind::Compiled => (
                 Requirement::Unconstrained,
                 ReqOfSource::CompiledNoDeclaration,
