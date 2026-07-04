@@ -1,13 +1,20 @@
-//! Rendering for the experimental `standard-compat` warnings.
+//! Rendering and gating for the experimental `standard-compat`
+//! check.
 //!
 //! `cabin-build`'s post-resolution pass hands the CLI typed
 //! [`StandardCompatViolation`] records (see
 //! `cabin_build::standard_compat`); this module composes the
-//! user-facing wording, re-locates the consumer's standard
-//! declaration in its manifest for a labeled snippet
+//! user-facing wording - the provenance chain with manifest
+//! `path:line` references - re-locates the consumer's standard
+//! declaration for a labeled snippet
 //! ([`cabin_manifest::standard_field_span`]), and renders each
-//! record through `cabin-diagnostics` as a warning-severity
-//! diagnostic.  Warnings never affect the exit status.
+//! record through `cabin-diagnostics`.  Violations are
+//! error-severity and fail the command; the temporary
+//! `[build] standard-compat-errors = false` config switch demotes
+//! them to warnings during migration, and a violation whose edge
+//! carries the per-edge `ignore-interface-standard = true`
+//! override renders as an unchecked-edge note instead and never
+//! gates.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -19,66 +26,115 @@ use cabin_build::{
 use cabin_core::ExperimentalFeature;
 use cabin_diagnostics::miette;
 
-/// Whether the user opted into the pass for this invocation.
+/// Whether the user opted into the check for this invocation.
 pub(crate) fn requested(unstable: &BTreeSet<ExperimentalFeature>) -> bool {
     unstable.contains(&ExperimentalFeature::StandardCompat)
 }
 
-/// Render every violation as a warning diagnostic on stderr.
-/// Violations arrive pre-sorted from the planner; rendering keeps
-/// that order.  `lockfile_pinned` holds the (name, version)
-/// selections that came straight out of a pre-existing
-/// `cabin.lock`; a violation whose dependency is among them also
-/// explains the likely staleness cause and the re-resolve remedy.
-pub(crate) fn report_warnings(
-    warnings: &[StandardCompatViolation],
+/// Whether the temporary `[build] standard-compat-errors = false`
+/// migration switch demotes violations to warnings for this
+/// invocation.
+pub(crate) fn demoted(config: &cabin_config::EffectiveConfig) -> bool {
+    config
+        .build
+        .standard_compat_errors
+        .as_ref()
+        .is_some_and(|setting| !setting.value)
+}
+
+/// Render every violation and gate the command.  Violations arrive
+/// pre-sorted from the planner; rendering keeps that order.
+/// `lockfile_pinned` holds the (name, version) selections that came
+/// straight out of a pre-existing `cabin.lock`; a violation whose
+/// dependency is among them also explains the likely staleness
+/// cause and the re-resolve remedy.
+///
+/// Non-ignored violations render as errors and produce an `Err`
+/// that fails the command - unless `demote_to_warnings` (the
+/// temporary `[build] standard-compat-errors = false` migration
+/// switch) is set, in which case they render as warnings and the
+/// command proceeds.  Ignored violations (per-edge
+/// `ignore-interface-standard = true`) render as one
+/// unchecked-edge note per edge and never gate.
+///
+/// # Errors
+/// Returns an error when at least one non-ignored violation was
+/// rendered and `demote_to_warnings` is `false`.
+pub(crate) fn report(
+    violations: &[StandardCompatViolation],
     color: cabin_core::ColorChoice,
     lockfile_pinned: &BTreeSet<(String, String)>,
+    demote_to_warnings: bool,
 ) -> Result<()> {
-    if warnings.is_empty() {
+    if violations.is_empty() {
         return Ok(());
     }
+    let severity = if demote_to_warnings {
+        miette::Severity::Warning
+    } else {
+        miette::Severity::Error
+    };
     let mut stderr = termcolor::StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
-    for violation in warnings {
+    let mut unchecked_edges: BTreeSet<(&str, &str)> = BTreeSet::new();
+    let mut gating = 0usize;
+    for violation in violations {
+        if violation.ignored {
+            // One note per edge: a mixed-language consumer failing
+            // both languages on one overridden edge yields two
+            // records but the edge goes unchecked exactly once.
+            if unchecked_edges.insert((&violation.consumer, &violation.dependency)) {
+                cabin_diagnostics::render(&unchecked_note(violation), &mut stderr, color)?;
+            }
+            continue;
+        }
+        gating += 1;
         let from_lockfile = lockfile_pinned.contains(&(
             violation.dependency_package.clone(),
             violation.dependency_version.clone(),
         ));
-        let diagnostic = warning_diagnostic(violation, from_lockfile);
+        let diagnostic = violation_diagnostic(violation, from_lockfile, severity);
         cabin_diagnostics::render(&diagnostic, &mut stderr, color)?;
+    }
+    if gating > 0 && !demote_to_warnings {
+        anyhow::bail!(
+            "{gating} standard compatibility violation{s} (`-Z standard-compat`); during \
+             migration, `standard-compat-errors = false` under `[build]` in \
+             `.cabin/config.toml` temporarily demotes these errors to warnings",
+            s = crate::plural(gating),
+        );
     }
     Ok(())
 }
 
-/// One rendered warning.  Implements [`miette::Diagnostic`] by hand
-/// (matching `cabin_diagnostics::CodedMessage`) so the CLI does not
-/// grow a direct dependency on the derive machinery.
+/// One rendered diagnostic.  Implements [`miette::Diagnostic`] by
+/// hand (matching `cabin_diagnostics::CodedMessage`) so the CLI
+/// does not grow a direct dependency on the derive machinery.
 #[derive(Debug)]
-struct StandardCompatWarning {
+struct StandardCompatDiagnostic {
     message: String,
     help: String,
-    source: miette::NamedSource<String>,
+    severity: miette::Severity,
+    code: &'static str,
+    source: Option<miette::NamedSource<String>>,
     label: String,
     span: Option<miette::SourceSpan>,
 }
 
-impl fmt::Display for StandardCompatWarning {
+impl fmt::Display for StandardCompatDiagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
 
-impl std::error::Error for StandardCompatWarning {}
+impl std::error::Error for StandardCompatDiagnostic {}
 
-impl miette::Diagnostic for StandardCompatWarning {
+impl miette::Diagnostic for StandardCompatDiagnostic {
     fn code(&self) -> Option<Box<dyn fmt::Display + '_>> {
-        Some(Box::new(
-            cabin_diagnostics::code::LANGUAGE_STANDARD_COMPAT_VIOLATION,
-        ))
+        Some(Box::new(self.code))
     }
 
     fn severity(&self) -> Option<miette::Severity> {
-        Some(miette::Severity::Warning)
+        Some(self.severity)
     }
 
     fn help(&self) -> Option<Box<dyn fmt::Display + '_>> {
@@ -86,9 +142,10 @@ impl miette::Diagnostic for StandardCompatWarning {
     }
 
     fn source_code(&self) -> Option<&dyn miette::SourceCode> {
-        self.span
-            .is_some()
-            .then_some(&self.source as &dyn miette::SourceCode)
+        self.span?;
+        self.source
+            .as_ref()
+            .map(|source| source as &dyn miette::SourceCode)
     }
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = miette::LabeledSpan> + '_>> {
@@ -99,57 +156,55 @@ impl miette::Diagnostic for StandardCompatWarning {
     }
 }
 
-fn warning_diagnostic(
+fn violation_diagnostic(
     violation: &StandardCompatViolation,
     from_lockfile: bool,
-) -> StandardCompatWarning {
+    severity: miette::Severity,
+) -> StandardCompatDiagnostic {
     let lang = violation.language.human_label();
+    let consumer = format!(
+        "`{}` ({}, {})",
+        violation.consumer,
+        violation.consumer_standard,
+        site_ref(&violation.consumer_site),
+    );
 
-    // "imposed by `origin` via public dependency chain `a` -> `b`"
-    // whenever the requirement was not declared by the direct
-    // dependency itself.
-    let imposed = if violation.chain.len() > 1 {
-        format!(
-            ", imposed by `{}` via public dependency chain `{}`",
-            violation.origin_target,
+    // "via public dependency `origin`" whenever the requirement was
+    // not declared by the direct dependency itself; longer
+    // provenance chains name every hop.
+    let via = match violation.chain.len() {
+        0 | 1 => String::new(),
+        2 => format!(" via public dependency `{}`", violation.origin_target),
+        _ => format!(
+            " via public dependency chain `{}`",
             violation.chain.join("` -> `"),
-        )
-    } else {
-        String::new()
+        ),
     };
 
     let message = match (violation.requirement, &violation.origin) {
         (EdgeRequirement::Min(min), RequirementOrigin::Declared { site }) => format!(
-            "target `{}` compiles {lang} as `{}`, but its dependency `{}` requires {lang} \
-             consumers at `{min}` or newer{imposed} (`{}` in {})",
-            violation.consumer,
-            violation.consumer_standard,
+            "{consumer} -> `{}` requires {lang} consumers at `{min}` or newer{via} (`{}`, {})",
             violation.dependency,
             site.field,
-            site.manifest_path.display(),
+            site_ref(site),
         ),
         (EdgeRequirement::Min(min), RequirementOrigin::HeaderOnlyInference { site }) => format!(
-            "target `{}` compiles {lang} as `{}`, but its dependency `{}` requires {lang} \
-             consumers at `{min}` or newer{imposed} (inferred from implementation standard: \
-             `{}` in {})",
-            violation.consumer,
-            violation.consumer_standard,
+            "{consumer} -> `{}` requires {lang} consumers at `{min}` or newer{via} (inferred \
+             from implementation standard `{}`, {})",
             violation.dependency,
             site.field,
-            site.manifest_path.display(),
+            site_ref(site),
         ),
         (EdgeRequirement::Forbidden, RequirementOrigin::DeclaredNone { site }) => format!(
-            "target `{}` compiles {lang}, but its dependency `{}` cannot be consumed from \
-             {lang}: {lang} consumption was disabled by `{} = \"none\"`{imposed} (in {})",
-            violation.consumer,
+            "{consumer} -> `{}` cannot be consumed from {lang}: {lang} consumption was \
+             disabled by `{} = \"none\"`{via} ({})",
             violation.dependency,
             site.field,
-            site.manifest_path.display(),
+            site_ref(site),
         ),
         (EdgeRequirement::Forbidden, RequirementOrigin::CrossLanguageDefault) => format!(
-            "target `{}` compiles {lang}, but its dependency `{}` implements no {lang} and \
-             declares no `{}`, so it cannot be consumed from {lang}{imposed}",
-            violation.consumer,
+            "{consumer} -> `{}` implements no {lang} and declares no `{}`, so it cannot be \
+             consumed from {lang}{via}",
             violation.dependency,
             interface_field(violation.language),
         ),
@@ -181,27 +236,82 @@ fn warning_diagnostic(
     } else {
         ""
     };
+    // The per-edge override lives on the dependency entry that
+    // resolved this edge, so the remedy names that entry's table
+    // and is withheld for intra-package edges, which have no
+    // entry to carry it.  It is also withheld for minimum
+    // violations: those the always-on build-time interface
+    // enforcement (`validate_planned_standards`) independently
+    // rejects, so the override would silence this error only to
+    // fail the command anyway.  The forbidden classes (an
+    // interface `"none"`, the strict cross-language default) are
+    // exactly the ones that layer deliberately accepts - there
+    // the override genuinely unblocks the command.
+    let last_resort = match (violation.requirement, &violation.override_section) {
+        (EdgeRequirement::Forbidden, Some(section)) => format!(
+            "; as a last resort, `{} = {{ ..., ignore-interface-standard = true }}` in the \
+             `{section}` table of {} leaves exactly this edge unchecked",
+            violation.dependency_package,
+            violation.consumer_manifest_path.display(),
+        ),
+        _ => String::new(),
+    };
     let help = match violation.requirement {
         EdgeRequirement::Min(min) => format!(
-            "raise `{}`'s {lang} standard to at least `{min}`{pin}{lockfile_note}",
+            "raise `{}`'s {lang} standard to at least `{min}`{pin}{lockfile_note}{last_resort}",
             violation.consumer,
         ),
         EdgeRequirement::Forbidden => format!(
-            "`{}` cannot be consumed from {lang} at any standard level{pin}{lockfile_note}",
+            "`{}` cannot be consumed from {lang} at any standard level{pin}{lockfile_note}\
+             {last_resort}",
             violation.origin_target,
         ),
     };
 
     let (source, span) = consumer_snippet(&violation.consumer_site);
-    StandardCompatWarning {
+    StandardCompatDiagnostic {
         message,
         help,
-        source,
+        severity,
+        code: cabin_diagnostics::code::LANGUAGE_STANDARD_COMPAT_VIOLATION,
+        source: Some(source),
         label: format!(
             "`{}` compiles {lang} as `{}`",
             violation.consumer, violation.consumer_standard,
         ),
         span,
+    }
+}
+
+/// The downgraded note for an edge the consuming package opted out
+/// of the check: the violation is suppressed, but the edge is
+/// called out as unchecked so the override cannot silently rot.
+fn unchecked_note(violation: &StandardCompatViolation) -> StandardCompatDiagnostic {
+    // Only override-suppressed violations reach this note, and a
+    // suppressing entry always has a section.
+    let section = violation
+        .override_section
+        .as_deref()
+        .unwrap_or("[dependencies]");
+    StandardCompatDiagnostic {
+        message: format!(
+            "dependency edge `{}` -> `{}` is unchecked: `ignore-interface-standard = true` \
+             is set for `{}` in the `{section}` table of {}",
+            violation.consumer,
+            violation.dependency,
+            violation.dependency_package,
+            violation.consumer_manifest_path.display(),
+        ),
+        help: format!(
+            "the edge violates `{}`'s standard compatibility requirements; remove \
+             `ignore-interface-standard` from the `{section}` entry to re-enable the check",
+            violation.origin_target,
+        ),
+        severity: miette::Severity::Advice,
+        code: cabin_diagnostics::code::LANGUAGE_STANDARD_COMPAT_UNCHECKED_EDGE,
+        source: None,
+        label: String::new(),
+        span: None,
     }
 }
 
@@ -214,17 +324,37 @@ fn interface_field(language: cabin_core::SourceLanguage) -> &'static str {
     }
 }
 
+/// `path:line` of the declaration a [`DeclSite`] cites, for the
+/// provenance chain.  Best-effort: an unreadable manifest or a
+/// failed span lookup renders the bare path.
+fn site_ref(site: &DeclSite) -> String {
+    match site_line(site) {
+        Some(line) => format!("{}:{line}", site.manifest_path.display()),
+        None => site.manifest_path.display().to_string(),
+    }
+}
+
+/// 1-based line number of the cited declaration.
+fn site_line(site: &DeclSite) -> Option<usize> {
+    let text = std::fs::read_to_string(&site.manifest_path).ok()?;
+    let range = cabin_manifest::standard_field_span(&text, field_scope(&site.scope), site.field)?;
+    Some(text[..range.start].bytes().filter(|&b| b == b'\n').count() + 1)
+}
+
+fn field_scope(scope: &DeclScope) -> cabin_manifest::StandardFieldScope<'_> {
+    match scope {
+        DeclScope::Package => cabin_manifest::StandardFieldScope::Package,
+        DeclScope::Target(name) => cabin_manifest::StandardFieldScope::Target(name),
+        DeclScope::Workspace => cabin_manifest::StandardFieldScope::Workspace,
+    }
+}
+
 /// Load the consumer's manifest and re-locate its standard
 /// declaration.  Best-effort: an unreadable file or a failed span
 /// lookup renders the diagnostic without a snippet.
 fn consumer_snippet(site: &DeclSite) -> (miette::NamedSource<String>, Option<miette::SourceSpan>) {
     let text = std::fs::read_to_string(&site.manifest_path).unwrap_or_default();
-    let scope = match &site.scope {
-        DeclScope::Package => cabin_manifest::StandardFieldScope::Package,
-        DeclScope::Target(name) => cabin_manifest::StandardFieldScope::Target(name),
-        DeclScope::Workspace => cabin_manifest::StandardFieldScope::Workspace,
-    };
-    let span = cabin_manifest::standard_field_span(&text, scope, site.field)
+    let span = cabin_manifest::standard_field_span(&text, field_scope(&site.scope), site.field)
         .map(|range| miette::SourceSpan::new(range.start.into(), range.len()));
     (
         miette::NamedSource::new(site.manifest_path.display().to_string(), text),
@@ -248,6 +378,14 @@ mod tests {
             .render_report(&mut out, diagnostic)
             .unwrap();
         out
+    }
+
+    fn render_error(violation: &StandardCompatViolation, from_lockfile: bool) -> String {
+        render(&violation_diagnostic(
+            violation,
+            from_lockfile,
+            miette::Severity::Error,
+        ))
     }
 
     fn min_violation() -> StandardCompatViolation {
@@ -276,35 +414,28 @@ mod tests {
             chain: vec!["liba:liba".to_owned(), "libb:libb".to_owned()],
             consumer_manifest_path: PathBuf::from("/nonexistent/app/cabin.toml"),
             ignored: false,
+            override_section: Some("[dependencies]".to_owned()),
         }
     }
 
     /// Pins the rendered shape of the transitive minimum-violation
-    /// warning: severity, stable code, consumer standard, origin
-    /// citation, chain, and both remedies.
+    /// error: severity, stable code, the consumer -> dependency
+    /// provenance arrow, origin citation, and all three remedies in
+    /// order (raise, pin, override).
     #[test]
     fn renders_transitive_minimum_violation() {
-        let rendered = render(&warning_diagnostic(&min_violation(), false));
+        let rendered = render_error(&min_violation(), false);
         assert!(
             rendered.contains("cabin::language::standard_compat_violation"),
             "expected the stable code in: {rendered}"
         );
         assert!(
             rendered.contains(
-                "target `app:app` compiles C++ as `c++17`, but its dependency `liba:liba` \
-                 requires C++ consumers at `c++20` or newer"
+                "`app:app` (c++17, /nonexistent/app/cabin.toml) -> `liba:liba` requires C++ \
+                 consumers at `c++20` or newer via public dependency `libb:libb` \
+                 (`interface-cxx-standard`, /nonexistent/libb/cabin.toml)"
             ),
-            "expected the core sentence in: {rendered}"
-        );
-        assert!(
-            rendered.contains(
-                "imposed by `libb:libb` via public dependency chain `liba:liba` -> `libb:libb`"
-            ),
-            "expected the provenance chain in: {rendered}"
-        );
-        assert!(
-            rendered.contains("`interface-cxx-standard` in /nonexistent/libb/cabin.toml"),
-            "expected the origin declaration citation in: {rendered}"
+            "expected the provenance-chain sentence in: {rendered}"
         );
         assert!(
             rendered.contains("raise `app:app`'s C++ standard to at least `c++20`"),
@@ -313,6 +444,70 @@ mod tests {
         assert!(
             rendered.contains("or pin `liba` to an older version (currently 1.2.0)"),
             "expected the pin remedy in: {rendered}"
+        );
+        // The always-on build-time enforcement independently
+        // rejects minimum violations, so the override remedy - a
+        // dead end here - is withheld.
+        assert!(
+            !rendered.contains("ignore-interface-standard"),
+            "a minimum violation must not offer the override: {rendered}"
+        );
+        let raise = rendered.find("raise `app:app`").unwrap();
+        let pin = rendered.find("or pin `liba`").unwrap();
+        assert!(raise < pin, "remedies must read raise -> pin: {rendered}");
+    }
+
+    /// Snapshot of the provenance rendering with resolvable
+    /// manifests: both sites carry `path:line` references and the
+    /// consumer snippet is labeled.
+    #[test]
+    fn renders_provenance_chain_with_manifest_lines() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("app")).unwrap();
+        std::fs::create_dir_all(dir.path().join("libb")).unwrap();
+        let app_manifest = dir.path().join("app/cabin.toml");
+        let libb_manifest = dir.path().join("libb/cabin.toml");
+        std::fs::write(
+            &app_manifest,
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[target.app]\ntype = \
+             \"executable\"\nsources = [\"src/main.cc\"]\ncxx-standard = \"c++17\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &libb_manifest,
+            "[package]\nname = \"libb\"\nversion = \"0.1.0\"\n\n[target.libb]\ntype = \
+             \"library\"\nsources = [\"src/b.cc\"]\ninterface-cxx-standard = \"c++20\"\n",
+        )
+        .unwrap();
+        let mut violation = min_violation();
+        violation.consumer_site.manifest_path = app_manifest.clone();
+        violation.consumer_manifest_path = app_manifest;
+        let RequirementOrigin::Declared { site } = &mut violation.origin else {
+            unreachable!("min_violation carries a declared origin");
+        };
+        site.manifest_path = libb_manifest;
+        let rendered = render_error(&violation, false);
+        // `cxx-standard` is on line 8 of the app manifest and
+        // `interface-cxx-standard` on line 8 of libb's.  Normalize
+        // Windows separators so the pinned form is one string.
+        let normalized = rendered
+            .replace(&dir.path().display().to_string(), "<dir>")
+            .replace('\\', "/");
+        assert!(
+            normalized.contains(
+                "`app:app` (c++17, <dir>/app/cabin.toml:8) -> `liba:liba` requires C++ \
+                 consumers at `c++20` or newer via public dependency `libb:libb` \
+                 (`interface-cxx-standard`, <dir>/libb/cabin.toml:8)"
+            ),
+            "expected line-numbered provenance in: {normalized}"
+        );
+        assert!(
+            normalized.contains("cxx-standard = \"c++17\""),
+            "expected the manifest snippet line in: {normalized}"
+        );
+        assert!(
+            normalized.contains("`app:app` compiles C++ as `c++17`"),
+            "expected the snippet label in: {normalized}"
         );
     }
 
@@ -324,14 +519,31 @@ mod tests {
         violation.dependency = "libb:libb".to_owned();
         violation.chain = vec!["libb:libb".to_owned()];
         violation.dependency_is_registry = false;
-        let rendered = render(&warning_diagnostic(&violation, false));
+        let rendered = render_error(&violation, false);
         assert!(
-            !rendered.contains("public dependency chain"),
+            !rendered.contains("via public dependency"),
             "a single-hop origin must not mention a chain: {rendered}"
         );
         assert!(
             !rendered.contains("pin `"),
             "a path dependency offers no pin remedy: {rendered}"
+        );
+    }
+
+    /// A three-hop provenance renders the full chain, hop by hop.
+    #[test]
+    fn renders_longer_chains_hop_by_hop() {
+        let mut violation = min_violation();
+        violation.chain = vec![
+            "liba:liba".to_owned(),
+            "mid:mid".to_owned(),
+            "libb:libb".to_owned(),
+        ];
+        let rendered = render_error(&violation, false);
+        assert!(
+            rendered
+                .contains("via public dependency chain `liba:liba` -> `mid:mid` -> `libb:libb`"),
+            "expected the full chain in: {rendered}"
         );
     }
 
@@ -350,10 +562,10 @@ mod tests {
                 field: "cxx-standard",
             },
         };
-        let rendered = render(&warning_diagnostic(&violation, false));
+        let rendered = render_error(&violation, false);
         assert!(
             rendered.contains(
-                "(inferred from implementation standard: `cxx-standard` in \
+                "(inferred from implementation standard `cxx-standard`, \
                  /nonexistent/hdr/cabin.toml)"
             ),
             "expected the inference marker in: {rendered}"
@@ -375,7 +587,7 @@ mod tests {
                 field: "interface-cxx-standard",
             },
         };
-        let rendered = render(&warning_diagnostic(&violation, false));
+        let rendered = render_error(&violation, false);
         assert!(
             rendered
                 .contains("C++ consumption was disabled by `interface-cxx-standard = \"none\"`"),
@@ -385,6 +597,20 @@ mod tests {
             rendered.contains("`libb:libb` cannot be consumed from C++ at any standard level"),
             "expected the forbidden help in: {rendered}"
         );
+        // The build-time enforcement deliberately accepts `"none"`,
+        // so here the override genuinely unblocks the command and
+        // is offered - last, after the pin.
+        assert!(
+            rendered.contains(
+                "as a last resort, `liba = { ..., ignore-interface-standard = true }` in the \
+                 `[dependencies]` table of /nonexistent/app/cabin.toml leaves exactly this \
+                 edge unchecked"
+            ),
+            "expected the override remedy in: {rendered}"
+        );
+        let pin = rendered.find("or pin `liba`").unwrap();
+        let last_resort = rendered.find("as a last resort").unwrap();
+        assert!(pin < last_resort, "the override stays last: {rendered}");
     }
 
     /// The strict C++-to-C default names the missing interface
@@ -395,12 +621,13 @@ mod tests {
         violation.language = cabin_core::SourceLanguage::C;
         violation.consumer_standard = "c11";
         violation.dependency = "cxxlib:cxxlib".to_owned();
+        violation.dependency_package = "cxxlib".to_owned();
         violation.origin_target = "cxxlib:cxxlib".to_owned();
         violation.chain = vec!["cxxlib:cxxlib".to_owned()];
         violation.dependency_is_registry = false;
         violation.requirement = EdgeRequirement::Forbidden;
         violation.origin = RequirementOrigin::CrossLanguageDefault;
-        let rendered = render(&warning_diagnostic(&violation, false));
+        let rendered = render_error(&violation, false);
         assert!(
             rendered.contains(
                 "implements no C and declares no `interface-c-standard`, so it cannot be \
@@ -410,37 +637,43 @@ mod tests {
         );
     }
 
-    /// A warning renders with a labeled snippet when the manifest
-    /// is readable, and the label carries the consumer's standard.
+    /// An intra-package edge has no dependency entry to carry the
+    /// override (the planner records no section), so the
+    /// last-resort remedy is withheld.
     #[test]
-    fn renders_snippet_when_manifest_is_readable() {
-        let dir = assert_fs::TempDir::new().unwrap();
-        let manifest = dir.path().join("cabin.toml");
-        std::fs::write(
-            &manifest,
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[target.app]\nkind = \
-             \"executable\"\nsources = [\"src/main.cc\"]\ncxx-standard = \"c++17\"\n",
-        )
-        .unwrap();
+    fn intra_package_edge_offers_no_override_remedy() {
         let mut violation = min_violation();
-        violation.consumer_site.manifest_path = manifest;
-        let rendered = render(&warning_diagnostic(&violation, false));
+        violation.dependency = "app:lib".to_owned();
+        violation.dependency_package = "app".to_owned();
+        violation.dependency_is_registry = false;
+        violation.chain = vec!["app:lib".to_owned()];
+        violation.requirement = EdgeRequirement::Forbidden;
+        violation.origin = RequirementOrigin::CrossLanguageDefault;
+        violation.language = cabin_core::SourceLanguage::C;
+        violation.consumer_standard = "c11";
+        violation.override_section = None;
+        let rendered = render_error(&violation, false);
         assert!(
-            rendered.contains("cxx-standard = \"c++17\""),
-            "expected the manifest snippet line in: {rendered}"
-        );
-        assert!(
-            rendered.contains("`app:app` compiles C++ as `c++17`"),
-            "expected the snippet label in: {rendered}"
+            !rendered.contains("ignore-interface-standard"),
+            "an intra-package edge must not suggest the override: {rendered}"
         );
     }
 
     /// A dependency whose resolved version came out of the lockfile
     /// appends the staleness explanation and the `cabin update`
-    /// remedy to its warning, after the usual remedies.
+    /// remedy, after the usual remedies and before the override.
     #[test]
     fn renders_lockfile_staleness_note_when_seeded() {
-        let rendered = render(&warning_diagnostic(&min_violation(), true));
+        let mut violation = min_violation();
+        violation.requirement = EdgeRequirement::Forbidden;
+        violation.origin = RequirementOrigin::DeclaredNone {
+            site: DeclSite {
+                manifest_path: PathBuf::from("/nonexistent/libb/cabin.toml"),
+                scope: DeclScope::Target("libb".to_owned()),
+                field: "interface-cxx-standard",
+            },
+        };
+        let rendered = render_error(&violation, true);
         assert!(
             rendered.contains("this dependency's resolved version was loaded from cabin.lock"),
             "expected the lockfile provenance in: {rendered}"
@@ -456,24 +689,21 @@ mod tests {
             ),
             "expected the likely cause and the update remedy in: {rendered}"
         );
-        // The usual remedies stay in place, ahead of the note.
+        let update = rendered.find("cabin update").unwrap();
+        let last_resort = rendered.find("as a last resort").unwrap();
         assert!(
-            rendered.contains("raise `app:app`'s C++ standard to at least `c++20`"),
-            "expected the raise remedy in: {rendered}"
-        );
-        assert!(
-            rendered.contains("or pin `liba` to an older version (currently 1.2.0)"),
-            "expected the pin remedy in: {rendered}"
+            update < last_resort,
+            "the override stays the last remedy: {rendered}"
         );
     }
 
     /// Fresh resolution renders no lockfile note.
     #[test]
     fn fresh_resolution_renders_no_lockfile_note() {
-        let rendered = render(&warning_diagnostic(&min_violation(), false));
+        let rendered = render_error(&min_violation(), false);
         assert!(
             !rendered.contains("cabin.lock") && !rendered.contains("cabin update"),
-            "a fresh-resolution warning must not mention the lockfile: {rendered}"
+            "a fresh-resolution violation must not mention the lockfile: {rendered}"
         );
     }
 
@@ -483,25 +713,145 @@ mod tests {
     fn path_dependency_renders_no_lockfile_note_even_when_seeded() {
         let mut violation = min_violation();
         violation.dependency_is_registry = false;
-        let rendered = render(&warning_diagnostic(&violation, true));
+        let rendered = render_error(&violation, true);
         assert!(
             !rendered.contains("cabin.lock") && !rendered.contains("cabin update"),
-            "a path dependency's warning must not mention the lockfile: {rendered}"
+            "a path dependency's violation must not mention the lockfile: {rendered}"
         );
     }
 
-    /// Warning severity renders with miette's warning glyph, not
-    /// the error cross.
+    /// Violations render with miette's error cross by default and
+    /// downgrade to the warning glyph under the migration switch.
     #[test]
-    fn renders_as_warning_severity() {
-        let rendered = render(&warning_diagnostic(&min_violation(), false));
+    fn renders_error_severity_and_demoted_warning_severity() {
+        let rendered = render_error(&min_violation(), false);
         assert!(
-            rendered.contains('⚠'),
-            "expected the warning glyph in: {rendered}"
+            rendered.contains('×'),
+            "expected the error cross in: {rendered}"
+        );
+        let demoted = render(&violation_diagnostic(
+            &min_violation(),
+            false,
+            miette::Severity::Warning,
+        ));
+        assert!(
+            demoted.contains('⚠'),
+            "expected the warning glyph in: {demoted}"
         );
         assert!(
-            !rendered.contains('×'),
-            "a warning must not render the error cross: {rendered}"
+            !demoted.contains('×'),
+            "a demoted violation must not render the error cross: {demoted}"
         );
+    }
+
+    /// The unchecked-edge note names the edge, the override, and
+    /// the declaring manifest, renders at advice severity under its
+    /// own stable code, and points back at the violated origin.
+    #[test]
+    fn renders_unchecked_edge_note() {
+        let mut violation = min_violation();
+        violation.ignored = true;
+        let rendered = render(&unchecked_note(&violation));
+        assert!(
+            rendered.contains("cabin::language::standard_compat_unchecked_edge"),
+            "expected the stable note code in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "dependency edge `app:app` -> `liba:liba` is unchecked: \
+                 `ignore-interface-standard = true` is set for `liba` in the \
+                 `[dependencies]` table of /nonexistent/app/cabin.toml"
+            ),
+            "expected the unchecked-edge wording in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "remove `ignore-interface-standard` from the `[dependencies]` entry to \
+                 re-enable the check"
+            ),
+            "expected the re-enable help in: {rendered}"
+        );
+        assert!(
+            !rendered.contains('×') && !rendered.contains('⚠'),
+            "a note must render below warning severity: {rendered}"
+        );
+    }
+
+    /// An edge resolved through `[dev-dependencies]` names that
+    /// table in both the last-resort remedy and the unchecked
+    /// note, so following the advice never promotes a test-only
+    /// dependency to a normal one.
+    #[test]
+    fn dev_resolved_edge_names_the_dev_dependencies_table() {
+        let mut violation = min_violation();
+        violation.requirement = EdgeRequirement::Forbidden;
+        violation.origin = RequirementOrigin::DeclaredNone {
+            site: DeclSite {
+                manifest_path: PathBuf::from("/nonexistent/libb/cabin.toml"),
+                scope: DeclScope::Target("libb".to_owned()),
+                field: "interface-cxx-standard",
+            },
+        };
+        violation.override_section = Some("[dev-dependencies]".to_owned());
+        let rendered = render_error(&violation, false);
+        assert!(
+            rendered.contains(
+                "in the `[dev-dependencies]` table of /nonexistent/app/cabin.toml leaves \
+                 exactly this edge unchecked"
+            ),
+            "expected the dev table in the remedy: {rendered}"
+        );
+        violation.ignored = true;
+        let note = render(&unchecked_note(&violation));
+        assert!(
+            note.contains("is set for `liba` in the `[dev-dependencies]` table of"),
+            "expected the dev table in the note: {note}"
+        );
+        assert!(
+            note.contains("remove `ignore-interface-standard` from the `[dev-dependencies]` entry"),
+            "expected the dev table in the note help: {note}"
+        );
+    }
+
+    /// `report` fails with the violation count and the migration
+    /// hint once every diagnostic has rendered; the demoted and
+    /// ignored-only paths succeed.
+    #[test]
+    fn report_gates_unless_demoted_or_ignored() {
+        let violations = [min_violation()];
+        let err = report(
+            &violations,
+            cabin_core::ColorChoice::Never,
+            &BTreeSet::new(),
+            false,
+        )
+        .unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("1 standard compatibility violation (`-Z standard-compat`)"),
+            "expected the violation count in: {message}"
+        );
+        assert!(
+            message.contains("`standard-compat-errors = false` under `[build]`"),
+            "expected the migration hint in: {message}"
+        );
+
+        report(
+            &violations,
+            cabin_core::ColorChoice::Never,
+            &BTreeSet::new(),
+            true,
+        )
+        .expect("the migration switch demotes violations to warnings");
+
+        let mut ignored = min_violation();
+        ignored.ignored = true;
+        report(
+            &[ignored],
+            cabin_core::ColorChoice::Never,
+            &BTreeSet::new(),
+            false,
+        )
+        .expect("ignored violations never gate");
     }
 }

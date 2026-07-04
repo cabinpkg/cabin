@@ -16,12 +16,15 @@ use std::fmt;
 /// One recognized experimental feature, as accepted by `-Z`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExperimentalFeature {
-    /// Post-resolution language-standard compatibility warnings:
+    /// Post-resolution language-standard compatibility checking:
     /// evaluate the edge-compatibility model of
     /// `docs/design/standard-compatibility/spec.md` over the
-    /// resolved target graph and report violated edges as
-    /// warnings.  Diagnostic-only: never influences version
-    /// selection or gates a command.
+    /// resolved target graph and report violated edges as errors
+    /// that fail the command (warnings under the temporary
+    /// `[build] standard-compat-errors = false` config migration
+    /// switch; unchecked-edge notes under a per-edge
+    /// `ignore-interface-standard = true` override).  Never
+    /// influences version selection.
     StandardCompat,
 }
 

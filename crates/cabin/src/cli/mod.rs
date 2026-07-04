@@ -1949,7 +1949,7 @@ pub(crate) struct ArtifactPipeline {
     /// resolution re-selected.  Empty when no lockfile existed, when
     /// an update mode ignored it, and never containing a selection
     /// the resolver re-resolved past a stale pin.  Drives the
-    /// lockfile-staleness note on standard-compat warnings.
+    /// lockfile-staleness note on standard-compat violations.
     pub(crate) lockfile_pinned: BTreeSet<(String, String)>,
 }
 

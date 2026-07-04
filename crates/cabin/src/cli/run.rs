@@ -396,10 +396,11 @@ pub(crate) fn run(
         enabled_features: Some(&enabled_features),
         standard_compat: crate::cli::standard_compat::requested(unstable),
     })?;
-    crate::cli::standard_compat::report_warnings(
+    crate::cli::standard_compat::report(
         &plan_graph.standard_compat_violations,
         color,
         &lockfile_pinned,
+        crate::cli::standard_compat::demoted(&effective_config),
     )?;
     cabin_build::validate_planned_standards(&plan_graph)?;
     cabin_build::validate_toolchain_standards(
