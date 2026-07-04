@@ -3,7 +3,9 @@ import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
+import rehypeKatex from "rehype-katex";
 import rehypeSlug from "rehype-slug";
+import remarkMath from "remark-math";
 import { SITE_URL } from "./src/lib/constants";
 import { remarkDocsLinks } from "./src/lib/remark-docs-links";
 
@@ -22,16 +24,19 @@ export default defineConfig({
         // the surface scale in global.css).
         shikiConfig: { theme: "nord" },
         // Build the default Astro markdown pipeline (GFM, Shiki, heading IDs)
-        // plus: a remark step mapping the docs' relative `*.md` cross-links to
-        // `/docs/<slug>/`, and rehype steps that give each heading an id and
-        // wrap it in a self-link (`src/scripts/docs.ts` turns clicking that
-        // link into "copy deep link"). `processor` is the non-deprecated
-        // replacement for the top-level `markdown.remarkPlugins` option;
-        // user rehype plugins run before Astro's own heading-id step, so
-        // `rehype-slug` supplies the ids that `rehype-autolink-headings` needs.
+        // plus: remark steps mapping the docs' relative `*.md` cross-links to
+        // `/docs/<slug>/` and parsing `$`/`$$` math, and rehype steps that
+        // render the math with KaTeX (server-side; the stylesheet is imported
+        // by `DocsLayout.astro`), give each heading an id, and wrap it in a
+        // self-link (`src/scripts/docs.ts` turns clicking that link into
+        // "copy deep link"). `processor` is the non-deprecated replacement
+        // for the top-level `markdown.remarkPlugins` option; user rehype
+        // plugins run before Astro's own heading-id step, so `rehype-slug`
+        // supplies the ids that `rehype-autolink-headings` needs.
         processor: unified({
-            remarkPlugins: [remarkDocsLinks],
+            remarkPlugins: [remarkDocsLinks, remarkMath],
             rehypePlugins: [
+                rehypeKatex,
                 rehypeSlug,
                 [
                     rehypeAutolinkHeadings,

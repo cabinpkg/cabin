@@ -1,0 +1,45 @@
+name: Proofs
+
+# Checks the Lean mechanization of docs/design/standard-compatibility/spec.md.
+# The Lake project is standalone (not part of the Cargo workspace), so this
+# runs only when the proofs or the spec they mechanize change.  A spec-only
+# change cannot break `lake build` (the Lean sources never read the spec), so
+# the coverage step below is what makes the spec trigger meaningful: it fails
+# when a numbered lemma/theorem/corollary in the spec has no same-named Lean
+# declaration.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "proofs/**"
+      - "docs/design/standard-compatibility/**"
+  pull_request:
+    paths:
+      - "proofs/**"
+      - "docs/design/standard-compatibility/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lean:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check spec-item coverage
+        run: |
+          missing=0
+          for id in $(grep -oE '^\*\*(L[0-9]+|T[0-9]+|C[0-9]+)' docs/design/standard-compatibility/spec.md | tr -d '*' | sort -u); do
+            if ! grep -rqE "(theorem|def) ${id}_" proofs/standard-compatibility/StandardCompatibility/; then
+              echo "spec item ${id} has no ${id}_* declaration in the Lean mechanization"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: proofs/standard-compatibility

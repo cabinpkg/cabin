@@ -1,0 +1,6 @@
+name = "StandardCompatibility"
+version = "0.1.0"
+defaultTargets = ["StandardCompatibility"]
+
+[[lean_lib]]
+name = "StandardCompatibility"

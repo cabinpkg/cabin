@@ -99,6 +99,15 @@ export const DOCS_NAV: DocsNavSection[] = [
             { label: "CLI distribution artifacts", slug: "distribution" },
         ],
     },
+    {
+        title: "Design",
+        items: [
+            {
+                label: "Standard compatibility specification",
+                slug: "design/standard-compatibility/spec",
+            },
+        ],
+    },
 ];
 
 export const DOCS_PAGES: DocsNavLink[] = [
