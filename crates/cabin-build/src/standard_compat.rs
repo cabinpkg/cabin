@@ -228,18 +228,21 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                violations.push(violation(
-                    SourceLanguage::C,
-                    consumer.standard.as_str(),
-                    consumer_site(consumer.source, "c-standard", consumer_index, &nodes, req),
-                    requirement_of(effective[dep_index].c.requirement),
-                    &provenance_c(&effective, dep_index),
-                    tid,
-                    edge,
-                    &nodes,
-                    &sites,
-                    req,
-                ));
+                let provenance = provenance_c(&effective, dep_index);
+                if !interface_less_default_origin(&provenance, topo, req)? {
+                    violations.push(violation(
+                        SourceLanguage::C,
+                        consumer.standard.as_str(),
+                        consumer_site(consumer.source, "c-standard", consumer_index, &nodes, req),
+                        requirement_of(effective[dep_index].c.requirement),
+                        &provenance,
+                        tid,
+                        edge,
+                        &nodes,
+                        &sites,
+                        req,
+                    ));
+                }
             }
             if compiles_cxx
                 && let Some(consumer) = effective_cxx(&pkg_standards, consumer_target)
@@ -248,18 +251,21 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                violations.push(violation(
-                    SourceLanguage::Cxx,
-                    consumer.standard.as_str(),
-                    consumer_site(consumer.source, "cxx-standard", consumer_index, &nodes, req),
-                    requirement_of(effective[dep_index].cxx.requirement),
-                    &provenance_cxx(&effective, dep_index),
-                    tid,
-                    edge,
-                    &nodes,
-                    &sites,
-                    req,
-                ));
+                let provenance = provenance_cxx(&effective, dep_index);
+                if !interface_less_default_origin(&provenance, topo, req)? {
+                    violations.push(violation(
+                        SourceLanguage::Cxx,
+                        consumer.standard.as_str(),
+                        consumer_site(consumer.source, "cxx-standard", consumer_index, &nodes, req),
+                        requirement_of(effective[dep_index].cxx.requirement),
+                        &provenance,
+                        tid,
+                        edge,
+                        &nodes,
+                        &sites,
+                        req,
+                    ));
+                }
             }
         }
     }
@@ -275,6 +281,40 @@ pub(crate) fn edge_violations(
         ))
     });
     Ok(violations)
+}
+
+/// Whether a violated requirement originates at an interface-less
+/// target's cross-language default and should be suppressed.
+///
+/// An executable-like target has no consumable interface: the
+/// manifest rejects `interface-*` fields on those kinds, and the
+/// planner's include-dir walk never takes headers from them.  The
+/// strict C++-to-C default (spec D9 row 6) presumes dependency
+/// headers a C consumer could fail to compile, so a requirement the
+/// default originates *at* such a target warns about headers that
+/// do not exist.  Requirements merely passing through it from a
+/// library behind it keep warning (their origin is the library),
+/// and the always-on build-time enforcement independently checks
+/// the transitive closure, so nothing real is lost.
+fn interface_less_default_origin(
+    provenance: &Provenance<'_>,
+    topo: &[TargetId],
+    req: &PlanRequest<'_>,
+) -> Result<bool, BuildError> {
+    // Rows 1-3 cannot originate at an executable-like target (the
+    // parser rejects its interface fields, the package-level
+    // default is gated to library-like kinds, and it is not
+    // header-only), so the cross-language default is the only
+    // origin to inspect.
+    if provenance.origin.source != ReqOfSource::CrossLanguageDefault {
+        return Ok(false);
+    }
+    let origin_tid = &topo[*provenance
+        .path
+        .last()
+        .expect("a provenance chain is never empty")];
+    let origin = lookup_target(origin_tid, req.graph)?;
+    Ok(!(origin.kind.produces_archive() || origin.kind.is_header_only()))
 }
 
 /// Spec D6 attribute mapping for one target, with the declaration
