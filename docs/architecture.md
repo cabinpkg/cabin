@@ -103,7 +103,7 @@ docs/
       spec.md            normative resolver-level standard-compatibility model
       registry-index.md  standard metadata in the package index (design)
       publish-lints.md   publish-time standard-compatibility lints (design)
-      preference-mode.md standard-aware version preference (design, deferred)
+      preference-mode.md standard-aware version preference (implemented)
 ```
 
 ## Crate responsibilities and rules
@@ -1438,16 +1438,21 @@ The following are *not* part of this repository today:
   / MSVC itself *is* supported - CI builds and tests on `windows-2025-vs2026`, and the
   `cabin-driver` crate lowers the build IR to the MSVC `cl.exe` / `lib.exe` dialect; see the
   detection and dialect sections above.)
-- **No resolver-side language-standard filtering.** First-class C/C++ language standards are
+- **No hard resolver-side language-standard filtering.** First-class C/C++ language standards are
   implemented locally (required manifest fields with no built-in default, `[workspace]` defaults,
   the per-target `gnu-extensions` boolean, dialect lowering, pre-build validation, interface
-  enforcement, fingerprint / metadata - see
-  [`language-standards.md`](language-standards.md)); the resolver does not yet consult them, and
-  range interface requirements (the reserved `max` slot) belong to a future version.  The
+  enforcement, fingerprint / metadata - see [`language-standards.md`](language-standards.md)).
+  Standards inform resolver *version preference* - the `[resolver] incompatible-standards` knob
+  (default `fallback`) orders candidates by compatibility and reports hold-backs (see
+  [`language-standards.md`](language-standards.md#version-selection) and
+  [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md)) -
+  but they are **never** encoded as `PubGrub` constraints and never filter a version out of the
+  solution, so preference never introduces a resolution failure `allow` would not also produce.
+  Range interface requirements (the reserved `max` slot) belong to a future version.  The
   experimental `-Z standard-compat` check (`cabin_build::standard_compat`) evaluates the spec's
   edge-compatibility model over the *resolved* graph and fails the command on violated edges (see
-  [`language-standards.md`](language-standards.md)), but it observes
-  resolution output only - version selection remains standard-blind.  The MSVC
+  [`language-standards.md`](language-standards.md)); it is the post-resolution correctness
+  authority, distinct from the preference heuristic.  The MSVC
   `/std:c++latest` / `/std:clatest` spellings are intentionally never mapped as first-class
   standards - they float to the compiler's newest in-progress draft, so the unvalidated
   environment flag route (`CXXFLAGS` / `CFLAGS`) is their only supported injection point.
