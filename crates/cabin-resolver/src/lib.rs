@@ -198,6 +198,7 @@ mod tests {
                     build: None,
                     compiler_wrapper: None,
                     language: None,
+                    standards: cabin_index::StandardsMetadata::default(),
                 },
             );
         }
@@ -243,6 +244,59 @@ mod tests {
         assert_eq!(out.packages[1].source, ResolvedSource::Index);
         assert_eq!(out.packages[1].name.as_str(), "fmt");
         assert_eq!(out.packages[1].version, version("10.2.1"));
+    }
+
+    /// Standard-compatibility metadata present on candidate versions
+    /// does not change resolution: this step plumbs the table through
+    /// but never consults it for version selection, so the output is
+    /// byte-for-byte identical with and without it.
+    #[test]
+    fn standard_metadata_does_not_change_resolution() {
+        use cabin_core::{CxxStandard, Requirement, StandardsMetadata, TargetStandards};
+        // A small graph with real selection: app -> spdlog -> fmt, with
+        // two fmt candidates so a filter would have something to drop.
+        let make = || {
+            build_index(vec![
+                entry(
+                    "spdlog",
+                    vec![("1.13.0", vec![("fmt", ">=10.0.0, <11.0.0")], false)],
+                ),
+                entry(
+                    "fmt",
+                    vec![("10.2.1", vec![], false), ("10.1.0", vec![], false)],
+                ),
+            ])
+        };
+        let input = make_input(vec![("spdlog", ">=1.0.0")]);
+        let baseline = resolve(&input, &make()).unwrap();
+
+        // Populate a per-target table on every candidate version.
+        let mut targets = BTreeMap::new();
+        targets.insert(
+            "fmt".to_owned(),
+            TargetStandards {
+                header_only: false,
+                gnu_extensions: true,
+                interface_c: Requirement::Forbidden,
+                interface_cxx: Requirement::Min(CxxStandard::Cxx20),
+            },
+        );
+        let table = StandardsMetadata { targets };
+        let mut index = make();
+        for entry in index.packages.values_mut() {
+            for meta in entry.versions.values_mut() {
+                meta.standards = table.clone();
+            }
+        }
+        assert!(
+            !index.packages[&pkg_name("fmt")].versions[&version("10.2.1")]
+                .standards
+                .is_empty(),
+            "the table must actually be present for this to prove anything"
+        );
+
+        let with_standards = resolve(&input, &index).unwrap();
+        assert_eq!(baseline, with_standards);
     }
 
     #[test]
@@ -652,6 +706,7 @@ mod tests {
                 build: None,
                 compiler_wrapper: None,
                 language: None,
+                standards: cabin_index::StandardsMetadata::default(),
             },
         );
         IndexEntry {
@@ -947,6 +1002,7 @@ mod tests {
                 build: None,
                 compiler_wrapper: None,
                 language: None,
+                standards: cabin_index::StandardsMetadata::default(),
             },
         );
         IndexEntry {

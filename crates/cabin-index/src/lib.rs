@@ -21,3 +21,8 @@ pub use model::{
     ArchiveFormat, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
     SourceArtifact, SourceArtifactKind, SourceLocation, VersionMetadata,
 };
+// Re-exported so index consumers (the resolver's preference mode and
+// publish lints) can name the standard-metadata types reachable on
+// `VersionMetadata::standards` without depending on `cabin-core`
+// directly.
+pub use cabin_core::{StandardsMetadata, TargetStandards};

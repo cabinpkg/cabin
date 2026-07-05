@@ -293,6 +293,7 @@ pub fn parse_package_entry(
                 build: raw_ver.build,
                 compiler_wrapper: raw_ver.compiler_wrapper,
                 language: raw_ver.language,
+                standards: raw_ver.standards,
             },
         );
     }
@@ -507,6 +508,13 @@ struct RawVersion {
     /// load.
     #[serde(default)]
     language: Option<serde_json::Value>,
+    /// Declared per-target standard-compatibility table.  Optional;
+    /// absence (all pre-`standards` entries) is an empty table, i.e.
+    /// unconstrained.  Parsed into the typed
+    /// [`cabin_core::StandardsMetadata`], which rejects a populated
+    /// reserved `max` and a bare-string cell.
+    #[serde(default)]
+    standards: cabin_core::StandardsMetadata,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1306,5 +1314,146 @@ mod tests {
             meta.compiler_wrapper.as_ref().unwrap()["general"],
             serde_json::json!({"kind": "use", "wrapper": "ccache"})
         );
+    }
+
+    // -----------------------------------------------------------------
+    // standard-compatibility table
+    // -----------------------------------------------------------------
+
+    /// A published `standards` table parses into the typed per-target
+    /// requirements and flags: `"none"` -> forbidden, `{min}` ->
+    /// minimum, an omitted language key -> unconstrained, and the two
+    /// per-target flags survive.
+    #[test]
+    fn loads_standards_table() {
+        use cabin_core::{CStandard, CxxStandard, Requirement};
+        let dir = TempDir::new().unwrap();
+        dir.child("mixed.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "mixed",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {},
+                        "standards": {
+                            "targets": {
+                                "cxxlib": { "interface": { "c": "none", "c++": { "min": "c++17" } } },
+                                "hdr": {
+                                    "header-only": true,
+                                    "interface": { "c": "none", "c++": { "min": "c++20" } }
+                                },
+                                "clib": {
+                                    "gnu-extensions": true,
+                                    "interface": { "c": { "min": "c11" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("mixed").unwrap()).unwrap();
+        let meta = entry
+            .versions
+            .get(&semver::Version::parse("1.0.0").unwrap())
+            .unwrap();
+
+        let cxxlib = &meta.standards.targets["cxxlib"];
+        assert_eq!(cxxlib.interface_c, Requirement::Forbidden);
+        assert_eq!(cxxlib.interface_cxx, Requirement::Min(CxxStandard::Cxx17));
+        assert!(!cxxlib.header_only);
+        assert!(!cxxlib.gnu_extensions);
+
+        let hdr = &meta.standards.targets["hdr"];
+        assert!(hdr.header_only);
+        assert_eq!(hdr.interface_cxx, Requirement::Min(CxxStandard::Cxx20));
+
+        let clib = &meta.standards.targets["clib"];
+        assert!(clib.gnu_extensions);
+        assert_eq!(clib.interface_c, Requirement::Min(CStandard::C11));
+        // Omitted `c++` key means unconstrained for that language.
+        assert_eq!(clib.interface_cxx, Requirement::Unconstrained);
+    }
+
+    /// An entry with no `standards` field (every pre-`standards`
+    /// entry) loads with an empty, all-unconstrained table.
+    #[test]
+    fn index_without_standards_is_unconstrained() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": { "10.2.1": { "dependencies": {} } }
+            }"#,
+            )
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        assert!(meta.standards.is_empty());
+    }
+
+    /// A populated reserved `max` is rejected (range requirements are
+    /// a future version); the loader surfaces it as a JSON error.
+    #[test]
+    fn rejects_populated_max_in_standards() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {},
+                        "standards": {
+                            "targets": {
+                                "lib": { "interface": { "c++": { "min": "c++17", "max": "c++20" } } }
+                            }
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::Json { source, .. } => {
+                assert!(
+                    source.to_string().contains("reserved for a future version"),
+                    "unexpected error: {source}"
+                );
+            }
+            other => panic!("expected Json error, got {other:?}"),
+        }
+    }
+
+    /// A bare standard string is not a valid cell.
+    #[test]
+    fn rejects_bare_standard_cell_in_standards() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {},
+                        "standards": { "targets": { "lib": { "interface": { "c++": "c++17" } } } }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        assert!(matches!(
+            load_index(dir.path()).unwrap_err(),
+            IndexError::Json { .. }
+        ));
     }
 }
