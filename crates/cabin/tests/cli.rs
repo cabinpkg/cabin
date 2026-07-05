@@ -2379,6 +2379,13 @@ mod distribution_artifacts;
 mod file_registry;
 
 // ---------------------------------------------------------------------------
+// cabin publish standard-compatibility lints (PL1/PL2/PL3)
+// ---------------------------------------------------------------------------
+
+#[path = "cli/publish_standard_lints.rs"]
+mod publish_standard_lints;
+
+// ---------------------------------------------------------------------------
 // cabin <cmd> --index-url against a static HTTP registry
 // ---------------------------------------------------------------------------
 
