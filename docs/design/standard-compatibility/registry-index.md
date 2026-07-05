@@ -45,7 +45,7 @@ boundary of `docs/registry-design.md`.
             "header-only": true,
             "interface": {
               "c": "none",
-              "c++": { "min": "c++20", "inferred": true }
+              "c++": { "min": "c++20" }
             }
           }
         }
@@ -61,22 +61,25 @@ boundary of `docs/registry-design.md`.
   kinds).  Executables, tests, and examples never constrain consumers
   (`docs/language-standards.md`) and do not appear.
 - `interface` maps a language key (`"c"`, `"c++"` - the languages of spec D1) to the target's
-  **evaluated effective requirement**: $\mathrm{ReqOf}(t, L)$ of spec D9, computed by
-  `cabin publish` from the resolved manifest attributes of D6 (target-over-package precedence and
-  workspace inheritance already applied), joined with the requirements propagated along the
-  version's **intra-package** public edges (spec D10, restricted to the version's own targets -
-  everything the publisher can see).  All six D9 rows are baked in at publish time: explicit
+  **declared** requirement: $\mathrm{ReqOf}(t, L)$ of spec D9, computed by `cabin publish` from
+  the resolved manifest attributes of D6 (target-over-package precedence and workspace
+  inheritance already applied).  All six D9 rows are baked in at publish time: explicit
   declarations (rows 1-2), header-only inference (row 3), the compiled no-declaration case
-  (row 4), and both cross-language defaults (rows 5-6).  Public edges that cross packages cannot
-  be folded in - their contribution depends on which dependency version a future resolution
-  picks - so they are recorded instead (`public-deps` below).
+  (row 4), and both cross-language defaults (rows 5-6).  The stored value is the target's **own**
+  declared requirement, **not** the intra-package-composed effective requirement $R_L$ (spec
+  D10): composition joins requirements along public edges, and a public edge's contribution
+  depends on which dependency version a future resolution picks, so composition is a consumer's
+  job - the publisher stores declarations, index consumers compose (`preference-mode.md`).  Even
+  intra-package public edges are left uncomposed here: storing each target's own row keeps the
+  schema a straightforward projection of the manifest, and a consumer that walks the version's
+  own table reconstructs the intra-package join itself.
 
 Each requirement value encodes one element of the spec's requirement domain $\mathrm{Req}_L$ (D3):
 
 | Value | $\mathrm{Req}_L$ element (D3) |
 | --- | --- |
 | language key omitted | $\textsf{unconstrained}$ |
-| `{ "min": "<level>", "inferred": true? }` | $[m]$, a minimum |
+| `{ "min": "<level>" }` | $[m]$, a minimum |
 | `"none"` | $\textsf{forbidden}$ |
 
 `min` is an ISO level of spec D2 in its manifest spelling (`c89`...`c23`, `c++98`...`c++26`).  The
@@ -92,19 +95,12 @@ reject the bare spelling with an error naming the object form.  Parsing a string
 union has loader precedent in dependency entries (bare requirement string vs full table);
 unlike that precedent, there is deliberately no normalization between the two shapes here.
 
-`inferred` (boolean, default `false`, written only when `true`) records **provenance**: the
-serialized minimum is attained only by header-only inference (spec D9 row 3) - the target's own,
-or that of an intra-package public dependency whose propagated requirement the join of section 2
-carries - and by no explicit declaration of equal strength.  Provenance survives the
-intra-package join on purpose: a wrapper target publicly re-exporting a header-only sibling
-inherits the sibling's `inferred` marker along with its minimum, so the marker is trustworthy on
-whichever row a diagnostic ends up citing.  When an explicit declaration (again, own or
-propagated) attains the same minimum, the value is a promise and the marker is off.  The spec
-keeps behaviorally equal requirements distinct precisely because diagnostics report provenance
-(the remark after L3); without this marker, an explicit `interface-cxx-standard = "c++17"` and a
-row-3-inferred `c++17` would serialize identically and held-back reports could not present
-inferred minima as inferred (`preference-mode.md`).  The publish lint PL2 warns where inference
-originates (`publish-lints.md`).
+The stored cell does **not** distinguish an explicitly declared minimum from a header-only
+inferred one (spec D9 row 2 vs row 3): both serialize as the same `{ "min": "<level>" }`.
+Provenance - which declaration, or which target's inference, attains a requirement - is
+recomputed by the consumer that needs it (`preference-mode.md` held-back reports,
+`publish-lints.md` PL2) from the fetched manifest or from the per-target rows, and is not
+carried in the index.  The schema stores the requirement, not why it holds.
 
 ### Per-target flags
 
@@ -113,8 +109,8 @@ Two boolean flags, both optional, both defaulting to `false`:
 - `header-only` - the target kind of spec D6.  It never enters the satisfaction predicate (D11
   consumes only the requirement), but index consumers need it as a fact about the target: UIs
   surface header-only-ness without archive downloads, and the publish lints of
-  `publish-lints.md` give it context (a header-only target is where inference, marked by the
-  per-cell `inferred` flag above, can occur at all - D9 row 3).
+  `publish-lints.md` give it context (a header-only target is where interface inference can
+  occur at all - D9 row 3).
 - `gnu-extensions` - the target's lowering-time dialect flag.  Invariant I1 (spec D8) holds
   verbatim in this schema: nothing in `interface` depends on it and it never participates in
   compatibility.  It is carried because index consumers need it anyway - an MSVC-dialect build
@@ -122,33 +118,24 @@ Two boolean flags, both optional, both defaulting to `false`:
   registry UIs and toolchain-aware tooling can surface per-target buildability without fetching
   the archive.
 
-### Cross-package public re-exports
+### Composition is the consumer's job
 
 Requirements propagate along **public** edges (spec D10), and a public edge can cross packages:
 a wrapper target that publicly re-exports a stricter dependency imposes that dependency's
-requirement on its own consumers ($R_L$, D10; edge compatibility checks $R_L$, D13).
-Intra-package public edges are already folded into the `interface` cells above, but a
-cross-package edge's contribution depends on which dependency version a resolution picks, so the
-publisher cannot fold it in.  It is recorded instead:
+requirement on its own consumers ($R_L$, D10; edge compatibility checks $R_L$, D13).  The index
+stores each target's **own declared** requirement and leaves every join to the consumer - the
+same join, whether the public edge is intra-package or cross-package.  An index consumer with a
+resolved (or candidate) dependency graph reconstructs $R_L$ by walking the candidate versions'
+per-target rows along their public edges, exactly as spec D10 prescribes; how far it traverses
+is its own trade-off (`preference-mode.md`).
 
-- `public-deps` (array of strings, omitted when empty, sorted) - the target's **effective**
-  cross-package public references: every cross-package dependency reference declared
-  `public = true` (in the manifest's qualified `package:target` spelling, `docs/targets.md`)
-  on this target *or on any sibling reachable from it along intra-package public edges* - the
-  same closure the `interface` cells fold.  The closure is required, not a nicety: folding
-  intra-package edges into the cells erases the path to a sibling's cross-package edge.  If
-  `api` publicly re-exports sibling `core`, and `core` publicly re-exports `bar:bar`, then
-  `bar:bar` appears in `api`'s `public-deps` - otherwise an index consumer at `api` could
-  never discover `bar`'s contribution to `api`'s effective requirement.
-
-A target's row and its `public-deps` are thus a self-contained frontier: the cells carry
-everything the version itself contributes to $R_L$ (D10 restricted to the version), and
-`public-deps` names exactly where propagation continues in other packages.  An index consumer
-can complete D10 across packages by walking candidate versions' tables from that frontier - how
-far a consumer traverses is its own trade-off (`preference-mode.md`).  On entries that omit the field (all pre-`standards` entries), the
-advertised cells are a **lower bound** on the true effective requirement, which is consistent
-with the advertisement framing of section 3: selection metadata may under-promise, the
-build-time enforcement recomputes the truth.
+This table carries no edge structure - neither the public/private classification of an edge nor
+the per-target dependency graph is part of it; a consumer composing $R_L$ takes that structure
+from the resolved target graph it already builds.  Storing declared, uncomposed cells means the
+advertised value for a target is a **lower bound** on its true effective requirement -
+composition only ever raises it (spec T2) - which is consistent with the advertisement framing
+of section 3: selection metadata may under-promise, the build-time enforcement recomputes the
+truth.
 
 ## 3. Absence means unconstrained
 
@@ -180,8 +167,7 @@ file-registry writer contract of `docs/registry-design.md`:
 - `cabin publish` writes every library-like target of the version (an entry whose requirements
   are all unconstrained and whose flags are false serializes as `{}` - the target existing and
   imposing nothing is itself information), omits unconstrained language keys, and omits every
-  default-valued member (`false` flags, `inferred: false`, empty `public-deps`).
-- `public-deps` arrays are sorted lexicographically.
+  default-valued member (`false` flags, and the reserved `max` of a minimum cell).
 
 ## 5. Composition with the sparse HTTP layout
 
@@ -214,6 +200,6 @@ negligible next to each version's `dependencies` map.
 If per-target tables ever dominate index size, the fallback is one row per version and language:
 the join (spec D4) of the version's per-target requirements, i.e. the strictest.  It is lossy in
 exactly the way the per-target table is not: the strictest target dominates, over-constraining
-consumers that only use a milder target, and the provenance a held-back report needs (which
-target, inferred or declared) is erased.  It would be adopted only under demonstrated size
+consumers that only use a milder target, and the per-target attribution a held-back report needs
+(which target imposes the minimum) is erased.  It would be adopted only under demonstrated size
 pressure, never as the default.
