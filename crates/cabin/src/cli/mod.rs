@@ -1940,6 +1940,11 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// so the resolver / fetch path picks up dev-deps the test
     /// executables need.
     pub(crate) dev_for: &'a BTreeSet<String>,
+    /// The `[resolver] incompatible-standards` preference for this
+    /// invocation (resolved from env / config).  Applied to the
+    /// pipeline's resolution so `build` / `run` / `test` / `fetch`
+    /// select the same versions `cabin resolve` / `cabin update` would.
+    pub(crate) incompatible_standards: cabin_core::IncompatibleStandards,
 }
 
 pub(crate) struct ArtifactPipeline {
@@ -2075,6 +2080,16 @@ pub(crate) fn run_artifact_pipeline(
         }
     }
     input.mode = resolver_mode;
+    // Standard-aware version preference, matching `cabin resolve`, so a
+    // fresh `cabin build` writes the same lockfile.  Scoped to the
+    // selected closure - an unselected member must not lower it.
+    input.consumer_standards = graph.consumer_standards(
+        &resolved_selection.closure(graph),
+        &resolved_selection.packages,
+        &enabled_features_by_package(&features),
+        request.dev_for,
+    );
+    input.incompatible_standards = request.incompatible_standards;
 
     // Patch / source-replacement state recorded into the new
     // lockfile and compared against the existing lockfile under
@@ -2094,7 +2109,11 @@ pub(crate) fn run_artifact_pipeline(
         );
     }
 
-    let output = cabin_resolver::resolve(&input, &index).context("dependency resolution failed")?;
+    // Build/run/test/vendor consume only the resolved graph (into the
+    // lockfile) and never render `held_back`, so use the lean resolve
+    // that skips the second `Allow`-mode solve behind the report.
+    let output =
+        cabin_resolver::resolve_packages(&input, &index).context("dependency resolution failed")?;
 
     let mut new_lockfile = lockfile_from_resolution(&output, &index);
     new_lockfile.patches = active_patch_records;

@@ -171,7 +171,11 @@ fn cabin_with_config() -> Command {
     let mut cmd = Command::cargo_bin("cabin").expect("the `cabin` binary should be built by cargo");
     cmd.env_remove("CABIN_NO_CONFIG")
         .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
+        .env_remove("CABIN_CONFIG_HOME")
+        // Strip the resolver preference override so config-discovery
+        // tests observe the `[resolver]` value they write rather than
+        // an ambient env var (which takes precedence over config).
+        .env_remove("CABIN_RESOLVER_INCOMPATIBLE_STANDARDS");
     pin_test_user_config_home_to_empty(&mut cmd);
     pin_test_cache_home(&mut cmd);
     cmd
@@ -2384,6 +2388,13 @@ mod file_registry;
 
 #[path = "cli/publish_standard_lints.rs"]
 mod publish_standard_lints;
+
+// ---------------------------------------------------------------------------
+// standard-aware version preference (`[resolver] incompatible-standards`)
+// ---------------------------------------------------------------------------
+
+#[path = "cli/resolver_incompatible_standards.rs"]
+mod resolver_incompatible_standards;
 
 // ---------------------------------------------------------------------------
 // cabin <cmd> --index-url against a static HTTP registry

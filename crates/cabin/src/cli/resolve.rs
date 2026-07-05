@@ -205,6 +205,9 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         patched_names: &patched_names,
         active_patches: &active_patches,
         source_replacements: &effective_config.source_replacements,
+        incompatible_standards: crate::cli::config::resolve_incompatible_standards(
+            &effective_config,
+        )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
     })?;
@@ -413,6 +416,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
                 version: root_version,
                 source: ResolvedSource::Root,
             }],
+            held_back: Vec::new(),
         };
         emit_resolve_output(&output, request.format)?;
         return Ok(());
@@ -467,6 +471,26 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         }
     }
     input.mode = resolver_mode;
+    // Standard-aware version preference: the workspace consumer
+    // standards order candidates under `fallback` (the default); the
+    // knob comes from `[resolver] incompatible-standards` / env.  Never
+    // changes solvability, so this is safe on every resolve path.
+    // Consumers reached only through active `[patch]` overrides are not
+    // folded in: a patch is a dependency override, not a workspace
+    // member, and the index / pre-patch graph does not carry its
+    // compile levels.  This shares the documented consumer-proxy
+    // optimism of `preference-mode.md` section 1 - it can only pick a
+    // too-new version that the post-resolution validation (on the
+    // patched reload) then refuses, never one `allow` would have
+    // avoided.
+    input.consumer_standards = graph.consumer_standards(
+        &resolved_selection.closure(&graph),
+        &resolved_selection.packages,
+        &crate::cli::enabled_features_by_package(&features),
+        &dev_for,
+    );
+    input.incompatible_standards =
+        crate::cli::config::resolve_incompatible_standards(&effective_config)?;
 
     let output = cabin_resolver::resolve(&input, &index).context("dependency resolution failed")?;
 
@@ -542,6 +566,12 @@ fn print_resolve_human(output: &ResolveOutput) -> Result<()> {
             println!("  {} {}", pkg.name.as_str(), pkg.version);
         }
     }
+    if !output.held_back.is_empty() {
+        println!("Held back for standard compatibility:");
+        for held in &output.held_back {
+            println!("  {}", held.message());
+        }
+    }
     Ok(())
 }
 
@@ -571,9 +601,22 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
             })
         })
         .collect();
+    let json_held_back: Vec<_> = output
+        .held_back
+        .iter()
+        .map(|held| {
+            serde_json::json!({
+                "name": held.name.as_str(),
+                "selected": held.selected.to_string(),
+                "newest": held.newest.as_ref().map(ToString::to_string),
+                "message": held.message(),
+            })
+        })
+        .collect();
     let value = serde_json::json!({
         "root": json_root,
         "packages": json_packages,
+        "held_back": json_held_back,
     });
     crate::print_pretty_json(&value, "failed to serialize resolve output as JSON")
 }

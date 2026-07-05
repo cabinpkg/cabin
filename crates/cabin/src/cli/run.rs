@@ -232,6 +232,9 @@ pub(crate) fn run(
                 patched_names: &patched_names,
                 active_patches: &active_patches,
                 source_replacements: &effective_config.source_replacements,
+                incompatible_standards: crate::cli::config::resolve_incompatible_standards(
+                    &effective_config,
+                )?,
                 no_patches: args.no_patches,
                 dev_for: &dev_for,
             })?;

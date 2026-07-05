@@ -460,6 +460,55 @@ pub(crate) fn resolve_build_jobs(
     Ok(None)
 }
 
+/// Resolve the standard-aware version-preference mode for a
+/// resolution.
+///
+/// Precedence: [`cabin_env::CABIN_RESOLVER_INCOMPATIBLE_STANDARDS`]
+/// env var > `[resolver] incompatible-standards` config setting >
+/// built-in default ([`cabin_core::IncompatibleStandards::Fallback`]).
+/// The value vocabulary is Cargo's `resolver.incompatible-rust-versions`
+/// verbatim.
+pub(crate) fn resolve_incompatible_standards(
+    config: &EffectiveConfig,
+) -> Result<cabin_core::IncompatibleStandards> {
+    resolve_incompatible_standards_sourced(config).map(|(value, _)| value)
+}
+
+/// Like [`resolve_incompatible_standards`], but also returns the layer
+/// the effective value came from (env > config > builtin default).
+/// `cabin metadata` renders this so its `resolver` block honors the
+/// same precedence and `value_source` contract as every other config
+/// value (`docs/config.md`), rather than reporting only the file layer.
+pub(crate) fn resolve_incompatible_standards_sourced(
+    config: &EffectiveConfig,
+) -> Result<(cabin_core::IncompatibleStandards, ConfigValueSource)> {
+    if let Some(raw) = std::env::var_os(cabin_env::CABIN_RESOLVER_INCOMPATIBLE_STANDARDS) {
+        let raw = raw.into_string().map_err(|_| {
+            anyhow::anyhow!(
+                "{env} is not valid UTF-8",
+                env = cabin_env::CABIN_RESOLVER_INCOMPATIBLE_STANDARDS
+            )
+        })?;
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let value = cabin_core::IncompatibleStandards::parse(trimmed).map_err(|err| {
+                anyhow::anyhow!(
+                    "invalid {env} value {trimmed:?}: {err}",
+                    env = cabin_env::CABIN_RESOLVER_INCOMPATIBLE_STANDARDS
+                )
+            })?;
+            return Ok((value, ConfigValueSource::Env));
+        }
+    }
+    if let Some(setting) = &config.resolver.incompatible_standards {
+        return Ok((setting.value, config_value_source(setting.source)));
+    }
+    Ok((
+        cabin_core::IncompatibleStandards::default(),
+        ConfigValueSource::BuiltinDefault,
+    ))
+}
+
 /// Resolve the cache directory for a build / fetch invocation.
 ///
 /// Precedence: CLI `--cache-dir` > [`cabin_env::CABIN_CACHE_DIR`]
@@ -517,7 +566,10 @@ pub(crate) fn config_profile_selection(
 /// JSON view of the loaded config files plus every effective
 /// config-derived setting.  `None` is rendered as `null` in the
 /// metadata view so the field is always present.
-pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
+pub(crate) fn config_view_json(
+    config: &EffectiveConfig,
+    resolver_incompatible_standards: (cabin_core::IncompatibleStandards, ConfigValueSource),
+) -> serde_json::Value {
     let loaded_files: Vec<serde_json::Value> = config
         .loaded_files
         .iter()
@@ -558,6 +610,17 @@ pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
         },
     });
 
+    // Effective value + source (env > config > builtin default), not
+    // the raw file layer: `docs/config.md` promises `cabin metadata`
+    // reports every effective config value with its `value_source`, so
+    // an env override or the built-in `fallback` default must be visible
+    // here rather than showing `null` / a stale file value.
+    let (resolver_value, resolver_source) = resolver_incompatible_standards;
+    let resolver = serde_json::json!({
+        "incompatible_standards": resolver_value.as_str(),
+        "value_source": resolver_source.as_key(),
+    });
+
     let toolchain = toolchain_view_json(&config.toolchain);
 
     let compiler_wrapper = match &config.compiler_wrapper {
@@ -573,6 +636,7 @@ pub(crate) fn config_view_json(config: &EffectiveConfig) -> serde_json::Value {
         "registry": registry,
         "paths": paths,
         "build": build,
+        "resolver": resolver,
         "toolchain": toolchain,
         "compiler_wrapper": compiler_wrapper,
     })
