@@ -28,10 +28,12 @@
 
 pub mod dry_run;
 pub mod error;
+pub mod lints;
 pub mod registry;
 
 pub use dry_run::{DryRunReport, DryRunRequest, dry_run};
 pub use error::PublishError;
+pub use lints::{LintFinding, LintSeverity, manifest_findings, patch_release_findings};
 pub use registry::{
     RegistryPublishReport, RegistryPublishWorkflow, dry_run_against_file_registry,
     publish_to_file_registry,

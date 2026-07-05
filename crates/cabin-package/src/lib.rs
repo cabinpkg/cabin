@@ -77,6 +77,13 @@ pub struct StagedPackage {
     pub checksum: String,
     /// Canonical per-version metadata document, ready to serialize.
     pub metadata: PackageMetadata,
+    /// The resolved `Package` this staging produced its archive and
+    /// metadata from (precedence, inheritance, and workspace-marker
+    /// resolution already applied).  Carried so publish-time consumers,
+    /// namely the standard-compatibility lints of `cabin-publish`, can
+    /// read the resolved D6 manifest attributes without re-loading the
+    /// manifest; those lints are the reason it is exposed.
+    pub package: cabin_core::Package,
 }
 
 /// Validate the package, walk the source tree under the fixed include
@@ -188,11 +195,12 @@ pub fn stage_with_project(
     let metadata = metadata::canonical_metadata(&validated.package, &checksum);
 
     Ok(StagedPackage {
-        name: validated.package.name,
-        version: validated.package.version,
+        name: validated.package.name.clone(),
+        version: validated.package.version.clone(),
         archive_bytes,
         checksum,
         metadata,
+        package: validated.package,
     })
 }
 
@@ -298,17 +306,33 @@ pub fn package_with_project(
         Some(request.output_dir),
         workspace_dep_requirements,
     )?;
-    let archive_path = request
-        .output_dir
-        .join(archive_filename(staged.name.as_str(), &staged.version));
-    let metadata_path = request
-        .output_dir
-        .join(metadata_filename(staged.name.as_str(), &staged.version));
+    write_staged(&staged, request.output_dir)
+}
+
+/// Write an already-staged package's archive and canonical metadata
+/// document into `output_dir`, returning the resulting artifact paths.
+///
+/// Split out of [`package_with_project`] so `cabin-publish` can run its
+/// publish-time lints against the staged package *before* committing
+/// any bytes to disk, then reuse the identical write.  The write is
+/// idempotent: an existing file with the same bytes is left untouched.
+///
+/// # Errors
+/// Returns [`PackageError::Metadata`] when the canonical metadata
+/// cannot be rendered, and [`PackageError::Io`] /
+/// [`PackageError::OutputAlreadyExists`] when `output_dir` cannot be
+/// created or a target file already exists with different bytes.
+pub fn write_staged(
+    staged: &StagedPackage,
+    output_dir: &Path,
+) -> Result<PackagedArtifact, PackageError> {
+    let archive_path = output_dir.join(archive_filename(staged.name.as_str(), &staged.version));
+    let metadata_path = output_dir.join(metadata_filename(staged.name.as_str(), &staged.version));
 
     let metadata_bytes = metadata::render_canonical_json(&staged.metadata)?;
 
-    std::fs::create_dir_all(request.output_dir).map_err(|source| PackageError::Io {
-        path: request.output_dir.to_path_buf(),
+    std::fs::create_dir_all(output_dir).map_err(|source| PackageError::Io {
+        path: output_dir.to_path_buf(),
         source,
     })?;
 
@@ -316,11 +340,11 @@ pub fn package_with_project(
     write_idempotent(&metadata_path, metadata_bytes.as_bytes())?;
 
     Ok(PackagedArtifact {
-        name: staged.name,
-        version: staged.version,
+        name: staged.name.clone(),
+        version: staged.version.clone(),
         archive_path,
         metadata_path,
-        checksum: staged.checksum,
+        checksum: staged.checksum.clone(),
     })
 }
 

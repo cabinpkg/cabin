@@ -22,7 +22,7 @@ pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
+pub(super) fn publish(args: &PublishArgs, reporter: Reporter) -> Result<()> {
     // `--output-dir` is for the staging-only `dist/` flow; combining
     // it with `--registry-dir` is meaningless and almost always
     // means the user picked the wrong flag, so refuse loudly.
@@ -47,7 +47,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                     workspace_dep_requirements,
                 },
             )?;
-            emit_registry_publish_output(&report, args.format)?;
+            emit_registry_publish_output(&report, args.format, reporter)?;
         }
         (Some(registry_dir), false) => {
             let registry_dir = absolutise(registry_dir)
@@ -59,7 +59,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                     resolved_project,
                     workspace_dep_requirements,
                 })?;
-            emit_registry_publish_output(&report, args.format)?;
+            emit_registry_publish_output(&report, args.format, reporter)?;
         }
         (None, true) => {
             let output_dir = args
@@ -74,7 +74,7 @@ pub(super) fn publish(args: &PublishArgs, _reporter: Reporter) -> Result<()> {
                 resolved_project,
                 workspace_dep_requirements,
             })?;
-            emit_dry_run_output(&report, args.format)?;
+            emit_dry_run_output(&report, args.format, reporter)?;
         }
         (None, false) => {
             return Err(cabin_publish::PublishError::DryRunRequired.into());
@@ -117,10 +117,12 @@ pub(super) fn print_package_json(artifact: &cabin_package::PackagedArtifact) -> 
 pub(super) fn emit_dry_run_output(
     report: &cabin_publish::DryRunReport,
     format: ResolveFormat,
+    reporter: Reporter,
 ) -> Result<()> {
     match format {
         ResolveFormat::Human => {
             print_dry_run_human(report);
+            print_lint_warnings(reporter, &report.warnings);
             Ok(())
         }
         ResolveFormat::Json => print_dry_run_json(report),
@@ -140,6 +142,9 @@ pub(super) fn print_dry_run_human(report: &cabin_publish::DryRunReport) {
     println!("  checksum: {}", report.checksum);
     println!();
     println!("This was a dry run. No registry was modified.");
+    if report.standards_check_skipped {
+        println!("Patch-release requirement check (PL3) skipped: no registry to compare against.");
+    }
 }
 
 pub(super) fn print_dry_run_json(report: &cabin_publish::DryRunReport) -> Result<()> {
@@ -151,6 +156,8 @@ pub(super) fn print_dry_run_json(report: &cabin_publish::DryRunReport) -> Result
         "metadata_path": report.metadata_path,
         "checksum": report.checksum,
         "registry_modified": report.registry_modified,
+        "warnings": report.warnings,
+        "standards_check_skipped": report.standards_check_skipped,
     });
     crate::print_pretty_json(&value, "failed to serialize publish dry-run output as JSON")
 }
@@ -158,13 +165,25 @@ pub(super) fn print_dry_run_json(report: &cabin_publish::DryRunReport) -> Result
 pub(super) fn emit_registry_publish_output(
     report: &cabin_publish::RegistryPublishReport,
     format: ResolveFormat,
+    reporter: Reporter,
 ) -> Result<()> {
     match format {
         ResolveFormat::Human => {
             print_registry_publish_human(report);
+            print_lint_warnings(reporter, &report.warnings);
             Ok(())
         }
         ResolveFormat::Json => print_registry_publish_json(report),
+    }
+}
+
+/// Print non-rejecting standard-compatibility lint warnings (PL2, PL3)
+/// through the reporter's stderr warning channel, one per line, so
+/// human-mode stdout stays the report and CI logs still capture the
+/// advice.
+fn print_lint_warnings(reporter: Reporter, warnings: &[String]) {
+    for message in warnings {
+        reporter.warning(format_args!("{message}"));
     }
 }
 
@@ -213,6 +232,7 @@ pub(super) fn print_registry_publish_json(
         "source_path": report.source_path,
         "registry_modified": report.registry_modified,
         "registry_initialized": report.registry_initialized,
+        "warnings": report.warnings,
     });
     crate::print_pretty_json(&value, "failed to serialize publish output as JSON")
 }

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use cabin_core::PackageName;
-use cabin_package::{PackageRequest, PackagedArtifact, package_with_project};
+use cabin_package::{stage_with_project, write_staged};
 
 use crate::error::PublishError;
 
@@ -34,6 +34,15 @@ pub struct DryRunReport {
     pub metadata_path: PathBuf,
     pub checksum: String,
     pub registry_modified: bool,
+    /// Non-rejecting standard-compatibility lint messages (PL2) the
+    /// CLI prints to stderr.  A staging-only dry-run runs PL1/PL2 only.
+    pub warnings: Vec<String>,
+    /// `true` when the patch-release requirement check (PL3) was
+    /// skipped because this staging-only dry-run has no registry to
+    /// compare against, and the package has a `standards` table that
+    /// check would otherwise apply to.  The CLI says so in its output
+    /// rather than letting a patch release look silently clean.
+    pub standards_check_skipped: bool,
 }
 
 /// Run the publish dry-run pipeline: validate the package,
@@ -41,34 +50,40 @@ pub struct DryRunReport {
 /// per-version metadata, write both into the output directory, and
 /// return a [`DryRunReport`].
 ///
+/// PL1/PL2 run here too (they need only the resolved manifest); a PL1
+/// error rejects the dry-run before any staging output is written.
+/// PL3 is registry-backed, so a staging-only dry-run has no baseline
+/// to compare against and skips it, flagging the skip in the report.
+///
 /// # Errors
-/// Returns [`PublishError::Package`] when staging, archiving, or
-/// writing the artifacts fails - it propagates every
-/// `cabin_package::PackageError` raised by `package_with_project`
-/// (manifest validation, unresolved workspace dependencies, I/O, or
-/// a conflicting non-identical file already present in `output_dir`).
+/// Returns [`PublishError::StandardCompatibility`] when a PL1 lint
+/// rejects the package, and [`PublishError::Package`] when staging,
+/// archiving, or writing the artifacts fails - it propagates every
+/// `cabin_package::PackageError` raised by `stage_with_project` /
+/// `write_staged` (manifest validation, unresolved workspace
+/// dependencies, I/O, or a conflicting non-identical file already
+/// present in `output_dir`).
 pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError> {
-    let PackagedArtifact {
-        name,
-        version,
-        archive_path,
-        metadata_path,
-        checksum,
-    } = package_with_project(
-        PackageRequest {
-            manifest_path: request.manifest_path,
-            output_dir: request.output_dir,
-        },
+    let staged = stage_with_project(
+        request.manifest_path,
         request.resolved_project,
+        Some(request.output_dir),
         &request.workspace_dep_requirements,
     )?;
+    // Reject on a PL1 error before writing any staging output.
+    let warnings = crate::lints::split(crate::lints::manifest_findings(&staged.package))
+        .map_err(PublishError::StandardCompatibility)?;
+    let standards_check_skipped = !staged.metadata.standards.is_empty();
+    let artifact = write_staged(&staged, request.output_dir)?;
     Ok(DryRunReport {
-        name,
-        version,
-        archive_path,
-        metadata_path,
-        checksum,
+        name: artifact.name,
+        version: artifact.version,
+        archive_path: artifact.archive_path,
+        metadata_path: artifact.metadata_path,
+        checksum: artifact.checksum,
         registry_modified: false,
+        warnings,
+        standards_check_skipped,
     })
 }
 

@@ -41,7 +41,7 @@ pub mod lock;
 pub mod publish;
 
 pub use error::RegistryError;
-pub use index::PACKAGE_INDEX_SCHEMA;
+pub use index::{PACKAGE_INDEX_SCHEMA, read_published_standards};
 pub use layout::{FileRegistry, REGISTRY_CONFIG_FILENAME, RegistryConfig};
 pub use lock::RegistryLock;
 pub use publish::{

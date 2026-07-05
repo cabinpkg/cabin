@@ -17,35 +17,44 @@ Three lints, one impossibility:
 | --- | --- | --- |
 | PL1 | error | interface minimum newer than the same language's implementation standard |
 | PL2 | warning | header-only target's interface left to inference for an implemented language |
-| PL3 | warning | effective interface requirement raised in a patch release |
+| PL3 | warning | declared interface requirement raised in a patch release |
 | - | none, by construction | GNU-extension interface requirement (unrepresentable, section 5) |
 
 ## 2. PL1 (error): interface minimum newer than the implementation standard
 
-For every published library-like target $t$ and language $L$:
+For every published library-like target $t$ and language $L$, PL1 checks the **direct declared
+pair**: if $t$'s explicit interface declaration $\mathrm{decl}_L(t)$ is a minimum $[m]$ (a
+declared level, not `"none"`) and its own implementation standard $\mathrm{impl}_L(t)$ is
+present with $m > \mathrm{impl}_L(t)$, **reject the publish**.  The stored `standards` table of
+`registry-index.md` records each target's own declared $\mathrm{ReqOf}$ uncomposed and does not
+carry $\mathrm{impl}_L(t)$, so PL1 evaluates the pair from the resolved manifest attributes
+(spec D6) it is already linting - the declaration exactly as it would be serialized, checked
+against the implementation standard the same manifest resolves.
 
-- **Compiled languages: check the serialized cell, not just the declaration.**  If $t$ compiles
-  $L$ and the effective `interface` cell of `registry-index.md` (the target's own declarations
-  joined with intra-package public-edge propagation) is a minimum $[m]$ with
-  $m > \mathrm{impl}_L(t)$: **reject the publish**.  The direct case - an explicit
-  $\mathrm{decl}_L(t)$ newer than $\mathrm{impl}_L(t)$ - is the same predicate as the load-time
+- **Compiled targets.**  This is the same predicate as the load-time
   `cabin::language::interface_standard_contradiction` (`docs/language-standards.md`,
-  "Precedence"), re-asserted at the publish boundary so that no registry entry can carry the
-  contradiction regardless of how the manifest reached `cabin publish`.  The propagated case
-  catches what the per-target load check cannot: a target compiling at $\mathrm{impl}_L(t)$
-  while publicly re-exporting a sibling whose folded requirement exceeds it cannot compile the
-  very headers it re-exports (the intra-package edge fails D13), so the row would advertise a
-  package that cannot build itself.  $\textsf{forbidden}$ cells are outside PL1: `"none"`
-  enforcement is deferred wholesale (spec section 1; `docs/language-standards.md`).
+  "Precedence"), re-asserted at the publish boundary - defense in depth - so no registry entry
+  can carry the contradiction regardless of how the manifest reached `cabin publish`.  A
+  compiled target's own translation units include its own public headers, so a declared minimum
+  newer than the standard those units compile at describes a target that cannot build itself.
 - **Header-only targets.**  Exempt from the load-time check (no translation units of their own
-  to contradict) and exempt from the propagated prong here for the same reason - a header-only
-  wrapper that publicly re-exports a stricter sibling is legitimate, not contradictory.  The
-  **direct pair** is still rejected: a header-only target populates $\mathrm{impl}_L$ only
-  through a target-level implementation declaration (D6 population contract), and pairing that
-  with a newer explicit interface minimum publishes a promise that consumers need more than the
-  headers were written against.  In a shared index that inflated minimum propagates along
-  public edges (D10) and shrinks every downstream viable set (C3) with no compensating
-  correctness gain.  A local build may tolerate the odd pairing; the public record does not.
+  to contradict), so PL1 is the only layer that catches their direct pair: a header-only target
+  populates $\mathrm{impl}_L$ only through a target-level implementation declaration (D6
+  population contract), and pairing that with a newer explicit interface minimum publishes a
+  promise that consumers need more than the headers were written against.  In a shared index
+  that inflated minimum propagates along public edges (D10) and shrinks every downstream viable
+  set (C3) with no compensating correctness gain.  A local build may tolerate the odd pairing;
+  the public record does not.
+
+PL1 is a per-target, per-declaration check and does **not** fold intra-package public edges: the
+stored table records declarations and consumers compose (`registry-index.md`, "Composition is
+the consumer's job"), because composition depends on which dependency versions a consumer
+resolves.  A target compiling at its own implementation standard while publicly re-exporting a
+stricter sibling is therefore not a PL1 case here - that sibling's requirement reaches consumers
+through the ordinary effective-requirement recursion (spec D10) at resolution time, not through a
+folded publish-time cell.  $\textsf{forbidden}$ cells are outside PL1: `"none"` is a deliberate
+consumer opt-out, not a contradiction (`"none"` enforcement is deferred wholesale - spec section
+1; `docs/language-standards.md`).
 
 ## 3. PL2 (warning): header-only interface left to inference
 
@@ -80,9 +89,15 @@ unstable.
 **Raise.**  Some (target, language) pair present in both versions whose new requirement is
 strictly above the old one in the strictness order $\sqsubseteq$ (spec D3):
 $\textsf{unconstrained} \to [m]$, $[m] \to [m']$ with $m < m'$, or anything
-$\to \textsf{forbidden}$.  A target present only in the new version is an addition, not a raise.
-The compared cells are the published **declared** requirements of `registry-index.md` (each
-target's own $\mathrm{ReqOf}$, uncomposed), so PL3 catches a raise to a target's own declaration.
+$\to \textsf{forbidden}$.  The two boundary cases are explicit and both warn: a newly declared
+minimum on a previously $\textsf{unconstrained}$ cell ($\textsf{unconstrained} \to [m]$), and a
+flip to `"none"` ($\cdot \to \textsf{forbidden}$), are each strict $\sqsubseteq$-increases (an
+omitted language key in the stored table reads as $\textsf{unconstrained}$, so a first
+declaration is a raise from it).  A target absent from the baseline's table is an addition, not a
+raise - `cabin publish` writes a row for every library-like target, so a target genuinely present
+in the baseline is never missing from its table.  The compared cells are the published
+**declared** requirements of `registry-index.md` (each target's own $\mathrm{ReqOf}$,
+uncomposed), so PL3 catches a raise to a target's own declaration.
 
 **Limitation - effective raises PL3 cannot see.**  A patch can raise consumers' *effective*
 requirements without changing any target's own declared cell: adding (or flipping to public) a
@@ -96,6 +111,17 @@ version a future resolution picks, which the publisher cannot know.  PL3 deliber
 declared-cell raises; the held-back reports of `preference-mode.md` carry the per-resolution
 consequences of the composed ones.  Removing a declaration or relaxing a minimum is a relaxation
 and is never linted, like every other lowering.
+
+**Limitation - baselines with no recorded table.**  A baseline whose index entry stores no
+`standards` table - a version published before the field existed, or one with no library-like
+targets - offers no rows to compare, so PL3 makes no comparison against it.  Reading an absent
+table as $\textsf{unconstrained}$ everywhere instead would flag a package's *first* library-like
+target added in a patch release as a raise ($\textsf{unconstrained} \to [m]$), a false positive:
+that target is an addition, not a tightened declaration, and the two are indistinguishable from a
+baseline that records nothing.  PL3 therefore skips an unrecorded baseline; the only miss is a
+requirement raised in the very first patch published after the `standards` field landed - a
+transient migration-window gap on a warning-only check, weighed against a permanent false
+positive on every legitimate first-library addition.
 
 **Warn, citing the policy: requirement raises are treated as minor incompatibilities - allowed
 in minor releases, discouraged in patches.**  A raise can only shrink the set of consumers whose

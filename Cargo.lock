@@ -507,6 +507,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-package",
  "cabinpkg-registry-file",
+ "camino",
  "predicates",
  "semver",
  "thiserror",

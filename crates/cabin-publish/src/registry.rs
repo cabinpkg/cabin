@@ -41,6 +41,10 @@ pub struct RegistryPublishReport {
     pub registry_modified: bool,
     pub registry_initialized: bool,
     pub dry_run: bool,
+    /// Non-rejecting standard-compatibility lint messages (PL2, PL3)
+    /// the CLI prints to stderr; the publish proceeded regardless.
+    /// Deterministically ordered (by target, then `c` before `c++`).
+    pub warnings: Vec<String>,
 }
 
 /// Stage the package, then write the result into the file registry.
@@ -60,11 +64,14 @@ pub fn publish_to_file_registry(
         None,
         &workflow.workspace_dep_requirements,
     )?;
+    // Reject on a PL1 error before touching the registry; a passing
+    // check returns the PL2/PL3 warnings to surface.
+    let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
     let outcome = publish_to_registry(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
     })?;
-    Ok(into_report(staged, outcome, false))
+    Ok(into_report(staged, outcome, false, warnings))
 }
 
 /// Stage the package and run every pre-write check against the file
@@ -86,17 +93,39 @@ pub fn dry_run_against_file_registry(
         None,
         &workflow.workspace_dep_requirements,
     )?;
+    let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
     let outcome = validate_publish(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
     })?;
-    Ok(into_report(staged, outcome, true))
+    Ok(into_report(staged, outcome, true, warnings))
+}
+
+/// Run the standard-compatibility lints against a staged package and
+/// the registry it is being published into: PL1/PL2 from the resolved
+/// manifest and PL3 against the registry's existing versions (its
+/// baseline).  Returns the warnings to surface, or a
+/// [`PublishError::StandardCompatibility`] when a PL1 error rejects the
+/// publish before any write.
+fn evaluate_lints(
+    staged: &StagedPackage,
+    registry_dir: &Path,
+) -> Result<Vec<String>, PublishError> {
+    let mut findings = crate::lints::manifest_findings(&staged.package);
+    let published = cabin_registry_file::read_published_standards(registry_dir, &staged.name)?;
+    findings.extend(crate::lints::patch_release_findings(
+        &staged.version,
+        &staged.metadata.standards,
+        &published,
+    ));
+    crate::lints::split(findings).map_err(PublishError::StandardCompatibility)
 }
 
 fn into_report(
     staged: StagedPackage,
     outcome: RegistryPublishOutcome,
     dry_run: bool,
+    warnings: Vec<String>,
 ) -> RegistryPublishReport {
     RegistryPublishReport {
         name: staged.name,
@@ -109,6 +138,7 @@ fn into_report(
         registry_modified: outcome.registry_modified,
         registry_initialized: outcome.registry_initialized,
         dry_run,
+        warnings,
     }
 }
 

@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use cabin_core::{PackageName, StandardsMetadata};
 use cabin_package::PackageMetadata;
 use serde::{Deserialize, Serialize};
 
 use crate::error::RegistryError;
+use crate::layout::FileRegistry;
 
 /// Schema version this crate emits and accepts in package index
 /// files.  Matches the index shape.
@@ -86,6 +88,54 @@ pub fn render(index: &PackageIndex, path: &Path) -> Result<String, RegistryError
     let mut body = serde_json::to_string_pretty(&document)?;
     body.push('\n');
     Ok(body)
+}
+
+/// Read the already-published versions and their declared
+/// standard-compatibility tables for `name` from the file registry at
+/// `registry_dir` - the PL3 publish-lint baseline.
+///
+/// Returns an empty vector when the registry or the package has no
+/// index yet (a first publish).  A version entry with no `standards`
+/// field yields an empty table (absence = unconstrained), so
+/// pre-`standards` entries compare as an all-unconstrained baseline.
+/// Reads exactly the `<registry>/packages/<name>.json` the publish
+/// path splices into, so the lint sees the same versions the write
+/// will.
+///
+/// # Errors
+/// Propagates [`RegistryError`] from opening the registry config
+/// ([`FileRegistry::inspect`]) and reading/parsing the package index
+/// ([`read_optional`]), returns [`RegistryError::PackageIndexInvalid`]
+/// when a version key is not valid `SemVer`, and
+/// [`RegistryError::PackageIndexJson`] when a version's `standards`
+/// value is not a valid table.
+pub fn read_published_standards(
+    registry_dir: &Path,
+    name: &PackageName,
+) -> Result<Vec<(semver::Version, StandardsMetadata)>, RegistryError> {
+    let registry = FileRegistry::inspect(registry_dir)?;
+    let path = registry.package_index_path(name.as_str());
+    let Some(index) = read_optional(&path)? else {
+        return Ok(Vec::new());
+    };
+    let mut published = Vec::with_capacity(index.versions.len());
+    for (version, value) in &index.versions {
+        let version =
+            semver::Version::parse(version).map_err(|err| RegistryError::PackageIndexInvalid {
+                path: path.clone(),
+                message: format!("version key {version:?} is not valid SemVer: {err}"),
+            })?;
+        let standards = match value.get("standards") {
+            Some(standards) => serde_json::from_value::<StandardsMetadata>(standards.clone())
+                .map_err(|source| RegistryError::PackageIndexJson {
+                    path: path.clone(),
+                    source,
+                })?,
+            None => StandardsMetadata::default(),
+        };
+        published.push((version, standards));
+    }
+    Ok(published)
 }
 
 /// Insert `metadata` as a new version into `existing` (or build a
