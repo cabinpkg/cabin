@@ -315,6 +315,83 @@ pub struct ConsumerStandards {
     pub cxx: Option<CxxStandard>,
 }
 
+/// The `[resolver] incompatible-standards` preference knob.
+///
+/// The value vocabulary is deliberately identical to Cargo's
+/// `resolver.incompatible-rust-versions` (`allow` / `fallback`), and
+/// the semantics mirror it: standards are a *version-selection
+/// preference*, never a hard constraint on solvability.  See
+/// `docs/design/standard-compatibility/preference-mode.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum IncompatibleStandards {
+    /// Standards have no influence on version selection - selection is
+    /// a pure function of semver constraints, and lockfiles never move
+    /// when standards change.  Incompatibilities surface only through
+    /// the post-resolution validation.  The strict/deterministic mode.
+    Allow,
+    /// Prefer standard-compatible versions, falling back to
+    /// newest-first when no compatible candidate exists (never a
+    /// resolution failure `Allow` would not also produce).  The
+    /// default.
+    #[default]
+    Fallback,
+}
+
+impl IncompatibleStandards {
+    /// Both values, for enumeration in tests and diagnostics.
+    pub const ALL: [Self; 2] = [Self::Allow, Self::Fallback];
+
+    /// The canonical spelling used in config, env vars, and messages.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Fallback => "fallback",
+        }
+    }
+
+    /// Parse a config / env-var value.  The accepted spellings are
+    /// Cargo's verbatim.
+    ///
+    /// # Errors
+    /// Returns [`UnknownIncompatibleStandards`] for any other value.
+    pub fn parse(value: &str) -> Result<Self, UnknownIncompatibleStandards> {
+        match value {
+            "allow" => Ok(Self::Allow),
+            "fallback" => Ok(Self::Fallback),
+            other => Err(UnknownIncompatibleStandards {
+                value: other.to_owned(),
+            }),
+        }
+    }
+}
+
+impl std::fmt::Display for IncompatibleStandards {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// An `incompatible-standards` value that is neither `allow` nor
+/// `fallback`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownIncompatibleStandards {
+    /// The rejected value, for the diagnostic.
+    pub value: String,
+}
+
+impl std::fmt::Display for UnknownIncompatibleStandards {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "invalid incompatible-standards value {:?}; expected one of: allow, fallback",
+            self.value
+        )
+    }
+}
+
+impl std::error::Error for UnknownIncompatibleStandards {}
+
 /// Spec D10: a dependency target's effective requirement `R_L(d)`
 /// for each language, already composed by the caller (the `R_L`
 /// recursion itself is outside this module; see the module docs).
@@ -875,6 +952,22 @@ mod tests {
         );
         assert!(version_viable([compatible]));
         assert!(!version_viable([compatible, incompatible]));
+    }
+
+    /// `IncompatibleStandards` round-trips Cargo's verbatim vocabulary
+    /// and rejects anything else; `fallback` is the default.
+    #[test]
+    fn incompatible_standards_parses_cargo_vocabulary() {
+        assert_eq!(
+            IncompatibleStandards::default(),
+            IncompatibleStandards::Fallback
+        );
+        for value in IncompatibleStandards::ALL {
+            assert_eq!(IncompatibleStandards::parse(value.as_str()), Ok(value));
+        }
+        let err = IncompatibleStandards::parse("warn").unwrap_err();
+        assert_eq!(err.value, "warn");
+        assert!(err.to_string().contains("allow, fallback"));
     }
 
     /// Appendix reference table: `satisfies` over all of `CxxLevel`

@@ -95,7 +95,9 @@ pub use source_replacement::{
     SourceLocator, SourceReplacementEntry, SourceReplacementError, SourceReplacementResolution,
     SourceReplacementSettings,
 };
-pub use standard_compatibility::Requirement;
+pub use standard_compatibility::{
+    IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
+};
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};
 pub use toolchain::{
