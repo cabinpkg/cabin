@@ -279,6 +279,7 @@ mod tests {
                 build: Default::default(),
                 compiler_wrapper: Default::default(),
                 language: Default::default(),
+                standards: Default::default(),
                 yanked: false,
                 checksum,
                 // `staged_metadata_for_registry` overrides this, but
