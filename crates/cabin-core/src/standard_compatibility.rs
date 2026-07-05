@@ -24,7 +24,11 @@
 //! and [`CxxStandard`] types; the two languages appear here as the
 //! paired `c` / `cxx` fields of the structs below.
 
-use crate::language_standard::{CStandard, CxxStandard, InterfaceRequirement};
+use crate::language_standard::{
+    CStandard, CxxStandard, InterfaceRequirement, LanguageStandardSettings,
+    ResolvedLanguageStandards, effective_c, effective_cxx,
+};
+use crate::{SourceLanguage, Target, classify_source};
 
 /// Spec D3: the per-language requirement domain `Req_L`, a finite
 /// chain under the strictness order `⊑` (spec L1).  The derived
@@ -219,6 +223,82 @@ fn req_of<S: Copy + Ord>(
         },
         // Rows 5-6: the cross-language defaults.
         (None, None) => (absent_default, ReqOfSource::CrossLanguageDefault),
+    }
+}
+
+/// Spec D6 attribute mapping for one target, from resolved manifest
+/// attributes (target-over-package precedence and workspace
+/// inheritance already applied).
+///
+/// Population contract (D6): `impl_L` is `Some` exactly when the
+/// target itself implements `L` - a compiled target implements `L`
+/// when it has sources of `L` (level via target-over-package
+/// precedence), a header-only target only via a target-level
+/// implementation declaration.  `decl_L` is the explicit interface
+/// declaration only (target over package tier, workspace-inherited
+/// counting as declared) - never the build-time implementation-
+/// standard fallback.  This is the single source of truth for the
+/// mapping, shared by the resolver-graph pass (`cabin-build`) and the
+/// published-index derivation (`crate::index_standards`), so the two
+/// cannot drift.
+#[must_use]
+pub fn dependency_attributes(
+    target: &Target,
+    package_standards: &ResolvedLanguageStandards,
+    package_settings: &LanguageStandardSettings,
+) -> DependencyAttributes {
+    let header_only = target.kind.is_header_only();
+    let kind = if header_only {
+        DependencyKind::HeaderOnly
+    } else {
+        DependencyKind::Compiled
+    };
+
+    let has_sources_of = |language: SourceLanguage| {
+        target
+            .sources
+            .iter()
+            .any(|source| classify_source(source) == Some(language))
+    };
+
+    let impl_c = if header_only {
+        target.language.c_standard_value()
+    } else if has_sources_of(SourceLanguage::C) {
+        effective_c(package_standards, target).map(|resolved| resolved.standard)
+    } else {
+        None
+    };
+    let impl_cxx = if header_only {
+        target.language.cxx_standard_value()
+    } else if has_sources_of(SourceLanguage::Cxx) {
+        effective_cxx(package_standards, target).map(|resolved| resolved.standard)
+    } else {
+        None
+    };
+
+    // Package-level interface fields default a library's public
+    // interface (`docs/language-standards.md`); they never apply to
+    // executable-like targets.  Target-level interface fields only
+    // exist on library-like kinds (the manifest parser rejects them
+    // elsewhere).
+    let library_like = target.kind.produces_archive() || header_only;
+    let decl_c = target.language.interface_c_standard_value().or_else(|| {
+        library_like
+            .then(|| package_settings.interface_c_standard_value())
+            .flatten()
+    });
+    let decl_cxx = target.language.interface_cxx_standard_value().or_else(|| {
+        library_like
+            .then(|| package_settings.interface_cxx_standard_value())
+            .flatten()
+    });
+
+    DependencyAttributes {
+        kind,
+        impl_c,
+        impl_cxx,
+        decl_c,
+        decl_cxx,
     }
 }
 

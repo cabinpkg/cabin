@@ -21,6 +21,7 @@ pub mod config_source;
 pub mod error;
 pub mod experimental;
 pub mod hash;
+pub mod index_standards;
 pub mod language_standard;
 pub mod model;
 pub mod patch;
@@ -63,6 +64,7 @@ pub use config::{
 pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
 pub use experimental::{ExperimentalFeature, UnknownExperimentalFeature};
+pub use index_standards::{StandardsMetadata, TargetStandards};
 pub use language_standard::{
     CStandard, CxxStandard, InterfaceRequirement, InterfaceStandard,
     InterfaceStandardContradiction, InterfaceStandardSource, LanguageStandard,
@@ -93,6 +95,7 @@ pub use source_replacement::{
     SourceLocator, SourceReplacementEntry, SourceReplacementError, SourceReplacementResolution,
     SourceReplacementSettings,
 };
+pub use standard_compatibility::Requirement;
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};
 pub use toolchain::{
