@@ -61,6 +61,8 @@ pub(crate) struct RawConfig {
     #[serde(default)]
     pub(crate) build: Option<RawBuild>,
     #[serde(default)]
+    pub(crate) resolver: Option<RawResolver>,
+    #[serde(default)]
     pub(crate) toolchain: Option<RawToolchain>,
     #[serde(default)]
     pub(crate) term: Option<RawTerm>,
@@ -120,6 +122,16 @@ pub(crate) struct RawBuild {
     /// expected to disappear when the feature stabilizes.
     #[serde(default, rename = "standard-compat-errors")]
     pub(crate) standard_compat_errors: Option<bool>,
+}
+
+/// Shape of `[resolver]` in a config file.  Holds the standard-aware
+/// version-preference knob; the value is validated into
+/// [`cabin_core::IncompatibleStandards`] in `parse.rs`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawResolver {
+    #[serde(default, rename = "incompatible-standards")]
+    pub(crate) incompatible_standards: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

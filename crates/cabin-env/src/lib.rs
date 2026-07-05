@@ -133,6 +133,15 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 /// config setting > backend default.
 pub const CABIN_BUILD_JOBS: &str = "CABIN_BUILD_JOBS";
 
+/// Standard-aware version-preference mode (`allow` or `fallback`).
+/// The vocabulary is Cargo's `resolver.incompatible-rust-versions`
+/// verbatim.  Cabin reads this env var when the setting is not in a
+/// `[resolver]` config table.
+///
+/// Precedence: env var > `[resolver] incompatible-standards` config
+/// setting > built-in default (`fallback`).
+pub const CABIN_RESOLVER_INCOMPATIBLE_STANDARDS: &str = "CABIN_RESOLVER_INCOMPATIBLE_STANDARDS";
+
 /// Terminal-color selector (`auto`, `always`, or `never`).
 /// Honored by the CLI when `--color` is not present.
 pub const CABIN_TERM_COLOR: &str = "CABIN_TERM_COLOR";

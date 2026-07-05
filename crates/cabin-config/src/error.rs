@@ -156,10 +156,16 @@ pub enum ConfigParseError {
     )]
     UnsupportedAuthKey { key: &'static str },
 
+    /// `[resolver] incompatible-standards` carried a value that is
+    /// not one of `allow` / `fallback`.  Wraps the typed error from
+    /// [`cabin_core::IncompatibleStandards::parse`].
+    #[error("config key `resolver.incompatible-standards` is invalid: {0}")]
+    InvalidIncompatibleStandards(cabin_core::UnknownIncompatibleStandards),
+
     /// A top-level table the parser did not recognize.  Lists the
     /// supported tables so users can see the full surface.
     #[error(
-        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, toolchain, term, patch, source-replacement"
+        "unknown top-level config table `{table}`; supported tables are: registry, paths, build, resolver, toolchain, term, patch, source-replacement"
     )]
     UnknownTopLevelTable { table: String },
 

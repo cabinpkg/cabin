@@ -11,14 +11,14 @@ use std::collections::BTreeMap;
 use camino::Utf8PathBuf;
 
 use cabin_core::{
-    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceLocator, ToolSpec,
-    Verbosity,
+    ColorChoice, CompilerWrapperRequest, IncompatibleStandards, PackageName, PatchSource,
+    SourceLocator, ToolSpec, Verbosity,
 };
 
 use crate::error::ConfigParseError;
 use crate::raw::{
     RawBuild, RawConfig, RawConfigPatch, RawConfigSourceReplacement, RawPaths, RawRegistry,
-    RawTerm, RawToolchain,
+    RawResolver, RawTerm, RawToolchain,
 };
 
 /// Validated, typed contents of one config file.  The raw
@@ -29,10 +29,19 @@ pub struct ParsedConfig {
     pub registry: Option<ParsedRegistry>,
     pub paths: ParsedPaths,
     pub build: ParsedBuild,
+    pub resolver: ParsedResolver,
     pub toolchain: ParsedToolchain,
     pub term: ParsedTerm,
     pub patches: BTreeMap<PackageName, PatchSource>,
     pub source_replacements: BTreeMap<SourceLocator, ParsedSourceReplacement>,
+}
+
+/// Validated `[resolver]` table.  `incompatible_standards` is `None`
+/// when the file left the key unset, so merging keeps a lower-priority
+/// file's value.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ParsedResolver {
+    pub incompatible_standards: Option<IncompatibleStandards>,
 }
 
 /// Validated `[term]` table.  Each field is `Option` so an absent
@@ -129,6 +138,10 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         Some(b) => parsed_build_from_raw(b)?,
         None => ParsedBuild::default(),
     };
+    let resolver = match raw.resolver {
+        Some(r) => parsed_resolver_from_raw(r)?,
+        None => ParsedResolver::default(),
+    };
     let toolchain = match raw.toolchain {
         Some(t) => parsed_toolchain_from_raw(t)?,
         None => ParsedToolchain::default(),
@@ -149,10 +162,24 @@ fn parsed_from_raw(raw: RawConfig) -> Result<ParsedConfig, ConfigParseError> {
         registry,
         paths,
         build,
+        resolver,
         toolchain,
         term,
         patches,
         source_replacements,
+    })
+}
+
+fn parsed_resolver_from_raw(raw: RawResolver) -> Result<ParsedResolver, ConfigParseError> {
+    let incompatible_standards = match raw.incompatible_standards {
+        Some(value) => Some(
+            IncompatibleStandards::parse(value.trim())
+                .map_err(ConfigParseError::InvalidIncompatibleStandards)?,
+        ),
+        None => None,
+    };
+    Ok(ParsedResolver {
+        incompatible_standards,
     })
 }
 
@@ -1079,6 +1106,41 @@ mod tests {
     #[test]
     fn build_standard_compat_errors_non_bool_is_rejected_by_serde() {
         let err = parse_config_str("[build]\nstandard-compat-errors = \"warn\"\n").unwrap_err();
+        assert!(matches!(err, ConfigParseError::Toml(_)));
+    }
+
+    #[test]
+    fn resolver_incompatible_standards_parses_both_values() {
+        for (raw, expected) in [
+            ("allow", IncompatibleStandards::Allow),
+            ("fallback", IncompatibleStandards::Fallback),
+        ] {
+            let body = format!("[resolver]\nincompatible-standards = \"{raw}\"\n");
+            let parsed = parse_config_str(&body).unwrap();
+            assert_eq!(parsed.resolver.incompatible_standards, Some(expected));
+        }
+    }
+
+    #[test]
+    fn resolver_incompatible_standards_missing_yields_none() {
+        let parsed = parse_config_str("[build]\nprofile = \"dev\"\n").unwrap();
+        assert!(parsed.resolver.incompatible_standards.is_none());
+    }
+
+    #[test]
+    fn resolver_incompatible_standards_unknown_value_is_rejected() {
+        let err = parse_config_str("[resolver]\nincompatible-standards = \"warn\"\n").unwrap_err();
+        match err {
+            ConfigParseError::InvalidIncompatibleStandards(inner) => {
+                assert_eq!(inner.value, "warn");
+            }
+            other => panic!("expected InvalidIncompatibleStandards, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolver_unknown_field_is_rejected_by_serde() {
+        let err = parse_config_str("[resolver]\nprefer = \"newest\"\n").unwrap_err();
         assert!(matches!(err, ConfigParseError::Toml(_)));
     }
 }
