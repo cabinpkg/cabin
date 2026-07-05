@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use cabin_core::PackageName;
+use cabin_core::standard_compatibility::ConsumerStandards;
+use cabin_core::{IncompatibleStandards, PackageName};
 
 /// Inputs to [`crate::resolve`].
 ///
@@ -22,6 +23,19 @@ pub struct ResolveInput {
     /// allowed candidates in [`ResolveMode::Locked`].
     pub locked: BTreeMap<PackageName, LockedVersion>,
     pub mode: ResolveMode,
+    /// The `[resolver] incompatible-standards` preference.  Under
+    /// [`IncompatibleStandards::Fallback`] the provider orders
+    /// candidate versions by standard compatibility against
+    /// `consumer_standards`; under [`IncompatibleStandards::Allow`]
+    /// standards never influence selection.  Never affects
+    /// solvability under either value.
+    pub incompatible_standards: IncompatibleStandards,
+    /// The workspace consumer's effective compile levels (per
+    /// language, the minimum across workspace member targets).  Used
+    /// only for `Fallback` ordering; `{ c: None, cxx: None }` (the
+    /// default) makes every candidate rank as undeclared, so
+    /// `Fallback` reduces to `Allow`.
+    pub consumer_standards: ConsumerStandards,
 }
 
 impl ResolveInput {
@@ -38,6 +52,8 @@ impl ResolveInput {
             root_dependencies,
             locked: BTreeMap::new(),
             mode: ResolveMode::PreferLocked,
+            incompatible_standards: IncompatibleStandards::default(),
+            consumer_standards: ConsumerStandards { c: None, cxx: None },
         }
     }
 }

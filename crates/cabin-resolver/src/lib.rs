@@ -33,14 +33,17 @@ mod range;
 
 use std::collections::BTreeMap;
 
-use cabin_core::{PackageName, TargetPlatform};
+use cabin_core::standard_compatibility::{
+    ConsumerStandards, EffectiveRequirements, edge_compatible,
+};
+use cabin_core::{IncompatibleStandards, PackageName, Requirement, SourceLanguage, TargetPlatform};
 use cabin_index::PackageIndex;
 use pubgrub::{PubGrubError, Ranges};
 use semver::{Version, VersionReq};
 
 pub use error::{ResolveError, ResolverConstraint};
 pub use input::{LockedVersion, ResolveInput, ResolveMode};
-pub use output::{ResolveOutput, ResolvedPackage, ResolvedSource};
+pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use crate::explanation::explain_no_solution;
 use crate::output::selected_dependencies_to_output;
@@ -64,6 +67,34 @@ use crate::range::req_to_range;
 /// provider-side [`ResolveError`] surfaced while choosing versions,
 /// retrieving dependencies, or cancelling is bubbled back unchanged.
 pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
+    let mut output = resolve_once(input, index)?;
+    output.held_back = held_back_report(input, index, &output.packages);
+    Ok(output)
+}
+
+/// Resolve `input` without computing the standard hold-back report.
+///
+/// Identical selection to [`resolve`] - the `Fallback` tiering still
+/// orders candidates - but the returned `held_back` is always empty.
+/// [`resolve`] populates that report by running a second `Allow`-mode
+/// solve to diff against; callers that only consume `packages`
+/// (build/run/test/vendor, which read the resolved graph into a
+/// lockfile and never render the report) call this to skip that extra
+/// solve.
+///
+/// # Errors
+/// Same as [`resolve`].
+pub fn resolve_packages(
+    input: &ResolveInput,
+    index: &PackageIndex,
+) -> Result<ResolveOutput, ResolveError> {
+    resolve_once(input, index)
+}
+
+/// Resolve `input` once under its own mode, without computing the
+/// standard hold-back report (which needs a second, `Allow`-mode
+/// resolution to diff against - see [`held_back_report`]).
+fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
     let platform = TargetPlatform::current();
     let locked = effective_locked(input);
 
@@ -109,6 +140,229 @@ pub fn resolve(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutp
     };
 
     Ok(selected_dependencies_to_output(input, solution))
+}
+
+/// The standard-caused hold-backs of a `Fallback` resolution: the diff
+/// against the `Allow` solution.
+///
+/// `Allow` is the newest-first selection standards never touch, so any
+/// package `Fallback` resolved to an *older* version than `Allow` did -
+/// where that newer `Allow` version is declared-incompatible with the
+/// consumer - was held back for a standard reason.  Computing the
+/// report as this diff is exact by construction: a newer version that
+/// `Allow` also passed over (out of range, unsolvable dependencies,
+/// yanked) never appears in the `Allow` solution, so it is never
+/// misreported as a standard hold.
+///
+/// Empty under `Allow`, and whenever the workspace declares no consumer
+/// standard (nothing can be incompatible).  On the `Fallback`-success
+/// path the `Allow` resolution cannot fail - solvability is identical -
+/// but a defensive error yields an empty report rather than aborting.
+fn held_back_report(
+    input: &ResolveInput,
+    index: &PackageIndex,
+    fallback_packages: &[ResolvedPackage],
+) -> Vec<HeldBack> {
+    if input.incompatible_standards != IncompatibleStandards::Fallback {
+        return Vec::new();
+    }
+    let consumer = input.consumer_standards;
+    if consumer.c.is_none() && consumer.cxx.is_none() {
+        return Vec::new();
+    }
+
+    let mut allow_input = input.clone();
+    allow_input.incompatible_standards = IncompatibleStandards::Allow;
+    let Ok(allow) = resolve_once(&allow_input, index) else {
+        return Vec::new();
+    };
+    let allow_versions: BTreeMap<&PackageName, &Version> = allow
+        .packages
+        .iter()
+        .map(|package| (&package.name, &package.version))
+        .collect();
+
+    // A version kept because the lockfile pinned it is never flagged:
+    // lockfile stability wins and metadata alone never churns a lock,
+    // so an incompatible *locked* version is not a "no compatible
+    // version" case (a compatible one may well be in range).
+    let locked = effective_locked(input);
+
+    let mut held_back = Vec::new();
+    for package in fallback_packages {
+        // The root is the local project, never selected from the index;
+        // a same-named index entry must not be applied to it.
+        if package.source == ResolvedSource::Root {
+            continue;
+        }
+        if locked
+            .get(&package.name)
+            .is_some_and(|entry| entry.version == package.version)
+        {
+            continue;
+        }
+        // Rule-2 case (preference-mode.md section 2): the selected
+        // version is *itself* standard-incompatible because nothing in
+        // range satisfies the consumer.  Report its own unmet
+        // requirement, with no compatible alternative to name.
+        let selected_advertised = index
+            .package(&package.name)
+            .and_then(|entry| entry.versions.get(&package.version))
+            .map(|meta| meta.standards.version_wide_join());
+        if let Some(advertised) = selected_advertised
+            && !edge_compatible(consumer, advertised)
+        {
+            let blocked_by = blocking_requirements(consumer, advertised);
+            if !blocked_by.is_empty() {
+                held_back.push(HeldBack {
+                    name: package.name.clone(),
+                    selected: package.version.clone(),
+                    newest: None,
+                    blocked_by,
+                });
+            }
+            continue;
+        }
+
+        // Otherwise the selected version is compatible; was a strictly
+        // newer version passed over because it is incompatible?
+        let Some(&newest) = allow_versions.get(&package.name) else {
+            continue;
+        };
+        if *newest <= package.version {
+            continue;
+        }
+        // `Allow` may have selected `newest` in a *different* dependency
+        // context - a divergent parent version pulling a different range
+        // for this package.  A hold-back is real only if `newest` is
+        // actually reachable under the fallback solution's own
+        // constraints; otherwise the difference is a consequence of the
+        // parent choice, not a standard hold on this package.
+        if !admissible_under(&package.name, newest, input, index, fallback_packages) {
+            continue;
+        }
+        let Some(standards) = index
+            .package(&package.name)
+            .and_then(|entry| entry.versions.get(newest))
+            .map(|meta| &meta.standards)
+        else {
+            continue;
+        };
+        let advertised = standards.version_wide_join();
+        let blocked_by = if edge_compatible(consumer, advertised) {
+            // The newer version is compatible, so the only reason
+            // fallback passed it over is that it is undeclared and a
+            // declared-compatible older version outranks it (tier 1 over
+            // tier 2).  A selected version compatible with a compatible
+            // newer one can only have been the older, declared pick - so
+            // this is always the tier preference.  Report it with no
+            // requirement to cite.
+            Vec::new()
+        } else {
+            let requirements = blocking_requirements(consumer, advertised);
+            // A declared-incompatible version always has a failing
+            // clause; guard defensively.
+            if requirements.is_empty() {
+                continue;
+            }
+            requirements
+        };
+        held_back.push(HeldBack {
+            name: package.name.clone(),
+            selected: package.version.clone(),
+            newest: Some(newest.clone()),
+            blocked_by,
+        });
+    }
+    held_back.sort_by(|a, b| a.name.cmp(&b.name));
+    held_back
+}
+
+/// Whether `version` of `package` is admissible under the fallback
+/// `solution`'s effective constraints - the root requirement plus every
+/// active dependency edge the resolved packages place on `package` -
+/// under the same numeric-range *and* pre-release rules the provider
+/// applies when selecting.
+fn admissible_under(
+    package: &PackageName,
+    version: &Version,
+    input: &ResolveInput,
+    index: &PackageIndex,
+    solution: &[ResolvedPackage],
+) -> bool {
+    let platform = TargetPlatform::current();
+    let mut range = Ranges::full();
+    if let Some(req) = input.root_dependencies.get(package)
+        && let Ok(root_range) = req_to_range(req)
+    {
+        range = range.intersection(&root_range);
+    }
+    for resolved in solution {
+        // The root's own requirements are the `root_dependencies` folded
+        // in above; a registry entry that coincidentally shares the
+        // root's name and version is unrelated and must not contribute
+        // its constraints.
+        if resolved.source == ResolvedSource::Root {
+            continue;
+        }
+        let Some(meta) = index
+            .package(&resolved.name)
+            .and_then(|entry| entry.versions.get(&resolved.version))
+        else {
+            continue;
+        };
+        let Some(dep) = meta.dependencies.get(package) else {
+            continue;
+        };
+        // Only edges that participated in resolution bind the range.
+        if !dep.is_active_for(&platform) {
+            continue;
+        }
+        if let Ok(dep_range) = req_to_range(&dep.req) {
+            range = range.intersection(&dep_range);
+        }
+    }
+    // Match the provider's own admissibility, pre-release rule included,
+    // so a pre-release the fallback constraints would reject is not
+    // reported as a standard hold.
+    range.contains(version) && crate::provider::candidate_admits_prerelease(&range, version)
+}
+
+/// The interface requirements of a version the consumer fails to
+/// satisfy, in fixed C-before-C++ order for deterministic output.
+fn blocking_requirements(
+    consumer: ConsumerStandards,
+    advertised: EffectiveRequirements,
+) -> Vec<BlockedRequirement> {
+    let mut blocked = Vec::new();
+    if let Some(level) = consumer.c
+        && !advertised.c.satisfied_by(level)
+    {
+        blocked.push(BlockedRequirement {
+            language: SourceLanguage::C,
+            minimum: minimum_display(advertised.c),
+        });
+    }
+    if let Some(level) = consumer.cxx
+        && !advertised.cxx.satisfied_by(level)
+    {
+        blocked.push(BlockedRequirement {
+            language: SourceLanguage::Cxx,
+            minimum: minimum_display(advertised.cxx),
+        });
+    }
+    blocked
+}
+
+/// The declared minimum (e.g. `c++20`) of a blocking requirement for
+/// the message, or `None` for a `"none"` declaration (which has no
+/// minimum to name).  `Unconstrained` never reaches here - it is
+/// satisfied at every consumer level.
+fn minimum_display<S: std::fmt::Display>(requirement: Requirement<S>) -> Option<String> {
+    match requirement {
+        Requirement::Min(min) => Some(min.to_string()),
+        Requirement::Forbidden | Requirement::Unconstrained => None,
+    }
 }
 
 /// Translate every root requirement to its `PubGrub` range,
@@ -1158,5 +1412,750 @@ mod tests {
                 "diagnostic must not leak {forbidden:?}: {rendered}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Standard-aware version preference (`[resolver]
+    // incompatible-standards`).  The post-resolution validation stays
+    // the correctness authority; these tests pin the *ordering* and
+    // its hold-back reporting.
+    // -----------------------------------------------------------------
+
+    use cabin_core::standard_compatibility::ConsumerStandards;
+    use cabin_core::{
+        CStandard, CxxStandard, IncompatibleStandards, Requirement, StandardsMetadata,
+        TargetStandards,
+    };
+
+    /// A one-target `standards` table declaring a C++ interface
+    /// requirement (the C side left unconstrained).
+    fn cxx_table(interface_cxx: Requirement<CxxStandard>) -> StandardsMetadata {
+        let mut targets = BTreeMap::new();
+        targets.insert(
+            "lib".to_owned(),
+            TargetStandards {
+                interface_cxx,
+                ..Default::default()
+            },
+        );
+        StandardsMetadata { targets }
+    }
+
+    /// The C sibling of [`cxx_table`].
+    fn c_table(interface_c: Requirement<CStandard>) -> StandardsMetadata {
+        let mut targets = BTreeMap::new();
+        targets.insert(
+            "lib".to_owned(),
+            TargetStandards {
+                interface_c,
+                ..Default::default()
+            },
+        );
+        StandardsMetadata { targets }
+    }
+
+    fn set_standards(index: &mut PackageIndex, pkg: &str, ver: &str, standards: StandardsMetadata) {
+        index
+            .packages
+            .get_mut(&pkg_name(pkg))
+            .unwrap()
+            .versions
+            .get_mut(&version(ver))
+            .unwrap()
+            .standards = standards;
+    }
+
+    /// A `PreferLocked` request (no lockfile → fresh selection, so the
+    /// tier ordering applies) with the given C++ consumer level.
+    fn cxx_consumer_input(root_deps: Vec<(&str, &str)>, cxx: CxxStandard) -> ResolveInput {
+        let mut input = make_input(root_deps);
+        input.consumer_standards = ConsumerStandards {
+            c: None,
+            cxx: Some(cxx),
+        };
+        input
+    }
+
+    fn fmt_version(out: &ResolveOutput) -> Version {
+        out.packages
+            .iter()
+            .find(|p| p.name.as_str() == "fmt")
+            .unwrap()
+            .version
+            .clone()
+    }
+
+    /// Fallback (the default) prefers a declared-compatible older
+    /// version over a declared-incompatible newer one, and reports the
+    /// hold-back naming the selected version, the newest available, and
+    /// the requirement that held it back.
+    #[test]
+    fn fallback_prefers_declared_compatible_over_newer_incompatible() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.4.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.4.0"));
+        assert_eq!(out.held_back.len(), 1);
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v1.4.0 (available: v2.0.0, requires interface c++20)"
+        );
+    }
+
+    /// `allow` ignores standards entirely: it selects the newest
+    /// admissible version (pre-preference-mode behavior) and never
+    /// reports a hold-back.
+    #[test]
+    fn allow_ignores_standards() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.4.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let mut input = cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17);
+        input.incompatible_standards = IncompatibleStandards::Allow;
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(fmt_version(&out), version("2.0.0"));
+        assert!(out.held_back.is_empty());
+    }
+
+    /// `resolve_packages` selects identically to `resolve` (same
+    /// `Fallback` tiering) but skips the second `Allow`-mode solve, so
+    /// `held_back` is empty even where `resolve` would report a hold.
+    #[test]
+    fn resolve_packages_skips_the_hold_back_report() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.4.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let input = cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17);
+        let reported = resolve(&input, &index).unwrap();
+        assert_eq!(reported.held_back.len(), 1, "sanity: resolve reports it");
+
+        let lean = resolve_packages(&input, &index).unwrap();
+        assert_eq!(lean.packages, reported.packages, "same selection");
+        assert!(lean.held_back.is_empty(), "held_back: {:?}", lean.held_back);
+    }
+
+    /// `ResolveInput::new` defaults to `fallback`, so a fresh request
+    /// (no explicit knob) already orders by standard compatibility.
+    #[test]
+    fn default_mode_is_fallback() {
+        assert_eq!(
+            ResolveInput::new(pkg_name("app"), version("0.1.0"), BTreeMap::new())
+                .incompatible_standards,
+            IncompatibleStandards::Fallback
+        );
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.4.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.4.0"));
+    }
+
+    /// Tier ordering over a mixed set: declared-compatible (tier 1)
+    /// beats undeclared (tier 2) beats declared-incompatible (tier 3),
+    /// even when a lower tier holds a newer version.
+    #[test]
+    fn tier_ordering_over_mixed_candidate_set() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![
+                ("3.0.0", vec![], false),
+                ("2.0.0", vec![], false),
+                ("1.0.0", vec![], false),
+            ],
+        )]);
+        // 3.0.0 declared-incompatible, 2.0.0 undeclared (empty table),
+        // 1.0.0 declared-compatible.
+        set_standards(
+            &mut index,
+            "fmt",
+            "3.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        // The newest (3.0.0) is declared-incompatible, so it is named.
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v1.0.0 (available: v3.0.0, requires interface c++20)"
+        );
+    }
+
+    /// When no candidate is compatible, the newest is selected (the
+    /// post-resolution validation refuses it) and the selected version's
+    /// own unmet requirement is reported, with no compatible alternative
+    /// to name (preference-mode.md section 2, rule 2).
+    #[test]
+    fn no_compatible_candidate_reports_selected_incompatibility() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx23)),
+        );
+
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        // Both are declared-incompatible; newest-first within the worst
+        // tier picks 2.0.0, which is also the semver newest.
+        assert_eq!(fmt_version(&out), version("2.0.0"));
+        assert_eq!(out.held_back.len(), 1);
+        assert_eq!(out.held_back[0].newest, None);
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v2.0.0 (requires interface c++20; no compatible version in range)"
+        );
+    }
+
+    /// A declared-compatible older version outranks an undeclared newer
+    /// one (tier 1 over tier 2), and the resulting downgrade is reported
+    /// with no requirement to cite, since the newer version is
+    /// compatible, just undeclared.
+    #[test]
+    fn undeclared_newer_version_downgrade_is_reported() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        // 2.0.0 undeclared, 1.0.0 declared-compatible.
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        assert_eq!(out.held_back.len(), 1);
+        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+        assert!(out.held_back[0].blocked_by.is_empty());
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v1.0.0 (available: v2.0.0, preferred as declared-compatible over the undeclared newer version)"
+        );
+    }
+
+    /// Solvability is identical under both knob values: preference mode
+    /// never introduces a resolution failure `allow` would not also
+    /// produce, and never solves a case `allow` cannot.  Here fallback
+    /// changes the *selection* (to an older compatible version) but
+    /// both values resolve successfully.
+    #[test]
+    fn solvability_identical_under_both_values() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let fallback = cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17);
+        let mut allow = fallback.clone();
+        allow.incompatible_standards = IncompatibleStandards::Allow;
+
+        let fallback_out = resolve(&fallback, &index);
+        let allow_out = resolve(&allow, &index);
+        assert_eq!(fallback_out.is_ok(), allow_out.is_ok());
+        let (fallback_out, allow_out) = (fallback_out.unwrap(), allow_out.unwrap());
+        // Same packages resolved (solvability + graph shape), different
+        // versions (the whole point of fallback).
+        let names = |o: &ResolveOutput| {
+            o.packages
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&fallback_out), names(&allow_out));
+        assert_eq!(fmt_version(&fallback_out), version("1.0.0"));
+        assert_eq!(fmt_version(&allow_out), version("2.0.0"));
+    }
+
+    /// Under `allow`, selection is a pure function of semver: changing
+    /// the consumer standard does not move the selection, so a lockfile
+    /// written under one workspace standard stays valid under another.
+    #[test]
+    fn lockfile_stable_under_allow_when_consumer_standard_changes() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let make_allow = |cxx: CxxStandard| {
+            let mut input = cxx_consumer_input(vec![("fmt", "*")], cxx);
+            input.incompatible_standards = IncompatibleStandards::Allow;
+            input
+        };
+        let low = resolve(&make_allow(CxxStandard::Cxx17), &index).unwrap();
+        let high = resolve(&make_allow(CxxStandard::Cxx23), &index).unwrap();
+        assert_eq!(low, high);
+        assert_eq!(fmt_version(&low), version("2.0.0"));
+    }
+
+    /// Lockfile stability wins even in `fallback`: a locked
+    /// incompatible version is kept over a declared-compatible
+    /// alternative (metadata alone never churns a lockfile), and it is
+    /// not reported as a hold-back.
+    #[test]
+    fn fallback_keeps_locked_version_over_compatible_alternative() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let mut input = cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17);
+        input.locked.insert(
+            pkg_name("fmt"),
+            LockedVersion {
+                version: version("2.0.0"),
+                checksum: None,
+            },
+        );
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(fmt_version(&out), version("2.0.0"));
+        assert!(out.held_back.is_empty());
+    }
+
+    /// Fallback is deterministic for fixed inputs.
+    #[test]
+    fn fallback_is_deterministic() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![
+                ("3.0.0", vec![], false),
+                ("2.0.0", vec![], false),
+                ("1.0.0", vec![], false),
+            ],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "3.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let input = cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17);
+        let first = resolve(&input, &index).unwrap();
+        let second = resolve(&input, &index).unwrap();
+        assert_eq!(first, second);
+    }
+
+    /// The C sibling of the primary fallback test: a C consumer holds
+    /// back a version whose `interface-c-standard` it cannot satisfy,
+    /// and the message names the C level.
+    #[test]
+    fn fallback_prefers_declared_compatible_c() {
+        let mut index = build_index(vec![entry(
+            "clib",
+            vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "clib",
+            "2.0.0",
+            c_table(Requirement::Min(CStandard::C17)),
+        );
+        set_standards(
+            &mut index,
+            "clib",
+            "1.4.0",
+            c_table(Requirement::Min(CStandard::C11)),
+        );
+
+        let mut input = make_input(vec![("clib", "*")]);
+        input.consumer_standards = ConsumerStandards {
+            c: Some(CStandard::C11),
+            cxx: None,
+        };
+        let out = resolve(&input, &index).unwrap();
+        let clib = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "clib")
+            .unwrap();
+        assert_eq!(clib.version, version("1.4.0"));
+        assert_eq!(
+            out.held_back[0].message(),
+            "clib v1.4.0 (available: v2.0.0, requires interface c17)"
+        );
+    }
+
+    /// A newer version that is out of range in the final solution is
+    /// never reported as a standard-caused hold, even if it was
+    /// standard-incompatible while transiently in range: `spd 1.0.0`
+    /// constrains `fmt < 2`, so `fmt 2.0.0` is a semver exclusion, not
+    /// a standard hold-back - regardless of the order the solver
+    /// decided the two packages.
+    #[test]
+    fn out_of_range_newer_version_is_not_reported_as_standard_hold() {
+        let mut index = build_index(vec![
+            entry(
+                "fmt",
+                vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+            ),
+            entry("spd", vec![("1.0.0", vec![("fmt", ">=1, <2")], false)]),
+        ]);
+        // fmt 2.0.0 would be standard-incompatible for a c++17 consumer,
+        // but `spd`'s `< 2` constraint excludes it on semver grounds.
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", ">=1"), ("spd", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        // 2.0.0 is out of range in the final solution: a semver
+        // exclusion, not a standard hold.
+        assert!(out.held_back.is_empty(), "held_back: {:?}", out.held_back);
+    }
+
+    /// A newer version that is standard-incompatible *and* cannot itself
+    /// resolve (an unsatisfiable transitive dependency) is not reported
+    /// as a standard hold-back: `allow` would also backtrack to the
+    /// older version for dependency reasons, so the diff against the
+    /// `allow` solution shows no standard-caused hold.
+    #[test]
+    fn unsolvable_newer_version_is_not_reported_as_standard_hold() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![
+                // 2.0.0 is standard-incompatible for a c++17 consumer and
+                // depends on a package that is absent from the index, so
+                // it can never participate in a solution.
+                ("2.0.0", vec![("vanished", ">=1")], false),
+                ("1.0.0", vec![], false),
+            ],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", ">=1")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        assert!(out.held_back.is_empty(), "held_back: {:?}", out.held_back);
+    }
+
+    /// When `fallback` and `allow` diverge at a parent, the child's
+    /// version difference is a consequence of the parent choice, not a
+    /// standard hold on the child.  `foo 2.0.0` (c++20) needs
+    /// `bar >= 2`; `foo 1.0.0` (c++17) needs `bar < 2`.  Fallback picks
+    /// `foo 1.0.0`/`bar 1.0.0`; allow picks `foo 2.0.0`/`bar 2.0.0`.
+    /// Only `foo` is held back for standards - `bar 2.0.0` is out of
+    /// range under the selected `foo 1.0.0`, so `bar` must not be
+    /// reported.
+    #[test]
+    fn divergent_parent_does_not_hold_back_the_child() {
+        let mut index = build_index(vec![
+            entry(
+                "foo",
+                vec![
+                    ("2.0.0", vec![("bar", ">=2, <3")], false),
+                    ("1.0.0", vec![("bar", ">=1, <2")], false),
+                ],
+            ),
+            entry(
+                "bar",
+                vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+            ),
+        ]);
+        set_standards(
+            &mut index,
+            "foo",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "foo",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        set_standards(
+            &mut index,
+            "bar",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "bar",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+
+        let out = resolve(
+            &cxx_consumer_input(vec![("foo", ">=1")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        let versions: BTreeMap<&str, String> = out
+            .packages
+            .iter()
+            .map(|p| (p.name.as_str(), p.version.to_string()))
+            .collect();
+        assert_eq!(versions["foo"], "1.0.0");
+        assert_eq!(versions["bar"], "1.0.0");
+        // Exactly one standard hold: `foo`.  `bar` is a semver
+        // consequence of the parent choice, not a standard hold.
+        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
+        assert_eq!(
+            out.held_back[0].message(),
+            "foo v1.0.0 (available: v2.0.0, requires interface c++20)"
+        );
+    }
+
+    /// The root package is never reported as held back, even when the
+    /// index coincidentally contains an entry with its name and version
+    /// carrying standards metadata: the root is the local project, not a
+    /// registry selection.
+    #[test]
+    fn root_package_is_never_reported_as_held_back() {
+        let mut index = build_index(vec![
+            entry("app", vec![("0.1.0", vec![], false)]),
+            entry("fmt", vec![("1.0.0", vec![], false)]),
+        ]);
+        // The index coincidentally declares c++20 for `app 0.1.0`, which
+        // is also the root's identity.
+        set_standards(
+            &mut index,
+            "app",
+            "0.1.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert!(
+            out.held_back.iter().all(|held| held.name.as_str() != "app"),
+            "root must not be held back: {:?}",
+            out.held_back
+        );
+    }
+
+    /// A registry entry that coincidentally shares the root's identity
+    /// must not inject its dependency constraints into the fallback
+    /// admissibility check and suppress a real hold-back: the root's
+    /// actual requirements come from the manifest, not the index.
+    #[test]
+    fn root_index_entry_does_not_suppress_a_real_holdback() {
+        let mut index = build_index(vec![
+            // Coincidental `app 0.1.0` in the index declaring a narrower
+            // `fmt` requirement than the local manifest allows.
+            entry("app", vec![("0.1.0", vec![("fmt", ">=1, <2")], false)]),
+            entry(
+                "fmt",
+                vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+            ),
+        ]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        // The local manifest allows `fmt *`, so `fmt 2.0.0` is in range
+        // and its c++20 hold-back is real.
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
+        assert_eq!(out.held_back[0].name.as_str(), "fmt");
+        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+    }
+
+    /// A `"none"` (forbidden) interface on the newer version is
+    /// reported with the declared-`"none"` wording rather than a
+    /// minimum level.
+    #[test]
+    fn holdback_message_for_forbidden_interface() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::Forbidden),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v1.0.0 (available: v2.0.0, declares interface c++ = \"none\")"
+        );
     }
 }
