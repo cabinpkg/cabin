@@ -106,6 +106,18 @@ export const DOCS_NAV: DocsNavSection[] = [
                 label: "Standard compatibility specification",
                 slug: "design/standard-compatibility/spec",
             },
+            {
+                label: "Standard compatibility registry index",
+                slug: "design/standard-compatibility/registry-index",
+            },
+            {
+                label: "Standard compatibility publish lints",
+                slug: "design/standard-compatibility/publish-lints",
+            },
+            {
+                label: "Standard compatibility preference mode",
+                slug: "design/standard-compatibility/preference-mode",
+            },
         ],
     },
 ];
