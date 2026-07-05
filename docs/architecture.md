@@ -87,6 +87,7 @@ docs/
   new-and-init.md    scaffold semantics for `cabin new` / `cabin init`
   testing.md         `cabin test` runner
   targets.md         target kinds, `test` / `example`
+  language-standards.md  per-target C/C++ standard + interface declarations
   toolchains.md      typed toolchain selection, capability detection
   config.md          `.cabin/config.toml` schema, discovery, precedence
   profiles.md        build profile model, inheritance, fingerprint inputs

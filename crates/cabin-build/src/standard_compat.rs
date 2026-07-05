@@ -29,9 +29,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use cabin_core::standard_compatibility::{
-    DependencyAttributes, DependencyKind, ReqOfSource, Requirement,
-};
+use cabin_core::standard_compatibility::{DependencyAttributes, ReqOfSource, Requirement};
 use cabin_core::{
     LanguageStandardSettings, LanguageStandardSource, ResolvedLanguageStandards, SourceLanguage,
     StandardDeclaration, Target, classify_source, effective_c, effective_cxx,
@@ -425,51 +423,21 @@ fn dependency_attributes(
     pkg_settings: &LanguageStandardSettings,
     req: &PlanRequest<'_>,
 ) -> (DependencyAttributes, NodeSites) {
+    // The D6 attribute mapping (population contract included) is shared
+    // with the published-index derivation so the two cannot drift; only
+    // the declaration-site bookkeeping for diagnostics is local here.
+    let attributes = cabin_core::standard_compatibility::dependency_attributes(
+        target,
+        &pkg_standards,
+        pkg_settings,
+    );
     let header_only = target.kind.is_header_only();
-    let kind = if header_only {
-        DependencyKind::HeaderOnly
-    } else {
-        DependencyKind::Compiled
-    };
-
-    let impl_c = if header_only {
-        target.language.c_standard_value()
-    } else if has_sources_of(target, SourceLanguage::C) {
-        effective_c(&pkg_standards, target).map(|resolved| resolved.standard)
-    } else {
-        None
-    };
-    let impl_cxx = if header_only {
-        target.language.cxx_standard_value()
-    } else if has_sources_of(target, SourceLanguage::Cxx) {
-        effective_cxx(&pkg_standards, target).map(|resolved| resolved.standard)
-    } else {
-        None
-    };
-
-    // Package-level interface fields are defaults for a library's
-    // public interface (`docs/language-standards.md`); they never
-    // apply to executable-like targets, which the qualified
-    // `package:target` deps form can still reach.  Target-level
-    // interface fields only exist on library-like kinds (the
-    // manifest parser rejects them elsewhere).
-    let library_like = target.kind.produces_archive() || header_only;
-    let decl_c = target.language.interface_c_standard_value().or_else(|| {
-        library_like
-            .then(|| pkg_settings.interface_c_standard_value())
-            .flatten()
-    });
-    let decl_cxx = target.language.interface_cxx_standard_value().or_else(|| {
-        library_like
-            .then(|| pkg_settings.interface_cxx_standard_value())
-            .flatten()
-    });
 
     let pkg = &req.graph.packages[tid.0];
     let target_name = target.name.as_str();
 
     let node_sites = NodeSites {
-        decl_c: decl_c.is_some().then(|| {
+        decl_c: attributes.decl_c.is_some().then(|| {
             interface_decl_site(
                 "interface-c-standard",
                 target.language.interface_c_standard.is_some(),
@@ -482,7 +450,7 @@ fn dependency_attributes(
                 req,
             )
         }),
-        decl_cxx: decl_cxx.is_some().then(|| {
+        decl_cxx: attributes.decl_cxx.is_some().then(|| {
             interface_decl_site(
                 "interface-cxx-standard",
                 target.language.interface_cxx_standard.is_some(),
@@ -499,28 +467,19 @@ fn dependency_attributes(
         // implementation declaration the inference read; a compiled
         // target's implementation standard is never cited (row 4
         // imposes nothing).
-        impl_c: (header_only && impl_c.is_some()).then(|| DeclSite {
+        impl_c: (header_only && attributes.impl_c.is_some()).then(|| DeclSite {
             manifest_path: pkg.manifest_path.clone(),
             scope: DeclScope::Target(target_name.to_owned()),
             field: "c-standard",
         }),
-        impl_cxx: (header_only && impl_cxx.is_some()).then(|| DeclSite {
+        impl_cxx: (header_only && attributes.impl_cxx.is_some()).then(|| DeclSite {
             manifest_path: pkg.manifest_path.clone(),
             scope: DeclScope::Target(target_name.to_owned()),
             field: "cxx-standard",
         }),
     };
 
-    (
-        DependencyAttributes {
-            kind,
-            impl_c,
-            impl_cxx,
-            decl_c,
-            decl_cxx,
-        },
-        node_sites,
-    )
+    (attributes, node_sites)
 }
 
 /// The [`DeclSite`] of a populated interface declaration: the

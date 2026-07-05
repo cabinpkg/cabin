@@ -108,6 +108,106 @@ compiler-wrapper = "sccache"
     );
 }
 
+/// A multi-target package with declared interface standards, a
+/// header-only target, and a `gnu-extensions` target: `cabin publish`
+/// derives the per-target `standards` table into the index entry.
+fn write_standards_package(root: &Path) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "1.0.0"
+
+[target.cxxlib]
+type = "library"
+sources = ["src/cxxlib.cc"]
+cxx-standard = "c++20"
+interface-cxx-standard = "c++17"
+
+[target.plain]
+type = "library"
+sources = ["src/plain.cc"]
+cxx-standard = "c++17"
+
+[target.clib]
+type = "library"
+sources = ["src/clib.c"]
+c-standard = "c11"
+interface-c-standard = "c11"
+gnu-extensions = true
+
+[target.hdr]
+type = "header-only"
+include-dirs = ["include"]
+cxx-standard = "c++20"
+interface-cxx-standard = "c++20"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    for (path, body) in [
+        ("src/cxxlib.cc", "void cxxlib() {}\n"),
+        ("src/plain.cc", "void plain() {}\n"),
+        ("src/clib.c", "void clib(void) {}\n"),
+        ("src/main.cc", "int main() { return 0; }\n"),
+        ("include/hdr.h", "#pragma once\n"),
+    ] {
+        assert_fs::fixture::ChildPath::new(root.join(path))
+            .write_str(body)
+            .unwrap();
+    }
+}
+
+#[test]
+fn published_index_carries_per_target_standards_table() {
+    let dir = TempDir::new().unwrap();
+    let pkg_root = dir.path().join("pkg");
+    write_standards_package(&pkg_root);
+    let registry = dir.path().join("registry");
+
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(registry.join("packages/demo.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let targets = &value["versions"]["1.0.0"]["standards"]["targets"];
+
+    // Declared C++ interface on a compiled library (D9 row 2); C is
+    // forbidden by the strict C++-to-C default (row 6), written as
+    // `"none"`.
+    assert_eq!(targets["cxxlib"]["interface"]["c++"]["min"], "c++17");
+    assert!(targets["cxxlib"]["interface"]["c++"].get("max").is_none());
+    assert_eq!(targets["cxxlib"]["interface"]["c"], "none");
+    assert!(targets["cxxlib"].get("header-only").is_none());
+
+    // Undeclared C++ library: C++ is unconstrained (row 4), so the
+    // `c++` key is omitted - the unconstrained encoding.
+    assert_eq!(targets["plain"]["interface"]["c"], "none");
+    assert!(targets["plain"]["interface"].get("c++").is_none());
+
+    // C library carrying the `gnu-extensions` flag; C++ is
+    // unconstrained by the permissive C-to-C++ default (row 5).
+    assert_eq!(targets["clib"]["gnu-extensions"], true);
+    assert_eq!(targets["clib"]["interface"]["c"]["min"], "c11");
+    assert!(targets["clib"]["interface"].get("c++").is_none());
+
+    // Header-only target carries its flag and its declared minimum.
+    assert_eq!(targets["hdr"]["header-only"], true);
+    assert_eq!(targets["hdr"]["interface"]["c++"]["min"], "c++20");
+
+    // The executable never constrains consumers and is omitted.
+    assert!(targets.get("app").is_none());
+}
+
 #[test]
 fn duplicate_publish_fails_clearly() {
     let dir = TempDir::new().unwrap();

@@ -64,11 +64,10 @@ The manifest layer already requires a header-only target to declare at least one
 standard (`docs/language-standards.md`, "Precedence"), so PL2 fires on the residual per-language
 case: a target declaring an interface for one language while leaving an implemented second
 language to inference.  $\mathrm{decl}_L$ is the post-precedence value of D6, so a package-level
-interface declaration counts as declaring; only genuine D9 row-3 inference warns.  The origin
-cells of these warnings are marked `inferred: true` in the published table, and the marker also
-rides intra-package propagation into re-exporting siblings' cells (`registry-index.md`) - but
-PL2 warns once, at the origin target, because that is where the audit and the fix live: a
-re-exporting sibling cannot relax a propagated minimum by declaring anything.
+interface declaration counts as declaring; only genuine D9 row-3 inference warns.  The published
+table does not distinguish an inferred minimum from a declared one (`registry-index.md`), so PL2
+identifies the inference from the manifest attributes it is already reading (D6/D9), not from the
+index.  It warns once, at the origin target, because that is where the audit and the fix live.
 
 ## 4. PL3 (warning): interface requirement raised in a patch release
 
@@ -82,22 +81,21 @@ unstable.
 strictly above the old one in the strictness order $\sqsubseteq$ (spec D3):
 $\textsf{unconstrained} \to [m]$, $[m] \to [m']$ with $m < m'$, or anything
 $\to \textsf{forbidden}$.  A target present only in the new version is an addition, not a raise.
-The compared cells are the published effective requirements of `registry-index.md` (intra-package
-propagation folded in), so a raise smuggled in through a new or stricter public re-export of a
-sibling target is caught the same as a declaration change.
+The compared cells are the published **declared** requirements of `registry-index.md` (each
+target's own $\mathrm{ReqOf}$, uncomposed), so PL3 catches a raise to a target's own declaration.
 
-**Cross-package raises.**  A patch can also raise consumers' effective requirements without any
-`interface` cell changing: cross-package public edges are not folded into the cells
-(`registry-index.md`, "Cross-package public re-exports"), yet adding one imposes the re-exported
-dependency's requirements on every consumer - and adding a public edge never lowers $R_L$
-(spec C1).  PL3 therefore also warns when a patch release adds an entry to any target's
-`public-deps` relative to the baseline (this includes flipping an existing dependency edge from
-private to public).  It deliberately does **not** evaluate the magnitude of such a raise, nor
-chase version-requirement changes on an existing public dep: the imposed requirement depends on
-which dependency version a future resolution picks, which the publisher cannot know.  The
-shape-level warning names the new public edge; the held-back reports of `preference-mode.md`
-carry the per-resolution consequences.  Removing a public edge is a relaxation and is never
-linted, like every other lowering.
+**Limitation - effective raises PL3 cannot see.**  A patch can raise consumers' *effective*
+requirements without changing any target's own declared cell: adding (or flipping to public) a
+public dependency edge - intra- or cross-package - imposes the re-exported dependency's
+requirements on every consumer, and adding a public edge never lowers $R_L$ (spec C1); likewise
+changing the version requirement on an existing public dependency can pull in a stricter
+transitive requirement.  Because this index stores declared, uncomposed cells and no public-edge
+structure (`registry-index.md`, "Composition is the consumer's job"), the declared-cell
+comparison cannot detect these raises - the imposed requirement depends on which dependency
+version a future resolution picks, which the publisher cannot know.  PL3 deliberately scopes to
+declared-cell raises; the held-back reports of `preference-mode.md` carry the per-resolution
+consequences of the composed ones.  Removing a declaration or relaxing a minimum is a relaxation
+and is never linted, like every other lowering.
 
 **Warn, citing the policy: requirement raises are treated as minor incompatibilities - allowed
 in minor releases, discouraged in patches.**  A raise can only shrink the set of consumers whose

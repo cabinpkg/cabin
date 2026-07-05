@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use cabin_core::{
     CompilerWrapperRequest, Condition, Dependency, DependencyKind, DependencySource, Features,
     LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
-    SystemDependency, ToolchainSettings,
+    StandardsMetadata, SystemDependency, ToolchainSettings,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +90,15 @@ pub struct PackageMetadata {
     /// never lands here.  Omitted when the manifest declares none.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
+    /// Declared per-target standard-compatibility table (spec D9
+    /// `ReqOf`, header-only inference applied), mirroring the index
+    /// entry's `standards` field so file-registry publish can splice
+    /// it in without re-deriving.  Omitted when the package has no
+    /// library-like targets (absence = unconstrained).  See
+    /// [`cabin_core::StandardsMetadata`] and
+    /// `docs/design/standard-compatibility/registry-index.md`.
+    #[serde(default, skip_serializing_if = "StandardsMetadata::is_empty")]
+    pub standards: StandardsMetadata,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -273,6 +282,7 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
         build: package.build.clone(),
         compiler_wrapper: package.compiler_wrapper.clone(),
         language: package.language,
+        standards: StandardsMetadata::from_package(package),
         yanked: false,
         checksum: checksum.to_owned(),
         source: SourceMetadata {

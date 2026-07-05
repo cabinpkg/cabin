@@ -173,6 +173,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     compiler_wrapper: Option<&'a cabin_core::CompilerWrapperRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     language: Option<&'a cabin_core::LanguageStandardSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    standards: Option<&'a cabin_core::StandardsMetadata>,
 }
 
 #[derive(Serialize)]
@@ -204,6 +206,7 @@ fn version_value_from_metadata(
         build: (!metadata.build.is_empty()).then_some(&metadata.build),
         compiler_wrapper: metadata.compiler_wrapper.as_ref(),
         language: (!metadata.language.is_empty()).then_some(&metadata.language),
+        standards: (!metadata.standards.is_empty()).then_some(&metadata.standards),
     };
     Ok(serde_json::to_value(&wire)?)
 }
@@ -228,6 +231,7 @@ mod tests {
             build: Default::default(),
             compiler_wrapper: Default::default(),
             language: Default::default(),
+            standards: Default::default(),
             yanked: false,
             checksum: format!("sha256:{}", "a".repeat(64)),
             source: SourceMetadata {
@@ -308,5 +312,61 @@ mod tests {
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let parsed: PackageIndex = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, index);
+    }
+
+    /// A populated `standards` table is projected into the version
+    /// document in the documented wire shape: sorted targets, fixed
+    /// `c` / `c++` order, `"none"` for forbidden, `{min}` for minima
+    /// (reserved `max` omitted), unconstrained language keys omitted,
+    /// and the two per-target flags emitted only when set.
+    #[test]
+    fn render_projects_standards_table() {
+        use cabin_core::{CStandard, CxxStandard, Requirement, StandardsMetadata, TargetStandards};
+        let mut meta = metadata("fmt", "10.2.1");
+        let mut targets = BTreeMap::new();
+        targets.insert(
+            "fmt".to_owned(),
+            TargetStandards {
+                header_only: false,
+                gnu_extensions: false,
+                interface_c: Requirement::Forbidden,
+                interface_cxx: Requirement::Min(CxxStandard::Cxx17),
+            },
+        );
+        targets.insert(
+            "clib".to_owned(),
+            TargetStandards {
+                header_only: false,
+                gnu_extensions: true,
+                interface_c: Requirement::Min(CStandard::C11),
+                interface_cxx: Requirement::Unconstrained,
+            },
+        );
+        meta.standards = StandardsMetadata { targets };
+
+        let index = insert_version(None, &meta).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let standards = &value["versions"]["10.2.1"]["standards"]["targets"];
+
+        assert_eq!(standards["fmt"]["interface"]["c"], "none");
+        assert_eq!(standards["fmt"]["interface"]["c++"]["min"], "c++17");
+        assert!(standards["fmt"]["interface"]["c++"].get("max").is_none());
+        assert!(standards["fmt"].get("header-only").is_none());
+
+        assert_eq!(standards["clib"]["gnu-extensions"], true);
+        assert_eq!(standards["clib"]["interface"]["c"]["min"], "c11");
+        // Unconstrained C++ -> the language key is omitted.
+        assert!(standards["clib"]["interface"].get("c++").is_none());
+    }
+
+    /// A package with no library-like standards omits the field, so
+    /// existing entries stay byte-identical.
+    #[test]
+    fn render_omits_empty_standards() {
+        let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(value["versions"]["10.2.1"].get("standards").is_none());
     }
 }

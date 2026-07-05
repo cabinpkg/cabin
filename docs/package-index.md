@@ -101,6 +101,7 @@ Each version's metadata:
 | `checksum` | no | `null` | `sha256:<hex>` digest of the source archive's bytes.  Optional in the schema so resolver-only fixtures can omit it; required by `cabin fetch` and `cabin build` when the version must be materialized. |
 | `source` | no | `null` | Source archive metadata.  Optional in the schema; required by `cabin fetch` and `cabin build`.  See [Source artifact](#source-artifact) below. |
 | `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
+| `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 
 Unknown fields anywhere in the file are rejected.
 
@@ -125,6 +126,38 @@ Each `source` block must take this exact shape:
 `cabin fetch` and `cabin build` copy each archive into the artifact cache, hashing as they go, and
 reject any archive whose bytes do not match the entry's `checksum`.  The cache layout is documented
 in [`artifacts.md`](artifacts.md).
+
+## Standard metadata
+
+The optional `standards` block records each library-like target's **declared** language-standard
+interface requirement, so index consumers can read a version's per-target requirements without
+downloading the source archive:
+
+```json
+"standards": {
+  "targets": {
+    "fmt": { "interface": { "c": "none", "c++": { "min": "c++17" } } },
+    "fmt-header-only": {
+      "header-only": true,
+      "interface": { "c": "none", "c++": { "min": "c++20" } }
+    }
+  }
+}
+```
+
+- `targets` is keyed by the version's **library-like** target names (`library` and `header-only`
+  kinds); executables, tests, and examples never constrain consumers and are omitted.
+- `interface` maps a language key (`"c"`, `"c++"`) to a requirement cell.  A **missing** key is
+  unconstrained; `"none"` marks the target's headers as not consumable from that language; a
+  `{ "min": "<level>" }` table is a minimum standard the consuming code must meet.  A missing
+  `standards` block, or a missing target, is unconstrained everywhere - so every pre-`standards`
+  entry stays valid unchanged.
+- `header-only` and `gnu-extensions` are per-target booleans, each omitted when `false`.
+
+The stored value is each target's **own** declared requirement, not a transitively composed one;
+the reserved `max` of a minimum cell is never written.  The full design, including how consumers
+compose requirements across dependency edges, is in
+[`design/standard-compatibility/registry-index.md`](design/standard-compatibility/registry-index.md).
 
 ## Package with dependencies
 
@@ -171,6 +204,8 @@ Loading rejects an index when:
 - a `source.type` is anything other than `"archive"`
 - a `source.format` is anything other than `"tar.gz"`
 - a `source.path` is empty
+- a `standards` interface cell populates the reserved `max` field, or is a bare standard string
+  (`"c++17"`) rather than `"none"` or a `{ "min": "<level>" }` table
 
 ## Not supported yet
 
@@ -260,6 +295,6 @@ cabin build \
 
 `cabin package` and `cabin publish --dry-run` produce a canonical per-version metadata document next
 to the archive.  The generated document mirrors the shape of one entry inside this index file (same
-`schema`, `dependencies`, `yanked`, `checksum`, `source` shape) so file-registry publish can splice
-it into a `<package>.json` without re-deriving anything.  Packaging and dry-run publishing do
+`schema`, `dependencies`, `yanked`, `checksum`, `source`, and `standards` shape) so file-registry
+publish can splice it into a `<package>.json` without re-deriving anything.  Packaging and dry-run publishing do
 **not** modify any index - see [`package-format.md`](package-format.md).

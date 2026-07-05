@@ -53,13 +53,13 @@ rejects:
   index dependency entries for the edge side, serialized per-target implementation levels for
   the consumer side - is additive on the `standards` schema and can land when wanted.
 
-The published cells already fold in intra-package public-edge propagation, and each target's
-cross-package public re-exports are recorded in `public-deps` (`registry-index.md`,
-"Cross-package public re-exports"), so the index carries what completing D10 propagation across
-packages needs.  How far v1 traverses candidate tables is an implementation decision inside the
-same seam; skipped traversal errs toward under-advertising (a re-exporting wrapper may rank
-better than its true $R_L$ warrants), which the advertisement framing already owns - selection
-may under-promise, and the post-resolution checks recompute the truth.
+The published cells are each target's **own declared** requirement, uncomposed
+(`registry-index.md`, "Composition is the consumer's job"); preference mode completes the D10
+join itself, walking the candidate versions' per-target rows along the public edges of the
+resolved target graph.  How far v1 traverses candidate tables is an implementation decision
+inside the same seam; skipped traversal errs toward under-advertising (a re-exporting wrapper may
+rank better than its true $R_L$ warrants), which the advertisement framing already owns -
+selection may under-promise, and the post-resolution checks recompute the truth.
 
 Either way the check is an **ordering heuristic, never a correctness gate**: index metadata is
 advertisement (`registry-index.md`, section 3), and the post-resolution build-time interface
@@ -73,9 +73,10 @@ requirement, `cabin update` output (and any resolve-level report) must name all 
 
 1. the **selected** version,
 2. the **newest available** version,
-3. the **requirement that held it back** - language, level, and the target row carrying it,
-   using the cell's `inferred` marker (`registry-index.md`) to present inferred minima as
-   inferred (spec D9 row 3, Example 5).
+3. the **requirement that held it back** - language, level, and the target row carrying it.
+   Whether that minimum is an explicit declaration or a header-only inference (spec D9 row 3,
+   Example 5) is not recorded in the index (`registry-index.md`); a report that wants to
+   present inferred minima as inferred recomputes the provenance from the fetched manifest.
 
 ```text
 fmt: selected 10.2.1 (newest 11.0.0 held back: requires c++20 via target `fmt`;

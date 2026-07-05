@@ -659,6 +659,103 @@ mod tests {
         }
     }
 
+    /// Tiny static registry server: serves `config.json` and one
+    /// `packages/<name>.json`, so the sparse-HTTP read path can be
+    /// exercised end to end without external network access.
+    struct StaticRegistry {
+        server: std::sync::Arc<tiny_http::Server>,
+        thread: Option<std::thread::JoinHandle<()>>,
+        url: String,
+    }
+
+    impl StaticRegistry {
+        fn start(config: &'static str, package_name: &'static str, package: &'static str) -> Self {
+            let server = std::sync::Arc::new(
+                tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+            );
+            let addr = server.server_addr().to_ip().expect("loopback addr");
+            let url = format!("http://{addr}/");
+            let server_for_thread = std::sync::Arc::clone(&server);
+            let package_path = format!("/packages/{package_name}.json");
+            let thread = std::thread::spawn(move || {
+                while let Ok(req) = server_for_thread.recv() {
+                    let path = req.url().to_string();
+                    if path == "/config.json" {
+                        let _ = req.respond(tiny_http::Response::from_string(config));
+                    } else if path == package_path {
+                        let _ = req.respond(tiny_http::Response::from_string(package));
+                    } else {
+                        let _ = req.respond(tiny_http::Response::empty(404));
+                    }
+                }
+            });
+            Self {
+                server,
+                thread: Some(thread),
+                url,
+            }
+        }
+    }
+
+    impl Drop for StaticRegistry {
+        fn drop(&mut self) {
+            self.server.unblock();
+            if let Some(handle) = self.thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// The `standards` table survives a full sparse-HTTP fetch: the
+    /// same typed per-target requirements and flags the file loader
+    /// produces are reachable on the `IndexEntry` this crate returns.
+    #[test]
+    fn fetch_package_parses_standards_table() {
+        use cabin_core::{CStandard, CxxStandard, Requirement};
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        const PACKAGE: &str = r#"{
+            "schema": 1,
+            "name": "mixed",
+            "versions": {
+                "1.0.0": {
+                    "dependencies": {},
+                    "standards": {
+                        "targets": {
+                            "cxxlib": { "interface": { "c": "none", "c++": { "min": "c++17" } } },
+                            "hdr": { "header-only": true, "interface": { "c++": { "min": "c++20" } } },
+                            "clib": { "gnu-extensions": true, "interface": { "c": { "min": "c11" } } }
+                        }
+                    }
+                }
+            }
+        }"#;
+        let server = StaticRegistry::start(CONFIG, "mixed", PACKAGE);
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        let entry = index
+            .fetch_package(&PackageName::new("mixed").unwrap())
+            .unwrap();
+        let (_, meta) = entry.versions.iter().next().expect("one version");
+
+        let cxxlib = &meta.standards.targets["cxxlib"];
+        assert_eq!(cxxlib.interface_c, Requirement::Forbidden);
+        assert_eq!(cxxlib.interface_cxx, Requirement::Min(CxxStandard::Cxx17));
+        assert!(meta.standards.targets["hdr"].header_only);
+        assert_eq!(
+            meta.standards.targets["hdr"].interface_cxx,
+            Requirement::Min(CxxStandard::Cxx20)
+        );
+        assert!(meta.standards.targets["clib"].gnu_extensions);
+        assert_eq!(
+            meta.standards.targets["clib"].interface_c,
+            Requirement::Min(CStandard::C11)
+        );
+    }
+
     #[test]
     fn package_name_constructor_rejects_url_reserved() {
         // The structural reason `Url::join` cannot be reached: every
