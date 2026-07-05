@@ -266,6 +266,8 @@ mod tests {
             version: ver(version),
             archive_bytes: body.to_vec(),
             checksum: checksum.clone(),
+            package: cabin_core::Package::new(pkg(name), ver(version), Vec::new(), Vec::new())
+                .unwrap(),
             metadata: PackageMetadata {
                 schema: 1,
                 name: name.to_owned(),
