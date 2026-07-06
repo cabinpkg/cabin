@@ -144,7 +144,6 @@ Persistent defaults for build-time selectors that Cabin already exposes as CLI f
 | `profile`          | string  | Default profile. Overridden by `--profile <name>` and `--release`. Must reference a built-in (`dev`, `release`) or a custom profile declared in the workspace root manifest. |
 | `jobs`             | integer | Default number of parallel jobs for the build backend. Must be a positive integer; `0` and negative values are rejected at parse time. |
 | `compiler-wrapper` | string  | Executable name or path that prefixes C and C++ compile commands. Empty and whitespace-only values are rejected. |
-| `standard-compat-errors` | boolean | **Temporary migration switch** for the experimental `-Z standard-compat` check (see [`language-standards.md`](language-standards.md#experimental-post-resolution-compatibility-errors)). `false` demotes violated dependency edges from command-failing errors back to warnings so a workspace can adopt the check incrementally. Defaults to `true`; the key is expected to be removed when the feature stabilizes. |
 
 `cabin build`'s profile precedence is `--profile` - > `--release` - > `build.profile` config - >
 built-in `dev`.

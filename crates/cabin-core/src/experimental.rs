@@ -7,38 +7,28 @@
 //! `cabin-core` so the CLI parser and every crate that gates a pass
 //! on a feature share one name list and one error wording.
 //!
-//! Adding a feature means adding a variant, its `as_str` spelling,
-//! and an `ALL` entry; the parser and its error message follow from
-//! those.
+//! The registry is currently empty - no feature is gated behind
+//! `-Z` today, so every `-Z <value>` is rejected as unknown.  Adding
+//! a feature means adding a variant, its `as_str` spelling, and an
+//! `ALL` entry; the parser and its error message follow from those.
 
 use std::fmt;
 
 /// One recognized experimental feature, as accepted by `-Z`.
+///
+/// Uninhabited while no experimental feature is registered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ExperimentalFeature {
-    /// Post-resolution language-standard compatibility checking:
-    /// evaluate the edge-compatibility model of
-    /// `docs/design/standard-compatibility/spec.md` over the
-    /// resolved target graph and report violated edges as errors
-    /// that fail the command (warnings under the temporary
-    /// `[build] standard-compat-errors = false` config migration
-    /// switch; unchecked-edge notes under a per-edge
-    /// `ignore-interface-standard = true` override).  Never
-    /// influences version selection.
-    StandardCompat,
-}
+pub enum ExperimentalFeature {}
 
 impl ExperimentalFeature {
     /// Every recognized feature, in the order the parse error
     /// lists them.
-    pub const ALL: [Self; 1] = [Self::StandardCompat];
+    pub const ALL: [Self; 0] = [];
 
     /// Stable kebab-case spelling, exactly what `-Z` accepts.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::StandardCompat => "standard-compat",
-        }
+        match self {}
     }
 }
 
@@ -65,10 +55,10 @@ impl std::str::FromStr for ExperimentalFeature {
 
 /// Error returned when a `-Z` value names no recognized
 /// experimental feature.  The `Display` impl is the user-visible
-/// wording:
+/// wording; with no feature registered it reads:
 ///
 /// ```text
-/// unknown experimental feature 'frobnicate'; expected one of: standard-compat
+/// unknown experimental feature 'frobnicate'; no experimental features are currently recognized
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownExperimentalFeature {
@@ -78,14 +68,23 @@ pub struct UnknownExperimentalFeature {
 
 impl fmt::Display for UnknownExperimentalFeature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "unknown experimental feature '{}'; expected one of: {}",
-            self.value,
-            ExperimentalFeature::ALL
-                .map(ExperimentalFeature::as_str)
-                .join(", ")
-        )
+        let recognized = ExperimentalFeature::ALL
+            .map(ExperimentalFeature::as_str)
+            .join(", ");
+        if recognized.is_empty() {
+            write!(
+                f,
+                "unknown experimental feature '{}'; no experimental features are currently \
+                 recognized",
+                self.value,
+            )
+        } else {
+            write!(
+                f,
+                "unknown experimental feature '{}'; expected one of: {recognized}",
+                self.value,
+            )
+        }
     }
 }
 
@@ -96,36 +95,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn as_str_round_trips_through_from_str() {
-        for feature in ExperimentalFeature::ALL {
+    fn unknown_value_reports_no_recognized_features() {
+        // The registry is empty, so every value - including the
+        // removed `standard-compat` name - is unknown and reports
+        // the same no-features wording.
+        for value in ["frobnicate", "standard-compat"] {
+            let err = value.parse::<ExperimentalFeature>().unwrap_err();
             assert_eq!(
-                feature.as_str().parse::<ExperimentalFeature>().unwrap(),
-                feature,
-                "{feature:?} did not round-trip"
+                err.to_string(),
+                format!(
+                    "unknown experimental feature '{value}'; no experimental features are \
+                     currently recognized"
+                ),
             );
         }
-    }
-
-    #[test]
-    fn unknown_value_lists_recognized_features() {
-        let err = "frobnicate".parse::<ExperimentalFeature>().unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "unknown experimental feature 'frobnicate'; expected one of: standard-compat"
-        );
-    }
-
-    #[test]
-    fn parsing_does_not_normalize_case() {
-        assert!("Standard-Compat".parse::<ExperimentalFeature>().is_err());
-        assert!("STANDARD-COMPAT".parse::<ExperimentalFeature>().is_err());
-    }
-
-    #[test]
-    fn display_matches_as_str() {
-        assert_eq!(
-            ExperimentalFeature::StandardCompat.to_string(),
-            "standard-compat"
-        );
     }
 }

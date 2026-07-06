@@ -141,15 +141,14 @@ The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above) must equal the dep
 
 ### `ignore-interface-standard`
 
-`ignore-interface-standard = true` exempts exactly this dependency edge from the experimental
-`-Z standard-compat` check (see
-[`language-standards.md`](language-standards.md#experimental-post-resolution-compatibility-errors)).
+`ignore-interface-standard = true` exempts exactly this dependency edge from the
+post-resolution standard-compatibility check (see
+[`language-standards.md`](language-standards.md#post-resolution-compatibility-errors)).
 The check still evaluates the edge and prints a downgraded note that the edge is unchecked, so the
 override cannot silently rot.  The exemption covers this check only: the always-on build-time
 interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
 violation classes but not interface-minimum violations (which that enforcement independently
-rejects).  The field is deliberately per-edge: there is no package-wide or global variant, and it
-is inert when the feature is off.  It is accepted on every package-sourced
+rejects).  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced
 form (path, version, port, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
 alongside `system = true` (system dependencies never enter the check).
 

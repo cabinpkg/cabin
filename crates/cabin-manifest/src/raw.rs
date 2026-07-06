@@ -364,11 +364,10 @@ pub(crate) struct RawDependencyTable {
     #[serde(default, rename = "default-features")]
     pub(crate) default_features: Option<bool>,
     /// `ignore-interface-standard = true` exempts exactly this
-    /// dependency edge from the experimental `-Z standard-compat`
-    /// check (the edge is reported as unchecked instead).
-    /// Deliberately narrow: there is no package-wide or global
-    /// variant.  Mutually exclusive with `system` (system deps
-    /// never enter the check).
+    /// dependency edge from the standard-compatibility check (the
+    /// edge is reported as unchecked instead).  Deliberately narrow:
+    /// there is no package-wide or global variant.  Mutually
+    /// exclusive with `system` (system deps never enter the check).
     #[serde(default, rename = "ignore-interface-standard")]
     pub(crate) ignore_interface_standard: Option<bool>,
 }

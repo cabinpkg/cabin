@@ -143,7 +143,7 @@ else.  No language standards, no toolchain information, and no build fingerprint
 Resolution inputs are manifest-declared values only, so one lockfile stays shareable across
 platforms and toolchains.
 
-The experimental `-Z standard-compat` check (see
+The post-resolution standard-compatibility check (see
 [`language-standards.md`](language-standards.md)) validates manifest-declared standards over the
 resolved graph on every command that consumes it from the lockfile - `cabin build` / `check` /
 `run` / `test` - exactly as on fresh resolution.  The check reads manifests only: it probes no

@@ -85,10 +85,6 @@ pub struct ParsedBuild {
     pub profile: Option<String>,
     pub compiler_wrapper: Option<CompilerWrapperRequest>,
     pub jobs: Option<cabin_core::BuildJobs>,
-    /// Temporary migration switch for the experimental
-    /// `-Z standard-compat` check: `false` demotes violated
-    /// dependency edges from errors back to warnings.
-    pub standard_compat_errors: Option<bool>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -251,7 +247,6 @@ fn parsed_build_from_raw(raw: RawBuild) -> Result<ParsedBuild, ConfigParseError>
         profile,
         compiler_wrapper,
         jobs,
-        standard_compat_errors: raw.standard_compat_errors,
     })
 }
 
@@ -1090,22 +1085,11 @@ mod tests {
     }
 
     #[test]
-    fn build_standard_compat_errors_parses_both_values() {
-        let parsed = parse_config_str("[build]\nstandard-compat-errors = false\n").unwrap();
-        assert_eq!(parsed.build.standard_compat_errors, Some(false));
-        let parsed = parse_config_str("[build]\nstandard-compat-errors = true\n").unwrap();
-        assert_eq!(parsed.build.standard_compat_errors, Some(true));
-    }
-
-    #[test]
-    fn build_standard_compat_errors_missing_yields_none() {
-        let parsed = parse_config_str("[build]\nprofile = \"dev\"\n").unwrap();
-        assert!(parsed.build.standard_compat_errors.is_none());
-    }
-
-    #[test]
-    fn build_standard_compat_errors_non_bool_is_rejected_by_serde() {
-        let err = parse_config_str("[build]\nstandard-compat-errors = \"warn\"\n").unwrap_err();
+    fn removed_standard_compat_errors_is_an_unknown_field() {
+        // The stabilized check dropped its temporary demotion switch;
+        // a config that still sets it is rejected as an ordinary
+        // unknown `[build]` field, with no special-casing.
+        let err = parse_config_str("[build]\nstandard-compat-errors = false\n").unwrap_err();
         assert!(matches!(err, ConfigParseError::Toml(_)));
     }
 

@@ -115,18 +115,18 @@ pub mod code {
     /// public headers.
     pub const LANGUAGE_INTERFACE_STANDARD_CONTRADICTION: &str =
         "cabin::language::interface_standard_contradiction";
-    /// `cabin::language::standard_compat_violation` - experimental
-    /// (`-Z standard-compat`) post-resolution check: a resolved
+    /// `cabin::language::standard_compat_violation` -
+    /// post-resolution standard-compatibility check: a resolved
     /// dependency edge violates the standard-compatibility model of
     /// `docs/design/standard-compatibility/spec.md` for a language
     /// the consuming target compiles.  Fails the command unless the
-    /// temporary `[build] standard-compat-errors = false` config
-    /// switch demotes it to a warning.
+    /// edge carries a per-edge `ignore-interface-standard = true`
+    /// override, which instead emits the sibling unchecked-edge
+    /// note below.
     pub const LANGUAGE_STANDARD_COMPAT_VIOLATION: &str =
         "cabin::language::standard_compat_violation";
-    /// `cabin::language::standard_compat_unchecked_edge` -
-    /// experimental (`-Z standard-compat`) note: a violated
-    /// dependency edge was exempted from the check by
+    /// `cabin::language::standard_compat_unchecked_edge` - note: a
+    /// violated dependency edge was exempted from the check by
     /// `ignore-interface-standard = true` on the consuming
     /// package's `[dependencies]` entry, so it goes unchecked.
     pub const LANGUAGE_STANDARD_COMPAT_UNCHECKED_EDGE: &str =
