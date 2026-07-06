@@ -1,5 +1,4 @@
-//! Rendering and gating for the experimental `standard-compat`
-//! check.
+//! Rendering and gating for the standard-compatibility check.
 //!
 //! `cabin-build`'s post-resolution pass hands the CLI typed
 //! [`StandardCompatViolation`] records (see
@@ -9,9 +8,7 @@
 //! declaration for a labeled snippet
 //! ([`cabin_manifest::standard_field_span`]), and renders each
 //! record through `cabin-diagnostics`.  Violations are
-//! error-severity and fail the command; the temporary
-//! `[build] standard-compat-errors = false` config switch demotes
-//! them to warnings during migration, and a violation whose edge
+//! error-severity and fail the command; a violation whose edge
 //! carries the per-edge `ignore-interface-standard = true`
 //! override renders as an unchecked-edge note instead and never
 //! gates.
@@ -23,24 +20,7 @@ use anyhow::Result;
 use cabin_build::{
     DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
 };
-use cabin_core::ExperimentalFeature;
 use cabin_diagnostics::miette;
-
-/// Whether the user opted into the check for this invocation.
-pub(crate) fn requested(unstable: &BTreeSet<ExperimentalFeature>) -> bool {
-    unstable.contains(&ExperimentalFeature::StandardCompat)
-}
-
-/// Whether the temporary `[build] standard-compat-errors = false`
-/// migration switch demotes violations to warnings for this
-/// invocation.
-pub(crate) fn demoted(config: &cabin_config::EffectiveConfig) -> bool {
-    config
-        .build
-        .standard_compat_errors
-        .as_ref()
-        .is_some_and(|setting| !setting.value)
-}
 
 /// Render every violation and gate the command.  Violations arrive
 /// pre-sorted from the planner; rendering keeps that order.
@@ -50,30 +30,21 @@ pub(crate) fn demoted(config: &cabin_config::EffectiveConfig) -> bool {
 /// cause and the re-resolve remedy.
 ///
 /// Non-ignored violations render as errors and produce an `Err`
-/// that fails the command - unless `demote_to_warnings` (the
-/// temporary `[build] standard-compat-errors = false` migration
-/// switch) is set, in which case they render as warnings and the
-/// command proceeds.  Ignored violations (per-edge
+/// that fails the command.  Ignored violations (per-edge
 /// `ignore-interface-standard = true`) render as one
 /// unchecked-edge note per edge and never gate.
 ///
 /// # Errors
 /// Returns an error when at least one non-ignored violation was
-/// rendered and `demote_to_warnings` is `false`.
+/// rendered.
 pub(crate) fn report(
     violations: &[StandardCompatViolation],
     color: cabin_core::ColorChoice,
     lockfile_pinned: &BTreeSet<(String, String)>,
-    demote_to_warnings: bool,
 ) -> Result<()> {
     if violations.is_empty() {
         return Ok(());
     }
-    let severity = if demote_to_warnings {
-        miette::Severity::Warning
-    } else {
-        miette::Severity::Error
-    };
     let mut stderr = termcolor::StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
     let mut unchecked_edges: BTreeSet<(&str, &str)> = BTreeSet::new();
     let mut gating = 0usize;
@@ -92,14 +63,12 @@ pub(crate) fn report(
             violation.dependency_package.clone(),
             violation.dependency_version.clone(),
         ));
-        let diagnostic = violation_diagnostic(violation, from_lockfile, severity);
+        let diagnostic = violation_diagnostic(violation, from_lockfile);
         cabin_diagnostics::render(&diagnostic, &mut stderr, color)?;
     }
-    if gating > 0 && !demote_to_warnings {
+    if gating > 0 {
         anyhow::bail!(
-            "{gating} standard compatibility violation{s} (`-Z standard-compat`); during \
-             migration, `standard-compat-errors = false` under `[build]` in \
-             `.cabin/config.toml` temporarily demotes these errors to warnings",
+            "{gating} standard compatibility violation{s}",
             s = crate::plural(gating),
         );
     }
@@ -159,7 +128,6 @@ impl miette::Diagnostic for StandardCompatDiagnostic {
 fn violation_diagnostic(
     violation: &StandardCompatViolation,
     from_lockfile: bool,
-    severity: miette::Severity,
 ) -> StandardCompatDiagnostic {
     let lang = violation.language.human_label();
     let consumer = format!(
@@ -272,7 +240,7 @@ fn violation_diagnostic(
     StandardCompatDiagnostic {
         message,
         help,
-        severity,
+        severity: miette::Severity::Error,
         code: cabin_diagnostics::code::LANGUAGE_STANDARD_COMPAT_VIOLATION,
         source: Some(source),
         label: format!(
@@ -381,11 +349,7 @@ mod tests {
     }
 
     fn render_error(violation: &StandardCompatViolation, from_lockfile: bool) -> String {
-        render(&violation_diagnostic(
-            violation,
-            from_lockfile,
-            miette::Severity::Error,
-        ))
+        render(&violation_diagnostic(violation, from_lockfile))
     }
 
     fn min_violation() -> StandardCompatViolation {
@@ -720,27 +684,13 @@ mod tests {
         );
     }
 
-    /// Violations render with miette's error cross by default and
-    /// downgrade to the warning glyph under the migration switch.
+    /// Violations render with miette's error cross.
     #[test]
-    fn renders_error_severity_and_demoted_warning_severity() {
+    fn renders_error_severity() {
         let rendered = render_error(&min_violation(), false);
         assert!(
             rendered.contains('×'),
             "expected the error cross in: {rendered}"
-        );
-        let demoted = render(&violation_diagnostic(
-            &min_violation(),
-            false,
-            miette::Severity::Warning,
-        ));
-        assert!(
-            demoted.contains('⚠'),
-            "expected the warning glyph in: {demoted}"
-        );
-        assert!(
-            !demoted.contains('×'),
-            "a demoted violation must not render the error cross: {demoted}"
         );
     }
 
@@ -813,45 +763,26 @@ mod tests {
         );
     }
 
-    /// `report` fails with the violation count and the migration
-    /// hint once every diagnostic has rendered; the demoted and
-    /// ignored-only paths succeed.
+    /// `report` fails with the violation count once every diagnostic
+    /// has rendered; the ignored-only path succeeds.
     #[test]
-    fn report_gates_unless_demoted_or_ignored() {
+    fn report_gates_unless_ignored() {
         let violations = [min_violation()];
         let err = report(
             &violations,
             cabin_core::ColorChoice::Never,
             &BTreeSet::new(),
-            false,
         )
         .unwrap_err();
         let message = err.to_string();
-        assert!(
-            message.contains("1 standard compatibility violation (`-Z standard-compat`)"),
-            "expected the violation count in: {message}"
+        assert_eq!(
+            message, "1 standard compatibility violation",
+            "expected the bare violation count in: {message}"
         );
-        assert!(
-            message.contains("`standard-compat-errors = false` under `[build]`"),
-            "expected the migration hint in: {message}"
-        );
-
-        report(
-            &violations,
-            cabin_core::ColorChoice::Never,
-            &BTreeSet::new(),
-            true,
-        )
-        .expect("the migration switch demotes violations to warnings");
 
         let mut ignored = min_violation();
         ignored.ignored = true;
-        report(
-            &[ignored],
-            cabin_core::ColorChoice::Never,
-            &BTreeSet::new(),
-            false,
-        )
-        .expect("ignored violations never gate");
+        report(&[ignored], cabin_core::ColorChoice::Never, &BTreeSet::new())
+            .expect("ignored violations never gate");
     }
 }

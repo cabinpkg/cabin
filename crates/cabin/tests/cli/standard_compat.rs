@@ -1,5 +1,5 @@
-//! End-to-end coverage for the experimental `standard-compat`
-//! post-resolution check (`-Z standard-compat`).
+//! End-to-end coverage for the post-resolution standard-compatibility
+//! check.
 //!
 //! Each violation class of
 //! `docs/design/standard-compatibility/spec.md` D9 gets a fixture:
@@ -7,19 +7,19 @@
 //! `interface-cxx-standard = "none"` (row 1), transitive provenance
 //! through a public edge (D10), header-only inference (row 3), and
 //! a mixed-language consumer violating both languages on one edge
-//! (D13).  The feature-off runs pin the no-op guarantee, and the
-//! registry fixture covers both the fresh-resolution and the
-//! lockfile-load paths.
+//! (D13).  The registry fixture covers both the fresh-resolution and
+//! the lockfile-load paths.
 //!
-//! Violations are errors: they render with the provenance chain
-//! (manifest `path:line` references) and fail the command with
-//! exit code 1.  The `"none"` fixtures - which the always-on
-//! build-time enforcement deliberately accepts - prove the gating
-//! comes from this check alone.  Two escape hatches are covered:
-//! the temporary `[build] standard-compat-errors = false` config
-//! switch demotes every violation to a warning, and a per-edge
-//! `ignore-interface-standard = true` dependency override
-//! downgrades exactly that edge to an unchecked-edge note.
+//! The check always runs; there is no opt-in flag.  Violations are
+//! errors: they render with the provenance chain (manifest
+//! `path:line` references) and fail the command with exit code 1.
+//! The `"none"` fixtures - which the always-on build-time
+//! enforcement deliberately accepts - prove the gating comes from
+//! this check alone.  The one escape hatch is a per-edge
+//! `ignore-interface-standard = true` dependency override, which
+//! downgrades exactly that edge to an unchecked-edge note.  The
+//! removed `standard-compat` feature name is now an ordinary
+//! unknown `-Z` value.
 
 use super::*;
 
@@ -137,7 +137,7 @@ fn direct_minimum_violation_fails_with_provenance_error() {
     let dir = TempDir::new().unwrap();
     write_direct_minimum_fixture(dir.path());
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -190,38 +190,50 @@ fn direct_minimum_violation_fails_with_provenance_error() {
         "a minimum violation must not offer the override: {flat}"
     );
     assert!(
-        flat_contains(
-            &stderr,
-            "1 standard compatibility violation (`-Z standard-compat`)"
-        ),
+        flat_contains(&stderr, "1 standard compatibility violation"),
         "expected the gating summary in: {flat}"
     );
 }
 
-/// The no-op guarantee: without `-Z standard-compat`, the same
-/// graph produces no trace of the check.
+/// The check now always runs, so the removed `standard-compat`
+/// feature name is an ordinary unknown `-Z` value: naming it is
+/// rejected exactly like any other unrecognized feature, with no
+/// special-casing and no migration hint.  (Every fixture above
+/// exercises the check without passing `-Z`.)
 #[test]
-fn feature_off_emits_no_violation() {
-    require_cxx_build_tools();
-    let dir = TempDir::new().unwrap();
-    write_direct_minimum_fixture(dir.path());
-    let assertion = cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("app/build"))
+fn removed_feature_name_is_an_ordinary_unknown_feature() {
+    // Rejected at argument-parse time (exit 2), before any manifest
+    // is needed, so this needs no build tools or fixture.
+    let removed = cabin()
+        .args(["build", "-Z", "standard-compat"])
         .assert()
-        // The always-on build-time enforcement still fails this
-        // graph on its own.
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        .failure()
+        .code(2);
+    let removed_stderr = String::from_utf8_lossy(&removed.get_output().stderr).to_string();
     assert!(
-        !stderr.contains("standard_compat"),
-        "the check must leave no trace when off: {stderr}"
+        removed_stderr.contains("unknown experimental feature 'standard-compat'"),
+        "the removed name must read as an unknown feature: {removed_stderr}"
     );
     assert!(
-        !stderr.contains("standard compatibility violation"),
-        "no gating summary may render when the feature is off: {stderr}"
+        !removed_stderr.contains("migration") && !removed_stderr.contains("standard-compat-errors"),
+        "the removed name must carry no migration diagnostics: {removed_stderr}"
+    );
+    // Byte-for-byte the same treatment as any other unknown value,
+    // save for the echoed name.
+    let other = cabin()
+        .args(["build", "-Z", "frobnicate"])
+        .assert()
+        .failure()
+        .code(2);
+    let other_stderr = String::from_utf8_lossy(&other.get_output().stderr).to_string();
+    assert!(
+        other_stderr.contains("unknown experimental feature 'frobnicate'"),
+        "an arbitrary unknown feature must read the same way: {other_stderr}"
+    );
+    assert_eq!(
+        removed_stderr.replace("standard-compat", "frobnicate"),
+        other_stderr,
+        "the removed name must be handled identically to any other unknown feature"
     );
 }
 
@@ -255,7 +267,7 @@ cxx-standard = "c++17"
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -285,70 +297,8 @@ cxx-standard = "c++17"
         "expected the forbidden help in: {flat}"
     );
     assert!(
-        flat_contains(
-            &stderr,
-            "1 standard compatibility violation (`-Z standard-compat`)"
-        ),
+        flat_contains(&stderr, "1 standard compatibility violation"),
         "expected the gating summary in: {flat}"
-    );
-}
-
-/// The temporary migration switch: `standard-compat-errors = false`
-/// under `[build]` in `.cabin/config.toml` demotes the same
-/// violation to a warning and the command succeeds.
-#[test]
-fn migration_switch_demotes_violations_to_warnings() {
-    require_cxx_build_tools();
-    let dir = TempDir::new().unwrap();
-    write_none_library(dir.path(), "lib");
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-lib = { path = "../lib" }
-
-[target.app]
-type = "executable"
-sources = ["src/main.cc"]
-deps = ["lib"]
-cxx-standard = "c++17"
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
-        .write_str("int main() { return 0; }\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
-        .write_str("[build]\nstandard-compat-errors = false\n")
-        .unwrap();
-    let user_home = TempDir::new().unwrap();
-    let assertion = cabin_with_config()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
-        .arg(dir.path().join("app/cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("app/build"))
-        .env("CABIN_CONFIG_HOME", user_home.path())
-        .assert()
-        .success();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    let flat = flatten(&stderr);
-    assert!(
-        stderr.contains(VIOLATION_CODE),
-        "the demoted violation still renders, as a warning: {stderr}"
-    );
-    assert!(
-        stderr.contains('⚠') && !stderr.contains('×'),
-        "expected warning severity under the migration switch: {stderr}"
-    );
-    assert!(
-        !flat_contains(
-            &stderr,
-            "standard compatibility violation (`-Z standard-compat`)"
-        ),
-        "no gating summary may render when demoted: {flat}"
     );
 }
 
@@ -383,7 +333,7 @@ cxx-standard = "c++17"
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -417,10 +367,7 @@ cxx-standard = "c++17"
         "expected the unchecked-edge note in: {flat}"
     );
     assert!(
-        flat_contains(
-            &stderr,
-            "1 standard compatibility violation (`-Z standard-compat`)"
-        ),
+        flat_contains(&stderr, "1 standard compatibility violation"),
         "the suppressed edge must not count toward the gate: {flat}"
     );
 }
@@ -454,7 +401,7 @@ cxx-standard = "c++17"
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -556,7 +503,7 @@ cxx-standard = "c++17"
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -630,7 +577,7 @@ cxx-standard = "c++17"
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -706,7 +653,7 @@ deps = ["w"]
         .write_str("int main() { return 0; }\n")
         .unwrap();
     let assertion = cabin()
-        .args(["build", "-Z", "standard-compat", "--manifest-path"])
+        .args(["build", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("app/build"))
@@ -734,10 +681,7 @@ deps = ["w"]
         "expected exactly two errors in: {stderr}"
     );
     assert!(
-        flat_contains(
-            &stderr,
-            "2 standard compatibility violations (`-Z standard-compat`)"
-        ),
+        flat_contains(&stderr, "2 standard compatibility violations"),
         "expected the gating summary to count both in: {flat}"
     );
 }
@@ -806,7 +750,7 @@ deps = ["libnone"]
 
     let build = |build_dir: &str| {
         cabin()
-            .args(["build", "-Z", "standard-compat", "--manifest-path"])
+            .args(["build", "--manifest-path"])
             .arg(app_root.join("cabin.toml"))
             .arg("--index-path")
             .arg(&registry)
@@ -955,7 +899,7 @@ deps = ["libiface"]
 
     let run = |subcommand: &str, build_dir: &str| {
         cabin()
-            .args([subcommand, "-Z", "standard-compat", "--manifest-path"])
+            .args([subcommand, "--manifest-path"])
             .arg(app_root.join("cabin.toml"))
             .arg("--index-path")
             .arg(&registry)

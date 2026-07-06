@@ -2928,7 +2928,7 @@ fn flag_conflicts_scope_to_planned_compiles() {
 }
 
 // ---------------------------------------------------------------------------
-// experimental standard-compat pass (spec D13 over resolved edges)
+// standard-compat pass (spec D13 over resolved edges)
 // ---------------------------------------------------------------------------
 
 use crate::standard_compat::{
@@ -2989,9 +2989,10 @@ fn standard_compat_violations(graph: &PackageGraph) -> Vec<StandardCompatViolati
     plan(&req).unwrap().standard_compat_violations
 }
 
-/// Feature-off no-op: with `standard_compat: false` (the default) a
-/// graph carrying a clear violation records no violations, so the
-/// planner's output is exactly what it was before the pass existed.
+/// Opt-out no-op: with `standard_compat: false` (as `cabin tidy`
+/// sets it) a graph carrying a clear violation records no
+/// violations, so the planner's output is exactly what it was
+/// before the pass existed.
 #[test]
 fn standard_compat_off_records_nothing() {
     let graph = app_dep_graph(

@@ -1080,10 +1080,14 @@ pub(crate) fn run(
         // arguments.  Cabin matches that.
         return Ok(ExitCode::SUCCESS);
     };
-    // Typed `-Z` set, deduplicated.  Only the commands that gate
-    // behavior on a feature receive it.
-    let unstable: BTreeSet<cabin_core::ExperimentalFeature> =
-        cli.unstable.iter().copied().collect();
+    // `-Z` currently gates no behavior: the feature registry is
+    // empty, so clap's value parser rejects every `-Z <value>` as an
+    // unknown feature and this vector is always empty.  Parsing it is
+    // what enforces that rejection; nothing consumes the result.
+    debug_assert!(
+        cli.unstable.is_empty(),
+        "no experimental features are registered"
+    );
     match command {
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
@@ -1095,15 +1099,15 @@ pub(crate) fn run(
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Build(args) => {
-            build(&args, reporter, BuildMode::Build, &unstable, color).map(|()| ExitCode::SUCCESS)
+            build(&args, reporter, BuildMode::Build, color).map(|()| ExitCode::SUCCESS)
         }
         Command::Check(args) => {
-            build(&args, reporter, BuildMode::Check, &unstable, color).map(|()| ExitCode::SUCCESS)
+            build(&args, reporter, BuildMode::Check, color).map(|()| ExitCode::SUCCESS)
         }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Run(args) => crate::cli::run::run(&args, reporter, &unstable, color),
+        Command::Run(args) => crate::cli::run::run(&args, reporter, color),
         Command::Test(args) => {
-            crate::cli::test::test(&args, reporter, &unstable, color).map(|()| ExitCode::SUCCESS)
+            crate::cli::test::test(&args, reporter, color).map(|()| ExitCode::SUCCESS)
         }
         Command::Resolve(args) => resolve(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Update(args) => update(&args, reporter).map(|()| ExitCode::SUCCESS),

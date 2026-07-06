@@ -21,7 +21,6 @@ pub(super) fn build(
     args: &BuildArgs,
     reporter: Reporter,
     mode: BuildMode,
-    unstable: &BTreeSet<cabin_core::ExperimentalFeature>,
     color: cabin_core::ColorChoice,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
@@ -317,7 +316,7 @@ pub(super) fn build(
             approx_standards.has_c_sources(),
         ),
         enabled_features: Some(&enabled_features),
-        standard_compat: crate::cli::standard_compat::requested(unstable),
+        standard_compat: true,
     })?;
     // `cabin check` reuses the build graph but rewrites it into a
     // syntax-only check (no codegen, no link) scoped to the selected
@@ -333,16 +332,12 @@ pub(super) fn build(
     } else {
         plan_graph
     };
-    // Experimental standard-compat violations render before the
-    // hard build-time enforcement below and gate the command
-    // themselves - unless the temporary
-    // `[build] standard-compat-errors = false` migration switch
-    // demotes them to warnings.
+    // Standard-compat violations render before the hard build-time
+    // enforcement below and gate the command themselves.
     crate::cli::standard_compat::report(
         &plan_graph.standard_compat_violations,
         color,
         &lockfile_pinned,
-        crate::cli::standard_compat::demoted(&effective_config),
     )?;
     // Validate the plan-dependent toolchain contract against exactly
     // the compiles the final graph runs - after the check rewrite
