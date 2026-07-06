@@ -10,7 +10,7 @@ weaken either side silently.
 
 The project is a standalone Lake package.  It is not part of the Cargo workspace or the main
 build; CI checks it through the dedicated `Proofs` workflow
-(`.github/workflows/proofs.yml`), which runs when `proofs/` or the spec changes.  Alongside
+(`.github/workflows/proofs.yml`), which runs when `docs/proofs/` or the spec changes.  Alongside
 `lake build`, that workflow fails if any numbered lemma/theorem/corollary in the spec has no
 same-named Lean declaration, so adding or renumbering a spec item without mechanizing it is
 caught even though a spec-only change cannot break the Lean build itself.
@@ -18,7 +18,7 @@ caught even though a spec-only change cannot break the Lean build itself.
 ## Checking the proofs
 
 ```sh
-cd proofs/standard-compatibility
+cd docs/proofs/standard-compatibility
 lake build
 ```
 
