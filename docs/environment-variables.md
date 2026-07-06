@@ -12,11 +12,11 @@ const ... : &str = ...` constants.
 | Name | Default | Meaning |
 |---|---|---|
 | `CABIN_CONFIG` | unset | Path to one explicit config file.  Disables the normal config-discovery walk. |
-| `CABIN_CONFIG_HOME` | platform user config home with `cabin` suffix | Override for the per-user config home.  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user config home via the [`directories`](https://crates.io/crates/directories) crate (`$XDG_CONFIG_HOME/cabin` / `$HOME/.config/cabin` on Linux, `~/Library/Application Support/cabin` on macOS, `%APPDATA%\cabin` on Windows). |
+| `CABIN_CONFIG_HOME` | platform user config home with `cabin` suffix | Override for the per-user config home.  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user config home via the [`etcetera`](https://crates.io/crates/etcetera) crate (`$XDG_CONFIG_HOME/cabin` / `$HOME/.config/cabin` on Linux and macOS, `%APPDATA%\cabin` on Windows). |
 | `CABIN_NO_CONFIG` | unset | When truthy, no config files load at all |
 | `CABIN_BUILD_DIR` | `build` | Build output directory |
 | `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation.  Wins over `CABIN_CACHE_HOME` and the platform fallback. |
-| `CABIN_CACHE_HOME` | platform user cache home with `cabin` suffix | Per-user cache home (the directory the global cache lives under).  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user cache home via the `directories` crate (`$XDG_CACHE_HOME/cabin` / `$HOME/.cache/cabin` on Linux, `~/Library/Caches/cabin` on macOS, `%LOCALAPPDATA%\cabin` on Windows). |
+| `CABIN_CACHE_HOME` | platform user cache home with `cabin` suffix | Per-user cache home (the directory the global cache lives under).  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user cache home via the `etcetera` crate (`$XDG_CACHE_HOME/cabin` / `$HOME/.cache/cabin` on Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
 | `CABIN_COMPILER_WRAPPER` | unset | Compiler-wrapper executable name or path. `none` (aliases `off`, `disabled`) disables wrapping. |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
