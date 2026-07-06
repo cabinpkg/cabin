@@ -1285,8 +1285,8 @@ struct DepPath {
     /// point, so any value here matches the host platform.
     condition: Option<cabin_core::Condition>,
     /// The declaration's `ignore-interface-standard` opt-out,
-    /// carried onto the graph edge for the experimental
-    /// `standard-compat` check.
+    /// carried onto the graph edge for the standard-compatibility
+    /// check.
     ignore_interface_standard: bool,
 }
 

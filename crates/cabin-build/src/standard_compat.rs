@@ -1,5 +1,4 @@
-//! Post-resolution language-standard compatibility checking
-//! (experimental `standard-compat`).
+//! Post-resolution language-standard compatibility checking.
 //!
 //! Evaluates the edge-compatibility model of
 //! `docs/design/standard-compatibility/spec.md` over the planner's
@@ -9,13 +8,11 @@
 //! and every resolved dependency edge is checked per D13 for every
 //! language the consumer compiles.  Violated edges become
 //! [`StandardCompatViolation`] records on the [`crate::BuildGraph`];
-//! the CLI renders them as errors that fail the command (or as
-//! warnings under the temporary `standard-compat-errors = false`
-//! config migration switch).  An edge whose consuming package
-//! declares `ignore-interface-standard = true` on the matching
-//! `[dependencies]` entry is still evaluated, but its violations
-//! are marked [`StandardCompatViolation::ignored`] so the CLI
-//! downgrades them to unchecked-edge notes.
+//! the CLI renders them as errors that fail the command.  An edge
+//! whose consuming package declares `ignore-interface-standard =
+//! true` on the matching `[dependencies]` entry is still evaluated,
+//! but its violations are marked [`StandardCompatViolation::ignored`]
+//! so the CLI downgrades them to unchecked-edge notes.
 //!
 //! The pass runs strictly after resolution (fresh or
 //! lockfile-seeded - both produce the same loaded graph) and never

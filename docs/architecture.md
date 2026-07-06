@@ -191,8 +191,7 @@ are intentionally not traversed here.  Current invariants:
   for later diagnostics.  The module does not resolve target references itself: `cabin-build` owns
   turning raw manifest `deps` into a concrete target graph, and `cabin-resolver` owns enumerating
   candidates; both hand this module resolved nodes and edges.  Its first consumer is
-  `cabin_build::standard_compat`, the experimental (`-Z standard-compat`) post-resolution
-  check.
+  `cabin_build::standard_compat`, the post-resolution compatibility check.
 
 The crate must:
 
@@ -1449,7 +1448,7 @@ The following are *not* part of this repository today:
   but they are **never** encoded as `PubGrub` constraints and never filter a version out of the
   solution, so preference never introduces a resolution failure `allow` would not also produce.
   Range interface requirements (the reserved `max` slot) belong to a future version.  The
-  experimental `-Z standard-compat` check (`cabin_build::standard_compat`) evaluates the spec's
+  post-resolution standard-compatibility check (`cabin_build::standard_compat`) evaluates the spec's
   edge-compatibility model over the *resolved* graph and fails the command on violated edges (see
   [`language-standards.md`](language-standards.md)); it is the post-resolution correctness
   authority, distinct from the preference heuristic.  The MSVC

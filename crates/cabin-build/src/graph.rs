@@ -35,12 +35,11 @@ pub struct BuildGraph {
     /// survivors through [`crate::validate_planned_standards`]
     /// before anything is lowered or written.
     pub standard_violations: Vec<StandardViolation>,
-    /// Violated dependency edges from the experimental
-    /// `standard-compat` post-resolution pass
-    /// ([`crate::standard_compat`]).  Always empty unless the pass
-    /// was requested.  The CLI renders non-ignored records as
-    /// errors that fail the command (warnings under the
-    /// `standard-compat-errors = false` migration switch) and
+    /// Violated dependency edges from the post-resolution
+    /// standard-compatibility pass ([`crate::standard_compat`]).
+    /// Always empty unless the pass ran
+    /// ([`crate::PlanRequest::standard_compat`]).  The CLI renders
+    /// non-ignored records as errors that fail the command and
     /// `ignored` records as unchecked-edge notes; the `cabin check`
     /// rewrite carries them through unchanged (they describe
     /// resolved edges, not planned compiles).

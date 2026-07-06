@@ -66,7 +66,8 @@ rejects:
   satisfied that the true intermediate consumer cannot consume, and the post-resolution checks
   will still fail the resolution.  The scope of that optimism is bounded by the status quo: a
   standard-unaware resolver selects that same candidate today, and the same checks catch it
-  (`-Z standard-compat` and the build-time enforcement of `docs/language-standards.md`).
+  (the post-resolution standard-compatibility check and the build-time enforcement of
+  `docs/language-standards.md`).
   Preference mode never manufactures a failure that today's newest-first selection would have
   avoided; in this corner it merely fails to help.  Narrowing both sides - target references on
   index dependency entries for the edge side, serialized per-target implementation levels for
@@ -161,7 +162,7 @@ the resolver "must not select" a version whose `"none"` declaration forbids the 
 language - framing that anticipates strict filtering.  The spec equally scopes out how
 candidates are enumerated and what happens when none is viable; this document is the recorded
 answer to both: viability-informed *ordering* plus select-latest-and-report, with the
-`-Z standard-compat` post-resolution check and the build-time interface enforcement of
+post-resolution standard-compatibility check and the build-time interface enforcement of
 `docs/language-standards.md` as the layers that actually refuse.  Those two framing sentences in
 `spec.md` (the D14 "filter" wording and section 1's "must not select") have been amended to point
 here, per the repository's update-both-documents rule: viability-informed *ordering* plus

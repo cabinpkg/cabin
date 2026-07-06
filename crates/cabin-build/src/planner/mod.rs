@@ -135,11 +135,11 @@ pub struct PlanRequest<'a> {
     /// `deps` entry) is a hard error.  `None` (and missing
     /// entries) mean "no features enabled" for gating purposes.
     pub enabled_features: Option<&'a HashMap<usize, BTreeSet<String>>>,
-    /// Whether the experimental `standard-compat` post-resolution
-    /// check runs over the resolved target graph
-    /// ([`crate::standard_compat`]).  When `false` - the default
-    /// unless the user opts in with `-Z standard-compat` - the
-    /// planner records no violations and its output is unchanged.
+    /// Whether the post-resolution standard-compatibility check runs
+    /// over the resolved target graph ([`crate::standard_compat`]).
+    /// The build / check / run / test commands set it; `cabin tidy`
+    /// leaves it `false`, and then the planner records no violations
+    /// and its output is unchanged.
     pub standard_compat: bool,
 }
 
@@ -282,10 +282,10 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
 
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
-    // Experimental post-resolution standard-compatibility check
-    // (spec D13 over every resolved edge).  Behind the gate the
-    // planner's output is byte-for-byte what it was before the pass
-    // existed.
+    // Post-resolution standard-compatibility check (spec D13 over
+    // every resolved edge).  When the caller opts out (`cabin
+    // tidy`), the planner's output is byte-for-byte what it was
+    // before the pass existed.
     let standard_compat_violations = if req.standard_compat {
         crate::standard_compat::edge_violations(&topo, &resolved_deps, req)?
     } else {
@@ -740,7 +740,7 @@ pub(crate) type TargetId = (usize, String);
 /// resolution has already happened - `to` is a concrete
 /// (package, target), never a pre-alias bare name - and the edge
 /// carries the visibility declared on the manifest entry.  The
-/// `public` classification feeds the experimental `standard-compat`
+/// `public` classification feeds the standard-compatibility
 /// pass, which propagates interface requirements along public edges
 /// (`docs/design/standard-compatibility/spec.md`, D5).
 #[derive(Debug, Clone, PartialEq, Eq)]

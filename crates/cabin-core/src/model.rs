@@ -573,11 +573,10 @@ pub struct Dependency {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<crate::Condition>,
     /// `ignore-interface-standard = true`: exempt exactly this
-    /// dependency edge from the experimental `-Z standard-compat`
-    /// check.  The check still reports the edge as unchecked;
-    /// the field is deliberately per-edge only (no package-wide
-    /// or global variant) and has no effect when the feature is
-    /// off.
+    /// dependency edge from the standard-compatibility check.  The
+    /// check still reports the edge as unchecked; the field is
+    /// deliberately per-edge only (no package-wide or global
+    /// variant).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ignore_interface_standard: bool,
 }

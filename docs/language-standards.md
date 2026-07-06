@@ -308,10 +308,9 @@ package's compile standard is never chosen by the consuming workspace.  This is 
 preservation only - the registry build honors the extracted manifest, and resolver-side
 standard-compatibility filtering remains deferred.
 
-## Experimental: post-resolution compatibility errors
+## Post-resolution compatibility errors
 
-`-Z standard-compat` (experimental; behavior may change or disappear) enables a check in
-`cabin build` / `check` / `run` / `test` that evaluates the edge-compatibility model of
+`cabin build` / `check` / `run` / `test` always run a check that evaluates the edge-compatibility model of
 [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md) over the resolved
 target graph - after resolution, whether fresh or lockfile-seeded - and reports every violated
 dependency edge as an error, one per violated language.  Any violation fails the command with exit
@@ -336,18 +335,12 @@ dependency whose resolved
 version came out of an existing `cabin.lock` additionally notes that the lockfile records version
 pins only - so the likely cause is a standard declaration that changed in a manifest after the
 lockfile was generated - and suggests `cabin update` to re-resolve (see
-[`lockfile.md`](lockfile.md)).  The check never influences version selection; with the flag off,
-behavior is unchanged.  The resolver-level defaults apply (see [Version selection](#version-selection)
+[`lockfile.md`](lockfile.md)).  The check never influences version selection.  The resolver-level defaults apply (see [Version selection](#version-selection)
 below): no implementation-standard fallback for compiled libraries, and `"none"` is unsatisfiable -
 so the check can disagree with the build-time enforcement above by design, in both directions.
 
-Two escape hatches exist, one broad and temporary, one narrow and per-edge:
+A single escape hatch exists, deliberately narrow and per-edge:
 
-- **Migration switch (temporary).**  `standard-compat-errors = false` under `[build]` in
-  `.cabin/config.toml` demotes every violation to a warning so a workspace can adopt the check
-  incrementally (see [`config.md`](config.md#build)).  The switch is a migration aid and is
-  expected to be removed when the feature stabilizes; treat a demoted violation as a bug to fix,
-  not a state to stay in.
 - **Per-edge override.**  `ignore-interface-standard = true` on a `[dependencies]` /
   `[dev-dependencies]` table entry (see
   [`manifest.md`](manifest.md#ignore-interface-standard)) exempts exactly that edge.  The check
@@ -375,7 +368,7 @@ The workspace consumer standard used for the check is the Cargo-style approximat
 the minimum effective implementation standard declared across workspace member targets.
 Preference is an ordering heuristic, never a hard constraint - it never introduces a resolution
 failure `allow` would not also produce, and the always-on build-time enforcement (and the
-experimental `-Z standard-compat` check) remain the correctness authority.  The full policy is
+post-resolution check above) remain the correctness authority.  The full policy is
 recorded in
 [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md).
 Its defaults deliberately differ from the build-time enforcement above, which is unchanged and
