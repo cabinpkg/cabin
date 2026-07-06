@@ -2,9 +2,7 @@
 import BrandIcon from "./BrandIcon.astro";
 import Icon from "./Icon.astro";
 import { EXTERNAL_URLS, NAV_LINKS } from "../lib/constants";
-import { sponsorButtonClass } from "../lib/classes";
 import Button from "./ui/Button.astro";
-import ExternalLink from "./ui/ExternalLink.astro";
 
 const year = new Date().getFullYear();
 ---
@@ -46,13 +44,6 @@ const year = new Date().getFullYear();
                     <BrandIcon name="github" class="h-4 w-4" />
                     GitHub
                 </Button>
-                <ExternalLink
-                    href={NAV_LINKS.sponsor.href}
-                    icon="heart"
-                    class={sponsorButtonClass}
-                >
-                    Sponsor
-                </ExternalLink>
             </div>
 
             <div class="h-px w-72 bg-line"></div>

@@ -26,7 +26,3 @@ export const badgeToneClasses = {
     warning: "border-steel/35 bg-steel/10 text-steel-bright",
     muted: "border-line-strong bg-night-lifted text-ink-muted",
 } as const;
-
-// Rendered as a ghost button; only the heart icon carries the steel accent,
-// so no utilities here may conflict with the ghost variant's own colors.
-export const sponsorButtonClass = "[&_svg]:text-steel";
