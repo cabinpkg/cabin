@@ -3,9 +3,7 @@ import BrandIcon from "./BrandIcon.astro";
 import Icon from "./Icon.astro";
 import Logo from "./Logo.astro";
 import { DOCS_SEARCH_PATH, NAV_LINKS, SEARCH_PATH } from "../lib/constants";
-import { sponsorButtonClass } from "../lib/classes";
 import Button from "./ui/Button.astro";
-import ExternalLink from "./ui/ExternalLink.astro";
 
 interface Props {
     // Which index the header search box queries.  Pages under /docs render with
@@ -81,13 +79,6 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
             >
                 <BrandIcon name="github" class="h-5 w-5" />
             </Button>
-            <ExternalLink
-                href={NAV_LINKS.sponsor.href}
-                icon="heart"
-                class={sponsorButtonClass}
-            >
-                {NAV_LINKS.sponsor.label}
-            </ExternalLink>
         </div>
     </nav>
     <script src="../scripts/header-typeahead.ts"></script>

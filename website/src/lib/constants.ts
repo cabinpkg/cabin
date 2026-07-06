@@ -22,7 +22,6 @@ export const INSTALL_DOC_URL = "/docs/installation/";
 
 export const EXTERNAL_URLS = {
     githubOrg: "https://github.com/cabinpkg",
-    sponsor: "https://github.com/sponsors/ken-matsui",
     author: "https://github.com/ken-matsui",
     demoGif:
         "https://github.com/cabinpkg/cabin/releases/latest/download/demo.gif",
@@ -36,9 +35,5 @@ export const NAV_LINKS = {
     github: {
         label: "GitHub Repository",
         href: EXTERNAL_URLS.githubOrg,
-    },
-    sponsor: {
-        label: "Sponsor",
-        href: EXTERNAL_URLS.sponsor,
     },
 } as const;
