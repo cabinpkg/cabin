@@ -1850,8 +1850,8 @@ pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
 /// Precedence: `--cache-dir` ▶ `$CABIN_CACHE_DIR` ▶
 /// `$CABIN_CACHE_HOME` ▶ the platform base cache directory with a
 /// `cabin` suffix (`$XDG_CACHE_HOME/cabin` / `~/.cache/cabin` on
-/// Linux, `~/Library/Caches/cabin` on macOS, `%LOCALAPPDATA%\cabin`
-/// on Windows).  The fallback shape mirrors `cabin_config::discovery`
+/// Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows).  The
+/// fallback shape mirrors `cabin_config::discovery`
 /// so the cache home and config home follow the same rule.
 ///
 /// The cache is content-addressed (e.g. foundation-port archives
@@ -1859,7 +1859,10 @@ pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
 /// user-global default lets two projects on the same machine
 /// share a single download.
 pub(crate) fn cache_dir_for(override_dir: Option<&Path>) -> Result<PathBuf> {
-    let user_cache_home = directories::BaseDirs::new().map(|dirs| dirs.cache_dir().join("cabin"));
+    use etcetera::{BaseStrategy, choose_base_strategy};
+    let user_cache_home = choose_base_strategy()
+        .ok()
+        .map(|dirs| dirs.cache_dir().join("cabin"));
     cache_dir_for_with_env(
         override_dir,
         &|key| std::env::var_os(key),

@@ -59,7 +59,7 @@ clap_mangen = { workspace = true }
 os_info = { version = "3", default-features = false }
 semver = { workspace = true }
 url = { workspace = true }
-directories = { workspace = true }
+etcetera = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

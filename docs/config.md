@@ -16,16 +16,16 @@ precedence stays auditable.
 
 | Source     | Location                                                                        |
 | ---------- | ------------------------------------------------------------------------------- |
-| User       | `$CABIN_CONFIG_HOME/config.toml`; otherwise the platform user config home with the `cabin` suffix - Linux: `$XDG_CONFIG_HOME/cabin/config.toml` (fallback `$HOME/.config/cabin/config.toml`); macOS: `~/Library/Application Support/cabin/config.toml`; Windows: `%APPDATA%\cabin\config.toml` |
+| User       | `$CABIN_CONFIG_HOME/config.toml`; otherwise the platform user config home with the `cabin` suffix - Linux and macOS: `$XDG_CONFIG_HOME/cabin/config.toml` (fallback `$HOME/.config/cabin/config.toml`); Windows: `%APPDATA%\cabin\config.toml` |
 | Workspace  | `<workspace-root>/.cabin/config.toml` when the entry-point manifest declares `[workspace]` |
 | Package    | `<package-root>/.cabin/config.toml` when the entry-point manifest is a single-package project |
 | Explicit   | `$CABIN_CONFIG=<path>` - exactly one file, missing files are a hard error      |
 
 When `CABIN_CONFIG_HOME` is unset, Cabin computes the user config home via the
-[`directories`](https://crates.io/crates/directories) crate - the platform's user config directory
+[`etcetera`](https://crates.io/crates/etcetera) crate - the platform's user config directory
 with a `cabin` suffix - and looks for `config.toml` there.  Cargo's `$CARGO_HOME` model is not used.
-On Linux the lookup follows the XDG Base Directory specification (`$XDG_CONFIG_HOME`, falling back
-to `$HOME/.config`); empty or relative values are treated as unset.  Cabin does not read system-wide
+On Linux and macOS the lookup follows the XDG Base Directory specification (`$XDG_CONFIG_HOME`,
+falling back to `$HOME/.config`); empty or relative values are treated as unset.  Cabin does not read system-wide
 XDG config directories (`/etc/xdg`, `$XDG_CONFIG_DIRS`).
 
 Discovery does **not** walk arbitrary parent directories beyond the workspace root.  Member-local
@@ -250,7 +250,7 @@ Cabin's config layer recognizes three environment variables.
 `CABIN_CONFIG_HOME` is a Cabin-specific override and is **not** treated as an XDG variable: when set
 to a non-empty value, Cabin reads `<value>/config.toml` directly with no `cabin` application prefix
 appended.  When `CABIN_CONFIG_HOME` is unset, Cabin uses the platform user config home computed by
-the `directories` crate (which on Linux honors `XDG_CONFIG_HOME` and `HOME` per the XDG Base
+the `etcetera` crate (which on Linux and macOS honors `XDG_CONFIG_HOME` and `HOME` per the XDG Base
 Directory specification) and looks for `cabin/config.toml` below it.
 
 Existing env variables Cabin already honors (`CC`, `CXX`, `AR`, `CABIN_COMPILER_WRAPPER`,
