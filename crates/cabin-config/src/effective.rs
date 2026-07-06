@@ -113,11 +113,6 @@ impl EffectivePathSetting {
 pub struct EffectiveBuild {
     pub profile: Option<EffectiveProfile>,
     pub jobs: Option<EffectiveBuildJobs>,
-    /// Resolved `[build] standard-compat-errors` value.  `false`
-    /// demotes the experimental `-Z standard-compat` check's
-    /// violated edges from errors back to warnings - a temporary
-    /// migration switch.
-    pub standard_compat_errors: Option<SourcedValue<bool>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,9 +234,6 @@ fn apply_parsed(
             value: jobs,
             source,
         });
-    }
-    if let Some(errors) = parsed.build.standard_compat_errors {
-        effective.build.standard_compat_errors = Some(SourcedValue::new(errors, source));
     }
     if let Some(incompatible_standards) = parsed.resolver.incompatible_standards {
         effective.resolver.incompatible_standards =
@@ -500,34 +492,6 @@ mod tests {
         let wrapper = effective.compiler_wrapper.expect("workspace wins");
         assert_eq!(wrapper.request, CompilerWrapperRequest::Disabled);
         assert_eq!(wrapper.source, ConfigSource::Workspace);
-    }
-
-    #[test]
-    fn standard_compat_errors_workspace_overrides_user() {
-        let user = ParsedConfig {
-            build: ParsedBuild {
-                standard_compat_errors: Some(true),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let workspace = ParsedConfig {
-            build: ParsedBuild {
-                standard_compat_errors: Some(false),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let effective = merge_loaded_files(vec![
-            loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
-            loaded(ConfigSource::Workspace, "/ws/.cabin/config.toml", workspace),
-        ]);
-        let setting = effective
-            .build
-            .standard_compat_errors
-            .expect("merged setting present");
-        assert!(!setting.value);
-        assert_eq!(setting.source, ConfigSource::Workspace);
     }
 
     #[test]
