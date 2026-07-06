@@ -21,6 +21,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use camino::{Utf8Path, Utf8PathBuf};
+use etcetera::{BaseStrategy, choose_base_strategy};
 
 use crate::error::ConfigError;
 use crate::parse::parse_config_str;
@@ -71,7 +72,7 @@ pub struct ConfigDiscoveryInputs<'a> {
     /// includes the `cabin` application prefix).  The XDG fallback
     /// arm of [`discover_config_files`] reads `<this>/config.toml`.
     ///
-    /// Production builds this via the `xdg` crate (see
+    /// Production builds this via the `etcetera` crate (see
     /// [`ConfigDiscoveryInputs::from_process`]); tests pass an
     /// explicit path so they exercise the fallback chain without
     /// mutating the process environment.
@@ -88,9 +89,8 @@ impl<'a> ConfigDiscoveryInputs<'a> {
     /// process and consult the supplied workspace layout (when
     /// any).  The user config home is the platform base config
     /// directory with a `cabin` suffix: `$XDG_CONFIG_HOME/cabin`
-    /// (falling back to `$HOME/.config/cabin`) on Linux,
-    /// `~/Library/Application Support/cabin` on macOS, and
-    /// `%APPDATA%\cabin` on Windows.
+    /// (falling back to `$HOME/.config/cabin`) on Linux and macOS,
+    /// and `%APPDATA%\cabin` on Windows.
     pub fn from_process(workspace: Option<WorkspaceLayout<'a>>) -> Self {
         Self {
             workspace,
@@ -105,7 +105,9 @@ impl<'a> ConfigDiscoveryInputs<'a> {
 /// directory can be determined.  The discovery layer appends
 /// `config.toml` to whatever this returns.
 fn user_config_home() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|dirs| dirs.config_dir().join("cabin"))
+    choose_base_strategy()
+        .ok()
+        .map(|dirs| dirs.config_dir().join("cabin"))
 }
 
 /// Discovery report.  Splits into the actual loaded files plus a
