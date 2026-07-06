@@ -1,9 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
+use cabin_core::standard_compatibility::{ConsumerStandards, dependency_attributes};
 use cabin_core::{
-    CompilerWrapperRequest, Condition, DependencyKind, Package, PatchManifestSettings,
-    ProfileDefinition, ProfileName, ToolchainSettings,
+    CStandard, CompilerWrapperRequest, Condition, CxxStandard, DependencyKind, Package,
+    PatchManifestSettings, ProfileDefinition, ProfileName, ToolchainSettings,
+    resolve_language_standards,
 };
 
 /// Root-manifest policy settings that apply workspace-wide even
@@ -84,6 +86,131 @@ impl PackageGraph {
         self.packages
             .iter()
             .position(|p| p.package.name.as_str() == name)
+    }
+
+    /// The consumer standards for standard-aware version preference
+    /// (`docs/design/standard-compatibility/preference-mode.md`
+    /// section 1): per language, the minimum effective implementation
+    /// standard (spec D6 `impl_L`) across the targets of `members` that
+    /// implement it.  `None` for a language none of them compiles - it
+    /// then imposes nothing on candidate ordering.
+    ///
+    /// `members` must be the package set the resolve is actually for -
+    /// the selected closure
+    /// ([`ResolvedSelection::closure`](crate::ResolvedSelection::closure)),
+    /// not the whole graph - so an unselected member never lowers the
+    /// consumer standard for a scoped resolve.  Within each member the
+    /// targets this invocation can build count: default-buildable kinds
+    /// always, plus dev-only (`test` / `example`) targets for packages
+    /// named in `dev_for` (the set whose `[dev-dependencies]` this
+    /// invocation activates, e.g. `cabin test`), and in both cases only
+    /// when their `required-features` are satisfied by `enabled_features`
+    /// (keyed by package index).  A target gated behind an unenabled
+    /// feature, or a `test` / `example` under a plain `cabin build`, does
+    /// not lower the consumer standard.  Dev-only targets are counted
+    /// whenever `dev_for` activates them, without a per-target reachability
+    /// walk - the same conservative over-approximation applied to a path
+    /// dependency's libraries (below): it can only prefer an older, more
+    /// broadly compatible version, never lock one a built target (such as
+    /// an example a selected target references in `deps`) cannot consume.
+    ///
+    /// The set is deliberately every default-buildable (plus `dev_for`)
+    /// target of the selected packages, **not** the single target a
+    /// `--bin` / `--example` / test-name narrows a later build to.
+    /// `cabin.lock` is shared per project, so its versions must suit
+    /// every target `cabin build` compiles; scoping resolution to one
+    /// run/test target would under-constrain the shared lock for its
+    /// siblings.  Which target is finally compiled is a build-time
+    /// decision, downstream of resolution.
+    ///
+    /// This is the Cargo-style workspace-level approximation used during
+    /// a partial solve: exactness is not required because the
+    /// post-resolution validation remains the correctness authority.
+    ///
+    /// `primary` is the originally selected package set
+    /// ([`ResolvedSelection::packages`](crate::ResolvedSelection::packages)),
+    /// a subset of `members`: `members` also holds the transitive
+    /// path-dependency packages the closure pulls in.  A path dependency
+    /// is built only for the library targets its consumers link, never
+    /// for its own executables/tests, so a non-primary member counts
+    /// only its archive-producing (library) targets.  Whether each such
+    /// library is in turn *reachable* (linked by a consumer target) is
+    /// deliberately not computed here: that per-target build-graph walk
+    /// is the planner's post-resolution job, and counting a path
+    /// dependency's archive targets is a conservative over-approximation
+    /// in the safe direction - it can only prefer an older, more broadly
+    /// compatible version, never cause a wrong build.
+    ///
+    /// This extends to a path dependency reached only through a
+    /// feature-disabled optional edge: the loader records optional path
+    /// edges unconditionally (only disabled optional *registry* deps are
+    /// pruned), and this walk does no package-level feature-reachability
+    /// pruning of `members`.  That is deliberate and equally safe - each
+    /// added member contributes only to the per-language `min`, which
+    /// extra targets can lower but never raise, so an unbuilt optional
+    /// dependency can at most prefer an older, more broadly compatible
+    /// version. Pruning it would only ever raise the preferred version
+    /// and never changes solvability, so it is left to the planner.
+    #[must_use]
+    pub fn consumer_standards(
+        &self,
+        members: &BTreeSet<usize>,
+        primary: &[usize],
+        enabled_features: &HashMap<usize, BTreeSet<String>>,
+        dev_for: &BTreeSet<String>,
+    ) -> ConsumerStandards {
+        let empty = BTreeSet::new();
+        let mut c: Option<CStandard> = None;
+        let mut cxx: Option<CxxStandard> = None;
+        for &index in members {
+            let member = &self.packages[index];
+            let is_primary = primary.contains(&index);
+            let enabled = enabled_features.get(&index).unwrap_or(&empty);
+            let dev_active = dev_for.contains(member.package.name.as_str());
+            let resolved = resolve_language_standards(&member.package.language);
+            for target in &member.package.targets {
+                // A header-only target has no translation units, so as a
+                // consumer it compiles nothing (spec D7 `langs = empty`)
+                // and imposes no consumer level - even though
+                // `dependency_attributes` reports its header-only
+                // inference on the dependency side.
+                if target.kind.is_header_only() {
+                    continue;
+                }
+                // Only targets this invocation can compile count.  A
+                // primary package builds its default-buildable targets
+                // and, under `dev_for` (`cabin test`), its dev-only
+                // (`test` / `example`) targets; a path-dep member builds
+                // only the library targets it is linked for.  Dev-only
+                // targets are counted whenever `dev_for` activates them,
+                // without walking which are actually reachable from a
+                // selected target - the same safe over-approximation
+                // applied to a path dependency's libraries below.  A
+                // selected target may reference an `example` in its
+                // `deps` (the planner then compiles it), so excluding
+                // examples could raise the consumer above a built
+                // example's standard and lock a version it cannot
+                // consume; counting one that a run does not reach only
+                // lowers the consumer (an older, more broadly compatible
+                // pick), never raises it.
+                let built = if is_primary {
+                    target.kind.is_default_buildable() || (dev_active && target.kind.is_dev_only())
+                } else {
+                    target.kind.produces_archive()
+                };
+                if !built || !target.missing_required_features(enabled).is_empty() {
+                    continue;
+                }
+                let attributes = dependency_attributes(target, &resolved, &member.package.language);
+                if let Some(level) = attributes.impl_c {
+                    c = Some(c.map_or(level, |current| current.min(level)));
+                }
+                if let Some(level) = attributes.impl_cxx {
+                    cxx = Some(cxx.map_or(level, |current| current.min(level)));
+                }
+            }
+        }
+        ConsumerStandards { c, cxx }
     }
 }
 
@@ -220,4 +347,349 @@ pub fn synthetic_root_identity(graph: &PackageGraph) -> (cabin_core::PackageName
         cabin_core::PackageName::new(sanitized).expect("synthesized name is non-empty and ASCII");
     let version = semver::Version::new(0, 0, 0);
     (name, version)
+}
+
+#[cfg(test)]
+mod consumer_standards_tests {
+    use super::*;
+    use cabin_core::{
+        CxxStandard, Features, LanguageStandardSettings, PackageConfigInput, PackageName,
+        StandardDeclaration, Target, TargetKind, TargetName,
+    };
+    use camino::Utf8PathBuf;
+
+    fn compiled_target(name: &str, ext: &str, language: LanguageStandardSettings) -> Target {
+        Target {
+            name: TargetName::new(name).unwrap(),
+            kind: TargetKind::Library,
+            sources: vec![Utf8PathBuf::from(format!("src/{name}.{ext}"))],
+            include_dirs: Vec::new(),
+            defines: Vec::new(),
+            deps: Vec::new(),
+            required_features: Vec::new(),
+            language,
+        }
+    }
+
+    fn gated_target(
+        name: &str,
+        ext: &str,
+        language: LanguageStandardSettings,
+        required_features: &[&str],
+    ) -> Target {
+        Target {
+            required_features: required_features.iter().map(|f| (*f).to_owned()).collect(),
+            ..compiled_target(name, ext, language)
+        }
+    }
+
+    fn header_only_target(name: &str, language: LanguageStandardSettings) -> Target {
+        Target {
+            kind: TargetKind::HeaderOnly,
+            sources: Vec::new(),
+            include_dirs: vec![Utf8PathBuf::from("include")],
+            ..compiled_target(name, "h", language)
+        }
+    }
+
+    fn executable_target(name: &str, ext: &str, language: LanguageStandardSettings) -> Target {
+        Target {
+            kind: TargetKind::Executable,
+            ..compiled_target(name, ext, language)
+        }
+    }
+
+    fn member(name: &str, targets: Vec<Target>) -> WorkspacePackage {
+        member_with_features(name, targets, Features::default())
+    }
+
+    fn member_with_features(
+        name: &str,
+        targets: Vec<Target>,
+        features: Features,
+    ) -> WorkspacePackage {
+        let package = Package::with_config(PackageConfigInput {
+            name: PackageName::new(name).unwrap(),
+            version: semver::Version::new(1, 0, 0),
+            targets,
+            dependencies: Vec::new(),
+            system_dependencies: Vec::new(),
+            features,
+        })
+        .unwrap();
+        WorkspacePackage {
+            package,
+            manifest_path: PathBuf::from(format!("/ws/{name}/cabin.toml")),
+            manifest_dir: PathBuf::from(format!("/ws/{name}")),
+            deps: Vec::new(),
+            kind: PackageKind::Local,
+            is_port: false,
+        }
+    }
+
+    fn graph(packages: Vec<WorkspacePackage>) -> PackageGraph {
+        PackageGraph {
+            root_manifest_path: PathBuf::from("/ws/cabin.toml"),
+            root_dir: PathBuf::from("/ws"),
+            is_workspace_root: true,
+            root_package: None,
+            root_settings: RootSettings::default(),
+            primary_packages: (0..packages.len()).collect(),
+            default_members: Vec::new(),
+            excluded_members: Vec::new(),
+            packages,
+        }
+    }
+
+    fn cxx(level: CxxStandard) -> LanguageStandardSettings {
+        LanguageStandardSettings {
+            cxx_standard: Some(StandardDeclaration::Declared(level)),
+            ..Default::default()
+        }
+    }
+
+    fn c(level: CStandard) -> LanguageStandardSettings {
+        LanguageStandardSettings {
+            c_standard: Some(StandardDeclaration::Declared(level)),
+            ..Default::default()
+        }
+    }
+
+    /// The consumer standard is the per-language minimum implementation
+    /// standard across every member target, and `None` for a language
+    /// no member compiles.
+    #[test]
+    fn consumer_standard_is_the_workspace_minimum_per_language() {
+        let workspace = graph(vec![
+            member(
+                "a",
+                vec![compiled_target("a", "cc", cxx(CxxStandard::Cxx20))],
+            ),
+            member(
+                "b",
+                vec![
+                    compiled_target("b", "cc", cxx(CxxStandard::Cxx17)),
+                    compiled_target("bc", "c", c(CStandard::C17)),
+                ],
+            ),
+        ]);
+        let all: BTreeSet<usize> = (0..workspace.packages.len()).collect();
+        let consumer =
+            workspace.consumer_standards(&all, &[0, 1], &HashMap::new(), &BTreeSet::new());
+        assert_eq!(consumer.cxx, Some(CxxStandard::Cxx17));
+        assert_eq!(consumer.c, Some(CStandard::C17));
+    }
+
+    /// Only the given members count: scoping to the C++20 member alone
+    /// keeps the consumer at C++20 even though a C++17 member exists in
+    /// the graph - a scoped resolve is not lowered by an unselected
+    /// member.
+    #[test]
+    fn consumer_standard_is_scoped_to_the_given_members() {
+        let workspace = graph(vec![
+            member(
+                "app20",
+                vec![compiled_target("app20", "cc", cxx(CxxStandard::Cxx20))],
+            ),
+            member(
+                "other17",
+                vec![compiled_target("other17", "cc", cxx(CxxStandard::Cxx17))],
+            ),
+        ]);
+        let only_app20: BTreeSet<usize> = [0].into_iter().collect();
+        let consumer =
+            workspace.consumer_standards(&only_app20, &[0], &HashMap::new(), &BTreeSet::new());
+        assert_eq!(consumer.cxx, Some(CxxStandard::Cxx20));
+    }
+
+    /// A target gated behind an unenabled feature does not lower the
+    /// consumer standard; enabling its feature counts it.
+    #[test]
+    fn feature_gated_target_does_not_lower_consumer_until_enabled() {
+        let features = Features::new(
+            Vec::new(),
+            [("legacy".to_owned(), Vec::new())].into_iter().collect(),
+        )
+        .unwrap();
+        let workspace = graph(vec![member_with_features(
+            "app",
+            vec![
+                compiled_target("app", "cc", cxx(CxxStandard::Cxx20)),
+                gated_target("legacy", "cc", cxx(CxxStandard::Cxx17), &["legacy"]),
+            ],
+            features,
+        )]);
+        let members: BTreeSet<usize> = [0].into_iter().collect();
+
+        // Feature off: the c++17 target is not built, so the consumer
+        // stays at c++20.
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new())
+                .cxx,
+            Some(CxxStandard::Cxx20)
+        );
+
+        // Feature on: the c++17 target is built and lowers the consumer.
+        let enabled: HashMap<usize, BTreeSet<String>> =
+            [(0, ["legacy".to_owned()].into_iter().collect())]
+                .into_iter()
+                .collect();
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &enabled, &BTreeSet::new())
+                .cxx,
+            Some(CxxStandard::Cxx17)
+        );
+    }
+
+    /// A dev-only (`test`) target counts only when this invocation
+    /// activates the package's dev-dependencies (`dev_for`), matching
+    /// `cabin test`; a plain build does not let it lower the consumer.
+    #[test]
+    fn dev_only_target_counts_only_for_dev_for_packages() {
+        let test_target = Target {
+            kind: TargetKind::Test,
+            ..compiled_target("app_test", "cc", cxx(CxxStandard::Cxx17))
+        };
+        let workspace = graph(vec![member(
+            "app",
+            vec![
+                compiled_target("app", "cc", cxx(CxxStandard::Cxx20)),
+                test_target,
+            ],
+        )]);
+        let members: BTreeSet<usize> = [0].into_iter().collect();
+
+        // Plain build: the c++17 test target is not built.
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new())
+                .cxx,
+            Some(CxxStandard::Cxx20)
+        );
+
+        // `cabin test` on this package: the test target is built and
+        // lowers the consumer.
+        let dev_for: BTreeSet<String> = ["app".to_owned()].into_iter().collect();
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &dev_for)
+                .cxx,
+            Some(CxxStandard::Cxx17)
+        );
+    }
+
+    /// An `example` is dev-only: it counts under `dev_for` (`cabin test`)
+    /// exactly like a `test` target.  A selected target can reference an
+    /// example in its `deps`, so the planner may compile it; counting
+    /// every activated example (the safe over-approximation) keeps the
+    /// consumer low enough that a built example never gets a version it
+    /// cannot consume.  A plain build does not activate it.
+    #[test]
+    fn example_target_counts_under_dev_for() {
+        let example_target = Target {
+            kind: TargetKind::Example,
+            ..compiled_target("app_example", "cc", cxx(CxxStandard::Cxx17))
+        };
+        let workspace = graph(vec![member(
+            "app",
+            vec![
+                compiled_target("app", "cc", cxx(CxxStandard::Cxx20)),
+                example_target,
+            ],
+        )]);
+        let members: BTreeSet<usize> = [0].into_iter().collect();
+
+        // Plain build: the c++17 example is not built.
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new())
+                .cxx,
+            Some(CxxStandard::Cxx20)
+        );
+
+        // `cabin test` activates dev-only targets: the c++17 example
+        // lowers the consumer standard.
+        let dev_for: BTreeSet<String> = ["app".to_owned()].into_iter().collect();
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &dev_for)
+                .cxx,
+            Some(CxxStandard::Cxx17)
+        );
+    }
+
+    /// A header-only target has no translation units, so it imposes no
+    /// consumer standard - even though `dependency_attributes` reports
+    /// its header-only inference on the dependency side.
+    #[test]
+    fn header_only_target_imposes_no_consumer_standard() {
+        // A package whose only target is header-only compiles nothing.
+        let workspace = graph(vec![member(
+            "hdr",
+            vec![header_only_target("hdr", cxx(CxxStandard::Cxx20))],
+        )]);
+        let members: BTreeSet<usize> = [0].into_iter().collect();
+        let consumer =
+            workspace.consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new());
+        assert_eq!(consumer.cxx, None);
+        assert_eq!(consumer.c, None);
+
+        // A header-only c++17 target beside a compiled c++20 library does
+        // not lower the consumer below c++20.
+        let workspace = graph(vec![member(
+            "app",
+            vec![
+                header_only_target("hdr", cxx(CxxStandard::Cxx17)),
+                compiled_target("app", "cc", cxx(CxxStandard::Cxx20)),
+            ],
+        )]);
+        assert_eq!(
+            workspace
+                .consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new())
+                .cxx,
+            Some(CxxStandard::Cxx20)
+        );
+    }
+
+    /// A transitive path-dependency package is built only for the
+    /// library targets its consumers link; its own executable is never
+    /// built, so a non-primary member's executable does not lower the
+    /// consumer standard.
+    #[test]
+    fn path_dependency_executable_does_not_lower_consumer() {
+        let workspace = graph(vec![
+            member(
+                "app",
+                vec![compiled_target("app", "cc", cxx(CxxStandard::Cxx20))],
+            ),
+            member(
+                "dep",
+                vec![
+                    compiled_target("dep", "cc", cxx(CxxStandard::Cxx20)),
+                    executable_target("dep_bin", "cc", cxx(CxxStandard::Cxx17)),
+                ],
+            ),
+        ]);
+        // `app` is the selected primary; `dep` is a transitive path
+        // dependency (in the closure, not primary).
+        let members: BTreeSet<usize> = [0, 1].into_iter().collect();
+        let consumer =
+            workspace.consumer_standards(&members, &[0], &HashMap::new(), &BTreeSet::new());
+        assert_eq!(consumer.cxx, Some(CxxStandard::Cxx20));
+    }
+
+    /// No members imposes nothing.
+    #[test]
+    fn empty_member_set_has_no_consumer_standard() {
+        let workspace = graph(vec![member(
+            "a",
+            vec![compiled_target("a", "cc", cxx(CxxStandard::Cxx20))],
+        )]);
+        let consumer =
+            workspace.consumer_standards(&BTreeSet::new(), &[], &HashMap::new(), &BTreeSet::new());
+        assert_eq!(consumer.c, None);
+        assert_eq!(consumer.cxx, None);
+    }
 }

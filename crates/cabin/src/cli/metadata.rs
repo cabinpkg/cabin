@@ -340,6 +340,14 @@ pub(crate) struct MetadataInputs<'a> {
     /// which effective values came from the config layer vs.  CLI
     /// vs. env vs. manifest defaults.
     pub(crate) config: &'a cabin_config::EffectiveConfig,
+    /// Effective `[resolver] incompatible-standards` value and the
+    /// layer it came from (env > config > builtin default).  Resolved
+    /// in the command entry because the env read is fallible; the view
+    /// builders stay infallible and just render it.
+    pub(crate) resolver_incompatible_standards: (
+        cabin_core::IncompatibleStandards,
+        cabin_core::ConfigValueSource,
+    ),
     /// Active patch set after manifest+config merging and
     /// validation.  Empty when no patches apply.
     pub(crate) active_patches: &'a cabin_workspace::ActivePatchSet,
@@ -587,7 +595,10 @@ impl<'a> MetadataView<'a> {
             "compiler_wrapper": compiler_wrapper_view,
             "build_flags_per_package": serde_json::Value::Object(per_package_flags),
         });
-        let config_view = crate::cli::config::config_view_json(inputs.config);
+        let config_view = crate::cli::config::config_view_json(
+            inputs.config,
+            inputs.resolver_incompatible_standards,
+        );
         let patches_view = crate::cli::patch::patch_view_json(inputs.active_patches);
         let source_replacements_view = crate::cli::patch::source_replacement_view_json(
             &inputs.config.source_replacements,
@@ -782,6 +793,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         &toolchain_summary,
         &build_flags,
     )?;
+    let resolver_incompatible_standards =
+        crate::cli::config::resolve_incompatible_standards_sourced(&effective_config)?;
     let view = MetadataView::from_graph_and_lock(&MetadataInputs {
         graph: &graph,
         lockfile: lockfile.as_ref(),
@@ -798,6 +811,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         active_patches: &active_patches,
         no_patches: args.no_patches,
         ports: &prepared_ports,
+        resolver_incompatible_standards,
     });
     match args.format {
         ResolveFormat::Json => {

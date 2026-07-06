@@ -92,6 +92,73 @@ profile = "release"
 }
 
 #[test]
+fn metadata_reports_resolver_incompatible_standards() {
+    let dir = project_dir(MINIMAL_PROJECT);
+    write_workspace_config(
+        dir.path(),
+        "[resolver]\nincompatible-standards = \"allow\"\n",
+    );
+    let user_home = TempDir::new().unwrap();
+    let assertion = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let resolver = &value["config"]["resolver"];
+    assert_eq!(resolver["incompatible_standards"].as_str(), Some("allow"));
+    assert_eq!(resolver["value_source"].as_str(), Some("package-config"));
+}
+
+#[test]
+fn metadata_reports_builtin_default_resolver_mode() {
+    // No `[resolver]` key anywhere: metadata reports the effective
+    // built-in `fallback`, not `null`.
+    let dir = project_dir(MINIMAL_PROJECT);
+    let user_home = TempDir::new().unwrap();
+    let assertion = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let resolver = &value["config"]["resolver"];
+    assert_eq!(
+        resolver["incompatible_standards"].as_str(),
+        Some("fallback")
+    );
+    assert_eq!(resolver["value_source"].as_str(), Some("builtin-default"));
+}
+
+#[test]
+fn metadata_reports_env_override_resolver_mode() {
+    // The env var outranks the file value, and metadata reflects it
+    // with an `env` source so resolve/build divergence is auditable.
+    let dir = project_dir(MINIMAL_PROJECT);
+    write_workspace_config(
+        dir.path(),
+        "[resolver]\nincompatible-standards = \"fallback\"\n",
+    );
+    let user_home = TempDir::new().unwrap();
+    let assertion = cabin_with_config()
+        .args(["metadata", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .env("CABIN_RESOLVER_INCOMPATIBLE_STANDARDS", "allow")
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let resolver = &value["config"]["resolver"];
+    assert_eq!(resolver["incompatible_standards"].as_str(), Some("allow"));
+    assert_eq!(resolver["value_source"].as_str(), Some("env"));
+}
+
+#[test]
 fn metadata_workspace_root_label_is_workspace_when_root_declares_workspace() {
     // Pure-workspace root (no `[package]` table) carries
     // `[workspace]` so its `.cabin/config.toml` is labeled

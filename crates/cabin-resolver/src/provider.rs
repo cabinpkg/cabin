@@ -43,7 +43,10 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::ops::Bound;
 
-use cabin_core::{PackageName, TargetPlatform};
+use cabin_core::standard_compatibility::{ConsumerStandards, edge_compatible};
+use cabin_core::{
+    IncompatibleStandards, PackageName, Requirement, StandardsMetadata, TargetPlatform,
+};
 use cabin_index::{IndexEntry, PackageIndex};
 use pubgrub::{
     Dependencies, DependencyConstraints, DependencyProvider, PackageResolutionStatistics, Ranges,
@@ -54,6 +57,23 @@ use crate::error::{ResolveError, ResolverConstraint};
 use crate::input::{LockedVersion, ResolveInput, ResolveMode};
 use crate::locked::{LockedConstraintRecorder, validate_locked_metadata};
 use crate::range::req_to_range;
+
+/// The three preference tiers of
+/// `docs/design/standard-compatibility/preference-mode.md` section 1,
+/// ordered best-first: a declared-and-compatible candidate is
+/// preferred to an undeclared one (which merely does not deny
+/// compatibility), which is preferred to a declared-but-incompatible
+/// one.  The derived `Ord` is exactly that preference order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum StandardTier {
+    /// Declares an interface requirement the consumer satisfies.
+    DeclaredCompatible,
+    /// Declares nothing relevant to the consumer's languages
+    /// (absent table, or all-unconstrained cells).
+    Undeclared,
+    /// Declares an interface requirement the consumer fails.
+    DeclaredIncompatible,
+}
 
 /// `PubGrub` [`DependencyProvider`] implementation used by
 /// [`crate::resolve`].
@@ -71,6 +91,13 @@ pub(crate) struct Provider<'a> {
     locked: BTreeMap<PackageName, LockedVersion>,
     platform: TargetPlatform,
     locked_constraints: Option<LockedConstraintRecorder>,
+    /// The `[resolver] incompatible-standards` preference.  Under
+    /// `Fallback`, [`Self::choose_compatible_candidate`] orders
+    /// candidates by [`StandardTier`]; under `Allow` it is inert.
+    incompatible_standards: IncompatibleStandards,
+    /// The workspace consumer's effective compile levels, checked
+    /// against candidate declared requirements for tier ordering.
+    consumer_standards: ConsumerStandards,
 }
 
 impl<'a> Provider<'a> {
@@ -95,6 +122,8 @@ impl<'a> Provider<'a> {
             locked,
             platform,
             locked_constraints,
+            incompatible_standards: input.incompatible_standards,
+            consumer_standards: input.consumer_standards,
         }
     }
 
@@ -220,9 +249,17 @@ impl DependencyProvider for Provider<'_> {
 }
 
 impl Provider<'_> {
-    /// Pick the newest non-yanked, semver-admissible version of
-    /// `entry` that lives inside `range`, preferring the
-    /// lockfile entry when it qualifies.
+    /// Pick a version of `entry` inside `range`, preferring the
+    /// lockfile entry when it qualifies and otherwise applying the
+    /// standard-preference ordering of
+    /// `docs/design/standard-compatibility/preference-mode.md`.
+    ///
+    /// The admissible set - non-yanked, pre-release-filtered versions
+    /// in `range` - is computed identically under both
+    /// [`IncompatibleStandards`] values, and this method returns
+    /// `None` in exactly the same cases (an empty admissible set), so
+    /// standards never change solvability: `Fallback` only reorders
+    /// choices the provider was already free to make.
     ///
     /// Returns `None` when no candidate qualifies; `PubGrub`
     /// then backtracks and may select a different version of a
@@ -257,13 +294,46 @@ impl Provider<'_> {
             return None;
         }
 
+        // Lockfile stability wins (preference-mode.md rule 4): a locked
+        // version that still qualifies is kept regardless of standards,
+        // and never counts as a hold-back - metadata alone never churns
+        // a lockfile.
         if let Some(locked) = self.locked.get(package)
             && non_yanked.contains(&&locked.version)
         {
             return Some(locked.version.clone());
         }
 
-        non_yanked.into_iter().max().cloned()
+        if self.incompatible_standards == IncompatibleStandards::Allow {
+            // The pure-semver pick: the newest admissible version, i.e.
+            // exactly what every pre-preference-mode release selects.
+            return non_yanked.into_iter().max().cloned();
+        }
+
+        // Fallback: order by tier (best first), newest-first within a
+        // tier.  Never filters, so the worst case is the newest of the
+        // worst tier - the same version `Allow` selects.  Hold-back
+        // reporting is not computed here; it is the diff against the
+        // `Allow` solution (see [`crate::held_back_report`]).
+        non_yanked
+            .into_iter()
+            .min_by(|a, b| {
+                self.tier(entry, a)
+                    .cmp(&self.tier(entry, b))
+                    .then_with(|| b.cmp(a))
+            })
+            .cloned()
+    }
+
+    /// Classify a candidate version into its [`StandardTier`] against
+    /// the consumer standards (preference-mode.md section 1).
+    fn tier(&self, entry: &IndexEntry, version: &Version) -> StandardTier {
+        entry
+            .versions
+            .get(version)
+            .map_or(StandardTier::Undeclared, |meta| {
+                classify(self.consumer_standards, &meta.standards)
+            })
     }
 
     /// Pick the locked version for `package` in `Locked` mode,
@@ -304,6 +374,26 @@ impl Provider<'_> {
     }
 }
 
+/// Classify a candidate version's declared standards into its
+/// [`StandardTier`] against `consumer` (preference-mode.md section 1).
+/// The advertised requirement is the version-wide join (the transitive
+/// fallback); "declared" means it constrains a language the consumer
+/// actually compiles.  `!edge_compatible` is exactly the
+/// declared-incompatible tier, since an unconstrained requirement is
+/// satisfied at every level.
+fn classify(consumer: ConsumerStandards, standards: &StandardsMetadata) -> StandardTier {
+    let advertised = standards.version_wide_join();
+    let declares_relevant = (consumer.c.is_some() && advertised.c != Requirement::Unconstrained)
+        || (consumer.cxx.is_some() && advertised.cxx != Requirement::Unconstrained);
+    if !declares_relevant {
+        StandardTier::Undeclared
+    } else if edge_compatible(consumer, advertised) {
+        StandardTier::DeclaredCompatible
+    } else {
+        StandardTier::DeclaredIncompatible
+    }
+}
+
 /// Decide whether `candidate` is admissible under `range`'s
 /// pre-release rule.
 ///
@@ -318,7 +408,7 @@ impl Provider<'_> {
 /// manifest constraint no longer admits it, `PreferLocked` must
 /// fall back to a compatible release rather than carry the lock
 /// forward in violation of the constraint.
-fn candidate_admits_prerelease(range: &Ranges<Version>, candidate: &Version) -> bool {
+pub(crate) fn candidate_admits_prerelease(range: &Ranges<Version>, candidate: &Version) -> bool {
     candidate.pre.is_empty()
         || range.as_singleton() == Some(candidate)
         || range_admits_prerelease_of(range, candidate)

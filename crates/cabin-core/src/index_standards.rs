@@ -28,7 +28,9 @@ use crate::language_standard::{
     CStandard, CxxStandard, effective_gnu_extensions, resolve_language_standards,
 };
 use crate::model::Package;
-use crate::standard_compatibility::{Requirement, dependency_attributes, req_of_c, req_of_cxx};
+use crate::standard_compatibility::{
+    EffectiveRequirements, Requirement, dependency_attributes, req_of_c, req_of_cxx,
+};
 
 /// The `standards` table for one package version: the declared
 /// per-target interface requirement table plus the per-target flags
@@ -50,6 +52,26 @@ impl StandardsMetadata {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.targets.is_empty()
+    }
+
+    /// The version-wide effective requirement: per language, the join
+    /// (spec D4) over every published target row's declared interface
+    /// requirement.  An absent or all-unconstrained table joins to
+    /// `unconstrained`.
+    ///
+    /// This is the candidate-version requirement that preference mode
+    /// checks a consumer against when it lacks per-edge target scoping
+    /// (the version-wide fallback described in section 1 of
+    /// `docs/design/standard-compatibility/preference-mode.md`).  It can
+    /// only over-constrain (a stricter `extras` target the consumer
+    /// never links still counts), which is a preference-only lossiness
+    /// the post-resolution validation corrects.
+    #[must_use]
+    pub fn version_wide_join(&self) -> EffectiveRequirements {
+        EffectiveRequirements {
+            c: Requirement::join_all(self.targets.values().map(|row| row.interface_c)),
+            cxx: Requirement::join_all(self.targets.values().map(|row| row.interface_cxx)),
+        }
     }
 
     /// Derive the declared per-target table from a resolved package.
@@ -517,6 +539,44 @@ mod tests {
         // And it round-trips back to an all-unconstrained row.
         let parsed: StandardsMetadata = serde_json::from_value(to_json(&metadata)).unwrap();
         assert_eq!(parsed, metadata);
+    }
+
+    /// `version_wide_join` folds every row's declared requirement per
+    /// language (spec D4): the strictest `c++` minimum and the `"none"`
+    /// forbidden C cell both surface; an all-unconstrained table joins
+    /// to unconstrained.
+    #[test]
+    fn version_wide_join_takes_the_strictest_per_language() {
+        assert_eq!(
+            StandardsMetadata::default().version_wide_join(),
+            EffectiveRequirements {
+                c: Requirement::Unconstrained,
+                cxx: Requirement::Unconstrained,
+            }
+        );
+        let mut metadata = StandardsMetadata::default();
+        metadata.targets.insert(
+            "core".to_owned(),
+            TargetStandards {
+                interface_c: Requirement::Forbidden,
+                interface_cxx: Requirement::Min(CxxStandard::Cxx17),
+                ..Default::default()
+            },
+        );
+        metadata.targets.insert(
+            "extras".to_owned(),
+            TargetStandards {
+                interface_cxx: Requirement::Min(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            metadata.version_wide_join(),
+            EffectiveRequirements {
+                c: Requirement::Forbidden,
+                cxx: Requirement::Min(CxxStandard::Cxx20),
+            }
+        );
     }
 
     /// Absence of the whole table is the empty table.

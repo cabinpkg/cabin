@@ -39,10 +39,10 @@ Out of scope (specified elsewhere, consumed here as resolved inputs):
   filtering versions by the implementation-standard fallback would reject resolutions the
   build-time check is already positioned to diagnose precisely, so the fallback stays a
   build-time concern.  And an explicit `"none"` is unsatisfiable here (D9 row 1) - the
-  resolver must not select a version whose headers the consumer is declared unable to include,
-  even while the build-time check's `"none"` handling remains deferred.  Where the two
-  documents appear to disagree, each governs its own layer; for resolver behavior, this
-  document wins.
+  resolver ranks such a version last and selects it only when nothing better is in range, where
+  the post-resolution enforcement then refuses it (`preference-mode.md`), even while the
+  build-time check's `"none"` handling remains deferred.  Where the two documents appear to
+  disagree, each governs its own layer; for resolver behavior, this document wins.
 
 ## 2. The model at a glance (informative)
 
@@ -307,9 +307,11 @@ its edge onto the header-only target (Example 3's chain shows the same mechanism
 **D14 (package-version viability).**  In a candidate resolution, a package version $v$ is
 **viable** iff every dependency edge $(c, d) \in E$ whose dependency target $d$ belongs to $v$
 is compatible.  Equivalently: $v$ is excluded as soon as at least one edge resolving to it is
-incompatible.  Viability is the predicate the resolver uses to filter candidate versions; how
-candidates are enumerated, and what happens when no candidate is viable, are outside this
-document's scope.
+incompatible.  Viability is the predicate that governs candidate preference: the resolver applies
+it as a version-selection *ordering* (`preference-mode.md`), never as a hard in-solver filter, and
+the post-resolution build-time enforcement of `docs/language-standards.md` is what actually refuses
+an unviable resolution.  How candidates are enumerated is outside this document's scope; what
+happens when no candidate is viable is answered by preference mode with select-latest-and-report.
 
 ## 4. Lemmas
 

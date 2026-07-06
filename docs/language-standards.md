@@ -337,9 +337,9 @@ version came out of an existing `cabin.lock` additionally notes that the lockfil
 pins only - so the likely cause is a standard declaration that changed in a manifest after the
 lockfile was generated - and suggests `cabin update` to re-resolve (see
 [`lockfile.md`](lockfile.md)).  The check never influences version selection; with the flag off,
-behavior is unchanged.  The resolver-level defaults apply (see Deferred below): no
-implementation-standard fallback for compiled libraries, and `"none"` is unsatisfiable - so the
-check can disagree with the build-time enforcement above by design, in both directions.
+behavior is unchanged.  The resolver-level defaults apply (see [Version selection](#version-selection)
+below): no implementation-standard fallback for compiled libraries, and `"none"` is unsatisfiable -
+so the check can disagree with the build-time enforcement above by design, in both directions.
 
 Two escape hatches exist, one broad and temporary, one narrow and per-edge:
 
@@ -355,21 +355,41 @@ Two escape hatches exist, one broad and temporary, one narrow and per-edge:
   suppresses the failure, not the evaluation.  It is deliberately narrow: there is no
   package-wide or global variant.
 
+## Version selection
+
+The resolver consults standard compatibility when it orders candidate versions, controlled by
+`[resolver] incompatible-standards` in `.cabin/config.toml` (see
+[`config.md`](config.md#resolver)) or the `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` environment
+variable.  The value vocabulary is Cargo's `resolver.incompatible-rust-versions` verbatim:
+
+- `fallback` (the default) prefers versions whose declared interface standards the workspace
+  satisfies, deprioritizes versions that declare nothing relevant, and ranks a
+  declared-incompatible version last - newest-first within each tier, and never filtered.  When it
+  passes a newer version over for a standard reason, `cabin update` / `cabin resolve` name the
+  selected version, the newest available, and the requirement that held it back.
+- `allow` makes selection a pure function of semver constraints: standards never move a lockfile,
+  and incompatibilities surface only through the post-resolution enforcement above.  This is the
+  strict / deterministic mode, not a legacy one.
+
+The workspace consumer standard used for the check is the Cargo-style approximation: per language,
+the minimum effective implementation standard declared across workspace member targets.
+Preference is an ordering heuristic, never a hard constraint - it never introduces a resolution
+failure `allow` would not also produce, and the always-on build-time enforcement (and the
+experimental `-Z standard-compat` check) remain the correctness authority.  The full policy is
+recorded in
+[`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md).
+Its defaults deliberately differ from the build-time enforcement above, which is unchanged and
+still runs after resolution: at resolve time a compiled library with no declared interface field
+imposes no constraint (no implementation-standard fallback), while an explicit `"none"` makes the
+dependency unsatisfiable from that language instead of imposing nothing.
+
 ## Deferred
 
-- Resolver standard-compatibility filtering.  The normative model (requirement domain,
-  propagation along public dependency edges, edge compatibility, version viability) is
-  specified in [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md);
-  the experimental `-Z standard-compat` check above already evaluates the edge-compatibility
-  part of that model post-resolution, but the resolver still does not consult it when selecting
-  versions.  The recorded selection-time design is the (likewise deferred) soft preference mode
-  of
-  [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md) -
-  viability-informed candidate ordering with held-back reports, not hard in-resolver filtering.  Its defaults deliberately differ from the build-time enforcement above, which is
-  unchanged and still runs after resolution: at resolve time a compiled library with no declared
-  interface field imposes no constraint (no implementation-standard fallback), while an explicit
-  `"none"` makes the dependency unsatisfiable from that language instead of imposing nothing.
-- `cfg(...)`-conditional or per-profile standards; CLI / env / config overrides.
+- Hard in-resolver standard filtering is permanently out of scope (see
+  [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md)
+  section 4); only the soft preference above and the post-resolution checks refuse a resolution.
+- `cfg(...)`-conditional or per-profile standards; per-command CLI overrides of the preference
+  mode.
 - Range interface requirements (populating the reserved `max`), and enforcement of `"none"`
   against consumers that compile the language.
 - Duplicate build variants (one library compiled once per consumer standard).

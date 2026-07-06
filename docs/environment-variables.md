@@ -26,6 +26,7 @@ const ... : &str = ...` constants.
 | `CABIN_TIDY` | unset | Override for the `run-clang-tidy` executable `cabin tidy` spawns |
 | `CABIN_PKG_CONFIG` | unset | Override for the `pkg-config` executable Cabin spawns when probing ``system = true` deps` |
 | `CABIN_BUILD_JOBS` | unset | Number of parallel jobs the build backend should use |
+| `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` | unset | Standard-aware version preference (`allow` / `fallback`) |
 | `CPPFLAGS` | unset | Conventional preprocessor flags appended to **both** C/C++ compile commands |
 | `CFLAGS` | unset | Conventional flags appended only to C compile commands |
 | `CXXFLAGS` | unset | Conventional flags appended only to C++ compile commands |
@@ -128,6 +129,27 @@ sequential, and `CABIN_BUILD_JOBS` is ignored when `cabin test` invokes Ninja fo
 `-j N`.  In `--fix` mode the effective parallelism is clamped to `1` so concurrent clang-tidy
 instances cannot race while applying overlapping fixes; verbose mode reports the override when a
 higher count was requested.
+
+### Standard-aware version preference (`CABIN_RESOLVER_INCOMPATIBLE_STANDARDS`)
+
+Controls whether the resolver orders candidate versions by language-standard compatibility.  The
+value vocabulary is **Cargo's `resolver.incompatible-rust-versions` verbatim**:
+
+1. **`CABIN_RESOLVER_INCOMPATIBLE_STANDARDS=<mode>`** environment variable.
+2. **`[resolver] incompatible-standards = "<mode>"`** in a config file.
+3. **Default** - `fallback`.
+
+`<mode>` is `allow` or `fallback`; any other value is rejected before resolution:
+
+```text
+$ CABIN_RESOLVER_INCOMPATIBLE_STANDARDS=warn cabin update
+error: invalid CABIN_RESOLVER_INCOMPATIBLE_STANDARDS value "warn": invalid incompatible-standards value "warn"; expected one of: allow, fallback
+```
+
+`fallback` prefers standard-compatible versions and reports any version held back; `allow` makes
+selection a pure function of semver constraints.  See
+[`language-standards.md`](language-standards.md#version-selection) and
+[`config.md`](config.md#resolver) for the full policy.
 
 ### `CPPFLAGS` / `CFLAGS` / `CXXFLAGS` / `LDFLAGS`
 

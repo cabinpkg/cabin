@@ -176,6 +176,10 @@ pub fn cabin() -> Command {
         "CPPFLAGS",
         "LDFLAGS",
         "CABIN_NET_OFFLINE",
+        // Strip the resolver preference override so tests observe the
+        // built-in `fallback` default; env-precedence tests opt back in
+        // by setting it explicitly after calling `cabin()`.
+        "CABIN_RESOLVER_INCOMPATIBLE_STANDARDS",
         "CABIN_COMPILER_WRAPPER",
         "CABIN_CACHE_DIR",
         // `CABIN_CACHE_HOME` redirects the per-user cache home;

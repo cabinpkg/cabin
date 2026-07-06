@@ -43,8 +43,8 @@ pub use discovery::{
 pub use effective::{
     EffectiveBuild, EffectiveBuildJobs, EffectiveColor, EffectiveCompilerWrapper, EffectiveConfig,
     EffectivePatch, EffectivePathSetting, EffectivePaths, EffectiveProfile, EffectiveRegistry,
-    EffectiveRegistrySource, EffectiveTerm, EffectiveTool, EffectiveToolchain, EffectiveVerbosity,
-    merge_loaded_files,
+    EffectiveRegistrySource, EffectiveResolver, EffectiveTerm, EffectiveTool, EffectiveToolchain,
+    EffectiveVerbosity, merge_loaded_files,
 };
 pub use error::{ConfigError, ConfigParseError};
 pub use parse::{

@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use camino::Utf8PathBuf;
 
 use cabin_core::{
-    ColorChoice, CompilerWrapperRequest, PackageName, PatchSource, SourceReplacementEntry,
-    SourceReplacementSettings, ToolSpec, Verbosity,
+    ColorChoice, CompilerWrapperRequest, IncompatibleStandards, PackageName, PatchSource,
+    SourceReplacementEntry, SourceReplacementSettings, ToolSpec, Verbosity,
 };
 
 use crate::parse::{ParsedConfig, ParsedRegistry};
@@ -30,6 +30,7 @@ pub struct EffectiveConfig {
     pub registry: EffectiveRegistry,
     pub paths: EffectivePaths,
     pub build: EffectiveBuild,
+    pub resolver: EffectiveResolver,
     pub toolchain: EffectiveToolchain,
     pub compiler_wrapper: Option<EffectiveCompilerWrapper>,
     pub term: EffectiveTerm,
@@ -123,6 +124,15 @@ pub struct EffectiveBuild {
 pub struct EffectiveProfile {
     pub name: String,
     pub source: ConfigSource,
+}
+
+/// `[resolver]` view, after merging.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EffectiveResolver {
+    /// Resolved `[resolver] incompatible-standards` value plus the
+    /// file it came from.  `None` means no config file declared it, so
+    /// the env var / built-in default (`fallback`) takes over.
+    pub incompatible_standards: Option<SourcedValue<IncompatibleStandards>>,
 }
 
 /// Resolved `[build] jobs` value plus the file it came from.
@@ -232,6 +242,10 @@ fn apply_parsed(
     }
     if let Some(errors) = parsed.build.standard_compat_errors {
         effective.build.standard_compat_errors = Some(SourcedValue::new(errors, source));
+    }
+    if let Some(incompatible_standards) = parsed.resolver.incompatible_standards {
+        effective.resolver.incompatible_standards =
+            Some(SourcedValue::new(incompatible_standards, source));
     }
     if let Some(wrapper) = &parsed.build.compiler_wrapper {
         effective.compiler_wrapper = Some(EffectiveCompilerWrapper {
@@ -514,6 +528,58 @@ mod tests {
             .expect("merged setting present");
         assert!(!setting.value);
         assert_eq!(setting.source, ConfigSource::Workspace);
+    }
+
+    #[test]
+    fn resolver_incompatible_standards_workspace_overrides_user() {
+        use crate::parse::ParsedResolver;
+        let user = ParsedConfig {
+            resolver: ParsedResolver {
+                incompatible_standards: Some(cabin_core::IncompatibleStandards::Allow),
+            },
+            ..Default::default()
+        };
+        let workspace = ParsedConfig {
+            resolver: ParsedResolver {
+                incompatible_standards: Some(cabin_core::IncompatibleStandards::Fallback),
+            },
+            ..Default::default()
+        };
+        let effective = merge_loaded_files(vec![
+            loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
+            loaded(ConfigSource::Workspace, "/ws/.cabin/config.toml", workspace),
+        ]);
+        let resolver = effective
+            .resolver
+            .incompatible_standards
+            .expect("merged resolver setting present");
+        assert_eq!(resolver.value, cabin_core::IncompatibleStandards::Fallback);
+        assert_eq!(resolver.source, ConfigSource::Workspace);
+    }
+
+    #[test]
+    fn resolver_incompatible_standards_user_kept_when_workspace_silent() {
+        use crate::parse::ParsedResolver;
+        let user = ParsedConfig {
+            resolver: ParsedResolver {
+                incompatible_standards: Some(cabin_core::IncompatibleStandards::Allow),
+            },
+            ..Default::default()
+        };
+        let effective = merge_loaded_files(vec![
+            loaded(ConfigSource::User, "/u/.config/cabin/config.toml", user),
+            loaded(
+                ConfigSource::Workspace,
+                "/ws/.cabin/config.toml",
+                ParsedConfig::default(),
+            ),
+        ]);
+        let resolver = effective
+            .resolver
+            .incompatible_standards
+            .expect("user resolver setting survives");
+        assert_eq!(resolver.value, cabin_core::IncompatibleStandards::Allow);
+        assert_eq!(resolver.source, ConfigSource::User);
     }
 
     #[test]

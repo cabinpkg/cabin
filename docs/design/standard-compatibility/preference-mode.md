@@ -1,10 +1,24 @@
-# Standard compatibility: preference mode (deferred)
+# Standard compatibility: preference mode
 
-> **Status: deferred until the registry exists.**  Nothing in this document is scheduled for
-> implementation before a registry serves the `standards` table of `registry-index.md`.  The
-> design is recorded now for the same reason as the schema: the policy and its seam are cheap to
-> fix on paper and expensive to change after resolver behavior ships.  Spec identifiers (D1-D14,
-> C1-C3, T1-T4, Example n) refer to `spec.md`.
+> **Status: implemented.**  The resolver applies the ordering below, gated by the
+> `[resolver] incompatible-standards` config knob.  Spec identifiers (D1-D14, C1-C3, T1-T4,
+> Example n) refer to `spec.md`.
+
+## 0. The `incompatible-standards` knob
+
+Standard-aware preference is controlled by `[resolver] incompatible-standards` in
+`.cabin/config.toml` (or the `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` environment variable, which
+wins over the file).  The value vocabulary is **deliberately identical to Cargo's
+`resolver.incompatible-rust-versions`** (`allow` / `fallback`) and the semantics mirror it:
+
+- **`fallback`** (the default) applies the tiered ordering of section 1.
+- **`allow`** gives standards *no* influence on selection: the chosen version is a pure function
+  of the semver constraints, so a lockfile never moves when a workspace standard changes, and
+  incompatibilities surface only through the post-resolution enforcement.  This is the
+  strict / deterministic mode - documented as such, not as a legacy or compatibility fallback.
+
+Under either value, solvability is identical: preference never introduces a resolution failure
+`allow` would not also produce (section 4).
 
 ## 1. Selection policy
 
@@ -39,7 +53,12 @@ rejects:
   matching the per-edge shape of D13/D14 as closely as index data allows.
 - For packages reached only transitively, the index today carries neither the intermediate
   consumer's compile levels nor its target-level `deps`, so v1 falls back to the version-wide
-  join checked against the workspace's minimum effective levels.  This fallback errs in **both**
+  join checked against the workspace's minimum effective levels.  **The v1 consumer standard is,
+  per language, the minimum effective implementation standard declared across the workspace's
+  member targets** (a language no member compiles imposes nothing) - the Cargo-style
+  workspace-level approximation, used uniformly for every edge.  Exactness is not required
+  because the post-resolution enforcement remains the correctness authority.  This fallback errs
+  in **both**
   directions, and only one of them is conservative.  The version-wide join can only
   over-constrain - a spurious hold-back, lossy exactly as `registry-index.md` section 7
   describes.  The consumer proxy, however, can be optimistic: an intermediate registry package
@@ -52,6 +71,16 @@ rejects:
   avoided; in this corner it merely fails to help.  Narrowing both sides - target references on
   index dependency entries for the edge side, serialized per-target implementation levels for
   the consumer side - is additive on the `standards` schema and can land when wanted.
+
+**v1 applies the transitive fallback to every edge, direct edges included.**  The resolver
+selects package-level versions and does not yet carry the workspace targets' `deps` references,
+so a direct dependency is ranked by its version-wide join against the workspace-minimum consumer
+levels exactly as a transitive one is - the per-edge target scoping of the first bullet is the
+deferred refinement, not the v1 behavior.  Until it lands, a multi-target dependency whose
+stricter `extras` target the workspace never links can be ranked incompatible, and reported as
+held back, even though the linked edge alone is compatible.  This is a preference-only
+over-constraint (a spurious hold-back or an older selection), never a resolution failure, and the
+post-resolution enforcement stays authoritative.
 
 The published cells are each target's **own declared** requirement, uncomposed
 (`registry-index.md`, "Composition is the consumer's job"); preference mode completes the D10
@@ -133,10 +162,10 @@ language - framing that anticipates strict filtering.  The spec equally scopes o
 candidates are enumerated and what happens when none is viable; this document is the recorded
 answer to both: viability-informed *ordering* plus select-latest-and-report, with the
 `-Z standard-compat` post-resolution check and the build-time interface enforcement of
-`docs/language-standards.md` as the layers that actually refuse.  Implementing preference mode
-must amend those two framing sentences in `spec.md` in the same change, per the repository's
-update-both-documents rule; until that amendment lands, the spec's letter remains normative and
-this document records the agreed direction that replaces strict filtering.
+`docs/language-standards.md` as the layers that actually refuse.  Those two framing sentences in
+`spec.md` (the D14 "filter" wording and section 1's "must not select") have been amended to point
+here, per the repository's update-both-documents rule: viability-informed *ordering* plus
+select-latest-and-report, not strict in-solver filtering.
 
 ## 5. Not offered: automatic standard raising
 

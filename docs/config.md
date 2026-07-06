@@ -80,6 +80,9 @@ build-dir = "build"
 profile = "release"
 compiler-wrapper = "ccache"
 
+[resolver]
+incompatible-standards = "fallback"
+
 [toolchain]
 cc = "clang"
 cxx = "clang++"
@@ -155,6 +158,28 @@ shell-split. Precedence is `--compiler-wrapper` / `--no-compiler-wrapper` →
 `CABIN_COMPILER_WRAPPER` → config `[build] compiler-wrapper` → workspace-root
 manifest `[build] compiler-wrapper` → no wrapper. See
 [`compiler-cache.md`](compiler-cache.md).
+
+### `[resolver]`
+
+Standard-aware version preference for the resolver.  The value vocabulary is **deliberately
+identical to Cargo's `resolver.incompatible-rust-versions`**.
+
+| Key                      | Type   | Notes                                                       |
+| ------------------------ | ------ | ----------------------------------------------------------- |
+| `incompatible-standards` | string | `fallback` (default) or `allow`. Any other value is rejected at parse time. |
+
+- `fallback` prefers candidate versions whose declared interface standards the workspace
+  satisfies, ranks a declared-incompatible version last, and never filters - so it never
+  introduces a resolution failure `allow` would not also produce.  When it passes a newer version
+  over for a standard reason, `cabin update` / `cabin resolve` name the held-back version and the
+  requirement that held it back.
+- `allow` makes selection a pure function of semver constraints; standards influence only the
+  post-resolution enforcement.  The strict / deterministic mode - lockfiles never move when a
+  workspace standard changes.
+
+Precedence is `CABIN_RESOLVER_INCOMPATIBLE_STANDARDS` env var → `[resolver] incompatible-standards`
+config → built-in default (`fallback`).  See
+[`language-standards.md`](language-standards.md#version-selection) for the full policy.
 
 ### `[patch]` and `[source-replacement]`
 
