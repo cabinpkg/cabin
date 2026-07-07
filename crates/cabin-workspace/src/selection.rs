@@ -344,12 +344,6 @@ where
 /// when the requirements collected for a single dependency name
 /// cannot be combined into one [`semver::VersionReq`] (the joined
 /// requirement string fails to parse).
-///
-/// # Panics
-/// Panics only if the name-lookup invariant were violated: every
-/// dependency name pushed into `combined` is inserted into
-/// `name_lookup` in the same loop iteration, so the `.unwrap()` on
-/// `name_lookup.remove(&name)` always finds the key.
 pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
     graph: &PackageGraph,
     closure: &BTreeSet<usize>,
@@ -363,8 +357,7 @@ where
     // Conditional dependencies are evaluated against the host
     // platform - Cabin does not yet support cross-compilation.
     let host_platform = cabin_core::TargetPlatform::current();
-    let mut combined: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut name_lookup: BTreeMap<String, cabin_core::PackageName> = BTreeMap::new();
+    let mut combined: BTreeMap<cabin_core::PackageName, Vec<String>> = BTreeMap::new();
     for &idx in closure {
         let pkg = &graph.packages[idx];
         // Skip registry packages - their declared deps are already
@@ -383,12 +376,10 @@ where
                 &is_optional_dep_enabled,
                 excluded_names,
             ) {
-                let key = dep.name.as_str().to_owned();
                 combined
-                    .entry(key.clone())
+                    .entry(dep.name.clone())
                     .or_default()
                     .push(req.to_string());
-                name_lookup.insert(key, dep.name.clone());
             }
         }
     }
@@ -398,12 +389,12 @@ where
         reqs.dedup();
         let parsed = combine_version_reqs(&reqs).map_err(|(requirements, source)| {
             WorkspaceError::IncompatibleWorkspaceRequirements {
-                name: name.clone(),
+                name: name.as_str().to_owned(),
                 requirements,
                 source,
             }
         })?;
-        out.insert(name_lookup.remove(&name).unwrap(), parsed);
+        out.insert(name, parsed);
     }
     Ok(out)
 }

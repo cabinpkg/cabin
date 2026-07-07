@@ -270,27 +270,18 @@ impl Provider<'_> {
         entry: &IndexEntry,
         range: &Ranges<Version>,
     ) -> Option<Version> {
-        let matching: Vec<&Version> = entry
+        let mut candidates: Vec<&Version> = entry
             .versions
             .iter()
-            .filter(|(v, _)| range.contains(*v))
+            .filter(|(v, meta)| range.contains(*v) && !meta.yanked)
             .map(|(v, _)| v)
             .collect();
-        if matching.is_empty() {
+        if candidates.is_empty() {
             return None;
         }
 
-        let mut non_yanked: Vec<&Version> = matching
-            .iter()
-            .copied()
-            .filter(|v| !entry.versions.get(v).is_some_and(|m| m.yanked))
-            .collect();
-        if non_yanked.is_empty() {
-            return None;
-        }
-
-        non_yanked.retain(|v| candidate_admits_prerelease(range, v));
-        if non_yanked.is_empty() {
+        candidates.retain(|v| candidate_admits_prerelease(range, v));
+        if candidates.is_empty() {
             return None;
         }
 
@@ -299,7 +290,7 @@ impl Provider<'_> {
         // and never counts as a hold-back - metadata alone never churns
         // a lockfile.
         if let Some(locked) = self.locked.get(package)
-            && non_yanked.contains(&&locked.version)
+            && candidates.contains(&&locked.version)
         {
             return Some(locked.version.clone());
         }
@@ -307,7 +298,7 @@ impl Provider<'_> {
         if self.incompatible_standards == IncompatibleStandards::Allow {
             // The pure-semver pick: the newest admissible version, i.e.
             // exactly what every pre-preference-mode release selects.
-            return non_yanked.into_iter().max().cloned();
+            return candidates.into_iter().max().cloned();
         }
 
         // Fallback: order by tier (best first), newest-first within a
@@ -315,7 +306,7 @@ impl Provider<'_> {
         // worst tier - the same version `Allow` selects.  Hold-back
         // reporting is not computed here; it is the diff against the
         // `Allow` solution (see [`crate::held_back_report`]).
-        non_yanked
+        candidates
             .into_iter()
             .min_by(|a, b| {
                 self.tier(entry, a)
