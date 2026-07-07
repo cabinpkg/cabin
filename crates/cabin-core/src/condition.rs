@@ -341,10 +341,13 @@ impl FromStr for ConditionKey {
     }
 }
 
-/// Evaluation context for [`Condition::evaluate`].  Each field
-/// is a stable, normalized lowercase string.  Unknown values
-/// flow through as the literal `unknown`, which is matchable in
-/// `cfg(...)` expressions.
+/// Normalized description of a host/target platform (os, arch,
+/// family, env, abi, target) - one input to
+/// [`Condition::evaluate`], not the evaluation context itself
+/// (see [`ConditionContext`]).  Each field is a stable,
+/// normalized lowercase string; unknown values flow through as
+/// the literal `unknown`, which is matchable in `cfg(...)`
+/// expressions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TargetPlatform {
     pub os: String,
@@ -629,60 +632,65 @@ impl<'a> Parser<'a> {
                 let inner = items.into_iter().next().expect("len==1 above");
                 Ok(Condition::Not(Box::new(inner)))
             }
-            other => {
-                // `feature` and the platform keys share the
-                // `ident = "value"` shape; parse the `= "value"`
-                // tail once, then dispatch on the identifier.
-                self.skip_whitespace();
-                if self.peek_char() != Some('=') {
-                    return Err(ConditionParseError::ExpectedEquals {
-                        key: other.to_owned(),
-                    });
+            other => self.parse_leaf(other),
+        }
+    }
+
+    /// Parse a leaf condition of the `key = "value"` shape.  This
+    /// covers `feature`, the compiler-family (`cc`/`cxx`) and
+    /// compiler-version (`cc_version`/`cxx_version`) keys, and the
+    /// platform keys - everything that is not an `all`/`any`/`not`
+    /// combinator.
+    fn parse_leaf(&mut self, key: &str) -> Result<Condition, ConditionParseError> {
+        // `feature` and the platform keys share the `ident =
+        // "value"` shape; parse the `= "value"` tail once, then
+        // dispatch on the identifier.
+        self.skip_whitespace();
+        if self.peek_char() != Some('=') {
+            return Err(ConditionParseError::ExpectedEquals {
+                key: key.to_owned(),
+            });
+        }
+        self.pos += 1; // consume '='
+        self.skip_whitespace();
+        let value = self.read_quoted_string(key)?;
+        let family_slot = match key {
+            "cc" => Some(CompilerSlot::Cc),
+            "cxx" => Some(CompilerSlot::Cxx),
+            _ => None,
+        };
+        if let Some(slot) = family_slot {
+            let family = crate::compiler::CompilerKind::from_key(&value).ok_or_else(|| {
+                ConditionParseError::UnknownCompilerFamily {
+                    key: key.to_owned(),
+                    value: value.clone(),
                 }
-                self.pos += 1; // consume '='
-                self.skip_whitespace();
-                let value = self.read_quoted_string(other)?;
-                let family_slot = match other {
-                    "cc" => Some(CompilerSlot::Cc),
-                    "cxx" => Some(CompilerSlot::Cxx),
-                    _ => None,
-                };
-                if let Some(slot) = family_slot {
-                    let family =
-                        crate::compiler::CompilerKind::from_key(&value).ok_or_else(|| {
-                            ConditionParseError::UnknownCompilerFamily {
-                                key: other.to_owned(),
-                                value: value.clone(),
-                            }
-                        })?;
-                    return Ok(Condition::CompilerFamily { slot, family });
-                }
-                let version_slot = match other {
-                    "cc_version" => Some(CompilerSlot::Cc),
-                    "cxx_version" => Some(CompilerSlot::Cxx),
-                    _ => None,
-                };
-                if let Some(slot) = version_slot {
-                    if let Err(err) = crate::version_req::parse_lenient(&value) {
-                        return Err(ConditionParseError::InvalidCompilerVersionReq {
-                            key: other.to_owned(),
-                            value,
-                            message: err.to_string(),
-                        });
-                    }
-                    return Ok(Condition::CompilerVersionReq { slot, req: value });
-                }
-                if other == "feature" {
-                    Ok(Condition::Feature(value))
-                } else {
-                    let key = ConditionKey::from_str(other).map_err(|()| {
-                        ConditionParseError::UnsupportedKey {
-                            key: other.to_owned(),
-                        }
-                    })?;
-                    Ok(Condition::KeyValue { key, value })
-                }
+            })?;
+            return Ok(Condition::CompilerFamily { slot, family });
+        }
+        let version_slot = match key {
+            "cc_version" => Some(CompilerSlot::Cc),
+            "cxx_version" => Some(CompilerSlot::Cxx),
+            _ => None,
+        };
+        if let Some(slot) = version_slot {
+            if let Err(err) = crate::version_req::parse_lenient(&value) {
+                return Err(ConditionParseError::InvalidCompilerVersionReq {
+                    key: key.to_owned(),
+                    value,
+                    message: err.to_string(),
+                });
             }
+            return Ok(Condition::CompilerVersionReq { slot, req: value });
+        }
+        if key == "feature" {
+            Ok(Condition::Feature(value))
+        } else {
+            let key =
+                ConditionKey::from_str(key).map_err(|()| ConditionParseError::UnsupportedKey {
+                    key: key.to_owned(),
+                })?;
+            Ok(Condition::KeyValue { key, value })
         }
     }
 

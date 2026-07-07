@@ -152,14 +152,6 @@ impl SourceReplacementSettings {
             current = entry.replacement.clone();
         }
     }
-
-    /// Whether the supplied `original` source has a replacement
-    /// declared.  Useful when the orchestration layer wants to
-    /// know if applying replacement changed anything (so the
-    /// metadata / lockfile view can show "unchanged" cleanly).
-    pub fn replaces(&self, original: &SourceLocator) -> bool {
-        self.entries.contains_key(original)
-    }
 }
 
 /// Result of walking the replacement chain.
@@ -327,18 +319,6 @@ mod tests {
             .insert(a.clone(), entry(a.clone(), a.clone()));
         let err = settings.resolve(&a).unwrap_err();
         assert!(matches!(err, SourceReplacementError::Cycle { .. }));
-    }
-
-    #[test]
-    fn replaces_returns_true_only_for_declared_originals() {
-        let mut settings = SourceReplacementSettings::default();
-        let a = url("https://example.com/a");
-        let b = path("/mirror");
-        settings
-            .entries
-            .insert(a.clone(), entry(a.clone(), b.clone()));
-        assert!(settings.replaces(&a));
-        assert!(!settings.replaces(&b));
     }
 
     #[test]
