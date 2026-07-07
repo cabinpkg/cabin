@@ -298,6 +298,14 @@ impl TargetKind {
         matches!(self, Self::HeaderOnly)
     }
 
+    /// Whether this kind is "library-like" - a static-archive
+    /// library or a header-only library.  These are the kinds that
+    /// carry a public interface (include dirs, interface standards)
+    /// to their consumers, as opposed to executable-like kinds.
+    pub const fn is_library_like(self) -> bool {
+        self.produces_archive() || self.is_header_only()
+    }
+
     /// Whether ordinary `cabin build` selects this kind by default.
     /// Dev-only kinds (`test` / `example`) are excluded
     /// from the default set: tests are built by `cabin test`,
@@ -658,12 +666,6 @@ impl DependencyKind {
     /// Whether this kind is included in the resolver / fetch /
     /// build pipeline by default.  Dev dependencies are excluded.
     pub const fn is_resolved_by_default(self) -> bool {
-        matches!(self, DependencyKind::Normal)
-    }
-
-    /// Whether this kind contributes link / include edges to
-    /// ordinary `cabin build` targets.  Only `Normal` does.
-    pub const fn affects_ordinary_build(self) -> bool {
         matches!(self, DependencyKind::Normal)
     }
 
@@ -1115,15 +1117,6 @@ impl Package {
             }
         }
         Ok(())
-    }
-
-    /// Iterator over the package dependencies that participate in
-    /// the resolver / fetch / build pipeline by default - i.e.
-    /// every Cabin package dependency except `Dev`.
-    pub fn resolved_dependencies(&self) -> impl Iterator<Item = &Dependency> {
-        self.dependencies
-            .iter()
-            .filter(|d| d.kind.is_resolved_by_default())
     }
 
     /// Iterator over dependencies of a specific kind.  Order is
@@ -1628,9 +1621,6 @@ mod tests {
         // Resolution policy: dev is excluded by default.
         assert!(DependencyKind::Normal.is_resolved_by_default());
         assert!(!DependencyKind::Dev.is_resolved_by_default());
-        // Linkage policy: only Normal contributes to ordinary builds.
-        assert!(DependencyKind::Normal.affects_ordinary_build());
-        assert!(!DependencyKind::Dev.affects_ordinary_build());
     }
 
     #[test]

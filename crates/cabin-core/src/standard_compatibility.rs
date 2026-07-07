@@ -281,7 +281,7 @@ pub fn dependency_attributes(
     // executable-like targets.  Target-level interface fields only
     // exist on library-like kinds (the manifest parser rejects them
     // elsewhere).
-    let library_like = target.kind.produces_archive() || header_only;
+    let library_like = target.kind.is_library_like();
     let decl_c = target.language.interface_c_standard_value().or_else(|| {
         library_like
             .then(|| package_settings.interface_c_standard_value())

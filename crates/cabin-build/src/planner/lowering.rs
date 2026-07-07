@@ -6,7 +6,7 @@ use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::{PlanRequest, TargetDepEdge, TargetId, format_target_id};
+use super::{PlanRequest, TargetDepEdge, TargetId, find_target, format_target_id};
 
 /// Resolve one declared `deps` entry into a graph edge.  The alias
 /// forms (`foo` as a same-package target or as the `foo:foo`
@@ -80,12 +80,7 @@ pub(super) fn resolve_target_dep(
             });
         };
         let dep_pkg = &graph.packages[dep_idx];
-        if !dep_pkg
-            .package
-            .targets
-            .iter()
-            .any(|t| t.name.as_str() == t_name)
-        {
+        if find_target(&dep_pkg.package, t_name).is_none() {
             return Err(BuildError::UnknownTargetInPackage {
                 package: p_name.to_owned(),
                 target: t_name.to_owned(),
@@ -96,7 +91,7 @@ pub(super) fn resolve_target_dep(
 
     // Unqualified.  A bare name is a same-package target reference
     // first.
-    if pkg.package.targets.iter().any(|t| t.name.as_str() == raw) {
+    if find_target(&pkg.package, raw).is_some() {
         return Ok((pkg_idx, raw.to_owned()));
     }
 
@@ -112,16 +107,19 @@ pub(super) fn resolve_target_dep(
     // explicit `package:target` spelling.
     if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
-        if dep_pkg.package.targets.iter().any(|t| {
-            t.name.as_str() == raw && (t.kind.produces_archive() || t.kind.is_header_only())
-        }) {
+        if dep_pkg
+            .package
+            .targets
+            .iter()
+            .any(|t| t.name.as_str() == raw && t.kind.is_library_like())
+        {
             return Ok((dep_idx, raw.to_owned()));
         }
         let candidates: Vec<String> = dep_pkg
             .package
             .targets
             .iter()
-            .filter(|t| t.kind.produces_archive() || t.kind.is_header_only())
+            .filter(|t| t.kind.is_library_like())
             .map(|t| format!("{}:{}", dep_pkg.package.name.as_str(), t.name.as_str()))
             .collect();
         return Err(BuildError::NoSameNameTargetInDependency {
@@ -245,15 +243,10 @@ pub(super) fn collect_include_dirs(
             continue;
         }
         let dep_pkg = &graph.packages[tid.0];
-        let Some(dep_target) = dep_pkg
-            .package
-            .targets
-            .iter()
-            .find(|t| t.name.as_str() == tid.1)
-        else {
+        let Some(dep_target) = find_target(&dep_pkg.package, &tid.1) else {
             continue;
         };
-        if dep_target.kind.produces_archive() || dep_target.kind.is_header_only() {
+        if dep_target.kind.is_library_like() {
             // Provenance decides the bucket: registry archives and
             // foundation ports are third-party code, while workspace
             // members, plain path deps, and `[patch]`ed packages are
@@ -369,12 +362,7 @@ pub(super) fn collect_link_libs(
                 visit(&d.to, resolved, graph, seen, post);
             }
         }
-        let Some(target) = graph.packages[node.0]
-            .package
-            .targets
-            .iter()
-            .find(|t| t.name.as_str() == node.1)
-        else {
+        let Some(target) = find_target(&graph.packages[node.0].package, &node.1) else {
             return;
         };
         if target.kind.produces_archive() {

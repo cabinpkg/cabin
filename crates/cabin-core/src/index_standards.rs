@@ -89,7 +89,7 @@ impl StandardsMetadata {
         let targets = package
             .targets
             .iter()
-            .filter(|target| target.kind.produces_archive() || target.kind.is_header_only())
+            .filter(|target| target.kind.is_library_like())
             .map(|target| {
                 let attributes = dependency_attributes(target, &resolved, &package.language);
                 let row = TargetStandards {

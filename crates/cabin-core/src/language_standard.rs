@@ -1026,7 +1026,7 @@ pub fn find_interface_standard_contradictions(
     let resolved = resolve_language_standards(&package.language);
     let mut out = Vec::new();
     for target in &package.targets {
-        let library_like = target.kind.produces_archive() || target.kind.is_header_only();
+        let library_like = target.kind.is_library_like();
         if !library_like {
             continue;
         }
@@ -1117,7 +1117,7 @@ impl LanguageStandardsSummary {
             .targets
             .iter()
             .map(|target| {
-                let library_like = target.kind.produces_archive() || target.kind.is_header_only();
+                let library_like = target.kind.is_library_like();
                 let summary = TargetStandardsSummary {
                     c: effective_c(&resolved, target),
                     cxx: effective_cxx(&resolved, target),

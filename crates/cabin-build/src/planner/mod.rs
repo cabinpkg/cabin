@@ -1,9 +1,10 @@
 use crate::error::BuildError;
 use crate::graph::{BuildGraph, CompileCommand, StandardViolation};
 use cabin_core::{
-    InterfaceStandardSource, LanguageStandard, ResolvedCompilerWrapper, ResolvedLanguageStandards,
-    ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain, SourceLanguage, StandardFlagConflict,
-    Target, TargetKind, classify_source, link_driver_language,
+    InterfaceStandardSource, LanguageStandard, Package, ResolvedCompilerWrapper,
+    ResolvedLanguageStandards, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
+    SourceLanguage, StandardFlagConflict, Target, TargetKind, classify_source,
+    link_driver_language,
 };
 use cabin_driver::{
     ArchiveAction, BuildAction, CompileAction, CompileArguments, CompileMode, Dialect, LinkAction,
@@ -629,7 +630,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 actions.push(BuildAction::Archive(ArchiveAction {
                     archiver: req.toolchain.ar.path().to_path_buf(),
                     output: lib_path.clone(),
-                    inputs: objects.clone(),
+                    inputs: objects,
                     description: format!("AR {lib_path}"),
                 }));
                 output_for_target.insert(tid.clone(), lib_path);
@@ -653,8 +654,8 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 let lib_paths =
                     collect_link_libs(tid, &resolved_deps, req.graph, &output_for_target);
 
-                let mut inputs: Vec<Utf8PathBuf> = objects.clone();
-                inputs.extend(lib_paths.iter().cloned());
+                let mut inputs = objects;
+                inputs.extend(lib_paths);
 
                 // System libraries required by this executable's
                 // dependency closure (e.g. a static library port's
@@ -749,19 +750,22 @@ pub(crate) struct TargetDepEdge {
     pub(crate) public: bool,
 }
 
+/// Find a target by name within a package's manifest.  Target
+/// names are unique within a package, so this returns the sole
+/// match (or `None`).
+pub(crate) fn find_target<'a>(pkg: &'a Package, name: &str) -> Option<&'a Target> {
+    pkg.targets.iter().find(|t| t.name.as_str() == name)
+}
+
 pub(crate) fn lookup_target<'a>(
     tid: &TargetId,
     graph: &'a PackageGraph,
 ) -> Result<&'a Target, BuildError> {
     let pkg = &graph.packages[tid.0];
-    pkg.package
-        .targets
-        .iter()
-        .find(|t| t.name.as_str() == tid.1)
-        .ok_or_else(|| BuildError::UnknownTargetInPackage {
-            package: pkg.package.name.as_str().to_owned(),
-            target: tid.1.clone(),
-        })
+    find_target(&pkg.package, &tid.1).ok_or_else(|| BuildError::UnknownTargetInPackage {
+        package: pkg.package.name.as_str().to_owned(),
+        target: tid.1.clone(),
+    })
 }
 
 pub(crate) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
@@ -802,7 +806,7 @@ fn enforce_interface_standards(
     };
     for dep_tid in dep_closure {
         let dep_target = lookup_target(dep_tid, req.graph)?;
-        if !(dep_target.kind.produces_archive() || dep_target.kind.is_header_only()) {
+        if !dep_target.kind.is_library_like() {
             continue;
         }
         let dep_pkg = &req.graph.packages[dep_tid.0].package;
@@ -918,12 +922,7 @@ fn resolve_top_level_selector(
                     selector: format!("{}:{}", pkg_name, sel.name),
                 })?;
         let pkg = &graph.packages[pkg_idx];
-        if !pkg
-            .package
-            .targets
-            .iter()
-            .any(|t| t.name.as_str() == sel.name)
-        {
+        if find_target(&pkg.package, &sel.name).is_none() {
             return Err(BuildError::UnknownTargetInPackage {
                 package: pkg_name.clone(),
                 target: sel.name.clone(),
@@ -945,12 +944,7 @@ fn resolve_top_level_selector(
         let mut root_match: Option<TargetId> = None;
         if let Some(root_idx) = graph.root_package {
             let root = &graph.packages[root_idx];
-            if root
-                .package
-                .targets
-                .iter()
-                .any(|t| t.name.as_str() == sel.name)
-            {
+            if find_target(&root.package, &sel.name).is_some() {
                 root_match = Some((root_idx, sel.name.clone()));
             }
         }
@@ -963,12 +957,7 @@ fn resolve_top_level_selector(
     let mut matches: Vec<TargetId> = Vec::new();
     for idx in candidates {
         let pkg = &graph.packages[idx];
-        if pkg
-            .package
-            .targets
-            .iter()
-            .any(|t| t.name.as_str() == sel.name)
-        {
+        if find_target(&pkg.package, &sel.name).is_some() {
             matches.push((idx, sel.name.clone()));
         }
     }
@@ -1022,13 +1011,6 @@ fn default_selection(
     (out, gated)
 }
 
-/// Build-time selector for `cabin test`: expand a package
-/// selection into the set of targets of a specific
-/// development-only kind (`test` today).  Returns
-/// deterministic `(package_index, target_name)` tuples in the same
-/// order as the planner consumes selectors.  Useful for callers that
-/// want every dev-only target of a given kind without naming each
-/// one explicitly.
 /// Whether the selector's target has all of its
 /// `required-features` enabled under `enabled_features`.  Used by
 /// enumeration-style callers (`cabin test` without `--test`,
@@ -1064,6 +1046,13 @@ pub fn selector_required_features_met(
     target.missing_required_features(enabled).is_empty()
 }
 
+/// Build-time selector for `cabin test`: expand a package
+/// selection into the set of targets of a specific
+/// development-only kind (`test` today).  Returns
+/// deterministic `(package_index, target_name)` tuples in the same
+/// order as the planner consumes selectors.  Useful for callers that
+/// want every dev-only target of a given kind without naming each
+/// one explicitly.
 pub fn select_targets_of_kind(
     graph: &PackageGraph,
     selected_packages: Option<&[usize]>,
