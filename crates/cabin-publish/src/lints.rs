@@ -121,7 +121,7 @@ pub fn manifest_findings(package: &Package) -> Vec<LintFinding> {
     let mut targets: Vec<_> = package
         .targets
         .iter()
-        .filter(|target| target.kind.produces_archive() || target.kind.is_header_only())
+        .filter(|target| target.kind.is_library_like())
         .collect();
     targets.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
 

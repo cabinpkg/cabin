@@ -399,7 +399,7 @@ fn interface_less_default_origin(
         .last()
         .expect("a provenance chain is never empty")];
     let origin = lookup_target(origin_tid, req.graph)?;
-    Ok(!(origin.kind.produces_archive() || origin.kind.is_header_only()))
+    Ok(!origin.kind.is_library_like())
 }
 
 /// Spec D6 attribute mapping for one target, with the declaration
