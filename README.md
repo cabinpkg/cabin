@@ -1,15 +1,19 @@
 # Cabin
 
-> [!CAUTION]
-> Cabin is pre-1.0 and may still contain bugs.
-
 ![demo](https://github.com/cabinpkg/cabin/releases/latest/download/demo.gif)
 
-Cabin is an opinionated C/C++ build tool written in Rust.  Inspired by Cargo, it uses a predictable
-project structure and declarative metadata to reduce build configuration boilerplate.
+Cabin is an opinionated build and package manager for conventional C/C++ projects.
 
-It is designed for conventional C/C++ projects that want a simpler, more reproducible build workflow
-without relying on custom build languages.
+It uses a declarative manifest and a predictable project model to reduce build configuration
+boilerplate.  Cabin is inspired by Cargo where the workflow maps cleanly, but it deliberately
+diverges where C and C++ require different semantics.
+
+Cabin is best suited for projects that want a simple, explicit, package-oriented workflow rather
+than a fully programmable build system.
+
+## Current Limitations
+
+Cabin is still pre-1.0.  Some features may be incomplete, experimental, or subject to redesign.
 
 ## Installation
 
