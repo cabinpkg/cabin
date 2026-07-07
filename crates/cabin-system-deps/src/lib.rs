@@ -399,7 +399,7 @@ fn display_block(stderr: &str) -> String {
 pub fn probe_system_dependency(
     req: &SystemDependencyProbeRequest<'_>,
 ) -> Result<SystemDependencyResolution, PkgConfigError> {
-    let constraints = build_constraints(req.name, req.version_requirement, &req.tool.executable)?;
+    let constraints = build_constraints(req.name, req.version_requirement)?;
 
     // Stage 1: existence + version check. `--print-errors`
     // causes pkg-config to emit a human-readable description on
@@ -412,7 +412,7 @@ pub fn probe_system_dependency(
             .chain(constraints.argv.iter().cloned()),
     )?;
     if !exists_output.status.success() {
-        let stderr = trim_stderr(&exists_output.stderr);
+        let stderr = trim_output(&exists_output.stderr);
         return Err(classify_exists_failure(
             req.name,
             req.version_requirement,
@@ -425,17 +425,8 @@ pub fn probe_system_dependency(
     // Stage 2: modversion (best-effort; absence is not fatal).
     // Some pkg-config implementations omit Version: from .pc
     // files and exit non-zero here even when the package is
-    // present.  Pass only the bare module name so the response
-    // is a single version string, never a list.
-    let version = match run_pkg_config(
-        req.tool,
-        "--modversion",
-        std::iter::once(OsString::from("--modversion"))
-            .chain(std::iter::once(OsString::from(req.name))),
-    ) {
-        Ok(out) if out.status.success() => Some(trim_stdout(&out.stdout)),
-        _ => None,
-    };
+    // present.
+    let version = best_effort_modversion(req.tool, req.name);
 
     // Stage 3 / 4: --cflags and --libs.  The version constraint
     // was already enforced by --exists, so we ask pkg-config
@@ -454,7 +445,7 @@ pub fn probe_system_dependency(
         return Err(PkgConfigError::PkgConfigFailed {
             name: req.name.to_owned(),
             stage: "--cflags".to_owned(),
-            stderr: trim_stderr(&cflags_output.stderr),
+            stderr: trim_output(&cflags_output.stderr),
         });
     }
     let libs_output = run_pkg_config(
@@ -466,12 +457,12 @@ pub fn probe_system_dependency(
         return Err(PkgConfigError::PkgConfigFailed {
             name: req.name.to_owned(),
             stage: "--libs".to_owned(),
-            stderr: trim_stderr(&libs_output.stderr),
+            stderr: trim_output(&libs_output.stderr),
         });
     }
 
-    let cflags_text = trim_stdout(&cflags_output.stdout);
-    let libs_text = trim_stdout(&libs_output.stdout);
+    let cflags_text = trim_output(&cflags_output.stdout);
+    let libs_text = trim_output(&libs_output.stdout);
     let cflag_tokens = split_pkg_config_output(&cflags_text).map_err(|detail| {
         PkgConfigError::MalformedOutput {
             name: req.name.to_owned(),
@@ -554,11 +545,7 @@ struct ConstraintArgv {
     had_constraint: bool,
 }
 
-fn build_constraints(
-    name: &str,
-    requirement: &str,
-    _executable: &OsStr,
-) -> Result<ConstraintArgv, PkgConfigError> {
+fn build_constraints(name: &str, requirement: &str) -> Result<ConstraintArgv, PkgConfigError> {
     let raw = requirement.trim();
     let mut argv: Vec<OsString> = Vec::new();
     argv.push(OsString::from(name));
@@ -914,15 +901,7 @@ fn classify_exists_failure(
         if bare.status.success() {
             // Capture the installed version (best-effort) for
             // the diagnostic.
-            let installed = match run_pkg_config(
-                tool,
-                "--modversion",
-                std::iter::once(OsString::from("--modversion"))
-                    .chain(std::iter::once(OsString::from(name))),
-            ) {
-                Ok(out) if out.status.success() => Some(trim_stdout(&out.stdout)),
-                _ => None,
-            };
+            let installed = best_effort_modversion(tool, name);
             return Ok(PkgConfigError::VersionMismatch {
                 name: name.to_owned(),
                 requirement: requirement.to_owned(),
@@ -936,12 +915,25 @@ fn classify_exists_failure(
     })
 }
 
-fn trim_stderr(bytes: &[u8]) -> String {
+fn trim_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).trim_end().to_owned()
 }
 
-fn trim_stdout(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).trim_end().to_owned()
+/// Best-effort `--modversion` fetch: returns the reported version,
+/// or `None` when the spawn fails or `pkg-config` exits non-zero.
+/// Callers treat a missing version as non-fatal.  Pass only the
+/// bare module name so the response is a single version string,
+/// never a list.
+fn best_effort_modversion(tool: &PkgConfigTool, name: &str) -> Option<String> {
+    match run_pkg_config(
+        tool,
+        "--modversion",
+        std::iter::once(OsString::from("--modversion"))
+            .chain(std::iter::once(OsString::from(name))),
+    ) {
+        Ok(out) if out.status.success() => Some(trim_output(&out.stdout)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1160,8 +1152,7 @@ mod tests {
 
     #[test]
     fn build_constraints_emits_bare_name_when_requirement_empty() {
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("zlib", "", tool.executable()).unwrap();
+        let argv = build_constraints("zlib", "").unwrap();
         assert!(!argv.had_constraint);
         assert_eq!(argv.argv, vec![OsString::from("zlib")]);
     }
@@ -1172,16 +1163,14 @@ mod tests {
         // pkg-config has no equivalent primitive, so the wildcard
         // means "any installed version" - emit the bare module
         // name and flag the call as carrying no constraint.
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("zlib", "*", tool.executable()).unwrap();
+        let argv = build_constraints("zlib", "*").unwrap();
         assert!(!argv.had_constraint);
         assert_eq!(argv.argv, vec![OsString::from("zlib")]);
     }
 
     #[test]
     fn build_constraints_emits_name_op_version_for_caret() {
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("zlib", "^1.2", tool.executable()).unwrap();
+        let argv = build_constraints("zlib", "^1.2").unwrap();
         assert!(argv.had_constraint);
         assert_eq!(
             argv.argv,
@@ -1202,8 +1191,7 @@ mod tests {
         // `>= 1.0` parses as SemVer (via parse_lenient), so it
         // uses the converted path.  Use a custom-format vendor
         // string with an explicit operator instead.
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("openssl", ">= 1.0.1f", tool.executable()).unwrap();
+        let argv = build_constraints("openssl", ">= 1.0.1f").unwrap();
         assert!(argv.had_constraint);
         assert!(
             argv.argv.windows(2).any(|w| w[0] == "openssl"),
@@ -1216,8 +1204,7 @@ mod tests {
         // A raw multi-pair requirement must expand to
         // `name op ver name op ver`; a single leading name would
         // make pkg-config read the second operator as a module.
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("openssl", ">= 1.0.1f < 3.0.0z", tool.executable()).unwrap();
+        let argv = build_constraints("openssl", ">= 1.0.1f < 3.0.0z").unwrap();
         assert!(argv.had_constraint);
         assert_eq!(
             argv.argv,
@@ -1235,17 +1222,15 @@ mod tests {
 
     #[test]
     fn build_constraints_rejects_raw_tokens_that_are_not_op_version_pairs() {
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
         // Odd token count: a trailing dangling operator.
-        build_constraints("openssl", ">= 1.0.1f <", tool.executable()).unwrap_err();
+        build_constraints("openssl", ">= 1.0.1f <").unwrap_err();
         // Even count but the pair does not start with an operator.
-        build_constraints("openssl", "one two", tool.executable()).unwrap_err();
+        build_constraints("openssl", "one two").unwrap_err();
     }
 
     #[test]
     fn build_constraints_rejects_single_unrecognized_token() {
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let err = build_constraints("openssl", "weird-token", tool.executable()).unwrap_err();
+        let err = build_constraints("openssl", "weird-token").unwrap_err();
         match err {
             PkgConfigError::InvalidVersionRequirement { name, requirement } => {
                 assert_eq!(name, "openssl");
@@ -1260,8 +1245,7 @@ mod tests {
         // A bare operator has no version to compare against;
         // forwarding it would hand pkg-config a malformed module
         // list, so it is rejected up front.
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let err = build_constraints("openssl", ">=", tool.executable()).unwrap_err();
+        let err = build_constraints("openssl", ">=").unwrap_err();
         match err {
             PkgConfigError::InvalidVersionRequirement { name, requirement } => {
                 assert_eq!(name, "openssl");
@@ -1273,8 +1257,7 @@ mod tests {
 
     #[test]
     fn build_constraints_treats_whitespace_only_requirement_as_empty() {
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
-        let argv = build_constraints("zlib", "   ", tool.executable()).unwrap();
+        let argv = build_constraints("zlib", "   ").unwrap();
         assert!(!argv.had_constraint);
         assert_eq!(argv.argv, vec![OsString::from("zlib")]);
     }
@@ -1287,7 +1270,6 @@ mod tests {
         // module name in `argv`.  Pin the rule across empty, wildcard,
         // SemVer, and raw inputs so the two paths cannot silently
         // diverge.
-        let tool = PkgConfigTool::new(OsString::from("pkg-config"));
         for requirement in [
             "",
             "   ",
@@ -1297,7 +1279,7 @@ mod tests {
             ">= 1.0.1f",
             ">= 1.0.1f < 3.0.0z",
         ] {
-            let constraints = build_constraints("zlib", requirement, tool.executable()).unwrap();
+            let constraints = build_constraints("zlib", requirement).unwrap();
             assert_eq!(
                 constraints.had_constraint,
                 constraints.argv.len() > 1,
