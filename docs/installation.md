@@ -22,7 +22,7 @@ model, what is supported, and the known limitations).
 This uses Cabin's GitHub release archives when a matching binary is available.  The installed
 command is `cabin`.
 - **From crates.io source build.** Cabin is published as the `cabinpkg` package on crates.io.  With
-  a Rust toolchain on `$PATH`, run:
+  a Rust toolchain (1.95 or newer) on `$PATH`, run:
 
     ```sh
     cargo install cabinpkg
