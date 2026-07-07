@@ -25,7 +25,7 @@ pub(super) fn profiles_from_raw(
                 })
             })
             .transpose()?;
-        let build = profile_flags_from_overrides(&raw_profile, &pname)?;
+        let build = profile_flags_from_overrides(&raw_profile)?;
         out.insert(
             pname.clone(),
             cabin_core::ProfileDefinition {
@@ -74,7 +74,6 @@ pub(super) fn parse_tool_spec(raw: &str) -> Result<cabin_core::ToolSpec, Manifes
 /// at the resolver layer.
 pub(super) fn profile_flags_from_overrides(
     raw: &crate::raw::RawProfile,
-    pname: &cabin_core::ProfileName,
 ) -> Result<Option<cabin_core::ProfileFlags>, ManifestError> {
     if raw.defines.is_none()
         && raw.include_dirs.is_none()
@@ -93,10 +92,7 @@ pub(super) fn profile_flags_from_overrides(
         ldflags: raw.ldflags.clone().unwrap_or_default(),
         link_libs: raw.link_libs.clone().unwrap_or_default(),
     };
-    decl.validate().map_err(|err| {
-        let _ = pname;
-        ManifestError::InvalidBuildFlags(err)
-    })?;
+    decl.validate().map_err(ManifestError::InvalidBuildFlags)?;
     Ok(Some(decl))
 }
 

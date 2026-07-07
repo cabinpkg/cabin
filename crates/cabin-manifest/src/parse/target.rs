@@ -237,9 +237,7 @@ pub(super) fn parse_target_table(
 ) -> Result<BTreeMap<String, RawTarget>, ManifestError> {
     let mut out = BTreeMap::new();
     for (name, value) in raw {
-        let typed: RawTarget = value
-            .try_into()
-            .map_err(|err: toml::de::Error| ManifestError::Toml(err))?;
+        let typed: RawTarget = value.try_into().map_err(ManifestError::Toml)?;
         out.insert(name, typed);
     }
     Ok(out)

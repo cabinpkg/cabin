@@ -20,20 +20,14 @@ pub(super) fn route_dependency_from_raw(
     dep_models: &mut Vec<Dependency>,
     system_models: &mut Vec<SystemDependency>,
 ) -> Result<(), ManifestError> {
-    if let RawDependency::Table(ref table) = raw
-        && table.system
-    {
-        // Route to the system path.  Take ownership for clean
-        // destructuring without aliasing the borrow.
-        let RawDependency::Table(table) = raw else {
-            unreachable!("guarded by the `if let ... && table.system` above");
-        };
-        system_models.push(system_dependency_from_raw_table(
-            name, table, kind, condition,
-        )?);
-        return Ok(());
+    match raw {
+        RawDependency::Table(table) if table.system => {
+            system_models.push(system_dependency_from_raw_table(
+                name, table, kind, condition,
+            )?);
+        }
+        other => dep_models.push(package_dependency_from_raw(name, other, kind, condition)?),
     }
-    dep_models.push(package_dependency_from_raw(name, raw, kind, condition)?);
     Ok(())
 }
 
@@ -289,30 +283,28 @@ fn ordinary_dep_from_table(
     }
     let default_features_flag = default_features.unwrap_or(true);
 
-    let workspace_flag = workspace.unwrap_or(false);
-    // `workspace = false` is treated as if the field were
-    // absent so it never collides with a path/version source.
-    let workspace_set = workspace.is_some();
-    let resolved_source = match (path, version, workspace_flag, workspace_set) {
-        (Some(_), Some(_), _, _) => {
+    // `workspace = false` is an explicit-disable error, distinct
+    // from an absent field.
+    let resolved_source = match (path, version, workspace) {
+        (Some(_), Some(_), _) => {
             return Err(ManifestError::DependencyHasPathAndVersion {
                 name: name.to_owned(),
             });
         }
-        (Some(_), _, true, _) | (_, Some(_), true, _) => {
+        (Some(_), _, Some(true)) | (_, Some(_), Some(true)) => {
             return Err(ManifestError::WorkspaceDependencyHasOtherSource {
                 name: name.to_owned(),
             });
         }
-        (Some(path), None, false, _) => DependencySource::Path(Utf8PathBuf::from(path)),
-        (None, Some(req), false, _) => DependencySource::Version(parse_version_req(name, &req)?),
-        (None, None, true, _) => DependencySource::Workspace,
-        (None, None, false, true) => {
+        (Some(path), None, _) => DependencySource::Path(Utf8PathBuf::from(path)),
+        (None, Some(req), _) => DependencySource::Version(parse_version_req(name, &req)?),
+        (None, None, Some(true)) => DependencySource::Workspace,
+        (None, None, Some(false)) => {
             return Err(ManifestError::WorkspaceDependencyExplicitlyDisabled {
                 name: name.to_owned(),
             });
         }
-        (None, None, false, false) => {
+        (None, None, None) => {
             return Err(ManifestError::DependencyMissingSource {
                 name: name.to_owned(),
             });
