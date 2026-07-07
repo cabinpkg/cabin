@@ -154,39 +154,7 @@ pub fn stage_with_project(
         archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
     archive::ensure_manifest_included(&files)?;
 
-    // Normalize `{ workspace = true }` markers - standard fields and
-    // dependency entries - into the resolved literals so the archived
-    // manifest is self-contained (the registry build honors the
-    // extracted manifest).
-    let manifest_substitute = if validated.manifest_has_workspace_markers {
-        let text = std::fs::read_to_string(&validated.manifest_path).map_err(|source| {
-            PackageError::Io {
-                path: validated.manifest_path.clone(),
-                source,
-            }
-        })?;
-        let rewritten = cabin_manifest::edit::normalize_workspace_markers(
-            &text,
-            &validated.package.language,
-            workspace_dep_requirements,
-        )
-        .map_err(|source| PackageError::ManifestNormalization {
-            path: validated.manifest_path.clone(),
-            source: Box::new(source),
-        })?;
-        // Validation has already proven the effective package
-        // marker-free, so a rewrite that found nothing means the
-        // substituter missed a marker spelling the parser accepted;
-        // fail loudly rather than archive a live marker.
-        let Some(rewritten) = rewritten else {
-            return Err(PackageError::ManifestNormalizationIncomplete {
-                path: validated.manifest_path.clone(),
-            });
-        };
-        Some(rewritten.into_bytes())
-    } else {
-        None
-    };
+    let manifest_substitute = resolve_manifest_substitute(&validated, workspace_dep_requirements)?;
 
     let archive_bytes = archive::build_tar_gz(&files, manifest_substitute.as_deref())?;
     let archive_hex = archive::sha256_hex(&archive_bytes);
@@ -202,6 +170,41 @@ pub fn stage_with_project(
         metadata,
         package: validated.package,
     })
+}
+
+/// Normalize `{ workspace = true }` markers - standard fields and
+/// dependency entries - into the resolved literals so the archived
+/// manifest is self-contained (the registry build honors the
+/// extracted manifest).  Returns `None` when the manifest carries no
+/// workspace markers and thus needs no substitution.
+fn resolve_manifest_substitute(
+    validated: &validate::ValidatedPackage,
+    reqs: &cabin_core::WorkspaceDepRequirements,
+) -> Result<Option<Vec<u8>>, PackageError> {
+    if !validated.manifest_has_workspace_markers {
+        return Ok(None);
+    }
+    let text =
+        std::fs::read_to_string(&validated.manifest_path).map_err(|source| PackageError::Io {
+            path: validated.manifest_path.clone(),
+            source,
+        })?;
+    let rewritten =
+        cabin_manifest::edit::normalize_workspace_markers(&text, &validated.package.language, reqs)
+            .map_err(|source| PackageError::ManifestNormalization {
+                path: validated.manifest_path.clone(),
+                source: Box::new(source),
+            })?;
+    // Validation has already proven the effective package
+    // marker-free, so a rewrite that found nothing means the
+    // substituter missed a marker spelling the parser accepted;
+    // fail loudly rather than archive a live marker.
+    let Some(rewritten) = rewritten else {
+        return Err(PackageError::ManifestNormalizationIncomplete {
+            path: validated.manifest_path.clone(),
+        });
+    };
+    Ok(Some(rewritten.into_bytes()))
 }
 
 /// Produce a `PathBuf` that compares equal to anything the staging
