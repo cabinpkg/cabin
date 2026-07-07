@@ -90,7 +90,7 @@ The cache directory is selected by, in order:
 2. `CABIN_CACHE_DIR` environment variable;
 3. `CABIN_CACHE_HOME` environment variable (a Cabin-specific override, used verbatim with no `cabin`
    application prefix appended);
-4. The user XDG cache home computed by the [`xdg`](https://crates.io/crates/xdg) crate with the
+4. The user XDG cache home computed by the [`etcetera`](https://crates.io/crates/etcetera) crate with the
    `cabin` application prefix - typically `$XDG_CACHE_HOME/cabin` or `$HOME/.cache/cabin` per the
    XDG Base Directory specification.
 
