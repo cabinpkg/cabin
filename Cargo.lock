@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-artifact"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-build"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-config"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-core"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-env",
  "camino",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-diagnostics"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "miette",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-driver"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "camino",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-env"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "shlex 2.0.1",
  "thiserror",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-explain"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-lockfile",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-feature"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-workspace",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-fmt"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -383,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-fs"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "atomic-write-file",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-index"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -404,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-index-http"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-index",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-lockfile"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-manifest"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "camino",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-ninja"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-build",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-package"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-port"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-artifact",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-publish"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-registry-file"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-resolver"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
  "cabinpkg-diagnostics",
@@ -545,7 +545,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-source-discovery"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-fs",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-system-deps"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-test"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-build",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-tidy"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-toolchain"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-vendor"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-artifact",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "cabinpkg-workspace"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "assert_fs",
  "cabinpkg-core",
