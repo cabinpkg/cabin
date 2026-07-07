@@ -172,18 +172,17 @@ pub struct PackageDependencyTable {
     pub target: Option<Condition>,
 }
 
-fn is_false<T>(value: &T) -> bool
-where
-    T: PartialEq + Default,
-{
-    *value == T::default()
+// `serde(skip_serializing_if = "...")` calls the predicate with a
+// reference to the field, so these must take `&bool` even though a
+// `bool` is cheap to copy.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
-fn is_true<T>(value: &T) -> bool
-where
-    T: PartialEq + Default + std::ops::Not<Output = T>,
-{
-    *value == !T::default()
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_true(value: &bool) -> bool {
+    *value
 }
 fn default_true() -> bool {
     true

@@ -85,6 +85,17 @@ pub struct PortEntry {
     pub source: PortFetchSource,
 }
 
+impl PortEntry {
+    /// The `(name, version)` pair used to identify this port in
+    /// `PortError` diagnostics.
+    fn identity(&self) -> (String, String) {
+        (
+            self.descriptor.name.as_str().to_owned(),
+            self.descriptor.version.to_string(),
+        )
+    }
+}
+
 /// A finalized preparation plan.  Build it from the orchestration
 /// layer and pass it to [`prepare`].
 #[derive(Debug, Clone, Default)]
@@ -244,25 +255,19 @@ fn ensure_archive(
         if actual == expected_hex {
             return Ok(());
         }
-        if frozen {
-            return Err(PortError::FrozenCacheMiss {
-                name: entry.descriptor.name.as_str().to_owned(),
-                version: entry.descriptor.version.to_string(),
-            });
-        }
-    } else if frozen {
-        return Err(PortError::FrozenCacheMiss {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
-        });
+    }
+    if frozen {
+        let (name, version) = entry.identity();
+        return Err(PortError::FrozenCacheMiss { name, version });
     }
 
     if let PortFetchSource::LocalArchive(path) = &entry.source
         && !path.is_file()
     {
+        let (name, version) = entry.identity();
         return Err(PortError::MissingArchive {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
+            name,
+            version,
             path: path.clone(),
         });
     }
@@ -279,9 +284,10 @@ fn ensure_archive(
 
     if actual != expected_hex {
         let _ = fs::remove_file(&tmp_target);
+        let (name, version) = entry.identity();
         return Err(PortError::ChecksumMismatch {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
+            name,
+            version,
             expected: expected_hex,
             actual,
         });
@@ -344,10 +350,8 @@ fn ensure_source(
     }
 
     if frozen {
-        return Err(PortError::FrozenCacheMiss {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
-        });
+        let (name, version) = entry.identity();
+        return Err(PortError::FrozenCacheMiss { name, version });
     }
 
     // Drop a stale marker before re-extracting so a crash before
@@ -383,19 +387,22 @@ fn ensure_source(
             skip_symlinks: true,
         },
     )
-    .map_err(|err| match err {
-        cabin_artifact::ArtifactError::MissingStripPrefix { strip_prefix } => {
-            PortError::MissingStripPrefix {
-                name: entry.descriptor.name.as_str().to_owned(),
-                version: entry.descriptor.version.to_string(),
-                strip_prefix,
+    .map_err(|err| {
+        let (name, version) = entry.identity();
+        match err {
+            cabin_artifact::ArtifactError::MissingStripPrefix { strip_prefix } => {
+                PortError::MissingStripPrefix {
+                    name,
+                    version,
+                    strip_prefix,
+                }
             }
+            other => PortError::Extract {
+                name,
+                version,
+                source: Box::new(other),
+            },
         }
-        other => PortError::Extract {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
-            source: Box::new(other),
-        },
     })?;
     Ok(())
 }
@@ -414,9 +421,10 @@ fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
         let from = source_dir.join(step.from.as_std_path());
         let to = source_dir.join(step.to.as_std_path());
         if !from.is_file() {
+            let (name, version) = entry.identity();
             return Err(PortError::MissingCopySource {
-                name: entry.descriptor.name.as_str().to_owned(),
-                version: entry.descriptor.version.to_string(),
+                name,
+                version,
                 path: from,
             });
         }
@@ -434,9 +442,10 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
         PortOrigin::PortDir(port_dir) => {
             let overlay_source = port_dir.join(&entry.descriptor.overlay.relative_path);
             if !overlay_source.is_file() {
+                let (name, version) = entry.identity();
                 return Err(PortError::MissingOverlayManifest {
-                    name: entry.descriptor.name.as_str().to_owned(),
-                    version: entry.descriptor.version.to_string(),
+                    name,
+                    version,
                     path: overlay_source,
                 });
             }
@@ -464,22 +473,22 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
 fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     let overlay_manifest = source_dir.join("cabin.toml");
     let parsed = cabin_manifest::load_manifest(&overlay_manifest).map_err(|source| {
+        let (name, version) = entry.identity();
         PortError::OverlayManifestParse {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
+            name,
+            version,
             source: Box::new(source),
         }
     })?;
-    let package = parsed
-        .package
-        .ok_or_else(|| PortError::OverlayMissingPackage {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
-        })?;
+    let package = parsed.package.ok_or_else(|| {
+        let (name, version) = entry.identity();
+        PortError::OverlayMissingPackage { name, version }
+    })?;
     if package.name != entry.descriptor.name || package.version != entry.descriptor.version {
+        let (name, version) = entry.identity();
         return Err(PortError::OverlayIdentityMismatch {
-            name: entry.descriptor.name.as_str().to_owned(),
-            version: entry.descriptor.version.to_string(),
+            name,
+            version,
             actual_name: package.name.as_str().to_owned(),
             actual_version: package.version.to_string(),
         });
