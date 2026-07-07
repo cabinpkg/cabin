@@ -41,10 +41,10 @@ fn pick_conflict_package(
     tree: &DerivationTree<PackageName, Ranges<Version>, String>,
     root: &PackageName,
 ) -> String {
-    let mut names: Vec<&PackageName> = tree.packages().into_iter().filter(|p| *p != root).collect();
-    names.sort();
-    names
-        .first()
+    tree.packages()
+        .into_iter()
+        .filter(|p| *p != root)
+        .min()
         .map_or_else(|| root.as_str().to_owned(), |p| p.as_str().to_owned())
 }
 

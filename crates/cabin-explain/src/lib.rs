@@ -203,7 +203,7 @@ fn build_node(
     let name = pkg.package.name.as_str().to_owned();
     let version = pkg.package.version.to_string();
     let source = source_provenance_for(pkg, inputs);
-    let edge_kind_label = edge_kind.map(dep_kind_key);
+    let edge_kind_label = edge_kind.map(DependencyKind::as_str);
 
     let already_visited = !visited.insert(idx);
     if already_visited {
@@ -241,10 +241,6 @@ fn build_node(
         repeated: false,
         children,
     }
-}
-
-fn dep_kind_key(kind: DependencyKind) -> &'static str {
-    kind.as_str()
 }
 
 fn edge_kind_sort_key(label: Option<&'static str>) -> u8 {
@@ -736,7 +732,7 @@ fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
                 .deps
                 .iter()
                 .find(|e| e.index == idx)
-                .map(|e| dep_kind_key(e.kind))
+                .map(|e| e.kind.as_str())
         };
         out.push(ExplainStep {
             name: pkg.package.name.as_str().to_owned(),

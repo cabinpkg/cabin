@@ -450,7 +450,7 @@ fn load_workspace_inner(
 
     reject_duplicate_package_names(&loader.packages)?;
     let packages = link_workspace_packages(&loader, &registry_lookup, &port_lookup);
-    let (sorted, new_position) = apply_topo_order(&packages)?;
+    let (sorted, new_position) = apply_topo_order(packages)?;
 
     let primary_packages: Vec<usize> = primary_manifest_paths
         .iter()
@@ -1194,17 +1194,25 @@ fn link_workspace_packages(
 /// positions.  Returns the sorted list plus the old-index ->
 /// new-index map.
 fn apply_topo_order(
-    packages: &[WorkspacePackage],
+    packages: Vec<WorkspacePackage>,
 ) -> Result<(Vec<WorkspacePackage>, HashMap<usize, usize>), WorkspaceError> {
-    let topo = topo_sort(packages)?;
+    let topo = topo_sort(&packages)?;
     let new_position: HashMap<usize, usize> = topo
         .iter()
         .enumerate()
         .map(|(new_idx, &old_idx)| (old_idx, new_idx))
         .collect();
+    // Move each package into its new slot instead of cloning; the
+    // topo order is a permutation, so every index is taken exactly
+    // once.
+    let mut slots: Vec<Option<WorkspacePackage>> = packages.into_iter().map(Some).collect();
     let mut sorted: Vec<WorkspacePackage> = topo
         .iter()
-        .map(|&old_idx| packages[old_idx].clone())
+        .map(|&old_idx| {
+            slots[old_idx]
+                .take()
+                .expect("topo order visits each package exactly once")
+        })
         .collect();
     for pkg in &mut sorted {
         for edge in &mut pkg.deps {
@@ -1267,8 +1275,7 @@ struct LoadedPackage {
     package: cabin_core::Package,
     manifest_path: PathBuf,
     manifest_dir: PathBuf,
-    /// One entry per resolved dep edge: `(dep_name, canonical
-    /// manifest path, dependency kind, condition)`.  Only kinds that
+    /// One entry per resolved dep edge.  Only kinds that
     /// participate in ordinary resolution end up here; dev / system
     /// deps are filtered out earlier.
     dep_paths: Vec<DepPath>,
