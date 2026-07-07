@@ -79,7 +79,7 @@ pub enum IndexError {
     InvalidPackageName { package: String, message: String },
 
     #[error(
-        "unsupported source type {value:?} for package {package:?} version {version}; only local archive sources are currently supported"
+        "unsupported source type {value:?} for package {package:?} version {version}; only archive sources are currently supported"
     )]
     UnsupportedSourceType {
         package: String,

@@ -80,7 +80,15 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
     writeln!(out, "version = {}", lockfile.version)?;
     out.push('\n');
 
-    let mut packages: Vec<&LockedPackage> = lockfile.packages.iter().collect();
+    render_packages(&mut out, &lockfile.packages)?;
+    render_patches(&mut out, &lockfile.patches)?;
+    render_source_replacements(&mut out, &lockfile.source_replacements)?;
+
+    Ok(out)
+}
+
+fn render_packages(out: &mut String, packages: &[LockedPackage]) -> Result<(), LockfileError> {
+    let mut packages: Vec<&LockedPackage> = packages.iter().collect();
     packages.sort_by(|a, b| {
         a.name
             .as_str()
@@ -111,7 +119,11 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
         out.push('\n');
     }
 
-    let mut patches: Vec<&LockedPatch> = lockfile.patches.iter().collect();
+    Ok(())
+}
+
+fn render_patches(out: &mut String, patches: &[LockedPatch]) -> Result<(), LockfileError> {
+    let mut patches: Vec<&LockedPatch> = patches.iter().collect();
     patches.sort_by(|a, b| {
         a.package
             .as_str()
@@ -132,8 +144,14 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
         out.push('\n');
     }
 
-    let mut replacements: Vec<&LockedSourceReplacement> =
-        lockfile.source_replacements.iter().collect();
+    Ok(())
+}
+
+fn render_source_replacements(
+    out: &mut String,
+    source_replacements: &[LockedSourceReplacement],
+) -> Result<(), LockfileError> {
+    let mut replacements: Vec<&LockedSourceReplacement> = source_replacements.iter().collect();
     replacements.sort_by(|a, b| a.original.cmp(&b.original));
     for replacement in replacements {
         out.push_str("[[source-replacement]]\n");
@@ -161,7 +179,7 @@ pub fn render_lockfile(lockfile: &Lockfile) -> Result<String, LockfileError> {
         out.push('\n');
     }
 
-    Ok(out)
+    Ok(())
 }
 
 /// Quote a string as a TOML basic string.  The lockfile only needs to handle
@@ -196,25 +214,24 @@ fn lockfile_from_raw(raw: RawLockfile) -> Result<Lockfile, LockfileError> {
         source_replacements,
     } = raw;
 
-    let mut models: Vec<LockedPackage> = Vec::with_capacity(packages.len());
-    for raw_pkg in packages {
-        models.push(package_from_raw(raw_pkg)?);
-    }
-    let mut patch_models: Vec<LockedPatch> = Vec::with_capacity(patches.len());
-    for raw_patch in patches {
-        patch_models.push(patch_from_raw(raw_patch)?);
-    }
-    let mut replacement_models: Vec<LockedSourceReplacement> =
-        Vec::with_capacity(source_replacements.len());
-    for raw_replacement in source_replacements {
-        replacement_models.push(source_replacement_from_raw(raw_replacement)?);
-    }
+    let packages = packages
+        .into_iter()
+        .map(package_from_raw)
+        .collect::<Result<Vec<_>, _>>()?;
+    let patches = patches
+        .into_iter()
+        .map(patch_from_raw)
+        .collect::<Result<Vec<_>, _>>()?;
+    let source_replacements = source_replacements
+        .into_iter()
+        .map(source_replacement_from_raw)
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Lockfile {
         version,
-        packages: models,
-        patches: patch_models,
-        source_replacements: replacement_models,
+        packages,
+        patches,
+        source_replacements,
     })
 }
 
