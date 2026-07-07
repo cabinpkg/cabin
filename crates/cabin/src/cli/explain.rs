@@ -135,9 +135,8 @@ pub(crate) fn explain(
         args.selection.all_features,
         args.selection.no_default_features,
     );
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
     let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
+        cabin_workspace::resolve_package_selection(&graph, &explain_selection)?;
     let feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,
@@ -223,14 +222,6 @@ pub(crate) fn explain(
             // `cabin explain` does not opt into dev-dep activation;
             // dev-kind system deps stay declaration-only here.
             let dev_for: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            // Feature-gated profile flags need the resolved feature
-            // set; compute it before the build-flag preamble.
-            let feature_resolution = crate::cli::compute_feature_resolution(
-                &graph,
-                &resolved_selection,
-                &request,
-                &std::collections::BTreeSet::new(),
-            )?;
             let prep = crate::cli::build_prep::resolve_build_prep(
                 crate::cli::build_prep::BuildConfigInputs {
                     graph: &graph,

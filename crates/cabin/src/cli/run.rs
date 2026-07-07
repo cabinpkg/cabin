@@ -201,9 +201,7 @@ pub(crate) fn run(
     let (registry, lockfile_pinned): (Vec<RegistryPackageSource>, BTreeSet<(String, String)>) =
         if has_versioned {
             let Some(index_source) = resolved_index_source.as_ref() else {
-                bail!(
-                    "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
-                );
+                bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
             };
             let inputs = crate::cli::config::resolve_pipeline_inputs(
                 index_source,
@@ -550,8 +548,8 @@ fn pick_run_target(
             if target.kind == TargetKind::Executable {
                 let run_target = make_run_target(
                     &pkg.package,
-                    &graph.packages[idx].manifest_path,
-                    &graph.packages[idx].manifest_dir,
+                    &pkg.manifest_path,
+                    &pkg.manifest_dir,
                     target.name.as_str(),
                 );
                 if target.missing_required_features(enabled).is_empty() {
@@ -609,8 +607,8 @@ fn find_target(
             }
             candidates.push(make_run_target(
                 &pkg.package,
-                &graph.packages[idx].manifest_path,
-                &graph.packages[idx].manifest_dir,
+                &pkg.manifest_path,
+                &pkg.manifest_dir,
                 target.name.as_str(),
             ));
         }
