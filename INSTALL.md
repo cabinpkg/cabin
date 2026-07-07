@@ -9,7 +9,7 @@ development workflow on top of the steps here.
 
 ## Prerequisites
 
-- A [Rust toolchain](https://www.rust-lang.org/tools/install) on the stable channel.
+- A [Rust toolchain](https://www.rust-lang.org/tools/install) (1.95 or newer) on the stable channel.
 - `git`.
 
 The Cabin binary itself has no C/C++ build-time dependency.  The C/C++ toolchains, Ninja, and the
