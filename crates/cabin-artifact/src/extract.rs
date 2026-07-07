@@ -15,6 +15,13 @@ use crate::error::ArtifactError;
 /// compressed payload (a "decompression bomb").
 const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 
+// POSIX `st_mode` file-type bits (see `<sys/stat.h>`), used to
+// classify zip entries whose type travels in the Unix mode field.
+const S_IFMT: u32 = 0o170_000; // type field mask
+const S_IFLNK: u32 = 0o120_000; // symbolic link
+const S_IFREG: u32 = 0o100_000; // regular file
+const S_IFDIR: u32 = 0o040_000; // directory
+
 /// Maximum aggregate decompressed bytes Cabin will write across
 /// every entry in one archive.  Even with the per-entry cap, an
 /// attacker could ship thousands of max-size entries to fill the
@@ -149,13 +156,13 @@ fn safe_extract_zip_with_limits(
         // (symlinks foremost), mirroring the tar entry-type policy;
         // symlinks alone may instead be skipped when the caller
         // opted in (nothing is materialized either way).
-        let file_type = entry.unix_mode().map(|mode| mode & 0o170_000);
-        let skip_symlink = file_type == Some(0o120_000) && options.skip_symlinks;
+        let file_type = entry.unix_mode().map(|mode| mode & S_IFMT);
+        let skip_symlink = file_type == Some(S_IFLNK) && options.skip_symlinks;
         if let Some(file_type) = file_type
             && !skip_symlink
             && file_type != 0
-            && file_type != 0o100_000
-            && file_type != 0o040_000
+            && file_type != S_IFREG
+            && file_type != S_IFDIR
         {
             return Err(ArtifactError::UnsupportedArchiveEntry(display));
         }

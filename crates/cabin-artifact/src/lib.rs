@@ -9,12 +9,12 @@
 //!
 //! Crate boundaries:
 //! - this crate must not run the resolver, write Ninja, or invoke
-//!   Compilers;
+//!   compilers;
 //! - it must not implement networking, publishing, or any server
-//!   Functionality;
+//!   functionality;
 //! - extraction is fail-closed: archive entries that escape the
-//!   Destination, declare absolute paths, contain `..` components, or
-//!   Use unsupported tar entry types are rejected.
+//!   destination, declare absolute paths, contain `..` components, or
+//!   use unsupported tar entry types are rejected.
 
 // `ArtifactError` aggregates lockfile, fetch, extract, and
 // cache errors.  The union crosses clippy's default
