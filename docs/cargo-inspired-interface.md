@@ -31,6 +31,8 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin package` | `cargo package` | Source-archive + canonical metadata |
 | `cabin publish` | `cargo publish` | Local file-registry publish (no remote yet) |
 | `cabin fmt` | `cargo fmt` | Formats workspace C/C++ sources with `clang-format` |
+| `cabin tidy` | `cargo clippy` | Lints workspace C/C++ sources with `run-clang-tidy` via `compile_commands.json`.  See [`tidy.md`](tidy.md). |
+| `cabin port` | (no direct analogue) | Lists or inspects bundled foundation-port recipes.  See [`foundation-ports.md`](foundation-ports.md). |
 | `cabin version` | `cargo version` | Prints Cabin's version; with `-v` adds release and OS fields when available. `cabin --version` keeps working as the concise framework spelling. |
 
 ### Flags / options
@@ -154,7 +156,7 @@ These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ sco
 - `cargo rustc` / `cargo rustdoc` / `cargo fix` - Rust-specific.
 - `cargo bench` - Cabin has no benchmark target kind and no benchmark harness model.  Users who need
   to time a binary declare an `executable` and run it themselves.
-- Doctest / book / fix / clippy / miri analogues.
+- Doctest / book / fix / miri analogues.
 
 If a later iteration wants to add one of these, it should land alongside an explicit motivation
 rather than as an opportunistic addition.
