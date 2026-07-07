@@ -256,22 +256,8 @@ pub fn parse_package_entry(
         let dependencies = parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dependencies)?;
         let dev_dependencies =
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
-        let mut system_dependencies: BTreeMap<PackageName, IndexSystemDependency> = BTreeMap::new();
-        for (sys_name, raw_sys) in raw_ver.system_dependencies {
-            let validated = validated_package_name(&sys_name)?;
-            // Same platform-only invariant as package dependencies:
-            // system-dependency activation never sees toolchain
-            // detection, so a compiler-conditioned gate is rejected.
-            reject_compiler_condition(&raw.name, &ver_str, &sys_name, raw_sys.target.as_ref())?;
-            system_dependencies.insert(
-                validated,
-                IndexSystemDependency {
-                    version: raw_sys.version,
-                    dependency_kind: raw_sys.dependency_kind,
-                    condition: raw_sys.target,
-                },
-            );
-        }
+        let system_dependencies =
+            parse_system_dependencies(&raw.name, &ver_str, raw_ver.system_dependencies)?;
         let source = match raw_ver.source {
             None => None,
             Some(raw_source) => Some(parse_source_artifact(
@@ -324,20 +310,25 @@ fn parse_kinded_dependencies(
     let mut deps: BTreeMap<PackageName, IndexPackageDependency> = BTreeMap::new();
     for (dep_name, raw_dep) in raw_table {
         let dep_name_validated = validated_package_name(&dep_name)?;
-        let req_str = raw_dep.version_str();
-        let req = cabin_core::version_req::parse_lenient(req_str).map_err(|source| {
+        let (req_input, optional, features, default_features, condition) = match raw_dep {
+            RawIndexPackageDep::Bare(s) => (s, false, Vec::new(), true, None),
+            RawIndexPackageDep::Rich(t) => (
+                t.version,
+                t.optional,
+                t.features,
+                t.default_features,
+                t.target,
+            ),
+        };
+        let req = cabin_core::version_req::parse_lenient(&req_input).map_err(|source| {
             IndexError::InvalidRequirement {
                 package: package.to_owned(),
                 version: version.to_owned(),
                 dep: dep_name.clone(),
-                requirement: req_str.to_owned(),
+                requirement: req_input.clone(),
                 source,
             }
         })?;
-        let optional = raw_dep.optional();
-        let features = raw_dep.features().to_vec();
-        let default_features = raw_dep.default_features();
-        let condition = raw_dep.condition().cloned();
         // Index dependency gates are evaluated platform-only (no
         // toolchain detection runs before resolution), and `cabin
         // publish` cannot produce compiler-conditioned dependencies -
@@ -353,6 +344,34 @@ fn parse_kinded_dependencies(
                 features,
                 default_features,
                 condition,
+            },
+        );
+    }
+    Ok(deps)
+}
+
+/// Parse the `system-dependencies` table of one index version
+/// document into typed [`IndexSystemDependency`] entries.  Mirrors
+/// [`parse_kinded_dependencies`]; `package` and `version` only feed
+/// the error context.
+fn parse_system_dependencies(
+    package: &str,
+    version: &str,
+    raw_table: BTreeMap<String, RawIndexSystemDependency>,
+) -> Result<BTreeMap<PackageName, IndexSystemDependency>, IndexError> {
+    let mut deps: BTreeMap<PackageName, IndexSystemDependency> = BTreeMap::new();
+    for (sys_name, raw_sys) in raw_table {
+        let validated = validated_package_name(&sys_name)?;
+        // Same platform-only invariant as package dependencies:
+        // system-dependency activation never sees toolchain
+        // detection, so a compiler-conditioned gate is rejected.
+        reject_compiler_condition(package, version, &sys_name, raw_sys.target.as_ref())?;
+        deps.insert(
+            validated,
+            IndexSystemDependency {
+                version: raw_sys.version,
+                dependency_kind: raw_sys.dependency_kind,
+                condition: raw_sys.target,
             },
         );
     }
@@ -561,43 +580,6 @@ struct RawIndexPackageDepTable {
 
 fn default_true_for_index() -> bool {
     true
-}
-
-impl RawIndexPackageDep {
-    fn version_str(&self) -> &str {
-        match self {
-            RawIndexPackageDep::Bare(s) => s.as_str(),
-            RawIndexPackageDep::Rich(t) => t.version.as_str(),
-        }
-    }
-
-    fn optional(&self) -> bool {
-        match self {
-            RawIndexPackageDep::Bare(_) => false,
-            RawIndexPackageDep::Rich(t) => t.optional,
-        }
-    }
-
-    fn features(&self) -> &[String] {
-        match self {
-            RawIndexPackageDep::Bare(_) => &[],
-            RawIndexPackageDep::Rich(t) => &t.features,
-        }
-    }
-
-    fn default_features(&self) -> bool {
-        match self {
-            RawIndexPackageDep::Bare(_) => true,
-            RawIndexPackageDep::Rich(t) => t.default_features,
-        }
-    }
-
-    fn condition(&self) -> Option<&Condition> {
-        match self {
-            RawIndexPackageDep::Bare(_) => None,
-            RawIndexPackageDep::Rich(t) => t.target.as_ref(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
