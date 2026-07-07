@@ -117,9 +117,7 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         args.selection.all_features,
         args.selection.no_default_features,
     );
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
+    let resolved_selection = cabin_workspace::resolve_package_selection(&graph, &tree_selection)?;
     let _feature_resolution = compute_feature_resolution(
         &graph,
         &resolved_selection,

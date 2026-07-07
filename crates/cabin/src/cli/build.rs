@@ -90,9 +90,7 @@ pub(super) fn build(
     let (registry, lockfile_pinned): (Vec<RegistryPackageSource>, BTreeSet<(String, String)>) =
         if has_versioned {
             let Some(index_source) = resolved_index_source.as_ref() else {
-                bail!(
-                    "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
-                );
+                bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
             };
             let inputs = crate::cli::config::resolve_pipeline_inputs(
                 index_source,

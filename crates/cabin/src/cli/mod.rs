@@ -57,6 +57,17 @@ use crate::cli::fetch_output::emit_fetch_output;
 use crate::cli::term_color::CliColorChoice;
 use crate::cli::term_verbosity::Reporter;
 
+/// Bail message shared by the build/run/test/resolve commands when a
+/// manifest declares versioned dependencies but no index source was
+/// provided.
+pub(crate) const VERSIONED_DEPS_REQUIRE_INDEX: &str =
+    "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting";
+
+/// Bail message shared by the resolve paths when `--index-url` is
+/// combined with `--frozen`: there is no persistent HTTP index cache,
+/// so a frozen run cannot honor the URL without forbidden fetches.
+pub(crate) const FROZEN_INDEX_URL_ERR: &str = "cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache, so a frozen run would have to perform network fetches it is not allowed to perform";
+
 /// Cargo-style color palette for clap's help / error
 /// rendering.  Mirrors the ANSI sequences `cargo --help
 /// --color always` emits today: bold + bright green for the
@@ -2064,15 +2075,7 @@ pub(crate) fn run_artifact_pipeline(
         &root_deps,
     )?;
 
-    let resolver_mode = match &request.mode {
-        LockMode::PreferLocked => ResolveMode::PreferLocked,
-        LockMode::Locked => ResolveMode::Locked,
-        LockMode::UpdateAll => ResolveMode::UpdateAll,
-        LockMode::UpdatePackage(name) => ResolveMode::UpdatePackage(
-            PackageName::new(name.clone())
-                .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
-        ),
-    };
+    let resolver_mode = request.mode.resolve_mode()?;
 
     let mut input = ResolveInput::new(root_name, root_version, root_deps);
     if let Some(lock) = &existing_lockfile {
@@ -2193,9 +2196,7 @@ fn load_index_for_pipeline(
         (Some(path), None) => Ok((load_local_index(path)?, IndexAccess::Local)),
         (None, Some(url)) => {
             if frozen {
-                bail!(
-                    "cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache, so a frozen run would have to perform network fetches it is not allowed to perform"
-                );
+                bail!(FROZEN_INDEX_URL_ERR);
             }
             let (index, client) = load_http_index(url, root_deps)?;
             Ok((index, IndexAccess::Http(client)))
@@ -2315,6 +2316,23 @@ pub(crate) enum LockMode {
     Locked,
     UpdateAll,
     UpdatePackage(String),
+}
+
+impl LockMode {
+    /// Translate the CLI-facing lock mode into the resolver's
+    /// [`ResolveMode`], validating the `--package` name for the
+    /// update-single case.
+    pub(crate) fn resolve_mode(&self) -> Result<ResolveMode> {
+        Ok(match self {
+            LockMode::PreferLocked => ResolveMode::PreferLocked,
+            LockMode::Locked => ResolveMode::Locked,
+            LockMode::UpdateAll => ResolveMode::UpdateAll,
+            LockMode::UpdatePackage(name) => ResolveMode::UpdatePackage(
+                PackageName::new(name.clone())
+                    .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
+            ),
+        })
+    }
 }
 
 pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {

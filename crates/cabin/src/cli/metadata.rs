@@ -368,6 +368,102 @@ fn port_origin_sort_key<'a>(view: &'a PortView<'_>) -> (u8, &'a std::ffi::OsStr)
     }
 }
 
+/// Build the JSON view for a single workspace package.  The returned
+/// [`PackageView`] borrows exclusively from `pkg`, so its lifetime is
+/// tied to that reference; `graph`, `configurations`, and
+/// `host_platform` only supply owned or copied data.
+fn build_package_view<'a>(
+    graph: &PackageGraph,
+    idx: usize,
+    pkg: &'a cabin_workspace::WorkspacePackage,
+    configurations: &HashMap<usize, cabin_core::BuildConfiguration>,
+    host_platform: &cabin_core::TargetPlatform,
+) -> PackageView<'a> {
+    let package: &Package = &pkg.package;
+    let features = if package.features.default.is_empty() && package.features.features.is_empty() {
+        None
+    } else {
+        Some(&package.features)
+    };
+    // The configuration block appears once a package declares
+    // something it resolves: features or language standards.
+    // Packages with zero declarations keep their previous JSON shape.
+    let declares_language =
+        !package.language.is_empty() || package.targets.iter().any(|t| !t.language.is_empty());
+    let configuration = if features.is_some() || declares_language {
+        configurations
+            .get(&idx)
+            .map(cabin_core::BuildConfiguration::as_json)
+    } else {
+        None
+    };
+    let mut system_dependencies: Vec<SystemDependencyView<'_>> = package
+        .system_dependencies
+        .iter()
+        .map(|sd| SystemDependencyView {
+            name: sd.name.as_str(),
+            dependency_kind: sd.kind,
+            version: sd.version.as_str(),
+            target: sd.condition.as_ref().map(ToString::to_string),
+            active: sd.condition.as_ref().is_none_or(|c| {
+                c.evaluate(&cabin_core::ConditionContext::platform_only(host_platform))
+            }),
+        })
+        .collect();
+    // The stable sorts below uphold the documented ordering contract
+    // on `PackageView` even when conditional (target-specific)
+    // declarations sit interleaved in manifest order; ties keep
+    // declaration order.
+    system_dependencies.sort_by(|a, b| a.name.cmp(b.name));
+    let mut dependencies: Vec<DependencyView<'_>> = package
+        .dependencies
+        .iter()
+        .map(|d| DependencyView {
+            name: d.name.as_str(),
+            dependency_kind: d.kind,
+            optional: d.optional,
+            features: d.features.as_slice(),
+            default_features: d.default_features,
+            target: d.condition.as_ref().map(ToString::to_string),
+            active: d.matches_platform(host_platform),
+            source: match &d.source {
+                DependencySource::Path(p) => DependencySourceView::Path {
+                    path: p.as_std_path(),
+                },
+                DependencySource::Version(req) => DependencySourceView::Version {
+                    requirement: req.to_string(),
+                },
+                DependencySource::Port(PortDepSource::Path(p)) => DependencySourceView::Port {
+                    origin: PortOriginView::Path {
+                        port_dir: p.as_std_path(),
+                    },
+                },
+                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
+                    DependencySourceView::Port {
+                        origin: PortOriginView::Builtin {
+                            name: name.as_str(),
+                        },
+                    }
+                }
+                DependencySource::Workspace => DependencySourceView::Workspace,
+            },
+        })
+        .collect();
+    dependencies.sort_by(|a, b| (a.dependency_kind, a.name).cmp(&(b.dependency_kind, b.name)));
+    PackageView {
+        name: package.name.as_str(),
+        version: package.version.to_string(),
+        manifest_path: &pkg.manifest_path,
+        dependencies,
+        system_dependencies,
+        targets: &package.targets,
+        is_root: graph.root_package == Some(idx),
+        is_primary: graph.primary_packages.contains(&idx),
+        features,
+        configuration,
+    }
+}
+
 impl<'a> MetadataView<'a> {
     pub(crate) fn from_graph_and_lock(inputs: &MetadataInputs<'a>) -> Self {
         let mut view = Self::from_inputs(inputs);
@@ -443,98 +539,7 @@ impl<'a> MetadataView<'a> {
             .packages
             .iter()
             .enumerate()
-            .map(|(idx, pkg)| {
-                let package: &Package = &pkg.package;
-                let features = if package.features.default.is_empty()
-                    && package.features.features.is_empty()
-                {
-                    None
-                } else {
-                    Some(&package.features)
-                };
-                // The configuration block appears once a package
-                // declares something it resolves: features or
-                // language standards.  Packages with zero
-                // declarations keep their previous JSON shape.
-                let declares_language = !package.language.is_empty()
-                    || package.targets.iter().any(|t| !t.language.is_empty());
-                let configuration = if features.is_some() || declares_language {
-                    configurations
-                        .get(&idx)
-                        .map(cabin_core::BuildConfiguration::as_json)
-                } else {
-                    None
-                };
-                let mut system_dependencies: Vec<SystemDependencyView<'_>> = package
-                    .system_dependencies
-                    .iter()
-                    .map(|sd| SystemDependencyView {
-                        name: sd.name.as_str(),
-                        dependency_kind: sd.kind,
-                        version: sd.version.as_str(),
-                        target: sd.condition.as_ref().map(ToString::to_string),
-                        active: sd.condition.as_ref().is_none_or(|c| {
-                            c.evaluate(&cabin_core::ConditionContext::platform_only(&host_platform))
-                        }),
-                    })
-                    .collect();
-                // The stable sorts below uphold the documented
-                // ordering contract on `PackageView` even when
-                // conditional (target-specific) declarations sit
-                // interleaved in manifest order; ties keep
-                // declaration order.
-                system_dependencies.sort_by(|a, b| a.name.cmp(b.name));
-                let mut dependencies: Vec<DependencyView<'_>> = package
-                    .dependencies
-                    .iter()
-                    .map(|d| DependencyView {
-                        name: d.name.as_str(),
-                        dependency_kind: d.kind,
-                        optional: d.optional,
-                        features: d.features.as_slice(),
-                        default_features: d.default_features,
-                        target: d.condition.as_ref().map(ToString::to_string),
-                        active: d.matches_platform(&host_platform),
-                        source: match &d.source {
-                            DependencySource::Path(p) => DependencySourceView::Path {
-                                path: p.as_std_path(),
-                            },
-                            DependencySource::Version(req) => DependencySourceView::Version {
-                                requirement: req.to_string(),
-                            },
-                            DependencySource::Port(PortDepSource::Path(p)) => {
-                                DependencySourceView::Port {
-                                    origin: PortOriginView::Path {
-                                        port_dir: p.as_std_path(),
-                                    },
-                                }
-                            }
-                            DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-                                DependencySourceView::Port {
-                                    origin: PortOriginView::Builtin {
-                                        name: name.as_str(),
-                                    },
-                                }
-                            }
-                            DependencySource::Workspace => DependencySourceView::Workspace,
-                        },
-                    })
-                    .collect();
-                dependencies
-                    .sort_by(|a, b| (a.dependency_kind, a.name).cmp(&(b.dependency_kind, b.name)));
-                PackageView {
-                    name: package.name.as_str(),
-                    version: package.version.to_string(),
-                    manifest_path: &pkg.manifest_path,
-                    dependencies,
-                    system_dependencies,
-                    targets: &package.targets,
-                    is_root: graph.root_package == Some(idx),
-                    is_primary: graph.primary_packages.contains(&idx),
-                    features,
-                    configuration,
-                }
-            })
+            .map(|(idx, pkg)| build_package_view(graph, idx, pkg, configurations, &host_platform))
             .collect();
 
         // Build the profile section once, deterministically: the

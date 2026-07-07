@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 
 use cabin_core::PackageName;
 use cabin_lockfile::Lockfile;
-use cabin_resolver::{
-    LockedVersion, ResolveInput, ResolveMode, ResolveOutput, ResolvedPackage, ResolvedSource,
-};
+use cabin_resolver::{LockedVersion, ResolveInput, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use super::{
     ArtifactPipelineRequest, BTreeSet, Context, FetchArgs, LockMode, Reporter, ResolveArgs,
@@ -24,9 +22,7 @@ pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
     // `--frozen` to refuse to populate; today they behave the same.
     let allow_write = !(args.locked || args.frozen);
     if args.frozen && args.index_url.is_some() {
-        bail!(
-            "cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache, so a frozen run would have to perform network fetches it is not allowed to perform"
-        );
+        bail!(crate::cli::FROZEN_INDEX_URL_ERR);
     }
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
@@ -173,9 +169,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let resolved_cache_dir =
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
     let Some(index_source) = resolved_index_source.as_ref() else {
-        bail!(
-            "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
-        );
+        bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
     };
     let inputs = crate::cli::config::resolve_pipeline_inputs(
         index_source,
@@ -300,9 +294,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     let effective_index_path = config_index_path.as_deref();
     let effective_index_url = config_index_url.as_deref();
     if request.frozen && effective_index_url.is_some() {
-        bail!(
-            "cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache, so a frozen run would have to perform network fetches it is not allowed to perform"
-        );
+        bail!(crate::cli::FROZEN_INDEX_URL_ERR);
     }
 
     // gather versioned deps from the selected primary
@@ -434,9 +426,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     let index = match (effective_index_path, effective_index_url) {
         (None, None) => {
-            bail!(
-                "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting"
-            )
+            bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX)
         }
         (Some(path), None) => load_local_index(path)?,
         // The resolve pipeline performs no artifact downloads, so the
@@ -448,15 +438,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         }
     };
 
-    let resolver_mode = match &request.mode {
-        LockMode::PreferLocked => ResolveMode::PreferLocked,
-        LockMode::Locked => ResolveMode::Locked,
-        LockMode::UpdateAll => ResolveMode::UpdateAll,
-        LockMode::UpdatePackage(name) => ResolveMode::UpdatePackage(
-            PackageName::new(name.clone())
-                .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
-        ),
-    };
+    let resolver_mode = request.mode.resolve_mode()?;
 
     let mut input = ResolveInput::new(root_name, root_version, root_deps);
     if let Some(lock) = &existing_lockfile {
