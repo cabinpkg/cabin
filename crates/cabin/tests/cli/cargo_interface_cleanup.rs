@@ -24,7 +24,7 @@ fn top_level_help_lists_day_to_day_subcommands() {
     }
     // Cabin describes itself for C/C++, not Rust.
     assert!(
-        out.contains("C/C++") || out.contains("C/C++"),
+        out.contains("C/C++"),
         "top-level help should mention C/C++:\n{out}"
     );
 }

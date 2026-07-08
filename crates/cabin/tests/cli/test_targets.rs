@@ -646,7 +646,7 @@ members = ["packages/b", "packages/a"]
 "#,
         )
         .unwrap();
-    for (member, deps_table) in [("a", "[target.a_z_test]"), ("b", "[target.b_a_test]")] {
+    for (member, test_target_header) in [("a", "[target.a_z_test]"), ("b", "[target.b_a_test]")] {
         assert_fs::fixture::ChildPath::new(
             dir.path().join(format!("packages/{member}/cabin.toml")),
         )
@@ -660,7 +660,7 @@ cxx-standard = "c++17"
 type = "library"
 sources = ["src/lib.cc"]
 
-{deps_table}
+{test_target_header}
 type = "test"
 sources = ["tests/lib_test.cc"]
 deps = ["{member}"]
