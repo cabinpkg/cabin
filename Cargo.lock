@@ -422,6 +422,7 @@ name = "cabinpkg-index-http"
 version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
+ "cabinpkg-credentials",
  "cabinpkg-index",
  "serde",
  "serde_json",

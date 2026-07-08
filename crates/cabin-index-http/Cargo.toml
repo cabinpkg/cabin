@@ -12,6 +12,7 @@ name = "cabin_index_http"
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-credentials = { workspace = true }
 cabin-index = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

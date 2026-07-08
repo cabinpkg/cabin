@@ -12,6 +12,24 @@ pub enum IndexHttpError {
     #[error("HTTP index request failed for `{name}`: server returned {status}")]
     ServerError { name: String, status: u16 },
 
+    #[error(
+        "authentication required by registry `{origin}`; run `cabin login --index-url {origin}` \
+         with `-Z remote-registry` to store a token"
+    )]
+    AuthRequired { origin: String },
+
+    #[error(
+        "registry `{origin}` rejected the stored token (revoked or expired); re-run `cabin login \
+         --index-url {origin}`"
+    )]
+    TokenRejected { origin: String },
+
+    #[error(
+        "registry `{origin}` refused the request: the stored token does not have the required \
+         scope"
+    )]
+    MissingScope { origin: String },
+
     #[error("HTTP transport error fetching `{name}`: {message}")]
     Transport { name: String, message: String },
 
