@@ -9,10 +9,12 @@ public OSS core:
 - package archive metadata that preserves the manifest-declared fields
   the resolver and build pipeline need.
 
-It does **not** contain a non-local registry service, account system,
-ownership workflow, package yanking workflow, signing policy, upload API,
-or other non-local registry control plane.  Those concerns are outside
-this repository's local-core boundary.
+It does **not** contain the registry service itself: account systems,
+ownership workflows, token issuance, hosted storage, signing policy, and
+other server-side control planes are outside this repository's boundary.
+The *client* side of a remote registry protocol is an experimental,
+`-Z remote-registry`-gated track; see
+[Experimental remote registry client](#experimental-remote-registry-client).
 
 ## Local File Registry
 
@@ -105,13 +107,33 @@ The separation is intentional: adding a new local or static read
 transport should not require changing package metadata, the lockfile,
 or the build planner.
 
+## Experimental Remote Registry Client
+
+Gated behind `-Z remote-registry`, with no compatibility promise, Cabin
+is growing a client for authenticated remote registries.  The protocol
+both sides implement - bearer-token reads, network-backed package
+publishing, and a yank command - is specified in
+[`remote-registry.md`](remote-registry.md).  Under this experimental
+track:
+
+- the registry `config.json` fields `auth-required` and `api` are
+  recognized; without `-Z remote-registry` their presence fails the
+  index load with an error naming the field (never a silent ignore);
+- client-side credential handling uses `Authorization: Bearer` tokens
+  issued on the registry web UI at `<origin>/me`;
+- publishing uses `PUT /api/v1/packages/<name>/<version>` with a
+  length-prefixed metadata + archive frame, and yanking uses
+  `PATCH /api/v1/packages/<name>/<version>/yank`.
+
+The registry *service* itself - accounts, token issuance, storage -
+remains outside this repository.
+
 ## Out Of Scope
 
 The local OSS core deliberately excludes:
 
-- network-backed package publishing;
-- non-local registry account or ownership workflows;
-- package yanking / unpublishing;
+- registry account or ownership services (the server side of the
+  experimental protocol above);
 - artifact signing policy;
 - Git repository indexes;
 - persistent HTTP metadata caching;

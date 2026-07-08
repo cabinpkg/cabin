@@ -96,6 +96,10 @@ export const DOCS_NAV: DocsNavSection[] = [
             },
             { label: "Local JSON package index", slug: "package-index" },
             { label: "Registry design", slug: "registry-design" },
+            {
+                label: "Remote registry protocol (experimental)",
+                slug: "remote-registry",
+            },
             { label: "CLI distribution artifacts", slug: "distribution" },
         ],
     },

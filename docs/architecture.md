@@ -75,6 +75,7 @@ docs/
   distribution.md    shell completions + man pages
   installation.md    supported platforms + install methods
   registry-design.md local registry interface boundary
+  remote-registry.md experimental remote-registry protocol contract (behind -Z remote-registry)
   features.md        features foundation
   workspaces.md      workspace root discovery, member selection, inheritance
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
@@ -1415,7 +1416,10 @@ This repository implements the local registry interface: local file registries, 
 and a read-only sparse HTTP client for a static layout.  Account systems, hosted write paths,
 ownership workflows, package yanking, signing policy, and administrative control planes are outside
 this local-core boundary.  See [`registry-design.md`](registry-design.md) for the concrete read-path
-and file-registry shape this repository supports.
+and file-registry shape this repository supports.  The *client* side of an authenticated remote
+registry - bearer-token reads, publish, yank - is an experimental track gated behind
+`-Z remote-registry` and specified in [`remote-registry.md`](remote-registry.md); the registry
+service itself stays outside this repository.
 
 ## Scope and limitations
 
@@ -1427,7 +1431,8 @@ The following are *not* part of this repository today:
   sparse HTTP today.
 - **No non-local registry control plane.** Every command that needs an index expects `--index-path
   <dir>` or `--index-url <url>`.  There is no default remote registry, no `cabin login`, and no
-  package upload over the network.
+  package upload over the network.  (An experimental remote-registry *client* protocol is specified
+  behind `-Z remote-registry`; see [`remote-registry.md`](remote-registry.md).)
 - **No account / ownership workflows.** Ownership, signing, package yanking, and restricted package
   access are out of scope.
 - **No administrative policy surfaces.**
