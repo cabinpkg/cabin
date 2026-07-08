@@ -247,6 +247,9 @@ pub fn run_tidy(request: &TidyRequest) -> Result<TidyReport, TidyError> {
     let files: Vec<&Path> = files.into_iter().collect();
 
     let mut cmd = Command::new(&request.executable);
+    // The registry credential is Cabin's input, not the linter's:
+    // scrub it so the spawned tool can never read the token.
+    cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     // `-p <dir>` is how `run-clang-tidy` (and `clang-tidy`
     // directly) discovers a `compile_commands.json` in `<dir>`.
     cmd.arg("-p").arg(&request.compile_database_dir);

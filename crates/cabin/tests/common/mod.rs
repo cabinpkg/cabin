@@ -180,6 +180,10 @@ pub fn cabin() -> Command {
         // built-in `fallback` default; env-precedence tests opt back in
         // by setting it explicitly after calling `cabin()`.
         "CABIN_RESOLVER_INCOMPATIBLE_STANDARDS",
+        // Strip the registry-token override so a developer's real
+        // credential can never authenticate (or leak into) a test's
+        // registry traffic; auth tests set it explicitly.
+        "CABIN_REGISTRY_TOKEN",
         "CABIN_COMPILER_WRAPPER",
         "CABIN_CACHE_DIR",
         // `CABIN_CACHE_HOME` redirects the per-user cache home;

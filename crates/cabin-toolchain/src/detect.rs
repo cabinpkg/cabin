@@ -131,6 +131,10 @@ fn run_process_with_timeout(
 ) -> Result<RunOutput, RunError> {
     let mut child = Command::new(path)
         .args(args)
+        // The registry credential is Cabin's input, not the probed
+        // tool's: scrub it so a custom compiler / archiver / wrapper
+        // binary can never read the token.
+        .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
         // Give the subprocess a clean stdin so detectors that
         // read from stdin (some old GCC wrappers do) cannot wait
         // for user input.

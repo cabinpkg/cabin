@@ -513,6 +513,10 @@ pub(crate) fn invoke_ninja_and_report(
     ));
 
     let mut ninja_cmd = std::process::Command::new(req.ninja);
+    // The registry credential is Cabin's input, not the build
+    // backend's: scrub it so Ninja and every compile / wrapper
+    // command it spawns can never read the token.
+    ninja_cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     if let Some(jobs) = req.jobs {
         ninja_cmd.arg(ninja_jobs_arg(jobs));
     }

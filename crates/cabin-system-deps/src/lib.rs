@@ -121,6 +121,10 @@ impl PkgConfigTool {
     /// [`PkgConfigError::InvocationFailed`] for any other spawn error.
     pub fn check_available(&self) -> Result<(), PkgConfigError> {
         let mut cmd = Command::new(&self.executable);
+        // The registry credential is Cabin's input, not
+        // pkg-config's: scrub it so the spawned tool can never
+        // read the token.
+        cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
         cmd.arg("--version");
         self.apply_extra_env(&mut cmd);
         match cmd.output() {
@@ -860,6 +864,9 @@ where
     I: IntoIterator<Item = OsString>,
 {
     let mut cmd = Command::new(&tool.executable);
+    // Same scrub as `check_available`: the spawned pkg-config must
+    // never see the registry credential.
+    cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.args(args);
     tool.apply_extra_env(&mut cmd);
     match cmd.output() {

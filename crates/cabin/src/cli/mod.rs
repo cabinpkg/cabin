@@ -23,6 +23,7 @@ pub(crate) mod env_flags;
 pub(crate) mod explain;
 pub(crate) mod fetch_output;
 pub(crate) mod fmt;
+pub(crate) mod login;
 pub(crate) mod metadata;
 pub(crate) mod ninja;
 pub(crate) mod patch;
@@ -407,6 +408,22 @@ pub(crate) enum Command {
     /// `--output-dir` without touching any registry.  Remote
     /// registry protocols are not supported.
     Publish(PublishArgs),
+    /// Save a registry token for the experimental remote-registry client.
+    ///
+    /// Requires `-Z remote-registry`.  Resolves the registry from
+    /// `--index-url` (or the `[registry] index-url` config setting),
+    /// prints where to create a token, reads the token from stdin
+    /// (without echo when stdin is a terminal), and stores it in the
+    /// user-level `credentials.toml`.
+    #[command(hide = true)]
+    Login(crate::cli::login::LoginArgs),
+    /// Remove the stored registry token for an index origin.
+    ///
+    /// Requires `-Z remote-registry`.  The counterpart of
+    /// `cabin login`; reports whether a token was stored for the
+    /// effective registry origin.
+    #[command(hide = true)]
+    Logout(crate::cli::login::LogoutArgs),
     /// Format codes using clang-format.
     ///
     /// Walks the workspace's C/C++ sources and rewrites
@@ -1148,6 +1165,10 @@ pub(crate) fn run(
         }
         Command::Package(args) => package(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Publish(args) => publish(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Login(args) => crate::cli::login::login(&args, reporter, &experimental_features)
+            .map(|()| ExitCode::SUCCESS),
+        Command::Logout(args) => crate::cli::login::logout(&args, reporter, &experimental_features)
+            .map(|()| ExitCode::SUCCESS),
         Command::Fmt(args) => crate::cli::fmt::fmt(&args, reporter),
         Command::Tidy(args) => crate::cli::tidy::tidy(&args, reporter),
         Command::Port(args) => {
@@ -2094,6 +2115,7 @@ pub(crate) fn run_artifact_pipeline(
         request.frozen,
         &root_deps,
         request.experimental_features,
+        request.reporter,
     )?;
 
     let resolver_mode = request.mode.resolve_mode()?;
@@ -2209,6 +2231,7 @@ fn load_index_for_pipeline(
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     experimental_features: &cabin_core::ExperimentalFeatures,
+    reporter: Reporter,
 ) -> Result<(PackageIndex, IndexAccess)> {
     match (index_path, index_url) {
         (Some(_), Some(_)) => bail!("use either --index-path or --index-url, not both"),
@@ -2223,7 +2246,7 @@ fn load_index_for_pipeline(
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, client) = load_http_index(url, root_deps, experimental_features)?;
+            let (index, client) = load_http_index(url, root_deps, experimental_features, reporter)?;
             Ok((index, IndexAccess::Http(client)))
         }
     }
@@ -2247,12 +2270,24 @@ fn load_local_index(
 /// dependencies.  Returns the client alongside the index so the
 /// fetch / build pipeline can reuse the connection for downloads;
 /// the resolve pipeline discards it.
-fn load_http_index(
+///
+/// Under `-Z remote-registry` the client carries the stored
+/// credential (env override or `credentials.toml`) for the index
+/// origin, so `config.json`, package metadata, and artifact
+/// downloads all authenticate; without the feature (or without a
+/// credential) the client is tokenless, exactly as before.
+pub(crate) fn load_http_index(
     url: &str,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     experimental_features: &cabin_core::ExperimentalFeatures,
+    reporter: Reporter,
 ) -> Result<(PackageIndex, cabin_index_http::HttpClient)> {
-    let client = cabin_index_http::HttpClient::new();
+    let mut client = cabin_index_http::HttpClient::new();
+    if let Some(auth) =
+        crate::cli::login::registry_auth_for_index_url(url, experimental_features, reporter)?
+    {
+        client = client.with_auth(auth);
+    }
     let http_index = cabin_index_http::HttpIndex::open_with_features(
         url,
         client.clone(),

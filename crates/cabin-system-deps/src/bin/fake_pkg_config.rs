@@ -51,6 +51,13 @@ struct Fixture {
 }
 
 fn main() -> ExitCode {
+    // Cabin scrubs the registry credential before spawning
+    // pkg-config; failing loudly here turns every integration test
+    // into an enforcement point for that contract.
+    if env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_some() {
+        eprintln!("fake pkg-config: CABIN_REGISTRY_TOKEN leaked into the tool environment");
+        return ExitCode::from(4);
+    }
     let args = env::args_os().skip(1);
     let mut want_version_flag = false;
     let mut want_exists = false;

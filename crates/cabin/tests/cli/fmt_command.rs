@@ -11,6 +11,10 @@ fn cabin_with_fake_formatter() -> Command {
     let mut cmd = cabin();
     let path = fake_formatter_path();
     cmd.env("CABIN_FMT", path);
+    // Poison the environment with a registry credential: the fake
+    // formatter hard-fails when it sees the variable, so every test
+    // in this module enforces the child-env scrub.
+    cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd
 }
 

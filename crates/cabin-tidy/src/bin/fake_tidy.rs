@@ -37,6 +37,13 @@ use std::process::ExitCode;
 const FAIL_MARKER: &str = "// CABIN-TIDY-FAIL";
 
 fn main() -> ExitCode {
+    // `cabin tidy` scrubs the registry credential before spawning
+    // the tool; failing loudly here turns every integration test
+    // into an enforcement point for that contract.
+    if std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_some() {
+        eprintln!("fake tidy: CABIN_REGISTRY_TOKEN leaked into the tool environment");
+        return ExitCode::from(4);
+    }
     let mut quiet = false;
     let mut fix = false;
     let mut compile_database_dir: Option<String> = None;

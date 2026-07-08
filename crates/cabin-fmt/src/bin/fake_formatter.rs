@@ -34,6 +34,14 @@ use std::process::ExitCode;
 const MARKER: &str = "/* FORMATTED */";
 
 fn main() -> ExitCode {
+    // `cabin fmt` scrubs the registry credential before spawning the
+    // formatter; failing loudly here turns every integration test
+    // into an enforcement point for that contract (same pattern as
+    // the `--style=file` assertion below).
+    if std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_some() {
+        eprintln!("fake formatter: CABIN_REGISTRY_TOKEN leaked into the tool environment");
+        return ExitCode::from(4);
+    }
     let mut write_mode = false;
     let mut dry_run = false;
     let mut werror = false;
