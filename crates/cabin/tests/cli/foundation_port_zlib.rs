@@ -30,8 +30,7 @@ const char *zlibVersion(void) { return "1.3.1"; }
 "#;
 
 /// Build a `.tar.gz` archive containing the given entries
-/// and return `(path, hex_sha256, request_counter)`.  The
-/// counter is unused; the test server tracks its own count.
+/// and return `(path, hex_sha256)`.
 fn make_archive(dir: &Path, name: &str, entries: &[(&str, &str)]) -> (PathBuf, String) {
     let path = dir.join(name);
     if let Some(parent) = path.parent() {

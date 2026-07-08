@@ -17,7 +17,7 @@ sources = ["src/main.cc"]
 "#;
 
 /// Write a single-package manifest into a fresh temp dir and return the
-/// dir plus its `cabin.toml` path.
+/// dir.
 fn package_dir() -> TempDir {
     let dir = TempDir::new().expect("tempdir");
     dir.child("cabin.toml").write_str(PACKAGE_MANIFEST).unwrap();
