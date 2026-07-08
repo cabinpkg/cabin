@@ -308,10 +308,9 @@ pub fn materialize(
                 &entry.name,
                 &entry.version,
             )?;
-            // Drop any other absolute-path leakage that the
-            // source index may have carried - only the vendor's
-            // own relative source path is meaningful to the
-            // file-registry reader.
+            // Only the vendor's own relative source path is
+            // meaningful to the file-registry reader; the
+            // remaining fields are kept as-is.
             version_entries.insert(entry.version.to_string(), version_value);
 
             summary_entries.push(VendorSummaryEntry {

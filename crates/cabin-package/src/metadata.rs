@@ -40,7 +40,7 @@ pub struct PackageMetadata {
     )]
     pub dev_dependencies: BTreeMap<String, PackageDependencyEntry>,
     /// `system-dependencies` field.  Each entry is
-    /// `name -> { version, required, dependency_kind }`.  Omitted when
+    /// `name -> { version, dependency_kind, target }`.  Omitted when
     /// empty.
     #[serde(
         rename = "system-dependencies",
