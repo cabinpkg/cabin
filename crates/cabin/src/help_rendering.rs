@@ -92,9 +92,8 @@ pub(crate) fn prepare_top_level_command() -> clap::Command {
 /// `cabin --help` is the curated view; the full directory lives
 /// in `cabin --list`.
 fn format_commands_block(cmd: &clap::Command) -> String {
-    // `cabin --help` is the curated view, so hidden subcommands
-    // are skipped here; declaration order is preserved (the full,
-    // alphabetized directory lives in `cabin --list`).
+    // Declaration order is preserved here; `cabin --list` shows the
+    // alphabetized directory.
     let rows: Vec<crate::SubcommandRow> = cmd
         .get_subcommands()
         .filter(|sub| !sub.is_hide_set())

@@ -531,12 +531,7 @@ pub struct FeatureExplanation {
     pub is_default: bool,
 }
 
-/// Build a [`PackageExplanation`] for `name`.  Returns
-/// [`ExplainError::PackageNotFound`] when the name is not in the
-/// resolved graph; returns
-/// [`ExplainError::AmbiguousPackageName`] if a future graph
-/// gains multiple packages with the same name from distinct
-/// sources (today the resolver enforces unique names).
+/// Build a [`PackageExplanation`] for `name`.
 ///
 /// # Errors
 /// Returns [`ExplainError::PackageNotFound`] (with the known package
@@ -748,10 +743,7 @@ fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
 }
 
 /// Build a [`TargetExplanation`] for `target_name`, scoped to
-/// the selected packages.  Returns
-/// [`ExplainError::TargetNotFound`] if the name does not exist
-/// in any selected package, with a list of candidate names for
-/// the diagnostic.
+/// the selected packages.
 ///
 /// # Errors
 /// Returns [`ExplainError::TargetNotFound`] (with the available target
@@ -870,8 +862,7 @@ pub fn explain_source(
 
 /// Build a [`FeatureExplanation`] for `package/feature`.  The
 /// query string must contain a single `/` separating the package
-/// name from the feature name; an unrecognized shape is rejected
-/// with [`ExplainError::InvalidFeatureQuery`].
+/// name from the feature name.
 ///
 /// # Errors
 /// Returns [`ExplainError::InvalidFeatureQuery`] when `query` lacks a `/`

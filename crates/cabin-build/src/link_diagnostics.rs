@@ -200,13 +200,6 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
                 if pkg.is_empty() || target.is_empty() {
                     continue;
                 }
-                // Recover the declared target name from the
-                // linker's output filename.  Only the
-                // `lib<name>.a` wrapper cabin's planner produces
-                // for static libraries is unwrapped; every other
-                // shape - including target names that happen to
-                // end in `.a`, `.exe`, `.so`, etc. - is left
-                // alone so the workspace-graph lookup hits.
                 let target = extract_target_name(target);
                 return Some((pkg.to_owned(), target.to_owned()));
             }

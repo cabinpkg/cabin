@@ -192,8 +192,6 @@ pub fn validate_cc_for_backend(
 ) -> Result<(), ToolDetectionError> {
     // MSVC-dialect compilers (`cl`, `clang-cl`) drive the `cl.exe`
     // backend; the GCC/Clang contract below does not apply to them.
-    // Support for the requested C standards is validated separately
-    // by `validate_c_standards`.
     if identity.kind.speaks_msvc_dialect() {
         if !capabilities.msvc_style_flags.supported {
             return Err(ToolDetectionError::UnsupportedCBackend {

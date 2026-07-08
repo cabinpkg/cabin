@@ -30,8 +30,7 @@ use thiserror::Error;
 pub struct BuildJobs(NonZeroU32);
 
 impl BuildJobs {
-    /// Build a [`BuildJobs`] from a raw `u32`.  Returns an
-    /// error for `0`.
+    /// Build a [`BuildJobs`] from a raw `u32`.
     ///
     /// # Errors
     /// Returns [`BuildJobsParseError::Zero`] when `value` is `0`.

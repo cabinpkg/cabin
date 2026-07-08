@@ -247,8 +247,6 @@ fn version_value_from_metadata(
             path: &metadata.source.path,
             format: &metadata.source.format,
         },
-        // Feature/profile/toolchain/build/wrapper blocks are emitted
-        // only when the package declared them.
         features: (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
             .then_some(&metadata.features),
         profiles: (!metadata.profiles.is_empty()).then_some(&metadata.profiles),

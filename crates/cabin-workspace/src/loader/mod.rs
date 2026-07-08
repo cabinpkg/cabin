@@ -289,13 +289,9 @@ impl RegistryEnforcement {
 /// [`load_workspace_skip_ports`].
 #[derive(Debug, Clone)]
 enum PortMode {
-    /// Default: a port dep must be either a `port-path` directory
-    /// on disk + present in `ports`, or a `port = true` name
-    /// present in `ports`.  Anything else surfaces the typed
-    /// `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    /// diagnostic.  Used by `load_workspace` /
-    /// `load_workspace_with_options` against the full
-    /// primary-package set.
+    /// Default: [`PortPolicy::Strict`] semantics.  Used by
+    /// `load_workspace` / `load_workspace_with_options` against
+    /// the full primary-package set.
     Strict,
     /// Drop every port-dep edge silently.  Used by
     /// [`load_workspace_skip_ports`] for commands that only need

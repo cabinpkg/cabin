@@ -66,9 +66,7 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     // man page whose `.TH` and SYNOPSIS show the conventional
     // `cabin-build(1)` form; the subcommand's own arguments
     // still render correctly because clap_mangen reads them
-    // from the same Command. clap auto-injects a `help`
-    // pseudo-subcommand that mirrors `--help`; we skip it
-    // because the root page already documents `--help`.
+    // from the same Command.
     for sub in cmd.get_subcommands() {
         // Skip clap's auto-injected `help` pseudo-subcommand: the root
         // page already documents `--help`.
