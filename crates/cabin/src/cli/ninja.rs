@@ -21,15 +21,6 @@ use anyhow::Context as _;
 
 use crate::cli::term_verbosity::Reporter;
 
-/// Run Ninja and filter its housekeeping lines (`ninja: Entering
-/// directory …`, `ninja: no work to do.`, `[N/M] …` progress)
-/// from stdout so the default surface stays terse.  Compiler
-/// warnings, errors, and any non-housekeeping line from Ninja or
-/// the toolchain pass through unchanged on stdout (Ninja funnels
-/// each action's own stdout/stderr onto its stdout stream).
-///
-/// Verbose mode (`-v`) restores the full Ninja output so users
-/// who want to inspect the backend's progress have a knob.
 /// Outcome of one [`run_ninja`] invocation.  Both `stdout` and
 /// `stderr` are captured-and-teed: every line the child wrote
 /// was streamed to the user's terminal in real time AND
@@ -104,6 +95,15 @@ pub(crate) fn discovered_msvc_install_applies(
     }
 }
 
+/// Run Ninja and filter its housekeeping lines (`ninja: Entering
+/// directory …`, `ninja: no work to do.`, `[N/M] …` progress)
+/// from stdout so the default surface stays terse.  Compiler
+/// warnings, errors, and any non-housekeeping line from Ninja or
+/// the toolchain pass through unchanged on stdout (Ninja funnels
+/// each action's own stdout/stderr onto its stdout stream).
+///
+/// Verbose mode (`-v`) restores the full Ninja output so users
+/// who want to inspect the backend's progress have a knob.
 pub(crate) fn run_ninja(
     cmd: &mut std::process::Command,
     profile_build_root: &std::path::Path,

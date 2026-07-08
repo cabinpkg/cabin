@@ -208,9 +208,11 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
 /// [`IndexError::NameMismatch`] when `name_hint` disagrees with the
 /// declared `name`, [`IndexError::InvalidPackageName`] for an invalid
 /// package, dependency, or system-dependency name,
-/// [`IndexError::InvalidVersion`] for a non-SemVer version, and
+/// [`IndexError::InvalidVersion`] for a non-SemVer version,
 /// [`IndexError::InvalidRequirement`] for an unparsable dependency
-/// requirement.  It also propagates the source-artifact errors
+/// requirement, and [`IndexError::CompilerConditionedDependency`]
+/// when a dependency or system-dependency `target` references the
+/// compiler.  It also propagates the source-artifact errors
 /// ([`IndexError::UnsupportedSourceType`],
 /// [`IndexError::UnsupportedSourceFormat`],
 /// [`IndexError::MissingSourcePath`], and any error returned by the

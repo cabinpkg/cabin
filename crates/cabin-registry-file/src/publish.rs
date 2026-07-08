@@ -92,12 +92,12 @@ pub fn validate_publish(
     })
 }
 
-/// / 14.6: defense-in-depth at the file-registry
-/// boundary. `cabin-package` rejects unsafe names earlier, but
-/// the registry crate is also reachable by tooling that bypasses
+/// Defense-in-depth at the file-registry boundary.
+/// `cabin-package` rejects unsafe names earlier, but the
+/// registry crate is also reachable by tooling that bypasses
 /// staging, so we re-check here before any path is built from
 /// the package name.  The predicate itself lives in `cabin-core`
-/// So this crate, `cabin-package`, and `cabin-index-http` cannot
+/// so this crate, `cabin-package`, and `cabin-index-http` cannot
 /// drift on the rule.
 fn ensure_path_safe_package_name(name: &str) -> Result<(), RegistryError> {
     if !cabin_core::is_path_safe_package_name(name) {

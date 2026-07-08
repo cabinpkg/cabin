@@ -86,11 +86,6 @@ pub struct ArchiverCapabilities {
     pub static_library_output: Capability,
 }
 
-/// Derive a [`CompilerCapabilities`] set from the detected
-/// identity.  Decisions are made from the recognized compiler
-/// kind, with conservative defaults for [`CompilerKind::Unknown`].
-/// No probe commands are run from this function - the caller's
-/// detection layer already gathered everything we need.
 /// Decide a version-gated capability for a recognized compiler whose
 /// minimum supporting version is `(min_major, min_minor)`.  A parsed
 /// version at or above the threshold is `supported`; below it,
@@ -112,6 +107,11 @@ fn version_gated_capability(
     }
 }
 
+/// Derive a [`CompilerCapabilities`] set from the detected
+/// identity.  Decisions are made from the recognized compiler
+/// kind, with conservative defaults for [`CompilerKind::Unknown`].
+/// No probe commands are run from this function - the caller's
+/// detection layer already gathered everything we need.
 pub fn derive_cxx_capabilities(identity: &CompilerIdentity) -> CompilerCapabilities {
     let gcc_style = if identity.kind.supports_gcc_style_command_line() {
         Capability::supported_from(CapabilitySource::Version)

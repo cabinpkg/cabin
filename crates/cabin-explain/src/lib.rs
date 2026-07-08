@@ -18,14 +18,18 @@
 //!   document shares its package shape with `cabin metadata`.
 //!
 //! - [`explain_package`] / [`explain_target`] /
-//!   [`explain_source`] / [`explain_feature`] /
-//!   [`explain_build_config`] each return a typed
-//!   [`Explanation`] answering "why is X selected", "where does
-//!   X come from", "which feature lit up X", and "what does the
-//!   build configuration look like for X".  Each variant carries
-//!   only structured data so callers can render either a
-//!   human-readable summary ([`render_explanation_human`]) or a
-//!   stable JSON document ([`render_explanation_json`]).
+//!   [`explain_source`] / [`explain_feature`] each return a
+//!   typed [`Explanation`] answering "why is X selected", "where
+//!   does X come from", and "which feature lit up X".  Each
+//!   variant carries only structured data so callers can render
+//!   either a human-readable summary
+//!   ([`render_explanation_human`]) or a stable JSON document
+//!   ([`render_explanation_json`]).
+//!
+//! - [`explain_build_config`] instead returns the package's
+//!   resolved [`cabin_core::BuildConfiguration`] directly; the
+//!   orchestration layer renders it through
+//!   `BuildConfiguration::as_json`.
 //!
 //! Crate boundaries:
 //! - this crate must not run the resolver, parse manifests, or
