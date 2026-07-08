@@ -63,7 +63,7 @@ pub use config::{
 };
 pub use config_source::ConfigValueSource;
 pub use error::ValidationError;
-pub use experimental::{ExperimentalFeature, UnknownExperimentalFeature};
+pub use experimental::{ExperimentalFeature, ExperimentalFeatures, UnknownExperimentalFeature};
 pub use index_standards::{StandardsMetadata, TargetStandards};
 pub use language_standard::{
     CStandard, CxxStandard, InterfaceRequirement, InterfaceStandard,

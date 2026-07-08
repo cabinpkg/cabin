@@ -62,6 +62,16 @@ source paths in those files resolve relative to that directory - i.e.
 absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
 the full layout contract.
 
+`config.json` may also carry two optional fields belonging to the experimental remote-registry
+protocol: `auth-required` (bool; every request to the registry must carry
+`Authorization: Bearer <token>`) and `api` (string; absolute `http(s)` base URL of the registry
+web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials).  Both index loaders -
+this local loader and the sparse HTTP client - parse the fields unconditionally, but presence of
+either without `-Z remote-registry` fails the index load with an error naming the field and
+instructing `-Z remote-registry`.  Silent ignoring is deliberately forbidden: dropping
+`auth-required` would surface later as a confusing `401`.  See
+[`remote-registry.md`](remote-registry.md) for the full protocol.
+
 In both layouts the filename stem (`fmt` for `fmt.json`) must equal the package's declared `name`
 field.  Mismatches produce a clear error.
 
@@ -213,7 +223,8 @@ The index format deliberately leaves the following out:
 
 - OCI / GHCR or other remote-archive transports;
 - Git sources;
-- account or credential handling;
+- account or credential handling (an experimental bearer-token protocol exists behind
+  `-Z remote-registry`; see [`remote-registry.md`](remote-registry.md));
 - append-only / immutable indexes;
 - artifact signing or trust configuration;
 - platform-specific dependency data beyond the current serialized dependency records;
@@ -235,6 +246,10 @@ Request shape:
 | 1 | `GET <url>/config.json` | Validates `schema = 1`, `kind = "file-registry"`, and the configured `packages` / `artifacts` subdirectories. |
 | 2 | `GET <url>/<config.packages>/<name>.json` | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version)` `cabin fetch` / `cabin build` needs. |
+
+The `config.json` fetched in step 1 is subject to the same experimental-field gating as the local
+loader: an `auth-required` or `api` field without `-Z remote-registry` fails the load with an error
+naming the field (see [Registry-root layout](#registry-root-layout)).
 
 Source-path resolution for each version:
 

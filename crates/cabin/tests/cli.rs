@@ -2383,6 +2383,13 @@ mod distribution_artifacts;
 mod file_registry;
 
 // ---------------------------------------------------------------------------
+// experimental remote-registry gating (`-Z remote-registry`)
+// ---------------------------------------------------------------------------
+
+#[path = "cli/remote_registry.rs"]
+mod remote_registry;
+
+// ---------------------------------------------------------------------------
 // cabin publish standard-compatibility lints (PL1/PL2/PL3)
 // ---------------------------------------------------------------------------
 

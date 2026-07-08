@@ -16,7 +16,7 @@ pub mod loader;
 pub mod model;
 
 pub use error::IndexError;
-pub use loader::{SourceContext, load_index, parse_package_entry};
+pub use loader::{SourceContext, load_index, load_index_with_features, parse_package_entry};
 pub use model::{
     ArchiveFormat, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
     SourceArtifact, SourceArtifactKind, SourceLocation, VersionMetadata,
