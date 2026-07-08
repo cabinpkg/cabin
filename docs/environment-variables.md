@@ -18,6 +18,7 @@ const ... : &str = ...` constants.
 | `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation.  Wins over `CABIN_CACHE_HOME` and the platform fallback. |
 | `CABIN_CACHE_HOME` | platform user cache home with `cabin` suffix | Per-user cache home (the directory the global cache lives under).  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user cache home via the `etcetera` crate (`$XDG_CACHE_HOME/cabin` / `$HOME/.cache/cabin` on Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
+| `CABIN_REGISTRY_TOKEN` | unset | Bearer token for the experimental remote-registry client (`-Z remote-registry`).  When set and non-empty it wins over every `credentials.toml` entry for this invocation.  See [`remote-registry.md`](remote-registry.md#client-side-token-handling). |
 | `CABIN_COMPILER_WRAPPER` | unset | Compiler-wrapper executable name or path. `none` (aliases `off`, `disabled`) disables wrapping. |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
 | `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |
@@ -269,7 +270,11 @@ overlay:
 
 This is the entire injected contract: the overlay is the same for `cabin run` and `cabin test` and
 does not depend on the target's name or kind.  The user's `PATH`, `LANG`, etc. are inherited
-unchanged.  `cabin run`'s working directory is the user's invoking cwd (matching `cargo run`);
+unchanged, with one subtraction: `CABIN_REGISTRY_TOKEN` is removed from the child environment -
+the registry credential is Cabin's input, and spawned code must not be able to read it.  The same
+scrub applies to the other tools Cabin spawns (Ninja and the compile / wrapper commands it runs,
+the compiler / archiver / wrapper detection probes, `clang-format`, `run-clang-tidy`,
+`pkg-config`).  `cabin run`'s working directory is the user's invoking cwd (matching `cargo run`);
 `cabin test` runs each executable in its owning package's manifest directory so tests can reach
 repository-relative fixture data deterministically.
 

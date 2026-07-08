@@ -39,6 +39,10 @@ fn cabin_with_fake_tidy() -> Command {
     cmd.env("CXX", &dummy);
     cmd.env("CC", &dummy);
     cmd.env("AR", &dummy);
+    // Poison the environment with a registry credential: the fake
+    // tidy hard-fails when it sees the variable, so every test in
+    // this module enforces the child-env scrub.
+    cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd
 }
 

@@ -451,7 +451,9 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
         // dropped here.
-        (None, Some(url)) => load_http_index(url, &root_deps, request.experimental_features)?.0,
+        (None, Some(url)) => {
+            load_http_index(url, &root_deps, request.experimental_features, reporter)?.0
+        }
         (Some(_), Some(_)) => {
             unreachable!("cli::config::resolve_index_source guarantees only one variant is set")
         }

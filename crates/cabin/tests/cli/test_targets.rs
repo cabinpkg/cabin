@@ -485,6 +485,7 @@ int main() {
     must_be_absent("CABIN_TARGET_TRIPLE");
     must_be_absent("CABIN_HOST_TRIPLE");
     must_be_absent("CABIN_BUILD_CONFIGURATION_FINGERPRINT");
+    must_be_absent("CABIN_REGISTRY_TOKEN");
     return status;
 }
 "#,
@@ -496,6 +497,9 @@ int main() {
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
+        // The registry credential must be scrubbed from the test
+        // child's environment even when the invocation carries it.
+        .env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
@@ -516,6 +520,7 @@ int main() {
         "ABSENT CABIN_TARGET_TRIPLE",
         "ABSENT CABIN_HOST_TRIPLE",
         "ABSENT CABIN_BUILD_CONFIGURATION_FINGERPRINT",
+        "ABSENT CABIN_REGISTRY_TOKEN",
         "test env_demo:env_test ... ok",
     ] {
         assert!(

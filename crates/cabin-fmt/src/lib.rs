@@ -218,6 +218,9 @@ pub fn run_formatter(request: &FormatRequest) -> Result<FormatReport, FormatErro
     let files: Vec<&Path> = files.into_iter().collect();
 
     let mut cmd = Command::new(&request.executable);
+    // The registry credential is Cabin's input, not the formatter's:
+    // scrub it so the spawned tool can never read the token.
+    cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     // `clang-format` discovers `.clang-format` from the first
     // file's directory upward.  Passing `--style=file`
     // explicitly mirrors the documented behavior Cabin

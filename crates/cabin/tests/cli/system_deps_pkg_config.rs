@@ -61,6 +61,10 @@ pub(super) fn cabin_with_fake_pkg_config(fixtures: &Fixtures) -> Command {
     let mut cmd = cabin();
     cmd.env("CABIN_PKG_CONFIG", fake_pkg_config_path());
     cmd.env("CABIN_FAKE_PKG_CONFIG_FIXTURES", fixtures.path());
+    // Poison the environment with a registry credential: the fake
+    // pkg-config hard-fails when it sees the variable, so every test
+    // in this module enforces the child-env scrub.
+    cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
     cmd
 }
 

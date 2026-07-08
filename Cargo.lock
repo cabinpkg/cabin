@@ -218,6 +218,7 @@ dependencies = [
  "cabinpkg-build",
  "cabinpkg-config",
  "cabinpkg-core",
+ "cabinpkg-credentials",
  "cabinpkg-diagnostics",
  "cabinpkg-env",
  "cabinpkg-explain",
@@ -248,6 +249,7 @@ dependencies = [
  "flate2",
  "os_info",
  "predicates",
+ "rpassword",
  "semver",
  "serde",
  "serde_json",
@@ -317,6 +319,20 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "url",
+]
+
+[[package]]
+name = "cabinpkg-credentials"
+version = "0.17.0"
+dependencies = [
+ "assert_fs",
+ "atomic-write-file",
+ "cabinpkg-env",
+ "etcetera",
+ "serde",
+ "thiserror",
+ "toml",
  "url",
 ]
 
@@ -408,6 +424,7 @@ name = "cabinpkg-index-http"
 version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
+ "cabinpkg-credentials",
  "cabinpkg-index",
  "serde",
  "serde_json",
@@ -574,6 +591,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-build",
  "cabinpkg-core",
+ "cabinpkg-env",
  "cabinpkg-workspace",
  "thiserror",
 ]
@@ -1631,6 +1649,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "323c417e1d9665a65b263ec744ba09030cfb277e9daa0b018a4ab62e57bc8189"
 
 [[package]]
+name = "rpassword"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50a0e551c1e27e1731aba276dbeaeac73f53c7cd34d1bda485d02bd1e0f36844"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2181,6 +2220,15 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets",
 ]

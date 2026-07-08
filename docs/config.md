@@ -264,7 +264,9 @@ These items are explicitly out of scope for the config layer and will not be add
 - **No credentials, tokens, registry authentication, or credential-helper integration.** Cabin's
   config file is not a secrets store.  Tables named `auth`, `credentials`, `tokens`, `token`, or
   `registries` are rejected with a dedicated error so a typo never silently smuggles a credential
-  into a published archive.
+  into a published archive.  Registry tokens for the experimental remote-registry client live in a
+  separate `credentials.toml` next to the user-level `config.toml`; see
+  [`remote-registry.md`](remote-registry.md#client-side-token-handling).
 - **No vendoring policy table.** `cabin vendor` may consume the configured registry/path defaults,
   but config does not declare vendored entries or a `[vendor]` table.
 - **No offline config key.** Offline mode is controlled by `--offline` / `CABIN_NET_OFFLINE`, not by

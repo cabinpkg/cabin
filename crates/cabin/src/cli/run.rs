@@ -478,6 +478,9 @@ pub(crate) fn run(
     // strips the `--` separator before we see the vec.
     let mut command = std::process::Command::new(&executable);
     command.envs(env_overlay.iter().map(|(k, v)| (k.as_str(), v.as_os_str())));
+    // The registry credential is Cabin's input, not the program's:
+    // scrub it so arbitrary package code can never read the token.
+    command.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     command.args(args.args.iter());
     let status = command.status().with_context(|| {
         format!(

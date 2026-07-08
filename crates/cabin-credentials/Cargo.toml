@@ -1,21 +1,23 @@
 [package]
-name = "cabinpkg-test"
+name = "cabinpkg-credentials"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Test planner and runner for Cabin"
+description = "Registry credential storage for Cabin"
 
 [lib]
-name = "cabin_test"
+name = "cabin_credentials"
 
 [dependencies]
-cabin-build = { workspace = true }
-cabin-core = { workspace = true }
+atomic-write-file = { workspace = true }
 cabin-env = { workspace = true }
-cabin-workspace = { workspace = true }
+etcetera = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

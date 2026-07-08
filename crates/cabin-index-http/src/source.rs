@@ -207,7 +207,14 @@ impl HttpIndex {
                 // fails on the host platform.  Walking every
                 // version of every reachable package is necessary
                 // because the resolver may select any non-yanked
-                // version.
+                // version.  Yanked versions are skipped outright:
+                // the resolver never selects one (a locked yanked
+                // version fails its own explicit check), so a
+                // yanked release's dead dependency edge must not
+                // 404 the whole walk.
+                if version_meta.yanked {
+                    continue;
+                }
                 let kinded = version_meta.dependencies.iter();
                 for (dep_name, dep_entry) in kinded {
                     if !dep_entry.is_active_for(&platform) {
@@ -368,7 +375,7 @@ fn same_origin(a: &url::Url, b: &url::Url) -> bool {
         && a.port_or_known_default() == b.port_or_known_default()
 }
 
-fn redact_raw_url_userinfo(raw: &str) -> String {
+pub(crate) fn redact_raw_url_userinfo(raw: &str) -> String {
     let authority_start = if raw.starts_with("//") {
         2
     } else if let Some(pos) = raw.find("://") {
@@ -1054,6 +1061,128 @@ mod tests {
             .fetch_package(&PackageName::new("fmt").unwrap())
             .unwrap();
         assert!(entry.versions.is_empty());
+    }
+
+    /// A yanked release's dependencies are not prefetched: the
+    /// resolver can never select the yanked version, so its (possibly
+    /// dead) dependency edges must not 404 the walk.
+    #[test]
+    fn load_package_index_skips_dependencies_of_yanked_versions() {
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        // 1.0.0 is yanked and references `ghost`, which the registry
+        // does not serve; 1.1.0 is the live version.
+        const PACKAGE: &str = r#"{
+            "schema": 1,
+            "name": "fmt",
+            "versions": {
+                "1.0.0": { "dependencies": { "ghost": "^1" }, "yanked": true },
+                "1.1.0": { "dependencies": {} }
+            }
+        }"#;
+        let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        let loaded = index
+            .load_package_index(&[PackageName::new("fmt").unwrap()])
+            .expect("the yanked version's dead dependency must not fail the walk");
+        assert!(
+            loaded
+                .packages
+                .contains_key(&PackageName::new("fmt").unwrap())
+        );
+        assert!(
+            !loaded
+                .packages
+                .contains_key(&PackageName::new("ghost").unwrap()),
+            "yanked-only dependencies must not be prefetched"
+        );
+    }
+
+    /// End-to-end auth flow over the real `open` / `fetch_package`
+    /// path: an `auth-required` registry that 401s every tokenless
+    /// request (config.json included) loads only when the client
+    /// carries the credential, and the tokenless failure advises
+    /// `cabin login`.
+    #[test]
+    fn open_and_fetch_attach_the_credential_to_every_request() {
+        use crate::client::RegistryAuth;
+
+        const TOKEN: &str = "cabin_sourceTest1234";
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts",
+            "auth-required": true
+        }"#;
+        const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
+
+        // Auth-enforcing variant of `StaticRegistry`: every route
+        // requires the exact bearer token, mirroring the protocol's
+        // rule that `config.json` itself is behind auth.
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let base_url = format!("http://{addr}/");
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            while let Ok(req) = server_for_thread.recv() {
+                let authorized = req.headers().iter().any(|h| {
+                    h.field.equiv("Authorization") && h.value == format!("Bearer {TOKEN}")
+                });
+                if !authorized {
+                    let _ = req.respond(
+                        tiny_http::Response::from_string(
+                            r#"{"errors":[{"detail":"authentication required"}]}"#,
+                        )
+                        .with_status_code(401),
+                    );
+                    continue;
+                }
+                let path = req.url().to_string();
+                if path == "/config.json" {
+                    let _ = req.respond(tiny_http::Response::from_string(CONFIG));
+                } else if path == "/packages/fmt.json" {
+                    let _ = req.respond(tiny_http::Response::from_string(PACKAGE));
+                } else {
+                    let _ = req.respond(tiny_http::Response::empty(404));
+                }
+            }
+        });
+
+        // Without a credential the very first request (config.json)
+        // fails with the login advice.
+        let err =
+            HttpIndex::open_with_features(&base_url, HttpClient::new(), &remote_registry_enabled())
+                .unwrap_err();
+        assert!(
+            matches!(err, IndexHttpError::AuthRequired { .. }),
+            "expected AuthRequired, got {err:?}"
+        );
+
+        // With the credential both config.json and the package
+        // metadata fetch succeed.
+        let auth =
+            RegistryAuth::for_index_url(&base_url, cabin_credentials::Token::parse(TOKEN).unwrap())
+                .unwrap();
+        let index = HttpIndex::open_with_features(
+            &base_url,
+            HttpClient::new().with_auth(auth),
+            &remote_registry_enabled(),
+        )
+        .unwrap();
+        let entry = index
+            .fetch_package(&PackageName::new("fmt").unwrap())
+            .unwrap();
+        assert!(entry.versions.is_empty());
+
+        server.unblock();
+        let _ = thread.join();
     }
 
     #[test]

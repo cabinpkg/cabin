@@ -54,6 +54,7 @@ crates/
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
+  cabin-credentials/ registry token storage (credentials.toml, -Z remote-registry)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
   cabin-test/        test-target plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
@@ -298,15 +299,22 @@ Owns the read-only sparse HTTP index client.  Wraps `ureq::Agent` for blocking `
 public surface is intentionally small:
 
 - [`cabin_index_http::HttpClient`] - `get_bytes` and `download` helpers that map HTTP statuses
-  (`404`, `5xx`) and transport errors to `IndexHttpError` variants;
+  (`404`, `401`/`403` for the experimental authenticated path, `5xx`) and transport errors to
+  `IndexHttpError` variants;
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
   exposes `fetch_package(name) -> IndexEntry` and a transitive walker `load_package_index(roots) ->
-  PackageIndex` that returns the same shape as the local file loader.
+  PackageIndex` that returns the same shape as the local file loader;
+- [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
+  origin (part of the experimental `-Z remote-registry` client, see
+  [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests on that exact
+  origin and never over cleartext `http` beyond loopback hosts.
 
 The crate must:
 
 - not POST, PUT, or otherwise mutate a remote registry;
-- not implement authentication, auth headers, or alternate-server redirect handling;
+- not resolve credentials itself - it receives an optional `RegistryAuth` from the caller
+  (`cabin`'s orchestration layer reads `cabin-credentials`), and must not implement
+  alternate-server redirect handling;
 - reject HTTP artifact URLs that resolve outside the package metadata origin or contain `userinfo`
   credentials;
 - not persist a metadata cache (`--frozen` with an effective HTTP index URL therefore fails with a
@@ -314,6 +322,21 @@ The crate must:
 - never reach into HTTP from the artifact layer - downloaded archive bytes are handed to
   `cabin-artifact` via [`FetchSource::InMemoryArchive`] so checksum verification + safe extraction
   stay HTTP-free.
+
+### `cabin-credentials`
+
+Owns registry credential storage for the experimental remote-registry client
+([`remote-registry.md`](remote-registry.md)): the `credentials.toml` file in the user config home
+(the same `CABIN_CONFIG_HOME` / `etcetera` resolution as the user-level `config.toml`), keyed by
+normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override and the redacting
+`Token` newtype.  The crate must:
+
+- never let token bytes surface through `Debug` / `Display` output or its own error messages;
+- keep credentials out of `cabin-config` - the config parser continues to reject
+  credential-shaped tables, and this crate reads only `credentials.toml`;
+- write atomically (sibling temp file + rename) and, on Unix, create the file with mode `0600`,
+  surfacing a warning (not an error) for an existing group/world-readable file;
+- not perform HTTP; the client crates receive tokens as typed values from the orchestration layer.
 
 ### `cabin-port`
 
@@ -1430,9 +1453,10 @@ The following are *not* part of this repository today:
   [`registry-design.md`](registry-design.md).  Source registries are local file directories or
   sparse HTTP today.
 - **No non-local registry control plane.** Every command that needs an index expects `--index-path
-  <dir>` or `--index-url <url>`.  There is no default remote registry, no `cabin login`, and no
-  package upload over the network.  (An experimental remote-registry *client* protocol is specified
-  behind `-Z remote-registry`; see [`remote-registry.md`](remote-registry.md).)
+  <dir>` or `--index-url <url>`.  There is no default remote registry and no package upload over
+  the network.  (An experimental remote-registry *client* is being built behind
+  `-Z remote-registry` - protocol, `cabin login` / `cabin logout`, and authenticated reads; see
+  [`remote-registry.md`](remote-registry.md).)
 - **No account / ownership workflows.** Ownership, signing, package yanking, and restricted package
   access are out of scope.
 - **No administrative policy surfaces.**
