@@ -10,8 +10,10 @@ itself - accounts, token issuance, hosted storage - is not part of this reposito
 [`registry-design.md`](registry-design.md).
 
 Client status today: the [`config.json` fields](#registry-configuration) below are recognized
-behind the flag (presence without `-Z remote-registry` fails the index load).  Client-side token
-handling and the publish / yank commands land incrementally on the same gate.
+behind the flag (presence without `-Z remote-registry` fails the index load), and client-side token
+handling is implemented - `cabin login` / `cabin logout` plus
+[authenticated reads](#client-side-token-handling).  The publish / yank commands land incrementally
+on the same gate.
 
 ## Registry configuration
 
@@ -51,6 +53,67 @@ Authorization: Bearer cabin_<base62>
   URL is derived from the **index origin** by convention - on an `auth-required` registry,
   `config.json` itself requires auth, so the client cannot discover a login URL from it.
 - Token scopes: `publish` and `yank`.  Any valid token grants read access regardless of scope.
+
+## Client-side token handling
+
+Everything in this section requires `-Z remote-registry`; without the flag, `cabin login` and
+`cabin logout` fail with the standard experimental-feature error and the sparse HTTP client never
+reads a credential.
+
+### `cabin login` and `cabin logout`
+
+`cabin login` resolves the registry from `--index-url` (or the `[registry] index-url` setting in
+[`config.md`](config.md#registry) - a local `index-path` is rejected, since tokens only apply to
+HTTP registries), prints `visit <origin>/me to create a token`, and reads the token from stdin -
+without echo when stdin is a terminal, as a plain read otherwise so piping works:
+
+```console
+$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+visit https://dev-registry.cabinpkg.com/me to create a token
+       Login token for `https://dev-registry.cabinpkg.com` saved
+```
+
+The token must start with `cabin_`; the confirmation only ever names the origin.  `cabin logout`
+removes the entry for the effective index origin and reports whether one existed.
+
+### Credential storage
+
+Tokens live in `credentials.toml` inside the user config home - the same directory resolution as
+the user-level `config.toml` in [`config.md`](config.md#file-locations): `$CABIN_CONFIG_HOME`
+verbatim when set, else the platform user config home with the `cabin` suffix (Linux and macOS:
+`$XDG_CONFIG_HOME/cabin` / `$HOME/.config/cabin`; Windows: `%APPDATA%\cabin`).
+
+```toml
+[registries."https://dev-registry.cabinpkg.com"]
+token = "cabin_..."
+```
+
+Keys are normalized index origins - scheme + host + port, no path, no trailing slash.  Unknown
+fields are rejected.  On Unix the file is created with mode `0600`, and Cabin warns once per
+invocation when an existing file is group- or world-readable.  Writes are atomic (sibling temp
+file + rename).  Credentials are deliberately **not** part of `config.toml`:
+[`config.md`](config.md#what-config-does-not-do) rejects credential-shaped tables so a secret can
+never ride along in a published archive.
+
+### Environment override
+
+When [`CABIN_REGISTRY_TOKEN`](environment-variables.md) is set and non-empty, its value wins over
+`credentials.toml` for **every** registry the invocation touches.  Useful for CI, where writing a
+credentials file is undesirable; the override also works when no user config home can be resolved
+at all.  Cabin removes the variable from the environment of every child it spawns - `cabin run` /
+`cabin test` executables, the Ninja build backend (and the compile / wrapper commands it runs),
+the toolchain detection probes, `clang-format`, `run-clang-tidy`, and `pkg-config` - so spawned
+code cannot read the credential.
+
+### When the token is sent
+
+With a credential available, every request to the registry - `config.json`, package metadata, and
+artifact downloads - carries `Authorization: Bearer <token>`.  The token is only ever sent to the
+exact origin it is stored under, and never over plain `http` except to loopback hosts
+(`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.  Client-side error
+mapping: a `401` without a stored credential advises `cabin login --index-url <origin>`; a `401`
+despite one reports the token as rejected (revoked or expired); a `403` reports a missing scope.
+The token never appears in logs, error messages, or debug output.
 
 ## Read routes
 
