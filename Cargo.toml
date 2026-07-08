@@ -22,6 +22,7 @@ members = [
   "crates/cabin-package",
   "crates/cabin-port",
   "crates/cabin-publish",
+  "crates/cabin-registry-api",
   "crates/cabin-registry-file",
   "crates/cabin-resolver",
   "crates/cabin-source-discovery",
@@ -93,6 +94,7 @@ cabin-ninja = { package = "cabinpkg-ninja", path = "crates/cabin-ninja", version
 cabin-package = { package = "cabinpkg-package", path = "crates/cabin-package", version = "0.17.0" }
 cabin-port = { package = "cabinpkg-port", path = "crates/cabin-port", version = "0.17.0" }
 cabin-publish = { package = "cabinpkg-publish", path = "crates/cabin-publish", version = "0.17.0" }
+cabin-registry-api = { package = "cabinpkg-registry-api", path = "crates/cabin-registry-api", version = "0.17.0" }
 cabin-registry-file = { package = "cabinpkg-registry-file", path = "crates/cabin-registry-file", version = "0.17.0" }
 cabin-resolver = { package = "cabinpkg-resolver", path = "crates/cabin-resolver", version = "0.17.0" }
 cabin-source-discovery = { package = "cabinpkg-source-discovery", path = "crates/cabin-source-discovery", version = "0.17.0" }

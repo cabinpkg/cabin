@@ -532,6 +532,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabinpkg-registry-api"
+version = "0.17.0"
+dependencies = [
+ "cabinpkg-core",
+ "cabinpkg-credentials",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tiny_http",
+ "ureq",
+ "url",
+]
+
+[[package]]
 name = "cabinpkg-registry-file"
 version = "0.17.0"
 dependencies = [

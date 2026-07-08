@@ -1,0 +1,27 @@
+[package]
+name = "cabinpkg-registry-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Remote registry API client for Cabin"
+
+[lib]
+name = "cabin_registry_api"
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-credentials = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tiny_http = { workspace = true }
+
+[lints]
+workspace = true
