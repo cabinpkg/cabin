@@ -1298,9 +1298,9 @@ struct DepPath {
 }
 
 /// Best-effort recovery of a friendly name to mention in the error when a
-/// Path dependency turns out to point at a workspace-only manifest.  We
+/// path dependency turns out to point at a workspace-only manifest.  We
 /// don't always know what dep we were following, so this falls back to the
-/// Path itself.
+/// path itself.
 fn project_alias_for(loader: &Loader, manifest_path: &Path) -> String {
     for pkg in &loader.packages {
         for dep in &pkg.dep_paths {

@@ -3,21 +3,21 @@
 //! Two paths share a single staging step:
 //!
 //! - [`dry_run()`] / [`DryRunRequest`] stage the package and write
-//!   The archive + canonical metadata to an output directory
-//!   Without touching any registry.
+//!   the archive + canonical metadata to an output directory
+//!   without touching any registry.
 //! - [`publish_to_file_registry`] /
 //!   [`dry_run_against_file_registry`] call into
 //!   `cabin-registry-file` to mutate (or validate without
-//!   Mutating) a local file registry.
+//!   mutating) a local file registry.
 //!
 //! Crate boundaries:
 //! - this crate must not implement HTTP / sparse / OCI publish;
 //! - it must not implement server-side functionality;
 //! - file-registry layout, atomic-ish writes, and the lock file all
-//!   Live in `cabin-registry-file`;
+//!   live in `cabin-registry-file`;
 //! - this crate is the layer where staging meets writing.  Nothing
-//!   Higher-level (CLI flag handling, output formatting) belongs
-//!   Here.
+//!   higher-level (CLI flag handling, output formatting) belongs
+//!   here.
 
 // `PublishError` aggregates package, registry-file, and dry-run
 // errors.  The union crosses clippy's default

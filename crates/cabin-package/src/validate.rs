@@ -28,20 +28,20 @@ pub struct ValidatedPackage {
 /// CLI pass a `Package` whose `DependencySource::Workspace` entries
 /// have already been resolved by `cabin-workspace`; standalone
 /// invocations leave it `None` and trigger the workspace-dep error
-/// Path so a workspace-rooted dep is never silently dropped from
+/// path so a workspace-rooted dep is never silently dropped from
 /// the package metadata.
 ///
 /// Validation rules:
 ///
 /// - the manifest must contain a `[package]` table (workspace-only
-///   Roots are rejected);
+///   roots are rejected);
 /// - the package name must be safe for registry publishing
 ///   (`/`, `\\`, `..`, leading dots, and platform path prefixes are
-///   Rejected);
+///   rejected);
 /// - target source paths and include directories must not escape
-///   The package root;
+///   the package root;
 /// - declared dependencies must not include path entries (path
-///   Dependencies are not publishable);
+///   dependencies are not publishable);
 /// - declared dependencies must not include unresolved
 ///   `{ workspace = true }` entries;
 /// - package-level standard fields must not carry unresolved
@@ -201,8 +201,8 @@ pub fn load_and_validate_with_project(
 
 /// Re-export the shared `cabin-core` predicate so
 /// existing callers that already pulled `cabin_package::is_path_safe_package_name`
-/// Keep compiling.  New code should call `cabin_core::is_path_safe_package_name`
-/// Directly.
+/// keep compiling.  New code should call `cabin_core::is_path_safe_package_name`
+/// directly.
 pub use cabin_core::is_path_safe_package_name;
 
 /// Verify that a manifest-relative path stays inside the package

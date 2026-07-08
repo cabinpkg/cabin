@@ -194,7 +194,7 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
 ///
 /// Both the local file loader and `cabin-index-http`'s package fetcher
 /// land here; `context` decides how each entry's `source.path` becomes
-/// A [`SourceLocation`] and `name_hint` (when supplied) is checked
+/// a [`SourceLocation`] and `name_hint` (when supplied) is checked
 /// against the JSON's `name` field for the same name-mismatch error
 /// the file loader emits.
 ///

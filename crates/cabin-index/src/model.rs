@@ -160,7 +160,7 @@ impl IndexPackageDependency {
 ///
 /// The location can be either a local path or an HTTP URL via
 /// [`SourceLocation`] so the same `IndexEntry` shape can come from
-/// A directory on disk or from a sparse HTTP registry.
+/// a directory on disk or from a sparse HTTP registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceArtifact {
     pub kind: SourceArtifactKind,

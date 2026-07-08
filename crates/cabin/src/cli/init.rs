@@ -93,9 +93,9 @@ pub(super) fn new(args: &NewArgs, reporter: Reporter) -> Result<()> {
             Ok(())
         }
         Err(err) => {
-            // Best-effort cleanup of the directory we created
-            // created; surface the scaffold error regardless of
-            // whether removal succeeds.
+            // Best-effort cleanup of the directory we created;
+            // surface the scaffold error regardless of whether
+            // removal succeeds.
             let _ = std::fs::remove_dir_all(&target);
             Err(err.into())
         }
