@@ -124,6 +124,12 @@ pub const CABIN_TIDY: &str = "CABIN_TIDY";
 /// `system = true` entry.
 pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 
+/// Bearer token override for the experimental remote-registry
+/// client (`-Z remote-registry`).  When set to a non-empty value it
+/// wins over any `credentials.toml` entry for every registry the
+/// invocation touches.  Read by the `cabin-credentials` crate.
+pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
+
 /// Number of parallel jobs the build backend should use.
 /// Cargo-style: positive integer, `0` is rejected.  Cabin
 /// reads this env var when `--jobs` is not on the command

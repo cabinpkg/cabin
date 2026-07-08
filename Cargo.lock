@@ -321,6 +321,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabinpkg-credentials"
+version = "0.17.0"
+dependencies = [
+ "assert_fs",
+ "atomic-write-file",
+ "cabinpkg-env",
+ "etcetera",
+ "serde",
+ "thiserror",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "cabinpkg-diagnostics"
 version = "0.17.0"
 dependencies = [
