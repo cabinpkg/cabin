@@ -142,6 +142,7 @@ pub(crate) fn test(
     args: &TestArgs,
     reporter: crate::cli::term_verbosity::Reporter,
     color: cabin_core::ColorChoice,
+    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
 
@@ -300,6 +301,7 @@ pub(crate) fn test(
                 )?,
                 no_patches: args.no_patches,
                 dev_for: &dev_for,
+                experimental_features,
             })?;
             (pipeline.registry_sources(), pipeline.lockfile_pinned)
         } else {

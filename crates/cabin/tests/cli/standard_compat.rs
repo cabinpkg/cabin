@@ -38,8 +38,9 @@ fn flatten(stderr: &str) -> String {
 /// Whitespace-insensitive phrase containment.  miette wraps long
 /// messages (which embed tempdir paths) at spaces *and* at hyphens
 /// inside words like `interface-cxx-standard`, so the only stable
-/// comparison strips all whitespace from both sides.
-fn flat_contains(stderr: &str, phrase: &str) -> bool {
+/// comparison strips all whitespace from both sides.  Shared with
+/// sibling CLI test modules that assert on wrapped diagnostics.
+pub(super) fn flat_contains(stderr: &str, phrase: &str) -> bool {
     fn squash(text: &str) -> String {
         text.replace('\\', "/")
             .chars()

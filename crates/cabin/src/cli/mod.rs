@@ -1091,14 +1091,12 @@ pub(crate) fn run(
         // arguments.  Cabin matches that.
         return Ok(ExitCode::SUCCESS);
     };
-    // `-Z` currently gates no behavior: the feature registry is
-    // empty, so clap's value parser rejects every `-Z <value>` as an
-    // unknown feature and this vector is always empty.  Parsing it is
-    // what enforces that rejection; nothing consumes the result.
-    debug_assert!(
-        cli.unstable.is_empty(),
-        "no experimental features are registered"
-    );
+    // The parsed `-Z` occurrences travel as one typed
+    // `ExperimentalFeatures` set so downstream index loading can ask
+    // "is remote-registry enabled" without re-parsing argv.  Only
+    // the commands that reach an index source consume it today.
+    let experimental_features: cabin_core::ExperimentalFeatures =
+        cli.unstable.iter().copied().collect();
     match command {
         Command::Init(args) => init(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::New(args) => new(&args, reporter).map(|()| ExitCode::SUCCESS),
@@ -1109,22 +1107,40 @@ pub(crate) fn run(
         Command::Metadata(args) => {
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
-        Command::Build(args) => {
-            build(&args, reporter, BuildMode::Build, color).map(|()| ExitCode::SUCCESS)
-        }
-        Command::Check(args) => {
-            build(&args, reporter, BuildMode::Check, color).map(|()| ExitCode::SUCCESS)
-        }
+        Command::Build(args) => build(
+            &args,
+            reporter,
+            BuildMode::Build,
+            color,
+            &experimental_features,
+        )
+        .map(|()| ExitCode::SUCCESS),
+        Command::Check(args) => build(
+            &args,
+            reporter,
+            BuildMode::Check,
+            color,
+            &experimental_features,
+        )
+        .map(|()| ExitCode::SUCCESS),
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Run(args) => crate::cli::run::run(&args, reporter, color),
+        Command::Run(args) => crate::cli::run::run(&args, reporter, color, &experimental_features),
         Command::Test(args) => {
-            crate::cli::test::test(&args, reporter, color).map(|()| ExitCode::SUCCESS)
+            crate::cli::test::test(&args, reporter, color, &experimental_features)
+                .map(|()| ExitCode::SUCCESS)
         }
-        Command::Resolve(args) => resolve(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Update(args) => update(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Fetch(args) => fetch(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Resolve(args) => {
+            resolve(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Update(args) => {
+            update(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Fetch(args) => {
+            fetch(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
+        }
         Command::Vendor(args) => {
-            crate::cli::vendor::vendor(&args, reporter).map(|()| ExitCode::SUCCESS)
+            crate::cli::vendor::vendor(&args, reporter, &experimental_features)
+                .map(|()| ExitCode::SUCCESS)
         }
         Command::Tree(args) => crate::cli::tree::tree(&args).map(|()| ExitCode::SUCCESS),
         Command::Explain(args) => {
@@ -1963,6 +1979,10 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// pipeline's resolution so `build` / `run` / `test` / `fetch`
     /// select the same versions `cabin resolve` / `cabin update` would.
     pub(crate) incompatible_standards: cabin_core::IncompatibleStandards,
+    /// Experimental `-Z` features enabled for this invocation.
+    /// Consulted by index loading, which gates the remote-registry
+    /// `config.json` fields on `-Z remote-registry`.
+    pub(crate) experimental_features: &'a cabin_core::ExperimentalFeatures,
 }
 
 pub(crate) struct ArtifactPipeline {
@@ -2073,6 +2093,7 @@ pub(crate) fn run_artifact_pipeline(
         request.index_url,
         request.frozen,
         &root_deps,
+        request.experimental_features,
     )?;
 
     let resolver_mode = request.mode.resolve_mode()?;
@@ -2187,18 +2208,22 @@ fn load_index_for_pipeline(
     index_url: Option<&str>,
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
+    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<(PackageIndex, IndexAccess)> {
     match (index_path, index_url) {
         (Some(_), Some(_)) => bail!("use either --index-path or --index-url, not both"),
         (None, None) => {
             bail!("versioned dependencies require --index-path or --index-url")
         }
-        (Some(path), None) => Ok((load_local_index(path)?, IndexAccess::Local)),
+        (Some(path), None) => Ok((
+            load_local_index(path, experimental_features)?,
+            IndexAccess::Local,
+        )),
         (None, Some(url)) => {
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, client) = load_http_index(url, root_deps)?;
+            let (index, client) = load_http_index(url, root_deps, experimental_features)?;
             Ok((index, IndexAccess::Http(client)))
         }
     }
@@ -2208,10 +2233,13 @@ fn load_index_for_pipeline(
 /// user-supplied path first so error messages name the absolute
 /// location.  Shared by the resolve pipeline and the fetch / build
 /// pipeline so the two paths cannot drift.
-fn load_local_index(path: &Path) -> Result<PackageIndex> {
+fn load_local_index(
+    path: &Path,
+    experimental_features: &cabin_core::ExperimentalFeatures,
+) -> Result<PackageIndex> {
     let index_path =
         absolutise(path).with_context(|| format!("failed to resolve {}", path.display()))?;
-    cabin_index::load_index(&index_path)
+    cabin_index::load_index_with_features(&index_path, experimental_features)
         .with_context(|| format!("failed to load index at {}", index_path.display()))
 }
 
@@ -2222,9 +2250,14 @@ fn load_local_index(path: &Path) -> Result<PackageIndex> {
 fn load_http_index(
     url: &str,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
+    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<(PackageIndex, cabin_index_http::HttpClient)> {
     let client = cabin_index_http::HttpClient::new();
-    let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
+    let http_index = cabin_index_http::HttpIndex::open_with_features(
+        url,
+        client.clone(),
+        experimental_features,
+    )?;
     let names: Vec<PackageName> = root_deps.keys().cloned().collect();
     let index = http_index.load_package_index(&names)?;
     Ok((index, client))

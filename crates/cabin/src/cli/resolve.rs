@@ -15,7 +15,11 @@ use super::{
     selected_resolution_packages,
 };
 
-pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
+pub(super) fn resolve(
+    args: &ResolveArgs,
+    reporter: Reporter,
+    experimental_features: &cabin_core::ExperimentalFeatures,
+) -> Result<()> {
     let mode = lock_mode_for_flags(args.locked, args.frozen);
     // Both --locked and --frozen forbid writing the lockfile.  The
     // distinction becomes meaningful once a fetcher / cache exists for
@@ -42,12 +46,17 @@ pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
             selection_request,
             no_patches: args.no_patches,
             offline: args.offline,
+            experimental_features,
         },
         reporter,
     )
 }
 
-pub(super) fn update(args: &UpdateArgs, reporter: Reporter) -> Result<()> {
+pub(super) fn update(
+    args: &UpdateArgs,
+    reporter: Reporter,
+    experimental_features: &cabin_core::ExperimentalFeatures,
+) -> Result<()> {
     let mode = match &args.package {
         Some(name) => LockMode::UpdatePackage(name.clone()),
         None => LockMode::UpdateAll,
@@ -71,6 +80,7 @@ pub(super) fn update(args: &UpdateArgs, reporter: Reporter) -> Result<()> {
             selection_request: cabin_core::SelectionRequest::default(),
             no_patches: args.no_patches,
             offline: args.offline,
+            experimental_features,
         },
         reporter,
     )
@@ -97,7 +107,11 @@ pub(super) fn build_update_workspace_selection(
     }
 }
 
-pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
+pub(super) fn fetch(
+    args: &FetchArgs,
+    reporter: Reporter,
+    experimental_features: &cabin_core::ExperimentalFeatures,
+) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
@@ -204,6 +218,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
+        experimental_features,
     })?;
 
     emit_fetch_output(
@@ -241,6 +256,10 @@ struct ResolutionRequest<'a> {
     no_patches: bool,
     /// Whether `--offline` was supplied for this command.
     offline: bool,
+    /// Experimental `-Z` features enabled for this invocation.
+    /// Consulted by index loading, which gates the remote-registry
+    /// `config.json` fields on `-Z remote-registry`.
+    experimental_features: &'a cabin_core::ExperimentalFeatures,
 }
 
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
@@ -428,11 +447,11 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         (None, None) => {
             bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX)
         }
-        (Some(path), None) => load_local_index(path)?,
+        (Some(path), None) => load_local_index(path, request.experimental_features)?,
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
         // dropped here.
-        (None, Some(url)) => load_http_index(url, &root_deps)?.0,
+        (None, Some(url)) => load_http_index(url, &root_deps, request.experimental_features)?.0,
         (Some(_), Some(_)) => {
             unreachable!("cli::config::resolve_index_source guarantees only one variant is set")
         }
