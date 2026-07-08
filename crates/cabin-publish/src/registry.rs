@@ -111,12 +111,31 @@ fn evaluate_lints(
     staged: &StagedPackage,
     registry_dir: &Path,
 ) -> Result<Vec<String>, PublishError> {
-    let mut findings = crate::lints::manifest_findings(&staged.package);
     let published = cabin_registry_file::read_published_standards(registry_dir, &staged.name)?;
+    staged_lint_warnings(staged, &published)
+}
+
+/// The publish-time standard-compatibility lints over a staged
+/// package and a caller-supplied baseline of already-published
+/// versions: PL1/PL2 from the resolved manifest, PL3 against the
+/// baseline.  The file-registry path reads its baseline with
+/// `cabin_registry_file::read_published_standards`; the experimental
+/// remote publish path feeds the versions fetched from the
+/// registry's package index document, so both flows run the
+/// identical checks.
+///
+/// # Errors
+/// Returns [`PublishError::StandardCompatibility`] when a PL1 error
+/// rejects the publish before any write.
+pub fn staged_lint_warnings(
+    staged: &StagedPackage,
+    published: &[(semver::Version, cabin_core::StandardsMetadata)],
+) -> Result<Vec<String>, PublishError> {
+    let mut findings = crate::lints::manifest_findings(&staged.package);
     findings.extend(crate::lints::patch_release_findings(
         &staged.version,
         &staged.metadata.standards,
-        &published,
+        published,
     ));
     crate::lints::split(findings).map_err(PublishError::StandardCompatibility)
 }
