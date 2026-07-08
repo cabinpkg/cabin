@@ -16,12 +16,6 @@
 //!   destination, declare absolute paths, contain `..` components, or
 //!   use unsupported tar entry types are rejected.
 
-// `ArtifactError` aggregates lockfile, fetch, extract, and
-// cache errors.  The union crosses clippy's default
-// `result_large_err` threshold once `cabin_lockfile` (whose
-// errors flow in via `?`) gains its own larger variants.
-// Boxing the enum at every call site would be churny; we
-// accept the larger `Result` instead.
 pub mod cache;
 pub mod error;
 pub mod extract;
