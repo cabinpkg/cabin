@@ -7,28 +7,57 @@
 //! `cabin-core` so the CLI parser and every crate that gates a pass
 //! on a feature share one name list and one error wording.
 //!
-//! The registry is currently empty - no feature is gated behind
-//! `-Z` today, so every `-Z <value>` is rejected as unknown.  Adding
-//! a feature means adding a variant, its `as_str` spelling, and an
-//! `ALL` entry; the parser and its error message follow from those.
+//! Adding a feature means adding a variant, its `as_str` spelling,
+//! and an `ALL` entry; the parser and its error message follow from
+//! those.
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 /// One recognized experimental feature, as accepted by `-Z`.
-///
-/// Uninhabited while no experimental feature is registered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ExperimentalFeature {}
+pub enum ExperimentalFeature {
+    /// `-Z remote-registry`: the experimental remote-registry
+    /// client.  Gates the `auth-required` / `api` registry
+    /// `config.json` fields; see `docs/remote-registry.md`.
+    RemoteRegistry,
+}
 
 impl ExperimentalFeature {
     /// Every recognized feature, in the order the parse error
     /// lists them.
-    pub const ALL: [Self; 0] = [];
+    pub const ALL: [Self; 1] = [Self::RemoteRegistry];
 
     /// Stable kebab-case spelling, exactly what `-Z` accepts.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {}
+        match self {
+            Self::RemoteRegistry => "remote-registry",
+        }
+    }
+}
+
+/// The set of experimental features enabled for one CLI invocation.
+///
+/// Built once from the parsed `-Z` occurrences and threaded through
+/// command contexts so downstream crates can ask "is this feature
+/// enabled" without re-parsing argv.  The default value has every
+/// feature disabled - the fail-closed baseline for callers with no
+/// CLI surface (tests, library use).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExperimentalFeatures(BTreeSet<ExperimentalFeature>);
+
+impl ExperimentalFeatures {
+    /// Whether `feature` was enabled for this invocation.
+    #[must_use]
+    pub fn is_enabled(&self, feature: ExperimentalFeature) -> bool {
+        self.0.contains(&feature)
+    }
+}
+
+impl FromIterator<ExperimentalFeature> for ExperimentalFeatures {
+    fn from_iter<I: IntoIterator<Item = ExperimentalFeature>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
     }
 }
 
@@ -55,10 +84,10 @@ impl std::str::FromStr for ExperimentalFeature {
 
 /// Error returned when a `-Z` value names no recognized
 /// experimental feature.  The `Display` impl is the user-visible
-/// wording; with no feature registered it reads:
+/// wording:
 ///
 /// ```text
-/// unknown experimental feature 'frobnicate'; no experimental features are currently recognized
+/// unknown experimental feature 'frobnicate'; expected one of: remote-registry
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownExperimentalFeature {
@@ -95,19 +124,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unknown_value_reports_no_recognized_features() {
-        // The registry is empty, so every value - including the
-        // removed `standard-compat` name - is unknown and reports
-        // the same no-features wording.
+    fn every_feature_round_trips_through_from_str() {
+        for feature in ExperimentalFeature::ALL {
+            assert_eq!(feature.as_str().parse::<ExperimentalFeature>(), Ok(feature));
+        }
+    }
+
+    #[test]
+    fn unknown_value_lists_recognized_features() {
+        // Every unknown value - including the removed
+        // `standard-compat` name - reports the same wording, naming
+        // the full recognized list.
         for value in ["frobnicate", "standard-compat"] {
             let err = value.parse::<ExperimentalFeature>().unwrap_err();
             assert_eq!(
                 err.to_string(),
-                format!(
-                    "unknown experimental feature '{value}'; no experimental features are \
-                     currently recognized"
-                ),
+                format!("unknown experimental feature '{value}'; expected one of: remote-registry"),
             );
         }
+    }
+
+    #[test]
+    fn feature_set_defaults_to_disabled() {
+        let none = ExperimentalFeatures::default();
+        assert!(!none.is_enabled(ExperimentalFeature::RemoteRegistry));
+        let set: ExperimentalFeatures = [ExperimentalFeature::RemoteRegistry].into_iter().collect();
+        assert!(set.is_enabled(ExperimentalFeature::RemoteRegistry));
     }
 }
