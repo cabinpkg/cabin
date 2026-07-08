@@ -32,9 +32,9 @@ fn fake_ninja_path() -> PathBuf {
     candidate
 }
 
-/// Stage a tempdir with a minimal C++ package and configure
-/// the returned [`Command`] to use the fake ninja recorded
-/// at `record`.  Callers add the subcommand and its flags.
+/// Configure the returned [`Command`] to use the fake ninja
+/// recorded at `record`.  Callers stage the project and add
+/// the subcommand and its flags.
 fn cabin_with_fake_ninja(record: &Path) -> Command {
     let mut cmd = cabin();
     cmd.env("NINJA", fake_ninja_path())

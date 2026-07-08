@@ -15,8 +15,6 @@ const FMT_SRC: &str =
     "#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello\\n\"; }\n";
 const APP_MAIN_USING_FMT: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
 
-/// Build a `.tar.gz` archive at `path` containing the given
-/// `(relative_path, body)` entries and return its sha256 hex.
 /// Selection-aware fixture: `app` (which declares a versioned
 /// dep on `fmt`) plus an unrelated workspace member `b` which
 /// declares a versioned dep on `spdlog` that the index does

@@ -18,8 +18,8 @@ fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
     out
 }
 
-/// Build a `.tar.gz` containing the given file entries (relative
-/// path -> body).  Returns the archive path and its `sha256` hex.
+/// Build a `.tar.gz` containing a single entry with the given raw
+/// path bytes, entry type, and body.  Returns its `sha256` hex.
 /// Same as [`make_archive`] but the caller chooses the entry type
 /// and writes the path bytes directly so we can construct unsafe
 /// archive entries that the tar crate's safe API would refuse.

@@ -6,8 +6,6 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Build a `.tar.gz` containing the given `(relative_path,
-/// body)` entries and return the archive's `sha256` hex.
 /// Stage a one-package file-registry index at `<root>/index`
 /// containing a single `fmt 10.2.1` entry.  Returns the
 /// directory the index lives in.
