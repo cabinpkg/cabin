@@ -272,7 +272,10 @@ impl LanguageStandard {
             Self::Cxx(CxxStandard::Cxx14) => Some("/std:c++14"),
             Self::Cxx(CxxStandard::Cxx17) => Some("/std:c++17"),
             Self::Cxx(CxxStandard::Cxx20) => Some("/std:c++20"),
-            _ => None,
+            Self::C(CStandard::C89 | CStandard::C99 | CStandard::C23)
+            | Self::Cxx(
+                CxxStandard::Cxx98 | CxxStandard::Cxx11 | CxxStandard::Cxx23 | CxxStandard::Cxx26,
+            ) => None,
         }
     }
 }

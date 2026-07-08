@@ -281,7 +281,9 @@ pub fn standard_support_detail(capability: Capability, kind: CompilerKind) -> St
         CapabilitySource::Unsupported => {
             format!("{kind} has no stable flag selecting this standard")
         }
-        _ => "the detected compiler version predates support for this standard's flag".to_owned(),
+        CapabilitySource::Version | CapabilitySource::AssumedDefault => {
+            "the detected compiler version predates support for this standard's flag".to_owned()
+        }
     }
 }
 
