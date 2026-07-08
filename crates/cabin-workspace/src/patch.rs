@@ -149,7 +149,7 @@ fn active_versioned_req<'a>(
     }
     match &dep.source {
         DependencySource::Version(req) => Some(req),
-        _ => None,
+        DependencySource::Path(_) | DependencySource::Port(_) | DependencySource::Workspace => None,
     }
 }
 

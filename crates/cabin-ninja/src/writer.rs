@@ -214,7 +214,10 @@ fn write_edge(out: &mut String, action: &LoweredAction) -> Result<(), NinjaError
     // `command` the rule runs verbatim.
     let command_var = match action.kind {
         LoweredActionKind::SyntaxCheckC | LoweredActionKind::SyntaxCheckCpp => "checkcmd",
-        _ => "command",
+        LoweredActionKind::CompileC
+        | LoweredActionKind::CompileCpp
+        | LoweredActionKind::ArchiveStaticLibrary
+        | LoweredActionKind::LinkExecutable => "command",
     };
     write_var(out, command_var, &command_value)?;
     if let Some(depfile) = &action.depfile {

@@ -300,7 +300,7 @@ where
     }
     match &dep.source {
         DependencySource::Version(req) => Some(req),
-        _ => None,
+        DependencySource::Path(_) | DependencySource::Port(_) | DependencySource::Workspace => None,
     }
 }
 
