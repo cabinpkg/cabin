@@ -400,13 +400,15 @@ pub(crate) enum Command {
     /// Typically driven by `cabin publish`.
     #[command(hide = true)]
     Package(PackageArgs),
-    /// Publish a package to a local file registry.
+    /// Publish a package to a registry.
     ///
     /// With `--registry-dir <PATH>`, writes the archive plus
-    /// canonical metadata into a Cabin file registry.  With
+    /// canonical metadata into a local Cabin file registry.  With
     /// `--dry-run` alone, stages the same artifacts under
-    /// `--output-dir` without touching any registry.  Remote
-    /// registry protocols are not supported.
+    /// `--output-dir` without touching any registry.  Behind
+    /// `-Z remote-registry`, an HTTP index source (`--index-url` or
+    /// the `[registry] index-url` config setting) uploads the same
+    /// staged bytes to the registry's API origin.
     Publish(PublishArgs),
     /// Save a registry token for the experimental remote-registry client.
     ///
@@ -913,6 +915,15 @@ pub(crate) struct PublishArgs {
     #[arg(long, value_name = "PATH")]
     pub registry_dir: Option<PathBuf>,
 
+    /// Sparse HTTP index URL of the registry to publish to.  Falls
+    /// back to the `[registry] index-url` config setting.  Requires
+    /// `-Z remote-registry`; the staged archive and metadata are
+    /// uploaded to the API origin the registry's `config.json`
+    /// declares.  Combines with `--dry-run` (which stays entirely
+    /// local); `--output-dir` then names the staging directory.
+    #[arg(long, value_name = "URL", conflicts_with = "registry_dir")]
+    pub index_url: Option<String>,
+
     /// Output format for the publish or dry-run report.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,
@@ -1164,7 +1175,9 @@ pub(crate) fn run(
             crate::cli::explain::explain(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Package(args) => package(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Publish(args) => publish(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Publish(args) => {
+            publish(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
+        }
         Command::Login(args) => crate::cli::login::login(&args, reporter, &experimental_features)
             .map(|()| ExitCode::SUCCESS),
         Command::Logout(args) => crate::cli::login::logout(&args, reporter, &experimental_features)

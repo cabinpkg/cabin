@@ -45,6 +45,7 @@ cabin-ninja = { workspace = true }
 cabin-package = { workspace = true }
 cabin-port = { workspace = true }
 cabin-publish = { workspace = true }
+cabin-registry-api = { workspace = true }
 cabin-resolver = { workspace = true }
 cabin-source-discovery = { workspace = true }
 cabin-system-deps = { workspace = true }

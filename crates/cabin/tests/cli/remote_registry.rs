@@ -596,6 +596,439 @@ fn login_with_explicit_index_url_ignores_broken_config() {
     ));
 }
 
+// -----------------------------------------------------------------
+// remote publish (`cabin publish --index-url`, -Z remote-registry)
+// -----------------------------------------------------------------
+
+/// Minimal publishable C package, so the staged-archive assertions
+/// cover a C source tree.
+fn write_publishable_package(root: &Path) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+c-standard = "c11"
+
+[target.demo]
+type = "library"
+sources = ["src/demo.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("src/demo.c"))
+        .write_str("int demo(void) { return 0; }\n")
+        .unwrap();
+}
+
+/// One captured mutation request against [`RemoteRegistryServer`].
+struct CapturedPut {
+    method: String,
+    path: String,
+    authorization: Option<String>,
+    body: Vec<u8>,
+}
+
+/// Mock remote registry: serves `config.json` (optionally declaring
+/// this server as its own `api` origin), 404s every package read
+/// (nothing is published yet), and answers mutation requests under
+/// `/api/v1/packages/` with the configured status sequence (the last
+/// entry repeats), capturing each one.  With `require_auth`, every
+/// route 401s tokenless requests - the `auth-required` registry
+/// shape, where even `config.json` is behind auth.
+struct RemoteRegistryServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    url: String,
+    puts: std::sync::Arc<std::sync::Mutex<Vec<CapturedPut>>>,
+}
+
+impl RemoteRegistryServer {
+    fn start(include_api: bool, require_auth: bool, put_statuses: &'static [u16]) -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let auth_field = if require_auth {
+            ",\n    \"auth-required\": true"
+        } else {
+            ""
+        };
+        let config = if include_api {
+            format!(
+                r#"{{
+    "schema": 1,
+    "kind": "file-registry",
+    "packages": "packages",
+    "artifacts": "artifacts"{auth_field},
+    "api": "{url}"
+}}"#
+            )
+        } else {
+            format!(
+                r#"{{
+    "schema": 1,
+    "kind": "file-registry",
+    "packages": "packages",
+    "artifacts": "artifacts"{auth_field}
+}}"#
+            )
+        };
+        let puts = std::sync::Arc::new(std::sync::Mutex::new(Vec::<CapturedPut>::new()));
+        let puts_for_thread = std::sync::Arc::clone(&puts);
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            while let Ok(mut req) = server_for_thread.recv() {
+                let path = req.url().to_owned();
+                if require_auth {
+                    let authorized = req.headers().iter().any(|h| {
+                        h.field.equiv("Authorization") && h.value == format!("Bearer {TEST_TOKEN}")
+                    });
+                    if !authorized {
+                        let _ = req.respond(
+                            tiny_http::Response::from_string(
+                                r#"{"errors":[{"detail":"authentication required"}]}"#,
+                            )
+                            .with_status_code(401),
+                        );
+                        continue;
+                    }
+                }
+                if path == "/config.json" {
+                    let _ = req.respond(tiny_http::Response::from_string(config.clone()));
+                } else if path.starts_with("/api/v1/packages/") {
+                    let mut body = Vec::new();
+                    let _ = req.as_reader().read_to_end(&mut body);
+                    let mut puts = puts_for_thread.lock().unwrap();
+                    let status = put_statuses[puts.len().min(put_statuses.len().saturating_sub(1))];
+                    puts.push(CapturedPut {
+                        method: req.method().as_str().to_owned(),
+                        path,
+                        authorization: req
+                            .headers()
+                            .iter()
+                            .find(|h| h.field.equiv("Authorization"))
+                            .map(|h| h.value.to_string()),
+                        body,
+                    });
+                    drop(puts);
+                    let body = match status {
+                        200 => r#"{"ok":true,"no_op":true}"#,
+                        201 => r#"{"ok":true}"#,
+                        409 => r#"{"errors":[{"detail":"version exists with different bytes"}]}"#,
+                        _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
+                    };
+                    let _ = req
+                        .respond(tiny_http::Response::from_string(body).with_status_code(status));
+                } else {
+                    // Package reads: nothing is published yet.
+                    let _ = req.respond(tiny_http::Response::empty(404));
+                }
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            url,
+            puts,
+        }
+    }
+}
+
+impl Drop for RemoteRegistryServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Decode the crates.io-style publish frame:
+/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
+fn decode_publish_frame(body: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let metadata_len = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
+    let metadata = body[4..4 + metadata_len].to_vec();
+    let rest = &body[4 + metadata_len..];
+    let archive_len = u32::from_le_bytes(rest[0..4].try_into().unwrap()) as usize;
+    let archive = rest[4..4 + archive_len].to_vec();
+    assert_eq!(
+        body.len(),
+        8 + metadata_len + archive_len,
+        "the frame must be exactly consumed"
+    );
+    (metadata, archive)
+}
+
+/// Without `-Z remote-registry`, the `--index-url` flag fails with
+/// the standard experimental-feature error before any network or
+/// staging work - on the real publish path and on the (local)
+/// dry-run path alike, so the experimental flag is never silently
+/// ignored.
+#[test]
+fn publish_against_an_http_index_requires_the_feature() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+    for dry_run in [false, true] {
+        let mut cmd = cabin();
+        cmd.arg("publish");
+        if dry_run {
+            cmd.arg("--dry-run");
+        }
+        let assertion = cmd
+            .args([
+                "--index-url",
+                "https://registry.example.com",
+                "--manifest-path",
+            ])
+            .arg(dir.path().join("cabin.toml"))
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(
+                &stderr,
+                "`cabin publish --index-url` requires the experimental remote-registry client; \
+                 run with `-Z remote-registry` to enable it"
+            ),
+            "expected the gated-command error (dry_run={dry_run}) in: {stderr}"
+        );
+    }
+}
+
+/// `--dry-run` stays entirely local: the staging artifacts land in
+/// the output directory and no connection is ever opened to the
+/// index URL.
+#[test]
+fn publish_dry_run_with_an_http_index_opens_no_connection() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+    // A bound-but-unaccepting listener: any connection attempt would
+    // be observable below.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+
+    cabin()
+        .args([
+            "-Z",
+            "remote-registry",
+            "publish",
+            "--dry-run",
+            "--index-url",
+        ])
+        .arg(&url)
+        .args(["--output-dir"])
+        .arg(dir.path().join("staging"))
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "This was a dry run. No registry was modified.",
+        ));
+
+    assert!(
+        dir.path().join("staging/demo-0.1.0.tar.gz").is_file(),
+        "the dry-run must stage locally into --output-dir"
+    );
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("--dry-run must not open a connection to the registry"),
+        Err(err) => panic!("unexpected listener state: {err}"),
+    }
+}
+
+/// The full upload path: the PUT hits the registry's `api` origin
+/// with the bearer token, and the framed metadata + archive bytes
+/// are byte-identical to what `cabin package` produces for the same
+/// source tree.
+#[test]
+fn publish_uploads_bytes_identical_to_cabin_package() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+
+    // What `cabin package` produces for this tree.
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .success();
+    let packaged_archive = fs::read(dist.join("demo-0.1.0.tar.gz")).unwrap();
+    let packaged_metadata = fs::read(dist.join("demo-0.1.0.json")).unwrap();
+
+    let server = RemoteRegistryServer::start(true, true, &[201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains(&format!("Published demo 0.1.0 to {}", server.url)),
+        "expected the created report in: {stdout}"
+    );
+    assert!(
+        stdout.contains("checksum: sha256:"),
+        "expected the checksum in: {stdout}"
+    );
+
+    let puts = server.puts.lock().unwrap();
+    assert_eq!(puts.len(), 1, "exactly one publish request");
+    let put = &puts[0];
+    assert_eq!(put.method, "PUT");
+    assert_eq!(put.path, "/api/v1/packages/demo/0.1.0");
+    assert_eq!(
+        put.authorization.as_deref(),
+        Some(format!("Bearer {TEST_TOKEN}").as_str()),
+        "the publish must carry the bearer credential"
+    );
+    let (metadata, archive) = decode_publish_frame(&put.body);
+    assert_eq!(
+        metadata, packaged_metadata,
+        "uploaded metadata must be the canonical document cabin package writes"
+    );
+    assert_eq!(
+        archive, packaged_archive,
+        "uploaded archive must be byte-identical to the cabin package archive"
+    );
+}
+
+/// Re-publishing identical bytes is the idempotent `200` no-op, and
+/// a `409` explains that published versions are immutable.
+#[test]
+fn publish_reports_no_op_and_conflict_outcomes() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+
+    let server = RemoteRegistryServer::start(true, false, &[201, 200]);
+    for _ in 0..2 {
+        cabin()
+            .args(["-Z", "remote-registry", "publish", "--index-url"])
+            .arg(&server.url)
+            .args(["--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+            .assert()
+            .success();
+    }
+    drop(server);
+
+    let server = RemoteRegistryServer::start(true, false, &[200]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("demo 0.1.0 is already published to")
+            && stdout.contains("identical bytes; nothing to do"),
+        "expected the no-op report in: {stdout}"
+    );
+    drop(server);
+
+    let server = RemoteRegistryServer::start(true, false, &[409]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "already published with different bytes"),
+        "expected the conflict explanation in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "published versions are immutable"),
+        "expected the immutability explanation in: {stderr}"
+    );
+}
+
+/// A registry whose `config.json` lacks the `api` field cannot be
+/// published to; the error names the missing field.
+#[test]
+fn publish_requires_the_api_url_in_the_registry_config() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+    let server = RemoteRegistryServer::start(false, false, &[201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "does not declare an `api` URL in its config.json"),
+        "expected the missing-api error in: {stderr}"
+    );
+    assert!(
+        server.puts.lock().unwrap().is_empty(),
+        "no mutation request may be sent without an api origin"
+    );
+}
+
+/// `--output-dir` belongs to the dry-run staging flow, so passing it
+/// without `--dry-run` keeps the "requires --registry-dir or
+/// --dry-run" error even when the config supplies an `index-url` -
+/// an intended local staging run must never fall through into a
+/// real remote publish.
+#[test]
+fn publish_output_dir_without_dry_run_never_publishes_remotely() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+    // A bound-but-unaccepting listener as the configured registry:
+    // any connection attempt would be observable below.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!(
+            "[registry]\nindex-url = \"http://{}\"\n",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+
+    let mut cmd = cabin();
+    super::pin_test_user_config_home_to_empty(&mut cmd);
+    let assertion = cmd
+        .args(["-Z", "remote-registry", "publish", "--output-dir"])
+        .arg(dir.path().join("staging"))
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "requires either `--registry-dir <DIR>`"),
+        "expected the dry-run-required error in: {stderr}"
+    );
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("--output-dir without --dry-run must not contact the registry"),
+        Err(err) => panic!("unexpected listener state: {err}"),
+    }
+}
+
 /// A config-supplied registry source is subject to
 /// `[source-replacement]` on the fetch path, so `cabin login` keys
 /// the token on the replaced origin - the one a later fetch will
