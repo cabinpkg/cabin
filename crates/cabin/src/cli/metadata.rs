@@ -291,7 +291,7 @@ enum DependencySourceView<'a> {
         origin: PortOriginView<'a>,
     },
     /// An unresolved `{ workspace = true }` opt-in.  The
-    /// Workspace loader normally rewrites these into `Path` /
+    /// workspace loader normally rewrites these into `Path` /
     /// `Version` before metadata is serialized, so this variant
     /// only surfaces when the user inspects a member manifest in
     /// isolation.

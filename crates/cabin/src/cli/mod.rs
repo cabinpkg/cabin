@@ -1534,8 +1534,8 @@ pub(crate) fn resolve_build_configurations(
 /// user did not pass `--manifest-path` (the option is `None`), walk
 /// upward from the current directory looking for a workspace root
 /// and prefer it.  When the user passed `--manifest-path`
-/// Explicitly - even with the value `cabin.toml` - the supplied
-/// Path is honored as-is so callers can intentionally target a
+/// explicitly - even with the value `cabin.toml` - the supplied
+/// path is honored as-is so callers can intentionally target a
 /// specific manifest from any directory.
 pub(crate) fn resolve_invocation_manifest(args_path: Option<&Path>) -> Result<PathBuf> {
     let cwd = std::env::current_dir().context("failed to determine current directory")?;
@@ -2180,7 +2180,7 @@ pub(crate) fn run_artifact_pipeline(
 
 /// Pick the right index source for a fetch / build run, validate
 /// CLI flag combinations, and return both the [`PackageIndex`] the
-/// Resolver consumes and a tag describing which access mode the
+/// resolver consumes and a tag describing which access mode the
 /// fetch plan should use.
 fn load_index_for_pipeline(
     index_path: Option<&Path>,
@@ -2237,7 +2237,7 @@ fn load_http_index(
 ///
 /// `access` decides whether HTTP-resolved sources get downloaded
 /// here (so `cabin-artifact` stays HTTP-free) or whether the source
-/// Path is handed straight through as a local file.
+/// path is handed straight through as a local file.
 fn build_fetch_plan(
     output: &ResolveOutput,
     index: &PackageIndex,

@@ -16,7 +16,7 @@ const DEFAULT_PACKAGES_DIR: &str = "packages";
 const DEFAULT_ARTIFACTS_DIR: &str = "artifacts";
 
 /// Parsed and validated `<registry>/config.json`.  Schema-version `1`
-/// Only.
+/// only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistryConfig {
@@ -28,7 +28,7 @@ pub struct RegistryConfig {
 
 impl RegistryConfig {
     /// Default config emitted when `cabin publish --registry-dir`
-    /// Initializes a fresh registry.
+    /// initializes a fresh registry.
     pub fn default_v1() -> Self {
         Self {
             schema: REGISTRY_CONFIG_SCHEMA,

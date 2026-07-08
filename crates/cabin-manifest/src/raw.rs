@@ -444,7 +444,7 @@ pub(crate) struct RawWorkspace {
     pub(crate) exclude: Vec<String>,
     /// Subset of `members` that are operated on by default
     /// when the user passes no package-selection flags at the
-    /// Workspace root.  Rendered hyphenated to match common
+    /// workspace root.  Rendered hyphenated to match common
     /// package-manager conventions.
     #[serde(default, rename = "default-members")]
     pub(crate) default_members: Vec<String>,

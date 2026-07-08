@@ -173,7 +173,7 @@ pub(crate) fn insert_version(
 }
 
 /// In-memory representation of one `<registry>/packages/<name>.json`
-/// File.  The `versions` map keeps each version's payload as an
+/// file.  The `versions` map keeps each version's payload as an
 /// opaque [`serde_json::Value`] so the registry crate doesn't have
 /// to mirror every `cabin-package` metadata field; callers feed in
 /// new versions via `insert_version`.

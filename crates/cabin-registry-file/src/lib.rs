@@ -21,11 +21,11 @@
 //! - this crate must not implement HTTP / sparse / OCI publish;
 //! - it must not implement server-side functionality;
 //! - it must not run the resolver, parse arbitrary `cabin.toml`s, or
-//!   Build packages - `cabin-package` produces the
+//!   build packages - `cabin-package` produces the
 //!   [`cabin_package::StagedPackage`] this crate consumes;
 //! - actual real-world `cabin publish` orchestration lives in
 //!   `cabin-publish`, which combines staging with this crate's
-//!   Writers.
+//!   writers.
 
 #![allow(
     // `field: Default::default()` in the test-fixture builders reads

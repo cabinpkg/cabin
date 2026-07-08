@@ -314,8 +314,8 @@ struct MergedEntry {
 }
 
 /// Walk every loaded package and collect, per patched name,
-/// the set of `Version`-source requirements that are *
-/// active* for the current invocation.  Inactive declarations
+/// the set of `Version`-source requirements that are
+/// *active* for the current invocation.  Inactive declarations
 /// (dev / system kinds, target-conditioned deps that do not
 /// match the host platform, optional deps regardless of feature
 /// state) are skipped so a patch on a dormant dependency does

@@ -22,7 +22,7 @@ pub struct RegistryPublishRequest<'a> {
 ///
 /// `registry_modified` is `true` only when [`publish_to_registry`]
 /// wrote bytes; [`validate_publish`] always returns `false`
-/// Here.
+/// here.
 #[derive(Debug, Clone)]
 pub struct RegistryPublishOutcome {
     pub registry_dir: PathBuf,
@@ -173,7 +173,7 @@ fn publish_locked(
 /// - if the package index already lists this version, fail with
 ///   [`RegistryError::DuplicateVersion`];
 /// - if an artifact file already exists for `(name, version)` but
-///   The index does *not* yet record that version, fail with
+///   the index does *not* yet record that version, fail with
 ///   [`RegistryError::OrphanedArtifact`];
 /// - load and validate the existing index file (if any).
 fn plan_publish(

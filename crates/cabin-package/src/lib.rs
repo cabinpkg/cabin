@@ -274,7 +274,7 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 ///
 /// Rules around overwriting existing files in `output_dir`:
 /// - if the archive at the target path is byte-identical, the run
-///   Succeeds without rewriting it;
+///   succeeds without rewriting it;
 /// - the same goes for the metadata file;
 /// - if either file already exists with different bytes,
 ///   [`PackageError::OutputAlreadyExists`] is returned.

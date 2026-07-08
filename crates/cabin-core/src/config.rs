@@ -27,7 +27,7 @@ use crate::toolchain::ResolvedToolchain;
 
 /// The reserved feature group name.  The list of names mapped to this
 /// key in `[features]` is the package's "default" feature set: the
-/// Features Cabin enables when the user does not pass
+/// features Cabin enables when the user does not pass
 /// `--no-default-features`.
 pub const DEFAULT_FEATURE_KEY: &str = "default";
 
@@ -344,7 +344,7 @@ fn check_identifier_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SelectionRequest {
     /// Explicit `--features a,b` entries.  Order does not matter; the
-    /// Resolver normalizes them.
+    /// resolver normalizes them.
     pub features: BTreeSet<String>,
     pub all_features: bool,
     pub no_default_features: bool,
