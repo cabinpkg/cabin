@@ -12,7 +12,9 @@
 
 `cabin publish --dry-run` adds a "no registry was modified" report.  The dry-run path is
 **local-only**: nothing is uploaded, no registry mutation happens, and `cabin publish` without
-`--dry-run` exits with a clear error unless a local `--registry-dir` is provided.
+`--dry-run` exits with a clear error unless a local `--registry-dir` is provided or, behind
+`-Z remote-registry`, an HTTP index source is in effect
+([`remote-registry.md`](remote-registry.md)).
 
 ## Source archive format
 
@@ -184,8 +186,11 @@ cabin publish --dry-run \
   [--format human|json]
 ```
 
-Same defaults.  `cabin publish` without `--dry-run` and without `--registry-dir` exits with `actual
-publishing requires --registry-dir, or use --dry-run`.
+Same defaults.  `cabin publish` without `--dry-run`, without `--registry-dir`, and without an
+effective HTTP index source exits with a clear error naming both options.  Behind
+`-Z remote-registry`, an HTTP index source (`--index-url` or the `[registry] index-url` config
+setting) publishes the same staged bytes remotely; see
+[`remote-registry.md`](remote-registry.md).
 
 ## Output layout
 

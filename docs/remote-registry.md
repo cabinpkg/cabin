@@ -10,10 +10,12 @@ itself - accounts, token issuance, hosted storage - is not part of this reposito
 [`registry-design.md`](registry-design.md).
 
 Client status today: the [`config.json` fields](#registry-configuration) below are recognized
-behind the flag (presence without `-Z remote-registry` fails the index load), and client-side token
+behind the flag (presence without `-Z remote-registry` fails the index load), client-side token
 handling is implemented - `cabin login` / `cabin logout` plus
-[authenticated reads](#client-side-token-handling).  The publish / yank commands land incrementally
-on the same gate.
+[authenticated reads](#client-side-token-handling) - and so is
+[publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source).  The
+yank *route* has a typed client (`cabin-registry-api`), but a `cabin yank` command has not landed
+yet.
 
 ## Registry configuration
 
@@ -34,7 +36,7 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`. |
-| `api` | string | absent | Absolute base URL of the registry web/API origin, e.g. `"https://dev-registry.cabinpkg.com"`.  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  When absent, the API origin defaults to the index origin. |
+| `api` | string | absent | Absolute base URL of the registry web/API origin, e.g. `"https://dev-registry.cabinpkg.com"`.  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) parse the fields
 unconditionally, but *presence* of either field without `-Z remote-registry` fails the index load
@@ -138,8 +140,9 @@ the `401` status and body are identical whether or not the requested package exi
 PUT /api/v1/packages/<name>/<version>
 ```
 
-Requires a token with the `publish` scope.  The route lives on the API origin (`api` when set,
-otherwise the index origin).  The request body is a length-prefixed frame (crates.io-style):
+Requires a token with the `publish` scope.  The route lives on the API origin - the
+[`api`](#registry-configuration) base URL the registry's `config.json` must declare for mutations.
+The request body is a length-prefixed frame (crates.io-style):
 
 ```text
 [u32 LE metadata_len][canonical per-version metadata JSON]
@@ -157,7 +160,44 @@ Server-side behavior is part of the contract:
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
   `200` and body `{"ok":true,"no_op":true}`.  Publishing the same version with *different* bytes is
   rejected with `409`.
-- A first-time publish succeeds with `200` and body `{"ok":true}`.
+- A first-time publish succeeds with `201` and body `{"ok":true}`.
+
+### Publishing from the client
+
+`cabin publish` targets a remote registry when the effective index source is an HTTP URL
+(`--index-url`, or the `[registry] index-url` setting in [`config.md`](config.md#registry)) and no
+`--registry-dir` is given.  Without `-Z remote-registry`, the `--index-url` flag (even combined
+with `--dry-run`) and publishing against a config-supplied HTTP index both fail with the standard
+experimental-feature error.  The flow is log in once, publish, then resolve like any consumer:
+
+```console
+$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+visit https://dev-registry.cabinpkg.com/me to create a token
+       Login token for `https://dev-registry.cabinpkg.com` saved
+$ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
+    --index-url https://dev-registry.cabinpkg.com
+Published fmt 10.2.1 to https://dev-registry.cabinpkg.com
+  checksum: sha256:...
+$ cabin -Z remote-registry resolve --manifest-path app/cabin.toml \
+    --index-url https://dev-registry.cabinpkg.com
+```
+
+Client-side behavior:
+
+- The staging pipeline is the *same* one `cabin package` and the local
+  `cabin publish --registry-dir` run - same validation, same publish lints
+  ([`package-format.md`](package-format.md)), same deterministic archive and canonical per-version
+  metadata document.  The uploaded bytes are byte-identical to what `cabin package` writes into
+  `dist/` for the same source tree.
+- `config.json` (which supplies the [`api`](#registry-configuration) origin) and the lint baseline
+  ride the authenticated read path; the upload carries the same bearer token to the API origin,
+  under the same https-or-loopback cleartext rule.
+- On `201` the client reports the published name, version, and checksum.  On `200` it reports that
+  byte-identical bytes were already published and exits successfully - the same "re-running with
+  identical input succeeds" semantics as the local flows.  On `409` it explains that the version
+  exists with different bytes and that published versions are immutable.
+- `--dry-run` stays entirely local: it stages into `--output-dir` (default `dist/`) and never
+  opens a connection.
 
 ## Yank
 
@@ -179,6 +219,8 @@ succeeds with `200` and body `{"ok":true}`.
 
 | Code | Meaning |
 | --- | --- |
+| `200` | Success without a state change: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has). |
+| `201` | Publish of a version that did not exist before. |
 | `400` | Malformed request: bad framing, invalid metadata, or an invalid JSON body. |
 | `401` | No token or an invalid token (never reveals whether the package exists). |
 | `403` | Valid token, but the scope the route requires is missing. |
