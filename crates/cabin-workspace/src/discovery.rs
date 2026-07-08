@@ -38,13 +38,11 @@ pub struct DiscoveredManifest {
 /// stacked above `start`.  Manifest parse errors are surfaced as
 /// [`WorkspaceError::Manifest`] so the user sees the bad file.
 ///
-/// The rule is strict: discovery walks all the way to the
-/// filesystem root and refuses to choose a workspace at all
-/// when it finds **two or more** workspace roots stacked above
-/// the start path.  The user is forced to disambiguate
-/// (typically by passing `--manifest-path` explicitly), which
-/// avoids surprises where running from inside a nested
-/// workspace silently operated on an outer one - or vice versa.
+/// The rule is deliberately strict: forcing the user to
+/// disambiguate (typically by passing `--manifest-path`
+/// explicitly) avoids surprises where running from inside a
+/// nested workspace silently operated on an outer one - or vice
+/// versa.
 ///
 /// Discovery stays a pure filesystem walk: no network, no
 /// symlink follow beyond what the OS already does for

@@ -33,10 +33,7 @@ pub enum CompileMode {
     /// Normal compile: emit the object file at [`CompileAction::object`].
     Object,
     /// Syntax/semantic check only (`cabin check`): emit no object;
-    /// `stamp` is `touch`ed to record a successful check.  The
-    /// `object` path is retained on the action so the stamp lives
-    /// beside it and the workspace-scope filter in `cabin check` can
-    /// match on it.
+    /// `stamp` is `touch`ed to record a successful check.
     SyntaxOnly {
         /// Stamp file written on a successful check, in place of the
         /// object.

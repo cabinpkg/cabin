@@ -179,11 +179,9 @@ pub struct SourceArtifact {
 /// URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceLocation {
-    /// Absolute filesystem path produced by the local file index
-    /// loader.
+    /// Absolute filesystem path.
     LocalPath(PathBuf),
-    /// Absolute `http://` or `https://` URL produced by the HTTP index
-    /// loader.
+    /// Absolute `http://` or `https://` URL.
     HttpUrl(String),
 }
 

@@ -267,10 +267,9 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// it, and write the archive plus its canonical metadata into
 /// `request.output_dir`.
 ///
-/// The archive is byte-deterministic for the same logical input: tar
-/// entries are sorted, mtimes / uid / gid / uname / gname are zeroed,
-/// the gzip header carries `mtime = 0` and an OS field of `0xff`
-/// (unknown), and the include / exclude policy is fixed.
+/// The archive is byte-deterministic for the same logical input; the
+/// tar/gzip normalization is described on [`archive::build_tar_gz`],
+/// and the include / exclude policy is fixed.
 ///
 /// Rules around overwriting existing files in `output_dir`:
 /// - if the archive at the target path is byte-identical, the run

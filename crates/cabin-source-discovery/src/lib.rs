@@ -22,11 +22,8 @@
 //! - returns [`DiscoveredSourceFile`]s sorted by their absolute
 //!   path so output is byte-stable across platforms and walks.
 //!
-//! Only files whose extension matches the recognized
-//! C/C++ source or header set are returned.  The accepted set
-//! mirrors the existing classifier in `cabin-core` for sources
-//! (`.c`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.C`) and adds the
-//! conventional header extensions (`.h`, `.hh`, `.hpp`, `.hxx`).
+//! Only files whose extension matches the recognized C/C++
+//! source or header set (`RECOGNIZED_EXTENSIONS`) are returned.
 
 #![deny(missing_docs)]
 use std::collections::BTreeSet;

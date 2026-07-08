@@ -816,12 +816,10 @@ pub enum DependencySource {
     /// loader resolves the dependency to the prepared directory.
     #[serde(rename = "port")]
     Port(PortDepSource),
-    /// `dep = { workspace = true }`.  An unresolved opt-in
-    /// into the workspace's `[workspace.dependencies]` table.
-    /// `cabin-workspace::load_workspace` resolves these to a
-    /// concrete [`DependencySource::Path`] or
-    /// [`DependencySource::Version`] before producing a
-    /// `PackageGraph`.
+    /// `dep = { workspace = true }`.  An unresolved opt-in into
+    /// the workspace's `[workspace.dependencies]` table, resolved
+    /// by `load_workspace` before the `PackageGraph` is produced
+    /// (see the enum docs).
     #[serde(rename = "workspace")]
     Workspace,
 }

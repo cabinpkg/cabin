@@ -483,9 +483,7 @@ struct RawIndexFile {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawVersion {
-    /// Normal-kind dependencies.  Each entry may be a bare
-    /// requirement string (oldest shape) or a table that records
-    /// `optional` / `features` / `default-features` overrides.
+    /// Normal-kind dependencies.
     #[serde(default)]
     dependencies: BTreeMap<String, RawIndexPackageDep>,
     /// `[dev-dependencies]` of this version.
