@@ -44,6 +44,11 @@ pub struct HttpIndex {
     /// Pre-resolved `<base>/<config.packages>/`.  Used as the parent
     /// URL when resolving relative `source.path` values.
     packages_base: url::Url,
+    /// The registry's `api` base URL from `config.json`, already
+    /// validated (http(s), no userinfo) and gated on
+    /// `-Z remote-registry` by [`HttpIndexConfig::from_raw`].  `None`
+    /// when the registry declares no API origin.
+    api: Option<String>,
     client: HttpClient,
 }
 
@@ -110,8 +115,17 @@ impl HttpIndex {
         Ok(Self {
             base,
             packages_base,
+            api: config.api,
             client,
         })
+    }
+
+    /// The registry's `api` base URL from `config.json`, when
+    /// declared.  This is the origin the experimental publish / yank
+    /// routes live on; the read routes never consult it.
+    #[must_use]
+    pub fn api(&self) -> Option<&str> {
+        self.api.as_deref()
     }
 
     /// `GET <base>/<config.packages>/<name>.json` and parse the
@@ -897,6 +911,7 @@ mod tests {
         let idx = HttpIndex {
             base,
             packages_base,
+            api: None,
             client: HttpClient::new(),
         };
         let url = idx.package_url("fmt").unwrap();
@@ -1061,6 +1076,25 @@ mod tests {
             .fetch_package(&PackageName::new("fmt").unwrap())
             .unwrap();
         assert!(entry.versions.is_empty());
+        // The parsed `api` base survives onto the opened index so the
+        // publish client can find the mutation origin.
+        assert_eq!(index.api(), Some("https://dev-registry.cabinpkg.com"));
+    }
+
+    /// A registry without an `api` field opens with `api() == None`;
+    /// the publish client turns that into its own clear error.
+    #[test]
+    fn open_without_api_field_reports_none() {
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
+        let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        assert_eq!(index.api(), None);
     }
 
     /// A yanked release's dependencies are not prefetched: the
