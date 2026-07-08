@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
-use cabin_core::{Condition, DependencyKind, PackageName};
+use cabin_core::registry::{
+    REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, api_url_error, relative_subdir_is_safe,
+    remote_registry_field_error,
+};
+use cabin_core::{
+    Condition, DependencyKind, ExperimentalFeature, ExperimentalFeatures, PackageName,
+};
 use serde::Deserialize;
 
 use crate::error::IndexError;
@@ -70,7 +75,28 @@ impl std::fmt::Debug for SourceContext<'_> {
 /// registry-root `config.json` is present it propagates the config
 /// errors (`Io` / `Json` / [`IndexError::InvalidRegistryConfig`]), and
 /// it propagates any per-package parse error from `parse_package_entry`.
+///
+/// Loads with every experimental feature disabled, so a `config.json`
+/// that carries a remote-registry field (`auth-required` / `api`) is
+/// rejected.  Callers with a `-Z` surface use
+/// [`load_index_with_features`].
 pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
+    load_index_with_features(path, &ExperimentalFeatures::default())
+}
+
+/// [`load_index`] with the invocation's experimental feature set
+/// threaded through, deciding whether the remote-registry
+/// `config.json` fields (`auth-required` / `api`) are accepted.
+///
+/// # Errors
+/// Same as [`load_index`], plus
+/// [`IndexError::InvalidRegistryConfig`] when a remote-registry
+/// field is present but the `remote-registry` feature is not
+/// enabled, or when an enabled `api` value fails URL validation.
+pub fn load_index_with_features(
+    path: impl AsRef<Path>,
+    features: &ExperimentalFeatures,
+) -> Result<PackageIndex, IndexError> {
     let path = path.as_ref();
     if !path.is_dir() {
         return Err(IndexError::NotADirectory {
@@ -79,7 +105,7 @@ pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
     }
 
     let packages_dir = if path.join("config.json").is_file() {
-        load_registry_config(path)?
+        load_registry_config(path, features)?
     } else {
         path.to_path_buf()
     };
@@ -128,7 +154,10 @@ pub fn load_index(path: impl AsRef<Path>) -> Result<PackageIndex, IndexError> {
 /// Read and validate `<root>/config.json` (file-registry
 /// layout) and return the directory where package index files live
 /// (`<root>/<config.packages>`).
-fn load_registry_config(root: &Path) -> Result<PathBuf, IndexError> {
+fn load_registry_config(
+    root: &Path,
+    features: &ExperimentalFeatures,
+) -> Result<PathBuf, IndexError> {
     let config_path = root.join("config.json");
     let body = std::fs::read_to_string(&config_path).map_err(|source| IndexError::Io {
         path: config_path.clone(),
@@ -165,6 +194,31 @@ fn load_registry_config(root: &Path) -> Result<PathBuf, IndexError> {
                 raw.packages
             ),
         });
+    }
+    // The remote-registry fields are parsed unconditionally so the
+    // error can name the field, but consuming them requires the
+    // experimental client: presence without `-Z remote-registry` is
+    // a hard error, never a silent ignore.
+    let remote_registry = features.is_enabled(ExperimentalFeature::RemoteRegistry);
+    if raw.auth_required.is_some() && !remote_registry {
+        return Err(IndexError::InvalidRegistryConfig {
+            path: config_path,
+            message: remote_registry_field_error("auth-required"),
+        });
+    }
+    if let Some(api) = raw.api.as_deref() {
+        if !remote_registry {
+            return Err(IndexError::InvalidRegistryConfig {
+                path: config_path,
+                message: remote_registry_field_error("api"),
+            });
+        }
+        if let Some(message) = api_url_error(api) {
+            return Err(IndexError::InvalidRegistryConfig {
+                path: config_path,
+                message,
+            });
+        }
     }
     Ok(root.join(raw.packages))
 }
@@ -603,6 +657,31 @@ struct RawRegistryConfig {
     packages: String,
     #[serde(default, rename = "artifacts")]
     _artifacts: String,
+    /// Remote-registry field: every request to this registry must
+    /// carry `Authorization: Bearer <token>`.  `Option` so presence
+    /// (even an explicit `false`) is distinguishable from absence -
+    /// the field gates on `-Z remote-registry` by presence.  The
+    /// value itself is unused on the local read path.
+    #[serde(default, rename = "auth-required", deserialize_with = "present_field")]
+    auth_required: Option<bool>,
+    /// Remote-registry field: absolute base URL of the registry
+    /// web/API origin.  Validated (http(s), no userinfo) but unused
+    /// on the local read path.
+    #[serde(default, deserialize_with = "present_field")]
+    api: Option<String>,
+}
+
+/// Deserialize a *present* optional field as a required `T`, so an
+/// explicit `null` is a type error instead of silently reading as
+/// absent - `null` must not bypass the presence gate on the
+/// remote-registry fields.  Combined with `#[serde(default)]`, an
+/// omitted field still parses as `None`.
+fn present_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]
@@ -1206,6 +1285,140 @@ mod tests {
         dir.child("packages").create_dir_all().unwrap();
         let index = load_index(dir.path()).unwrap();
         assert!(index.packages.is_empty());
+    }
+
+    // -------------------------------------------------------------------
+    // remote-registry config fields (`auth-required` / `api`)
+    // -------------------------------------------------------------------
+
+    /// The `-Z remote-registry` feature set the gating tests load
+    /// with.
+    fn remote_registry_enabled() -> cabin_core::ExperimentalFeatures {
+        [ExperimentalFeature::RemoteRegistry].into_iter().collect()
+    }
+
+    /// Write a registry root whose `config.json` carries the given
+    /// extra JSON fields (after the four base fields) and an empty
+    /// packages directory.
+    fn write_registry_with_config_fields(dir: &TempDir, extra: &str) {
+        dir.child("config.json")
+            .write_str(&format!(
+                r#"{{
+                "schema": 1,
+                "kind": "file-registry",
+                "packages": "packages",
+                "artifacts": "artifacts"{extra}
+            }}"#
+            ))
+            .unwrap();
+        dir.child("packages").create_dir_all().unwrap();
+    }
+
+    #[test]
+    fn auth_required_without_feature_is_rejected_with_flag_hint() {
+        let dir = TempDir::new().unwrap();
+        write_registry_with_config_fields(&dir, r#", "auth-required": true"#);
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::InvalidRegistryConfig { message, .. } => assert_eq!(
+                message,
+                "`auth-required` requires the experimental remote-registry client; run with \
+                 `-Z remote-registry` to enable it"
+            ),
+            other => panic!("expected InvalidRegistryConfig, got {other:?}"),
+        }
+    }
+
+    /// Presence gates, not truth: an explicit `"auth-required":
+    /// false` is still a remote-registry field and still requires
+    /// the flag.
+    #[test]
+    fn explicit_false_auth_required_still_requires_the_feature() {
+        let dir = TempDir::new().unwrap();
+        write_registry_with_config_fields(&dir, r#", "auth-required": false"#);
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::InvalidRegistryConfig { message, .. } => {
+                assert!(message.contains("`auth-required`"), "{message}");
+            }
+            other => panic!("expected InvalidRegistryConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn api_without_feature_is_rejected_with_flag_hint() {
+        let dir = TempDir::new().unwrap();
+        write_registry_with_config_fields(&dir, r#", "api": "https://dev-registry.cabinpkg.com""#);
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::InvalidRegistryConfig { message, .. } => assert_eq!(
+                message,
+                "`api` requires the experimental remote-registry client; run with \
+                 `-Z remote-registry` to enable it"
+            ),
+            other => panic!("expected InvalidRegistryConfig, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remote_registry_fields_load_with_the_feature_enabled() {
+        let dir = TempDir::new().unwrap();
+        write_registry_with_config_fields(
+            &dir,
+            r#", "auth-required": true, "api": "https://dev-registry.cabinpkg.com""#,
+        );
+        let index = load_index_with_features(dir.path(), &remote_registry_enabled()).unwrap();
+        assert!(index.packages.is_empty());
+    }
+
+    #[test]
+    fn invalid_api_url_is_rejected_even_with_the_feature_enabled() {
+        let dir = TempDir::new().unwrap();
+        for (api, expected) in [
+            (r#""ftp://registry.example.com""#, "unsupported URL scheme"),
+            (r#""https://user:pw@example.com""#, "userinfo"),
+            (r#""registry.example.com""#, "absolute"),
+        ] {
+            write_registry_with_config_fields(&dir, &format!(r#", "api": {api}"#));
+            let err = load_index_with_features(dir.path(), &remote_registry_enabled()).unwrap_err();
+            match err {
+                IndexError::InvalidRegistryConfig { message, .. } => {
+                    assert!(message.contains(expected), "{api}: {message}");
+                    assert!(
+                        !message.contains("user:pw"),
+                        "credentials must not leak: {message}"
+                    );
+                }
+                other => panic!("expected InvalidRegistryConfig for {api}, got {other:?}"),
+            }
+        }
+    }
+
+    /// An explicit `null` is not a valid value for a remote-registry
+    /// field: it is rejected as a type error rather than silently
+    /// reading as absent, which would bypass the presence gate.
+    #[test]
+    fn null_remote_registry_field_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        for extra in [r#", "auth-required": null"#, r#", "api": null"#] {
+            write_registry_with_config_fields(&dir, extra);
+            assert!(
+                matches!(load_index(dir.path()).unwrap_err(), IndexError::Json { .. }),
+                "{extra}"
+            );
+        }
+    }
+
+    /// `deny_unknown_fields` still holds around the two recognized
+    /// remote-registry fields.
+    #[test]
+    fn unknown_config_field_is_still_rejected() {
+        let dir = TempDir::new().unwrap();
+        write_registry_with_config_fields(&dir, r#", "auth": true"#);
+        assert!(matches!(
+            load_index(dir.path()).unwrap_err(),
+            IndexError::Json { .. }
+        ));
     }
 
     // -----------------------------------------------------------------
