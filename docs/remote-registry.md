@@ -253,9 +253,12 @@ What yanking means - matching the resolver behavior in
 | `201` | Publish of a version that did not exist before. |
 | `400` | Malformed request: bad framing, invalid metadata, or an invalid JSON body. |
 | `401` | No token or an invalid token (never reveals whether the package exists). |
-| `403` | Valid token, but the scope the route requires is missing. |
+| `402` | Writes are temporarily disabled service-wide: the registry's own budget breaker tripped (the hosted service runs on a free plan and blocks itself before provider limits are hit).  Reads are unaffected.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`. |
+| `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Authenticated request for an unknown package or version. |
 | `409` | Publish of an existing version with different bytes. |
+| `413` | The uploaded archive exceeds the publisher plan's per-archive size limit (envelope code `archive_too_large`). |
+| `429` | Publish rate limit exceeded (token bucket).  Carries `Retry-After` (seconds) saying when the next publish will be accepted, and the envelope code `rate_limited`. |
 
 ## Error envelope
 
@@ -264,3 +267,22 @@ Every non-2xx response carries the same JSON envelope:
 ```json
 { "errors": [ { "detail": "authentication required" } ] }
 ```
+
+Quota, rate-limit, and budget refusals additionally carry a machine-readable `code` field:
+
+```json
+{ "errors": [ { "detail": "the plan's total package quota is exhausted", "code": "quota_packages_total" } ] }
+```
+
+Clients must ignore unknown fields in the envelope; errors without a `code` stay exactly as
+before.  The defined codes:
+
+| `code` | Status | Meaning |
+| --- | --- | --- |
+| `rate_limited` | `429` | The publish token bucket is empty; `Retry-After` says when it refills. |
+| `archive_too_large` | `413` | The archive exceeds the plan's per-archive size limit. |
+| `quota_storage` | `403` | The publish would exceed the plan's total stored-bytes quota. |
+| `quota_packages_daily` | `403` | The plan's daily new-package quota is exhausted. |
+| `quota_packages_total` | `403` | The plan's total package quota is exhausted. |
+| `quota_versions_daily` | `403` | The plan's daily per-package version quota is exhausted. |
+| `registry_over_budget` | `402` | The service-wide budget breaker has writes paused; `Retry-After` covers the next re-evaluation. |
