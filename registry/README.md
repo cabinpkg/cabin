@@ -86,14 +86,15 @@ creating each database):
 npx wrangler d1 create cabin-registry-dev
 npx wrangler r2 bucket create cabin-registry-dev-blobs
 npx wrangler d1 migrations apply DB --env dev --remote
-npx wrangler secret put GITHUB_CLIENT_ID --env dev
+npx wrangler deploy --env dev
 npx wrangler secret put GITHUB_CLIENT_SECRET --env dev
 npx wrangler secret put SESSION_SECRET --env dev
-npx wrangler deploy --env dev
 ```
 
 The secrets back the GitHub sign-in flow ("Getting a token" above):
-`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` identify the GitHub OAuth app
-(its authorization callback URL is `<origin>/callback`), and
-`SESSION_SECRET` keys the HMAC behind the state, session, and CSRF values;
-`ALLOWED_GITHUB_IDS` (plain var in `wrangler.jsonc`) limits who may sign in.
+`GITHUB_CLIENT_ID` (plain var in `wrangler.jsonc`; client ids are public) and
+`GITHUB_CLIENT_SECRET` identify the GitHub OAuth app (its authorization
+callback URL is `<origin>/callback`), and `SESSION_SECRET` keys the HMAC
+behind the state, session, and CSRF values; `ALLOWED_GITHUB_IDS` (plain var
+in `wrangler.jsonc`) limits who may sign in. See
+[`docs/runbook.md`](docs/runbook.md) for the exact procedure.
