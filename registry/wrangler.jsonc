@@ -1,0 +1,67 @@
+{
+    // Hosted registry service (see README.md). Both environments share this
+    // Worker code; always deploy with an explicit --env dev / --env production.
+    "name": "cabin-registry",
+    "main": "build/index.js",
+    "compatibility_date": "2026-07-09",
+    "workers_dev": false,
+    "build": {
+        "command": "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+    },
+    "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+    },
+    // Secrets, set per environment via `wrangler secret put <NAME> --env <env>`
+    // (never in this file): GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+    // SESSION_SECRET.
+    "env": {
+        "dev": {
+            "name": "cabin-registry-dev",
+            "routes": [
+                { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true }
+            ],
+            "vars": {
+                "REGISTRY_ORIGIN": "https://dev-registry.cabinpkg.com",
+                // Comma-separated numeric GitHub user ids allowed to sign in on
+                // the future web UI; empty means nobody. Not a secret.
+                "ALLOWED_GITHUB_IDS": ""
+            },
+            "d1_databases": [
+                {
+                    "binding": "DB",
+                    "database_name": "cabin-registry-dev",
+                    // Placeholder until `wrangler d1 create cabin-registry-dev`
+                    // (see README.md); local `wrangler dev` never contacts it.
+                    "database_id": "00000000-0000-0000-0000-000000000000",
+                    "migrations_dir": "migrations"
+                }
+            ],
+            "r2_buckets": [
+                { "binding": "BLOBS", "bucket_name": "cabin-registry-dev-blobs" }
+            ]
+        },
+        "production": {
+            "name": "cabin-registry",
+            "routes": [
+                { "pattern": "registry.cabinpkg.com", "custom_domain": true }
+            ],
+            "vars": {
+                "REGISTRY_ORIGIN": "https://registry.cabinpkg.com",
+                "ALLOWED_GITHUB_IDS": ""
+            },
+            "d1_databases": [
+                {
+                    "binding": "DB",
+                    "database_name": "cabin-registry-prod",
+                    // Placeholder until `wrangler d1 create cabin-registry-prod`.
+                    "database_id": "00000000-0000-0000-0000-000000000000",
+                    "migrations_dir": "migrations"
+                }
+            ],
+            "r2_buckets": [
+                { "binding": "BLOBS", "bucket_name": "cabin-registry-prod-blobs" }
+            ]
+        }
+    }
+}
