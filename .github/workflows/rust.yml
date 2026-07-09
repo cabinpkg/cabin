@@ -186,7 +186,17 @@ jobs:
           sudo apt-get install -y ninja-build ${{ matrix.packages }}
 
       - name: Run compiler detection and condition tests
-        run: cargo test -p cabinpkg --test cli --locked --verbose -- --show-output compiler_conditions compiler_detection
+        run: |
+          cargo test -p cabinpkg --test cli --locked --no-run
+          # Warm the freshly installed compilers right before the tests:
+          # the first-ever exec of a cold-installed clang demand-pages a
+          # huge binary from disk, and with several test threads probing
+          # `$CXX --version` at once that can exceed cabin's 10s
+          # detection deadline, flaking the clang legs with
+          # `detected: null`.
+          "$CC" --version
+          "$CXX" --version
+          cargo test -p cabinpkg --test cli --locked --verbose -- --show-output compiler_conditions compiler_detection
         env:
           RUST_BACKTRACE: "1"
 
