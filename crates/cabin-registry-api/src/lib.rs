@@ -371,7 +371,7 @@ pub enum RegistryApiError {
     )]
     MissingScope { origin: String },
 
-    #[error("package `{name}` version `{version}` was not found in the registry")]
+    #[error("`{name}@{version}` is not published on this registry")]
     NotFound { name: String, version: String },
 
     #[error(

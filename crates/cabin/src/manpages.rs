@@ -139,11 +139,12 @@ mod tests {
             .filter(|s| s.is_hide_set())
             .map(clap::Command::get_name)
             .collect();
-        // `login` / `logout` are hidden while the remote-registry
-        // client they belong to stays behind `-Z remote-registry`.
+        // `login` / `logout` / `yank` are hidden while the
+        // remote-registry client they belong to stays behind
+        // `-Z remote-registry`.
         let expected: BTreeSet<&str> = [
             "compgen", "explain", "fetch", "login", "logout", "mangen", "metadata", "package",
-            "resolve", "tree", "vendor",
+            "resolve", "tree", "vendor", "yank",
         ]
         .iter()
         .copied()

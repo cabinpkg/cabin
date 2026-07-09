@@ -1029,6 +1029,180 @@ fn publish_output_dir_without_dry_run_never_publishes_remotely() {
     }
 }
 
+// -----------------------------------------------------------------
+// cabin yank (`-Z remote-registry`)
+// -----------------------------------------------------------------
+
+/// Without `-Z remote-registry`, `cabin yank` fails with the
+/// standard experimental-feature wording before parsing the spec or
+/// touching config.
+#[test]
+fn yank_requires_the_feature() {
+    let assertion = cabin()
+        .args([
+            "yank",
+            "fmt@10.2.1",
+            "--index-url",
+            "https://registry.example.com",
+        ])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "`cabin yank` requires the experimental remote-registry client; run with \
+             `-Z remote-registry` to enable it"
+        ),
+        "expected the gated-command error in: {stderr}"
+    );
+}
+
+/// The spec is strict: a missing version, an inexact version, and a
+/// range are all rejected with a clear message before any index
+/// resolution or network work.
+#[test]
+fn yank_rejects_malformed_specs() {
+    for (spec, expected) in [
+        ("fmt", "expected `<name>@<version>`"),
+        ("fmt@banana", "is not an exact SemVer version"),
+        ("fmt@^10.0.0", "is not an exact SemVer version"),
+        ("fmt@10.2", "is not an exact SemVer version"),
+    ] {
+        let assertion = cabin()
+            .args(["-Z", "remote-registry", "yank", spec])
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(&stderr, &format!("invalid package spec `{spec}`"))
+                && flat_contains(&stderr, expected),
+            "{spec}: expected the spec-parse error in: {stderr}"
+        );
+    }
+}
+
+/// The full yank path against an `auth-required` registry: the PATCH
+/// hits the registry's `api` origin with the bearer token and the
+/// documented JSON body, and the report states the resulting state.
+/// The route only ever answers a successful call with the idempotent
+/// `200`, so this also pins the wording a no-op renders.
+#[test]
+fn yank_and_undo_patch_the_yank_route() {
+    let server = RemoteRegistryServer::start(true, true, &[200]);
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1", "--index-url"])
+        .arg(&server.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("fmt@10.2.1 is now yanked"),
+        "expected the resulting-state report in: {stdout}"
+    );
+
+    let assertion = cabin()
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "--undo",
+            "fmt@10.2.1",
+            "--index-url",
+        ])
+        .arg(&server.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("fmt@10.2.1 is no longer yanked"),
+        "expected the resulting-state report in: {stdout}"
+    );
+
+    let requests = server.puts.lock().unwrap();
+    assert_eq!(requests.len(), 2, "exactly one request per invocation");
+    for (request, expected_body) in requests.iter().zip([
+        br#"{"yanked":true}"#.as_slice(),
+        br#"{"yanked":false}"#.as_slice(),
+    ]) {
+        assert_eq!(request.method, "PATCH");
+        assert_eq!(request.path, "/api/v1/packages/fmt/10.2.1/yank");
+        assert_eq!(request.body, expected_body);
+        assert_eq!(
+            request.authorization.as_deref(),
+            Some(format!("Bearer {TEST_TOKEN}").as_str()),
+            "the yank must carry the bearer credential"
+        );
+    }
+}
+
+/// A `404` from the yank route maps to the not-published error.
+#[test]
+fn yank_maps_404_to_not_published() {
+    let server = RemoteRegistryServer::start(true, false, &[404]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "fmt@9.9.9", "--index-url"])
+        .arg(&server.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "`fmt@9.9.9` is not published on this registry"),
+        "expected the not-published error in: {stderr}"
+    );
+}
+
+/// A config-supplied local `index-path` cannot be yanked against:
+/// yanked state lives in the remote registry's index.
+#[test]
+fn yank_rejects_a_local_index_path() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str("[registry]\nindex-path = \"registry\"\n")
+        .unwrap();
+    let mut cmd = cabin();
+    super::pin_test_user_config_home_to_empty(&mut cmd);
+    let assertion = cmd
+        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1"])
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "`cabin yank` requires an HTTP registry"),
+        "expected the local-path rejection in: {stderr}"
+    );
+}
+
+/// A registry whose `config.json` lacks the `api` field cannot be
+/// yanked against; the error names the missing field and no mutation
+/// request is ever sent.
+#[test]
+fn yank_requires_the_api_url_in_the_registry_config() {
+    let server = RemoteRegistryServer::start(false, false, &[200]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1", "--index-url"])
+        .arg(&server.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "does not declare an `api` URL in its config.json"),
+        "expected the missing-api error in: {stderr}"
+    );
+    assert!(
+        server.puts.lock().unwrap().is_empty(),
+        "no mutation request may be sent without an api origin"
+    );
+}
+
 /// A config-supplied registry source is subject to
 /// `[source-replacement]` on the fetch path, so `cabin login` keys
 /// the token on the replaced origin - the one a later fetch will

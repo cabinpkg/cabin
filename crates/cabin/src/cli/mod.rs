@@ -40,6 +40,7 @@ pub(crate) mod tidy;
 pub(crate) mod tree;
 pub(crate) mod vendor;
 pub(crate) mod version;
+pub(crate) mod yank;
 
 mod build;
 mod clean;
@@ -426,6 +427,14 @@ pub(crate) enum Command {
     /// effective registry origin.
     #[command(hide = true)]
     Logout(crate::cli::login::LogoutArgs),
+    /// Yank or un-yank a published version on a remote registry.
+    ///
+    /// Requires `-Z remote-registry`.  Sets the version's yanked
+    /// flag through the registry API: a yanked version is excluded
+    /// from new resolution, but its archive stays downloadable so
+    /// existing lockfiles keep building.  `--undo` clears the flag.
+    #[command(hide = true)]
+    Yank(crate::cli::yank::YankArgs),
     /// Format codes using clang-format.
     ///
     /// Walks the workspace's C/C++ sources and rewrites
@@ -1181,6 +1190,8 @@ pub(crate) fn run(
         Command::Login(args) => crate::cli::login::login(&args, reporter, &experimental_features)
             .map(|()| ExitCode::SUCCESS),
         Command::Logout(args) => crate::cli::login::logout(&args, reporter, &experimental_features)
+            .map(|()| ExitCode::SUCCESS),
+        Command::Yank(args) => crate::cli::yank::yank(&args, reporter, &experimental_features)
             .map(|()| ExitCode::SUCCESS),
         Command::Fmt(args) => crate::cli::fmt::fmt(&args, reporter),
         Command::Tidy(args) => crate::cli::tidy::tidy(&args, reporter),

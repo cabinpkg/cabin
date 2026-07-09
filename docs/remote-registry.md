@@ -12,10 +12,9 @@ itself - accounts, token issuance, hosted storage - is not part of this reposito
 Client status today: the [`config.json` fields](#registry-configuration) below are recognized
 behind the flag (presence without `-Z remote-registry` fails the index load), client-side token
 handling is implemented - `cabin login` / `cabin logout` plus
-[authenticated reads](#client-side-token-handling) - and so is
-[publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source).  The
-yank *route* has a typed client (`cabin-registry-api`), but a `cabin yank` command has not landed
-yet.
+[authenticated reads](#client-side-token-handling) - and so are
+[publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source) and
+[yanking](#yanking-from-the-client) (`cabin yank`).
 
 ## Registry configuration
 
@@ -214,6 +213,36 @@ version's yanked state in the per-package index document:
 
 `{"yanked": false}` un-yanks.  The route is idempotent: setting the state a version already has
 succeeds with `200` and body `{"ok":true}`.
+
+### Yanking from the client
+
+`cabin yank` takes a strict `<name>@<version>` spec - an exact package name and an exact SemVer
+version, no ranges - and resolves the registry exactly like remote publish: `--index-url`, else the
+`[registry] index-url` setting in [`config.md`](config.md#registry); a local `index-path` is
+rejected, since yanked state lives in the remote registry's index.  The registry's `config.json`
+must declare the [`api`](#registry-configuration) origin the request is sent to.
+
+```console
+$ cabin -Z remote-registry yank fmt@10.2.1 --index-url https://dev-registry.cabinpkg.com
+fmt@10.2.1 is now yanked
+$ cabin -Z remote-registry yank --undo fmt@10.2.1 --index-url https://dev-registry.cabinpkg.com
+fmt@10.2.1 is no longer yanked
+```
+
+The report states the *resulting* state.  Because the route is idempotent, that wording also
+covers the no-op: yanking an already-yanked version succeeds and prints the same line.  A `404`
+reports that the version is not published on this registry; `401` / `403` follow the
+[authenticated read path's conventions](#when-the-token-is-sent).
+
+What yanking means - matching the resolver behavior in
+[`package-index.md`](package-index.md#yanked-version):
+
+- A yanked version is excluded from **new** resolution: `cabin resolve` skips it when picking
+  candidates, and if every matching version is yanked, resolution fails.
+- The artifact stays downloadable: existing lockfiles that already pin the yanked version keep
+  building.  Yanking never mutates or deletes the archive - published bytes stay immutable.
+- Unpublish / delete is deliberately not offered: removing bytes other projects may already
+  depend on breaks reproducible builds, so the strongest retraction is the yank flag.
 
 ## Status codes
 
