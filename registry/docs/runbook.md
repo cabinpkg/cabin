@@ -49,7 +49,7 @@
    ```
 
 Tokens live in the dropped database, so a wipe revokes everything; users
-re-issue tokens on the (future) web UI and `cabin login` again.
+re-issue tokens at `/me` and `cabin login` again.
 
 ## Orphaned R2 blobs
 
