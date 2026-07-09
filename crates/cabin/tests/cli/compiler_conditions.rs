@@ -50,16 +50,21 @@ fn detected_cxx(dir: &TempDir) -> (String, u64) {
         .arg(dir.path().join("cabin.toml"))
         .assert()
         .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    let output = assertion.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Detection is fail-soft in `cabin metadata`: on a probe failure it
+    // reports `detected: null` and leaves the cause as a warning on
+    // stderr, so include stderr in the panic or the cause is invisible.
+    let stderr = String::from_utf8_lossy(&output.stderr);
     let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let identity = &value["toolchain"]["detected"]["cxx"]["identity"];
     let kind = identity["kind"]
         .as_str()
-        .expect("metadata reports a detected cxx kind")
+        .unwrap_or_else(|| panic!("metadata reports a detected cxx kind; stderr: {stderr}"))
         .to_owned();
     let version = identity["version"]
         .as_str()
-        .expect("metadata reports a detected cxx version");
+        .unwrap_or_else(|| panic!("metadata reports a detected cxx version; stderr: {stderr}"));
     let major: u64 = version
         .split('.')
         .next()
