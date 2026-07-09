@@ -1,0 +1,53 @@
+name: Registry
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ "registry/**" ]
+  pull_request:
+    paths: [ "registry/**" ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: registry
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: registry
+
+      - name: Check formatting
+        run: cargo fmt --all --verbose -- --check
+
+      - name: Clippy (host)
+        run: cargo clippy --all-targets --locked --verbose -- -D warnings
+
+      - name: Clippy (wasm32)
+        run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
+
+      - name: Run host-target tests
+        run: cargo test --locked --verbose -- --show-output
+        env:
+          RUSTFLAGS: -D warnings
+
+      - name: Worker build
+        run: |
+          cargo install -q "worker-build@^0.8" --locked
+          worker-build --release
