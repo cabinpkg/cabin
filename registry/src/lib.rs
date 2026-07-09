@@ -7,11 +7,14 @@
 //! [`glue`] and [`web_glue`] only compiles for wasm32.
 
 pub mod allowlist;
+pub mod analytics;
 pub mod auth;
+pub mod breaker;
 pub mod documents;
 pub mod error;
 pub mod pages;
 pub mod publish;
+pub mod quota;
 pub mod routes;
 pub mod session;
 
