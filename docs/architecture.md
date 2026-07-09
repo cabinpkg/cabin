@@ -1479,10 +1479,10 @@ The following are *not* part of this repository today:
 - **No non-local registry control plane.** Every command that needs an index expects `--index-path
   <dir>` or `--index-url <url>`.  There is no default remote registry, and package upload over the
   network exists only behind the experimental `-Z remote-registry` client - protocol,
-  `cabin login` / `cabin logout`, authenticated reads, and `cabin publish` against an HTTP index
-  source; see [`remote-registry.md`](remote-registry.md).
-- **No account / ownership workflows.** Ownership, signing, package yanking, and restricted package
-  access are out of scope.
+  `cabin login` / `cabin logout`, authenticated reads, `cabin publish` against an HTTP index
+  source, and `cabin yank`; see [`remote-registry.md`](remote-registry.md).
+- **No account / ownership workflows.** Ownership, signing, and restricted package access are out
+  of scope.
 - **No administrative policy surfaces.**
 - **No remote / binary build cache.** The artifact cache stores source archives only.
 - **No cross-compilation.** Cabin builds only for the host platform: `[target.'cfg(...)']`

@@ -151,8 +151,8 @@ These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ sco
 - `cargo doc` - Cabin has no doc generator yet; rustdoc has no C/C++ equivalent that would justify
   the surface.
 - `cargo install` - install / prefix semantics are not designed.
-- `cargo search` / `cargo owner` / `cargo yank` - registry-server work is out of scope until a
-  Cabin registry server exists.  (`cabin login` / `cabin logout` exist behind the experimental
+- `cargo search` / `cargo owner` - registry-server work is out of scope until a Cabin registry
+  server exists.  (`cabin login` / `cabin logout` / `cabin yank` exist behind the experimental
   `-Z remote-registry` flag; see [`remote-registry.md`](remote-registry.md).)
 - `cargo rustc` / `cargo rustdoc` / `cargo fix` - Rust-specific.
 - `cargo bench` - Cabin has no benchmark target kind and no benchmark harness model.  Users who need
