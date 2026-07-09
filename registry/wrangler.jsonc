@@ -13,14 +13,23 @@
         "head_sampling_rate": 1
     },
     // Secrets, set per environment via `wrangler secret put <NAME> --env <env>`
-    // (never in this file): GITHUB_CLIENT_SECRET, SESSION_SECRET.
+    // (never in this file): GITHUB_CLIENT_SECRET, SESSION_SECRET,
+    // ANALYTICS_API_TOKEN (Account Analytics Read; the budget cron degrades
+    // gracefully without it), and optionally NOTIFY_WEBHOOK_URL (POSTed a
+    // JSON summary on service-mode changes).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
+    // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
+    // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
+    // defaults (src/breaker.rs) and only need `vars` entries to override.
     "env": {
         "dev": {
             "name": "cabin-registry-dev",
             "routes": [
                 { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true }
             ],
+            // The budget-breaker evaluation (src/glue.rs `scheduled`);
+            // ~100 invocations/day, negligible against the free limits.
+            "triggers": { "crons": ["*/15 * * * *"] },
             "vars": {
                 "REGISTRY_ORIGIN": "https://dev-registry.cabinpkg.com",
                 // Comma-separated numeric GitHub user ids allowed to sign in
@@ -30,7 +39,14 @@
                 // Client id of the dev GitHub OAuth app (callback
                 // https://dev-registry.cabinpkg.com/callback). Public, not
                 // a secret; the matching GITHUB_CLIENT_SECRET is a secret.
-                "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H"
+                "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H",
+                // Account tag for the GraphQL Analytics queries. Not a
+                // secret (it is in every dashboard URL).
+                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
+                // Dev only: no service-mode caching, so scripts/smoke.sh
+                // can flip modes via d1 execute and observe the effect
+                // immediately. Production uses the in-code 60 s TTL.
+                "SERVICE_MODE_TTL_SECS": "0"
             },
             "d1_databases": [
                 {
@@ -49,10 +65,12 @@
             "routes": [
                 { "pattern": "registry.cabinpkg.com", "custom_domain": true }
             ],
+            "triggers": { "crons": ["*/15 * * * *"] },
             "vars": {
                 "REGISTRY_ORIGIN": "https://registry.cabinpkg.com",
                 // 26405363 = ken-matsui
-                "ALLOWED_GITHUB_IDS": "26405363"
+                "ALLOWED_GITHUB_IDS": "26405363",
+                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f"
             },
             "d1_databases": [
                 {

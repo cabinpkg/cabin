@@ -4,8 +4,10 @@
 # unauthenticated 401, the unauthenticated /me -> /login redirect, and -
 # given a token - the three authenticated read routes plus the full
 # publish / yank write flow (first publish, idempotent re-publish,
-# immutability conflict, yank state transitions, artifact checksum).
-# Local-only: state lives in .wrangler/, never a deployed environment.
+# immutability conflict, yank state transitions, artifact checksum) and
+# the budget breaker (writes 402 while service_mode = writes_blocked,
+# reads unaffected). Local-only: state lives in .wrangler/, never a
+# deployed environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -215,5 +217,24 @@ got_hash="$(shasum -a 256 "$work/artifact.tar.gz" | cut -d' ' -f1)"
   || fail "artifact checksum mismatch: got $got_hash, expected $old_hash"
 grep -qF "sha256:$old_hash" "$fixture_metadata" \
   || fail "fixture metadata does not carry sha256:$old_hash"
+
+# The dev vars pin SERVICE_MODE_TTL_SECS to 0, so the running worker sees
+# the flipped mode immediately instead of after the 60 s cache TTL.
+step "writes answer 402 while writes_blocked; reads stay open"
+wrangler d1 execute DB --env dev --local --command "
+  UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
+  UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';"
+request PUT "$publish_path" "$work/publish.bin" 402
+expect_body 'registry_over_budget'
+request PATCH "$publish_path/yank" "$work/unyank.json" 402
+expect_body 'registry_over_budget'
+check "/packages/$name.json" 200
+
+step "restoring service_mode reopens writes"
+wrangler d1 execute DB --env dev --local --command "
+  UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
+  UPDATE meta SET value = '' WHERE key = 'service_mode_reason';"
+request PUT "$publish_path" "$work/publish.bin" 200
+expect_body '"no_op":true'
 
 echo "smoke OK"
