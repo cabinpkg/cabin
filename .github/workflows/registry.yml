@@ -1,11 +1,24 @@
 name: Registry
 
+# The publish-pipeline crate paths trigger the conformance job below:
+# they shape the archive + canonical-metadata bytes `cabin package`
+# emits, which the registry's publish validation must keep accepting.
 on:
   push:
     branches: [ main ]
-    paths: [ "registry/**" ]
+    paths:
+      - "registry/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+      - "crates/cabin-core/**"
   pull_request:
-    paths: [ "registry/**" ]
+    paths:
+      - "registry/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+      - "crates/cabin-core/**"
 
 permissions:
   contents: read
@@ -51,3 +64,30 @@ jobs:
         run: |
           cargo install -q "worker-build@^0.8" --locked
           worker-build --release
+
+  # Feeds archive + metadata pairs freshly produced by the in-tree cabin
+  # binary through the server's full publish validation path, so the
+  # client's canonical output and the server's schema cannot drift apart.
+  conformance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            registry
+
+      - name: Generate fixtures with the in-tree cabin
+        run: bash registry/scripts/gen-fixtures.sh "$RUNNER_TEMP/fixtures"
+
+      - name: Validate the generated fixtures against the server rules
+        working-directory: registry
+        run: cargo test --locked --verbose --test publish_validation -- --include-ignored --show-output
+        env:
+          CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
+          RUSTFLAGS: -D warnings

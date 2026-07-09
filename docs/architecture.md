@@ -1466,7 +1466,8 @@ this local-core boundary.  See [`registry-design.md`](registry-design.md) for th
 and file-registry shape this repository supports.  The *client* side of an authenticated remote
 registry - bearer-token reads, publish, yank - is an experimental track gated behind
 `-Z remote-registry` and specified in [`remote-registry.md`](remote-registry.md); the registry
-service itself stays outside this repository.
+service's hosted implementation lives under `registry/` in this repository, outside the OSS-core
+boundary.
 
 ## Scope and limitations
 

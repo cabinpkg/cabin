@@ -38,6 +38,38 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
     None
 }
 
+/// A matched write (API) route. Unlike the read routes, the `name` /
+/// `version` segments are only split here, not validated: publish
+/// validates them as part of its documented `400` sequence
+/// (`crate::publish`), and yank answers unknown pairs with an ordinary
+/// authenticated 404 straight from D1. Neither segment ever becomes a
+/// path or storage key by itself.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ApiRoute<'a> {
+    Publish { name: &'a str, version: &'a str },
+    Yank { name: &'a str, version: &'a str },
+}
+
+/// Matches `path` against the two API routes,
+/// `/api/v1/packages/<name>/<version>` and
+/// `/api/v1/packages/<name>/<version>/yank`.
+pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
+    let rest = path.strip_prefix("/api/v1/packages/")?;
+    let (name, rest) = rest.split_once('/')?;
+    let (version, is_yank) = match rest.strip_suffix("/yank") {
+        Some(version) => (version, true),
+        None => (rest, false),
+    };
+    if name.is_empty() || version.is_empty() || version.contains('/') {
+        return None;
+    }
+    Some(if is_yank {
+        ApiRoute::Yank { name, version }
+    } else {
+        ApiRoute::Publish { name, version }
+    })
+}
+
 /// Package names are restricted to `[a-z0-9_-]+` before they become path or
 /// key components.
 pub fn is_valid_name(name: &str) -> bool {
@@ -127,6 +159,50 @@ mod tests {
             "/artifacts/fmt/fmt-1.0.0%2f.tar.gz",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn matches_the_two_api_routes() {
+        assert_eq!(
+            match_api_route("/api/v1/packages/fmt/10.2.1"),
+            Some(ApiRoute::Publish {
+                name: "fmt",
+                version: "10.2.1"
+            })
+        );
+        assert_eq!(
+            match_api_route("/api/v1/packages/fmt/10.2.1/yank"),
+            Some(ApiRoute::Yank {
+                name: "fmt",
+                version: "10.2.1"
+            })
+        );
+        // Segments are split, not validated: garbage still routes and
+        // fails later with the documented status.
+        assert_eq!(
+            match_api_route("/api/v1/packages/Fmt/not-semver"),
+            Some(ApiRoute::Publish {
+                name: "Fmt",
+                version: "not-semver"
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_api_paths() {
+        for path in [
+            "/api/v1/packages",
+            "/api/v1/packages/",
+            "/api/v1/packages/fmt",
+            "/api/v1/packages/fmt/",
+            "/api/v1/packages//10.2.1",
+            "/api/v1/packages/fmt/10.2.1/extra",
+            "/api/v1/packages/fmt/10.2.1/yank/extra",
+            "/api/v1/packages/fmt//yank",
+            "/api/v2/packages/fmt/10.2.1",
+        ] {
+            assert_eq!(match_api_route(path), None, "path: {path:?}");
         }
     }
 

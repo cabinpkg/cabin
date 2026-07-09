@@ -51,6 +51,15 @@
 Tokens live in the dropped database, so a wipe revokes everything; users
 re-issue tokens on the (future) web UI and `cabin login` again.
 
+## Orphaned R2 blobs
+
+Publish writes the R2 blob before the D1 rows, so a crash between the two
+writes can leave a blob no `versions` row references. That is harmless,
+content-addressed garbage: it is unreachable through the API (artifact
+lookups go through D1), a retried publish reuses it instead of re-uploading,
+and there is deliberately no garbage collection. Ignore such blobs, or
+delete them manually from the dashboard if the storage ever bothers you.
+
 ## Logs
 
 `wrangler tail --env dev` (or the dashboard). One line per request:

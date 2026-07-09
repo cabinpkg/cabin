@@ -9,6 +9,10 @@ pub const AUTH_REQUIRED: &str = "authentication required";
 pub const NOT_FOUND: &str = "not found";
 pub const METHOD_NOT_ALLOWED: &str = "method not allowed";
 pub const INTERNAL: &str = "internal error";
+pub const PUBLISH_SCOPE_REQUIRED: &str = "the token does not have the publish scope";
+pub const YANK_SCOPE_REQUIRED: &str = "the token does not have the yank scope";
+pub const VERSION_IMMUTABLE: &str = "published versions are immutable";
+pub const INVALID_YANK_BODY: &str = r#"the yank body must be exactly {"yanked": <bool>}"#;
 
 /// Renders `detail` into the error envelope.
 pub fn envelope(detail: &str) -> String {

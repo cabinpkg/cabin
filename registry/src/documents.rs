@@ -120,6 +120,18 @@ mod tests {
     }
 
     #[test]
+    fn package_json_overrides_a_stale_stored_yanked_after_unyank() {
+        // Un-yanking only flips the row column; the stored entry still
+        // says `yanked: true` and must lose.
+        let stored = r#"{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}"#;
+        let body = package_json("fmt", &[row("1.0.0", stored, false)]).unwrap();
+        assert_eq!(
+            body,
+            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+        );
+    }
+
+    #[test]
     fn package_json_adds_yanked_when_the_stored_entry_lacks_it() {
         let body =
             package_json("fmt", &[row("1.0.0", r#"{"checksum":"sha256:aa"}"#, false)]).unwrap();
