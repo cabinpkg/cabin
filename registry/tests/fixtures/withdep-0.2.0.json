@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "name": "withdep",
+  "version": "0.2.0",
+  "dependencies": {
+    "nodep": "^0.1"
+  },
+  "language": {
+    "cxx_standard": "c++20"
+  },
+  "standards": {
+    "targets": {
+      "withdep": {
+        "interface": {
+          "c": "none",
+          "c++": {
+            "min": "c++17"
+          }
+        }
+      }
+    }
+  },
+  "yanked": false,
+  "checksum": "sha256:732e45d2cac9515dd2b116bf3ddab4d71b082d84392e71e1dc9dda57a8cf9c54",
+  "source": {
+    "type": "archive",
+    "path": "../artifacts/withdep/withdep-0.2.0.tar.gz",
+    "format": "tar.gz"
+  }
+}
