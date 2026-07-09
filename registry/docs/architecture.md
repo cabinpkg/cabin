@@ -28,20 +28,51 @@ the service.
   consistency questions. Response caching can come later at the edge if read
   volume ever warrants it.
 
-## Deny-by-default auth
+## Two credential planes
 
-Every data route - including `/config.json` - requires
-`Authorization: Bearer cabin_<base62>`. The uniform
-`401 {"errors":[{"detail":"authentication required"}]}` is emitted before any
-route matching or D1/R2 data lookup, so unauthenticated callers cannot
-distinguish existing from non-existing packages. `/healthz` is the only
-unauthenticated route.
+Authentication is split into two planes that never accept each other's
+credential.
+
+**The data plane is Bearer-only and deny-by-default.** Every data route -
+including `/config.json` - requires `Authorization: Bearer cabin_<base62>`.
+The uniform `401 {"errors":[{"detail":"authentication required"}]}` is
+emitted before any route matching or D1/R2 data lookup, so unauthenticated
+callers cannot distinguish existing from non-existing packages. `/healthz`
+is the only route outside both planes. Cookies are never read here.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
-exists only in the client's hands. Any valid, unrevoked token grants read
-access; `scopes` (a subset of `publish,yank`) gates the mutation routes.
+exists only in the client's hands (it is rendered exactly once, on the `/me`
+response that creates it). Any valid, unrevoked token grants read access;
+`scopes` (a subset of `publish,yank`) gates the mutation routes.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
+
+**The web plane is session-cookie-only.** `/login`, `/callback`, `/me`, and
+the `/me/tokens...` POSTs are the human-facing side: GitHub OAuth sign-in
+(web application flow, no extra scopes) and a server-rendered token page.
+The `Authorization` header is never read here, and the web dispatch serves
+no package data, so the data plane's uniform 401 stays intact.
+
+- Identity is the **numeric GitHub id**, never the login name (logins can
+  be renamed and reassigned); sign-in is allowed iff the id is listed in
+  `ALLOWED_GITHUB_IDS`. Adding a user later = adding their numeric id there
+  and redeploying; a malformed entry panics at parse time instead of
+  guessing. The allowlist is re-checked on every session request, so
+  removing an id locks it out immediately. Per-package ownership is
+  intentionally out of scope for now: every allowlisted user can publish
+  and yank any package.
+- The GitHub access token is used for one `/user` call and never stored.
+- Cookies (the short-lived OAuth `state` and the 8-hour session) are
+  HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
+  separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`.
+- Both POSTs require a CSRF token - an HMAC derived from the session,
+  embedded as a hidden form field and recomputed server-side - on top of
+  the `SameSite=Lax` cookie semantics.
+- HTML responses carry `Content-Security-Policy: default-src 'none';
+  style-src 'unsafe-inline'`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
+- Sessions, GitHub access tokens, and issued registry tokens are never
+  logged.
 
 ## The write path
 
@@ -85,11 +116,15 @@ output and the server's schema cannot silently drift.
 
 ## Code layout
 
-Domain logic - token hashing and scopes (`src/auth.rs`), route matching and
-path-component validation (`src/routes.rs`), document composition
-(`src/documents.rs`), the error envelope (`src/error.rs`) - compiles and
-unit-tests on the host target. The Cloudflare glue (`src/glue.rs`, wasm32
-only) is thin binding-and-I/O wiring covered by `scripts/smoke.sh`. Path
+Domain logic - token hashing, formatting, and scopes (`src/auth.rs`), route
+matching and path-component validation (`src/routes.rs`), document
+composition (`src/documents.rs`), the error envelope (`src/error.rs`),
+cookie/CSRF signing (`src/session.rs`), the sign-in allowlist
+(`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`) -
+compiles and unit-tests on the host target. The Cloudflare glue
+(`src/glue.rs` for the data plane, `src/web_glue.rs` for the web plane,
+wasm32 only) is thin binding-and-I/O wiring covered by
+`scripts/smoke.sh`. Path
 components are validated before any lookup: names are `[a-z0-9_-]+`, versions
 must look like SemVer, and anything else 404s without touching storage.
 

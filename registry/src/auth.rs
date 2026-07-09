@@ -36,12 +36,49 @@ pub fn bearer_token(header: &str) -> Option<&str> {
 /// Lowercase SHA-256 hex of the full token string - the `tokens.token_hash`
 /// column value.
 pub fn token_hash(token: &str) -> String {
-    Sha256::digest(token.as_bytes())
+    hex(&Sha256::digest(token.as_bytes()))
+}
+
+/// Lowercase hex of `bytes`.
+pub fn hex(bytes: &[u8]) -> String {
+    bytes
         .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
+        .fold(String::with_capacity(bytes.len() * 2), |mut hex, byte| {
             let _ = write!(hex, "{byte:02x}");
             hex
         })
+}
+
+/// How many CSPRNG bytes back a freshly issued token.
+pub const TOKEN_RANDOM_BYTES: usize = 32;
+
+/// Base62 digits needed for 32 bytes: `ceil(256 / log2(62))`.
+const TOKEN_BASE62_LEN: usize = 43;
+
+const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/// Formats a freshly issued token from CSPRNG bytes (the wasm glue draws
+/// them from `crypto.getRandomValues`): `cabin_` plus the fixed-width
+/// base62 rendering of the bytes as one big-endian integer, so all 256
+/// bits survive verbatim and the charset stays URL- and header-safe.
+#[allow(clippy::cast_possible_truncation)] // every div-mod quotient is < 256
+pub fn format_token(bytes: &[u8; TOKEN_RANDOM_BYTES]) -> String {
+    let mut num = *bytes;
+    let mut digits = [0u8; TOKEN_BASE62_LEN];
+    for digit in digits.iter_mut().rev() {
+        // One big-integer div-mod by 62 over the big-endian byte string.
+        let mut rem = 0u32;
+        for byte in &mut num {
+            let value = rem * 256 + u32::from(*byte);
+            *byte = (value / 62) as u8;
+            rem = value % 62;
+        }
+        *digit = BASE62[rem as usize];
+    }
+    let mut token = String::with_capacity("cabin_".len() + TOKEN_BASE62_LEN);
+    token.push_str("cabin_");
+    token.extend(digits.iter().map(|&digit| char::from(digit)));
+    token
 }
 
 /// Parses the comma-separated `tokens.scopes` column, ignoring unknown names
@@ -91,6 +128,42 @@ mod tests {
             hash.bytes()
                 .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
         );
+    }
+
+    #[test]
+    fn format_token_has_the_documented_shape() {
+        let token = format_token(&[0xA5; 32]);
+        assert_eq!(token.len(), "cabin_".len() + 43);
+        let digits = token.strip_prefix("cabin_").expect("cabin_ prefix");
+        assert!(
+            digits.bytes().all(|b| BASE62.contains(&b)),
+            "token: {token}"
+        );
+    }
+
+    #[test]
+    fn format_token_renders_known_values() {
+        // The bytes are one big-endian integer, fixed-width with leading
+        // zero digits preserved.
+        let zeros = format_token(&[0; 32]);
+        assert_eq!(zeros, format!("cabin_{}", "0".repeat(43)));
+        let mut bytes = [0u8; 32];
+        bytes[31] = 61;
+        assert_eq!(format_token(&bytes), format!("cabin_{}z", "0".repeat(42)));
+        bytes[31] = 62;
+        assert_eq!(format_token(&bytes), format!("cabin_{}10", "0".repeat(41)));
+    }
+
+    #[test]
+    fn format_token_consumes_every_input_byte() {
+        // Flipping any single byte must change the token: the whole
+        // 32-byte CSPRNG draw ends up in the rendered secret.
+        let baseline = format_token(&[0; 32]);
+        for position in 0..32 {
+            let mut bytes = [0u8; 32];
+            bytes[position] = 1;
+            assert_ne!(format_token(&bytes), baseline, "byte {position}");
+        }
     }
 
     #[test]

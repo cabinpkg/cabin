@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Smoke test against a local `wrangler dev` instance: /healthz, the uniform
-# unauthenticated 401, and - given a token - the three authenticated read
-# routes plus the full publish / yank write flow (first publish, idempotent
-# re-publish, immutability conflict, yank state transitions, artifact
-# checksum). Local-only: state lives in .wrangler/, never a deployed
-# environment.
+# unauthenticated 401, the unauthenticated /me -> /login redirect, and -
+# given a token - the three authenticated read routes plus the full
+# publish / yank write flow (first publish, idempotent re-publish,
+# immutability conflict, yank state transitions, artifact checksum).
+# Local-only: state lives in .wrangler/, never a deployed environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -139,6 +139,11 @@ expected_401='{"errors":[{"detail":"authentication required"}]}'
 [[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch: $(cat "$body")"
 check /packages/smoke.json 401
 [[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch: $(cat "$body")"
+
+step "unauthenticated /me redirects to the sign-in page"
+curl -sS -o /dev/null -D "$body" "$base/me"
+grep -q '^HTTP/[^ ]* 302' "$body" || fail "/me did not answer 302: $(head -1 "$body")"
+grep -qi '^location: /login' "$body" || fail "/me redirect is not to /login: $(cat "$body")"
 
 if [[ -z "$token" ]]; then
   step "CABIN_REGISTRY_SMOKE_TOKEN not set; skipping authenticated checks"
