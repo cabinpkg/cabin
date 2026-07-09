@@ -70,6 +70,37 @@ pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     })
 }
 
+/// A matched web (browser-plane) route. These use session-cookie auth and
+/// serve HTML; they never accept bearer tokens, and the data routes above
+/// never accept the session cookie.
+#[derive(Debug, PartialEq, Eq)]
+pub enum WebRoute<'a> {
+    Login,
+    Callback,
+    Me,
+    CreateToken,
+    RevokeToken { id: &'a str },
+}
+
+/// Matches `path` against the web routes. Token ids are validated here
+/// (`[A-Za-z0-9_-]+`) before they reach a D1 query.
+pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
+    match path {
+        "/login" => Some(WebRoute::Login),
+        "/callback" => Some(WebRoute::Callback),
+        "/me" => Some(WebRoute::Me),
+        "/me/tokens" => Some(WebRoute::CreateToken),
+        _ => {
+            let id = path.strip_prefix("/me/tokens/")?.strip_suffix("/revoke")?;
+            let valid = !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+            valid.then_some(WebRoute::RevokeToken { id })
+        }
+    }
+}
+
 /// Package names are restricted to `[a-z0-9_-]+` before they become path or
 /// key components.
 pub fn is_valid_name(name: &str) -> bool {
@@ -187,6 +218,35 @@ mod tests {
                 version: "not-semver"
             })
         );
+    }
+
+    #[test]
+    fn matches_the_web_routes() {
+        assert_eq!(match_web_route("/login"), Some(WebRoute::Login));
+        assert_eq!(match_web_route("/callback"), Some(WebRoute::Callback));
+        assert_eq!(match_web_route("/me"), Some(WebRoute::Me));
+        assert_eq!(match_web_route("/me/tokens"), Some(WebRoute::CreateToken));
+        assert_eq!(
+            match_web_route("/me/tokens/0aB_-9/revoke"),
+            Some(WebRoute::RevokeToken { id: "0aB_-9" })
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_web_paths() {
+        for path in [
+            "/",
+            "/login/",
+            "/me/",
+            "/me/tokens/",
+            "/me/tokens//revoke",
+            "/me/tokens/abc",
+            "/me/tokens/abc/revoke/extra",
+            "/me/tokens/a.b/revoke",
+            "/me/tokens/a%2f/revoke",
+        ] {
+            assert_eq!(match_web_route(path), None, "path: {path:?}");
+        }
     }
 
     #[test]
