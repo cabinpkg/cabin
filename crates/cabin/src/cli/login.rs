@@ -125,6 +125,27 @@ fn effective_registry_origin(
     features: &ExperimentalFeatures,
     command: &str,
 ) -> Result<String> {
+    let url = effective_registry_index_url(
+        cli_index_url,
+        features,
+        command,
+        "tokens only apply to `--index-url` registries",
+    )?;
+    Ok(cabin_credentials::normalize_origin(&url)?)
+}
+
+/// Resolve the HTTP index URL a remote-registry command targets:
+/// gate on `-Z remote-registry`, apply the documented index-source
+/// precedence (`--index-url`, else config, with
+/// `[source-replacement]`), and reject an absent index or a local
+/// path - `local_path_reason` finishes the local-path error with the
+/// command's own justification.
+pub(crate) fn effective_registry_index_url(
+    cli_index_url: Option<&str>,
+    features: &ExperimentalFeatures,
+    command: &str,
+    local_path_reason: &str,
+) -> Result<String> {
     if !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
         bail!(cabin_core::registry::remote_registry_field_error(command));
     }
@@ -148,11 +169,9 @@ fn effective_registry_origin(
     match resolution.resolved {
         cabin_core::SourceLocator::IndexPath { path } => bail!(
             "`{command}` requires an HTTP registry, but the effective index source is the local \
-             path `{path}`; tokens only apply to `--index-url` registries"
+             path `{path}`; {local_path_reason}"
         ),
-        cabin_core::SourceLocator::IndexUrl { url } => {
-            Ok(cabin_credentials::normalize_origin(&url)?)
-        }
+        cabin_core::SourceLocator::IndexUrl { url } => Ok(url),
     }
 }
 
