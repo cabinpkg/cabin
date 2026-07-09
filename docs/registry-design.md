@@ -100,6 +100,8 @@ domain model:
 - `cabin-registry-file` owns the local mutable file-registry layout;
 - `cabin-index-http` performs read-only HTTP fetches and hands the
   retrieved JSON to the same typed index model;
+- `cabin-registry-api` owns the experimental authenticated mutation
+  routes (publish / yank, behind `-Z remote-registry`);
 - `cabin-artifact` verifies, caches, and extracts source archives
   without knowing whether bytes came from a file or HTTP.
 
@@ -123,7 +125,14 @@ track:
   issued on the registry web UI at `<origin>/me`;
 - publishing uses `PUT /api/v1/packages/<name>/<version>` with a
   length-prefixed metadata + archive frame, and yanking uses
-  `PATCH /api/v1/packages/<name>/<version>/yank`.
+  `PATCH /api/v1/packages/<name>/<version>/yank`;
+- remote `cabin publish` (an HTTP index source without
+  `--registry-dir`) reuses the local staging pipeline byte-for-byte:
+  the same validation, the same publish lints, and the same
+  deterministic archive plus canonical per-version metadata document
+  as `cabin publish --registry-dir` - only the final write differs,
+  going through the typed `cabin-registry-api` client to the API
+  origin the registry's `config.json` declares.
 
 The registry *service* itself - accounts, token issuance, storage -
 remains outside this repository.

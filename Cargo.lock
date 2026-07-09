@@ -233,6 +233,7 @@ dependencies = [
  "cabinpkg-package",
  "cabinpkg-port",
  "cabinpkg-publish",
+ "cabinpkg-registry-api",
  "cabinpkg-resolver",
  "cabinpkg-source-discovery",
  "cabinpkg-system-deps",
@@ -529,6 +530,21 @@ dependencies = [
  "predicates",
  "semver",
  "thiserror",
+]
+
+[[package]]
+name = "cabinpkg-registry-api"
+version = "0.17.0"
+dependencies = [
+ "cabinpkg-core",
+ "cabinpkg-credentials",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tiny_http",
+ "ureq",
+ "url",
 ]
 
 [[package]]

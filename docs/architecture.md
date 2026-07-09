@@ -55,6 +55,7 @@ crates/
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
   cabin-credentials/ registry token storage (credentials.toml, -Z remote-registry)
+  cabin-registry-api/ remote registry API client (publish / yank, -Z remote-registry)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
   cabin-test/        test-target plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
@@ -338,6 +339,25 @@ normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override a
   surfacing a warning (not an error) for an existing group/world-readable file;
 - not perform HTTP; the client crates receive tokens as typed values from the orchestration layer.
 
+### `cabin-registry-api`
+
+Owns the typed HTTP client for the experimental remote-registry *mutations*
+([`remote-registry.md`](remote-registry.md)): `PUT /api/v1/packages/<name>/<version>` with the
+crates.io-style length-prefixed metadata + archive frame, and
+`PATCH /api/v1/packages/<name>/<version>/yank`.  Requests target the API origin a registry's
+`config.json` declares (`api`), carry the caller-supplied bearer token, and map the protocol's
+status codes (`200` no-op, `201` created, `400`, `401`, `403`, `404`, `409`) plus the
+`{"errors":[{"detail":"..."}]}` envelope into typed errors, degrading to the raw status when the
+envelope is malformed.  The crate must:
+
+- not stage, validate, or lint packages - it frames and ships bytes produced by `cabin-package` /
+  `cabin-publish`;
+- not implement read routes; `config.json`, package metadata, and artifact downloads stay in
+  `cabin-index-http`;
+- not resolve credentials itself - it receives an optional typed token from the orchestration
+  layer, refuses cleartext `http` beyond loopback hosts, and never follows redirects;
+- never let token bytes surface through errors or `Debug` output.
+
 ### `cabin-port`
 
 Owns the foundation-port recipe layer: parsing `port.toml`, the checksum-addressed port cache, and
@@ -363,7 +383,10 @@ deps in its validator and `cabin-publish` never archives them.  See
 
 Owns publish-workflow orchestration.  Combines `cabin-package`'s [`stage`] entry point with
 `cabin-registry-file`'s atomic writers to publish a single-package source tree into a local file
-registry.  The crate must:
+registry.  The experimental remote publish path (behind `-Z remote-registry`) reuses the same
+staging step and the shared lint seam (`staged_lint_warnings`) with a baseline fetched over the
+sparse HTTP read path; its transport lives in `cabin-registry-api` and its orchestration in
+`cabin`.  The crate must:
 
 - not implement HTTP / sparse / OCI publish;
 - not implement server-side functionality;
@@ -1315,8 +1338,9 @@ if the recorded arrays differ from the active policy.  `cabin metadata` adds two
 
 Local override policy never enters published artifacts: `cabin-package` rejects manifests with a
 non-empty `[patch]` table; `.cabin/config.toml` (which carries config patches + source replacement)
-is already in `EXCLUDED_DIR_NAMES`.  Git sources, vendoring, registry authentication, HTTP publish,
-new registry protocols, and registry-server work all remain deferred.
+is already in `EXCLUDED_DIR_NAMES`.  Git sources and registry-server work remain deferred; the
+authenticated remote-registry client - reads and publish - is an experimental track behind
+`-Z remote-registry` ([`remote-registry.md`](remote-registry.md)).
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
@@ -1453,10 +1477,10 @@ The following are *not* part of this repository today:
   [`registry-design.md`](registry-design.md).  Source registries are local file directories or
   sparse HTTP today.
 - **No non-local registry control plane.** Every command that needs an index expects `--index-path
-  <dir>` or `--index-url <url>`.  There is no default remote registry and no package upload over
-  the network.  (An experimental remote-registry *client* is being built behind
-  `-Z remote-registry` - protocol, `cabin login` / `cabin logout`, and authenticated reads; see
-  [`remote-registry.md`](remote-registry.md).)
+  <dir>` or `--index-url <url>`.  There is no default remote registry, and package upload over the
+  network exists only behind the experimental `-Z remote-registry` client - protocol,
+  `cabin login` / `cabin logout`, authenticated reads, and `cabin publish` against an HTTP index
+  source; see [`remote-registry.md`](remote-registry.md).
 - **No account / ownership workflows.** Ownership, signing, package yanking, and restricted package
   access are out of scope.
 - **No administrative policy surfaces.**

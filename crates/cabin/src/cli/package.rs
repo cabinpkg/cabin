@@ -1,7 +1,9 @@
 use super::{
-    Context, PackageArgs, PathBuf, PublishArgs, Reporter, ResolveFormat, Result, absolutise, bail,
-    resolve_invocation_manifest, select_single_package_manifest,
+    Context, PackageArgs, Path, PathBuf, PublishArgs, Reporter, ResolveFormat, Result, absolutise,
+    bail, resolve_invocation_manifest, select_single_package_manifest,
 };
+
+use cabin_core::{ExperimentalFeature, ExperimentalFeatures};
 
 pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
@@ -22,12 +24,25 @@ pub(super) fn package(args: &PackageArgs, _reporter: Reporter) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn publish(args: &PublishArgs, reporter: Reporter) -> Result<()> {
+pub(super) fn publish(
+    args: &PublishArgs,
+    reporter: Reporter,
+    features: &ExperimentalFeatures,
+) -> Result<()> {
     // `--output-dir` is for the staging-only `dist/` flow; combining
     // it with `--registry-dir` is meaningless and almost always
     // means the user picked the wrong flag, so refuse loudly.
     if args.output_dir.is_some() && args.registry_dir.is_some() {
         bail!("--output-dir is not compatible with --registry-dir; pick one");
+    }
+    // The `--index-url` flag is remote-registry surface: presence
+    // without the feature is an error even on the (entirely local)
+    // dry-run path, matching how the registry `config.json` fields
+    // gate on presence rather than being silently ignored.
+    if args.index_url.is_some() && !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
+        bail!(cabin_core::registry::remote_registry_field_error(
+            "cabin publish --index-url"
+        ));
     }
 
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
@@ -77,10 +92,207 @@ pub(super) fn publish(args: &PublishArgs, reporter: Reporter) -> Result<()> {
             emit_dry_run_output(&report, args.format, reporter)?;
         }
         (None, false) => {
-            return Err(cabin_publish::PublishError::DryRunRequired.into());
+            // `--output-dir` belongs to the dry-run staging flow.  A
+            // non-dry-run invocation must not silently ignore it -
+            // with a config-supplied `index-url` that would turn an
+            // intended local staging run into a real remote publish.
+            if args.output_dir.is_some() {
+                return Err(cabin_publish::PublishError::DryRunRequired.into());
+            }
+            // Publishing without a local registry targets the
+            // effective HTTP index source, when one is configured;
+            // anything else keeps the file-registry error path.
+            let Some(index_url) =
+                effective_publish_index_url(args.index_url.as_deref(), &manifest_path)?
+            else {
+                return Err(cabin_publish::PublishError::DryRunRequired.into());
+            };
+            if !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
+                bail!(cabin_core::registry::remote_registry_field_error(
+                    "cabin publish --index-url"
+                ));
+            }
+            let report = publish_to_remote_registry(
+                &index_url,
+                &manifest_path,
+                resolved_project,
+                &workspace_dep_requirements,
+                reporter,
+                features,
+            )?;
+            emit_remote_publish_output(&report, args.format, reporter)?;
         }
     }
     Ok(())
+}
+
+/// Resolve the index source a registry-less `cabin publish` targets:
+/// the `--index-url` flag (which skips config discovery entirely,
+/// like `cabin login`), else the config-supplied registry source,
+/// with `[source-replacement]` applied so the publish goes to the
+/// origin a later fetch would actually contact.  Returns `None` when
+/// the effective source is absent or a local path.
+fn effective_publish_index_url(
+    cli_index_url: Option<&str>,
+    manifest_path: &Path,
+) -> Result<Option<String>> {
+    let config = if cli_index_url.is_some() {
+        cabin_config::EffectiveConfig::default()
+    } else {
+        crate::cli::config::load_effective_config_for_manifest(manifest_path)?
+    };
+    let Some(source) = crate::cli::config::resolve_index_source(None, cli_index_url, &config)?
+    else {
+        return Ok(None);
+    };
+    let locator = crate::cli::config::index_source_kind_to_locator(&source.kind);
+    let resolution = crate::cli::patch::apply_source_replacement(locator, &config, false)?;
+    match resolution.resolved {
+        cabin_core::SourceLocator::IndexPath { .. } => Ok(None),
+        cabin_core::SourceLocator::IndexUrl { url } => Ok(Some(url)),
+    }
+}
+
+/// What the remote publish flow did, for the CLI report.
+struct RemotePublishReport {
+    name: cabin_core::PackageName,
+    version: semver::Version,
+    /// Normalized index origin the publish targeted.
+    registry: String,
+    checksum: String,
+    /// `true` on a `201` (version created); `false` on the
+    /// idempotent `200` no-op for byte-identical re-publishes.
+    created: bool,
+    warnings: Vec<String>,
+}
+
+/// Publish to a remote registry (`-Z remote-registry`): run the exact
+/// staging pipeline the local file-registry publish runs - same
+/// validation, same publish lints, same deterministic archive and
+/// canonical per-version metadata document - then upload the framed
+/// bytes to the API origin the registry's `config.json` declares.
+///
+/// The registry's `config.json` and the lint baseline ride the
+/// authenticated sparse-HTTP read path; the upload itself goes
+/// through `cabin-registry-api` with the same credential.
+fn publish_to_remote_registry(
+    index_url: &str,
+    manifest_path: &Path,
+    resolved_project: Option<cabin_core::Package>,
+    workspace_dep_requirements: &cabin_core::WorkspaceDepRequirements,
+    reporter: Reporter,
+    features: &ExperimentalFeatures,
+) -> Result<RemotePublishReport> {
+    // Stage before touching the network so validation failures never
+    // need a connection.
+    let staged = cabin_package::stage_with_project(
+        manifest_path,
+        resolved_project,
+        None,
+        workspace_dep_requirements,
+    )?;
+
+    // One credential lookup serves the reads and the API call alike.
+    let origin = cabin_credentials::normalize_origin(index_url)?;
+    let lookup = cabin_credentials::lookup_token(&origin)?;
+    if let Some(warning) = lookup.permissions_warning {
+        reporter.warning(format_args!("{warning}"));
+    }
+    let token = lookup.token;
+    let mut client = cabin_index_http::HttpClient::new();
+    if let Some(token) = token.clone() {
+        client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
+            index_url, token,
+        )?);
+    }
+    let index = cabin_index_http::HttpIndex::open_with_features(index_url, client, features)?;
+    let Some(api) = index.api() else {
+        bail!(
+            "registry `{origin}` does not declare an `api` URL in its config.json; publishing \
+             needs one to locate the registry API origin"
+        );
+    };
+
+    // The PL3 baseline is the registry's own view of the already-
+    // published versions; a package the registry does not know yet
+    // simply has an empty baseline (first publish).
+    let published = match index.fetch_package(&staged.name) {
+        Ok(entry) => entry
+            .versions
+            .into_iter()
+            .map(|(version, meta)| (version, meta.standards))
+            .collect(),
+        Err(cabin_index_http::IndexHttpError::PackageNotFound { .. }) => Vec::new(),
+        Err(err) => return Err(err.into()),
+    };
+    let warnings = cabin_publish::staged_lint_warnings(&staged, &published)?;
+
+    let metadata_json = cabin_package::metadata::render_canonical_json(&staged.metadata)?;
+    let api_client = cabin_registry_api::RegistryApi::new(api, token)?;
+    let outcome = api_client.publish(
+        staged.name.as_str(),
+        &staged.version,
+        metadata_json.as_bytes(),
+        &staged.archive_bytes,
+    )?;
+    Ok(RemotePublishReport {
+        name: staged.name,
+        version: staged.version,
+        registry: origin,
+        checksum: staged.checksum,
+        created: matches!(outcome, cabin_registry_api::PublishOutcome::Created),
+        warnings,
+    })
+}
+
+fn emit_remote_publish_output(
+    report: &RemotePublishReport,
+    format: ResolveFormat,
+    reporter: Reporter,
+) -> Result<()> {
+    match format {
+        ResolveFormat::Human => {
+            print_remote_publish_human(report);
+            print_lint_warnings(reporter, &report.warnings);
+            Ok(())
+        }
+        ResolveFormat::Json => print_remote_publish_json(report),
+    }
+}
+
+fn print_remote_publish_human(report: &RemotePublishReport) {
+    if report.created {
+        println!(
+            "Published {} {} to {}",
+            report.name.as_str(),
+            report.version,
+            report.registry
+        );
+    } else {
+        // Mirror the local flows' "re-running with identical input
+        // succeeds" semantics: the bytes are already there, so the
+        // run reports the no-op and exits successfully.
+        println!(
+            "{} {} is already published to {} with identical bytes; nothing to do",
+            report.name.as_str(),
+            report.version,
+            report.registry
+        );
+    }
+    println!("  checksum: {}", report.checksum);
+}
+
+fn print_remote_publish_json(report: &RemotePublishReport) -> Result<()> {
+    let value = serde_json::json!({
+        "published": true,
+        "no_op": !report.created,
+        "name": report.name.as_str(),
+        "version": report.version.to_string(),
+        "registry": report.registry,
+        "checksum": report.checksum,
+        "warnings": report.warnings,
+    });
+    crate::print_pretty_json(&value, "failed to serialize publish output as JSON")
 }
 
 pub(super) fn emit_package_output(
