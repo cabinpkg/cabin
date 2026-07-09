@@ -8,6 +8,7 @@
 pub mod auth;
 pub mod documents;
 pub mod error;
+pub mod publish;
 pub mod routes;
 
 #[cfg(target_arch = "wasm32")]
