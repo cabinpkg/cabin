@@ -13,7 +13,8 @@ use crate::auth::{self, AuthContext, Scope};
 use crate::documents::{self, VersionRow};
 use crate::error;
 use crate::publish;
-use crate::routes::{ApiRoute, Route, match_api_route, match_route};
+use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
+use crate::web_glue;
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -93,6 +94,15 @@ async fn handle(
     // The only unauthenticated route; 200 with no body.
     if path == "/healthz" {
         return Ok((Response::empty()?, None));
+    }
+
+    // The browser plane: GitHub sign-in and the /me token page use
+    // session-cookie auth (`crate::web_glue`) and never bearer tokens; the
+    // data routes below never accept the session cookie. Web paths serve
+    // no package data, so dispatching them before the bearer gate keeps
+    // the data plane's uniform 401 intact.
+    if let Some(web_route) = match_web_route(&path) {
+        return Ok((web_glue::respond(req, env, web_route).await?, None));
     }
 
     // Deny by default: the uniform 401 is emitted before any route matching
@@ -456,7 +466,7 @@ fn error_response(status: u16, detail: &str) -> worker::Result<Response> {
     Ok(response)
 }
 
-fn now_iso8601() -> String {
+pub(crate) fn now_iso8601() -> String {
     worker::js_sys::Date::new_0()
         .to_iso_string()
         .as_string()

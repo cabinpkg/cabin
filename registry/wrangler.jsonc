@@ -23,9 +23,10 @@
             ],
             "vars": {
                 "REGISTRY_ORIGIN": "https://dev-registry.cabinpkg.com",
-                // Comma-separated numeric GitHub user ids allowed to sign in on
-                // the future web UI; empty means nobody. Not a secret.
-                "ALLOWED_GITHUB_IDS": ""
+                // Comma-separated numeric GitHub user ids allowed to sign in
+                // at /me; empty means nobody. Not a secret.
+                // 26405363 = ken-matsui
+                "ALLOWED_GITHUB_IDS": "26405363"
             },
             "d1_databases": [
                 {
@@ -48,7 +49,8 @@
             ],
             "vars": {
                 "REGISTRY_ORIGIN": "https://registry.cabinpkg.com",
-                "ALLOWED_GITHUB_IDS": ""
+                // 26405363 = ken-matsui
+                "ALLOWED_GITHUB_IDS": "26405363"
             },
             "d1_databases": [
                 {

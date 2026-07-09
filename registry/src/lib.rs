@@ -4,7 +4,7 @@
 //! Domain logic (token hashing, route validation, document composition, the
 //! error envelope, cookie signing, HTML rendering) lives in modules that
 //! compile and unit-test on the host target; the Cloudflare-specific glue in
-//! [`glue`] only compiles for wasm32.
+//! [`glue`] and [`web_glue`] only compiles for wasm32.
 
 pub mod allowlist;
 pub mod auth;
@@ -17,3 +17,5 @@ pub mod session;
 
 #[cfg(target_arch = "wasm32")]
 mod glue;
+#[cfg(target_arch = "wasm32")]
+mod web_glue;
