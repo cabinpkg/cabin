@@ -13,8 +13,8 @@
         "head_sampling_rate": 1
     },
     // Secrets, set per environment via `wrangler secret put <NAME> --env <env>`
-    // (never in this file): GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
-    // SESSION_SECRET.
+    // (never in this file): GITHUB_CLIENT_SECRET, SESSION_SECRET.
+    // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     "env": {
         "dev": {
             "name": "cabin-registry-dev",
@@ -26,15 +26,17 @@
                 // Comma-separated numeric GitHub user ids allowed to sign in
                 // at /me; empty means nobody. Not a secret.
                 // 26405363 = ken-matsui
-                "ALLOWED_GITHUB_IDS": "26405363"
+                "ALLOWED_GITHUB_IDS": "26405363",
+                // Client id of the dev GitHub OAuth app (callback
+                // https://dev-registry.cabinpkg.com/callback). Public, not
+                // a secret; the matching GITHUB_CLIENT_SECRET is a secret.
+                "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H"
             },
             "d1_databases": [
                 {
                     "binding": "DB",
                     "database_name": "cabin-registry-dev",
-                    // Placeholder until `wrangler d1 create cabin-registry-dev`
-                    // (see README.md); local `wrangler dev` never contacts it.
-                    "database_id": "00000000-0000-0000-0000-000000000000",
+                    "database_id": "c0e6469d-37bf-47be-aed0-15abf16eb867",
                     "migrations_dir": "migrations"
                 }
             ],
