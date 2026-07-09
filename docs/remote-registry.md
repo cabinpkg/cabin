@@ -6,8 +6,9 @@
 
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
-itself - accounts, token issuance, hosted storage - is not part of this repository; see
-[`registry-design.md`](registry-design.md).
+itself - accounts, token issuance, hosted storage - is not part of the Cabin crates; its hosted
+implementation lives under `registry/` in this repository, outside the OSS core boundary
+described in [`registry-design.md`](registry-design.md).
 
 Client status today: the [`config.json` fields](#registry-configuration) below are recognized
 behind the flag (presence without `-Z remote-registry` fails the index load), client-side token

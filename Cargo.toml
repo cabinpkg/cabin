@@ -34,6 +34,9 @@ members = [
   "crates/cabin-workspace",
 ]
 default-members = ["crates/cabin"]
+# The hosted registry service is a standalone wasm32-targeted workspace
+# (registry/Cargo.toml); host-side builds and tests never touch it.
+exclude = ["registry"]
 
 [workspace.package]
 version = "0.17.0"

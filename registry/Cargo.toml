@@ -1,0 +1,27 @@
+[package]
+name = "cabin-registry-worker"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/cabinpkg/cabin"
+description = "Hosted sparse HTTP registry service for Cabin, as a Cloudflare Worker."
+publish = false
+
+# Standalone workspace: keeps the wasm32-targeted dependency tree and its
+# lockfile out of the root Cargo workspace (see docs/architecture.md).
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+worker = { version = "0.8", features = ["d1"] }
+
+[lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
