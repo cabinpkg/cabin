@@ -49,7 +49,10 @@ struct PackageDoc<'a> {
 }
 
 /// Composes `packages/<name>.json` from the stored canonical version
-/// entries, with each entry's `yanked` field overwritten from its row so the
+/// entries. The canonical document's `schema` / `name` / `version` envelope
+/// is stripped - those are document-level fields, and the client's index
+/// parser rejects unknown fields in version entries (`package-index.md`) -
+/// and each entry's `yanked` field is overwritten from its row so the
 /// document always reflects current D1 state. Deterministic: versions are
 /// emitted in lexicographic order.
 ///
@@ -78,6 +81,11 @@ pub fn package_json(name: &str, rows: &[VersionRow]) -> Result<String, String> {
                 row.version
             ));
         };
+        for envelope in ["schema", "name", "version"] {
+            // shift_remove: plain `remove` is a swap_remove under
+            // `preserve_order` and would scramble the entry's key order.
+            fields.shift_remove(envelope);
+        }
         fields.insert("yanked".to_owned(), Value::Bool(row.yanked));
         versions.insert(row.version.clone(), entry);
     }
@@ -128,6 +136,20 @@ mod tests {
         assert_eq!(
             body,
             r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+        );
+    }
+
+    #[test]
+    fn package_json_strips_the_canonical_envelope_from_stored_entries() {
+        // Publish stores the canonical per-version document verbatim, so
+        // stored entries carry the `schema`/`name`/`version` envelope; the
+        // served version entry must not (the client's index parser rejects
+        // unknown fields in version entries).
+        let stored = r#"{"schema":1,"name":"fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../artifacts/fmt/fmt-1.0.0.tar.gz","format":"tar.gz"}}"#;
+        let body = package_json("fmt", &[row("1.0.0", stored, false)]).unwrap();
+        assert_eq!(
+            body,
+            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../artifacts/fmt/fmt-1.0.0.tar.gz","format":"tar.gz"}}}}"#
         );
     }
 
