@@ -129,6 +129,9 @@ pub enum SessionRoute<'a> {
     User,
     /// `GET /api/v1/user/usage`: usage and quotas.
     Usage,
+    /// `GET /api/v1/user/packages`: the user's packages and the
+    /// verification/yanked state of every version.
+    Packages,
     /// `GET` lists tokens, `POST` creates one.
     Tokens,
     /// `POST /api/v1/user/tokens/<id>/revoke`.
@@ -141,6 +144,7 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
     match path {
         "/api/v1/user" => Some(SessionRoute::User),
         "/api/v1/user/usage" => Some(SessionRoute::Usage),
+        "/api/v1/user/packages" => Some(SessionRoute::Packages),
         "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         _ => {
             let id = path
@@ -345,6 +349,10 @@ mod tests {
             Some(SessionRoute::Usage)
         );
         assert_eq!(
+            match_session_route("/api/v1/user/packages"),
+            Some(SessionRoute::Packages)
+        );
+        assert_eq!(
             match_session_route("/api/v1/user/tokens"),
             Some(SessionRoute::Tokens)
         );
@@ -365,6 +373,8 @@ mod tests {
             "/api/v1/user/tokens/abc/revoke/extra",
             "/api/v1/user/tokens/a.b/revoke",
             "/api/v1/user/tokens/a%2f/revoke",
+            "/api/v1/user/packages/",
+            "/api/v1/user/packages/fmt",
             "/api/v1/users",
         ] {
             assert_eq!(match_session_route(path), None, "path: {path:?}");

@@ -47,7 +47,7 @@ which routes and which credential exist where:
 | `/healthz` | 200, unauthenticated | - |
 | `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
-| `/api/v1/user`, `/api/v1/user/usage`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/user`, `/api/v1/user/{usage,packages}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
 
@@ -95,6 +95,9 @@ the JSON user API the website frontend consumes:
 - `GET /api/v1/user/usage` -> plan, package count, stored bytes (rejected
   versions excluded - their bytes were refunded), today's publishes,
   per-status version counts, and the plan's quotas;
+- `GET /api/v1/user/packages` -> the packages the user created, each
+  version carrying its verification state and yanked flag (the
+  dashboard's package list);
 - `GET /api/v1/user/tokens` -> token metadata (never hashes);
 - `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
   repeated scopes refused) -> `201` with the plaintext token, exactly once;

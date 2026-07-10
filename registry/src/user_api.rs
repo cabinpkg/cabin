@@ -57,6 +57,43 @@ pub fn usage_json(usage: &UsageInfo) -> String {
     .to_string()
 }
 
+/// One version row of one of the user's packages, as
+/// `GET /api/v1/user/packages` serves it.
+pub struct PackageVersionRow {
+    pub name: String,
+    pub version: String,
+    /// The verification lifecycle state: `pending`, `verified`, or
+    /// `rejected`.
+    pub verification: String,
+    pub yanked: bool,
+    pub published_at: String,
+}
+
+/// `GET /api/v1/user/packages`: the user's packages with every version's
+/// verification and yanked state. `rows` arrive already ordered (name,
+/// then newest first) and are grouped by name preserving that order, so
+/// the output is deterministic.
+pub fn packages_json(rows: &[PackageVersionRow]) -> String {
+    let mut groups: Vec<(&str, Vec<serde_json::Value>)> = Vec::new();
+    for row in rows {
+        let version = serde_json::json!({
+            "version": row.version,
+            "verification": row.verification,
+            "yanked": row.yanked,
+            "published_at": row.published_at,
+        });
+        match groups.last_mut() {
+            Some((name, versions)) if *name == row.name => versions.push(version),
+            _ => groups.push((&row.name, vec![version])),
+        }
+    }
+    let packages: Vec<serde_json::Value> = groups
+        .into_iter()
+        .map(|(name, versions)| serde_json::json!({ "name": name, "versions": versions }))
+        .collect();
+    serde_json::json!({ "packages": packages }).to_string()
+}
+
 /// One token row, as the listing serves it: metadata only, never the
 /// token or its hash (the plaintext exists once, on the create response).
 pub struct TokenRow {
@@ -192,6 +229,31 @@ mod tests {
             usage_json(&usage),
             r#"{"plan":"free","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":268435456,"max_new_packages_per_day":5,"max_packages_total":50,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
         );
+    }
+
+    #[test]
+    fn packages_json_groups_adjacent_rows_by_name() {
+        let row = |name: &str, version: &str, verification: &str, yanked: bool| PackageVersionRow {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            verification: verification.to_owned(),
+            yanked,
+            published_at: "2026-07-10T00:00:00.000Z".to_owned(),
+        };
+        let rows = [
+            row("fmt", "10.2.1", "verified", false),
+            row("fmt", "10.2.0", "rejected", true),
+            row("zlib", "1.3.1", "pending", false),
+        ];
+        assert_eq!(
+            packages_json(&rows),
+            r#"{"packages":[{"name":"fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]}]}"#
+        );
+    }
+
+    #[test]
+    fn packages_json_renders_no_packages_as_an_empty_list() {
+        assert_eq!(packages_json(&[]), r#"{"packages":[]}"#);
     }
 
     #[test]
