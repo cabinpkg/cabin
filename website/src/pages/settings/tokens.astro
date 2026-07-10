@@ -1,0 +1,171 @@
+---
+// Registry API tokens: list, create (the plaintext is shown exactly once,
+// on this page, and only until dismissed - it is never stored anywhere),
+// and revoke. This URL is also what the Bearer plane's WWW-Authenticate
+// challenge points `cabin login` users at.
+import AccountShell from "../../components/account/AccountShell.astro";
+import SettingsNav from "../../components/account/SettingsNav.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { TOKEN_SCOPES } from "../../lib/account.ts";
+import Badge from "../../components/ui/Badge.astro";
+import Button from "../../components/ui/Button.astro";
+
+const SCOPE_HELP: Record<(typeof TOKEN_SCOPES)[number], string> = {
+    publish: "publish new versions",
+    yank: "yank and un-yank published versions",
+    verify: "run the external verifier (admin plane)",
+};
+
+const inputClass =
+    "h-10 w-full rounded-sm border border-line bg-night-raised px-3.5 " +
+    "font-mono text-sm text-ink placeholder:text-ink-faint " +
+    "transition-colors focus:border-steel focus:outline-none";
+---
+
+<BaseLayout
+    title="API tokens"
+    description="Manage the tokens cabin uses to talk to the registry."
+    canonicalPath="/settings/tokens"
+    contentClass="container-shell max-w-4xl py-10"
+>
+    <SettingsNav current="tokens" />
+    <AccountShell title="API tokens">
+        <section class="mb-10" aria-labelledby="create-heading">
+            <h2 id="create-heading" class="spec-label mb-4">Create a token</h2>
+            <form
+                class="rounded-md border border-line bg-night-raised p-5"
+                data-token-create
+            >
+                <label class="mb-2 block text-sm font-semibold" for="token-name">
+                    Name
+                </label>
+                <input
+                    id="token-name"
+                    name="name"
+                    type="text"
+                    required
+                    maxlength="64"
+                    autocomplete="off"
+                    placeholder="e.g. laptop, ci"
+                    class={inputClass}
+                />
+                <fieldset class="mt-5">
+                    <legend class="mb-2 text-sm font-semibold">Scopes</legend>
+                    <div class="space-y-2">
+                        {
+                            TOKEN_SCOPES.map((scope) => (
+                                <label class="flex items-center gap-3 text-sm">
+                                    <input
+                                        type="checkbox"
+                                        name="scopes"
+                                        value={scope}
+                                        class="h-4 w-4 accent-steel"
+                                    />
+                                    <code class="font-mono text-ink">
+                                        {scope}
+                                    </code>
+                                    <span class="text-ink-faint">
+                                        {SCOPE_HELP[scope]}
+                                    </span>
+                                </label>
+                            ))
+                        }
+                    </div>
+                </fieldset>
+                <p
+                    class="mt-4 rounded-sm border border-steel/35 bg-steel/10 px-4 py-3 text-sm"
+                    role="alert"
+                    data-create-notice
+                    hidden
+                >
+                </p>
+                <div class="mt-5">
+                    <Button type="submit" data-token-submit>Create token</Button>
+                </div>
+            </form>
+        </section>
+
+        <section
+            class="mb-10 rounded-md border border-steel/35 bg-steel/10 p-5"
+            data-created-panel
+            hidden
+        >
+            <h2 class="spec-label mb-2">Your new token</h2>
+            <p class="mb-4 text-sm text-ink-muted">
+                Copy it now &mdash; it won't be shown again. Dismissing this
+                panel discards it for good.
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
+                <code
+                    class="min-w-0 break-all rounded-sm border border-line bg-night px-3 py-2 font-mono text-sm"
+                    data-created-token
+                >
+                </code>
+                <Button type="button" variant="secondary" data-copy-token>
+                    Copy
+                </Button>
+                <Button type="button" variant="ghost" data-dismiss-token>
+                    Dismiss
+                </Button>
+            </div>
+        </section>
+
+        <section aria-labelledby="tokens-heading">
+            <h2 id="tokens-heading" class="spec-label mb-4">Tokens</h2>
+            <p
+                class="mb-4 rounded-sm border border-steel/35 bg-steel/10 px-4 py-3 text-sm"
+                role="alert"
+                data-tokens-notice
+                hidden
+            >
+            </p>
+            <p class="text-ink-muted" data-tokens-empty hidden>
+                You haven't created any tokens yet.
+            </p>
+            <div
+                class="overflow-x-auto rounded-md border border-line bg-night-raised"
+                data-tokens-table
+                hidden
+            >
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="spec-label">
+                            <th class="px-5 py-3 font-medium">Name</th>
+                            <th class="px-5 py-3 font-medium">Scopes</th>
+                            <th class="px-5 py-3 font-medium">Created</th>
+                            <th class="px-5 py-3 font-medium">Last used</th>
+                            <th class="px-5 py-3"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody data-token-rows></tbody>
+                </table>
+            </div>
+        </section>
+
+        <template id="token-row-template">
+            <tr class="border-t border-line">
+                <td class="px-5 py-3 font-medium" data-slot="name"></td>
+                <td
+                    class="px-5 py-3 font-mono text-xs text-ink-muted"
+                    data-slot="scopes"
+                >
+                </td>
+                <td class="px-5 py-3 text-ink-faint" data-slot="created"></td>
+                <td class="px-5 py-3 text-ink-faint" data-slot="last-used"></td>
+                <td class="px-5 py-3 text-right">
+                    <Badge tone="muted" data-slot="revoked" hidden>revoked</Badge>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        class="px-2.5 py-1.5 text-xs"
+                        data-slot="revoke"
+                        hidden
+                    >
+                        Revoke
+                    </Button>
+                </td>
+            </tr>
+        </template>
+    </AccountShell>
+    <script src="../../scripts/tokens.ts"></script>
+</BaseLayout>

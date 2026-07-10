@@ -1,0 +1,32 @@
+---
+// The settings pages' section switcher. Static links: they render (and
+// navigate) with or without a session - each page handles its own
+// signed-out state.
+import { ACCOUNT_URLS } from "../../lib/constants";
+import Button from "../ui/Button.astro";
+
+interface Props {
+    current: "tokens" | "profile";
+}
+
+const { current } = Astro.props;
+
+const tabs = [
+    { key: "tokens", label: "API tokens", href: ACCOUNT_URLS.tokens },
+    { key: "profile", label: "Profile", href: ACCOUNT_URLS.profile },
+] as const;
+---
+
+<nav class="mb-6 flex items-center gap-2" aria-label="Settings sections">
+    {
+        tabs.map((tab) => (
+            <Button
+                href={tab.href}
+                variant={tab.key === current ? "secondary" : "ghost"}
+                aria-current={tab.key === current ? "page" : undefined}
+            >
+                {tab.label}
+            </Button>
+        ))
+    }
+</nav>

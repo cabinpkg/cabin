@@ -7,6 +7,20 @@ export function formatEdition(edition: unknown): string {
     return value === "" ? "" : `C++${value.slice(-2)}`;
 }
 
+export function formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return "";
+    }
+    const units = ["B", "KiB", "MiB", "GiB"];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${unit === 0 ? String(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
 export function formatRelativeTime(value: unknown): string {
     const time = Date.parse(stringifyValue(value));
     if (!Number.isFinite(time)) {
