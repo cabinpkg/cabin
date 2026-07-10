@@ -134,7 +134,7 @@ async fn handle(
         Method::Put => match match_api_route(&path) {
             Some(ApiRoute::Publish { name, version }) => {
                 let (name, version) = (name.to_owned(), version.to_owned());
-                publish_response(req, env, &db, &auth, &name, &version).await?
+                publish_response(req, env, ctx, &db, &auth, &name, &version).await?
             }
             Some(ApiRoute::Yank { .. }) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
@@ -257,6 +257,7 @@ async fn package_response(db: &D1Database, name: &str) -> worker::Result<Respons
 async fn publish_response(
     req: &mut Request,
     env: &Env,
+    ctx: &Context,
     db: &D1Database,
     auth: &AuthContext,
     name: &str,
@@ -305,6 +306,16 @@ async fn publish_response(
     };
 
     if let Some(response) = existing_version_response(db, name, version, metadata_text).await? {
+        // The idempotent no-op (200) is a retry of a committed publish;
+        // if the original isolate died before its replication ran (and
+        // before any failure row was recorded), this is the retry's one
+        // chance to heal the backup copy - head-first, so the common
+        // already-replicated case costs a single head. The 409 arm gets
+        // no copy: its uploaded bytes were rejected.
+        if response.status_code() == 200 {
+            let key = format!("blobs/sha256/{computed_hex}");
+            replicate_blob(env, ctx, &key, frame.archive);
+        }
         return Ok(response);
     }
 
@@ -335,6 +346,7 @@ async fn publish_response(
 
     persist_new_version(
         env,
+        ctx,
         db,
         &NewVersion {
             name,
@@ -527,9 +539,12 @@ struct NewVersion<'a> {
 /// already uploaded but never counted - still accounts for it, a second
 /// name sharing the blob never double-counts it, and two concurrent
 /// first publishes of the same archive serialize on the transaction so
-/// exactly one of them counts it.
+/// exactly one of them counts it. Once the batch commits, the blob is
+/// replicated to the BACKUP bucket off the response path
+/// ([`replicate_blob`]).
 async fn persist_new_version(
     env: &Env,
+    ctx: &Context,
     db: &D1Database,
     new: &NewVersion<'_>,
 ) -> worker::Result<()> {
@@ -584,7 +599,63 @@ async fn persist_new_version(
         ])?,
     ])
     .await?;
+
+    replicate_blob(env, ctx, &key, new.archive);
     Ok(())
+}
+
+/// Best-effort blob replication to the BACKUP bucket, scheduled off the
+/// response path once the D1 batch has committed - and again on the
+/// idempotent re-publish no-op, so a retry of a publish whose isolate
+/// died before replicating heals the gap - which keeps every logged
+/// failure referring to a referenced blob. Nothing ever deletes from BACKUP
+/// here or anywhere else in the service - the primary's reclaim paths do
+/// not propagate - so the backup is append-only. The head-first copy
+/// also self-heals a blob a crashed earlier publish never replicated. A
+/// failed copy is logged with its key and recorded in
+/// `backup_replication_failures` for `scripts/backup-backfill.sh` to
+/// re-run; the breaker cron alerts while such rows exist.
+fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
+    let (Ok(backup), Ok(db)) = (env.bucket("BACKUP"), env.d1("DB")) else {
+        console_error!("backup replication for {key}: BACKUP or DB binding is missing");
+        return;
+    };
+    let key = key.to_owned();
+    let archive = archive.to_vec();
+    ctx.wait_until(async move {
+        let outcome = match backup.head(&key).await {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => backup.put(&key, archive).execute().await.map(|_| ()),
+            Err(err) => Err(err),
+        };
+        let bookkeeping = match outcome {
+            Ok(()) => db
+                .prepare("DELETE FROM backup_replication_failures WHERE key = ?1")
+                .bind(&[key.clone().into()]),
+            Err(err) => {
+                console_error!(
+                    "backup replication failed for {key}: {err}; \
+                     recorded for scripts/backup-backfill.sh"
+                );
+                db.prepare(
+                    "INSERT INTO backup_replication_failures (key, failed_at) \
+                     VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET \
+                     failed_at = excluded.failed_at",
+                )
+                .bind(&[key.clone().into(), now_iso8601().into()])
+            }
+        };
+        match bookkeeping {
+            Ok(statement) => {
+                if statement.run().await.is_err() {
+                    console_error!("backup replication bookkeeping for {key} failed");
+                }
+            }
+            Err(_) => {
+                console_error!("backup replication bookkeeping for {key} could not be prepared");
+            }
+        }
+    });
 }
 
 /// Idempotency and immutability for an already-published `(name,

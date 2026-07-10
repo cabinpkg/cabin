@@ -52,7 +52,11 @@ pub const OVER_BUDGET_RETRY_AFTER_SECS: u64 = 900;
 /// per environment via the same-named env vars.
 #[derive(Debug, Clone, Copy)]
 pub struct Budgets {
-    /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GiB-month.
+    /// `BUDGET_R2_STORAGE_BYTES`; free limit 10 GiB-month across the
+    /// account. The metric counts primary (BLOBS) bytes only, but
+    /// publish-time replication stores every blob a second time in
+    /// BACKUP and the nightly D1 dumps add metadata copies there, so
+    /// the default budget stays under half the free limit.
     pub r2_storage_bytes: u64,
     /// `BUDGET_R2_CLASS_A_MONTH`; free limit 1 million/month.
     pub r2_class_a_month: u64,
@@ -65,7 +69,7 @@ pub struct Budgets {
 impl Default for Budgets {
     fn default() -> Self {
         Budgets {
-            r2_storage_bytes: 9 * 1024 * 1024 * 1024,
+            r2_storage_bytes: 4 * 1024 * 1024 * 1024,
             r2_class_a_month: 800_000,
             workers_requests_day: 80_000,
             d1_rows_read_day: 4_000_000,
