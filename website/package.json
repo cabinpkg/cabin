@@ -3,7 +3,7 @@
     "version": "0.0.0",
     "private": true,
     "engines": {
-        "node": ">=22"
+        "node": ">=22.18"
     },
     "type": "module",
     "scripts": {
@@ -11,6 +11,7 @@
         "build": "yarn typecheck && astro build && yarn verify",
         "preview": "astro preview",
         "lint": "biome check .",
+        "test": "node --test \"src/**/*.test.ts\"",
         "typecheck": "astro check",
         "verify": "yarn verify:csp && yarn verify:docs-links",
         "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
