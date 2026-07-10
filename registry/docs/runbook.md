@@ -234,7 +234,10 @@ launch. Provisioned and verified end to end on 2026-07-10 (see
 - Blobs: `rclone copy` from `cabin-registry-dev-blobs/blobs/` to the
   backup bucket's `blobs/` prefix over R2's S3 API. Copy semantics, never
   a mirror: nothing is ever deleted from the backup side, so an
-  accidental or malicious deletion in the primary cannot propagate.
+  accidental or malicious deletion in the primary cannot propagate. The
+  blob copy runs before the dump is published, so the newest dump in
+  `d1/` never references blobs a partly-failed run left out of the
+  backup bucket.
 - Retention: the 30 most recent daily dumps plus the first dump of each
   of the last 12 calendar months; `scripts/backup-prune.sh` (it has a
   `--dry-run` mode) deletes the rest of the `d1/` prefix. Blob copies are
