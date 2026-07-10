@@ -252,7 +252,7 @@ await_backup_blob() {
   local key="$1" out="$2"
   for _ in $(seq 1 20); do
     wrangler r2 object get "cabin-registry-dev-backup/$key" \
-      --file "$out" >/dev/null 2>&1 && return 0
+      --file "$out" --local >/dev/null 2>&1 && return 0
     sleep 0.5
   done
   fail "blob $key never appeared in the BACKUP bucket"
@@ -267,7 +267,7 @@ cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
 # A retry of a publish whose isolate died before replicating takes the
 # idempotent no-op path; it must re-schedule the copy.
 step "an idempotent re-publish heals a missing backup blob"
-wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" >/dev/null
+wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" --local >/dev/null
 request PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.tar.gz"
@@ -340,7 +340,7 @@ check "/__scheduled?cron=0+3+*+*+*" 200
 stored=""
 for _ in $(seq 1 20); do
   if wrangler r2 object get "cabin-registry-dev-backup/$dump_key" \
-    --file "$work/stored-dump.sql" >/dev/null 2>&1; then
+    --file "$work/stored-dump.sql" --local >/dev/null 2>&1; then
     stored=1
     break
   fi
@@ -355,7 +355,7 @@ cmp -s "$work/stored-dump.sql" "$mock_dir/dump.sql" \
 
 step "the dump's sha256 sidecar verifies with shasum -c"
 wrangler r2 object get "cabin-registry-dev-backup/$dump_key.sha256" \
-  --file "$work/$today.sql.sha256" >/dev/null 2>&1 \
+  --file "$work/$today.sql.sha256" --local >/dev/null 2>&1 \
   || fail "sidecar $dump_key.sha256 is missing"
 cp "$work/stored-dump.sql" "$work/$today.sql"
 (cd "$work" && shasum -a 256 -c "$today.sql.sha256" >/dev/null) \
