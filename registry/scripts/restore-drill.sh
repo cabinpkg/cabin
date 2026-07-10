@@ -109,8 +109,13 @@ scratch_row="$(d1_rows "$scratch_db" "$spot_sql")"
 # shellcheck disable=SC2016 # the ${...} template literal is JavaScript
 node -e '
   const [live, scratch] = process.argv.slice(1).map((s) => JSON.parse(s));
-  if (live.length === 0) { console.error("no versions to spot-check"); process.exit(1); }
-  if (scratch.length === 0 ||
+  if (live.length === 0 && scratch.length === 0) {
+    // A pre-launch drill runs against an empty registry (production
+    // checklist); nothing to spot-check is not a failure.
+    console.log("    no versions in either database; spot-check skipped");
+    process.exit(0);
+  }
+  if (live.length === 0 || scratch.length === 0 ||
       live[0].name !== scratch[0].name ||
       live[0].version !== scratch[0].version ||
       live[0].metadata_json !== scratch[0].metadata_json) {
