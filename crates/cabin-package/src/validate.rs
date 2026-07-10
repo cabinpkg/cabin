@@ -113,6 +113,30 @@ pub fn load_and_validate_with_project(
         })?
         .to_path_buf();
 
+    validate_publishable(&package)?;
+
+    Ok(ValidatedPackage {
+        package,
+        manifest_path,
+        package_root,
+        manifest_has_workspace_markers,
+    })
+}
+
+/// The pure publishability rules over a resolved [`Package`] - no
+/// filesystem access.  [`load_and_validate_with_project`] applies
+/// them before archiving, and the registry verifier
+/// (`cabin-registry-verify`) applies the same rules to the manifest
+/// embedded in a published archive, so the two cannot drift.
+///
+/// # Errors
+///
+/// Returns the [`PackageError`] naming the violated rule: unsafe
+/// registry package name, `[patch]` table, path / port / unresolved
+/// workspace dependency, unresolved workspace standard marker,
+/// interface-standard contradiction, or a target source / include
+/// directory escaping the package root.
+pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     // package names must be safe to use as
     // registry filesystem paths.  The shared predicate now lives
     // in `cabin-core` so this validator, the file-registry
@@ -165,7 +189,7 @@ pub fn load_and_validate_with_project(
     // at load time, but the standalone `cabin package` / `publish`
     // path never runs that loader - repeat the check here so an
     // archive no consumer could load is never published.
-    if let Some(contradiction) = cabin_core::find_interface_standard_contradictions(&package)
+    if let Some(contradiction) = cabin_core::find_interface_standard_contradictions(package)
         .into_iter()
         .next()
     {
@@ -191,12 +215,7 @@ pub fn load_and_validate_with_project(
         }
     }
 
-    Ok(ValidatedPackage {
-        package,
-        manifest_path,
-        package_root,
-        manifest_has_workspace_markers,
-    })
+    Ok(())
 }
 
 /// Re-export the shared `cabin-core` predicate so

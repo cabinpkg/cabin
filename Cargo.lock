@@ -564,6 +564,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabinpkg-registry-verify"
+version = "0.17.0"
+dependencies = [
+ "assert_cmd",
+ "assert_fs",
+ "cabinpkg-core",
+ "cabinpkg-manifest",
+ "cabinpkg-package",
+ "camino",
+ "flate2",
+ "serde",
+ "serde_json",
+ "tar",
+ "thiserror",
+]
+
+[[package]]
 name = "cabinpkg-resolver"
 version = "0.17.0"
 dependencies = [
