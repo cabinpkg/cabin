@@ -15,6 +15,7 @@ interface Props {
     iconOnly?: boolean;
     ariaLabel?: string;
     type?: "button" | "submit" | "reset";
+    [key: string]: unknown;
 }
 
 const {
@@ -25,6 +26,7 @@ const {
     iconOnly = false,
     ariaLabel,
     type = "button",
+    ...attrs
 } = Astro.props;
 
 const classes = joinClasses(
@@ -39,6 +41,7 @@ const classes = joinClasses(
 {
     href ? (
         <a
+            {...attrs}
             href={href}
             target={external ? "_blank" : undefined}
             rel={external ? "noopener noreferrer" : undefined}
@@ -48,7 +51,7 @@ const classes = joinClasses(
             <slot />
         </a>
     ) : (
-        <button type={type} aria-label={ariaLabel} class={classes}>
+        <button {...attrs} type={type} aria-label={ariaLabel} class={classes}>
             <slot />
         </button>
     )
