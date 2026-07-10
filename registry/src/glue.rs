@@ -17,7 +17,7 @@ use crate::error;
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, breaker, quota};
+use crate::{analytics, backup, breaker, quota};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -935,15 +935,14 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
     }
 }
 
-async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
-    let db = env.d1("DB")?;
-    let now = now_iso8601();
-
+/// One usage snapshot: the exact self-accounted storage plus the
+/// analytics-sourced metrics.
+async fn gather_usage(env: &Env, db: &D1Database, now: &str) -> worker::Result<breaker::Usage> {
     // Storage is the exact self-accounted meta row, never analytics. A
     // missing or non-numeric row is unavailable data - never zero - so a
     // corrupt counter can only keep or escalate the mode, not reopen
     // writes.
-    let stored_bytes = read_meta(&db, "total_stored_bytes")
+    let stored_bytes = read_meta(db, "total_stored_bytes")
         .await?
         .and_then(|value| value.parse::<u64>().ok());
     if stored_bytes.is_none() {
@@ -956,7 +955,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         .var("CF_ACCOUNT_ID")
         .map(|var| var.to_string())
         .unwrap_or_default();
-    let workers_requests_today = match analytics::utc_day_start(&now) {
+    let workers_requests_today = match analytics::utc_day_start(now) {
         Some(start) => {
             fetch_metric(
                 env,
@@ -968,7 +967,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         }
         None => None,
     };
-    let r2_class_a_month = match analytics::utc_month_start(&now) {
+    let r2_class_a_month = match analytics::utc_month_start(now) {
         Some(start) => {
             fetch_metric(
                 env,
@@ -980,7 +979,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         }
         None => None,
     };
-    let d1_rows_read_today = match analytics::utc_date(&now) {
+    let d1_rows_read_today = match analytics::utc_date(now) {
         Some(date) => {
             fetch_metric(
                 env,
@@ -993,12 +992,19 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         None => None,
     };
 
-    let usage = breaker::Usage {
+    Ok(breaker::Usage {
         stored_bytes,
         workers_requests_today,
         r2_class_a_month,
         d1_rows_read_today,
-    };
+    })
+}
+
+async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
+    let db = env.d1("DB")?;
+    let now = now_iso8601();
+
+    let usage = gather_usage(env, &db, &now).await?;
     let defaults = breaker::Budgets::default();
     let budgets = breaker::Budgets {
         r2_storage_bytes: env_budget(env, "BUDGET_R2_STORAGE_BYTES", defaults.r2_storage_bytes),
@@ -1032,21 +1038,74 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     };
 
     // Persist mode and reason every pass so operators always see the
-    // latest evaluation; log and notify only on a state change.
+    // latest evaluation.
     db.batch(vec![
         upsert_meta(&db, "service_mode", next.as_str())?,
         upsert_meta(&db, "service_mode_reason", &reason)?,
     ])
     .await?;
+
+    // Backup health rides every pass (docs/runbook.md, "Disaster
+    // recovery"): an unhealthy backup logs and notifies on every pass
+    // until resolved - a backup system's classic failure mode is
+    // stopping silently - while mode changes notify once.
+    let health = match read_backup_health(&db, &now).await {
+        Ok(health) => health,
+        Err(_) => BackupHealth::unreadable(),
+    };
+    if let Some(alert) = &health.alert {
+        console_error!("backup health: {alert}");
+    }
     if next != current {
         console_log!(
             "service_mode {} -> {}: {reason}",
             current.as_str(),
             next.as_str()
         );
-        notify_webhook(env, current, next, &reason, &usage).await;
+    }
+    if next != current || health.alert.is_some() {
+        notify_webhook(env, current, next, &reason, &usage, &health).await;
     }
     Ok(())
+}
+
+/// One breaker pass's view of backup health, for the log line and the
+/// webhook payload.
+struct BackupHealth {
+    last_backup_at: Option<String>,
+    freshness: backup::Freshness,
+    replication_failures: Option<u64>,
+    alert: Option<String>,
+}
+
+impl BackupHealth {
+    /// Fail closed when D1 would not answer: alert rather than report
+    /// an unknown state as healthy.
+    fn unreadable() -> BackupHealth {
+        BackupHealth {
+            last_backup_at: None,
+            freshness: backup::Freshness::Never,
+            replication_failures: None,
+            alert: Some("backup health could not be read from d1".to_owned()),
+        }
+    }
+}
+
+async fn read_backup_health(db: &D1Database, now: &str) -> worker::Result<BackupHealth> {
+    let last_backup_at = read_meta(db, "last_backup_at").await?;
+    let failures: CountRecord = db
+        .prepare("SELECT COUNT(*) AS n FROM backup_replication_failures")
+        .first(None)
+        .await?
+        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
+    let replication_failures = non_negative(failures.n);
+    let freshness = backup::freshness(now, last_backup_at.as_deref());
+    Ok(BackupHealth {
+        last_backup_at,
+        freshness,
+        replication_failures: Some(replication_failures),
+        alert: backup::alert(freshness, replication_failures),
+    })
 }
 
 fn env_budget(env: &Env, name: &str, default: u64) -> u64 {
@@ -1092,14 +1151,16 @@ async fn fetch_metric(
     sum
 }
 
-/// POSTs a state-change summary to `NOTIFY_WEBHOOK_URL` when it is
-/// configured; failures only log.
+/// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
+/// service-mode changes (`from != to`) and backup alerts alike;
+/// failures only log.
 async fn notify_webhook(
     env: &Env,
     from: breaker::Mode,
     to: breaker::Mode,
     reason: &str,
     usage: &breaker::Usage,
+    health: &BackupHealth,
 ) {
     let Ok(url) = env.secret("NOTIFY_WEBHOOK_URL") else {
         return;
@@ -1113,6 +1174,12 @@ async fn notify_webhook(
         "workers_requests_today": usage.workers_requests_today,
         "r2_class_a_month": usage.r2_class_a_month,
         "d1_rows_read_today": usage.d1_rows_read_today,
+        "backup": {
+            "last_backup_at": health.last_backup_at,
+            "freshness": health.freshness.as_str(),
+            "replication_failures": health.replication_failures,
+            "alert": health.alert,
+        },
     })
     .to_string();
     if post_json(&url.to_string(), &body, None).await.is_err() {
