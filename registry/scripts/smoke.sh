@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 #
-# Smoke test against a local `wrangler dev` instance: /healthz, the uniform
-# unauthenticated 401, the unauthenticated /me -> /login redirect, and -
-# given a token - the three authenticated read routes plus the full
-# publish / yank write flow (first publish, idempotent re-publish,
-# immutability conflict, yank state transitions, artifact checksum), the
-# verification lifecycle (pending -> verify -> resolvable with a
-# verify-scoped token, verdict idempotency and conflicts, and the
-# reject -> blob reclaim -> quota refund -> republish flow including the
-# shared-blob refcount case), the budget breaker (writes 402 while
-# service_mode = writes_blocked, reads unaffected), blob replication
-# into the BACKUP bucket, and the nightly dump job (triggered via the
-# /__scheduled test route against a local mock of the D1 export API
-# serving a real `wrangler d1 export --local` dump). Local-only: state
-# lives in .wrangler/, never a deployed environment.
+# Smoke test against local `wrangler dev`: the hostname-role split
+# (wrangler dev pins every request's Host header to one emulated
+# hostname, so two instances share the local state - the registry role
+# on the default host, the website role via --host cabinpkg.com),
+# /healthz, the uniform 401 with its
+# byte-identical WWW-Authenticate challenge, the OAuth and session planes
+# on the website origin (redirects, cookie attributes, 401 JSON without a
+# session), and - given a token - the three authenticated read routes on
+# the registry host plus the full publish / yank write flow on the
+# website origin (first publish, idempotent re-publish, immutability
+# conflict, yank state transitions, artifact checksum), the verification
+# lifecycle (pending -> verify -> resolvable with a verify-scoped token,
+# verdict idempotency and conflicts, and the reject -> blob reclaim ->
+# quota refund -> republish flow including the shared-blob refcount
+# case), the budget breaker (writes 402 while service_mode =
+# writes_blocked, reads unaffected), blob replication into the BACKUP
+# bucket, and the nightly dump job (triggered via the /__scheduled test
+# route against a local mock of the D1 export API serving a real
+# `wrangler d1 export --local` dump). Session-authenticated flows (token
+# create/revoke) need a real GitHub sign-in and stay out of scope here;
+# their logic is unit-tested. Local-only: state lives in .wrangler/,
+# never a deployed environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -26,12 +34,24 @@ set -euo pipefail
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 port="${SMOKE_PORT:-8787}"
+web_port="${SMOKE_WEB_PORT:-8789}"
 mock_port="${SMOKE_MOCK_PORT:-8788}"
 base="http://127.0.0.1:${port}"
+# The website role: a second wrangler dev instance emulating the
+# website origin's hostname (--host cabinpkg.com) over the same local
+# D1/R2 state, because each instance pins the Host header the Worker's
+# role dispatch reads.
+web_base="http://127.0.0.1:${web_port}"
+# WEB_ORIGIN from wrangler.jsonc (env dev), which the challenge, the
+# config.json api field, and the quota details embed.
+web_origin="https://cabinpkg.com"
 token="${CABIN_REGISTRY_SMOKE_TOKEN:-}"
 body="$(mktemp)"
+headers="$(mktemp)"
 dev_log="$(mktemp)"
+web_log="$(mktemp)"
 dev_pid=""
+web_pid=""
 mock_pid=""
 dev_vars=".dev.vars.dev"
 dev_vars_backup=""
@@ -42,10 +62,11 @@ cleanup() {
   # wrapper subshell, and killing it alone would orphan npx/wrangler/workerd
   # and leave the port bound.
   [[ -n "$dev_pid" ]] && kill -- "-$dev_pid" 2>/dev/null || true
+  [[ -n "$web_pid" ]] && kill -- "-$web_pid" 2>/dev/null || true
   [[ -n "$mock_pid" ]] && kill "$mock_pid" 2>/dev/null || true
   [[ -n "$dev_vars_created" ]] && rm -f "$dev_vars" || true
   [[ -n "$dev_vars_backup" ]] && mv "$dev_vars_backup" "$dev_vars" || true
-  rm -f "$body" "$dev_log"
+  rm -f "$body" "$headers" "$dev_log" "$web_log"
 }
 trap cleanup EXIT
 
@@ -54,31 +75,41 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 wrangler() { npx --yes wrangler "$@"; }
 
-# check <path> <expected statuses...>; response body lands in $body.
-check() {
-  local path="$1"
-  shift
+# check_at <base> <path> <expected statuses...>; body lands in $body.
+check_at() {
+  local at="$1" path="$2"
+  shift 2
   local status
   # ${arr[@]+...}: empty-array expansion trips `set -u` on macOS bash 3.2.
-  status="$(curl -sS -o "$body" -w '%{http_code}' ${curl_args[@]+"${curl_args[@]}"} "$base$path")"
+  status="$(curl -sS -o "$body" -w '%{http_code}' \
+    ${curl_args[@]+"${curl_args[@]}"} "$at$path")"
   for expected in "$@"; do
     [[ "$status" == "$expected" ]] && { printf '    %s -> %s\n' "$path" "$status"; return 0; }
   done
   fail "$path returned $status, expected one of: $* (body: $(cat "$body"))"
 }
 
-# request <method> <path> <data-file> <expected statuses...>; body in $body.
-request() {
-  local method="$1" path="$2" data="$3"
-  shift 3
+# check hits the registry host; wcheck the website origin.
+check() { check_at "$base" "$@"; }
+wcheck() { check_at "$web_base" "$@"; }
+
+# request_at <base> <method> <path> <data-file> <expected...>; body in $body.
+request_at() {
+  local at="$1" method="$2" path="$3" data="$4"
+  shift 4
   local status
   status="$(curl -sS -o "$body" -w '%{http_code}' -X "$method" --data-binary "@$data" \
-    ${curl_args[@]+"${curl_args[@]}"} "$base$path")"
+    ${curl_args[@]+"${curl_args[@]}"} "$at$path")"
   for expected in "$@"; do
     [[ "$status" == "$expected" ]] && { printf '    %s %s -> %s\n' "$method" "$path" "$status"; return 0; }
   done
   fail "$method $path returned $status, expected one of: $* (body: $(cat "$body"))"
 }
+
+# The mutation routes live on the website origin only, so every write
+# goes through wrequest; on the registry host, non-read-plane paths are
+# covered by uniform_401 below.
+wrequest() { request_at "$web_base" "$@"; }
 
 # expect_body <fixed string>: the last response body must contain it.
 expect_body() {
@@ -175,20 +206,29 @@ if [[ -f "$dev_vars" ]]; then
   dev_vars_backup="$(mktemp)"
   cp "$dev_vars" "$dev_vars_backup"
 fi
+# SESSION_SECRET is pinned so the session-plane leg below can mint a
+# valid session cookie for the seeded user (github id 0) without a
+# GitHub round trip; ALLOWED_GITHUB_IDS admits that id plus id 1, whose
+# user row deliberately does not exist (the post-wipe ghost-session
+# case).
 cat >"$dev_vars" <<EOF
 CF_API_BASE="http://127.0.0.1:${mock_port}"
 D1_EXPORT_API_TOKEN="smoke-placeholder"
+SESSION_SECRET="smoke-session-secret"
+ALLOWED_GITHUB_IDS="0,1"
 EOF
 dev_vars_created=1
 
-# A stale server on the port would silently answer the checks below in place
-# of the instance started here.
-if curl -fsS -o /dev/null "$base/healthz" 2>/dev/null; then
-  fail "something is already serving on port ${port}; kill it first"
-fi
+# A stale server on either port would silently answer the checks below in
+# place of the instances started here.
+for stale_port in "$port" "$web_port"; do
+  if curl -fsS -o /dev/null "http://127.0.0.1:${stale_port}/healthz" 2>/dev/null; then
+    fail "something is already serving on port ${stale_port}; kill it first"
+  fi
+done
 
 step "starting wrangler dev on port ${port} (first build takes a while)"
-# Job control (-m) gives the dev-server tree its own process group so
+# Job control (-m) gives each dev-server tree its own process group so
 # cleanup can kill all of it at once.
 set -m
 wrangler dev --env dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
@@ -202,22 +242,102 @@ for _ in $(seq 1 300); do
   sleep 1
 done
 
+# The website-role instance: same code, same local state, but wrangler
+# pins its emulated Host header to cabinpkg.com, which is what flips the
+# Worker's role dispatch. Started second so the first instance's build
+# is already cached.
+step "starting the website-role wrangler dev on port ${web_port}"
+set -m
+wrangler dev --env dev --port "$web_port" --host cabinpkg.com >"$web_log" 2>&1 &
+web_pid=$!
+set +m
+disown "$web_pid"
+
+# /healthz only exists on the registry role; any HTTP status at all
+# (the website role answers it 401/404) proves the instance is up.
+for _ in $(seq 1 300); do
+  kill -0 "$web_pid" 2>/dev/null || { cat "$web_log" >&2; fail "the website-role wrangler dev exited early"; }
+  [[ "$(curl -sS -o /dev/null -w '%{http_code}' "$web_base/healthz" 2>/dev/null)" != "000" ]] && break
+  sleep 1
+done
+
 curl_args=()
 step "healthz is unauthenticated and empty"
 check /healthz 200
 [[ -s "$body" ]] && fail "/healthz returned a body: $(cat "$body")"
 
-step "data routes are a uniform 401 without a token"
-check /config.json 401
 expected_401='{"errors":[{"detail":"authentication required"}]}'
-[[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch: $(cat "$body")"
-check /packages/smoke.json 401
-[[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch: $(cat "$body")"
+challenge="Cabin login_url=\"${web_origin}/settings/tokens\""
 
-step "unauthenticated /me redirects to the sign-in page"
-curl -sS -o /dev/null -D "$body" "$base/me"
-grep -q '^HTTP/[^ ]* 302' "$body" || fail "/me did not answer 302: $(head -1 "$body")"
-grep -qi '^location: /login' "$body" || fail "/me redirect is not to /login: $(cat "$body")"
+# uniform_401 <base> <path> [extra curl args...]: the response must be
+# the exact envelope plus the byte-identical WWW-Authenticate challenge,
+# whatever the path, method, or credential. The header value is compared
+# byte for byte (a duplicated header or a suffixed value must fail, so
+# the comparison is against the exact expected string, not a substring).
+uniform_401() {
+  local at="$1" path="$2"
+  shift 2
+  local status got
+  status="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' "$@" "$at$path")"
+  [[ "$status" == "401" ]] || fail "$path returned $status, expected the uniform 401"
+  [[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch on $path: $(cat "$body")"
+  got="$(grep -i '^www-authenticate:' "$headers" | sed 's/^[^:]*: //' | tr -d '\r')"
+  [[ "$got" == "$challenge" ]] \
+    || fail "401 on $path challenge mismatch: got '$got', expected '$challenge'"
+  printf '    %s -> uniform 401 with the challenge\n' "$path"
+}
+
+step "the registry host is a uniform 401 with the challenge off the read plane"
+uniform_401 "$base" /config.json
+uniform_401 "$base" /packages/smoke.json
+# Non-read-plane paths - the whole API and session surface included -
+# are indistinguishable from unknown paths, whatever credential comes
+# along.
+uniform_401 "$base" /api/v1/packages/smoke/0.1.0
+uniform_401 "$base" /api/v1/user
+uniform_401 "$base" /unknown/path
+uniform_401 "$base" /me
+uniform_401 "$base" "/api/v1/admin/versions?status=pending" \
+  -H "Authorization: Bearer cabin_definitelyNotAToken"
+# Write methods too: the mutation surface simply does not exist here.
+uniform_401 "$base" /api/v1/packages/smoke/0.1.0 -X PUT --data-binary "x"
+uniform_401 "$base" /api/v1/packages/smoke/0.1.0/yank -X PATCH --data-binary "{}"
+
+step "session endpoints answer 401 json without a session (no challenge)"
+wcheck /api/v1/user 401
+[[ "$(cat "$body")" == "$expected_401" ]] || fail "session 401 body mismatch: $(cat "$body")"
+curl -sS -o /dev/null -D "$headers" "$web_base/api/v1/user"
+! grep -qi '^www-authenticate:' "$headers" \
+  || fail "the session-plane 401 must not carry the bearer challenge"
+wcheck /api/v1/user/usage 401
+wcheck /api/v1/user/tokens 401
+
+step "the oauth plane lives on the website origin with host-only cookies"
+curl -sS -o /dev/null -D "$headers" "$web_base/login"
+grep -q '^HTTP/[^ ]* 302' "$headers" || fail "/login did not answer 302: $(head -1 "$headers")"
+grep -qi '^location: https://github.com/login/oauth/authorize' "$headers" \
+  || fail "/login redirect is not to github: $(cat "$headers")"
+state_cookie="$(grep -i '^set-cookie: cabin_oauth_state=' "$headers" || true)"
+[[ -n "$state_cookie" ]] || fail "/login set no state cookie: $(cat "$headers")"
+case "$state_cookie" in
+  *"Path=/callback"*) ;;
+  *) fail "state cookie is not scoped to /callback: $state_cookie" ;;
+esac
+for attribute in HttpOnly Secure "SameSite=Lax"; do
+  case "$state_cookie" in
+    *"$attribute"*) ;;
+    *) fail "state cookie is missing $attribute: $state_cookie" ;;
+  esac
+done
+! printf '%s' "$state_cookie" | grep -qi 'domain=' \
+  || fail "the state cookie must be host-only: $state_cookie"
+
+step "a parameterless callback redirects to the denied page"
+curl -sS -o /dev/null -D "$headers" "$web_base/callback"
+grep -qi '^location: /login/denied' "$headers" \
+  || fail "/callback refusal is not /login/denied: $(cat "$headers")"
+# /login is absent from the registry host like everything non-read-plane.
+uniform_401 "$base" /login
 
 if [[ -z "$token" ]]; then
   step "CABIN_REGISTRY_SMOKE_TOKEN not set; skipping authenticated checks"
@@ -234,9 +354,99 @@ as_publisher
 step "authenticated read routes"
 check /config.json 200
 grep -q '"auth-required":true' "$body" || fail "config.json missing auth-required: $(cat "$body")"
+# The api field names the website origin, crates.io-style.
+grep -qF "\"api\":\"${web_origin}\"" "$body" \
+  || fail "config.json api is not the website origin: $(cat "$body")"
 # 200 only with previously published local data; 404 proves auth + routing.
 check /packages/smoke.json 200 404
 check /artifacts/smoke/smoke-0.1.0.tar.gz 200 404
+
+step "a valid token changes nothing off the read plane on the registry host"
+uniform_401 "$base" /api/v1/packages/smoke/0.1.0 -H "Authorization: Bearer $token"
+uniform_401 "$base" /api/v1/user -H "Authorization: Bearer $token"
+
+step "the read plane is absent on the website origin"
+wcheck /config.json 404
+wcheck /packages/smoke.json 404
+wcheck /artifacts/smoke/smoke-0.1.0.tar.gz 404
+wcheck /healthz 404
+
+# --- The session plane, end to end with a minted session. ---
+# The session cookie is `<payload>.<hmac>` keyed by SESSION_SECRET, which
+# this run pinned above - so a valid session for the seeded user (github
+# id 0, admitted by the pinned ALLOWED_GITHUB_IDS) can be minted without
+# a GitHub round trip.
+session_payload="0:$(($(date +%s) + 3600))"
+session_mac="$(printf 'session:%s' "$session_payload" |
+  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+session_cookie="cabin_session=${session_payload}.${session_mac}"
+
+# session_request <method> <path> <expected status> [curl args...];
+# body in $body.
+session_request() {
+  local method="$1" path="$2" expected="$3"
+  shift 3
+  local status
+  status="$(curl -sS -o "$body" -w '%{http_code}' -X "$method" \
+    -H "Cookie: $session_cookie" "$@" "$web_base$path")"
+  [[ "$status" == "$expected" ]] ||
+    fail "$method $path returned $status, expected $expected (body: $(cat "$body"))"
+  printf '    %s %s -> %s\n' "$method" "$path" "$status"
+}
+csrf_headers=(-H "Content-Type: application/json" -H "X-CSRF-Protection: 1")
+
+step "session reads answer the seeded user"
+session_request GET /api/v1/user 200
+expect_body '"github_id":0'
+expect_body '"login":"smoke"'
+session_request GET /api/v1/user/usage 200
+expect_body '"quotas"'
+
+step "a valid session whose user row is gone answers 401 everywhere"
+# The post-wipe ghost: allowlisted id 1 has a validly sealed cookie but
+# no users row - every endpoint (the token routes included) answers the
+# same 401 as no session, never an empty listing or a 500.
+ghost_payload="1:$(($(date +%s) + 3600))"
+ghost_mac="$(printf 'session:%s' "$ghost_payload" |
+  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+real_session_cookie="$session_cookie"
+session_cookie="cabin_session=${ghost_payload}.${ghost_mac}"
+session_request GET /api/v1/user 401
+session_request GET /api/v1/user/tokens 401
+session_request POST /api/v1/user/tokens 401 \
+  "${csrf_headers[@]}" --data-binary '{"name":"ghost","scopes":[]}'
+session_cookie="$real_session_cookie"
+
+step "session mutations enforce the csrf header pair"
+create_body='{"name":"smoke-session","scopes":["publish"]}'
+session_request POST /api/v1/user/tokens 403 \
+  -H "Content-Type: application/json" --data-binary "$create_body"
+expect_body 'X-CSRF-Protection'
+session_request POST /api/v1/user/tokens 403 \
+  -H "X-CSRF-Protection: 1" --data-binary "$create_body"
+
+step "token create round-trip: plaintext once, usable, then revoked"
+session_request POST /api/v1/user/tokens 201 \
+  "${csrf_headers[@]}" --data-binary "$create_body"
+expect_body '"name":"smoke-session"'
+minted="$(node -e '
+  const body = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (!/^cabin_/.test(body.token || "")) process.exit(1);
+  console.log(body.token);' "$body")" || fail "create response carries no plaintext token: $(cat "$body")"
+minted_id="$(node -e '
+  const body = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  console.log(body.id);' "$body")"
+# The minted token works on the bearer plane...
+curl_args=(-H "Authorization: Bearer $minted")
+check /config.json 200
+# ...and the listing shows metadata only - never the plaintext.
+session_request GET /api/v1/user/tokens 200
+expect_body '"name":"smoke-session"'
+! grep -qF "$minted" "$body" || fail "the token listing leaked a plaintext token"
+session_request POST "/api/v1/user/tokens/$minted_id/revoke" 200 "${csrf_headers[@]}"
+expect_body '"ok":true'
+uniform_401 "$base" /config.json -H "Authorization: Bearer $minted"
+as_publisher
 
 step "authenticated responses carry the generation header"
 curl -sS -o /dev/null -D "$body" ${curl_args[@]+"${curl_args[@]}"} "$base/config.json"
@@ -256,22 +466,22 @@ trap 'cleanup; rm -rf "$work" "$mock_dir"' EXIT
 
 step "first publish creates the version pending verification"
 frame "$fixture_metadata" "$fixture_archive" "$work/publish.bin"
-request PUT "$publish_path" "$work/publish.bin" 201
+wrequest PUT "$publish_path" "$work/publish.bin" 201
 expect_body '"ok":true'
 expect_body '"verification":"pending"'
 
 step "pending versions are invisible to ordinary tokens"
 check "/packages/$name.json" 404
 check "/artifacts/$name/$name-$version.tar.gz" 404
-check "/api/v1/admin/versions?status=pending" 403
+wcheck "/api/v1/admin/versions?status=pending" 403
 expect_body 'verify scope'
 printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
-request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 403
+wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 403
 expect_body 'verify scope'
 
 step "the verify scope lists and downloads pending versions"
 as_verifier
-check "/api/v1/admin/versions?status=pending" 200
+wcheck "/api/v1/admin/versions?status=pending" 200
 expect_body '"name":"withdep"'
 expect_body '"version":"0.2.0"'
 expect_body '"published_by":0'
@@ -285,15 +495,15 @@ listed_published_at="$(node -e '
   || fail "the admin listing is missing withdep@0.2.0 or its published_at"
 printf '{"verdict":"verified","checksum":"%s","published_at":"%s"}' \
   "$blob_hash" "$listed_published_at" >"$work/verdict-verified.json"
-check "/api/v1/admin/versions?status=bogus" 400
+wcheck "/api/v1/admin/versions?status=bogus" 400
 check "/artifacts/$name/$name-$version.tar.gz" 200
 
 step "a verified verdict must name the listing it inspected"
-request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 400
+wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 400
 expect_body 'requires the checksum'
 
 step "a verified verdict makes the version resolvable"
-request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"verification":"verified"'
 expect_body '"changed":true'
 as_publisher
@@ -303,10 +513,10 @@ check "/artifacts/$name/$name-$version.tar.gz" 200
 
 step "verdicts are idempotent for the same value and conflict otherwise"
 as_verifier
-request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"changed":false'
 printf '{"verdict":"rejected","reason":"smoke rejection"}' >"$work/verdict-rejected.json"
-request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-rejected.json" 409
+wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-rejected.json" 409
 expect_body 'immutable'
 as_publisher
 
@@ -332,7 +542,7 @@ cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
 step "an idempotent re-publish heals missing primary and backup blobs"
 wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" --local >/dev/null
 wrangler r2 object delete "cabin-registry-dev-blobs/blobs/sha256/$blob_hash" --local >/dev/null
-request PUT "$publish_path" "$work/publish.bin" 200
+wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
 check "/artifacts/$name/$name-$version.tar.gz" 200
@@ -341,7 +551,7 @@ cmp -s "$work/rehealed.tar.gz" "$fixture_archive" \
   || fail "re-healed blob differs from the published archive"
 
 step "byte-identical re-publish is an idempotent no-op reporting the status"
-request PUT "$publish_path" "$work/publish.bin" 200
+wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
 
@@ -352,18 +562,18 @@ old_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
 new_hash="$(shasum -a 256 "$work/tampered.tar.gz" | cut -d' ' -f1)"
 sed "s/$old_hash/$new_hash/" "$fixture_metadata" >"$work/tampered.json"
 frame "$work/tampered.json" "$work/tampered.tar.gz" "$work/tampered.bin"
-request PUT "$publish_path" "$work/tampered.bin" 409
+wrequest PUT "$publish_path" "$work/tampered.bin" 409
 expect_body 'immutable'
 
 step "yank and un-yank walk the state transitions"
 printf '{"yanked":true}' >"$work/yank.json"
-request PATCH "$publish_path/yank" "$work/yank.json" 200
+wrequest PATCH "$publish_path/yank" "$work/yank.json" 200
 expect_body '"yanked":true'
 expect_body '"changed":true'
 check "/packages/$name.json" 200
 expect_body '"yanked":true'
 printf '{"yanked":false}' >"$work/unyank.json"
-request PATCH "$publish_path/yank" "$work/unyank.json" 200
+wrequest PATCH "$publish_path/yank" "$work/unyank.json" 200
 expect_body '"yanked":false'
 expect_body '"changed":true'
 check "/packages/$name.json" 200
@@ -384,9 +594,9 @@ step "writes answer 402 while writes_blocked; reads stay open"
 wrangler d1 execute DB --env dev --local --command "
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
   UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';"
-request PUT "$publish_path" "$work/publish.bin" 402
+wrequest PUT "$publish_path" "$work/publish.bin" 402
 expect_body 'registry_over_budget'
-request PATCH "$publish_path/yank" "$work/unyank.json" 402
+wrequest PATCH "$publish_path/yank" "$work/unyank.json" 402
 expect_body 'registry_over_budget'
 check "/packages/$name.json" 200
 
@@ -394,7 +604,7 @@ step "restoring service_mode reopens writes"
 wrangler d1 execute DB --env dev --local --command "
   UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
   UPDATE meta SET value = '' WHERE key = 'service_mode_reason';"
-request PUT "$publish_path" "$work/publish.bin" 200
+wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 
 # --- The reject -> blob reclaim -> quota refund -> republish flow. ---
@@ -420,7 +630,7 @@ frame "$work/withdep-0.2.1.json" "$fixture_archive" "$work/publish2.bin"
 
 step "publishing a second version with identical content shares the blob"
 before_bytes="$(stored_bytes)"
-request PUT "$publish2_path" "$work/publish2.bin" 201
+wrequest PUT "$publish2_path" "$work/publish2.bin" 201
 expect_body '"verification":"pending"'
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "a shared blob was double-counted: $(stored_bytes) (was $before_bytes)"
@@ -429,14 +639,14 @@ step "a verdict bound to a stale listing conflicts"
 as_verifier
 printf '{"verdict":"verified","checksum":"%s","published_at":"1970-01-01T00:00:00.000Z"}' \
   "$(printf 'stale' | shasum -a 256 | cut -d' ' -f1)" >"$work/verdict-stale.json"
-request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-stale.json" 409
+wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-stale.json" 409
 expect_body 'changed since it was listed'
 
 step "rejecting a version sharing its blob keeps the blob and the accounting"
 # Bound to the listed checksum: the verdict applies only to these bytes.
 printf '{"verdict":"rejected","reason":"smoke rejection","checksum":"%s"}' "$blob_hash" \
   >"$work/verdict-rejected-bound.json"
-request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected-bound.json" 200
+wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected-bound.json" 200
 expect_body '"verification":"rejected"'
 expect_body '"changed":true'
 check "/artifacts/$name/$name-$version2.tar.gz" 404
@@ -447,7 +657,7 @@ check "/artifacts/$name/$name-$version.tar.gz" 200
 check "/packages/$name.json" 200
 ! grep -qF '"0.2.1"' "$body" \
   || fail "a rejected version leaked into the package document: $(cat "$body")"
-request PATCH "$publish2_path/yank" "$work/yank.json" 404
+wrequest PATCH "$publish2_path/yank" "$work/yank.json" 404
 
 step "republishing over a rejected version replaces it as pending"
 cat "$fixture_archive" >"$work/replacement.tar.gz"
@@ -455,18 +665,18 @@ printf 'y' >>"$work/replacement.tar.gz"
 replacement_hash="$(shasum -a 256 "$work/replacement.tar.gz" | cut -d' ' -f1)"
 sed "s/$blob_hash/$replacement_hash/" "$work/withdep-0.2.1.json" >"$work/replacement.json"
 frame "$work/replacement.json" "$work/replacement.tar.gz" "$work/replacement.bin"
-request PUT "$publish2_path" "$work/replacement.bin" 201
+wrequest PUT "$publish2_path" "$work/replacement.bin" 201
 expect_body '"verification":"pending"'
 replacement_size="$(wc -c <"$work/replacement.tar.gz" | tr -d ' ')"
 [[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
   || fail "the replacement archive was not counted: $(stored_bytes)"
 as_verifier
-check "/api/v1/admin/versions?status=pending" 200
+wcheck "/api/v1/admin/versions?status=pending" 200
 expect_body '"version":"0.2.1"'
 expect_body "$replacement_hash"
 
 step "rejecting an unshared blob reclaims it and refunds the bytes"
-request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected.json" 200
+wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected.json" 200
 as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "the rejection did not refund the replacement bytes: $(stored_bytes)"
@@ -476,7 +686,7 @@ if wrangler r2 object get "cabin-registry-dev-blobs/blobs/sha256/$replacement_ha
 fi
 
 step "republishing identical bytes over a rejected version restarts verification"
-request PUT "$publish2_path" "$work/replacement.bin" 201
+wrequest PUT "$publish2_path" "$work/replacement.bin" 201
 expect_body '"verification":"pending"'
 [[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
   || fail "the re-uploaded blob was not re-counted: $(stored_bytes)"
