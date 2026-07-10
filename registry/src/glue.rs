@@ -92,7 +92,10 @@ pub async fn fetch(mut req: Request, env: Env, ctx: Context) -> worker::Result<R
     Ok(response)
 }
 
-/// Routes one request. Returns the response plus the authenticated token row
+/// Routes one request by hostname role (`docs/architecture.md`, "Origins
+/// and roles"): the registry custom domain serves only the machine read
+/// plane; the website origin serves the OAuth, session, and Bearer
+/// mutation planes. Returns the response plus the authenticated token row
 /// id for logging.
 async fn handle(
     req: &mut Request,
@@ -100,46 +103,137 @@ async fn handle(
     ctx: &Context,
 ) -> worker::Result<(Response, Option<String>)> {
     let path = req.path();
+    // The Host header, not `req.url()`: the edge routes on it, and the
+    // local `wrangler dev` proxy rewrites the URL's authority while
+    // preserving the header (which is how scripts/smoke.sh exercises
+    // both roles on one server).
+    let host = req.headers().get("host")?.unwrap_or_default();
+    let host = crate::routes::host_without_port(&host);
+    match crate::routes::role_for_host(host, &web_host(env)) {
+        crate::routes::Role::Registry => handle_registry(req, env, ctx, &path).await,
+        crate::routes::Role::Website => handle_website(req, env, ctx, &path).await,
+    }
+}
 
+/// The website origin mutations and the browser plane live on
+/// (`config.json`'s `api` field, the challenge's `login_url`, and the
+/// quota details' usage URL all derive from it).
+fn web_origin(env: &Env) -> worker::Result<String> {
+    Ok(env.var("WEB_ORIGIN")?.to_string())
+}
+
+/// The website origin's host for the role dispatch. An unset or
+/// unparsable `WEB_ORIGIN` yields an empty host, which grants nobody
+/// the website role - deny by default.
+fn web_host(env: &Env) -> String {
+    web_origin(env)
+        .ok()
+        .and_then(|origin| worker::Url::parse(&origin).ok())
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// The uniform Bearer-plane 401: the fixed envelope plus the
+/// byte-identical `WWW-Authenticate` challenge on every path and failure
+/// reason (missing token, invalid token, unknown path), so
+/// unauthenticated responses stay indistinguishable.
+fn unauthorized(env: &Env) -> worker::Result<Response> {
+    let mut response = error_response(401, error::AUTH_REQUIRED)?;
+    response.headers_mut().set(
+        "www-authenticate",
+        &error::www_authenticate(&web_origin(env)?),
+    )?;
+    Ok(response)
+}
+
+/// The registry custom domain: only the machine read plane exists here.
+/// Every other path - including all of `/api/*` - answers the uniform
+/// 401 without consulting the `Authorization` header at all, so a
+/// misdirected credential or a probe of the mutation routes is
+/// indistinguishable from any unknown path.
+async fn handle_registry(
+    req: &Request,
+    env: &Env,
+    ctx: &Context,
+    path: &str,
+) -> worker::Result<(Response, Option<String>)> {
     // The only unauthenticated route; 200 with no body.
     if path == "/healthz" {
         return Ok((Response::empty()?, None));
     }
+    let Some(route) = match_route(path) else {
+        return Ok((unauthorized(env)?, None));
+    };
 
-    // The browser plane: GitHub sign-in and the /me token page use
-    // session-cookie auth (`crate::web_glue`) and never bearer tokens; the
-    // data routes below never accept the session cookie. Web paths serve
-    // no package data, so dispatching them before the bearer gate keeps
-    // the data plane's uniform 401 intact.
-    if let Some(web_route) = match_web_route(&path) {
-        return Ok((web_glue::respond(req, env, web_route).await?, None));
-    }
-
-    // Deny by default: the uniform 401 is emitted before any route matching
-    // or D1/R2 data lookup, so non-callers cannot probe package existence.
+    // Deny by default: the uniform 401 is emitted before any D1/R2 data
+    // lookup, so non-callers cannot probe package existence.
     let db = env.d1("DB")?;
     let Some(auth) = authenticate(req, &db, ctx).await? else {
-        return Ok((error_response(401, error::AUTH_REQUIRED)?, None));
+        return Ok((unauthorized(env)?, None));
+    };
+
+    let mut response = if req.method() == Method::Get {
+        match route {
+            Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
+            Route::Package { name } => package_response(&db, name).await?,
+            Route::Artifact { name, version } => {
+                artifact_response(env, &db, &auth, name, version).await?
+            }
+            // Answered above before the auth gate.
+            Route::Healthz => Response::empty()?,
+        }
+    } else {
+        error_response(405, error::METHOD_NOT_ALLOWED)?
+    };
+
+    // Debug aid for the disposable dev environment (see docs/runbook.md):
+    // stamp every authenticated response with the registry generation.
+    if let Some(generation) = registry_generation(&db).await {
+        response.headers_mut().set(GENERATION_HEADER, &generation)?;
+    }
+    Ok((response, Some(auth.token_id)))
+}
+
+/// The website origin: the OAuth plane (`/login`, `/callback`), the
+/// session-only `/api/v1/user` subtree, and the Bearer mutation plane.
+/// The read plane does not exist here - nothing outside those planes
+/// matches a data route, so this origin never serves `/config.json`,
+/// `/packages/*`, or `/artifacts/*`.
+async fn handle_website(
+    req: &mut Request,
+    env: &Env,
+    ctx: &Context,
+    path: &str,
+) -> worker::Result<(Response, Option<String>)> {
+    if let Some(web_route) = match_web_route(path) {
+        return Ok((web_glue::respond_web(req, env, web_route).await?, None));
+    }
+    // The whole subtree is session-only: a bearer token never reaches
+    // it, and unknown paths under it answer as the session plane rather
+    // than falling through to the bearer plane.
+    if crate::routes::is_session_path(path) {
+        let Some(session_route) = crate::routes::match_session_route(path) else {
+            return Ok((error_response(404, error::NOT_FOUND)?, None));
+        };
+        let response = web_glue::respond_session(req, env, session_route).await?;
+        return Ok((response, None));
+    }
+
+    // Everything else is the Bearer plane: deny by default, the uniform
+    // 401 before any route matching or data lookup.
+    let db = env.d1("DB")?;
+    let Some(auth) = authenticate(req, &db, ctx).await? else {
+        return Ok((unauthorized(env)?, None));
     };
 
     let mut response = match req.method() {
-        Method::Get => match match_route(&path) {
-            Some(Route::Config) => json_response(&documents::config_json(
-                &env.var("REGISTRY_ORIGIN")?.to_string(),
-            ))?,
-            Some(Route::Package { name }) => package_response(&db, name).await?,
-            Some(Route::Artifact { name, version }) => {
-                artifact_response(env, &db, &auth, name, version).await?
-            }
-            // `/healthz` was handled above; the admin listing is the
-            // one API route read with GET; anything else is an
-            // authenticated 404.
-            Some(Route::Healthz) | None => match match_api_route(&path) {
-                Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
-                _ => error_response(404, error::NOT_FOUND)?,
-            },
+        // The admin listing is the one API route read with GET; anything
+        // else is an authenticated 404.
+        Method::Get => match match_api_route(path) {
+            Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
+            _ => error_response(404, error::NOT_FOUND)?,
         },
-        Method::Put => match match_api_route(&path) {
+        Method::Put => match match_api_route(path) {
             Some(ApiRoute::Publish { name, version }) => {
                 let (name, version) = (name.to_owned(), version.to_owned());
                 publish_response(req, env, ctx, &db, &auth, &name, &version).await?
@@ -149,7 +243,7 @@ async fn handle(
             ) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
-        Method::Patch => match match_api_route(&path) {
+        Method::Patch => match match_api_route(path) {
             Some(ApiRoute::Yank { name, version }) => {
                 let (name, version) = (name.to_owned(), version.to_owned());
                 yank_response(req, env, &db, &auth, &name, &version).await?
@@ -166,8 +260,7 @@ async fn handle(
         _ => error_response(405, error::METHOD_NOT_ALLOWED)?,
     };
 
-    // Debug aid for the disposable dev environment (see docs/runbook.md):
-    // stamp every authenticated response with the registry generation.
+    // The same generation stamp as the read plane (docs/runbook.md).
     if let Some(generation) = registry_generation(&db).await {
         response.headers_mut().set(GENERATION_HEADER, &generation)?;
     }
@@ -297,7 +390,7 @@ async fn publish_response(
     }
 
     let quotas = quota::quotas_for_plan(&auth.plan);
-    if let Some(limited) = publish_rate_limit(db, auth, &quotas).await? {
+    if let Some(limited) = publish_rate_limit(env, db, auth, &quotas).await? {
         return Ok(limited);
     }
 
@@ -356,7 +449,7 @@ async fn publish_response(
     // current cap) stays the idempotent no-op above and never consumes
     // quota.
     if let Err(denial) = quota::check_archive_size(archive_bytes, &quotas) {
-        return denial_response(&denial, None);
+        return denial_response(env, &denial, None);
     }
     // ponytail: the quota counts below are a preflight, not a serialized
     // transaction - concurrent publishes can each pass the same
@@ -373,7 +466,7 @@ async fn publish_response(
     };
     let counts = publish_counts(db, auth.user_id, name, &day_prefix).await?;
     if let Err(denial) = quota::check_publish(archive_bytes, &counts, &quotas) {
-        return denial_response(&denial, None);
+        return denial_response(env, &denial, None);
     }
 
     let new = NewVersion {
@@ -1270,6 +1363,7 @@ async fn existing_version(
 /// accruing from the last persisted take, and the response carries
 /// `Retry-After`.
 async fn publish_rate_limit(
+    env: &Env,
     db: &D1Database,
     auth: &AuthContext,
     quotas: &quota::PlanQuotas,
@@ -1283,6 +1377,7 @@ async fn publish_rate_limit(
         let outcome = quota::take_publish_token(bucket, now_epoch_ms(), quotas);
         if !outcome.allowed {
             return Ok(Some(denial_response(
+                env,
                 &quota::RATE_LIMITED,
                 Some(outcome.retry_after_secs),
             )?));
@@ -1296,7 +1391,7 @@ async fn publish_rate_limit(
     // spent concurrently right now; refusing the attempt is the limiter
     // working. The bucket refills within a minute, hence the short
     // Retry-After.
-    denial_response(&quota::RATE_LIMITED, Some(1)).map(Some)
+    denial_response(env, &quota::RATE_LIMITED, Some(1)).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -1863,12 +1958,16 @@ fn error_response_with_code(
     Ok(response)
 }
 
-/// Renders a quota or rate-limit [`quota::Denial`].
+/// Renders a quota or rate-limit [`quota::Denial`]; the quota family's
+/// detail embeds the dashboard URL built from `WEB_ORIGIN`
+/// ([`quota::detail_with_usage_url`]).
 fn denial_response(
+    env: &Env,
     denial: &quota::Denial,
     retry_after_secs: Option<u64>,
 ) -> worker::Result<Response> {
-    error_response_with_code(denial.status, denial.detail, denial.code, retry_after_secs)
+    let detail = quota::detail_with_usage_url(denial, &web_origin(env)?);
+    error_response_with_code(denial.status, &detail, denial.code, retry_after_secs)
 }
 
 /// A numeric D1 binding. D1 has no `BigInt` support, so the value rides

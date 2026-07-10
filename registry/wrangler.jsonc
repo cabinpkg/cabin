@@ -22,11 +22,28 @@
     // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
     // defaults (src/breaker.rs) and only need `vars` entries to override.
+    // One Worker, one role per hostname (docs/architecture.md, "Origins
+    // and roles"): the registry custom domain serves only the machine
+    // read plane, and the website origin (cabinpkg.com, the production
+    // hostname even during development) serves /login, /callback, and
+    // /api/* via the zone routes below. A route pattern can point at only
+    // one Worker, so env dev holds the cabinpkg.com routes for now; the
+    // production cutover moves these exact patterns to env production
+    // (docs/runbook.md, "Route management").
     "env": {
         "dev": {
             "name": "cabin-registry-dev",
             "routes": [
-                { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true }
+                { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true },
+                // Path routes are more specific than the website Worker's
+                // domain, so they win on these paths and only these paths.
+                // /callback needs the trailing * because a pattern without
+                // one never matches a URL carrying a query string (GitHub
+                // redirects to /callback?code=...&state=...); /login stays
+                // exact so /login/denied keeps rendering on the website.
+                { "pattern": "cabinpkg.com/api/*", "zone_name": "cabinpkg.com" },
+                { "pattern": "cabinpkg.com/login", "zone_name": "cabinpkg.com" },
+                { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" }
             ],
             // The budget-breaker evaluation plus the nightly D1 dump
             // (src/glue.rs `scheduled` routes on the expression: the
@@ -35,14 +52,19 @@
             // the free limits.
             "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
             "vars": {
-                "REGISTRY_ORIGIN": "https://dev-registry.cabinpkg.com",
-                // Comma-separated numeric GitHub user ids allowed to sign in
-                // at /me; empty means nobody. Not a secret.
+                // The website origin: config.json's `api` field, the
+                // WWW-Authenticate login_url, OAuth redirects, and the
+                // quota details' usage URLs all derive from it. The index
+                // stays on the registry custom domain declared in
+                // `routes` above; no var names it because no code reads it.
+                "WEB_ORIGIN": "https://cabinpkg.com",
+                // Comma-separated numeric GitHub user ids allowed to sign
+                // in; empty means nobody. Not a secret.
                 // 26405363 = ken-matsui
                 "ALLOWED_GITHUB_IDS": "26405363",
                 // Client id of the dev GitHub OAuth app (callback
-                // https://dev-registry.cabinpkg.com/callback). Public, not
-                // a secret; the matching GITHUB_CLIENT_SECRET is a secret.
+                // https://cabinpkg.com/callback). Public, not a secret;
+                // the matching GITHUB_CLIENT_SECRET is a secret.
                 "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H",
                 // Account tag for the GraphQL Analytics queries. Not a
                 // secret (it is in every dashboard URL).
@@ -72,12 +94,17 @@
         },
         "production": {
             "name": "cabin-registry",
+            // No cabinpkg.com routes yet on purpose: env dev holds them
+            // (a pattern can point at only one Worker). The production
+            // cutover moves the three patterns here, at which point the
+            // dev registry loses its browser plane (docs/runbook.md,
+            // "Route management").
             "routes": [
                 { "pattern": "registry.cabinpkg.com", "custom_domain": true }
             ],
             "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
             "vars": {
-                "REGISTRY_ORIGIN": "https://registry.cabinpkg.com",
+                "WEB_ORIGIN": "https://cabinpkg.com",
                 // 26405363 = ken-matsui
                 "ALLOWED_GITHUB_IDS": "26405363",
                 "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",

@@ -1,42 +1,63 @@
-//! Cloudflare glue for the browser plane: GitHub OAuth sign-in and the
-//! `/me` token-management page (session-cookie auth, server-rendered
-//! HTML). The bearer-token data plane lives in [`crate::glue`]; neither
-//! plane accepts the other's credential. Sessions, GitHub access tokens,
-//! and issued registry tokens are never logged.
+//! Cloudflare glue for the browser plane on the website origin: GitHub
+//! OAuth sign-in (`/login`, `/callback`) and the session-cookie JSON user
+//! API (`/api/v1/user/*`). The bearer-token planes live in
+//! [`crate::glue`]; no plane accepts another's credential. Sessions,
+//! GitHub access tokens, and issued registry tokens are never logged.
 
 use serde::Deserialize;
-use worker::{
-    D1Database, Env, Fetch, FormData, FormEntry, Headers, Method, Request, RequestInit, Response,
-};
+use worker::{D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response};
 
 use crate::glue::{js_int, non_negative, now_iso8601};
-use crate::routes::WebRoute;
-use crate::{allowlist, auth, pages, quota, session};
+use crate::routes::{LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, SessionRoute, WebRoute};
+use crate::{allowlist, auth, error, quota, session, user_api};
 
-/// Routes one browser-plane request; the method check happens here, the
-/// path already matched in [`crate::routes::match_web_route`].
-pub async fn respond(
-    req: &mut Request,
-    env: &Env,
-    route: WebRoute<'_>,
-) -> worker::Result<Response> {
+/// Routes one OAuth request; the method check happens here, the path
+/// already matched in [`crate::routes::match_web_route`].
+pub async fn respond_web(req: &Request, env: &Env, route: WebRoute) -> worker::Result<Response> {
     let db = env.d1("DB")?;
     match (route, req.method()) {
         (WebRoute::Login, Method::Get) => login(env),
         (WebRoute::Callback, Method::Get) => callback(req, env, &db).await,
-        (WebRoute::Me, Method::Get) => me(req, env, &db).await,
-        (WebRoute::CreateToken, Method::Post) => create_token(req, env, &db).await,
-        (WebRoute::RevokeToken { id }, Method::Post) => {
+        _ => json_error(405, error::METHOD_NOT_ALLOWED),
+    }
+}
+
+/// Routes one session-plane request: JSON in, JSON out. The session is
+/// verified before anything else - method checks included - so an
+/// unauthenticated request always gets the plain 401 envelope, never a
+/// redirect (sending the browser to a sign-in page is the website
+/// frontend's job) and never the Bearer plane's `WWW-Authenticate`
+/// challenge (the planes stay distinguishable on purpose).
+pub async fn respond_session(
+    req: &mut Request,
+    env: &Env,
+    route: SessionRoute<'_>,
+) -> worker::Result<Response> {
+    let Some(session) = session_from_request(req, env)? else {
+        return json_error(401, error::AUTH_REQUIRED);
+    };
+    let db = env.d1("DB")?;
+    // The allowlist admitted the id, but its user row may be gone (the
+    // dev-wipe scenario): every endpoint - the token routes included -
+    // answers the same 401 as no session, never a phantom empty listing
+    // or a foreign-key 500.
+    let Some(user) = user_record(&db, &session).await? else {
+        return json_error(401, error::AUTH_REQUIRED);
+    };
+    match (route, req.method()) {
+        (SessionRoute::User, Method::Get) => json_response(&user_api::user_json(
+            session.github_id,
+            &user.login,
+            &user.plan,
+        )),
+        (SessionRoute::Usage, Method::Get) => usage(&db, &session, user).await,
+        (SessionRoute::Tokens, Method::Get) => list_tokens(&db, &session).await,
+        (SessionRoute::Tokens, Method::Post) => create_token(req, &db, &session).await,
+        (SessionRoute::RevokeToken { id }, Method::Post) => {
             let id = id.to_owned();
-            revoke_token(req, env, &db, &id).await
+            revoke_token(req, &db, &session, &id).await
         }
-        _ => html_response(
-            405,
-            &pages::simple_page(
-                "Method not allowed",
-                "This page does not answer that method.",
-            ),
-        ),
+        _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
 }
 
@@ -51,23 +72,41 @@ fn login(env: &Env) -> worker::Result<Response> {
         &state,
         now_secs() + session::STATE_MAX_AGE_SECS,
     );
-    let cookie = set_cookie(session::STATE_COOKIE, &sealed, session::STATE_MAX_AGE_SECS);
+    let cookie = session::set_cookie(
+        session::STATE_COOKIE,
+        &sealed,
+        session::STATE_MAX_AGE_SECS,
+        session::STATE_COOKIE_PATH,
+    );
+    // The explicit redirect_uri (recommended by GitHub, echoed in the
+    // token exchange) pins the callback to the website origin.
     let location = format!(
-        "https://github.com/login/oauth/authorize?client_id={client_id}&state={state}",
+        "https://github.com/login/oauth/authorize?client_id={client_id}&state={state}\
+         &redirect_uri={redirect_uri}",
         client_id = url_encode(&client_id),
+        redirect_uri = url_encode(&callback_url(env)?),
     );
     redirect_response(302, &location, &[cookie])
+}
+
+/// `<WEB_ORIGIN>/callback`, the one OAuth callback URL.
+fn callback_url(env: &Env) -> worker::Result<String> {
+    let origin = env.var("WEB_ORIGIN")?.to_string();
+    Ok(format!("{}/callback", origin.trim_end_matches('/')))
 }
 
 /// `GET /callback`: verify the `state` against the sealed cookie, trade
 /// the `code` for an access token, read the numeric GitHub id, and admit
 /// only allowlisted ids. The access token is used for that one `/user`
-/// call and dropped. Every refusal is the same plain 403 with no account
-/// details.
+/// call and dropped. Every refusal is the same redirect to the website's
+/// `/login/denied` page with no account details; success redirects to
+/// `/dashboard`. Both targets are fixed relative paths
+/// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
+/// input, so the callback cannot be turned into an open redirect.
 async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
     let secret = session_secret(env)?;
     // The state cookie is one-shot: cleared on every outcome.
-    let clear_state = set_cookie(session::STATE_COOKIE, "", 0);
+    let clear_state = session::set_cookie(session::STATE_COOKIE, "", 0, session::STATE_COOKIE_PATH);
 
     let url = req.url()?;
     let mut code = None;
@@ -87,19 +126,19 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         .and_then(|sealed| session::open_state(&secret, sealed, now_secs()));
     let (Some(code), Some(state_param), Some(expected_state)) = (code, state_param, expected_state)
     else {
-        return forbidden(&[clear_state]);
+        return denied(&[clear_state]);
     };
     if state_param != expected_state {
-        return forbidden(&[clear_state]);
+        return denied(&[clear_state]);
     }
 
     let Some(user) = github_user_for_code(env, &code).await? else {
-        return forbidden(&[clear_state]);
+        return denied(&[clear_state]);
     };
     // The numeric id is the identity; the login name is display-only.
     let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
     if !allowed.contains(&user.id) {
-        return forbidden(&[clear_state]);
+        return denied(&[clear_state]);
     }
 
     db.prepare(
@@ -112,28 +151,41 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
 
     let expires_at = now_secs() + session::SESSION_MAX_AGE_SECS;
     let sealed = session::seal_session(&secret, user.id, expires_at);
-    let cookie = set_cookie(
+    let cookie = session::set_cookie(
         session::SESSION_COOKIE,
         &sealed,
         session::SESSION_MAX_AGE_SECS,
+        session::SESSION_COOKIE_PATH,
     );
-    redirect_response(302, "/me", &[cookie, clear_state])
+    redirect_response(302, POST_LOGIN_REDIRECT, &[cookie, clear_state])
 }
 
-/// `GET /me`: the usage-and-quotas block, the token list, and the
-/// create-token form; session required.
-async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
-    let Some(session) = session_from_request(req, env)? else {
-        return redirect_response(302, "/login", &[]);
-    };
-    let user: Option<UserRecord> = db
-        .prepare("SELECT login, plan FROM users WHERE github_id = ?1")
-        .bind(&[js_int(session.github_id)])?
-        .first(None)
-        .await?;
-    let Some(user) = user else {
-        return redirect_response(302, "/login", &[]);
-    };
+#[derive(Deserialize)]
+struct UserRecord {
+    login: String,
+    plan: String,
+}
+
+#[derive(Deserialize)]
+struct UsageRecord {
+    stored_bytes: i64,
+    published_today: i64,
+    verified_count: i64,
+    pending_count: i64,
+    rejected_count: i64,
+}
+
+#[derive(Deserialize)]
+struct PackageCountRecord {
+    n: i64,
+}
+
+/// `GET /api/v1/user/usage`: the usage-and-quotas payload.
+async fn usage(
+    db: &D1Database,
+    session: &session::Session,
+    user: UserRecord,
+) -> worker::Result<Response> {
     // "Today" is the UTC calendar day, the same lexicographic window the
     // publish quotas use; a non-ISO clock (impossible in practice) only
     // zeroes the today counter. The package count matches the quota
@@ -169,7 +221,7 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
         .bind(&[js_int(session.github_id)])?
         .first(None)
         .await?;
-    let usage = pages::UsageInfo {
+    let usage = user_api::UsageInfo {
         quotas: quota::quotas_for_plan(&user.plan),
         plan: user.plan,
         package_count: non_negative(package_record.map_or(0, |record| record.n)),
@@ -179,119 +231,7 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
         pending_count: non_negative(usage_record.pending_count),
         rejected_count: non_negative(usage_record.rejected_count),
     };
-    let records: Vec<TokenListRecord> = db
-        .prepare(
-            "SELECT id, name, scopes, created_at, last_used_at, revoked_at \
-             FROM tokens WHERE user_id = ?1 ORDER BY created_at DESC, id",
-        )
-        .bind(&[js_int(session.github_id)])?
-        .all()
-        .await?
-        .results()?;
-    let rows: Vec<pages::TokenRow> = records
-        .into_iter()
-        .map(|record| pages::TokenRow {
-            id: record.id,
-            name: record.name,
-            scopes: record.scopes,
-            created_at: record.created_at,
-            last_used_at: record.last_used_at,
-            revoked: record.revoked_at.is_some(),
-        })
-        .collect();
-    let csrf = session::csrf_token(&session_secret(env)?, &session);
-    html_response(200, &pages::me_page(&user.login, &usage, &rows, &csrf))
-}
-
-/// `POST /me/tokens`: issue a token. The plaintext is rendered exactly
-/// once, on this response; D1 stores only the SHA-256 hex.
-async fn create_token(req: &mut Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
-    let Some(session) = session_from_request(req, env)? else {
-        return redirect_response(302, "/login", &[]);
-    };
-    let form = req.form_data().await?;
-    if !csrf_ok(&session_secret(env)?, &session, &form) {
-        return csrf_mismatch();
-    }
-    let name = field(&form, "name").map(|name| name.trim().to_owned());
-    let Some(name) = name.filter(|name| !name.is_empty() && name.chars().count() <= 64) else {
-        return html_response(
-            400,
-            &pages::simple_page("Invalid token name", "A token name is 1 to 64 characters."),
-        );
-    };
-    let mut scopes = Vec::new();
-    if field(&form, "scope_publish").is_some() {
-        scopes.push("publish");
-    }
-    if field(&form, "scope_yank").is_some() {
-        scopes.push("yank");
-    }
-    if field(&form, "scope_verify").is_some() {
-        scopes.push("verify");
-    }
-
-    let token = auth::format_token(&random_bytes()?);
-    db.prepare(
-        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-    )
-    .bind(&[
-        auth::hex(&random_bytes::<16>()?).into(),
-        js_int(session.github_id),
-        name.clone().into(),
-        auth::token_hash(&token).into(),
-        scopes.join(",").into(),
-        now_iso8601().into(),
-    ])?
-    .run()
-    .await?;
-    html_response(200, &pages::token_created_page(&name, &token))
-}
-
-/// `POST /me/tokens/<id>/revoke`: idempotent, scoped to the session's own
-/// tokens (a foreign or unknown id is a no-op), first `revoked_at` wins.
-async fn revoke_token(
-    req: &mut Request,
-    env: &Env,
-    db: &D1Database,
-    id: &str,
-) -> worker::Result<Response> {
-    let Some(session) = session_from_request(req, env)? else {
-        return redirect_response(302, "/login", &[]);
-    };
-    let form = req.form_data().await?;
-    if !csrf_ok(&session_secret(env)?, &session, &form) {
-        return csrf_mismatch();
-    }
-    db.prepare(
-        "UPDATE tokens SET revoked_at = ?1 \
-         WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL",
-    )
-    .bind(&[now_iso8601().into(), id.into(), js_int(session.github_id)])?
-    .run()
-    .await?;
-    redirect_response(303, "/me", &[])
-}
-
-#[derive(Deserialize)]
-struct UserRecord {
-    login: String,
-    plan: String,
-}
-
-#[derive(Deserialize)]
-struct UsageRecord {
-    stored_bytes: i64,
-    published_today: i64,
-    verified_count: i64,
-    pending_count: i64,
-    rejected_count: i64,
-}
-
-#[derive(Deserialize)]
-struct PackageCountRecord {
-    n: i64,
+    json_response(&user_api::usage_json(&usage))
 }
 
 #[derive(Deserialize)]
@@ -302,6 +242,106 @@ struct TokenListRecord {
     created_at: String,
     last_used_at: Option<String>,
     revoked_at: Option<String>,
+}
+
+/// `GET /api/v1/user/tokens`: metadata only, never hashes.
+async fn list_tokens(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
+    let records: Vec<TokenListRecord> = db
+        .prepare(
+            "SELECT id, name, scopes, created_at, last_used_at, revoked_at \
+             FROM tokens WHERE user_id = ?1 ORDER BY created_at DESC, id",
+        )
+        .bind(&[js_int(session.github_id)])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::TokenRow> = records
+        .into_iter()
+        .map(|record| user_api::TokenRow {
+            id: record.id,
+            name: record.name,
+            scopes: record.scopes,
+            created_at: record.created_at,
+            last_used_at: record.last_used_at,
+            revoked: record.revoked_at.is_some(),
+        })
+        .collect();
+    json_response(&user_api::tokens_json(&rows))
+}
+
+/// A create-token body cannot legitimately get anywhere near this; the
+/// cap keeps a hostile session from making the Worker buffer megabytes.
+const MAX_SESSION_BODY_BYTES: usize = 4 * 1024;
+
+/// `POST /api/v1/user/tokens`: issue a token. The plaintext is rendered
+/// exactly once, on this response; D1 stores only the SHA-256 hex.
+async fn create_token(
+    req: &mut Request,
+    db: &D1Database,
+    session: &session::Session,
+) -> worker::Result<Response> {
+    if !csrf_ok(req)? {
+        return json_error(403, error::CSRF_REQUIRED);
+    }
+    // Reject an oversized upload before buffering when the client
+    // declared a length, mirroring the publish handler; the buffered
+    // size is re-checked regardless (a chunked body has no length).
+    if let Some(length) = req.headers().get("content-length")?
+        && length
+            .parse::<u64>()
+            .is_ok_and(|n| n > MAX_SESSION_BODY_BYTES as u64)
+    {
+        return json_error(400, user_api::INVALID_CREATE_TOKEN_BODY);
+    }
+    let body = req.bytes().await?;
+    if body.len() > MAX_SESSION_BODY_BYTES {
+        return json_error(400, user_api::INVALID_CREATE_TOKEN_BODY);
+    }
+    let parsed = match user_api::parse_create_token(&body) {
+        Ok(parsed) => parsed,
+        Err(detail) => return json_error(400, detail),
+    };
+
+    let id = auth::hex(&random_bytes::<16>()?);
+    let token = auth::format_token(&random_bytes()?);
+    db.prepare(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(&[
+        id.as_str().into(),
+        js_int(session.github_id),
+        parsed.name.as_str().into(),
+        auth::token_hash(&token).into(),
+        parsed.scopes.as_str().into(),
+        now_iso8601().into(),
+    ])?
+    .run()
+    .await?;
+    let body = user_api::token_created_json(&id, &parsed.name, &parsed.scopes, &token);
+    Ok(json_response(&body)?.with_status(201))
+}
+
+/// `POST /api/v1/user/tokens/<id>/revoke`: idempotent, scoped to the
+/// session's own tokens (a foreign or unknown id is a no-op), first
+/// `revoked_at` wins.
+async fn revoke_token(
+    req: &Request,
+    db: &D1Database,
+    session: &session::Session,
+    id: &str,
+) -> worker::Result<Response> {
+    if !csrf_ok(req)? {
+        return json_error(403, error::CSRF_REQUIRED);
+    }
+    db.prepare(
+        "UPDATE tokens SET revoked_at = ?1 \
+         WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL",
+    )
+    .bind(&[now_iso8601().into(), id.into(), js_int(session.github_id)])?
+    .run()
+    .await?;
+    json_response(r#"{"ok":true}"#)
 }
 
 /// GitHub's access-token endpoint answers errors as 200s with an error
@@ -325,11 +365,14 @@ struct GithubUser {
 async fn github_user_for_code(env: &Env, code: &str) -> worker::Result<Option<GithubUser>> {
     let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
     let client_secret = env.secret("GITHUB_CLIENT_SECRET")?.to_string();
+    // GitHub requires the exchange's redirect_uri to match the one the
+    // authorize request carried.
     let body = format!(
-        "client_id={}&client_secret={}&code={}",
+        "client_id={}&client_secret={}&code={}&redirect_uri={}",
         url_encode(&client_id),
         url_encode(&client_secret),
         url_encode(code),
+        url_encode(&callback_url(env)?),
     );
     let headers = Headers::new();
     headers.set("accept", "application/json")?;
@@ -382,41 +425,35 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
     Ok(allowed.contains(&current.github_id).then_some(current))
 }
 
+/// The session's D1 user row; `None` (the transient, post-wipe case of a
+/// session whose user row is gone) answers the same 401 as no session.
+async fn user_record(
+    db: &D1Database,
+    session: &session::Session,
+) -> worker::Result<Option<UserRecord>> {
+    db.prepare("SELECT login, plan FROM users WHERE github_id = ?1")
+        .bind(&[js_int(session.github_id)])?
+        .first(None)
+        .await
+}
+
 fn session_secret(env: &Env) -> worker::Result<Vec<u8>> {
     Ok(env.secret("SESSION_SECRET")?.to_string().into_bytes())
 }
 
-fn csrf_ok(secret: &[u8], current: &session::Session, form: &FormData) -> bool {
-    field(form, "csrf").is_some_and(|token| session::csrf_matches(secret, current, &token))
-}
-
-fn csrf_mismatch() -> worker::Result<Response> {
-    html_response(
-        403,
-        &pages::simple_page(
-            "Request rejected",
-            "The form's session check failed; go back to /me and retry.",
-        ),
-    )
-}
-
-fn field(form: &FormData, name: &str) -> Option<String> {
-    match form.get(name) {
-        Some(FormEntry::Field(value)) => Some(value),
-        _ => None,
-    }
-}
-
-/// `Set-Cookie` value for a browser-plane cookie. `SameSite=Lax` keeps
-/// cross-site POSTs cookie-less (the CSRF field is the second factor);
-/// `Max-Age=0` clears.
-fn set_cookie(name: &str, value: &str, max_age_secs: u64) -> String {
-    format!("{name}={value}; Max-Age={max_age_secs}; Path=/; HttpOnly; Secure; SameSite=Lax")
+/// The JSON API's CSRF discipline ([`session::csrf_headers_ok`]).
+fn csrf_ok(req: &Request) -> worker::Result<bool> {
+    let content_type = req.headers().get("content-type")?;
+    let csrf = req.headers().get(session::CSRF_HEADER)?;
+    Ok(session::csrf_headers_ok(
+        content_type.as_deref(),
+        csrf.as_deref(),
+    ))
 }
 
 /// Security headers on every browser-plane response: scripts and external
-/// resources are locked out wholesale, and nothing (in particular `/me`,
-/// `/callback`, and the one page carrying a plaintext token) is cached.
+/// resources are locked out wholesale, and nothing (in particular the one
+/// response carrying a plaintext token) is cached.
 fn web_headers(headers: &mut Headers) -> worker::Result<()> {
     headers.set(
         "content-security-policy",
@@ -428,12 +465,16 @@ fn web_headers(headers: &mut Headers) -> worker::Result<()> {
     Ok(())
 }
 
-fn html_response(status: u16, body: &str) -> worker::Result<Response> {
-    let mut response = Response::ok(body)?.with_status(status);
+fn json_response(body: &str) -> worker::Result<Response> {
+    let mut response = Response::ok(body)?;
     let headers = response.headers_mut();
-    headers.set("content-type", "text/html; charset=utf-8")?;
+    headers.set("content-type", "application/json")?;
     web_headers(headers)?;
     Ok(response)
+}
+
+fn json_error(status: u16, detail: &str) -> worker::Result<Response> {
+    Ok(json_response(&error::envelope(detail))?.with_status(status))
 }
 
 fn redirect_response(status: u16, location: &str, cookies: &[String]) -> worker::Result<Response> {
@@ -447,19 +488,10 @@ fn redirect_response(status: u16, location: &str, cookies: &[String]) -> worker:
     Ok(response)
 }
 
-/// The uniform sign-in refusal: a plain 403 with no account details.
-fn forbidden(cookies: &[String]) -> worker::Result<Response> {
-    let mut response = html_response(
-        403,
-        &pages::simple_page(
-            "Sign-in refused",
-            "This registry restricts sign-in to an allowlist of GitHub accounts.",
-        ),
-    )?;
-    for cookie in cookies {
-        response.headers_mut().append("set-cookie", cookie)?;
-    }
-    Ok(response)
+/// The uniform sign-in refusal: a redirect to the website's
+/// `/login/denied` page with no account details.
+fn denied(cookies: &[String]) -> worker::Result<Response> {
+    redirect_response(302, LOGIN_DENIED_REDIRECT, cookies)
 }
 
 /// `N` bytes from the runtime CSPRNG (`crypto.getRandomValues`).

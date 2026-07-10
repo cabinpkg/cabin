@@ -25,6 +25,26 @@ pub const VERDICT_TARGET_CHANGED: &str =
     "the version changed since it was listed; fetch the pending list again";
 pub const INVALID_STATUS_QUERY: &str =
     "the status query parameter must be pending, verified, or rejected";
+pub const CSRF_REQUIRED: &str = "the request must declare Content-Type: application/json and \
+     carry the X-CSRF-Protection header";
+pub const INVALID_TOKEN_NAME_OR_SCOPES: &str = "invalid token name or scopes";
+
+/// The `WWW-Authenticate` challenge every Bearer-plane 401 carries,
+/// mirroring Cargo's `login_url` challenge: byte-identical on every path
+/// and failure reason, so unauthenticated responses stay
+/// indistinguishable and leak nothing about package existence.
+///
+/// The token page it names ships with the website step; until that
+/// lands, the challenged URL 404s on the dev deployment and the interim
+/// token flow is `docs/runbook.md` ("Route management"). That gap is
+/// deliberate sequencing on the operator-only dev registry - `cabin
+/// login` never depends on the URL resolving, only on the grammar.
+pub fn www_authenticate(web_origin: &str) -> String {
+    format!(
+        "Cabin login_url=\"{origin}/settings/tokens\"",
+        origin = web_origin.trim_end_matches('/'),
+    )
+}
 
 /// Renders `detail` into the error envelope.
 pub fn envelope(detail: &str) -> String {
@@ -42,6 +62,19 @@ pub fn envelope_with_code(detail: &str, code: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn www_authenticate_matches_the_challenge_grammar() {
+        assert_eq!(
+            www_authenticate("https://cabinpkg.com"),
+            r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+        );
+        // A trailing slash on the env var never doubles the separator.
+        assert_eq!(
+            www_authenticate("https://cabinpkg.com/"),
+            r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+        );
+    }
 
     #[test]
     fn envelope_matches_the_contract_byte_for_byte() {
