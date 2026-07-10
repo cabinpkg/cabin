@@ -186,10 +186,12 @@ workspace loader sees the manifest:
     download so repeat invocations stay network-free.
 4. Verify the archive's SHA-256 against `port.toml`.  Mismatch surfaces `checksum mismatch for port
    \`<name> <version>\`: expected sha256:..., got sha256:...`.
-5. Safely extract the archive into the port cache with the declared `strip_prefix`.  This step
-   reuses `cabin-artifact`'s extraction primitives (tar.gz or zip, chosen by the URL's path
-   extension), so the decompression-bomb caps and path-traversal protection apply identically to
-   both formats.  Symlink entries are **skipped** rather than failing the port: upstream release
+5. Safely extract the archive into a scratch directory beside the port cache entry, with the
+   declared `strip_prefix`.  This step reuses `cabin-artifact`'s extraction primitives (tar.gz or
+   zip, chosen by the URL's path extension), so the full
+   [extraction safety contract](package-format.md#extraction-safety-contract) - decompression-bomb
+   caps, path-traversal protection, duplicate and conflicting entries - applies identically to both
+   formats.  Symlink entries are **skipped** rather than failing the port: upstream release
    archives commonly carry convenience symlinks (uthash ships `include -> src`), nothing is ever
    materialized on disk for a skipped entry, and a port overlay only references real files.  Every
    other special entry type (hard links, devices, fifos) is still rejected, and package archives
@@ -199,7 +201,12 @@ workspace loader sees the manifest:
 7. Copy the overlay manifest into the extracted source dir as `cabin.toml`.
 8. Cross-check the overlay's `[package]` identity against `port.toml`.  Mismatch surfaces an
    explicit error.
-9. Drop a sibling `.ok` completion marker so the next invocation can reuse the prepared directory
+9. Rename the scratch directory into its final place in the port cache.  On a cold cache, steps 5
+   through 8 all run against the scratch tree, so a hostile archive, a broken `[[copy]]` plan, or a
+   mismatched overlay leaves no partially prepared port at the final path.  (On a warm cache hit —
+   the completion marker's copy-plan fingerprint matches — there is no scratch tree: the already
+   validated directory is re-verified in place.)
+10. Drop a sibling `.ok` completion marker so the next invocation can reuse the prepared directory
    without re-extracting.
 
 Once prepared, each port directory looks exactly like a regular Cabin path dependency: the existing
