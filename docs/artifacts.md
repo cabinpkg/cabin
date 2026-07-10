@@ -155,16 +155,23 @@ There is no way to skip checksum verification.
 
 ## Safe extraction
 
-Source archives are extracted with fail-closed rules:
+Source archives are extracted with fail-closed rules, on the assumption that the archive is
+hostile.  The full contract - what is rejected, the named limits, and the atomicity guarantee - is
+[`package-format.md`](package-format.md#extraction-safety-contract).  In summary:
 
-- archive entries with absolute paths are rejected;
-- archive entries containing `..` components are rejected;
-- archive entries whose joined destination escapes the source directory are rejected;
+- entries with absolute paths, `..` components, or destinations escaping the source directory are
+  rejected;
 - only `Regular` files and `Directory` entries are written to disk; symlinks, hard links, char/block
   devices, fifos, sparse, and continuation entries are rejected with a clear error; GNU long-name,
   GNU long-link, and pax extension records (tar metadata the reader consumes to resolve long paths)
   are skipped rather than rejected;
-- symlinks are never followed; nothing is written outside the destination directory.
+- duplicate destinations, over-long paths, entries conflicting with a parent directory, and headers
+  whose declared size disagrees with the archive's bytes are rejected;
+- decompressed bytes, entry count, path length, and buffered tar metadata are each capped, so a
+  decompression bomb cannot exhaust disk or memory;
+- symlinks are never followed; nothing is written outside the destination directory;
+- the tree is extracted into a sibling scratch directory and renamed into place only once it
+  extracts and validates, so a rejected archive leaves no partial source tree.
 
 Errors look like `refusing to extract unsafe archive entry `../escape.txt`` or `refusing to extract
 unsupported archive entry `evil``.

@@ -49,6 +49,48 @@ pub enum ArtifactError {
     UnsupportedArchiveEntry(String),
 
     #[error(
+        "refusing to extract archive entry `{path}`: its path exceeds the {limit}-byte length limit"
+    )]
+    ArchiveEntryPathTooLong { path: String, limit: usize },
+
+    #[error("refusing to extract duplicate archive entry `{0}`")]
+    DuplicateArchiveEntry(String),
+
+    #[error(
+        "refusing to extract archive entry `{path}`: `{conflict}` cannot be both a regular file and a directory"
+    )]
+    ConflictingArchiveEntry { path: String, conflict: String },
+
+    #[error(
+        "refusing to extract archive entry `{path}`: its header declares {expected} bytes but the archive holds {actual}"
+    )]
+    ArchiveEntryTruncated {
+        path: String,
+        expected: u64,
+        actual: u64,
+    },
+
+    #[error(
+        "refusing to extract archive: decompressed stream exceeds the {cap}-byte cap derived from its compressed size (potential decompression bomb)"
+    )]
+    ArchiveStreamTooLarge { cap: u64 },
+
+    #[error(
+        "refusing to extract archive: tar headers and metadata records exceed the {limit}-byte limit"
+    )]
+    ArchiveMetadataTooLarge { limit: u64 },
+
+    #[error(
+        "refusing to extract archive: its {size}-byte size exceeds the {limit}-byte limit (its metadata would not fit in bounded memory)"
+    )]
+    ArchiveFileTooLarge { size: u64, limit: u64 },
+
+    #[error(
+        "refusing to extract archive: its central directory declares {declared} entries but only {distinct} names are distinct (duplicate names)"
+    )]
+    ArchiveDuplicateNames { declared: u64, distinct: usize },
+
+    #[error(
         "refusing to extract archive entry `{path}`: decompressed size exceeds the {limit}-byte per-entry limit (potential decompression bomb)"
     )]
     ArchiveEntryTooLarge { path: String, limit: u64 },

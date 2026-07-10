@@ -29,6 +29,80 @@ Archives are gzipped tar files conforming to the extractor contract:
 The default `<output-dir>/<name>-<version>.tar.gz` filename is conventional; the in-archive path
 layout is what registries and extractors care about.
 
+## Extraction safety contract
+
+Cabin downloads registry archives, verifies their SHA-256 against the lockfile or index, and
+extracts them.  Extraction assumes the archive is **hostile**.  The trust model is bidirectional:
+the hosted registry inspects what it serves (see
+[`remote-registry.md`](remote-registry.md#the-verifiers-checks)), but a client also talks to
+third-party registries, local file registries, and — if a registry were ever compromised — to an
+attacker.  The rules below are the ones that *must* hold, because the client cannot assume a
+well-behaved registry.  They are not gated behind any `-Z` flag.
+
+An archive is refused, with a typed error naming the offending entry, when any entry:
+
+| Rejected | Why |
+| --- | --- |
+| has an absolute path, a `..` component, or a joined destination outside the target | directory traversal |
+| is not a regular file or a directory | symlinks, hard links, devices, fifos, and sparse entries can redirect writes outside the target or materialize special files.  Foundation ports opt into *skipping* symlink entries (never materializing them); see [`foundation-ports.md`](foundation-ports.md) |
+| resolves to a destination another entry already claimed | a duplicate would silently "last-win", so the bytes a reviewer read are not the bytes the build gets |
+| is a regular file that another entry uses as a parent directory (`foo` plus `foo/bar`) | no consistent extraction exists |
+| declares a header `size` that disagrees with the bytes the archive holds | a short read would silently truncate a source file |
+| contains a component that a Windows filesystem aliases to a different destination — a trailing `.`, a leading or trailing space, a `:` (drive or NTFS alternate-data-stream separator), or a reserved DOS device name (`NUL`, `CON`, `COM1`, the superscript `COM¹`/`LPT²` forms, …) | two such entries collide, or the write routes to a device instead of a file.  Rejected on every platform so a Linux-built archive cannot smuggle them to a Windows client.  Case-only collisions (`a.c` vs `A.C`) are the one alias *not* rejected — they would refuse archives legitimate on case-sensitive Linux, and both entries still land inside the target (content confusion, not escape) |
+
+Every extraction is bounded by these named limits:
+
+| Limit | Value | Bounds |
+| --- | --- | --- |
+| entry path length | 256 bytes | per-entry allocation, and nesting depth transitively |
+| entry count | 10 000 | inodes materialized from cheap-to-ship headers |
+| per-entry decompressed bytes | 256 MiB | one bomb entry |
+| aggregate decompressed bytes | 1 GiB | total disk written |
+| whole decompressed stream | `min(max(32 x compressed size, 64 MiB), 1 GiB + framing)` | amplification: a small download cannot inflate toward the absolute cap.  The 64 MiB floor exists because tar framing is mostly zeros and compresses far better than any content ratio, so small legitimate archives "expand" 15-30x on framing alone |
+| tar framing and metadata records | 4 KiB x the entry count (40 MiB) | **memory**.  The tar reader buffers a GNU long-name or PAX record in full before the entry it decorates, and therefore before any type or path check can reject it |
+
+One duplicate shape is deliberately *not* caught: two entries whose paths differ only by case
+(`foo.c` and `FOO.c`).  They are distinct files on a case-sensitive filesystem, and rejecting them
+would refuse archives that are legitimate on Linux; on a case-insensitive filesystem (the default
+on macOS and Windows) the second overwrites the first.  Both still land inside the extraction
+target, so this is a content-confusion hazard, not a containment one.
+
+The caps are enforced against the bytes actually decompressed, never the sizes an archive's headers
+claim.  They are a *consumer* contract: `cabin package` does not itself enforce them, so a
+pathological hand-built source tree (a 300-byte path, or more than 10 000 files) can produce an
+archive that this extractor — and the registry verifier — rejects.  What is guaranteed is that
+every archive produced from a *conventional* source tree passes with wide margin: a real C/C++
+package sits orders of magnitude below every limit, and a test packages every example under
+`examples/`, asserts the margin against each cap directly, and round-trips it through the extractor
+on every platform CI covers.
+
+Extraction is atomic within a run.  The tree is built in a sibling scratch directory unique to the
+process and renamed into place only after it extracts, validates, and — for a cold-cache foundation
+port — finishes its copies, overlay, and identity cross-check.  A rejected archive therefore leaves
+no partial source tree, no completion marker, and no scratch directory behind.  This is the
+guarantee that matters for the hostile-archive threat model, and it holds regardless of concurrency.
+
+Cross-process cache coordination is *not* lock-protected, and this change does not add it.  When two
+processes materialize the same entry at once, each builds its own scratch tree and one wins the
+rename; the loser's rename fails, it discards its scratch, and it surfaces the error so its caller
+retries (finding the winner's now-complete entry on the retry).  A torn interleaving can still
+transiently leave a completion marker beside a directory another process is rebuilding; the next run
+detects the mismatch and re-extracts.  These are liveness edges of a lockless content-addressed
+cache, not safety holes — no hostile archive escapes through them, and they predate this change.
+
+Zip archives (foundation ports only) obey the same rules, including the header-size and duplicate
+checks.  They have no separate whole-stream ratio cap: zip decompresses per entry, so the per-entry
+caps already bound every decompressed byte.  Zip metadata is read from bytes the archive really
+contains rather than from a compressed stream that can amplify, so its memory cost is bounded by the
+archive file size — which is itself capped at the aggregate limit, since the central directory
+cannot exceed the file.
+
+The "whole decompressed stream" cap and the framing/metadata budget apply to the bytes the tar
+reader actually pulls.  A valid tar ends at its terminator, and the reader stops there, so content
+appended *after* the terminator is neither decompressed nor materialized — the client does not
+inspect it (the hosted verifier does, since it is checking archives it will serve). This is why the
+cap bounds real memory and disk regardless of any trailing bytes.
+
 ## Determinism
 
 The same logical input always produces byte-identical archives:

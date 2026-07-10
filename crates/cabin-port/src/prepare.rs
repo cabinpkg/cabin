@@ -33,7 +33,7 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-use cabin_artifact::cache::{extraction_marker_path, partial_sibling};
+use cabin_artifact::cache::{extraction_marker_path, partial_dir_sibling, partial_sibling};
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz, safe_extract_zip};
 use cabin_core::PackageName;
 use cabin_fs::write_atomic;
@@ -210,7 +210,16 @@ fn prepare_one(
     let copy_fingerprint = copy_plan_fingerprint(&entry.descriptor.copies);
 
     ensure_archive(entry, &archive_path, sha256, options.frozen)?;
-    ensure_source(
+    // `Some(tmp)` when the archive had to be extracted: the rest of
+    // the preparation - copies, overlay, identity cross-check - then
+    // runs against the scratch tree, which is renamed into place only
+    // once the whole pipeline succeeds.  A hostile archive, a broken
+    // `[[copy]]` plan, or a mismatched overlay therefore leaves no
+    // partially prepared port at `source_dir`.  `None` is a warm
+    // cache hit, where those steps run against the existing tree
+    // exactly as before (they are idempotent, and the identity
+    // cross-check keeps re-verifying it).
+    let scratch = ensure_source(
         entry,
         &archive_path,
         archive_kind,
@@ -219,9 +228,34 @@ fn prepare_one(
         &copy_fingerprint,
         options.frozen,
     )?;
-    apply_copies(entry, &source_dir)?;
-    ensure_overlay(entry, &source_dir)?;
-    cross_check_overlay_identity(entry, &source_dir)?;
+    let prepare_dir = scratch.as_deref().unwrap_or(source_dir.as_path());
+    let prepared = apply_copies(entry, prepare_dir)
+        .and_then(|()| ensure_overlay(entry, prepare_dir))
+        .and_then(|()| cross_check_overlay_identity(entry, prepare_dir));
+    if let Err(err) = prepared {
+        if let Some(tmp) = &scratch {
+            let _ = fs::remove_dir_all(tmp);
+        }
+        return Err(err);
+    }
+    if let Some(tmp) = &scratch {
+        // Rename the fully prepared tree into place.  A failure -
+        // including a concurrent process having populated `source_dir`
+        // first, which makes the rename onto a non-empty directory
+        // fail - removes the scratch so no partial state leaks, and
+        // surfaces the error rather than adopting a tree this process
+        // did not build (a concurrent run with a different overlay or
+        // `[[copy]]` plan would not have produced an identical one).
+        // A retry warm-hits the winner's tree when the recipe matches
+        // and re-extracts otherwise.
+        if let Err(source) = fs::rename(tmp, &source_dir) {
+            let _ = fs::remove_dir_all(tmp);
+            return Err(PortError::Fs {
+                path: source_dir.clone(),
+                source,
+            });
+        }
+    }
     write_marker(&source_dir, &copy_fingerprint)?;
 
     let overlay_manifest = match &entry.origin {
@@ -312,6 +346,11 @@ fn ensure_archive(
     Ok(())
 }
 
+/// Make sure `source_dir` holds the archive's extracted tree.
+///
+/// Returns `Ok(None)` on a warm cache hit, and `Ok(Some(scratch))`
+/// after extracting into a sibling scratch directory the caller must
+/// finish preparing and rename into place.
 fn ensure_source(
     entry: &PortEntry,
     archive_path: &Path,
@@ -320,7 +359,7 @@ fn ensure_source(
     strip_prefix: Option<&str>,
     copy_fingerprint: &str,
     frozen: bool,
-) -> Result<(), PortError> {
+) -> Result<Option<PathBuf>, PortError> {
     let marker = extraction_marker_path(source_dir);
     if marker.is_file() && source_dir.join("cabin.toml").is_file() {
         // We trust the marker because:
@@ -345,7 +384,7 @@ fn ensure_source(
         //    legacy empty marker reads as "" and matches the empty plan.
         let recorded = fs::read_to_string(&marker).with_path(&marker)?;
         if recorded == copy_fingerprint {
-            return Ok(());
+            return Ok(None);
         }
     }
 
@@ -363,7 +402,16 @@ fn ensure_source(
     if source_dir.exists() {
         fs::remove_dir_all(source_dir).with_path(source_dir)?;
     }
-    fs::create_dir_all(source_dir).with_path(source_dir)?;
+    // Extract into a sibling scratch directory the caller renames
+    // into place once the whole preparation succeeds, so a hostile
+    // upstream archive rejected mid-extraction never leaves a partial
+    // tree at the final path (same `.partial` + rename convention as
+    // the archive download above).
+    let tmp_dir = partial_dir_sibling(source_dir);
+    if tmp_dir.exists() {
+        fs::remove_dir_all(&tmp_dir).with_path(&tmp_dir)?;
+    }
+    fs::create_dir_all(&tmp_dir).with_path(&tmp_dir)?;
 
     // Both extractors share the same signature, options, and
     // fail-closed rules; the URL extension picked the kind.
@@ -373,7 +421,7 @@ fn ensure_source(
     };
     extract(
         archive_path,
-        source_dir,
+        &tmp_dir,
         SafeExtractOptions {
             strip_prefix,
             // Upstream release archives commonly carry convenience
@@ -388,6 +436,7 @@ fn ensure_source(
         },
     )
     .map_err(|err| {
+        let _ = fs::remove_dir_all(&tmp_dir);
         let (name, version) = entry.identity();
         match err {
             cabin_artifact::ArtifactError::MissingStripPrefix { strip_prefix } => {
@@ -404,7 +453,7 @@ fn ensure_source(
             },
         }
     })?;
-    Ok(())
+    Ok(Some(tmp_dir))
 }
 
 /// Apply the descriptor's `[[copy]]` placements to the extracted
@@ -1073,6 +1122,72 @@ mod tests {
         assert!(
             matches!(err, PortError::MissingCopySource { .. }),
             "{err:?}"
+        );
+        // The whole preparation is staged in a scratch directory, so
+        // a failure after extraction - here a `[[copy]]` step whose
+        // source is absent - leaves no half-prepared port behind.
+        let source_dir = cache.source_dir("zlib", "1.3.1", &hex);
+        assert!(!source_dir.exists(), "partial port tree left behind");
+        assert!(!extraction_marker_path(&source_dir).exists());
+        assert!(
+            !partial_dir_sibling(&source_dir).exists(),
+            "scratch dir left behind"
+        );
+    }
+
+    #[test]
+    fn a_rejected_archive_leaves_no_partial_port_tree() {
+        // A hostile upstream archive: the first entry extracts, the
+        // second is a fifo the entry-type gate refuses.  Nothing is
+        // left at the port's source directory.
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let downloads = dir.path().join("downloads");
+        fs::create_dir_all(&downloads).unwrap();
+        let archive = downloads.join("zlib-1.3.1.tar.gz");
+        let f = fs::File::create(&archive).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        let body = b"// stub\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(
+                &mut header,
+                "zlib-1.3.1/zlib.h",
+                &mut std::io::Cursor::new(&body[..]),
+            )
+            .unwrap();
+        let mut header = tar::Header::new_gnu();
+        header.set_path("zlib-1.3.1/pipe").unwrap();
+        header.set_size(0);
+        header.set_entry_type(tar::EntryType::Fifo);
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+        let hex = hex_digest(&Sha256::digest(fs::read(&archive).unwrap()));
+
+        let descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::Extract { .. }), "{err:?}");
+        let source_dir = cache.source_dir("zlib", "1.3.1", &hex);
+        assert!(!source_dir.exists(), "partial port tree left behind");
+        assert!(
+            !partial_dir_sibling(&source_dir).exists(),
+            "scratch dir left behind"
         );
     }
 

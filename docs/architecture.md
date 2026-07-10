@@ -273,11 +273,18 @@ upstream tarballs that carry convenience symlinks).  The crate must:
 - not implement networking;
 - not implement publishing;
 - reject every tar entry that is not a regular file or directory, every entry with `..` components
-  or absolute paths, and every entry whose joined destination escapes the cache target.
+  or absolute paths, and every entry whose joined destination escapes the cache target;
+- bound every extraction by explicit named limits - entry count, entry path length, per-entry and
+  aggregate decompressed bytes, a whole-stream cap derived from the compressed size, and a separate
+  budget for the tar framing and metadata records the reader buffers in memory;
+- leave no partial state behind: source trees are built in a sibling scratch directory and renamed
+  into place only after they extract and validate.
 
 The lexical path-safety predicates that back the rejection above come from `cabin-fs`.
 Archive-specific extraction policy - allowed tar entry types, GNU/PAX metadata handling, declared
 `strip_prefix` matching, decompressed-size caps, and partial-file cleanup - stays in this crate.
+The client-facing statement of these rules, and the reason the client may never delegate them to a
+registry's own verifier, is [`package-format.md`](package-format.md#extraction-safety-contract).
 
 ### `cabin-package`
 

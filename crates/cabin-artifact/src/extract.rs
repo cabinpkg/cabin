@@ -1,6 +1,9 @@
+use std::cell::Cell;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek as _};
 use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 
 use cabin_core::PackageName;
 use cabin_fs::path::is_safe_relative_path;
@@ -33,6 +36,198 @@ const MAX_TOTAL_BYTES: u64 = 1024 * 1024 * 1024;
 /// expensive to materialize as filesystem inodes, so the count
 /// is capped independently of the byte caps.
 const MAX_ENTRIES: usize = 10_000;
+
+/// Maximum bytes in one entry's path.  Real package and upstream
+/// source trees sit far below this, and the hosted-registry verifier
+/// (`cabin-registry-verify`) enforces the same default, so a
+/// verified archive can never trip it.  The cap also bounds
+/// directory nesting depth implicitly: every level costs at least
+/// two bytes of path.
+const MAX_PATH_BYTES: usize = 256;
+
+/// Maximum decompressed bytes the whole gzip stream may produce per
+/// compressed byte (see [`ExtractLimits::stream_cap`]).  Source
+/// archives gzip at single-digit ratios; 32x leaves wide margin for
+/// unusually compressible trees while still refusing a small
+/// download that inflates toward the absolute cap.  Deliberately
+/// looser than the hosted-registry verifier's 10x: the client cap
+/// must never reject an archive the verifier accepted.
+const MAX_DECOMPRESSION_RATIO: u64 = 32;
+
+/// The ratio cap only engages above this floor.  Tar framing
+/// (headers, padding, the EOF marker) is mostly zeros and compresses
+/// at far better than any sane content ratio, so tiny legitimate
+/// archives routinely "expand" 15-30x on framing alone; the floor
+/// keeps them clear of the ratio cap while still bounding what a
+/// small hostile download can write.  Covers the verifier's floor
+/// (4 MiB + 2 KiB per permitted entry = 24 MiB) with room to spare.
+const RATIO_FLOOR_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Decompressed bytes of tar framing and metadata allowed per
+/// permitted entry.  Worst case for a *legitimate* entry is 2047
+/// bytes: a GNU long-name record (512-byte header plus one 512-byte
+/// padded payload block, which is what a path up to
+/// [`MAX_PATH_BYTES`] needs, since the plain header's name field
+/// holds only 100) followed by the entry's own 512-byte header and
+/// up to 511 bytes of content padding.  A 2 KiB allowance would
+/// therefore clear the worst honest archive by under 10 KiB across
+/// the whole entry cap; doubling it buys real headroom while
+/// keeping the metadata budget - and so the peak allocation - small.
+/// `the_worst_legitimate_framing_still_fits_the_metadata_budget`
+/// pins this.
+const FRAMING_BYTES_PER_ENTRY: u64 = 4096;
+
+/// The extraction caps.  `Default` is the production values above;
+/// tests inject smaller ones to exercise each cap cheaply.
+#[derive(Debug, Clone, Copy)]
+struct ExtractLimits {
+    max_entry_bytes: u64,
+    max_total_bytes: u64,
+    max_entries: usize,
+    max_path_bytes: usize,
+    ratio: u64,
+    ratio_floor_bytes: u64,
+}
+
+impl Default for ExtractLimits {
+    fn default() -> Self {
+        ExtractLimits {
+            max_entry_bytes: MAX_ENTRY_BYTES,
+            max_total_bytes: MAX_TOTAL_BYTES,
+            max_entries: MAX_ENTRIES,
+            max_path_bytes: MAX_PATH_BYTES,
+            ratio: MAX_DECOMPRESSION_RATIO,
+            ratio_floor_bytes: RATIO_FLOOR_BYTES,
+        }
+    }
+}
+
+impl ExtractLimits {
+    /// Decompressed bytes of tar framing and metadata records the
+    /// whole archive may spend: [`FRAMING_BYTES_PER_ENTRY`] for each
+    /// permitted entry.
+    ///
+    /// This is the memory bound.  The tar reader buffers a GNU
+    /// long-name or PAX record fully in memory before the entry it
+    /// decorates - and therefore before any entry-type or path check
+    /// can reject it - so without a metadata-specific budget a
+    /// hostile record could grow a `Vec` all the way to the
+    /// whole-stream cap.  Charging framing separately keeps the peak
+    /// allocation at this budget instead.
+    fn metadata_cap(&self) -> u64 {
+        (self.max_entries as u64).saturating_mul(FRAMING_BYTES_PER_ENTRY)
+    }
+
+    /// Decompressed-stream cap for an archive of `compressed_size`
+    /// bytes: `min(max(ratio x compressed, floor), absolute)`, where
+    /// the absolute ceiling is `max_total_bytes` plus the framing
+    /// allowance.  The allowance keeps the cap layers separable: an
+    /// archive whose *contents* run over still gets the per-entry or
+    /// aggregate error naming the entry, and the stream cap fires
+    /// only for ratio violations.
+    fn stream_cap(&self, compressed_size: u64) -> u64 {
+        self.ratio
+            .saturating_mul(compressed_size)
+            .max(self.ratio_floor_bytes)
+            .min(self.max_total_bytes.saturating_add(self.metadata_cap()))
+    }
+}
+
+/// Which budget a [`CappedReader`] ran out of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CapExceeded {
+    Stream,
+    Metadata,
+}
+
+/// Two budgets the decompressed byte stream is drawn against, shared
+/// between the reader (buried inside `tar::Archive`) and the
+/// extraction loop that knows which phase the reader is in.
+///
+/// Every decompressed byte is charged to `stream_remaining`.  Bytes
+/// read while `in_body` is false - tar headers, padding, and the
+/// metadata records the tar reader buffers - are additionally
+/// charged to `metadata_remaining`.  The extraction loop marks the
+/// body phase only while it is copying a regular file's contents to
+/// disk, which is the one place tar bytes flow straight through
+/// instead of into memory.
+#[derive(Debug)]
+struct StreamBudget {
+    stream_remaining: Cell<u64>,
+    metadata_remaining: Cell<u64>,
+    in_body: Cell<bool>,
+    exceeded: Cell<Option<CapExceeded>>,
+}
+
+impl StreamBudget {
+    fn new(stream_cap: u64, metadata_cap: u64) -> Rc<Self> {
+        Rc::new(StreamBudget {
+            stream_remaining: Cell::new(stream_cap),
+            metadata_remaining: Cell::new(metadata_cap),
+            in_body: Cell::new(false),
+            exceeded: Cell::new(None),
+        })
+    }
+
+    /// Run `body`, charging the bytes it reads to the stream budget
+    /// only.  Restores the metadata phase afterwards, including on
+    /// the error path.
+    fn in_body<T>(&self, body: impl FnOnce() -> T) -> T {
+        self.in_body.set(true);
+        let out = body();
+        self.in_body.set(false);
+        out
+    }
+}
+
+/// A reader that refuses to produce more bytes than its
+/// [`StreamBudget`] allows.  Unlike [`io::Take`], crossing a budget
+/// is an error (recorded on the budget so the caller can tell a bomb
+/// from a corrupt stream), not a silent EOF - a truncated tar must
+/// never pass as a complete one.  Modeled on the hosted-registry
+/// verifier's reader (`cabin-registry-verify`).
+struct CappedReader<R> {
+    inner: R,
+    budget: Rc<StreamBudget>,
+}
+
+impl<R: Read> Read for CappedReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        let in_body = self.budget.in_body.get();
+        let stream = self.budget.stream_remaining.get();
+        let metadata = self.budget.metadata_remaining.get();
+        let allowance = if in_body {
+            stream
+        } else {
+            stream.min(metadata)
+        };
+        if allowance == 0 {
+            // At a cap: only a clean EOF may follow.  Probe one byte
+            // to tell the two apart.
+            let mut probe = [0u8; 1];
+            if self.inner.read(&mut probe)? == 0 {
+                return Ok(0);
+            }
+            let kind = if in_body || stream == 0 {
+                CapExceeded::Stream
+            } else {
+                CapExceeded::Metadata
+            };
+            self.budget.exceeded.set(Some(kind));
+            return Err(io::Error::other("decompressed size cap exceeded"));
+        }
+        let allowed = usize::try_from(allowance.min(buf.len() as u64)).unwrap_or(buf.len());
+        let read = self.inner.read(&mut buf[..allowed])?;
+        self.budget.stream_remaining.set(stream - read as u64);
+        if !in_body {
+            self.budget.metadata_remaining.set(metadata - read as u64);
+        }
+        Ok(read)
+    }
+}
 
 /// Options accepted by [`safe_extract_tar_gz`] and
 /// [`safe_extract_zip`].
@@ -72,57 +267,89 @@ pub struct SafeExtractOptions<'a> {
 ///
 /// The same fail-closed rules as [`safe_extract_tar_gz`] apply:
 /// unsafe entry paths are rejected before and after the optional
-/// prefix strip, only regular files and directories are accepted
+/// prefix strip (including over-long paths and duplicate
+/// destinations), only regular files and directories are accepted
 /// (a zip entry whose recorded Unix mode is a symlink - or any
 /// other non-file, non-directory type - is refused), and the same
 /// per-entry / aggregate / entry-count decompression-bomb caps are
 /// enforced against the *actual* decompressed bytes, not the sizes
-/// the zip headers claim.
+/// the zip headers claim.  The aggregate cap is additionally scaled
+/// down to the same compressed-size-derived value the tar side uses,
+/// so a small hostile zip cannot write toward the absolute ceiling
+/// either.
+///
+/// There is no separate whole-stream cap: zip decompresses per
+/// entry, so those per-entry caps already bound every decompressed
+/// byte, and zip metadata is read from bytes the archive really
+/// contains (names are `u16`-bounded, the count is bounded by the
+/// end-of-central-directory pre-check), so it cannot be amplified
+/// the way a gzip-compressed tar metadata record can.
 ///
 /// # Errors
 /// Mirrors [`safe_extract_tar_gz`]: [`ArtifactError::Io`] when
 /// `archive` cannot be opened, [`ArtifactError::Extract`] when the
 /// zip structure cannot be read, and the same
-/// `UnsafeArchiveEntry` / `UnsupportedArchiveEntry` /
-/// `ArchiveEntryTooLarge` / `ArchiveTooLarge` /
-/// `ArchiveTooManyEntries` / `MissingStripPrefix` rejections.
+/// `UnsafeArchiveEntry` / `ArchiveEntryPathTooLong` /
+/// `DuplicateArchiveEntry` / `ConflictingArchiveEntry` /
+/// `UnsupportedArchiveEntry` / `ArchiveEntryTooLarge` /
+/// `ArchiveTooLarge` / `ArchiveTooManyEntries` /
+/// `MissingStripPrefix` rejections.
 pub fn safe_extract_zip(
     archive: &Path,
     dest: &Path,
     options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
-    safe_extract_zip_with_limits(
-        archive,
-        dest,
-        MAX_ENTRY_BYTES,
-        MAX_TOTAL_BYTES,
-        MAX_ENTRIES,
-        options,
-    )
+    safe_extract_zip_with_limits(archive, dest, ExtractLimits::default(), options)
 }
 
 fn safe_extract_zip_with_limits(
     archive: &Path,
     dest: &Path,
-    max_entry_bytes: u64,
-    max_total_bytes: u64,
-    max_entries: usize,
+    limits: ExtractLimits,
     options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
     let mut f = File::open(archive).map_err(|source| ArtifactError::Io {
         path: archive.to_path_buf(),
         source,
     })?;
+    let compressed_size = f
+        .metadata()
+        .map_err(|source| ArtifactError::Io {
+            path: archive.to_path_buf(),
+            source,
+        })?
+        .len();
+    let max_total_bytes = limits
+        .stream_cap(compressed_size)
+        .min(limits.max_total_bytes);
+    // Cap the archive file itself.  `zip::ZipArchive::new` parses the
+    // whole central directory into memory before any per-entry check
+    // below can reject it, and each record can carry ~64 KiB of name,
+    // extra, and comment fields; that memory is bounded by the file
+    // size (the central directory cannot exceed the file), so bounding
+    // the file bounds the metadata.  Unlike a decompression bomb this
+    // is not amplified - the archive is already downloaded and its
+    // SHA-256 verified before extraction - so the aggregate ceiling is
+    // a generous bound rather than a tight one.
+    if compressed_size > limits.max_total_bytes {
+        return Err(ArtifactError::ArchiveFileTooLarge {
+            size: compressed_size,
+            limit: limits.max_total_bytes,
+        });
+    }
     // Refuse an over-cap entry count from the end-of-central-directory
     // record *before* the parser materializes per-entry metadata, so a
     // crafted zip with an enormous entry count is rejected without
     // paying memory or CPU proportional to that count.  Best-effort:
     // when no EOCD is found the full parser below surfaces the
     // canonical error for the malformed archive.
-    if let Some(count) = zip_eocd_entry_count(&mut f)
-        && count > max_entries as u64
+    let declared_entries = zip_eocd_entry_count(&mut f);
+    if let Some(count) = declared_entries
+        && count > limits.max_entries as u64
     {
-        return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+        return Err(ArtifactError::ArchiveTooManyEntries {
+            limit: limits.max_entries,
+        });
     }
     f.seek(io::SeekFrom::Start(0))
         .map_err(|source| ArtifactError::Io {
@@ -138,59 +365,53 @@ fn safe_extract_zip_with_limits(
     // Authoritative re-check on the parsed directory: the EOCD scan
     // above is a fast-fail heuristic and a hostile archive could
     // understate its count there.
-    if zip.len() > max_entries {
-        return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+    if zip.len() > limits.max_entries {
+        return Err(ArtifactError::ArchiveTooManyEntries {
+            limit: limits.max_entries,
+        });
+    }
+    // The `zip` crate keys entries by raw name in an `IndexMap`, so
+    // two records sharing a name collapse to one ("last wins") before
+    // `TargetTree` below could see the duplicate.  A well-formed
+    // archive's parsed length equals its declared entry count, so a
+    // shortfall means names were deduplicated - reject it, since a
+    // duplicate path is exactly the last-wins confusion the tar side
+    // refuses by name.
+    //
+    // Best-effort by nature: it reads the classic end-of-central-
+    // directory count, so a ZIP64 archive (sentinel `u64::MAX`, or a
+    // classic count that disagrees with the ZIP64 count the parser
+    // used) or an archive with bytes appended after the EOCD (which
+    // makes `zip_eocd_entry_count` decline to guess) slips past it.
+    // Registry package archives are `.tar.gz` and take the tar path,
+    // which refuses duplicates unconditionally; zip is reached only
+    // for foundation-port upstreams, whose bytes are pinned by SHA-256
+    // in an in-repo recipe, so this narrow gap is a defense-in-depth
+    // shortfall, not an exposure of the primary surface.
+    if let Some(declared) = declared_entries
+        && declared != u64::MAX
+        && (zip.len() as u64) < declared
+    {
+        return Err(ArtifactError::ArchiveDuplicateNames {
+            declared,
+            distinct: zip.len(),
+        });
     }
 
     let mut total_bytes: u64 = 0;
     let mut saw_prefix = false;
+    let mut tree = TargetTree::default();
 
     for index in 0..zip.len() {
-        let mut entry = zip.by_index(index).map_err(extract_err)?;
-        let display = entry.name().to_owned();
-
-        // Zip has no first-class entry-type field; the Unix mode
-        // bits travel in the external attributes when the archive
-        // was produced on a Unix host.  Reject anything that is
-        // recorded as neither a regular file nor a directory
-        // (symlinks foremost), mirroring the tar entry-type policy;
-        // symlinks alone may instead be skipped when the caller
-        // opted in (nothing is materialized either way).
-        let file_type = entry.unix_mode().map(|mode| mode & S_IFMT);
-        let skip_symlink = file_type == Some(S_IFLNK) && options.skip_symlinks;
-        if let Some(file_type) = file_type
-            && !skip_symlink
-            && file_type != 0
-            && file_type != S_IFREG
-            && file_type != S_IFDIR
-        {
-            return Err(ArtifactError::UnsupportedArchiveEntry(display));
-        }
-
-        // Path-safety and prefix checks run for skipped symlinks
-        // too, exactly like the tar path: skipping avoids
-        // materializing the entry, not validating the archive.
-        let entry_path = PathBuf::from(entry.name());
-        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)? else {
-            continue;
-        };
-        if skip_symlink {
-            continue;
-        }
-
-        if entry.is_dir() {
-            fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
-                path: target.clone(),
-                source,
-            })?;
-            continue;
-        }
-        write_file_capped(
-            &mut entry,
-            &target,
-            &display,
-            max_entry_bytes,
+        let entry = zip.by_index(index).map_err(extract_err)?;
+        write_zip_entry(
+            entry,
+            dest,
+            limits,
             max_total_bytes,
+            options,
+            &mut tree,
+            &mut saw_prefix,
             &mut total_bytes,
         )?;
     }
@@ -199,6 +420,96 @@ fn safe_extract_zip_with_limits(
     {
         return Err(ArtifactError::MissingStripPrefix {
             strip_prefix: prefix.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// Validate and materialize one zip entry.  Mirrors the tar per-entry
+/// path: entry-type gate, path safety, target-tree conflict check,
+/// byte caps, and the header-size truncation check.
+#[allow(clippy::too_many_arguments)]
+fn write_zip_entry<R: Read>(
+    mut entry: zip::read::ZipFile<'_, R>,
+    dest: &Path,
+    limits: ExtractLimits,
+    max_total_bytes: u64,
+    options: SafeExtractOptions<'_>,
+    tree: &mut TargetTree,
+    saw_prefix: &mut bool,
+    total_bytes: &mut u64,
+) -> Result<(), ArtifactError> {
+    if entry.name().len() > limits.max_path_bytes {
+        return Err(ArtifactError::ArchiveEntryPathTooLong {
+            path: truncate_for_display(entry.name().as_bytes()),
+            limit: limits.max_path_bytes,
+        });
+    }
+    let display = entry.name().to_owned();
+
+    // Zip has no first-class entry-type field; the Unix mode bits
+    // travel in the external attributes when the archive was produced
+    // on a Unix host.  Reject anything that is recorded as neither a
+    // regular file nor a directory (symlinks foremost), mirroring the
+    // tar entry-type policy; symlinks alone may instead be skipped
+    // when the caller opted in (nothing is materialized either way).
+    let file_type = entry.unix_mode().map(|mode| mode & S_IFMT);
+    let skip_symlink = file_type == Some(S_IFLNK) && options.skip_symlinks;
+    if let Some(file_type) = file_type
+        && !skip_symlink
+        && file_type != 0
+        && file_type != S_IFREG
+        && file_type != S_IFDIR
+    {
+        return Err(ArtifactError::UnsupportedArchiveEntry(display));
+    }
+
+    // Path-safety and prefix checks run for skipped symlinks too,
+    // exactly like the tar path: skipping avoids materializing the
+    // entry, not validating the archive.
+    let entry_path = PathBuf::from(entry.name());
+    let Some(target) = resolve_safe_target(
+        &entry_path,
+        dest,
+        limits.max_path_bytes,
+        options,
+        saw_prefix,
+    )?
+    else {
+        return Ok(());
+    };
+    if skip_symlink {
+        return Ok(());
+    }
+    let is_dir = entry.is_dir();
+    tree.claim(&target, dest, is_dir, &display)?;
+
+    if is_dir {
+        fs::create_dir_all(&target).map_err(|source| ArtifactError::Io {
+            path: target.clone(),
+            source,
+        })?;
+        return Ok(());
+    }
+    let expected = entry.size();
+    let written = write_file_capped(
+        &mut entry,
+        &target,
+        &display,
+        limits.max_entry_bytes,
+        max_total_bytes,
+        total_bytes,
+    )?;
+    // A stored entry whose local header overstates its uncompressed
+    // size hands the reader a short body; the tar side refuses the
+    // same mismatch, so mirror it here rather than materialize a
+    // silently truncated source file.
+    if written != expected {
+        let _ = fs::remove_file(&target);
+        return Err(ArtifactError::ArchiveEntryTruncated {
+            path: display,
+            expected,
+            actual: written,
         });
     }
     Ok(())
@@ -257,9 +568,7 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
     safe_extract_tar_gz_with_limits(
         archive,
         dest,
-        MAX_ENTRY_BYTES,
-        MAX_TOTAL_BYTES,
-        MAX_ENTRIES,
+        ExtractLimits::default(),
         SafeExtractOptions::default(),
     )
 }
@@ -270,6 +579,9 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
 /// Fail-closed rules:
 /// - reject entries with absolute paths or `..` components;
 /// - reject entries whose joined destination escapes `dest`;
+/// - reject entry paths longer than a fixed byte cap (which also
+///   bounds nesting depth) and any two entries that resolve to the
+///   same destination (a duplicate would silently "last-win");
 /// - accept only `Regular` files and `Directory` entries - every other
 ///   tar entry type (symlinks, hard links, char/block devices, fifos,
 ///   sparse, etc.) is rejected;
@@ -277,22 +589,40 @@ pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), Artifact
 ///   bytes, and total entry count so a decompression-bomb archive
 ///   (small compressed payload, huge decompressed output) cannot
 ///   fill the user's disk;
+/// - cap the decompressed byte stream as a whole at a multiple of
+///   the compressed size (with a floor and an absolute ceiling), and
+///   cap the tar framing and metadata records separately, bounding
+///   the memory the tar reader can spend buffering them as well as
+///   the total disk written;
 /// - when [`SafeExtractOptions::strip_prefix`] is set, require
 ///   every entry to begin with that single directory component
 ///   and re-run path-safety checks on the post-strip path.  An
 ///   archive whose entries never match the declared prefix
 ///   surfaces [`ArtifactError::MissingStripPrefix`].
 ///
+/// The rules are lexical by design: no destination ever needs
+/// `fs::canonicalize`, because nothing that could redirect a path
+/// (a symlink, a hard link) is ever materialized, so a validated
+/// destination under `dest` cannot be re-pointed elsewhere.
+/// Callers are expected to extract into a directory they created
+/// empty, and the fetch path does so (a sibling temp dir renamed
+/// into place on success).
+///
 /// # Errors
 /// Returns [`ArtifactError::Io`] if `archive` cannot be opened and
 /// [`ArtifactError::Extract`] if the gzip/tar stream cannot be read.
 /// Returns [`ArtifactError::UnsafeArchiveEntry`] for entries that are
 /// absolute, contain `..`, or escape `dest`;
-/// [`ArtifactError::UnsupportedArchiveEntry`] for any entry that is not
-/// a regular file or directory; [`ArtifactError::ArchiveEntryTooLarge`],
+/// [`ArtifactError::ArchiveEntryPathTooLong`] for an over-long entry
+/// path; [`ArtifactError::DuplicateArchiveEntry`] for a repeated
+/// destination; [`ArtifactError::UnsupportedArchiveEntry`] for any
+/// entry that is not a regular file or directory;
+/// [`ArtifactError::ArchiveEntryTooLarge`],
 /// [`ArtifactError::ArchiveTooLarge`], or
 /// [`ArtifactError::ArchiveTooManyEntries`] when the per-entry, aggregate,
-/// or entry-count cap is exceeded; and
+/// or entry-count cap is exceeded;
+/// [`ArtifactError::ArchiveStreamTooLarge`] when the whole
+/// decompressed stream crosses the compressed-size-derived cap; and
 /// [`ArtifactError::MissingStripPrefix`] when `options.strip_prefix` is set
 /// but no entry begins with that component.
 pub fn safe_extract_tar_gz(
@@ -300,31 +630,53 @@ pub fn safe_extract_tar_gz(
     dest: &Path,
     options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
-    safe_extract_tar_gz_with_limits(
-        archive,
-        dest,
-        MAX_ENTRY_BYTES,
-        MAX_TOTAL_BYTES,
-        MAX_ENTRIES,
-        options,
-    )
+    safe_extract_tar_gz_with_limits(archive, dest, ExtractLimits::default(), options)
 }
 
 fn safe_extract_tar_gz_with_limits(
     archive: &Path,
     dest: &Path,
-    max_entry_bytes: u64,
-    max_total_bytes: u64,
-    max_entries: usize,
+    limits: ExtractLimits,
     options: SafeExtractOptions<'_>,
 ) -> Result<(), ArtifactError> {
-    let f = File::open(archive).map_err(|source| ArtifactError::Io {
+    let io_error = |source: io::Error| ArtifactError::Io {
         path: archive.to_path_buf(),
         source,
-    })?;
+    };
+    let compressed_size = fs::metadata(archive).map_err(io_error)?.len();
+    let cap = limits.stream_cap(compressed_size);
+    let metadata_cap = limits.metadata_cap();
+    let budget = StreamBudget::new(cap, metadata_cap);
+    let f = File::open(archive).map_err(io_error)?;
     let dec = flate2::read::GzDecoder::new(f);
-    let mut tar = tar::Archive::new(dec);
+    let mut tar = tar::Archive::new(CappedReader {
+        inner: dec,
+        budget: Rc::clone(&budget),
+    });
 
+    let result = extract_tar_entries(&mut tar, archive, dest, limits, options, &budget);
+    // A crossed budget surfaces through the gzip/tar layers as an
+    // opaque I/O failure, so the recorded kind - not the error that
+    // came back - is what distinguishes a decompression bomb from a
+    // corrupt stream.  It takes priority over `result` for exactly
+    // that reason.
+    match budget.exceeded.get() {
+        Some(CapExceeded::Stream) => Err(ArtifactError::ArchiveStreamTooLarge { cap }),
+        Some(CapExceeded::Metadata) => Err(ArtifactError::ArchiveMetadataTooLarge {
+            limit: metadata_cap,
+        }),
+        None => result,
+    }
+}
+
+fn extract_tar_entries<R: Read>(
+    tar: &mut tar::Archive<R>,
+    archive: &Path,
+    dest: &Path,
+    limits: ExtractLimits,
+    options: SafeExtractOptions<'_>,
+    budget: &StreamBudget,
+) -> Result<(), ArtifactError> {
     let entries = tar.entries().map_err(|source| ArtifactError::Extract {
         path: archive.to_path_buf(),
         source,
@@ -333,11 +685,14 @@ fn safe_extract_tar_gz_with_limits(
     let mut total_bytes: u64 = 0;
     let mut entry_count: usize = 0;
     let mut saw_prefix = false;
+    let mut tree = TargetTree::default();
 
     for entry_result in entries {
         entry_count += 1;
-        if entry_count > max_entries {
-            return Err(ArtifactError::ArchiveTooManyEntries { limit: max_entries });
+        if entry_count > limits.max_entries {
+            return Err(ArtifactError::ArchiveTooManyEntries {
+                limit: limits.max_entries,
+            });
         }
 
         let mut entry = entry_result.map_err(|source| ArtifactError::Extract {
@@ -364,6 +719,19 @@ fn safe_extract_tar_gz_with_limits(
         ) {
             continue;
         }
+        // Cap the raw wire path before anything copies it: the
+        // decorated path an entry reports can come from a GNU
+        // long-name record, and a hostile one is only bounded by the
+        // metadata budget.  Nothing over the cap is ever turned into
+        // a `PathBuf` or an error string.
+        let raw_path = entry.path_bytes();
+        if raw_path.len() > limits.max_path_bytes {
+            return Err(ArtifactError::ArchiveEntryPathTooLong {
+                path: truncate_for_display(&raw_path),
+                limit: limits.max_path_bytes,
+            });
+        }
+        drop(raw_path);
         let entry_path: PathBuf = entry
             .path()
             .map_err(|source| ArtifactError::Extract {
@@ -373,23 +741,37 @@ fn safe_extract_tar_gz_with_limits(
             .into_owned();
         let display = entry_path.to_string_lossy().into_owned();
 
-        let Some(target) = resolve_safe_target(&entry_path, dest, options, &mut saw_prefix)? else {
+        let Some(target) = resolve_safe_target(
+            &entry_path,
+            dest,
+            limits.max_path_bytes,
+            options,
+            &mut saw_prefix,
+        )?
+        else {
             continue;
         };
 
         // A skipped symlink materializes nothing; every other
-        // special type still fails inside `write_entry`.
+        // special type still fails inside `write_entry`.  It claims
+        // no target either, so it is exempt from the tree checks.
         if entry_kind == tar::EntryType::Symlink && options.skip_symlinks {
             continue;
         }
+        tree.claim(
+            &target,
+            dest,
+            entry_kind == tar::EntryType::Directory,
+            &display,
+        )?;
         write_entry(
             &mut entry,
             entry_kind,
             &target,
             &display,
-            max_entry_bytes,
-            max_total_bytes,
+            limits,
             &mut total_bytes,
+            budget,
         )?;
     }
     if let Some(prefix) = options.strip_prefix
@@ -400,6 +782,142 @@ fn safe_extract_tar_gz_with_limits(
         });
     }
     Ok(())
+}
+
+/// Render at most the first 64 bytes of a raw entry path for a
+/// diagnostic, so an error message never copies a hostile path whose
+/// length is bounded only by the metadata budget.
+fn truncate_for_display(raw: &[u8]) -> String {
+    const MAX_DISPLAY_BYTES: usize = 64;
+    if raw.len() <= MAX_DISPLAY_BYTES {
+        return String::from_utf8_lossy(raw).into_owned();
+    }
+    let head = String::from_utf8_lossy(&raw[..MAX_DISPLAY_BYTES]);
+    format!("{head}...")
+}
+
+/// The destinations claimed so far, used to reject two archive
+/// shapes that have no consistent extraction and that `cabin
+/// package` never produces:
+///
+/// - a regular file written twice ("last wins" confusion), and
+/// - a regular file used as another entry's parent directory (`foo`
+///   plus `foo/bar`, in either order).
+///
+/// Both would otherwise surface as a bare filesystem error, or - for
+/// the duplicate - as a silent overwrite.  `dirs` holds implied
+/// parent directories as well as explicit directory entries, since
+/// the extractor creates them with `create_dir_all`.  Directory
+/// entries themselves may repeat: `create_dir_all` is idempotent and
+/// some archivers list a directory more than once.
+#[derive(Debug, Default)]
+struct TargetTree {
+    files: HashSet<PathBuf>,
+    dirs: HashSet<PathBuf>,
+}
+
+impl TargetTree {
+    fn claim(
+        &mut self,
+        target: &Path,
+        dest: &Path,
+        is_dir: bool,
+        display: &str,
+    ) -> Result<(), ArtifactError> {
+        let conflict = |at: &Path| ArtifactError::ConflictingArchiveEntry {
+            path: display.to_owned(),
+            conflict: at
+                .strip_prefix(dest)
+                .unwrap_or(at)
+                .to_string_lossy()
+                .into_owned(),
+        };
+        // Every ancestor below `dest` becomes a directory; a regular
+        // file already claiming one of them cannot also be a parent.
+        for parent in target.ancestors().skip(1) {
+            if parent == dest || !parent.starts_with(dest) {
+                break;
+            }
+            if self.files.contains(parent) {
+                return Err(conflict(parent));
+            }
+            self.dirs.insert(parent.to_path_buf());
+        }
+        if is_dir {
+            if self.files.contains(target) {
+                return Err(conflict(target));
+            }
+            self.dirs.insert(target.to_path_buf());
+            return Ok(());
+        }
+        if self.dirs.contains(target) {
+            return Err(conflict(target));
+        }
+        if !self.files.insert(target.to_path_buf()) {
+            return Err(ArtifactError::DuplicateArchiveEntry(display.to_owned()));
+        }
+        Ok(())
+    }
+}
+
+/// Reserved DOS device names.  Windows resolves any path component
+/// whose stem equals one of these (case-insensitively, with or
+/// without an extension) to a character device rather than a file
+/// under the target, so an entry named `NUL` writes to the null
+/// device instead of materializing a regular file.  The `COM`/`LPT`
+/// entries also reserve their Unicode superscript-digit forms
+/// (`COM¹`, `LPT²`, …), handled separately in the predicate.
+const DOS_DEVICE_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// Superscript digit stems Windows also reserves for `COM`/`LPT`.
+const SUPERSCRIPT_DEVICE_STEMS: &[&str] = &[
+    "COM\u{b9}",
+    "COM\u{b2}",
+    "COM\u{b3}",
+    "LPT\u{b9}",
+    "LPT\u{b2}",
+    "LPT\u{b3}",
+];
+
+/// Returns true when every component of `path` names the same file on
+/// a Windows filesystem as it does lexically here.
+///
+/// Rejects the shapes that pass [`is_safe_relative_path`] (they stay
+/// inside the target) yet alias to a different Win32 destination or a
+/// device: a component containing `:` (an NTFS alternate-data-stream
+/// or drive separator) or `\` (a Windows path separator), a component
+/// with a leading or trailing space or a trailing `.` (Win32 strips
+/// all three, so `a`, `a.`, `a `, and ` a` collide), and the reserved
+/// DOS device names.
+fn is_portable_relative_path(path: &Path) -> bool {
+    path.components().all(|component| match component {
+        Component::Normal(name) => {
+            let Some(name) = name.to_str() else {
+                // A non-UTF-8 component is not something `cabin
+                // package` emits; refuse it rather than reason about
+                // its Win32 aliasing.
+                return false;
+            };
+            if name.contains([':', '\\']) {
+                return false;
+            }
+            if name.ends_with('.') || name.ends_with(' ') || name.starts_with(' ') {
+                return false;
+            }
+            // Reserved names match on the stem before the first dot.
+            let stem = name.split('.').next().unwrap_or(name);
+            !DOS_DEVICE_NAMES
+                .iter()
+                .chain(SUPERSCRIPT_DEVICE_STEMS)
+                .any(|reserved| stem.eq_ignore_ascii_case(reserved))
+        }
+        // `CurDir` is harmless; every other component kind was
+        // already refused by `is_safe_relative_path`.
+        _ => true,
+    })
 }
 
 /// Apply path-safety + optional `strip_prefix` to `entry_path`
@@ -414,15 +932,38 @@ fn safe_extract_tar_gz_with_limits(
 fn resolve_safe_target(
     entry_path: &Path,
     dest: &Path,
+    max_path_bytes: usize,
     options: SafeExtractOptions<'_>,
     saw_prefix: &mut bool,
 ) -> Result<Option<PathBuf>, ArtifactError> {
     let display = || entry_path.to_string_lossy().into_owned();
 
+    // Cap the raw (pre-strip) path length.  Bounds what one entry
+    // can make the extractor allocate and, transitively, how deep a
+    // nested tree can get; checked before any other validation so
+    // an over-long hostile path is refused without being processed.
+    if entry_path.as_os_str().len() > max_path_bytes {
+        return Err(ArtifactError::ArchiveEntryPathTooLong {
+            path: truncate_for_display(display().as_bytes()),
+            limit: max_path_bytes,
+        });
+    }
+
     // First pass: the raw entry path must be a safe relative
     // path even before stripping.  Catches `../escape` and
     // absolute paths in the literal entry header.
     if !is_safe_relative_path(entry_path) {
+        return Err(ArtifactError::UnsafeArchiveEntry(display()));
+    }
+    // Reject shapes that stay lexically inside the target but that a
+    // Windows filesystem would alias to a *different* destination
+    // (so two archive entries could collide) or route to a device
+    // instead of a file.  Enforced on every platform so behavior is
+    // deterministic and a Linux-built archive that would misbehave on
+    // Windows is refused everywhere, mirroring the hosted verifier's
+    // cross-platform `\` rejection.  `cabin package` never emits any
+    // of these from a real C/C++ source tree.
+    if !is_portable_relative_path(entry_path) {
         return Err(ArtifactError::UnsafeArchiveEntry(display()));
     }
 
@@ -481,9 +1022,9 @@ fn write_entry<R: Read>(
     entry_kind: tar::EntryType,
     target: &Path,
     display: &str,
-    max_entry_bytes: u64,
-    max_total_bytes: u64,
+    limits: ExtractLimits,
     total_bytes: &mut u64,
+    budget: &StreamBudget,
 ) -> Result<(), ArtifactError> {
     match entry_kind {
         tar::EntryType::Directory => {
@@ -493,14 +1034,39 @@ fn write_entry<R: Read>(
             })?;
             Ok(())
         }
-        tar::EntryType::Regular => write_file_capped(
-            entry,
-            target,
-            display,
-            max_entry_bytes,
-            max_total_bytes,
-            total_bytes,
-        ),
+        tar::EntryType::Regular => {
+            // `Entry::size` is the *effective* size: it honors a PAX
+            // `size` record, which `header().size()` does not.  Using
+            // the raw header field here would reject every legitimate
+            // PAX-decorated entry as truncated.
+            let expected = entry.size();
+            // Only the file's own bytes stream straight to disk;
+            // everything else the tar reader pulls is metadata it
+            // buffers in memory, and is charged accordingly.
+            let written = budget.in_body(|| {
+                write_file_capped(
+                    entry,
+                    target,
+                    display,
+                    limits.max_entry_bytes,
+                    limits.max_total_bytes,
+                    total_bytes,
+                )
+            })?;
+            // A header whose `size` overstates the bytes the archive
+            // actually holds truncates the file silently: tar hands
+            // back a short read at the end of the stream.  Refuse the
+            // archive instead of materializing a partial source file.
+            if written != expected {
+                let _ = fs::remove_file(target);
+                return Err(ArtifactError::ArchiveEntryTruncated {
+                    path: display.to_owned(),
+                    expected,
+                    actual: written,
+                });
+            }
+            Ok(())
+        }
         // Tar metadata entries carry side-band data the
         // standard tar reader already consumes (long paths, PAX
         // extended headers, global PAX state) - the subsequent
@@ -523,8 +1089,9 @@ fn write_entry<R: Read>(
 
 /// Write one regular-file archive entry's bytes to `target`,
 /// enforcing the per-entry and aggregate decompression caps against
-/// the actual decompressed byte count.  Shared by the tar and zip
-/// extractors; removes any partial file when a cap is exceeded.
+/// the actual decompressed byte count, and returning that count.
+/// Shared by the tar and zip extractors; removes any partial file
+/// when a cap is exceeded or the copy fails.
 fn write_file_capped<R: Read>(
     reader: &mut R,
     target: &Path,
@@ -532,7 +1099,7 @@ fn write_file_capped<R: Read>(
     max_entry_bytes: u64,
     max_total_bytes: u64,
     total_bytes: &mut u64,
-) -> Result<(), ArtifactError> {
+) -> Result<u64, ArtifactError> {
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|source| ArtifactError::Io {
             path: parent.to_path_buf(),
@@ -547,10 +1114,19 @@ fn write_file_capped<R: Read>(
     // limit so a successful copy of exactly the limit
     // is distinguishable from an overflow.
     let mut limited = reader.take(max_entry_bytes + 1);
-    let written = io::copy(&mut limited, &mut out).map_err(|source| ArtifactError::Io {
-        path: target.to_path_buf(),
-        source,
-    })?;
+    let written = match io::copy(&mut limited, &mut out) {
+        Ok(written) => written,
+        // A mid-copy failure (truncated stream, stream cap crossed,
+        // disk error) must not leave a half-written file behind.
+        Err(source) => {
+            drop(out);
+            let _ = fs::remove_file(target);
+            return Err(ArtifactError::Io {
+                path: target.to_path_buf(),
+                source,
+            });
+        }
+    };
     if written > max_entry_bytes {
         drop(out);
         let _ = fs::remove_file(target);
@@ -567,7 +1143,7 @@ fn write_file_capped<R: Read>(
             limit: max_total_bytes,
         });
     }
-    Ok(())
+    Ok(written)
 }
 
 /// Validate that an extracted source tree at `source_dir` matches the
@@ -619,6 +1195,23 @@ mod tests {
 
     fn pkg(name: &str) -> PackageName {
         PackageName::new(name).unwrap()
+    }
+
+    /// Production-shaped limits with the byte / count caps shrunk so
+    /// tests trip them cheaply.  The path-length and stream-ratio
+    /// caps keep their production values; tests that exercise those
+    /// override the fields explicitly.
+    fn small_limits(
+        max_entry_bytes: u64,
+        max_total_bytes: u64,
+        max_entries: usize,
+    ) -> ExtractLimits {
+        ExtractLimits {
+            max_entry_bytes,
+            max_total_bytes,
+            max_entries,
+            ..ExtractLimits::default()
+        }
     }
 
     fn ver(s: &str) -> semver::Version {
@@ -1012,9 +1605,7 @@ mod tests {
         let err = safe_extract_tar_gz_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1_000_000,
-            1000,
+            small_limits(1024, 1_000_000, 1000),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1045,9 +1636,7 @@ mod tests {
         let err = safe_extract_tar_gz_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1000,
-            1000,
+            small_limits(1024, 1000, 1000),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1079,9 +1668,7 @@ mod tests {
         let err = safe_extract_tar_gz_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1_000_000,
-            3,
+            small_limits(1024, 1_000_000, 3),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1112,9 +1699,7 @@ mod tests {
         safe_extract_tar_gz_with_limits(
             archive.path(),
             dest.path(),
-            4096,
-            1_000_000,
-            1000,
+            small_limits(4096, 1_000_000, 1000),
             SafeExtractOptions::default(),
         )
         .unwrap();
@@ -1487,9 +2072,7 @@ mod tests {
         let err = safe_extract_zip_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1_000_000,
-            1000,
+            small_limits(1024, 1_000_000, 1000),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1514,9 +2097,7 @@ mod tests {
         let err = safe_extract_zip_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1000,
-            1000,
+            small_limits(1024, 1000, 1000),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1547,9 +2128,7 @@ mod tests {
         let err = safe_extract_zip_with_limits(
             archive.path(),
             dest.path(),
-            1024,
-            1_000_000,
-            3,
+            small_limits(1024, 1_000_000, 3),
             SafeExtractOptions::default(),
         )
         .unwrap_err();
@@ -1617,6 +2196,194 @@ mod tests {
         dest.child("ok.txt").assert(predicate::path::is_file());
     }
 
+    /// CRC-32 (IEEE) of `data`, so hand-built zip entries pass the
+    /// reader's checksum check without pulling in a crc dependency.
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// One stored (uncompressed) zip entry, described enough to
+    /// hand-build a raw archive: the `uncompressed` field can lie
+    /// about `data` to model a truncated entry.
+    struct RawEntry<'a> {
+        name: &'a str,
+        data: &'a [u8],
+        uncompressed: u32,
+    }
+
+    fn u16le(out: &mut Vec<u8>, v: usize) {
+        out.extend_from_slice(&u16::try_from(v).unwrap().to_le_bytes());
+    }
+    fn u32le(out: &mut Vec<u8>, v: u32) {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    fn u32len(out: &mut Vec<u8>, v: usize) {
+        u32le(out, u32::try_from(v).unwrap());
+    }
+
+    fn push_local_header(out: &mut Vec<u8>, entry: &RawEntry<'_>) -> usize {
+        let offset = out.len();
+        u32le(out, 0x0403_4b50); // local file header signature
+        u16le(out, 20); // version needed
+        u16le(out, 0); // flags
+        u16le(out, 0); // stored
+        u16le(out, 0); // mod time
+        u16le(out, 0); // mod date
+        u32le(out, crc32(entry.data));
+        u32len(out, entry.data.len()); // compressed size
+        u32le(out, entry.uncompressed); // uncompressed size (may lie)
+        u16le(out, entry.name.len());
+        u16le(out, 0); // extra length
+        out.extend_from_slice(entry.name.as_bytes());
+        out.extend_from_slice(entry.data);
+        offset
+    }
+
+    fn push_central_header(out: &mut Vec<u8>, entry: &RawEntry<'_>, offset: usize) {
+        u32le(out, 0x0201_4b50); // central directory signature
+        u16le(out, 20); // version made by
+        u16le(out, 20); // version needed
+        u16le(out, 0); // flags
+        u16le(out, 0); // stored
+        u16le(out, 0); // mod time
+        u16le(out, 0); // mod date
+        u32le(out, crc32(entry.data));
+        u32len(out, entry.data.len());
+        u32le(out, entry.uncompressed);
+        u16le(out, entry.name.len());
+        u16le(out, 0); // extra
+        u16le(out, 0); // comment
+        u16le(out, 0); // disk number start
+        u16le(out, 0); // internal attrs
+        u32le(out, 0); // external attrs
+        u32len(out, offset);
+        out.extend_from_slice(entry.name.as_bytes());
+    }
+
+    /// Hand-build a raw stored `.zip`.  Lets tests construct archives
+    /// the `zip` writer refuses to emit: duplicate names, or an entry
+    /// whose header size disagrees with its bytes.
+    fn raw_zip(entries: &[RawEntry<'_>]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let offsets: Vec<usize> = entries
+            .iter()
+            .map(|entry| push_local_header(&mut out, entry))
+            .collect();
+        let cd_start = out.len();
+        for (entry, offset) in entries.iter().zip(&offsets) {
+            push_central_header(&mut out, entry, *offset);
+        }
+        let cd_size = out.len() - cd_start;
+        u32le(&mut out, 0x0605_4b50); // EOCD signature
+        u16le(&mut out, 0); // disk number
+        u16le(&mut out, 0); // disk with CD
+        u16le(&mut out, entries.len()); // entries this disk
+        u16le(&mut out, entries.len()); // total entries
+        u32len(&mut out, cd_size);
+        u32len(&mut out, cd_start);
+        u16le(&mut out, 0); // comment length
+        out
+    }
+
+    #[test]
+    fn zip_rejects_duplicate_named_records() {
+        // The `zip` writer refuses to emit two records with one name,
+        // so hand-build the archive.  The parser deduplicates them
+        // into a single `IndexMap` entry, so the guard catches the
+        // shortfall against the declared count instead.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("dup.zip");
+        let bytes = raw_zip(&[
+            RawEntry {
+                name: "cabin.toml",
+                data: b"honest",
+                uncompressed: 6,
+            },
+            RawEntry {
+                name: "cabin.toml",
+                data: b"evil!!",
+                uncompressed: 6,
+            },
+        ]);
+        fs::write(archive.path(), &bytes).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ArtifactError::ArchiveDuplicateNames {
+                    declared: 2,
+                    distinct: 1
+                }
+            ),
+            "{err:?}"
+        );
+        dest.child("cabin.toml").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_an_entry_whose_header_size_overstates_its_bytes() {
+        // A stored entry whose header claims more bytes than it holds:
+        // the tar side refuses this, and so must the zip side, rather
+        // than write a silently truncated file.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("short.zip");
+        let bytes = raw_zip(&[RawEntry {
+            name: "cabin.toml",
+            data: b"short",
+            uncompressed: 4096,
+        }]);
+        fs::write(archive.path(), &bytes).unwrap();
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ArtifactError::ArchiveEntryTruncated { expected: 4096, .. }
+            ),
+            "{err:?}"
+        );
+        dest.child("cabin.toml").assert(predicate::path::missing());
+    }
+
+    #[test]
+    fn zip_rejects_an_over_large_archive_file() {
+        // The archive-file cap bounds the central-directory memory
+        // the parser allocates before any per-entry check runs.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("big.zip");
+        make_zip(archive.path(), &[("cabin.toml", "x")]);
+        let limits = ExtractLimits {
+            max_total_bytes: 8,
+            ..ExtractLimits::default()
+        };
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip_with_limits(
+            archive.path(),
+            dest.path(),
+            limits,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveFileTooLarge { limit: 8, .. }),
+            "{err:?}"
+        );
+    }
+
     #[test]
     fn zip_garbage_bytes_surface_extract_error() {
         // No EOCD anywhere: the pre-check finds nothing and the full
@@ -1656,6 +2423,75 @@ mod tests {
         dest.child("miniz.h").assert(predicate::path::is_file());
         dest.child("miniz.c").assert(predicate::path::is_file());
         dest.child("miniz-3.1.2").assert(predicate::path::missing());
+    }
+
+    /// The file-vs-parent-directory conflict, exercised through the
+    /// same `TargetTree::claim` call the tar path uses.  (Two records
+    /// with an *identical* name are caught earlier, by the declared-
+    /// count guard - see `zip_rejects_duplicate_named_records`.)
+    #[test]
+    fn zip_rejects_a_file_used_as_a_parent_directory() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("conflict.zip");
+        make_zip(archive.path(), &[("src", "x"), ("src/main.cc", "y")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ConflictingArchiveEntry { ref conflict, .. } if conflict == "src"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn zip_rejects_over_long_entry_paths() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("long.zip");
+        let long = format!("{}.h", "a".repeat(400));
+        make_zip(archive.path(), &[(long.as_str(), "x")]);
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        match err {
+            ArtifactError::ArchiveEntryPathTooLong { path, limit } => {
+                assert_eq!(limit, MAX_PATH_BYTES);
+                assert!(path.len() <= 70, "diagnostic path not truncated: {path}");
+            }
+            other => panic!("expected ArchiveEntryPathTooLong, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn zip_aggregate_cap_scales_down_with_the_compressed_size() {
+        // The zip side has no whole-stream cap, so the aggregate cap
+        // is scaled to the same compressed-size-derived value the tar
+        // side uses.  With a 1x ratio and no floor, a highly
+        // compressible zip cannot write far more than it shipped.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("bomb.zip");
+        let body = "x".repeat(100_000);
+        make_zip(archive.path(), &[("bomb.bin", body.as_str())]);
+        let limits = ExtractLimits {
+            ratio: 1,
+            ratio_floor_bytes: 0,
+            ..ExtractLimits::default()
+        };
+        let dest = dir.child("out");
+        dest.create_dir_all().unwrap();
+        let err = safe_extract_zip_with_limits(
+            archive.path(),
+            dest.path(),
+            limits,
+            SafeExtractOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::ArchiveTooLarge { .. }),
+            "{err:?}"
+        );
+        dest.child("bomb.bin").assert(predicate::path::missing());
     }
 
     #[test]

@@ -348,6 +348,29 @@ The cap mechanism is public contract; the cap values are configuration (`VERIFY_
 256 MiB, 10000 entries, and 256 bytes).  Verifier failures leave versions pending - fail-safe:
 broken verification infrastructure keeps content unexposed, never exposes it.
 
+### Server checks versus client extraction
+
+These server-side checks agree in spirit with the client's
+[extraction safety contract](package-format.md#extraction-safety-contract), and the two are
+deliberately independent.  **The client's rules are the ones that must hold**: `cabin` extracts
+archives from third-party registries and local file registries too, and must stay safe against a
+hosted registry that has itself been compromised.  Nothing on the client trusts this verifier.
+
+The verifier is the stricter of the two on the axes they share: it inspects only archives `cabin
+package` produced, so it can also reject PAX-decorated entries, `\` in paths, and content after the
+tar terminator, and its default caps (10x ratio, 256 MiB, 10000 entries, 256-byte paths) sit at or
+below the client's (32x ratio, 1 GiB, 10000 entries, 256-byte paths).  A version that passes the
+verifier's caps and structure checks therefore clears the client's.  The caps above are
+*configurable*, so a registry operator cannot widen the client's limits by widening their own - only
+the client's constants do that.
+
+The client additionally rejects a few Windows-hostile path shapes the verifier does not model
+(trailing dot/space, `:`, reserved device names; see the
+[extraction safety contract](package-format.md#extraction-safety-contract)).  A Linux-built archive
+carrying such a name can pass verification yet be refused by a Windows client - so "verified" means
+"safe to extract", not "extracts identically on every platform".  This is deliberate: the client's
+safety must not depend on the verifier having anticipated every platform.
+
 ## Yank
 
 ```text
