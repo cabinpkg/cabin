@@ -23,6 +23,7 @@ zip = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
+cabin-package = { workspace = true }
 predicates = "3"
 
 [lints]

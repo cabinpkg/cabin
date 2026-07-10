@@ -271,6 +271,7 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-manifest",
+ "cabinpkg-package",
  "flate2",
  "predicates",
  "semver",
