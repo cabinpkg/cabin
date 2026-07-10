@@ -8,10 +8,13 @@ protocol document - with D1 as the canonical store and R2 for immutable
 archive blobs: the authenticated read routes plus the `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (validation
 order, the immutability rule, and the verification lifecycle are described
-in [`docs/architecture.md`](docs/architecture.md)), and a
-GitHub-sign-in web page at `/me` for issuing and revoking tokens. See
-[`docs/architecture.md`](docs/architecture.md) for the design and
-[`docs/runbook.md`](docs/runbook.md) for operations.
+in [`docs/architecture.md`](docs/architecture.md)), and the browser
+plane - GitHub OAuth sign-in plus a session-cookie JSON user API for
+issuing and revoking tokens - served on the **website origin**
+(`cabinpkg.com`) while the registry domain serves only the machine read
+plane: one role per hostname, dispatched on the Host header. See
+[`docs/architecture.md`](docs/architecture.md) ("Origins and roles") for
+the design and [`docs/runbook.md`](docs/runbook.md) for operations.
 
 Everything here is experimental, matching the client's `-Z remote-registry`
 gate: routes and storage formats may change without migration paths.
@@ -23,7 +26,8 @@ explicit `--env`:
 
 | | dev | production |
 | --- | --- | --- |
-| Domain | `dev-registry.cabinpkg.com` | `registry.cabinpkg.com` |
+| Index domain | `dev-registry.cabinpkg.com` | `registry.cabinpkg.com` |
+| Browser/API origin | `https://cabinpkg.com` (routes held by dev for now) | `https://cabinpkg.com` (after the route cutover) |
 | D1 database | `cabin-registry-dev` | `cabin-registry-prod` |
 | R2 bucket | `cabin-registry-dev-blobs` | `cabin-registry-prod-blobs` |
 
@@ -35,11 +39,12 @@ wiped.
 
 ## Getting a token
 
-Sign in with GitHub at `<origin>/me` (for example
-`https://dev-registry.cabinpkg.com/me`), create a token there with the scopes
-you need, and copy it - the plaintext is shown exactly once; the registry
-stores only its hash. Then hand it to the client with `cabin login`
-(`-Z remote-registry`).
+Sign in with GitHub on the website origin (`https://cabinpkg.com/login`)
+and create a token with the scopes you need through the token page (its
+URL is what the `WWW-Authenticate` challenge on every unauthenticated
+response names, and what `cabin login` prints) - the plaintext is shown
+exactly once; the registry stores only its hash. Then hand it to the
+client with `cabin login` (`-Z remote-registry`).
 
 Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later
@@ -56,10 +61,13 @@ cargo clippy --target wasm32-unknown-unknown -- -D warnings
 CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   # end-to-end, local
 ```
 
-`scripts/smoke.sh` runs `wrangler dev` with local D1/R2 state under
-`.wrangler/` and checks `/healthz`, the uniform unauthenticated `401`, the
-unauthenticated `/me` redirect to `/login`, the three authenticated read
-routes, the full publish / yank flow (first publish, idempotent
+`scripts/smoke.sh` runs two `wrangler dev` instances over shared local
+D1/R2 state under `.wrangler/` - one per hostname role - and checks
+`/healthz`, the uniform `401` with its byte-identical `WWW-Authenticate`
+challenge, the hostname dispatch (no read plane on the website origin, no
+API surface on the registry domain), the OAuth and session planes'
+refusals and cookie attributes, the three authenticated read routes, the
+full publish / yank flow on the website origin (first publish, idempotent
 re-publish, immutability conflict, yank transitions, artifact checksum),
 and the verification lifecycle (pending -> verify -> resolvable with a
 verify-scoped token, plus the reject -> reclaim -> refund -> republish
@@ -98,7 +106,7 @@ npx wrangler secret put SESSION_SECRET --env dev
 The secrets back the GitHub sign-in flow ("Getting a token" above):
 `GITHUB_CLIENT_ID` (plain var in `wrangler.jsonc`; client ids are public) and
 `GITHUB_CLIENT_SECRET` identify the GitHub OAuth app (its authorization
-callback URL is `<origin>/callback`), and `SESSION_SECRET` keys the HMAC
-behind the state, session, and CSRF values; `ALLOWED_GITHUB_IDS` (plain var
-in `wrangler.jsonc`) limits who may sign in. See
+callback URL is `https://cabinpkg.com/callback`), and `SESSION_SECRET`
+keys the HMAC behind the state and session cookies; `ALLOWED_GITHUB_IDS`
+(plain var in `wrangler.jsonc`) limits who may sign in. See
 [`docs/runbook.md`](docs/runbook.md) for the exact procedure.

@@ -14,6 +14,9 @@
 //!
 //! - it issues `GET` requests for `config.json`, `packages/<name>.json`,
 //!   and (when the CLI calls [`HttpClient::download`]) artifact URLs;
+//!   [`fetch_login_url`] is one more such `GET` - `cabin login`'s
+//!   advisory, always-unauthenticated probe for the `WWW-Authenticate`
+//!   `Cabin login_url` challenge;
 //! - it never POSTs, PUTs, or otherwise mutates a remote registry;
 //! - it attaches `Authorization: Bearer <token>` only when the caller
 //!   supplies a credential ([`HttpClient::with_auth`], part of the
@@ -33,6 +36,6 @@ pub mod client;
 pub mod error;
 pub mod source;
 
-pub use client::{HttpClient, RegistryAuth};
+pub use client::{HttpClient, RegistryAuth, fetch_login_url};
 pub use error::IndexHttpError;
 pub use source::HttpIndex;

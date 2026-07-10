@@ -58,8 +58,28 @@ jobs:
             exit 1
           fi
 
+          # The privileged token travels to exactly two destinations,
+          # both of which must be https - curl has no cleartext guard,
+          # unlike the Rust clients.
+          case "$REGISTRY_ORIGIN" in
+            https://*) ;;
+            *) echo "REGISTRY_ORIGIN must be https, got: $REGISTRY_ORIGIN" >&2; exit 1 ;;
+          esac
+
+          # One hostname, one role: the index origin serves config.json
+          # and the artifacts; the admin API lives on the `api` origin
+          # config.json declares (docs/remote-registry.md). A missing
+          # field fails the run - fail-safe, versions stay pending.
+          config=$(curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+            "$REGISTRY_ORIGIN/config.json")
+          api_origin=$(jq -er '.api' <<<"$config")
+          case "$api_origin" in
+            https://*) ;;
+            *) echo "config.json api must be https, got: $api_origin" >&2; exit 1 ;;
+          esac
+
           list=$(curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
-            "$REGISTRY_ORIGIN/api/v1/admin/versions?status=pending")
+            "$api_origin/api/v1/admin/versions?status=pending")
           count=$(jq -r '.versions | length' <<<"$list")
           if [ "$count" -eq 0 ]; then
             echo "nothing pending"
@@ -114,7 +134,7 @@ jobs:
               -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
               -H "content-type: application/json" \
               --data "$body" -o /dev/null \
-              "$REGISTRY_ORIGIN/api/v1/admin/versions/$name/$version"; then
+              "$api_origin/api/v1/admin/versions/$name/$version"; then
               echo "$name@$version: verdict PATCH failed; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"

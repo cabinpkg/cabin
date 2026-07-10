@@ -143,6 +143,23 @@ pub const QUOTA_VERSIONS_DAILY: Denial = Denial {
     detail: "the plan's daily per-package version quota is exhausted",
 };
 
+/// The envelope `detail` for a denial: the per-user quota family
+/// (`quota_*`) appends the dashboard URL built from `WEB_ORIGIN`, so
+/// clients print a server-embedded usage pointer instead of deriving a
+/// web URL from the index origin themselves; the rate-limit, size, and
+/// budget refusals stay the fixed strings.
+pub fn detail_with_usage_url(denial: &Denial, web_origin: &str) -> String {
+    if denial.code.starts_with("quota_") {
+        format!(
+            "{}; see {}/dashboard for current usage",
+            denial.detail,
+            web_origin.trim_end_matches('/'),
+        )
+    } else {
+        denial.detail.to_owned()
+    }
+}
+
 /// The `413` check, run as soon as the frame is decoded.
 ///
 /// # Errors
@@ -277,6 +294,29 @@ mod tests {
         assert_eq!(utc_day_prefix("not a timestamp"), None);
         assert_eq!(utc_day_prefix("2026-07-09"), None);
         assert_eq!(utc_day_prefix(""), None);
+    }
+
+    #[test]
+    fn quota_denials_embed_the_dashboard_url_and_others_do_not() {
+        assert_eq!(
+            detail_with_usage_url(&QUOTA_STORAGE, "https://cabinpkg.com"),
+            "publishing this archive would exceed the plan's total storage quota; \
+             see https://cabinpkg.com/dashboard for current usage"
+        );
+        // A trailing slash on the env var never doubles the separator.
+        assert_eq!(
+            detail_with_usage_url(&QUOTA_PACKAGES_TOTAL, "https://cabinpkg.com/"),
+            "the plan's total package quota is exhausted; \
+             see https://cabinpkg.com/dashboard for current usage"
+        );
+        for denial in [&RATE_LIMITED, &ARCHIVE_TOO_LARGE] {
+            assert_eq!(
+                detail_with_usage_url(denial, "https://cabinpkg.com"),
+                denial.detail,
+                "code: {}",
+                denial.code
+            );
+        }
     }
 
     #[test]

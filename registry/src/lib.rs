@@ -2,9 +2,9 @@
 //! registry contract in `docs/remote-registry.md` at the repository root.
 //!
 //! Domain logic (token hashing, route validation, document composition, the
-//! error envelope, cookie signing, HTML rendering) lives in modules that
-//! compile and unit-test on the host target; the Cloudflare-specific glue in
-//! [`glue`] and [`web_glue`] only compiles for wasm32.
+//! error envelope, cookie signing, session-API JSON shapes) lives in modules
+//! that compile and unit-test on the host target; the Cloudflare-specific
+//! glue in [`glue`] and [`web_glue`] only compiles for wasm32.
 
 pub mod allowlist;
 pub mod analytics;
@@ -13,11 +13,11 @@ pub mod backup;
 pub mod breaker;
 pub mod documents;
 pub mod error;
-pub mod pages;
 pub mod publish;
 pub mod quota;
 pub mod routes;
 pub mod session;
+pub mod user_api;
 pub mod verify;
 
 #[cfg(target_arch = "wasm32")]

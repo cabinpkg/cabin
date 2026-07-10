@@ -1,5 +1,6 @@
-//! HMAC-signed values for the browser plane: the OAuth `state` cookie, the
-//! session cookie, and the CSRF token tied to a session.
+//! HMAC-signed values for the browser plane - the OAuth `state` cookie and
+//! the session cookie - plus the cookie shape and the JSON API's CSRF
+//! discipline.
 //!
 //! Every sealed value is `<payload>.<mac-hex>` with the MAC (HMAC-SHA-256
 //! keyed by `SESSION_SECRET`) computed over `<purpose>:<payload>`, so a
@@ -88,22 +89,43 @@ pub fn open_session(secret: &[u8], sealed: &str, now: u64) -> Option<Session> {
     (now < session.expires_at).then_some(session)
 }
 
-/// The CSRF token for `session`: an HMAC over the session fields under its
-/// own purpose, embedded as a hidden form field and recomputed server-side
-/// on every POST. Deriving it from the session means it needs no storage
-/// and dies with the session.
-pub fn csrf_token(secret: &[u8], session: &Session) -> String {
-    mac_hex(
-        secret,
-        "csrf",
-        &format!("{}:{}", session.github_id, session.expires_at),
-    )
+/// The session-plane mutation CSRF discipline, suited to a JSON API: the
+/// request must declare `Content-Type: application/json` (media type,
+/// parameters ignored) **and** carry [`CSRF_HEADER`]`: 1`. Neither can
+/// ride on an HTML form or a simple cross-site request, and a cross-site
+/// `fetch` that adds them triggers a CORS preflight the registry never
+/// answers - so with `SameSite=Lax` host-only cookies no server-side
+/// token state is needed. Checked before the body is read.
+pub fn csrf_headers_ok(content_type: Option<&str>, csrf_header: Option<&str>) -> bool {
+    let json = content_type.is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .eq_ignore_ascii_case("application/json")
+    });
+    json && csrf_header.is_some_and(|value| value.trim() == "1")
 }
 
-/// Whether a presented CSRF form field matches `session`, in constant
-/// time.
-pub fn csrf_matches(secret: &[u8], session: &Session, presented: &str) -> bool {
-    mac_eq(&csrf_token(secret, session), presented)
+/// The custom request header session-plane mutations must carry (value
+/// exactly `1`).
+pub const CSRF_HEADER: &str = "x-csrf-protection";
+
+/// The session cookie only ever travels to the session-plane subtree, and
+/// the state cookie only to the one route that reads it: even the website
+/// origin's own page loads never carry either, so the website Worker
+/// never sees a session.
+pub const SESSION_COOKIE_PATH: &str = "/api/v1/user";
+pub const STATE_COOKIE_PATH: &str = "/callback";
+
+/// `Set-Cookie` value for a browser-plane cookie. Host-only on purpose:
+/// no `Domain` attribute, so the cookie never flows to registry
+/// subdomains. `SameSite=Lax` keeps cross-site POSTs cookie-less (the
+/// CSRF header pair is the second factor); `Max-Age=0` clears (with the
+/// same `Path`, or the browser keeps the original).
+pub fn set_cookie(name: &str, value: &str, max_age_secs: u64, path: &str) -> String {
+    format!("{name}={value}; Max-Age={max_age_secs}; Path={path}; HttpOnly; Secure; SameSite=Lax")
 }
 
 /// Extracts the value of the cookie named `name` from a `Cookie` header.
@@ -184,31 +206,42 @@ mod tests {
     }
 
     #[test]
-    fn csrf_round_trips_and_rejects_tampering() {
-        let session = Session {
-            github_id: 583_231,
-            expires_at: 2_000,
-        };
-        let token = csrf_token(SECRET, &session);
-        assert!(csrf_matches(SECRET, &session, &token));
-        assert!(!csrf_matches(SECRET, &session, &token.to_uppercase()));
-        assert!(!csrf_matches(SECRET, &session, &token[..token.len() - 1]));
-        assert!(!csrf_matches(SECRET, &session, ""));
-        let other = Session {
-            github_id: 583_232,
-            expires_at: 2_000,
-        };
-        assert!(!csrf_matches(SECRET, &other, &token));
+    fn csrf_requires_the_json_content_type_and_the_custom_header() {
+        assert!(csrf_headers_ok(Some("application/json"), Some("1")));
+        assert!(csrf_headers_ok(
+            Some("application/json; charset=utf-8"),
+            Some("1")
+        ));
+        assert!(csrf_headers_ok(Some("Application/JSON"), Some("1")));
+        // Either half missing or wrong fails; the header value is
+        // exactly `1`.
+        assert!(!csrf_headers_ok(None, Some("1")));
+        assert!(!csrf_headers_ok(Some("application/json"), None));
+        assert!(!csrf_headers_ok(Some("application/json"), Some("")));
+        assert!(!csrf_headers_ok(Some("application/json"), Some("yes")));
+        assert!(!csrf_headers_ok(Some("text/plain"), Some("1")));
+        // The form content types a cross-site POST can send without a
+        // preflight must never pass.
+        assert!(!csrf_headers_ok(
+            Some("application/x-www-form-urlencoded"),
+            Some("1")
+        ));
+        assert!(!csrf_headers_ok(Some("multipart/form-data"), Some("1")));
+        assert!(!csrf_headers_ok(None, None));
     }
 
     #[test]
-    fn csrf_is_not_the_session_mac() {
-        // The session cookie's own MAC (which the browser holds) must not
-        // pass as the CSRF field: purposes separate the two.
-        let sealed = seal_session(SECRET, 583_231, 2_000);
-        let session = open_session(SECRET, &sealed, 0).unwrap();
-        let (_, session_mac) = sealed.rsplit_once('.').unwrap();
-        assert!(!csrf_matches(SECRET, &session, session_mac));
+    fn cookies_are_host_only_with_the_locked_attributes() {
+        let cookie = set_cookie(SESSION_COOKIE, "v.mac", 3_600, SESSION_COOKIE_PATH);
+        assert_eq!(
+            cookie,
+            "cabin_session=v.mac; Max-Age=3600; Path=/api/v1/user; HttpOnly; Secure; SameSite=Lax"
+        );
+        // Host-only is the point: a `Domain` attribute would leak the
+        // website origin's cookies to registry subdomains.
+        assert!(!cookie.to_ascii_lowercase().contains("domain"));
+        // Clearing uses the same shape with Max-Age=0.
+        assert!(set_cookie(STATE_COOKIE, "", 0, STATE_COOKIE_PATH).contains("Max-Age=0"));
     }
 
     #[test]

@@ -94,35 +94,110 @@ pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     })
 }
 
-/// A matched web (browser-plane) route. These use session-cookie auth and
-/// serve HTML; they never accept bearer tokens, and the data routes above
+/// A matched OAuth (browser-plane) route, served on the website origin
+/// only. These never accept bearer tokens, and the data routes above
 /// never accept the session cookie.
 #[derive(Debug, PartialEq, Eq)]
-pub enum WebRoute<'a> {
+pub enum WebRoute {
     Login,
     Callback,
-    Me,
-    CreateToken,
-    RevokeToken { id: &'a str },
 }
 
-/// Matches `path` against the web routes. Token ids are validated here
-/// (`[A-Za-z0-9_-]+`) before they reach a D1 query.
-pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
+/// Matches `path` against the OAuth routes.
+pub fn match_web_route(path: &str) -> Option<WebRoute> {
     match path {
         "/login" => Some(WebRoute::Login),
         "/callback" => Some(WebRoute::Callback),
-        "/me" => Some(WebRoute::Me),
-        "/me/tokens" => Some(WebRoute::CreateToken),
+        _ => None,
+    }
+}
+
+/// Where `/callback` sends the browser after a successful sign-in and on
+/// a refused one. Both are relative paths rendered by the website; they
+/// are never derived from request input, so the callback cannot be turned
+/// into an open redirect.
+pub const POST_LOGIN_REDIRECT: &str = "/dashboard";
+pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied";
+
+/// A matched session-plane route: the JSON user API under
+/// `/api/v1/user`, session-cookie authenticated on the website origin.
+/// This subtree is session-only; every other `/api/` path is
+/// Bearer-only ([`is_session_path`] draws the line).
+#[derive(Debug, PartialEq, Eq)]
+pub enum SessionRoute<'a> {
+    /// `GET /api/v1/user`: who the session belongs to.
+    User,
+    /// `GET /api/v1/user/usage`: usage and quotas.
+    Usage,
+    /// `GET` lists tokens, `POST` creates one.
+    Tokens,
+    /// `POST /api/v1/user/tokens/<id>/revoke`.
+    RevokeToken { id: &'a str },
+}
+
+/// Matches `path` against the session routes. Token ids are validated
+/// here (`[A-Za-z0-9_-]+`) before they reach a D1 query.
+pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
+    match path {
+        "/api/v1/user" => Some(SessionRoute::User),
+        "/api/v1/user/usage" => Some(SessionRoute::Usage),
+        "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         _ => {
-            let id = path.strip_prefix("/me/tokens/")?.strip_suffix("/revoke")?;
+            let id = path
+                .strip_prefix("/api/v1/user/tokens/")?
+                .strip_suffix("/revoke")?;
             let valid = !id.is_empty()
                 && id
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-            valid.then_some(WebRoute::RevokeToken { id })
+            valid.then_some(SessionRoute::RevokeToken { id })
         }
     }
+}
+
+/// Whether `path` lies in the session-only `/api/v1/user` subtree. The
+/// glue routes the whole subtree to the session plane, so a bearer token
+/// can never reach it - and a session cookie never reaches the rest of
+/// `/api/`.
+pub fn is_session_path(path: &str) -> bool {
+    path == "/api/v1/user" || path.starts_with("/api/v1/user/")
+}
+
+/// The role a hostname serves: one role per hostname, dispatched on the
+/// Host header. Unknown hosts get the registry role - the deny-by-default
+/// plane where everything but the machine read routes is a uniform 401 -
+/// so a stray hostname can never expose the browser plane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// The machine read plane only: `/config.json`, `/packages/*`,
+    /// `/artifacts/*`, `/healthz`.
+    Registry,
+    /// The website origin: `/login`, `/callback`, and `/api/*` (the
+    /// Bearer mutation routes plus the session user API).
+    Website,
+}
+
+/// Which [`Role`] serves a request, from its Host header (no port) and
+/// the host of the `WEB_ORIGIN` env var.
+pub fn role_for_host(host: &str, web_host: &str) -> Role {
+    if !web_host.is_empty() && host.eq_ignore_ascii_case(web_host) {
+        Role::Website
+    } else {
+        Role::Registry
+    }
+}
+
+/// Strips the `:port` suffix from a Host header value, keeping IPv6
+/// bracket forms intact. The dispatch compares hostnames only: the edge
+/// terminates TLS on standard ports, and local `wrangler dev` runs both
+/// roles on one port.
+pub fn host_without_port(host: &str) -> &str {
+    if host.starts_with('[')
+        && let Some(end) = host.find(']')
+    {
+        return &host[..=end];
+    }
+    host.rsplit_once(':').map_or(host, |(name, _)| name)
 }
 
 /// Package names are restricted to `[a-z0-9_-]+` before they become path or
@@ -248,28 +323,115 @@ mod tests {
     fn matches_the_web_routes() {
         assert_eq!(match_web_route("/login"), Some(WebRoute::Login));
         assert_eq!(match_web_route("/callback"), Some(WebRoute::Callback));
-        assert_eq!(match_web_route("/me"), Some(WebRoute::Me));
-        assert_eq!(match_web_route("/me/tokens"), Some(WebRoute::CreateToken));
-        assert_eq!(
-            match_web_route("/me/tokens/0aB_-9/revoke"),
-            Some(WebRoute::RevokeToken { id: "0aB_-9" })
-        );
     }
 
     #[test]
     fn rejects_malformed_web_paths() {
+        // `/me` is gone on purpose: the pre-1.0 no-deprecation convention
+        // means no redirect shim either.
+        for path in ["/", "/login/", "/callback/", "/me", "/me/tokens"] {
+            assert_eq!(match_web_route(path), None, "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn matches_the_session_routes() {
+        assert_eq!(
+            match_session_route("/api/v1/user"),
+            Some(SessionRoute::User)
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/usage"),
+            Some(SessionRoute::Usage)
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/tokens"),
+            Some(SessionRoute::Tokens)
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/tokens/0aB_-9/revoke"),
+            Some(SessionRoute::RevokeToken { id: "0aB_-9" })
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_session_paths() {
         for path in [
             "/",
-            "/login/",
-            "/me/",
-            "/me/tokens/",
-            "/me/tokens//revoke",
-            "/me/tokens/abc",
-            "/me/tokens/abc/revoke/extra",
-            "/me/tokens/a.b/revoke",
-            "/me/tokens/a%2f/revoke",
+            "/api/v1/user/",
+            "/api/v1/user/tokens/",
+            "/api/v1/user/tokens//revoke",
+            "/api/v1/user/tokens/abc",
+            "/api/v1/user/tokens/abc/revoke/extra",
+            "/api/v1/user/tokens/a.b/revoke",
+            "/api/v1/user/tokens/a%2f/revoke",
+            "/api/v1/users",
         ] {
-            assert_eq!(match_web_route(path), None, "path: {path:?}");
+            assert_eq!(match_session_route(path), None, "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn the_session_subtree_never_overlaps_the_bearer_routes() {
+        // The route-level plane split: everything under /api/v1/user is
+        // session-only and must be invisible to the bearer matcher, and
+        // the bearer routes must sit outside the subtree.
+        for path in [
+            "/api/v1/user",
+            "/api/v1/user/usage",
+            "/api/v1/user/tokens",
+            "/api/v1/user/tokens/abc/revoke",
+            "/api/v1/user/anything/else",
+        ] {
+            assert!(is_session_path(path), "path: {path:?}");
+            assert_eq!(match_api_route(path), None, "path: {path:?}");
+        }
+        for path in [
+            "/api/v1/users",
+            "/api/v1/packages/fmt/10.2.1",
+            "/api/v1/admin/versions",
+        ] {
+            assert!(!is_session_path(path), "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn hosts_map_to_exactly_one_role() {
+        assert_eq!(role_for_host("cabinpkg.com", "cabinpkg.com"), Role::Website);
+        assert_eq!(role_for_host("CABINPKG.COM", "cabinpkg.com"), Role::Website);
+        for host in [
+            "dev-registry.cabinpkg.com",
+            "registry.cabinpkg.com",
+            "evil.example.com",
+            "",
+        ] {
+            assert_eq!(
+                role_for_host(host, "cabinpkg.com"),
+                Role::Registry,
+                "host: {host:?}"
+            );
+        }
+        // A missing WEB_ORIGIN host can never grant the website role.
+        assert_eq!(role_for_host("", ""), Role::Registry);
+    }
+
+    #[test]
+    fn host_header_ports_are_stripped() {
+        assert_eq!(host_without_port("cabinpkg.com"), "cabinpkg.com");
+        assert_eq!(host_without_port("localhost:8787"), "localhost");
+        assert_eq!(host_without_port("[::1]:8787"), "[::1]");
+        assert_eq!(host_without_port("[::1]"), "[::1]");
+        assert_eq!(host_without_port(""), "");
+    }
+
+    #[test]
+    fn post_login_redirects_are_relative_paths() {
+        // The open-redirect guard: both targets are same-origin relative
+        // paths, never absolute URLs (and never protocol-relative `//`).
+        for target in [POST_LOGIN_REDIRECT, LOGIN_DENIED_REDIRECT] {
+            assert!(target.starts_with('/'), "target: {target:?}");
+            assert!(!target.starts_with("//"), "target: {target:?}");
+            assert!(!target.contains("://"), "target: {target:?}");
         }
     }
 

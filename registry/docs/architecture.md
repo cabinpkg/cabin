@@ -35,31 +35,79 @@ the service.
   consistency questions. Response caching can come later at the edge if read
   volume ever warrants it.
 
+## Origins and roles
+
+One Worker serves two hostnames, one role per hostname, dispatched on the
+Host header (`src/routes.rs` `role_for_host`; any host that is not the
+`WEB_ORIGIN` host gets the registry role, deny by default). The matrix -
+which routes and which credential exist where:
+
+| | Registry custom domain (`dev-registry.cabinpkg.com` / `registry.cabinpkg.com`) | Website origin (`cabinpkg.com`) |
+| --- | --- | --- |
+| `/healthz` | 200, unauthenticated | - |
+| `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
+| `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
+| `/api/v1/user`, `/api/v1/user/usage`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
+| everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
+
+A dash means the path does not exist on that hostname: on the registry
+domain every non-read-plane path answers the uniform 401 **without
+consulting the `Authorization` header**, indistinguishable from any unknown
+path; on the website origin nothing ever matches a read route, so package
+data is never served there. Every Bearer-plane 401 carries the
+byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/settings/tokens"`
+challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
+401s deliberately do not, keeping the planes distinguishable. In production
+the website origin reaches this Worker through zone routes
+(`cabinpkg.com/api/*`, `/login`, `/callback*` - see `wrangler.jsonc` and
+[`runbook.md`](runbook.md), "Route management").
+
 ## Two credential planes
 
 Authentication is split into two planes that never accept each other's
-credential.
+credential, separated by route on top of the hostname split: the
+`/api/v1/user` subtree is session-only, everything else under `/api/` is
+Bearer-only.
 
 **The data plane is Bearer-only and deny-by-default.** Every data route -
 including `/config.json` - requires `Authorization: Bearer cabin_<base62>`.
-The uniform `401 {"errors":[{"detail":"authentication required"}]}` is
-emitted before any route matching or D1/R2 data lookup, so unauthenticated
-callers cannot distinguish existing from non-existing packages. `/healthz`
-is the only route outside both planes. Cookies are never read here.
+The uniform `401 {"errors":[{"detail":"authentication required"}]}` (plus
+the challenge header) is emitted before any route matching or D1/R2 data
+lookup, so unauthenticated callers cannot distinguish existing from
+non-existing packages. `/healthz` is the only route outside both planes.
+Cookies are never read here.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
-exists only in the client's hands (it is rendered exactly once, on the `/me`
-response that creates it). Any valid, unrevoked token grants read access;
+exists only in the client's hands (it is rendered exactly once, in the
+create-token response). Any valid, unrevoked token grants read access;
 `scopes` (a subset of `publish,yank,verify`) gates the mutation routes and
 the verifier's admin plane.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
-**The web plane is session-cookie-only.** `/login`, `/callback`, `/me`, and
-the `/me/tokens...` POSTs are the human-facing side: GitHub OAuth sign-in
-(web application flow, no extra scopes) and a server-rendered token page.
-The `Authorization` header is never read here, and the web dispatch serves
-no package data, so the data plane's uniform 401 stays intact.
+**The session plane is cookie-only JSON.** `/login` and `/callback` run the
+GitHub OAuth sign-in (web application flow, no extra scopes, explicit
+`redirect_uri` of `<WEB_ORIGIN>/callback`); the `/api/v1/user` subtree is
+the JSON user API the website frontend consumes:
+
+- `GET /api/v1/user` -> `{"github_id":..,"login":..,"plan":..}`;
+- `GET /api/v1/user/usage` -> plan, package count, stored bytes (rejected
+  versions excluded - their bytes were refunded), today's publishes,
+  per-status version counts, and the plan's quotas;
+- `GET /api/v1/user/tokens` -> token metadata (never hashes);
+- `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
+  repeated scopes refused) -> `201` with the plaintext token, exactly once;
+- `POST /api/v1/user/tokens/<id>/revoke` -> idempotent `{"ok":true}`,
+  scoped to the session's own tokens (a foreign or unknown id is a no-op).
+
+The exact response shapes live in `src/user_api.rs` (host-tested). The
+`Authorization` header is never read on this plane, and unauthenticated
+requests get a plain 401 envelope - never a redirect (redirecting is the
+frontend's job) and never the Bearer challenge. `/callback` redirects to
+the website's `/dashboard` on success and `/login/denied` on every refusal;
+both targets are fixed relative paths, never derived from request input
+(the open-redirect guard).
 
 - Identity is the **numeric GitHub id**, never the login name (logins can
   be renamed and reassigned); sign-in is allowed iff the id is listed in
@@ -72,13 +120,23 @@ no package data, so the data plane's uniform 401 stays intact.
 - The GitHub access token is used for one `/user` call and never stored.
 - Cookies (the short-lived OAuth `state` and the 8-hour session) are
   HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
-  separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`.
-- Both POSTs require a CSRF token - an HMAC derived from the session,
-  embedded as a hidden form field and recomputed server-side - on top of
-  the `SameSite=Lax` cookie semantics.
-- HTML responses carry `Content-Security-Policy: default-src 'none';
-  style-src 'unsafe-inline'`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
+  separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`, and
+  **host-only** - no `Domain` attribute, so registry subdomains can never
+  receive the website origin's cookies. Paths are narrowed to where each
+  cookie is read (`Path=/api/v1/user` for the session, `Path=/callback`
+  for the OAuth state), so ordinary website page loads never carry them.
+- Session-plane mutations enforce a stateless CSRF discipline suited to a
+  JSON API: `Content-Type: application/json` **and** `X-CSRF-Protection: 1`
+  are required (`session::csrf_headers_ok`, checked before the body is
+  read). Neither header can ride on an HTML form or any other request a
+  hostile origin can send without a CORS preflight - which the Worker
+  never answers - so with `SameSite=Lax` host-only cookies no server-side
+  token state is needed.
+- Every session-plane response carries `Content-Security-Policy:
+  default-src 'none'; style-src 'unsafe-inline'`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+  `Cache-Control: no-store` (in particular the one response holding a
+  plaintext token).
 - Sessions, GitHub access tokens, and issued registry tokens are never
   logged.
 
@@ -156,11 +214,12 @@ gate, and the verdict body live in `src/verify.rs`.
   200; a conflicting verdict on a verified version and any verdict on
   a rejected one are 409 (republish is the recovery path, and a late
   duplicate verdict must never race the replacement back to pending).
-- **Trust model.** The `verify` scope is mintable on `/me` like
-  `publish` and `yank`: every allowlisted user is currently an
-  operator, matching the registry-wide "no per-package ownership yet"
-  stance above. A dedicated verifier-only issuance path is deliberate
-  future work for when sign-up opens beyond the allowlist.
+- **Trust model.** The `verify` scope is mintable through the session
+  token API like `publish` and `yank`: every allowlisted user is
+  currently an operator, matching the registry-wide "no per-package
+  ownership yet" stance above. A dedicated verifier-only issuance path
+  is deliberate future work for when sign-up opens beyond the
+  allowlist.
 - **Fail-safe direction.** Nothing becomes resolvable unless its status
   is exactly `verified`: a verifier that never runs, an unreadable
   status value, or a broken admin plane can only keep content
@@ -172,8 +231,8 @@ gate, and the verdict body live in `src/verify.rs`.
   while some live (non-rejected) row references its checksum: the
   publish batch counts the sole-live-reference insert, rejection
   refunds it when the last live reference flips, and a replacement
-  re-counts a re-uploaded blob. Per-user storage quotas and the `/me`
-  usage sum exclude rejected rows the same way. Existing rows were
+  re-counts a re-uploaded blob. Per-user storage quotas and the usage
+  endpoint's stored sum exclude rejected rows the same way. Existing rows were
   backfilled `verified` by migration `0004` (published by the sole
   operator before the pipeline existed).
 
@@ -302,17 +361,20 @@ storage budget above sits under half the free limit.
 
 ## Code layout
 
-Domain logic - token hashing, formatting, and scopes (`src/auth.rs`), route
-matching and path-component validation (`src/routes.rs`), document
-composition (`src/documents.rs`), the error envelope (`src/error.rs`),
-cookie/CSRF signing (`src/session.rs`), the sign-in allowlist
-(`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`), the
+Domain logic - token hashing, formatting, and scopes (`src/auth.rs`),
+hostname roles, route matching, and path-component validation
+(`src/routes.rs`), document composition (`src/documents.rs`), the error
+envelope and the challenge header (`src/error.rs`), cookie signing, the
+cookie shape, and the CSRF header rule (`src/session.rs`), the session
+API's JSON shapes and body validation (`src/user_api.rs`), the sign-in
+allowlist (`src/allowlist.rs`), the
 quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the
 analytics query shapes (`src/analytics.rs`), the verification lifecycle's
 statuses, verdict rules, and read gate (`src/verify.rs`), and the backup
 logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
-(`src/glue.rs` for the data plane, `src/web_glue.rs` for the web plane,
+(`src/glue.rs` for the role dispatch and the Bearer planes,
+`src/web_glue.rs` for the OAuth and session planes,
 `src/backup_glue.rs` for the nightly dump job, wasm32 only) is thin
 binding-and-I/O wiring covered by
 `scripts/smoke.sh`. Path

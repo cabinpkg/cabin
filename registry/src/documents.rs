@@ -17,16 +17,19 @@ struct ConfigDoc<'a> {
     api: &'a str,
 }
 
-/// Renders `config.json` for the registry served from `registry_origin`.
+/// Renders `config.json`. `api_origin` is the **website** origin
+/// (`WEB_ORIGIN`) the mutation and session routes live on - crates.io's
+/// `"api": "https://crates.io"` discipline - never the index origin
+/// serving this document.
 #[allow(clippy::missing_panics_doc)] // serializing a `ConfigDoc` cannot fail
-pub fn config_json(registry_origin: &str) -> String {
+pub fn config_json(api_origin: &str) -> String {
     serde_json::to_string(&ConfigDoc {
         schema: 1,
         kind: "file-registry",
         packages: "packages",
         artifacts: "artifacts",
         auth_required: true,
-        api: registry_origin,
+        api: api_origin,
     })
     .expect("config document serializes")
 }
@@ -103,9 +106,10 @@ mod tests {
 
     #[test]
     fn config_json_matches_the_contract_byte_for_byte() {
+        // The `api` field names the website origin, not the index origin.
         assert_eq!(
-            config_json("https://dev-registry.cabinpkg.com"),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://dev-registry.cabinpkg.com"}"#
+            config_json("https://cabinpkg.com"),
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://cabinpkg.com"}"#
         );
     }
 
