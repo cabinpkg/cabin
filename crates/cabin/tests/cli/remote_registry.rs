@@ -645,6 +645,18 @@ struct RemoteRegistryServer {
 
 impl RemoteRegistryServer {
     fn start(include_api: bool, require_auth: bool, put_statuses: &'static [u16]) -> Self {
+        Self::start_with_put_body(include_api, require_auth, put_statuses, None)
+    }
+
+    /// Like [`Self::start`], but every mutation response carries
+    /// `put_body` instead of the per-status default - e.g. a `201`
+    /// with the verification lifecycle's `"verification":"pending"`.
+    fn start_with_put_body(
+        include_api: bool,
+        require_auth: bool,
+        put_statuses: &'static [u16],
+        put_body: Option<&'static str>,
+    ) -> Self {
         let server = std::sync::Arc::new(
             tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
         );
@@ -713,12 +725,12 @@ impl RemoteRegistryServer {
                         body,
                     });
                     drop(puts);
-                    let body = match status {
+                    let body = put_body.unwrap_or(match status {
                         200 => r#"{"ok":true,"no_op":true}"#,
                         201 => r#"{"ok":true}"#,
                         409 => r#"{"errors":[{"detail":"version exists with different bytes"}]}"#,
                         _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
-                    };
+                    });
                     let _ = req
                         .respond(tiny_http::Response::from_string(body).with_status_code(status));
                 } else {
@@ -879,6 +891,12 @@ fn publish_uploads_bytes_identical_to_cabin_package() {
         stdout.contains("checksum: sha256:"),
         "expected the checksum in: {stdout}"
     );
+    // A registry without the verification lifecycle omits the field;
+    // the report must not invent a verification line.
+    assert!(
+        !stdout.contains("verification"),
+        "unexpected verification line in: {stdout}"
+    );
 
     let puts = server.puts.lock().unwrap();
     assert_eq!(puts.len(), 1, "exactly one publish request");
@@ -955,6 +973,44 @@ fn publish_reports_no_op_and_conflict_outcomes() {
     assert!(
         flat_contains(&stderr, "published versions are immutable"),
         "expected the immutability explanation in: {stderr}"
+    );
+}
+
+/// A registry with the asynchronous verification lifecycle answers
+/// the publish with `"verification":"pending"`; the report says the
+/// version was accepted and becomes resolvable after verification.
+#[test]
+fn publish_reports_pending_verification() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+    let server = RemoteRegistryServer::start_with_put_body(
+        true,
+        false,
+        &[201],
+        Some(
+            r#"{"ok":true,"name":"demo","version":"0.1.0","checksum":"sha256:aa","verification":"pending"}"#,
+        ),
+    );
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains(&format!("Published demo 0.1.0 to {}", server.url)),
+        "expected the created report in: {stdout}"
+    );
+    assert!(
+        stdout.contains("verification: pending"),
+        "expected the pending verification line in: {stdout}"
+    );
+    assert!(
+        stdout.contains("accepted") && stdout.contains("typically within a few minutes"),
+        "expected the resolvable-after-verification wording in: {stdout}"
     );
 }
 

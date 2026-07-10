@@ -163,6 +163,10 @@ struct RemotePublishReport {
     /// `true` on a `201` (version created); `false` on the
     /// idempotent `200` no-op for byte-identical re-publishes.
     created: bool,
+    /// The response's optional `"verification"` field: `"pending"` on
+    /// a registry with the asynchronous verification lifecycle, `None`
+    /// on one without it.
+    verification: Option<String>,
     warnings: Vec<String>,
 }
 
@@ -229,7 +233,7 @@ fn publish_to_remote_registry(
 
     let metadata_json = cabin_package::metadata::render_canonical_json(&staged.metadata)?;
     let api_client = cabin_registry_api::RegistryApi::new(api, token)?;
-    let outcome = api_client.publish(
+    let receipt = api_client.publish(
         staged.name.as_str(),
         &staged.version,
         metadata_json.as_bytes(),
@@ -240,7 +244,8 @@ fn publish_to_remote_registry(
         version: staged.version,
         registry: origin,
         checksum: staged.checksum,
-        created: matches!(outcome, cabin_registry_api::PublishOutcome::Created),
+        created: matches!(receipt.outcome, cabin_registry_api::PublishOutcome::Created),
+        verification: receipt.verification,
         warnings,
     })
 }
@@ -280,6 +285,14 @@ fn print_remote_publish_human(report: &RemotePublishReport) {
         );
     }
     println!("  checksum: {}", report.checksum);
+    // A registry with the asynchronous verification lifecycle accepts
+    // the upload as pending; say when it becomes resolvable.
+    if report.verification.as_deref() == Some("pending") {
+        println!(
+            "  verification: pending (the version was accepted and becomes resolvable \
+             after verification, typically within a few minutes)"
+        );
+    }
 }
 
 fn print_remote_publish_json(report: &RemotePublishReport) -> Result<()> {
@@ -290,6 +303,7 @@ fn print_remote_publish_json(report: &RemotePublishReport) -> Result<()> {
         "version": report.version.to_string(),
         "registry": report.registry,
         "checksum": report.checksum,
+        "verification": report.verification,
         "warnings": report.warnings,
     });
     crate::print_pretty_json(&value, "failed to serialize publish output as JSON")

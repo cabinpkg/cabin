@@ -47,7 +47,11 @@ trap 'rm -f "$blob"' EXIT
 # (`set -e` catches failing assignments), whereas a command substitution
 # inside `<<<` would silently feed the loop nothing - and the failure
 # log below must never be cleared on a run that enumerated nothing.
-checksums="$(d1_column "SELECT DISTINCT checksum FROM versions" checksum)"
+# Rejected rows are excluded: their blob is reclaimed from the primary
+# (docs/architecture.md, "The verification lifecycle"), so there is
+# nothing to copy and no backup need.
+checksums="$(d1_column "SELECT DISTINCT checksum FROM versions
+  WHERE verification != 'rejected'" checksum)"
 copied=0
 present=0
 while IFS= read -r checksum; do
@@ -70,5 +74,12 @@ while IFS= read -r checksum; do
   # silence the breaker alert while the blob is still missing.
   d1_exec "DELETE FROM backup_replication_failures WHERE key = '$key'"
 done <<<"$checksums"
+
+step "clearing failure rows for blobs with no live reference"
+# The reclaim path clears these as it deletes, but a failed bookkeeping
+# write can leave a straggler that would alert forever with no primary
+# object left to copy. Rows for live checksums stay untouched.
+d1_exec "DELETE FROM backup_replication_failures WHERE key NOT IN
+  (SELECT 'blobs/sha256/' || checksum FROM versions WHERE verification != 'rejected')"
 
 echo "backup backfill OK (copied $copied, already present $present)"

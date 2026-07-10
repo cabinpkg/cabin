@@ -140,10 +140,18 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
     // semantics: packages the user created, not merely published into.
     let now = now_iso8601();
     let day_prefix = quota::utc_day_prefix(&now).unwrap_or(&now);
+    // Rejected versions keep their row (the verdict trail and the
+    // republish carve-out live there) but their bytes were refunded, so
+    // they are excluded from the stored sum; the per-status counts show
+    // where everything the user published stands.
     let usage_record: Option<UsageRecord> = db
         .prepare(
-            "SELECT COALESCE(SUM(archive_size), 0) AS stored_bytes, \
-             COALESCE(SUM(CASE WHEN published_at >= ?2 THEN 1 ELSE 0 END), 0) AS published_today \
+            "SELECT COALESCE(SUM(CASE WHEN verification != 'rejected' \
+             THEN archive_size ELSE 0 END), 0) AS stored_bytes, \
+             COALESCE(SUM(CASE WHEN published_at >= ?2 THEN 1 ELSE 0 END), 0) AS published_today, \
+             COALESCE(SUM(verification = 'verified'), 0) AS verified_count, \
+             COALESCE(SUM(verification = 'pending'), 0) AS pending_count, \
+             COALESCE(SUM(verification = 'rejected'), 0) AS rejected_count \
              FROM versions WHERE published_by = ?1",
         )
         .bind(&[js_int(session.github_id), day_prefix.into()])?
@@ -152,6 +160,9 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
     let usage_record = usage_record.unwrap_or(UsageRecord {
         stored_bytes: 0,
         published_today: 0,
+        verified_count: 0,
+        pending_count: 0,
+        rejected_count: 0,
     });
     let package_record: Option<PackageCountRecord> = db
         .prepare("SELECT COUNT(*) AS n FROM packages WHERE created_by = ?1")
@@ -164,6 +175,9 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
         package_count: non_negative(package_record.map_or(0, |record| record.n)),
         stored_bytes: non_negative(usage_record.stored_bytes),
         published_today: non_negative(usage_record.published_today),
+        verified_count: non_negative(usage_record.verified_count),
+        pending_count: non_negative(usage_record.pending_count),
+        rejected_count: non_negative(usage_record.rejected_count),
     };
     let records: Vec<TokenListRecord> = db
         .prepare(
@@ -212,6 +226,9 @@ async fn create_token(req: &mut Request, env: &Env, db: &D1Database) -> worker::
     }
     if field(&form, "scope_yank").is_some() {
         scopes.push("yank");
+    }
+    if field(&form, "scope_verify").is_some() {
+        scopes.push("verify");
     }
 
     let token = auth::format_token(&random_bytes()?);
@@ -267,6 +284,9 @@ struct UserRecord {
 struct UsageRecord {
     stored_bytes: i64,
     published_today: i64,
+    verified_count: i64,
+    pending_count: i64,
+    rejected_count: i64,
 }
 
 #[derive(Deserialize)]

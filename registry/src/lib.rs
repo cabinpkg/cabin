@@ -18,6 +18,7 @@ pub mod publish;
 pub mod quota;
 pub mod routes;
 pub mod session;
+pub mod verify;
 
 #[cfg(target_arch = "wasm32")]
 mod backup_glue;

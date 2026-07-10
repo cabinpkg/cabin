@@ -5,12 +5,15 @@
 # given a token - the three authenticated read routes plus the full
 # publish / yank write flow (first publish, idempotent re-publish,
 # immutability conflict, yank state transitions, artifact checksum), the
-# budget breaker (writes 402 while service_mode = writes_blocked, reads
-# unaffected), blob replication into the BACKUP bucket, and the nightly
-# dump job (triggered via the /__scheduled test route against a local
-# mock of the D1 export API serving a real `wrangler d1 export --local`
-# dump). Local-only: state lives in .wrangler/, never a deployed
-# environment.
+# verification lifecycle (pending -> verify -> resolvable with a
+# verify-scoped token, verdict idempotency and conflicts, and the
+# reject -> blob reclaim -> quota refund -> republish flow including the
+# shared-blob refcount case), the budget breaker (writes 402 while
+# service_mode = writes_blocked, reads unaffected), blob replication
+# into the BACKUP bucket, and the nightly dump job (triggered via the
+# /__scheduled test route against a local mock of the D1 export API
+# serving a real `wrangler d1 export --local` dump). Local-only: state
+# lives in .wrangler/, never a deployed environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -106,9 +109,11 @@ frame() {
 step "applying migrations to the local dev database"
 wrangler d1 migrations apply DB --env dev --local
 
+verify_token="${token:+${token}-verify}"
 if [[ -n "$token" ]]; then
-  step "seeding the smoke token into the local dev database"
+  step "seeding the smoke tokens into the local dev database"
   hash="$(printf '%s' "$token" | shasum -a 256 | cut -d' ' -f1)"
+  verify_hash="$(printf '%s' "$verify_token" | shasum -a 256 | cut -d' ' -f1)"
   # The fixture rows are cleared so re-runs still see a first publish; the
   # content-addressed R2 blob may survive, which the publish path skips.
   wrangler d1 execute DB --env dev --local --command "
@@ -116,6 +121,8 @@ if [[ -n "$token" ]]; then
       VALUES (0, 'smoke', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke', 0, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
+    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
+      VALUES ('smoke-verify', 0, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
     DELETE FROM versions WHERE name = 'withdep';
     DELETE FROM packages WHERE name = 'withdep';
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
@@ -218,7 +225,12 @@ if [[ -z "$token" ]]; then
   exit 0
 fi
 
-curl_args=(-H "Authorization: Bearer $token")
+# The two credentials the checks below switch between: the ordinary
+# publish/yank token and the verifier's verify-scoped one.
+as_publisher() { curl_args=(-H "Authorization: Bearer $token"); }
+as_verifier() { curl_args=(-H "Authorization: Bearer $verify_token"); }
+
+as_publisher
 step "authenticated read routes"
 check /config.json 200
 grep -q '"auth-required":true' "$body" || fail "config.json missing auth-required: $(cat "$body")"
@@ -238,13 +250,65 @@ version="0.2.0"
 fixture_metadata="tests/fixtures/$name-$version.json"
 fixture_archive="tests/fixtures/$name-$version.tar.gz"
 publish_path="/api/v1/packages/$name/$version"
+blob_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
 work="$(mktemp -d)"
 trap 'cleanup; rm -rf "$work" "$mock_dir"' EXIT
 
-step "first publish creates the version"
+step "first publish creates the version pending verification"
 frame "$fixture_metadata" "$fixture_archive" "$work/publish.bin"
 request PUT "$publish_path" "$work/publish.bin" 201
 expect_body '"ok":true'
+expect_body '"verification":"pending"'
+
+step "pending versions are invisible to ordinary tokens"
+check "/packages/$name.json" 404
+check "/artifacts/$name/$name-$version.tar.gz" 404
+check "/api/v1/admin/versions?status=pending" 403
+expect_body 'verify scope'
+printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
+request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 403
+expect_body 'verify scope'
+
+step "the verify scope lists and downloads pending versions"
+as_verifier
+check "/api/v1/admin/versions?status=pending" 200
+expect_body '"name":"withdep"'
+expect_body '"version":"0.2.0"'
+expect_body '"published_by":0'
+expect_body '"metadata":{'
+# A verified verdict must echo the listing's checksum and published_at.
+listed_published_at="$(node -e '
+  const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const v = doc.versions.find((v) => v.name === "withdep" && v.version === "0.2.0");
+  if (!v || !v.published_at) process.exit(1);
+  console.log(v.published_at);' "$body")" \
+  || fail "the admin listing is missing withdep@0.2.0 or its published_at"
+printf '{"verdict":"verified","checksum":"%s","published_at":"%s"}' \
+  "$blob_hash" "$listed_published_at" >"$work/verdict-verified.json"
+check "/api/v1/admin/versions?status=bogus" 400
+check "/artifacts/$name/$name-$version.tar.gz" 200
+
+step "a verified verdict must name the listing it inspected"
+request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 400
+expect_body 'requires the checksum'
+
+step "a verified verdict makes the version resolvable"
+request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+expect_body '"verification":"verified"'
+expect_body '"changed":true'
+as_publisher
+check "/packages/$name.json" 200
+expect_body '"0.2.0"'
+check "/artifacts/$name/$name-$version.tar.gz" 200
+
+step "verdicts are idempotent for the same value and conflict otherwise"
+as_verifier
+request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+expect_body '"changed":false'
+printf '{"verdict":"rejected","reason":"smoke rejection"}' >"$work/verdict-rejected.json"
+request PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-rejected.json" 409
+expect_body 'immutable'
+as_publisher
 
 # await_backup_blob <key> <out-file>: replication runs via waitUntil
 # after the response, so poll the BACKUP bucket briefly.
@@ -259,24 +323,27 @@ await_backup_blob() {
 }
 
 step "the published blob replicates to the BACKUP bucket"
-blob_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
 await_backup_blob "blobs/sha256/$blob_hash" "$work/replicated.tar.gz"
 cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
   || fail "replicated blob differs from the published archive"
 
 # A retry of a publish whose isolate died before replicating takes the
 # idempotent no-op path; it must re-schedule the copy.
-step "an idempotent re-publish heals a missing backup blob"
+step "an idempotent re-publish heals missing primary and backup blobs"
 wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" --local >/dev/null
+wrangler r2 object delete "cabin-registry-dev-blobs/blobs/sha256/$blob_hash" --local >/dev/null
 request PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
+expect_body '"verification":"verified"'
+check "/artifacts/$name/$name-$version.tar.gz" 200
 await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.tar.gz"
 cmp -s "$work/rehealed.tar.gz" "$fixture_archive" \
   || fail "re-healed blob differs from the published archive"
 
-step "byte-identical re-publish is an idempotent no-op"
+step "byte-identical re-publish is an idempotent no-op reporting the status"
 request PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
+expect_body '"verification":"verified"'
 
 step "tampered re-publish hits the immutability wall"
 cat "$fixture_archive" >"$work/tampered.tar.gz"
@@ -329,6 +396,93 @@ wrangler d1 execute DB --env dev --local --command "
   UPDATE meta SET value = '' WHERE key = 'service_mode_reason';"
 request PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
+
+# --- The reject -> blob reclaim -> quota refund -> republish flow. ---
+# The PUTs above consumed the publish bucket's full burst; give this leg
+# its own by resetting the token's bucket columns.
+wrangler d1 execute DB --env dev --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';"
+
+# meta.total_stored_bytes, the exact storage self-accounting.
+stored_bytes() {
+  wrangler d1 execute DB --env dev --local --json --command \
+    "SELECT value FROM meta WHERE key = 'total_stored_bytes'" |
+    node -e '
+      const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      console.log(out[0].results[0].value);'
+}
+
+# 0.2.1 with the exact archive 0.2.0 published: the shared-blob case.
+version2="0.2.1"
+publish2_path="/api/v1/packages/$name/$version2"
+sed 's/0\.2\.0/0.2.1/g' "$fixture_metadata" >"$work/withdep-0.2.1.json"
+frame "$work/withdep-0.2.1.json" "$fixture_archive" "$work/publish2.bin"
+
+step "publishing a second version with identical content shares the blob"
+before_bytes="$(stored_bytes)"
+request PUT "$publish2_path" "$work/publish2.bin" 201
+expect_body '"verification":"pending"'
+[[ "$(stored_bytes)" == "$before_bytes" ]] \
+  || fail "a shared blob was double-counted: $(stored_bytes) (was $before_bytes)"
+
+step "a verdict bound to a stale listing conflicts"
+as_verifier
+printf '{"verdict":"verified","checksum":"%s","published_at":"1970-01-01T00:00:00.000Z"}' \
+  "$(printf 'stale' | shasum -a 256 | cut -d' ' -f1)" >"$work/verdict-stale.json"
+request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-stale.json" 409
+expect_body 'changed since it was listed'
+
+step "rejecting a version sharing its blob keeps the blob and the accounting"
+# Bound to the listed checksum: the verdict applies only to these bytes.
+printf '{"verdict":"rejected","reason":"smoke rejection","checksum":"%s"}' "$blob_hash" \
+  >"$work/verdict-rejected-bound.json"
+request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected-bound.json" 200
+expect_body '"verification":"rejected"'
+expect_body '"changed":true'
+check "/artifacts/$name/$name-$version2.tar.gz" 404
+as_publisher
+[[ "$(stored_bytes)" == "$before_bytes" ]] \
+  || fail "rejecting a shared blob changed the accounting: $(stored_bytes) (was $before_bytes)"
+check "/artifacts/$name/$name-$version.tar.gz" 200
+check "/packages/$name.json" 200
+! grep -qF '"0.2.1"' "$body" \
+  || fail "a rejected version leaked into the package document: $(cat "$body")"
+request PATCH "$publish2_path/yank" "$work/yank.json" 404
+
+step "republishing over a rejected version replaces it as pending"
+cat "$fixture_archive" >"$work/replacement.tar.gz"
+printf 'y' >>"$work/replacement.tar.gz"
+replacement_hash="$(shasum -a 256 "$work/replacement.tar.gz" | cut -d' ' -f1)"
+sed "s/$blob_hash/$replacement_hash/" "$work/withdep-0.2.1.json" >"$work/replacement.json"
+frame "$work/replacement.json" "$work/replacement.tar.gz" "$work/replacement.bin"
+request PUT "$publish2_path" "$work/replacement.bin" 201
+expect_body '"verification":"pending"'
+replacement_size="$(wc -c <"$work/replacement.tar.gz" | tr -d ' ')"
+[[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
+  || fail "the replacement archive was not counted: $(stored_bytes)"
+as_verifier
+check "/api/v1/admin/versions?status=pending" 200
+expect_body '"version":"0.2.1"'
+expect_body "$replacement_hash"
+
+step "rejecting an unshared blob reclaims it and refunds the bytes"
+request PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected.json" 200
+as_publisher
+[[ "$(stored_bytes)" == "$before_bytes" ]] \
+  || fail "the rejection did not refund the replacement bytes: $(stored_bytes)"
+if wrangler r2 object get "cabin-registry-dev-blobs/blobs/sha256/$replacement_hash" \
+  --file "$work/reclaimed.tar.gz" --local >/dev/null 2>&1; then
+  fail "the rejected version's unshared blob was not reclaimed"
+fi
+
+step "republishing identical bytes over a rejected version restarts verification"
+request PUT "$publish2_path" "$work/replacement.bin" 201
+expect_body '"verification":"pending"'
+[[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
+  || fail "the re-uploaded blob was not re-counted: $(stored_bytes)"
+as_verifier
+check "/artifacts/$name/$name-$version2.tar.gz" 200
+as_publisher
 
 # The /__scheduled test route (wrangler dev --test-scheduled) invokes
 # the cron handler; any non-breaker expression routes to the dump job,

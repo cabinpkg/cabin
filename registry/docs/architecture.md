@@ -15,15 +15,22 @@ the service.
   the row on the way out, so yank state has exactly one home.
 - **R2 holds immutable, content-addressed blobs.** Archive bytes live at
   `blobs/sha256/<checksum-hex>` (the lowercase hex in `versions.checksum`).
-  Nothing in R2 is ever mutated or deleted in production; yanking is a D1 row
-  update, and the artifact route deliberately keeps serving yanked versions
-  so locked-in consumers keep building.
-- **Published versions are immutable.** A `(name, version)` row is written
-  once. Re-publishing byte-identical metadata (which embeds the archive
-  checksum, so identical metadata means an identical archive) is an
-  idempotent `200 {"ok":true,"no_op":true}` that touches neither store;
-  anything else is `409 published versions are immutable`. There is no
-  unpublish or delete.
+  Blobs are never mutated; the one deletion path is the verification
+  lifecycle's reclaim of a **rejected** version's blob when no live
+  (non-rejected) row references its checksum. Yanking is a D1 row
+  update, and the artifact route deliberately keeps serving yanked
+  versions so locked-in consumers keep building.
+- **Verified versions are immutable.** Every `versions` row carries a
+  verification status (`pending` | `verified` | `rejected`, migration
+  `0004`; see "The verification lifecycle"). Re-publishing
+  byte-identical metadata (which embeds the archive checksum, so
+  identical metadata means an identical archive) over a pending or
+  verified row is an idempotent
+  `200 {"ok":true,"no_op":true,"verification":"<status>"}` that touches
+  neither store; different bytes are
+  `409 published versions are immutable`. A rejected row is the one
+  exception: it never became part of the registry, so any bytes replace
+  it and return it to `pending`. There is no unpublish or delete.
 - **No KV.** The data is relational and small; a second store would only add
   consistency questions. Response caching can come later at the edge if read
   volume ever warrants it.
@@ -43,7 +50,8 @@ is the only route outside both planes. Cookies are never read here.
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
 exists only in the client's hands (it is rendered exactly once, on the `/me`
 response that creates it). Any valid, unrevoked token grants read access;
-`scopes` (a subset of `publish,yank`) gates the mutation routes.
+`scopes` (a subset of `publish,yank,verify`) gates the mutation routes and
+the verifier's admin plane.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
@@ -95,18 +103,79 @@ order, stopping at the first failure:
 7. the metadata's `checksum` equals `sha256:` + the digest the server itself
    computes from the uploaded archive bytes via SubtleCrypto (`400`).
 
-Only then storage is consulted: an existing row answers with the
-idempotent `200` no-op or the `409` immutability conflict, and a new version
-writes the R2 blob first (skipped when the content-addressed key already
-exists), then one atomic D1 batch for the `packages` and `versions` rows.
-A crash between the two writes can only leave an unreferenced blob - see
-[`runbook.md`](runbook.md).
+Only then storage is consulted: an existing pending or verified row answers
+with the idempotent `200` no-op (reporting its verification status) or the
+`409` immutability conflict, a rejected row is replaced in place (any
+bytes; back to `pending`), and a new version writes the R2 blob first
+(skipped when the content-addressed key already exists), then one atomic
+D1 batch for the `packages` and `versions` rows. New and replaced rows
+start `pending`. A crash between the two writes can only leave an
+unreferenced blob - see [`runbook.md`](runbook.md).
 
 Yank is a single-column `UPDATE` on the `versions` row (`404` when the pair
-is unknown), idempotent, reporting the resulting state and whether the
-request changed it. The read path overrides the stored entry's `yanked`
+is unknown **or not verified** - a version that never became resolvable has
+nothing to retract), idempotent, reporting the resulting state and whether
+the request changed it. The read path overrides the stored entry's `yanked`
 field from the column, so the verbatim `metadata_json` never goes stale on
 the one field that mutates.
+
+## The verification lifecycle
+
+Publish stores content; an external verifier (a later step; it runs in
+GitHub Actions) decides what becomes part of the registry. The status
+lives in `versions.verification` with `verification_reason` /
+`verified_at` alongside; the pure transition rules, the artifact read
+gate, and the verdict body live in `src/verify.rs`.
+
+- **Reads are gated on `verified`.** `/packages/<name>.json` composes
+  verified versions only (the filter sits in the SQL query, so a package
+  with none is an ordinary 404), and the artifact route serves verified
+  versions to ordinary tokens. The `verify` scope may additionally list
+  pending versions (`GET /api/v1/admin/versions?status=...`) and
+  download their artifacts - the verifier has to fetch what it inspects.
+  Rejected versions are served to no one.
+- **Verdicts** (`PATCH /api/v1/admin/versions/<name>/<version>`, scope
+  `verify`, budget-gated like every write): `verified` stamps
+  `verified_at`; `rejected` records the reason, refunds the archive's
+  bytes from `meta.total_stored_bytes` when the row was the checksum's
+  sole live reference (decided inside the same transaction that flips
+  the row, so a duplicate concurrent verdict cannot refund twice), and
+  reclaims the blob best-effort - a failed delete leaves a harmless
+  orphan that the replacement path retries, and publishes re-check
+  their blob after their batch commits, so a reclaim racing a
+  deduplicating publish of the same bytes is self-healed. The body's
+  `checksum` and `published_at` (required to verify, optional to
+  reject - exposure must name the inspected row generation, and
+  `published_at` catches even a same-bytes replacement with new
+  metadata) bind the verdict to what the verifier listed,
+  and the applying updates are guarded on the row still being pending
+  with the bytes the request read, so a verdict racing a conflicting
+  verdict or a replacement answers 409 instead of applying - the
+  verified arm must never resurrect a row a concurrent rejection just
+  reclaimed. Repeating a verified version's verdict is the idempotent
+  200; a conflicting verdict on a verified version and any verdict on
+  a rejected one are 409 (republish is the recovery path, and a late
+  duplicate verdict must never race the replacement back to pending).
+- **Trust model.** The `verify` scope is mintable on `/me` like
+  `publish` and `yank`: every allowlisted user is currently an
+  operator, matching the registry-wide "no per-package ownership yet"
+  stance above. A dedicated verifier-only issuance path is deliberate
+  future work for when sign-up opens beyond the allowlist.
+- **Fail-safe direction.** Nothing becomes resolvable unless its status
+  is exactly `verified`: a verifier that never runs, an unreadable
+  status value, or a broken admin plane can only keep content
+  unexposed, never expose it. The breaker cron counts versions pending
+  for over an hour and alerts (log + webhook) on every pass while any
+  exist, so a stuck verifier is noticed instead of silently blocking
+  all publishes from resolving.
+- **Accounting.** The storage self-accounting counts a blob's bytes
+  while some live (non-rejected) row references its checksum: the
+  publish batch counts the sole-live-reference insert, rejection
+  refunds it when the last live reference flips, and a replacement
+  re-counts a re-uploaded blob. Per-user storage quotas and the `/me`
+  usage sum exclude rejected rows the same way. Existing rows were
+  backfilled `verified` by migration `0004` (published by the sole
+  operator before the pipeline existed).
 
 Conformance is enforced from the monorepo: `scripts/gen-fixtures.sh` builds
 the in-tree `cabin` binary and packages real fixture pairs, which the
@@ -239,9 +308,10 @@ composition (`src/documents.rs`), the error envelope (`src/error.rs`),
 cookie/CSRF signing (`src/session.rs`), the sign-in allowlist
 (`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`), the
 quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the
-analytics query shapes (`src/analytics.rs`), and the backup logic -
-retention, dump validation, freshness (`src/backup.rs`) - compiles and
-unit-tests on the host target. The Cloudflare glue
+analytics query shapes (`src/analytics.rs`), the verification lifecycle's
+statuses, verdict rules, and read gate (`src/verify.rs`), and the backup
+logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
+and unit-tests on the host target. The Cloudflare glue
 (`src/glue.rs` for the data plane, `src/web_glue.rs` for the web plane,
 `src/backup_glue.rs` for the nightly dump job, wasm32 only) is thin
 binding-and-I/O wiring covered by
