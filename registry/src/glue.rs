@@ -17,7 +17,7 @@ use crate::error;
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, backup, breaker, quota};
+use crate::{analytics, backup, breaker, quota, verify};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -39,8 +39,9 @@ struct VersionRecord {
 }
 
 #[derive(Deserialize)]
-struct ChecksumRecord {
+struct ArtifactRecord {
     checksum: String,
+    verification: String,
 }
 
 #[derive(Deserialize)]
@@ -49,13 +50,16 @@ struct MetaRecord {
 }
 
 #[derive(Deserialize)]
-struct StoredMetadataRecord {
+struct StoredVersionRecord {
     metadata_json: String,
+    checksum: String,
+    verification: String,
 }
 
 #[derive(Deserialize)]
 struct YankedRecord {
     yanked: i64,
+    verification: String,
 }
 
 /// The yank request body, exactly `{"yanked": <bool>}`.
@@ -125,18 +129,24 @@ async fn handle(
             ))?,
             Some(Route::Package { name }) => package_response(&db, name).await?,
             Some(Route::Artifact { name, version }) => {
-                artifact_response(env, &db, name, version).await?
+                artifact_response(env, &db, &auth, name, version).await?
             }
-            // `/healthz` was handled above; anything else is an
+            // `/healthz` was handled above; the admin listing is the
+            // one API route read with GET; anything else is an
             // authenticated 404.
-            Some(Route::Healthz) | None => error_response(404, error::NOT_FOUND)?,
+            Some(Route::Healthz) | None => match match_api_route(&path) {
+                Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
+                _ => error_response(404, error::NOT_FOUND)?,
+            },
         },
         Method::Put => match match_api_route(&path) {
             Some(ApiRoute::Publish { name, version }) => {
                 let (name, version) = (name.to_owned(), version.to_owned());
                 publish_response(req, env, ctx, &db, &auth, &name, &version).await?
             }
-            Some(ApiRoute::Yank { .. }) => error_response(405, error::METHOD_NOT_ALLOWED)?,
+            Some(
+                ApiRoute::Yank { .. } | ApiRoute::AdminVersions | ApiRoute::AdminVerdict { .. },
+            ) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
         Method::Patch => match match_api_route(&path) {
@@ -144,7 +154,13 @@ async fn handle(
                 let (name, version) = (name.to_owned(), version.to_owned());
                 yank_response(req, env, &db, &auth, &name, &version).await?
             }
-            Some(ApiRoute::Publish { .. }) => error_response(405, error::METHOD_NOT_ALLOWED)?,
+            Some(ApiRoute::AdminVerdict { name, version }) => {
+                let (name, version) = (name.to_owned(), version.to_owned());
+                verdict_response(req, env, &db, &auth, &name, &version).await?
+            }
+            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions) => {
+                error_response(405, error::METHOD_NOT_ALLOWED)?
+            }
             None => error_response(404, error::NOT_FOUND)?,
         },
         _ => error_response(405, error::METHOD_NOT_ALLOWED)?,
@@ -217,9 +233,17 @@ fn bucket_from_columns(tokens: Option<f64>, updated_at: Option<&str>) -> Option<
     })
 }
 
+/// `GET /packages/<name>.json`: composed from **verified** versions
+/// only - the filter is in the query, so pending and rejected rows
+/// never reach composition, and a package with no verified versions is
+/// indistinguishable from an unknown one (fail safe: if the verifier
+/// never runs, nothing new ever becomes resolvable).
 async fn package_response(db: &D1Database, name: &str) -> worker::Result<Response> {
     let records: Vec<VersionRecord> = db
-        .prepare("SELECT version, metadata_json, yanked FROM versions WHERE name = ?1")
+        .prepare(
+            "SELECT version, metadata_json, yanked FROM versions \
+             WHERE name = ?1 AND verification = 'verified'",
+        )
         .bind(&[name.into()])?
         .all()
         .await?
@@ -248,12 +272,14 @@ async fn package_response(db: &D1Database, name: &str) -> worker::Result<Respons
 /// (`docs/remote-registry.md`, "Publish"). Validation order and status
 /// mapping follow `crate::publish`, preceded by the budget gate (`402`)
 /// and the publish rate limit (`429`), and followed - for genuinely new
-/// versions only - by the archive-size cap (`413`) and the per-user
-/// quota checks (`403`); on success the archive lands in R2 first (an
-/// orphaned blob from a crash between the two writes is harmless,
-/// content-addressed garbage - see `docs/runbook.md`), then one atomic
-/// D1 batch inserts the package and version rows and bumps the storage
-/// self-accounting.
+/// versions and replacements of rejected ones only - by the
+/// archive-size cap (`413`) and the per-user quota checks (`403`); on
+/// success the archive lands in R2 first (an orphaned blob from a crash
+/// between the two writes is harmless, content-addressed garbage - see
+/// `docs/runbook.md`), then one atomic D1 batch inserts (or, for a
+/// rejected row, replaces) the package and version rows and bumps the
+/// storage self-accounting. New rows start `pending` and the `201`
+/// reports it: nothing becomes resolvable before the verifier says so.
 async fn publish_response(
     req: &mut Request,
     env: &Env,
@@ -305,24 +331,30 @@ async fn publish_response(
         return error_response(400, publish::METADATA_NOT_JSON);
     };
 
-    if let Some(response) = existing_version_response(db, name, version, metadata_text).await? {
-        // The idempotent no-op (200) is a retry of a committed publish;
-        // if the original isolate died before its replication ran (and
-        // before any failure row was recorded), this is the retry's one
-        // chance to heal the backup copy - head-first, so the common
-        // already-replicated case costs a single head. The 409 arm gets
-        // no copy: its uploaded bytes were rejected.
-        if response.status_code() == 200 {
-            let key = format!("blobs/sha256/{computed_hex}");
-            replicate_blob(env, ctx, &key, frame.archive);
+    let replaced = match existing_version(db, name, version, metadata_text).await? {
+        Some(ExistingVersion::Answered(response)) => {
+            // The idempotent no-op (200) is a retry of a committed
+            // publish that still holds the row's exact bytes, so it is
+            // the one chance to self-heal both stores: a primary blob a
+            // reclaim race deleted, and a backup copy a crashed
+            // original's replication never wrote. The 409 arm gets
+            // neither: its uploaded bytes were rejected.
+            if response.status_code() == 200 {
+                heal_blobs_on_retry(env, ctx, &computed_hex, frame.archive).await?;
+            }
+            return Ok(response);
         }
-        return Ok(response);
-    }
+        Some(ExistingVersion::Rejected { old_checksum }) => Some(old_checksum),
+        None => None,
+    };
 
     // The archive-size cap and the per-user quotas gate genuinely new
-    // versions only: a byte-identical re-publish of an already-stored
-    // archive (even one grandfathered above the current cap) stays the
-    // idempotent no-op above and never consumes quota.
+    // versions - including a replacement of a rejected one, whose new
+    // archive consumes quota like any other (the rejected row's own
+    // bytes were refunded at rejection): a byte-identical re-publish of
+    // an already-stored archive (even one grandfathered above the
+    // current cap) stays the idempotent no-op above and never consumes
+    // quota.
     if let Err(denial) = quota::check_archive_size(archive_bytes, &quotas) {
         return denial_response(&denial, None);
     }
@@ -344,21 +376,36 @@ async fn publish_response(
         return denial_response(&denial, None);
     }
 
-    persist_new_version(
-        env,
-        ctx,
-        db,
-        &NewVersion {
-            name,
-            version,
-            checksum_hex: &computed_hex,
-            metadata_text,
-            published_at: &now,
-            archive: frame.archive,
-            user_id: auth.user_id,
-        },
-    )
-    .await?;
+    let new = NewVersion {
+        name,
+        version,
+        checksum_hex: &computed_hex,
+        metadata_text,
+        published_at: &now,
+        archive: frame.archive,
+        user_id: auth.user_id,
+    };
+    match &replaced {
+        Some(old_checksum) => {
+            if !replace_rejected_version(env, ctx, db, &new, old_checksum).await? {
+                // A concurrent replacement or verdict moved the rejected
+                // row first; answer for the row's new state exactly as if
+                // this request had arrived after the winner.
+                return match existing_version(db, name, version, metadata_text).await? {
+                    Some(ExistingVersion::Answered(response)) => {
+                        if response.status_code() == 200 {
+                            heal_blobs_on_retry(env, ctx, &computed_hex, frame.archive).await?;
+                        }
+                        Ok(response)
+                    }
+                    // Rejected again (a third racer) or gone: the
+                    // conservative refusal; a retry resolves it.
+                    _ => error_response(409, error::VERSION_IMMUTABLE),
+                };
+            }
+        }
+        None => persist_new_version(env, ctx, db, &new).await?,
+    }
 
     json_response_with_status(
         201,
@@ -367,6 +414,7 @@ async fn publish_response(
             "name": name,
             "version": version,
             "checksum": metadata.checksum,
+            "verification": "pending",
         })
         .to_string(),
     )
@@ -377,6 +425,10 @@ async fn publish_response(
 /// `yanked` column is the single home of yank state - the read path
 /// overrides the stored metadata's field from it. Gated by the budget
 /// breaker (`402`) like every write; yank has no rate limit or quota.
+/// Yank applies to **verified** versions only: a pending or rejected
+/// version was never part of the registry's resolvable surface, so
+/// there is nothing to retract and the pair answers an authenticated
+/// 404.
 async fn yank_response(
     req: &mut Request,
     env: &Env,
@@ -397,13 +449,16 @@ async fn yank_response(
     };
 
     let existing: Option<YankedRecord> = db
-        .prepare("SELECT yanked FROM versions WHERE name = ?1 AND version = ?2")
+        .prepare("SELECT yanked, verification FROM versions WHERE name = ?1 AND version = ?2")
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(existing) = existing else {
         return error_response(404, error::NOT_FOUND);
     };
+    if verify::Status::parse(&existing.verification) != Some(verify::Status::Verified) {
+        return error_response(404, error::NOT_FOUND);
+    }
     let changed = (existing.yanked != 0) != yanked;
     if changed {
         db.prepare("UPDATE versions SET yanked = ?1 WHERE name = ?2 AND version = ?3")
@@ -417,6 +472,293 @@ async fn yank_response(
         200,
         &serde_json::json!({ "ok": true, "yanked": yanked, "changed": changed }).to_string(),
     )
+}
+
+fn has_verify_scope(auth: &AuthContext) -> bool {
+    auth.scopes.contains(&Scope::Verify)
+}
+
+#[derive(Deserialize)]
+struct AdminVersionRecord {
+    name: String,
+    version: String,
+    checksum: String,
+    published_by: i64,
+    published_at: String,
+    metadata_json: String,
+}
+
+/// `GET /api/v1/admin/versions?status=<status>` (`verify` scope): the
+/// verifier's work list. Each entry carries the stored canonical
+/// metadata document (parsed, so the response is one JSON value), and
+/// the listing is deterministic: ordered by name, then version.
+async fn admin_versions_response(
+    req: &Request,
+    db: &D1Database,
+    auth: &AuthContext,
+) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let url = req.url()?;
+    let status = url
+        .query_pairs()
+        .find(|(key, _)| key == "status")
+        .map(|(_, value)| value.into_owned());
+    let Some(status) = status.as_deref().and_then(verify::Status::parse) else {
+        return error_response(400, error::INVALID_STATUS_QUERY);
+    };
+    let records: Vec<AdminVersionRecord> = db
+        .prepare(
+            "SELECT name, version, checksum, published_by, published_at, metadata_json \
+             FROM versions WHERE verification = ?1 ORDER BY name, version",
+        )
+        .bind(&[status.as_str().into()])?
+        .all()
+        .await?
+        .results()?;
+    let mut versions = Vec::with_capacity(records.len());
+    for record in records {
+        let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&record.metadata_json) else {
+            console_error!(
+                "stored metadata for {}@{} is not valid JSON",
+                record.name,
+                record.version
+            );
+            return error_response(500, error::INTERNAL);
+        };
+        versions.push(serde_json::json!({
+            "name": record.name,
+            "version": record.version,
+            "checksum": record.checksum,
+            "published_by": record.published_by,
+            "published_at": record.published_at,
+            "metadata": metadata,
+        }));
+    }
+    json_response(&serde_json::json!({ "versions": versions }).to_string())
+}
+
+#[derive(Deserialize)]
+struct VerdictTargetRecord {
+    verification: String,
+    checksum: String,
+    published_at: String,
+    archive_size: i64,
+}
+
+/// `PATCH /api/v1/admin/versions/<name>/<version>` (`verify` scope):
+/// the verifier's verdict. Pending versions accept either verdict; a
+/// repeat of the verdict a verified version already carries is the
+/// idempotent 200; anything else is the 409 matrix in
+/// [`verify::transition`]. The body's optional `checksum` binds the
+/// verdict to the bytes the verifier actually inspected, and the
+/// applying updates are themselves guarded on the row still being
+/// pending with the bytes this request read - a verdict racing a
+/// conflicting verdict or a replacement answers 409 instead of landing
+/// on content it never saw. A rejection records the reason, refunds
+/// the archive's bytes from the storage self-accounting when the row
+/// was the blob's sole live reference (decided inside the same
+/// transaction that flips the row, so a duplicate concurrent verdict
+/// cannot refund twice), and then reclaims the blob itself. Gated by
+/// the budget breaker like every write. The response reports the
+/// resulting state plus whether this request changed it.
+async fn verdict_response(
+    req: &mut Request,
+    env: &Env,
+    db: &D1Database,
+    auth: &AuthContext,
+    name: &str,
+    version: &str,
+) -> worker::Result<Response> {
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok(blocked);
+    }
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let body = req.bytes().await?;
+    let parsed = match verify::parse_verdict(&body) {
+        Ok(parsed) => parsed,
+        Err(detail) => return error_response(400, detail),
+    };
+
+    let target: Option<VerdictTargetRecord> = db
+        .prepare(
+            "SELECT verification, checksum, published_at, archive_size FROM versions \
+             WHERE name = ?1 AND version = ?2",
+        )
+        .bind(&[name.into(), version.into()])?
+        .first(None)
+        .await?;
+    let Some(target) = target else {
+        return error_response(404, error::NOT_FOUND);
+    };
+    let Some(current) = verify::Status::parse(&target.verification) else {
+        console_error!(
+            "stored verification for {name}@{version} is invalid: {}",
+            target.verification
+        );
+        return error_response(500, error::INTERNAL);
+    };
+    // The listing binding: the row must still be the generation the
+    // verifier listed, both its bytes and its publish event (a
+    // same-bytes replacement changes published_at but not checksum).
+    let target_changed = parsed
+        .checksum
+        .as_deref()
+        .is_some_and(|expected| expected != target.checksum)
+        || parsed
+            .published_at
+            .as_deref()
+            .is_some_and(|expected| expected != target.published_at);
+    if target_changed {
+        return error_response(409, error::VERDICT_TARGET_CHANGED);
+    }
+
+    let changed = match verify::transition(current, parsed.verdict) {
+        verify::Transition::Conflict(detail) => return error_response(409, detail),
+        verify::Transition::NoOp => false,
+        verify::Transition::Apply => {
+            if !apply_verdict(env, db, name, version, &parsed, &target).await? {
+                // The row moved between this request's read and its
+                // guarded update: a concurrent conflicting verdict or a
+                // replacement won the race.
+                return error_response(409, error::VERDICT_TARGET_CHANGED);
+            }
+            true
+        }
+    };
+    let resulting = match parsed.verdict {
+        verify::Verdict::Verified => verify::Status::Verified,
+        verify::Verdict::Rejected => verify::Status::Rejected,
+    };
+    json_response_with_status(
+        200,
+        &serde_json::json!({
+            "ok": true,
+            "name": name,
+            "version": version,
+            "verification": resulting.as_str(),
+            "changed": changed,
+        })
+        .to_string(),
+    )
+}
+
+/// Rows changed by a statement, from its result metadata.
+fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
+    meta.and_then(|meta| meta.changes).unwrap_or(0)
+}
+
+/// Applies a verdict to a pending row under the transactional guards
+/// (still pending, still the checksum and `published_at` this request
+/// read); `false` means the row moved first and nothing was changed.
+async fn apply_verdict(
+    env: &Env,
+    db: &D1Database,
+    name: &str,
+    version: &str,
+    parsed: &verify::ParsedVerdict,
+    target: &VerdictTargetRecord,
+) -> worker::Result<bool> {
+    match parsed.verdict {
+        verify::Verdict::Verified => {
+            let result = db
+                .prepare(
+                    "UPDATE versions SET verification = 'verified', verified_at = ?1 \
+                     WHERE name = ?2 AND version = ?3 \
+                     AND verification = 'pending' AND checksum = ?4 \
+                     AND published_at = ?5",
+                )
+                .bind(&[
+                    now_iso8601().into(),
+                    name.into(),
+                    version.into(),
+                    target.checksum.as_str().into(),
+                    target.published_at.as_str().into(),
+                ])?
+                .run()
+                .await?;
+            Ok(changed_rows(result.meta()?) > 0)
+        }
+        verify::Verdict::Rejected => {
+            let applied = apply_rejection(
+                db,
+                name,
+                version,
+                parsed.reason.as_deref().unwrap_or_default(),
+                target,
+            )
+            .await?;
+            if applied {
+                delete_blob_if_unreferenced(env, db, &target.checksum).await?;
+            }
+            Ok(applied)
+        }
+    }
+}
+
+/// The rejection transaction: the storage refund is decided **before**
+/// the row flips (statement order inside one atomic batch), so it fires
+/// exactly when this row - still pending, still storing the bytes the
+/// verdict was read against - is the checksum's sole live reference: a
+/// concurrent duplicate rejection sees the row already rejected and
+/// refunds nothing, a replacement that swapped the bytes disarms both
+/// statements, and a shared blob (another live row with the same bytes)
+/// is never refunded. The row-flip carries the same guards; `false`
+/// means it lost such a race and nothing changed. `MAX(..., 0)` keeps
+/// the counter integer-parseable even under drift; the breaker treats a
+/// non-numeric value as unavailable and fails closed.
+async fn apply_rejection(
+    db: &D1Database,
+    name: &str,
+    version: &str,
+    reason: &str,
+    target: &VerdictTargetRecord,
+) -> worker::Result<bool> {
+    let archive_size = js_int(target.archive_size);
+    let results = db
+        .batch(vec![
+            db.prepare(
+                "UPDATE meta SET value = MAX(CAST(value AS INTEGER) - \
+                 CASE WHEN (SELECT COUNT(*) FROM versions \
+                            WHERE checksum = ?1 AND verification != 'rejected') = 1 \
+                      AND (SELECT verification FROM versions \
+                           WHERE name = ?2 AND version = ?3) = 'pending' \
+                      AND (SELECT checksum FROM versions \
+                           WHERE name = ?2 AND version = ?3) = ?1 \
+                      AND (SELECT published_at FROM versions \
+                           WHERE name = ?2 AND version = ?3) = ?5 \
+                      THEN CAST(?4 AS INTEGER) ELSE 0 END, 0) \
+                 WHERE key = 'total_stored_bytes'",
+            )
+            .bind(&[
+                target.checksum.as_str().into(),
+                name.into(),
+                version.into(),
+                archive_size,
+                target.published_at.as_str().into(),
+            ])?,
+            db.prepare(
+                "UPDATE versions SET verification = 'rejected', verification_reason = ?1, \
+                 verified_at = NULL \
+                 WHERE name = ?2 AND version = ?3 \
+                 AND verification = 'pending' AND checksum = ?4 AND published_at = ?5",
+            )
+            .bind(&[
+                reason.into(),
+                name.into(),
+                version.into(),
+                target.checksum.as_str().into(),
+                target.published_at.as_str().into(),
+            ])?,
+        ])
+        .await?;
+    let row_flip = results
+        .get(1)
+        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
+    Ok(changed_rows(row_flip.meta()?) > 0)
 }
 
 /// Lowercase SHA-256 hex of `bytes` via the runtime's native
@@ -453,17 +795,27 @@ async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
 async fn artifact_response(
     env: &Env,
     db: &D1Database,
+    auth: &AuthContext,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    let record: Option<ChecksumRecord> = db
-        .prepare("SELECT checksum FROM versions WHERE name = ?1 AND version = ?2")
+    let record: Option<ArtifactRecord> = db
+        .prepare("SELECT checksum, verification FROM versions WHERE name = ?1 AND version = ?2")
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(record) = record else {
         return error_response(404, error::NOT_FOUND);
     };
+    // Verified versions download with any valid token; pending ones
+    // only with the `verify` scope (the verifier fetches the bytes it
+    // inspects); rejected ones - whose blob is reclaimed - and rows
+    // with an unreadable status gate like missing rows.
+    let readable = verify::Status::parse(&record.verification)
+        .is_some_and(|status| verify::artifact_readable(status, has_verify_scope(auth)));
+    if !readable {
+        return error_response(404, error::NOT_FOUND);
+    }
 
     // Archives are immutable and content-addressed; yanked versions stay
     // downloadable on purpose (docs/remote-registry.md, "Yank").
@@ -531,16 +883,19 @@ struct NewVersion<'a> {
 /// content-addressed blob is already there (e.g. the same archive
 /// published under a name it was yanked from, or a retry after a crash
 /// between the two writes), then one atomic D1 batch for the package and
-/// version rows plus the storage self-accounting.
+/// version rows plus the storage self-accounting. The row starts
+/// `pending`: it becomes resolvable only once the verifier says so.
 ///
 /// The accounting decision lives inside the batch (one transaction): the
 /// meta bump counts the archive only when the row just inserted is the
-/// checksum's sole reference. That way the crash-retry path - blob
-/// already uploaded but never counted - still accounts for it, a second
-/// name sharing the blob never double-counts it, and two concurrent
-/// first publishes of the same archive serialize on the transaction so
-/// exactly one of them counts it. Once the batch commits, the blob is
-/// replicated to the BACKUP bucket off the response path
+/// checksum's sole **live** (non-rejected) reference - a rejected row's
+/// bytes were refunded when its blob was reclaimed, so it must not
+/// suppress re-counting a re-uploaded blob. That way the crash-retry
+/// path - blob already uploaded but never counted - still accounts for
+/// it, a second name sharing the blob never double-counts it, and two
+/// concurrent first publishes of the same archive serialize on the
+/// transaction so exactly one of them counts it. Once the batch commits,
+/// the blob is replicated to the BACKUP bucket off the response path
 /// ([`replicate_blob`]).
 async fn persist_new_version(
     env: &Env,
@@ -567,8 +922,8 @@ async fn persist_new_version(
         ])?,
         db.prepare(
             "INSERT INTO versions (name, version, checksum, metadata_json, yanked, \
-             published_at, archive_size, published_by) \
-             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)",
+             published_at, archive_size, published_by, verification) \
+             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'pending')",
         )
         .bind(&[
             new.name.into(),
@@ -584,11 +939,13 @@ async fn persist_new_version(
         // store "254.0", which the breaker's strict u64 parse rejects.
         db.prepare(
             "INSERT INTO meta (key, value) VALUES ('total_stored_bytes', \
-             CASE WHEN (SELECT COUNT(*) FROM versions WHERE checksum = ?1) = 1 \
+             CASE WHEN (SELECT COUNT(*) FROM versions \
+                        WHERE checksum = ?1 AND verification != 'rejected') = 1 \
                   THEN CAST(?2 AS INTEGER) ELSE 0 END) \
              ON CONFLICT (key) DO UPDATE SET \
              value = CAST(value AS INTEGER) + \
-             CASE WHEN (SELECT COUNT(*) FROM versions WHERE checksum = ?3) = 1 \
+             CASE WHEN (SELECT COUNT(*) FROM versions \
+                        WHERE checksum = ?3 AND verification != 'rejected') = 1 \
                   THEN CAST(?4 AS INTEGER) ELSE 0 END",
         )
         .bind(&[
@@ -600,7 +957,187 @@ async fn persist_new_version(
     ])
     .await?;
 
+    // Self-heal the head-skip race: a reclaim delete whose refcount was
+    // read before this batch committed can land between the head above
+    // and here, leaving the just-inserted row's blob missing. This
+    // request still holds the bytes, so one more head buys the repair.
+    if bucket.head(&key).await?.is_none() {
+        bucket.put(&key, new.archive.to_vec()).execute().await?;
+    }
+
     replicate_blob(env, ctx, &key, new.archive);
+    Ok(())
+}
+
+/// The write phase for a publish over a **rejected** row
+/// (`docs/remote-registry.md`, "Verification lifecycle"): the rejected
+/// version never became part of the registry, so any bytes replace the
+/// row in place - new checksum, metadata, size, publisher, and
+/// timestamp, verification back to `pending` with the old verdict
+/// cleared. R2 first, like [`persist_new_version`]. Both statements are
+/// guarded on the row still being the rejected row this request read -
+/// `false` means a concurrent replacement or verdict moved it first and
+/// nothing was changed (a stale replacement must never rewrite a live
+/// row, least of all drag a verified one back to pending). The
+/// accounting is decided **before** the row flips, mirroring
+/// [`apply_rejection`]: the counter gains the new archive's bytes
+/// exactly when the guards will let the flip apply and no other live
+/// row already references the new checksum - so this row is about to
+/// become its sole live reference, including the same-bytes republish,
+/// where the reclaimed blob is re-counted exactly once. The rejected
+/// row's own bytes were already refunded when the verdict landed
+/// ([`verdict_response`]), so the only old-blob work here is retrying
+/// the conditional delete, which heals a reclaim whose best-effort R2
+/// delete failed.
+async fn replace_rejected_version(
+    env: &Env,
+    ctx: &Context,
+    db: &D1Database,
+    new: &NewVersion<'_>,
+    old_checksum: &str,
+) -> worker::Result<bool> {
+    let key = format!("blobs/sha256/{}", new.checksum_hex);
+    let bucket = env.bucket("BLOBS")?;
+    // Unconditional put, unlike persist_new_version's head-first skip:
+    // when the replacement re-uses the rejected bytes, the rejecting
+    // verdict's reclaim delete may still be in flight, and a head could
+    // observe the object right before that delete lands - skipping the
+    // upload would then leave a pending row whose blob is gone.
+    // ponytail: a delete decided before this batch can still land after
+    // this put (two stores, no shared transaction); that residual
+    // window needs the same version's verdict and replacement in flight
+    // simultaneously, fails loudly (the artifact route's missing-blob
+    // 500), and the append-only BACKUP replica holds the bytes for
+    // recovery.
+    bucket.put(&key, new.archive.to_vec()).execute().await?;
+
+    let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
+    let results = db
+        .batch(vec![
+            db.prepare(
+                "UPDATE meta SET value = CAST(value AS INTEGER) + \
+                 CASE WHEN (SELECT verification FROM versions \
+                            WHERE name = ?1 AND version = ?2) = 'rejected' \
+                      AND (SELECT checksum FROM versions \
+                           WHERE name = ?1 AND version = ?2) = ?3 \
+                      AND (SELECT COUNT(*) FROM versions \
+                           WHERE checksum = ?4 AND verification != 'rejected') = 0 \
+                      THEN CAST(?5 AS INTEGER) ELSE 0 END \
+                 WHERE key = 'total_stored_bytes'",
+            )
+            .bind(&[
+                new.name.into(),
+                new.version.into(),
+                old_checksum.into(),
+                new.checksum_hex.into(),
+                archive_size.clone(),
+            ])?,
+            db.prepare(
+                "UPDATE versions SET checksum = ?1, metadata_json = ?2, yanked = 0, \
+                 published_at = ?3, archive_size = ?4, published_by = ?5, \
+                 verification = 'pending', verification_reason = NULL, verified_at = NULL \
+                 WHERE name = ?6 AND version = ?7 \
+                 AND verification = 'rejected' AND checksum = ?8",
+            )
+            .bind(&[
+                new.checksum_hex.into(),
+                new.metadata_text.into(),
+                new.published_at.into(),
+                archive_size,
+                js_int(new.user_id),
+                new.name.into(),
+                new.version.into(),
+                old_checksum.into(),
+            ])?,
+        ])
+        .await?;
+    let row_flip = results
+        .get(1)
+        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
+    if changed_rows(row_flip.meta()?) == 0 {
+        // Lost the race; the blob uploaded above is at worst an
+        // unreferenced orphan (see docs/runbook.md).
+        return Ok(false);
+    }
+
+    // Same self-heal as persist_new_version: repair the blob if a
+    // reclaim delete landed between the put above and the batch commit.
+    if bucket.head(&key).await?.is_none() {
+        bucket.put(&key, new.archive.to_vec()).execute().await?;
+    }
+
+    delete_blob_if_unreferenced(env, db, old_checksum).await?;
+    replicate_blob(env, ctx, &key, new.archive);
+    Ok(true)
+}
+
+/// Deletes `checksum`'s blob from the primary bucket when no live
+/// (non-rejected) version row references it any more. Best-effort and
+/// idempotent: a failed or crashed delete leaves an orphaned blob (the
+/// same harmless, content-addressed garbage a crashed publish leaves -
+/// see `docs/runbook.md`), and later reclaim paths retry it. Never
+/// touches the meta counter - the caller accounts for the bytes when it
+/// flips the row states - and never touches BACKUP, which is
+/// append-only by design.
+///
+/// ponytail: the refcount read and the delete are not atomic with
+/// publishes' R2 writes (two stores, no shared transaction). Publishers
+/// close the practical window by re-checking their blob after their D1
+/// batch commits and re-uploading if this delete beat them to it; a
+/// delete that lands even later is loud (the artifact route's
+/// missing-blob 500) and recoverable from the append-only BACKUP
+/// replica. A reclaim queue with a grace period is the upgrade if
+/// reclaim/publish races ever become a real operational pattern.
+async fn delete_blob_if_unreferenced(
+    env: &Env,
+    db: &D1Database,
+    checksum: &str,
+) -> worker::Result<()> {
+    let references: CountRecord = db
+        .prepare(
+            "SELECT COUNT(*) AS n FROM versions \
+             WHERE checksum = ?1 AND verification != 'rejected'",
+        )
+        .bind(&[checksum.into()])?
+        .first(None)
+        .await?
+        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
+    if references.n > 0 {
+        return Ok(());
+    }
+    let key = format!("blobs/sha256/{checksum}");
+    // No live reference also means nothing needs a backup copy any
+    // more: clear the replication-failure bookkeeping first (before
+    // the delete, so it can never linger past the primary object), or
+    // a blob whose backup copy never landed would keep the breaker
+    // alerting - and abort scripts/backup-backfill.sh against a
+    // deleted primary object - forever.
+    db.prepare("DELETE FROM backup_replication_failures WHERE key = ?1")
+        .bind(&[key.as_str().into()])?
+        .run()
+        .await?;
+    if let Err(err) = env.bucket("BLOBS")?.delete(&key).await {
+        console_error!("reclaiming blob {key} failed (left as an orphan): {err}");
+    }
+    Ok(())
+}
+
+/// The idempotent no-op's self-heal: the retry holds the row's exact
+/// bytes, so it repairs a primary blob a reclaim race deleted (the
+/// head-first check keeps the common healthy case at one head), then
+/// re-schedules the backup copy as usual.
+async fn heal_blobs_on_retry(
+    env: &Env,
+    ctx: &Context,
+    checksum_hex: &str,
+    archive: &[u8],
+) -> worker::Result<()> {
+    let key = format!("blobs/sha256/{checksum_hex}");
+    let bucket = env.bucket("BLOBS")?;
+    if bucket.head(&key).await?.is_none() {
+        bucket.put(&key, archive.to_vec()).execute().await?;
+    }
+    replicate_blob(env, ctx, &key, archive);
     Ok(())
 }
 
@@ -658,34 +1195,70 @@ fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
     });
 }
 
-/// Idempotency and immutability for an already-published `(name,
-/// version)`: byte-identical metadata means a byte-identical archive too
-/// (the metadata embeds the checksum and both uploads passed the digest
-/// check), so a re-publish is a `200` no-op that never touches R2;
-/// anything else hits the `409` immutability wall. `None` means the
-/// version is new.
-async fn existing_version_response(
+/// What the publish handler found for an already-existing `(name,
+/// version)` row.
+enum ExistingVersion {
+    /// The request is answered directly: byte-identical metadata means
+    /// a byte-identical archive too (the metadata embeds the checksum
+    /// and both uploads passed the digest check), so over a pending or
+    /// verified row a re-publish is the `200` no-op reporting the row's
+    /// current verification status, and different bytes hit the `409`
+    /// immutability wall.
+    Answered(Response),
+    /// A rejected row never became part of the registry: any bytes are
+    /// an accepted replacement ([`replace_rejected_version`]). The old
+    /// checksum drives the self-healing blob cleanup.
+    Rejected { old_checksum: String },
+}
+
+/// Idempotency, immutability, and the rejected-replacement carve-out
+/// for an already-published `(name, version)`. `None` means the version
+/// is new.
+async fn existing_version(
     db: &D1Database,
     name: &str,
     version: &str,
     metadata_text: &str,
-) -> worker::Result<Option<Response>> {
-    let existing: Option<StoredMetadataRecord> = db
-        .prepare("SELECT metadata_json FROM versions WHERE name = ?1 AND version = ?2")
+) -> worker::Result<Option<ExistingVersion>> {
+    let existing: Option<StoredVersionRecord> = db
+        .prepare(
+            "SELECT metadata_json, checksum, verification FROM versions \
+             WHERE name = ?1 AND version = ?2",
+        )
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(existing) = existing else {
         return Ok(None);
     };
+    let Some(status) = verify::Status::parse(&existing.verification) else {
+        // An invariant break (the schema never writes other values);
+        // fail safe by refusing rather than guessing a transition.
+        console_error!(
+            "stored verification for {name}@{version} is invalid: {}",
+            existing.verification
+        );
+        return error_response(500, error::INTERNAL)
+            .map(ExistingVersion::Answered)
+            .map(Some);
+    };
+    if status == verify::Status::Rejected {
+        return Ok(Some(ExistingVersion::Rejected {
+            old_checksum: existing.checksum,
+        }));
+    }
     if existing.metadata_json == metadata_text {
         return json_response_with_status(
             200,
-            &serde_json::json!({ "ok": true, "no_op": true }).to_string(),
+            &serde_json::json!({ "ok": true, "no_op": true, "verification": status.as_str() })
+                .to_string(),
         )
+        .map(ExistingVersion::Answered)
         .map(Some);
     }
-    error_response(409, error::VERSION_IMMUTABLE).map(Some)
+    error_response(409, error::VERSION_IMMUTABLE)
+        .map(ExistingVersion::Answered)
+        .map(Some)
 }
 
 /// The publish token bucket (`429`), charged per publish attempt - valid
@@ -789,9 +1362,11 @@ async fn publish_counts(
 ) -> worker::Result<quota::PublishCounts> {
     let results = db
         .batch(vec![
+            // Rejected versions are excluded: their bytes were refunded
+            // when the verdict landed.
             db.prepare(
                 "SELECT COALESCE(SUM(archive_size), 0) AS stored_bytes \
-                 FROM versions WHERE published_by = ?1",
+                 FROM versions WHERE published_by = ?1 AND verification != 'rejected'",
             )
             .bind(&[js_int(user_id)])?,
             // Both package quotas key on creation (`created_by`), so a
@@ -1056,6 +1631,15 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     if let Some(alert) = &health.alert {
         console_error!("backup health: {alert}");
     }
+    // Verification health rides every pass too: versions pending for
+    // over an hour mean the verifier is stuck or absent, and the
+    // fail-safe direction (nothing pending ever becomes resolvable on
+    // its own) makes that invisible to users unless it alerts here.
+    let stale_pending = read_stale_pending(&db).await.ok();
+    let verification_alert = verify::stale_pending_alert(stale_pending);
+    if let Some(alert) = &verification_alert {
+        console_error!("verification health: {alert}");
+    }
     if next != current {
         console_log!(
             "service_mode {} -> {}: {reason}",
@@ -1063,10 +1647,36 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             next.as_str()
         );
     }
-    if next != current || health.alert.is_some() {
-        notify_webhook(env, current, next, &reason, &usage, &health).await;
+    if next != current || health.alert.is_some() || verification_alert.is_some() {
+        notify_webhook(
+            env,
+            current,
+            next,
+            &reason,
+            &usage,
+            &health,
+            stale_pending,
+            verification_alert.as_deref(),
+        )
+        .await;
     }
     Ok(())
+}
+
+/// How many versions have sat `pending` for over an hour. The cutoff is
+/// rendered by `SQLite` in the same ISO 8601 shape `published_at` is
+/// stored in (`%fZ` gives the fractional seconds and the `Z` the JS
+/// clock writes), so the comparison stays lexicographic.
+async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
+    let record: CountRecord = db
+        .prepare(
+            "SELECT COUNT(*) AS n FROM versions WHERE verification = 'pending' \
+             AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')",
+        )
+        .first(None)
+        .await?
+        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
+    Ok(non_negative(record.n))
 }
 
 /// One breaker pass's view of backup health, for the log line and the
@@ -1152,8 +1762,9 @@ async fn fetch_metric(
 }
 
 /// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
-/// service-mode changes (`from != to`) and backup alerts alike;
-/// failures only log.
+/// service-mode changes (`from != to`), backup alerts, and
+/// stuck-verifier alerts alike; failures only log.
+#[allow(clippy::too_many_arguments)] // one cron pass's full snapshot
 async fn notify_webhook(
     env: &Env,
     from: breaker::Mode,
@@ -1161,6 +1772,8 @@ async fn notify_webhook(
     reason: &str,
     usage: &breaker::Usage,
     health: &BackupHealth,
+    stale_pending: Option<u64>,
+    verification_alert: Option<&str>,
 ) {
     let Ok(url) = env.secret("NOTIFY_WEBHOOK_URL") else {
         return;
@@ -1179,6 +1792,10 @@ async fn notify_webhook(
             "freshness": health.freshness.as_str(),
             "replication_failures": health.replication_failures,
             "alert": health.alert,
+        },
+        "verification": {
+            "stale_pending": stale_pending,
+            "alert": verification_alert,
         },
     })
     .to_string();

@@ -53,12 +53,17 @@ pub fn simple_page(title: &str, message: &str) -> String {
 }
 
 /// The `/me` usage block: the user's plan, current consumption, and the
-/// plan's quota values.
+/// plan's quota values. `stored_bytes` excludes rejected versions (their
+/// bytes are refunded); the per-status counts cover everything the user
+/// ever published.
 pub struct UsageInfo {
     pub plan: String,
     pub package_count: u64,
     pub stored_bytes: u64,
     pub published_today: u64,
+    pub verified_count: u64,
+    pub pending_count: u64,
+    pub rejected_count: u64,
     pub quotas: crate::quota::PlanQuotas,
 }
 
@@ -88,6 +93,8 @@ fn usage_section(usage: &UsageInfo) -> String {
          <tr><th>Packages</th><td>{package_count} of {max_packages}</td></tr>\
          <tr><th>Stored archives</th><td>{stored} of {max_stored}</td></tr>\
          <tr><th>Versions published today</th><td>{published_today}</td></tr>\
+         <tr><th>Versions by verification</th>\
+         <td>{verified} verified, {pending} pending, {rejected} rejected</td></tr>\
          </table>\
          <p>Limits: archives up to {max_archive} each; at most\
          \u{20}{max_versions_day} versions per package and {max_new_day} new\
@@ -99,6 +106,9 @@ fn usage_section(usage: &UsageInfo) -> String {
         stored = format_bytes(usage.stored_bytes),
         max_stored = format_bytes(quotas.max_total_bytes_per_user),
         published_today = usage.published_today,
+        verified = usage.verified_count,
+        pending = usage.pending_count,
+        rejected = usage.rejected_count,
         max_archive = format_bytes(quotas.max_archive_bytes),
         max_versions_day = quotas.max_versions_per_package_per_day,
         max_new_day = quotas.max_new_packages_per_day,
@@ -172,7 +182,8 @@ pub fn me_page(login: &str, usage: &UsageInfo, tokens: &[TokenRow], csrf: &str) 
              <input type=\"hidden\" name=\"csrf\" value=\"{csrf}\">\
              <p><label>Name <input name=\"name\" required maxlength=\"64\"></label></p>\
              <p><label><input type=\"checkbox\" name=\"scope_publish\"> publish</label>\
-             \u{20}<label><input type=\"checkbox\" name=\"scope_yank\"> yank</label></p>\
+             \u{20}<label><input type=\"checkbox\" name=\"scope_yank\"> yank</label>\
+             \u{20}<label><input type=\"checkbox\" name=\"scope_verify\"> verify</label></p>\
              <p><button>Create token</button></p></form>",
             login = escape_html(login),
             usage = usage_section(usage),
@@ -228,6 +239,9 @@ mod tests {
             package_count: 3,
             stored_bytes: 12 * 1024 * 1024,
             published_today: 2,
+            verified_count: 5,
+            pending_count: 1,
+            rejected_count: 2,
             quotas: crate::quota::quotas_for_plan("free"),
         }
     }
@@ -258,6 +272,10 @@ mod tests {
             body.contains("<tr><th>Versions published today</th><td>2</td></tr>"),
             "body: {body}"
         );
+        assert!(
+            body.contains("<td>5 verified, 1 pending, 2 rejected</td>"),
+            "body: {body}"
+        );
         // The plan's remaining quota values appear in the limits line.
         assert!(
             body.contains("archives up to 16.0 MiB each"),
@@ -269,6 +287,13 @@ mod tests {
             body.contains("refill at 1 per minute with a burst of 5"),
             "body: {body}"
         );
+        // The create-token form offers all three scopes.
+        for scope in ["scope_publish", "scope_yank", "scope_verify"] {
+            assert!(
+                body.contains(&format!("name=\"{scope}\"")),
+                "missing {scope} in: {body}"
+            );
+        }
     }
 
     #[test]
