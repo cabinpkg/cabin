@@ -282,6 +282,68 @@ self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
 a JSON summary POST on every mode change.
 
+## Verification pipeline
+
+The external verifier is the `registry-verify` GitHub Actions workflow
+(`.github/workflows/registry-verify.yml`): every 5 minutes (plus
+`workflow_dispatch`) it builds `cabin-registry-verify` from the root
+workspace, lists pending versions through the admin API, inspects each
+archive, and PATCHes the verdict back. The checks and reason codes are
+documented in `docs/remote-registry.md` ("The verifier's checks").
+
+Fail-safe: a failed or skipped run leaves versions pending, which only
+keeps content unexposed. GitHub cron schedules are **best-effort** and
+can be delayed or dropped under load, so do not treat "the workflow ran
+recently" as the health signal - the breaker cron's stuck-pending
+webhook alert ("N version(s) have been pending verification for over an
+hour") is the detection mechanism. On that alert, check the workflow's
+recent runs first, then re-run by hand:
+
+```sh
+gh workflow run registry-verify.yml
+gh run list --workflow registry-verify.yml --limit 5
+```
+
+Per-version operational failures (a download error, a verifier crash,
+a `409` from the verdict PATCH because the version was republished
+between listing and verdict) leave that version pending and move on to
+the rest of the list; the run fails at the end so the failure is
+visible, and the next run retries whatever is still pending. Rejected
+verdicts do not fail the run - a rejection is the verifier working as
+designed, visible in the run log as
+`<name>@<version>: rejected (<reason codes>)`.
+
+`REGISTRY_VERIFY_TOKEN` is a registry token created on `/me` with
+**only** the `verify` scope (no publish, no yank - the verifier never
+needs them), stored as a GitHub repository secret:
+
+```sh
+gh secret set REGISTRY_VERIFY_TOKEN
+```
+
+Rotate it like `ANALYTICS_API_TOKEN`: create the replacement token at
+`/me` first, `gh secret set REGISTRY_VERIFY_TOKEN` with the new value,
+and only then revoke the old token at `/me` - revoking first would have
+the cron failing (versions pending) in between. A dev wipe drops the
+tokens table, so re-provisioning dev always includes re-issuing this
+token and updating the secret.
+
+The verifier's caps are GitHub **repository variables** (`gh variable
+set <NAME>`), passed through to the binary; unset or empty means the
+in-code default. The mechanism is public contract, the values are
+tuning:
+
+| Var | Default |
+| --- | --- |
+| `VERIFY_RATIO_CAP` | 10 |
+| `VERIFY_ABS_CAP_BYTES` | 268435456 (256 MiB) |
+| `VERIFY_MAX_ENTRIES` | 10000 |
+| `VERIFY_MAX_PATH_LEN` | 256 |
+
+`REGISTRY_VERIFY_ORIGIN` (also a repository variable) selects the
+registry to verify and defaults to `https://dev-registry.cabinpkg.com`;
+point it at production when production exists.
+
 ## Disaster recovery
 
 Backups run entirely inside Cloudflare - R2/D1 bindings and one

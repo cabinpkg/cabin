@@ -439,3 +439,139 @@ scratch database; teardown deleted it (`wrangler d1 list` shows only
    the previous verification's `qv-*` packages (UTC window).
 2. The first drill run's failure is recorded deliberately: a restore
    drill that can fail - and explain why - is the point of rehearsing.
+
+---
+
+# Verifier and verification lifecycle (2026-07-10)
+
+End-to-end rehearsal of the external verifier (`cabin-registry-verify` +
+the `registry-verify` GitHub Actions workflow - see `runbook.md`,
+"Verification pipeline", and `docs/remote-registry.md`, "The verifier's
+checks") against the dev environment. The full pending -> verified ->
+resolvable path, the reject path (a malicious archive that passes the
+server's synchronous checks), the quota refund, and the reject ->
+republish recovery were all exercised. Same operator; Claude driving.
+The verifier loop was run locally with the same steps the workflow
+scripts (list, download, run the binary, PATCH the verdict), using a
+registry token created on `/me` with **only** the `verify` scope.
+
+## Provisioning delta
+
+- Migration `0004_verification.sql` applied remotely (`wrangler d1
+  migrations apply DB --env dev --remote`): the `versions.verification`
+  / `verification_reason` / `verified_at` columns plus the backfill of
+  the 5 pre-pipeline rows to `verified`.
+- `wrangler deploy --env dev` with the verification code (publish sets
+  `pending`, reads gate on `verified`, the admin list/verdict API, the
+  publish-time `schema != 1` refusal).
+- A `verify`-only token (`github-actions-verifier`) created at `/me`;
+  its scope column is exactly `verify`. This is the credential the
+  workflow carries as the `REGISTRY_VERIFY_TOKEN` secret.
+
+## Benign lifecycle: pending -> verified -> resolvable
+
+Published a new **version** of an existing package (`qv-a@0.2.0`); the
+operator's daily *new-package* quota was still consumed by the previous
+verifications' `qv-*` packages, and a new version is gated only by the
+per-package cap, so this exercised the same publish path.
+
+```console
+$ cabin -Z remote-registry publish --manifest-path .../qv-a/cabin.toml \
+    --index-url https://dev-registry.cabinpkg.com
+Published qv-a 0.2.0 to https://dev-registry.cabinpkg.com
+  checksum: sha256:ee8d454f...
+  verification: pending (the version was accepted and becomes resolvable
+    after verification, typically within a few minutes)
+
+# read gate: the pending version is absent from the composed document
+$ GET /packages/qv-a.json           # -> versions: ["0.1.0"]
+
+# admin listing (verify scope) reports it with its canonical metadata
+$ GET /api/v1/admin/versions?status=pending
+  -> {"versions":[{"name":"qv-a","version":"0.2.0","checksum":"ee8d454f...",
+       "published_by":26405363,"published_at":"...","metadata":{...}}]}
+
+# the verify scope may download the pending artifact (ordinary tokens 404)
+$ GET /artifacts/qv-a/qv-a-0.2.0.tar.gz   # 200, 241 bytes
+
+$ cabin-registry-verify benign.tar.gz entry.json
+  {"verdict":"verified"}
+
+$ PATCH /api/v1/admin/versions/qv-a/0.2.0
+    {"verdict":"verified","checksum":"ee8d454f...","published_at":"..."}
+  -> {"ok":true,"name":"qv-a","version":"0.2.0","verification":"verified",
+      "changed":true}
+
+# now composed and resolvable
+$ GET /packages/qv-a.json           # -> versions: ["0.1.0","0.2.0"]
+$ cabin -Z remote-registry resolve  # consumer depends on qv-a = "=0.2.0"
+  Resolved dependencies for consumer 0.1.0:
+    qv-a 0.2.0
+```
+
+## Reject path: a hostile archive the server accepts
+
+A `qv-a@0.3.0` archive was hand-crafted to pass every *synchronous*
+server check - canonical metadata, matching name/version/source path,
+and a `checksum` that is the real SHA-256 of the archive bytes - while
+carrying a path-traversal entry (`../escape.h`) next to a valid
+`cabin.toml`. The server has no reason to refuse it; only the verifier
+stands between it and a resolvable version.
+
+```console
+$ PUT /api/v1/packages/qv-a/0.3.0     # framed metadata + archive
+  -> 201 {"ok":true,...,"verification":"pending"}   # server accepts it
+
+# storage self-accounting rose by the archive's 192 bytes
+  total_stored_bytes: 16305000 -> 16305192
+
+$ cabin-registry-verify hostile.tar.gz entry.json
+  {"verdict":"rejected","reasons":["path_traversal"]}
+
+$ PATCH /api/v1/admin/versions/qv-a/0.3.0
+    {"verdict":"rejected","reason":"path_traversal","checksum":"417ac796...",
+     "published_at":"..."}
+  -> {"ok":true,...,"verification":"rejected","changed":true}
+```
+
+Consequences, all confirmed against D1 and the composed document:
+
+- `GET /packages/qv-a.json` still lists only `["0.1.0","0.2.0"]` - the
+  rejected version never surfaced.
+- The row: `0.3.0 rejected path_traversal`.
+- `total_stored_bytes` back to `16305000` - the 192 bytes were
+  **refunded** when the row flipped to rejected (it was the blob's sole
+  live reference).
+
+## Recovery: reject -> republish -> verified
+
+The same `(name, version)` accepts a replacement with any bytes and
+returns to `pending`:
+
+```console
+$ cabin -Z remote-registry publish   # a clean qv-a 0.3.0
+  Published qv-a 0.3.0 ...   verification: pending
+  checksum: sha256:245b9452...
+
+$ cabin-registry-verify fixed.tar.gz entry.json   # {"verdict":"verified"}
+$ PATCH .../qv-a/0.3.0 {"verdict":"verified",...}  # changed:true
+$ GET /packages/qv-a.json            # -> ["0.1.0","0.2.0","0.3.0"]
+$ cabin -Z remote-registry resolve   # consumer qv-a = "=0.3.0"
+  Resolved dependencies for consumer 0.1.0:
+    qv-a 0.3.0
+```
+
+## Notes
+
+1. The verifier loop was driven locally with the exact steps the
+   `registry-verify` workflow scripts. The workflow itself is not
+   scheduled until the `REGISTRY_VERIFY_TOKEN` secret is set on the
+   repository; GitHub cron is best-effort, and the stuck-pending webhook
+   alert (breaker cron) is the detection mechanism, not the schedule.
+2. `python-urllib`'s default user agent is 403'd by the zone's Bot Fight
+   Mode; the helper sets an explicit `user-agent`, mirroring the trap
+   already noted for `qv-*` provisioning.
+3. The malicious fixture is a legitimate archive shape with one hostile
+   entry, so it exercises the boundary the task targets: the server's
+   synchronous checks (framing, checksum, metadata) all pass, and the
+   verifier is the only thing that catches it.
