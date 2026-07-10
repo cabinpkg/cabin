@@ -4,10 +4,13 @@
 # unauthenticated 401, the unauthenticated /me -> /login redirect, and -
 # given a token - the three authenticated read routes plus the full
 # publish / yank write flow (first publish, idempotent re-publish,
-# immutability conflict, yank state transitions, artifact checksum) and
-# the budget breaker (writes 402 while service_mode = writes_blocked,
-# reads unaffected). Local-only: state lives in .wrangler/, never a
-# deployed environment.
+# immutability conflict, yank state transitions, artifact checksum), the
+# budget breaker (writes 402 while service_mode = writes_blocked, reads
+# unaffected), blob replication into the BACKUP bucket, and the nightly
+# dump job (triggered via the /__scheduled test route against a local
+# mock of the D1 export API serving a real `wrangler d1 export --local`
+# dump). Local-only: state lives in .wrangler/, never a deployed
+# environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -20,17 +23,25 @@ set -euo pipefail
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 port="${SMOKE_PORT:-8787}"
+mock_port="${SMOKE_MOCK_PORT:-8788}"
 base="http://127.0.0.1:${port}"
 token="${CABIN_REGISTRY_SMOKE_TOKEN:-}"
 body="$(mktemp)"
 dev_log="$(mktemp)"
 dev_pid=""
+mock_pid=""
+dev_vars=".dev.vars.dev"
+dev_vars_backup=""
+dev_vars_created=""
 
 cleanup() {
   # Kill the whole process group: $dev_pid is the backgrounded function's
   # wrapper subshell, and killing it alone would orphan npx/wrangler/workerd
   # and leave the port bound.
   [[ -n "$dev_pid" ]] && kill -- "-$dev_pid" 2>/dev/null || true
+  [[ -n "$mock_pid" ]] && kill "$mock_pid" 2>/dev/null || true
+  [[ -n "$dev_vars_created" ]] && rm -f "$dev_vars" || true
+  [[ -n "$dev_vars_backup" ]] && mv "$dev_vars_backup" "$dev_vars" || true
   rm -f "$body" "$dev_log"
 }
 trap cleanup EXIT
@@ -106,8 +117,62 @@ if [[ -n "$token" ]]; then
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke', 0, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
     DELETE FROM versions WHERE name = 'withdep';
-    DELETE FROM packages WHERE name = 'withdep';"
+    DELETE FROM packages WHERE name = 'withdep';
+    DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
+    DELETE FROM backup_replication_failures;"
 fi
+
+# The backup-cron leg drives the worker's dump job against a local mock
+# of the D1 export API, serving a dump exported from the local database
+# right here - so the job's polling, streaming, validation, and
+# bookkeeping all run for real without touching Cloudflare.
+step "exporting a local dump for the export-API mock"
+mock_dir="$(mktemp -d)"
+trap 'cleanup; rm -rf "$mock_dir"' EXIT
+wrangler d1 export DB --env dev --local --output "$mock_dir/dump.sql"
+
+step "starting the export-API mock on port ${mock_port}"
+cat >"$mock_dir/mock.js" <<'MOCK_EOF'
+const http = require("http");
+const fs = require("fs");
+const [port, dumpPath] = process.argv.slice(2);
+const exportPath = /^\/accounts\/[0-9a-f]{32}\/d1\/database\/[0-9a-f-]{36}\/export$/;
+http.createServer((req, res) => {
+  if (req.method === "POST" && exportPath.test(req.url)) {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ success: true, result: { status: "complete",
+      at_bookmark: "smoke",
+      result: { signed_url: `http://127.0.0.1:${port}/dump.sql`, filename: "dump.sql" } } }));
+  } else if (req.method === "GET" && req.url === "/dump.sql") {
+    const dump = fs.readFileSync(dumpPath);
+    res.setHeader("content-length", dump.length);
+    res.end(dump);
+  } else {
+    res.statusCode = 404;
+    res.end(`unexpected request: ${req.method} ${req.url}`);
+  }
+}).listen(port, "127.0.0.1");
+MOCK_EOF
+node "$mock_dir/mock.js" "$mock_port" "$mock_dir/dump.sql" >"$mock_dir/mock.log" 2>&1 &
+mock_pid=$!
+disown "$mock_pid"
+for _ in $(seq 1 20); do
+  kill -0 "$mock_pid" 2>/dev/null || { cat "$mock_dir/mock.log" >&2; fail "the export-API mock exited early"; }
+  curl -fsS -o /dev/null "http://127.0.0.1:${mock_port}/dump.sql" 2>/dev/null && break
+  sleep 0.5
+done
+
+# Point the worker's export calls at the mock. Wrangler reads
+# .dev.vars.dev for --env dev; an existing file is saved and restored.
+if [[ -f "$dev_vars" ]]; then
+  dev_vars_backup="$(mktemp)"
+  cp "$dev_vars" "$dev_vars_backup"
+fi
+cat >"$dev_vars" <<EOF
+CF_API_BASE="http://127.0.0.1:${mock_port}"
+D1_EXPORT_API_TOKEN="smoke-placeholder"
+EOF
+dev_vars_created=1
 
 # A stale server on the port would silently answer the checks below in place
 # of the instance started here.
@@ -119,7 +184,7 @@ step "starting wrangler dev on port ${port} (first build takes a while)"
 # Job control (-m) gives the dev-server tree its own process group so
 # cleanup can kill all of it at once.
 set -m
-wrangler dev --env dev --port "$port" >"$dev_log" 2>&1 &
+wrangler dev --env dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
 dev_pid=$!
 set +m
 disown "$dev_pid"
@@ -174,12 +239,40 @@ fixture_metadata="tests/fixtures/$name-$version.json"
 fixture_archive="tests/fixtures/$name-$version.tar.gz"
 publish_path="/api/v1/packages/$name/$version"
 work="$(mktemp -d)"
-trap 'cleanup; rm -rf "$work"' EXIT
+trap 'cleanup; rm -rf "$work" "$mock_dir"' EXIT
 
 step "first publish creates the version"
 frame "$fixture_metadata" "$fixture_archive" "$work/publish.bin"
 request PUT "$publish_path" "$work/publish.bin" 201
 expect_body '"ok":true'
+
+# await_backup_blob <key> <out-file>: replication runs via waitUntil
+# after the response, so poll the BACKUP bucket briefly.
+await_backup_blob() {
+  local key="$1" out="$2"
+  for _ in $(seq 1 20); do
+    wrangler r2 object get "cabin-registry-dev-backup/$key" \
+      --file "$out" >/dev/null 2>&1 && return 0
+    sleep 0.5
+  done
+  fail "blob $key never appeared in the BACKUP bucket"
+}
+
+step "the published blob replicates to the BACKUP bucket"
+blob_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
+await_backup_blob "blobs/sha256/$blob_hash" "$work/replicated.tar.gz"
+cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
+  || fail "replicated blob differs from the published archive"
+
+# A retry of a publish whose isolate died before replicating takes the
+# idempotent no-op path; it must re-schedule the copy.
+step "an idempotent re-publish heals a missing backup blob"
+wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" >/dev/null
+request PUT "$publish_path" "$work/publish.bin" 200
+expect_body '"no_op":true'
+await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.tar.gz"
+cmp -s "$work/rehealed.tar.gz" "$fixture_archive" \
+  || fail "re-healed blob differs from the published archive"
 
 step "byte-identical re-publish is an idempotent no-op"
 request PUT "$publish_path" "$work/publish.bin" 200
@@ -236,5 +329,62 @@ wrangler d1 execute DB --env dev --local --command "
   UPDATE meta SET value = '' WHERE key = 'service_mode_reason';"
 request PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
+
+# The /__scheduled test route (wrangler dev --test-scheduled) invokes
+# the cron handler; any non-breaker expression routes to the dump job,
+# which talks to the export-API mock started above.
+step "the backup cron stores a validated dump in the BACKUP bucket"
+today="$(date -u +%F)"
+dump_key="d1/$today.sql"
+check "/__scheduled?cron=0+3+*+*+*" 200
+stored=""
+for _ in $(seq 1 20); do
+  if wrangler r2 object get "cabin-registry-dev-backup/$dump_key" \
+    --file "$work/stored-dump.sql" >/dev/null 2>&1; then
+    stored=1
+    break
+  fi
+  sleep 0.5
+done
+[[ -n "$stored" ]] || {
+  tail -40 "$dev_log" >&2
+  fail "dump $dump_key never appeared in the BACKUP bucket"
+}
+cmp -s "$work/stored-dump.sql" "$mock_dir/dump.sql" \
+  || fail "stored dump differs from the mock's exported dump"
+
+step "the dump's sha256 sidecar verifies with shasum -c"
+wrangler r2 object get "cabin-registry-dev-backup/$dump_key.sha256" \
+  --file "$work/$today.sql.sha256" >/dev/null 2>&1 \
+  || fail "sidecar $dump_key.sha256 is missing"
+cp "$work/stored-dump.sql" "$work/$today.sql"
+(cd "$work" && shasum -a 256 -c "$today.sql.sha256" >/dev/null) \
+  || fail "shasum -c rejected the sidecar: $(cat "$work/$today.sql.sha256")"
+
+step "meta records the backup"
+last_backup_at="$(wrangler d1 execute DB --env dev --local --json --command \
+  "SELECT key, value FROM meta WHERE key IN ('last_backup_at', 'last_backup_key')" |
+  node -e '
+    const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const rows = Object.fromEntries(out[0].results.map((r) => [r.key, r.value]));
+    if (rows.last_backup_key !== process.argv[1]) process.exit(1);
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(rows.last_backup_at || "")) process.exit(1);
+    console.log(rows.last_backup_at);
+  ' "$dump_key")" || fail "meta.last_backup_at / last_backup_key not recorded"
+printf '    last_backup_at = %s\n' "$last_backup_at"
+
+# One validated dump per date: a same-day re-run must skip instead of
+# re-exporting (a failed re-export would overwrite the verified copy),
+# so last_backup_at must not move.
+step "a same-day re-run of the dump job is a no-op"
+check "/__scheduled?cron=0+3+*+*+*" 200
+rerun_at="$(wrangler d1 execute DB --env dev --local --json --command \
+  "SELECT value FROM meta WHERE key = 'last_backup_at'" |
+  node -e '
+    const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    console.log(out[0].results[0].value);
+  ')"
+[[ "$rerun_at" == "$last_backup_at" ]] \
+  || fail "same-day re-run rewrote last_backup_at: $rerun_at (was $last_backup_at)"
 
 echo "smoke OK"
