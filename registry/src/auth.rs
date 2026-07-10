@@ -14,6 +14,9 @@ use sha2::{Digest, Sha256};
 pub enum Scope {
     Publish,
     Yank,
+    /// The verifier's scope: list pending versions, download their
+    /// artifacts, and render verdicts on the admin API.
+    Verify,
 }
 
 /// What authentication attaches to a request once a token row matched.
@@ -95,6 +98,7 @@ pub fn parse_scopes(scopes: &str) -> Vec<Scope> {
         .filter_map(|scope| match scope.trim() {
             "publish" => Some(Scope::Publish),
             "yank" => Some(Scope::Yank),
+            "verify" => Some(Scope::Verify),
             _ => None,
         })
         .collect()
@@ -183,7 +187,12 @@ mod tests {
             vec![Scope::Publish, Scope::Yank]
         );
         assert_eq!(parse_scopes("yank"), vec![Scope::Yank]);
+        assert_eq!(parse_scopes("verify"), vec![Scope::Verify]);
+        assert_eq!(
+            parse_scopes("publish,yank,verify"),
+            vec![Scope::Publish, Scope::Yank, Scope::Verify]
+        );
         assert_eq!(parse_scopes(""), vec![]);
-        assert_eq!(parse_scopes("admin,PUBLISH"), vec![]);
+        assert_eq!(parse_scopes("admin,PUBLISH,VERIFY"), vec![]);
     }
 }

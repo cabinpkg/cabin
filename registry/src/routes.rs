@@ -41,19 +41,43 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
 /// A matched write (API) route. Unlike the read routes, the `name` /
 /// `version` segments are only split here, not validated: publish
 /// validates them as part of its documented `400` sequence
-/// (`crate::publish`), and yank answers unknown pairs with an ordinary
-/// authenticated 404 straight from D1. Neither segment ever becomes a
-/// path or storage key by itself.
+/// (`crate::publish`), and yank and the admin verdict answer unknown
+/// pairs with an ordinary authenticated 404 straight from D1. Neither
+/// segment ever becomes a path or storage key by itself.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ApiRoute<'a> {
-    Publish { name: &'a str, version: &'a str },
-    Yank { name: &'a str, version: &'a str },
+    Publish {
+        name: &'a str,
+        version: &'a str,
+    },
+    Yank {
+        name: &'a str,
+        version: &'a str,
+    },
+    /// `GET /api/v1/admin/versions?status=...`: the verifier's listing.
+    AdminVersions,
+    /// `PATCH /api/v1/admin/versions/<name>/<version>`: a verdict.
+    AdminVerdict {
+        name: &'a str,
+        version: &'a str,
+    },
 }
 
-/// Matches `path` against the two API routes,
-/// `/api/v1/packages/<name>/<version>` and
-/// `/api/v1/packages/<name>/<version>/yank`.
+/// Matches `path` against the API routes:
+/// `/api/v1/packages/<name>/<version>`,
+/// `/api/v1/packages/<name>/<version>/yank`, and the admin plane's
+/// `/api/v1/admin/versions[/<name>/<version>]`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
+    if let Some(rest) = path.strip_prefix("/api/v1/admin/versions") {
+        if rest.is_empty() {
+            return Some(ApiRoute::AdminVersions);
+        }
+        let (name, version) = rest.strip_prefix('/')?.split_once('/')?;
+        if name.is_empty() || version.is_empty() || version.contains('/') {
+            return None;
+        }
+        return Some(ApiRoute::AdminVerdict { name, version });
+    }
     let rest = path.strip_prefix("/api/v1/packages/")?;
     let (name, rest) = rest.split_once('/')?;
     let (version, is_yank) = match rest.strip_suffix("/yank") {
@@ -250,6 +274,30 @@ mod tests {
     }
 
     #[test]
+    fn matches_the_admin_routes() {
+        assert_eq!(
+            match_api_route("/api/v1/admin/versions"),
+            Some(ApiRoute::AdminVersions)
+        );
+        assert_eq!(
+            match_api_route("/api/v1/admin/versions/fmt/10.2.1"),
+            Some(ApiRoute::AdminVerdict {
+                name: "fmt",
+                version: "10.2.1"
+            })
+        );
+        // Like publish and yank, segments are split, not validated:
+        // garbage routes and 404s from D1.
+        assert_eq!(
+            match_api_route("/api/v1/admin/versions/Fmt/not-semver"),
+            Some(ApiRoute::AdminVerdict {
+                name: "Fmt",
+                version: "not-semver"
+            })
+        );
+    }
+
+    #[test]
     fn rejects_malformed_api_paths() {
         for path in [
             "/api/v1/packages",
@@ -261,6 +309,12 @@ mod tests {
             "/api/v1/packages/fmt/10.2.1/yank/extra",
             "/api/v1/packages/fmt//yank",
             "/api/v2/packages/fmt/10.2.1",
+            "/api/v1/admin/versions/",
+            "/api/v1/admin/versions/fmt",
+            "/api/v1/admin/versions/fmt/",
+            "/api/v1/admin/versions//10.2.1",
+            "/api/v1/admin/versions/fmt/10.2.1/extra",
+            "/api/v1/admin/other",
         ] {
             assert_eq!(match_api_route(path), None, "path: {path:?}");
         }

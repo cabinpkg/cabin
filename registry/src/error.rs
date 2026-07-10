@@ -13,6 +13,18 @@ pub const PUBLISH_SCOPE_REQUIRED: &str = "the token does not have the publish sc
 pub const YANK_SCOPE_REQUIRED: &str = "the token does not have the yank scope";
 pub const VERSION_IMMUTABLE: &str = "published versions are immutable";
 pub const INVALID_YANK_BODY: &str = r#"the yank body must be exactly {"yanked": <bool>}"#;
+pub const VERIFY_SCOPE_REQUIRED: &str = "the token does not have the verify scope";
+pub const INVALID_VERDICT_BODY: &str =
+    r#"the verdict body must be {"verdict": "verified" | "rejected", "reason": <string>}"#;
+pub const VERDICT_REASON_REQUIRED: &str = "a rejection verdict requires a non-empty reason";
+pub const VERDICT_BINDING_REQUIRED: &str =
+    "a verified verdict requires the checksum and published_at the admin listing reported";
+pub const VERSION_REJECTED_REVERDICT: &str =
+    "the version was rejected; republishing it is the recovery path";
+pub const VERDICT_TARGET_CHANGED: &str =
+    "the version changed since it was listed; fetch the pending list again";
+pub const INVALID_STATUS_QUERY: &str =
+    "the status query parameter must be pending, verified, or rejected";
 
 /// Renders `detail` into the error envelope.
 pub fn envelope(detail: &str) -> String {
