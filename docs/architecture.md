@@ -56,6 +56,7 @@ crates/
   cabin-index-http/  sparse HTTP index client (read-only)
   cabin-credentials/ registry token storage (credentials.toml, -Z remote-registry)
   cabin-registry-api/ remote registry API client (publish / yank, -Z remote-registry)
+  cabin-registry-verify/ hosted-registry archive verifier (verification lifecycle)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
   cabin-test/        test-target plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
@@ -357,6 +358,30 @@ envelope is malformed.  The crate must:
 - not resolve credentials itself - it receives an optional typed token from the orchestration
   layer, refuses cleartext `http` beyond loopback hosts, and never follows redirects;
 - never let token bytes surface through errors or `Debug` output.
+
+### `cabin-registry-verify`
+
+Owns the hosted registry's external verifier: the hostile-archive inspection behind the
+verification lifecycle ([`remote-registry.md`](remote-registry.md), "The verifier's checks").
+Given a downloaded archive and the canonical metadata the admin listing reported, it streams the
+gunzipped tar under decompression caps, checks the structure `cabin package` emits, parses the
+embedded manifest with `cabin-manifest`, and compares it against the metadata - rendering a
+verdict plus machine-readable reason codes.  It lives in the root workspace precisely to reuse
+the real manifest parser and the real `cabin-package` metadata seams, but it is a client of the
+hosted service: the `cabin-registry-verify` binary is invoked by the `registry-verify` GitHub
+Actions workflow, never by users.  The crate must:
+
+- never appear in the `cabin` binary's dependency graph;
+- never extract an archive to disk; every check streams under the decompression caps (memory
+  stays within a small constant factor of the cap; only the manifest entry is retained), and a
+  cap violation is a rejection, never an OOM;
+- reuse `cabin-package`'s seams instead of duplicating them: the publishability rules
+  (`validate_publishable`) and the canonical-metadata derivation (`canonical_metadata`) are
+  the same code publish runs, so producer and verifier cannot drift;
+- not perform HTTP - the workflow downloads archives and PATCHes verdicts; the binary is pure
+  local inspection (files in, JSON verdict out);
+- treat archive-caused failures as verdicts and environment-caused failures as errors that
+  leave the version pending (fail safe).
 
 ### `cabin-port`
 

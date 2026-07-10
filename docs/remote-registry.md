@@ -161,9 +161,11 @@ version entry in [`package-index.md`](package-index.md).
 
 Server-side behavior is part of the contract:
 
-- **Validation.**  The server validates the framing, parses the metadata under the index schema,
-  requires the URL's `<name>` / `<version>` segments to match the metadata, and verifies the
-  archive bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
+- **Validation.**  The server validates the framing, parses the metadata under the index schema
+  (`schema` values other than `1` are refused - a document the
+  [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
+  the URL's `<name>` / `<version>` segments to match the metadata, and verifies the archive
+  bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
   `200` and body `{"ok":true,"no_op":true,"verification":"<status>"}`, reporting the row's current
   [verification status](#verification-lifecycle).  Publishing the same version with *different*
@@ -287,6 +289,64 @@ carries is a `200` no-op.  Conflicts are `409`: a rejecting verdict on a verifie
 the immutability wall, and **any** verdict on a rejected version is refused - republishing is
 the recovery path, and a late duplicate verdict must never race the replacement.  An unknown
 `(name, version)` is an authenticated `404`.
+
+### The verifier's checks
+
+The hosted registry's verifier is `cabin-registry-verify`, run every few minutes by a GitHub
+Actions workflow (operations live in the service runbook).  It inspects each pending archive
+against the canonical metadata the listing reported - streaming, never extracting to disk, and
+assuming the archive is hostile.  The checks, in order:
+
+1. **Size discipline** while gunzipping: the running decompressed total is capped at
+   `min(max(ratio x compressed size, floor), absolute cap)` - the floor covers the tar framing
+   the entry cap permits, since framing alone "expands" small archives beyond any sane ratio -
+   the entry count and per-entry path length are capped, and crossing any cap aborts the
+   inspection: a decompression bomb is rejected, never inflated.
+2. **Structure**: the layout must be what `cabin package` emits - regular-file entries
+   (directory entries are tolerated), safe relative paths (no absolute paths, no `..`, no
+   duplicates, no `\` or empty components, and no regular file used as another entry's parent
+   directory), no links, devices, or PAX records, `cabin.toml` at
+   the archive root, and no nonzero content after the tar terminator (trailing garbage and any
+   extra gzip member carrying content are rejected; every gzip member's trailer is validated).
+3. **Consistency**: the embedded manifest is parsed with Cabin's real manifest parser, must
+   pass the same publishability rules `cabin package` enforces (no `[patch]` table, no path
+   dependencies, no escaping source paths, no standard contradictions), must have every
+   target source it declares present in the archive (a package missing a declared source would
+   extract but fail to build), and must reproduce the
+   entire stored canonical metadata document through the same derivation publish used - name,
+   version, the three dependency tables, language-standard fields and the per-target standards
+   table, features, profiles, toolchain, build settings, and the source block - and the archive
+   bytes must hash to the recorded checksum (defense in depth; the server already checked at
+   publish).
+
+A rejection records machine-readable reason codes in the version's `verification_reason`:
+
+| Code | Check |
+| --- | --- |
+| `decompressed_too_large` | decompression cap crossed |
+| `too_many_entries` | entry-count cap crossed |
+| `path_too_long` | path-length cap crossed |
+| `forbidden_entry_type` | link, device, fifo, or PAX-decorated entry |
+| `absolute_path` | absolute entry path (POSIX or Windows-drive form) |
+| `path_traversal` | `..` path component |
+| `invalid_path` | empty, non-UTF-8, `\`-bearing, or `.`/empty component |
+| `duplicate_path` | the same path twice |
+| `path_conflict` | a regular file used as another entry's parent directory |
+| `missing_source` | the manifest declares a target source absent from the archive |
+| `manifest_missing` | no `cabin.toml` at the archive root |
+| `manifest_invalid` | the manifest does not parse as a publishable package |
+| `name_mismatch` | manifest name disagrees with metadata or the listing |
+| `version_mismatch` | manifest version disagrees with metadata or the listing |
+| `dependency_mismatch` | manifest dependency tables disagree with metadata |
+| `language_standard_mismatch` | manifest standard fields or the derived standards table disagree with metadata |
+| `checksum_mismatch` | archive bytes do not hash to the recorded checksum |
+| `metadata_mismatch` | any other canonical-metadata field disagrees with what the manifest derives |
+| `archive_invalid` | not a readable gzip-compressed tar stream, or content after the terminator |
+
+The cap mechanism is public contract; the cap values are configuration (`VERIFY_RATIO_CAP`,
+`VERIFY_ABS_CAP_BYTES`, `VERIFY_MAX_ENTRIES`, `VERIFY_MAX_PATH_LEN`, defaulting to 10x,
+256 MiB, 10000 entries, and 256 bytes).  Verifier failures leave versions pending - fail-safe:
+broken verification infrastructure keeps content unexposed, never exposes it.
 
 ## Yank
 

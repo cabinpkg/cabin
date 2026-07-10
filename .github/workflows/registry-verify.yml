@@ -1,0 +1,130 @@
+name: Registry Verify
+
+# The verification lifecycle's external verifier
+# (docs/remote-registry.md, "Verification lifecycle"): list pending
+# versions through the admin API, inspect each archive with
+# cabin-registry-verify, and PATCH the verdict back.  A failed run
+# leaves versions pending - fail-safe by design.  GitHub cron is
+# best-effort and can be delayed; the registry's stuck-pending
+# webhook alert is the detection mechanism (registry/docs/runbook.md,
+# "Verification pipeline").
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Runs must never overlap: a run that lists a version while an
+# earlier run is mid-verdict could double-report.  A queued run
+# supersedes any previously queued one; the running one finishes.
+concurrency:
+  group: registry-verify
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build the verifier
+        run: cargo build --release --locked -p cabinpkg-registry-verify
+
+      - name: Verify pending versions
+        env:
+          REGISTRY_VERIFY_TOKEN: ${{ secrets.REGISTRY_VERIFY_TOKEN }}
+          # The registry to verify.  Repository variables tune the
+          # verifier's caps; unset variables arrive as empty strings,
+          # which the verifier treats as "use the default".
+          REGISTRY_ORIGIN: ${{ vars.REGISTRY_VERIFY_ORIGIN || 'https://dev-registry.cabinpkg.com' }}
+          VERIFY_RATIO_CAP: ${{ vars.VERIFY_RATIO_CAP }}
+          VERIFY_ABS_CAP_BYTES: ${{ vars.VERIFY_ABS_CAP_BYTES }}
+          VERIFY_MAX_ENTRIES: ${{ vars.VERIFY_MAX_ENTRIES }}
+          VERIFY_MAX_PATH_LEN: ${{ vars.VERIFY_MAX_PATH_LEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$REGISTRY_VERIFY_TOKEN" ]; then
+            echo "REGISTRY_VERIFY_TOKEN is not configured" >&2
+            exit 1
+          fi
+
+          list=$(curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+            "$REGISTRY_ORIGIN/api/v1/admin/versions?status=pending")
+          count=$(jq -r '.versions | length' <<<"$list")
+          if [ "$count" -eq 0 ]; then
+            echo "nothing pending"
+            exit 0
+          fi
+          echo "$count pending version(s)"
+
+          # One version failing operationally (it stays pending) must
+          # not starve the rest of the list; failures are aggregated
+          # and fail the run at the end.
+          verifier=target/release/cabin-registry-verify
+          failures=0
+          for i in $(seq 0 $((count - 1))); do
+            entry=$(jq -c ".versions[$i]" <<<"$list")
+            name=$(jq -r '.name' <<<"$entry")
+            version=$(jq -r '.version' <<<"$entry")
+            checksum=$(jq -r '.checksum' <<<"$entry")
+            published_at=$(jq -r '.published_at' <<<"$entry")
+
+            workdir=$(mktemp -d)
+            printf '%s' "$entry" >"$workdir/entry.json"
+            if ! curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+              -o "$workdir/archive.tar.gz" \
+              "$REGISTRY_ORIGIN/artifacts/$name/$name-$version.tar.gz"; then
+              echo "$name@$version: archive download failed; leaving it pending" >&2
+              failures=$((failures + 1))
+              rm -rf "$workdir"
+              continue
+            fi
+
+            if ! result=$("$verifier" "$workdir/archive.tar.gz" "$workdir/entry.json"); then
+              echo "$name@$version: verifier failed operationally; leaving it pending" >&2
+              failures=$((failures + 1))
+              rm -rf "$workdir"
+              continue
+            fi
+            verdict=$(jq -r '.verdict' <<<"$result")
+            reason=""
+            if [ "$verdict" = "verified" ]; then
+              body=$(jq -cn --arg checksum "$checksum" --arg published_at "$published_at" \
+                '{verdict: "verified", checksum: $checksum, published_at: $published_at}')
+            else
+              reason=$(jq -r '.reasons | join(",")' <<<"$result")
+              body=$(jq -cn --arg reason "$reason" --arg checksum "$checksum" --arg published_at "$published_at" \
+                '{verdict: "rejected", reason: $reason, checksum: $checksum, published_at: $published_at}')
+            fi
+
+            # A 409 here means the row changed since the listing (a
+            # republish or a competing verdict); the next run sees
+            # the replacement.
+            if ! curl -fsS -X PATCH \
+              -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+              -H "content-type: application/json" \
+              --data "$body" -o /dev/null \
+              "$REGISTRY_ORIGIN/api/v1/admin/versions/$name/$version"; then
+              echo "$name@$version: verdict PATCH failed; leaving it pending" >&2
+              failures=$((failures + 1))
+              rm -rf "$workdir"
+              continue
+            fi
+            echo "$name@$version: $verdict${reason:+ ($reason)}"
+            rm -rf "$workdir"
+          done
+
+          if [ "$failures" -gt 0 ]; then
+            echo "$failures version(s) hit operational failures and stay pending" >&2
+            exit 1
+          fi

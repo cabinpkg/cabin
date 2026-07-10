@@ -1,0 +1,33 @@
+[package]
+name = "cabinpkg-registry-verify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Registry archive verifier for Cabin"
+
+[lib]
+name = "cabin_registry_verify"
+
+[[bin]]
+name = "cabin-registry-verify"
+path = "src/main.rs"
+
+[dependencies]
+cabin-core = { workspace = true }
+cabin-manifest = { workspace = true }
+cabin-package = { workspace = true }
+camino = { workspace = true }
+flate2 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tar = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+
+[lints]
+workspace = true
