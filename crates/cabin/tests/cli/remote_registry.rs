@@ -251,21 +251,35 @@ fn login_and_logout_require_the_feature() {
     }
 }
 
-/// `cabin login` prints the token-creation page for the origin,
-/// reads the token from (piped) stdin, and stores it keyed by the
-/// normalized origin - path, trailing slash, and default port
-/// stripped.  The token itself never appears on stdout or stderr.
+/// A loopback address whose port was just released: connecting fails
+/// immediately, which is how the login-probe tests exercise the
+/// offline path without external DNS or timeouts.
+fn dead_loopback_url() -> String {
+    let addr = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        listener.local_addr().expect("loopback addr")
+    };
+    format!("http://{addr}")
+}
+
+/// `cabin login` reads the token from (piped) stdin and stores it
+/// keyed by the normalized origin - path and trailing slash
+/// stripped.  With the login-URL probe failing (nothing listens on
+/// the port), the hint degrades to the generic wording and login
+/// still succeeds: the probe never blocks it.  The token itself
+/// never appears on stdout or stderr.
 #[test]
 fn login_stores_the_token_keyed_by_normalized_origin() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
+    let base = dead_loopback_url();
     let assertion = cabin()
         .args([
             "-Z",
             "remote-registry",
             "login",
             "--index-url",
-            "https://registry.example.com:443/some/path/",
+            &format!("{base}/some/path/"),
         ])
         .env("CABIN_CONFIG_HOME", &home)
         .write_stdin(format!("{TEST_TOKEN}\n"))
@@ -275,11 +289,11 @@ fn login_stores_the_token_keyed_by_normalized_origin() {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     assert!(
-        stdout.contains("visit https://registry.example.com/me to create a token"),
-        "expected the token-creation hint in: {stdout}"
+        stdout.contains("create a token in the registry's web interface"),
+        "expected the offline fallback hint in: {stdout}"
     );
     assert!(
-        stdout.contains("token for `https://registry.example.com` saved"),
+        stdout.contains(&format!("token for `{base}` saved")),
         "expected the origin-only confirmation in: {stdout}"
     );
     assert!(
@@ -291,7 +305,7 @@ fn login_stores_the_token_keyed_by_normalized_origin() {
     let body = fs::read_to_string(&credentials_path).unwrap();
     assert_eq!(
         body,
-        format!("[registries.\"https://registry.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n")
+        format!("[registries.\"{base}\"]\ntoken = \"{TEST_TOKEN}\"\n")
     );
     #[cfg(unix)]
     {
@@ -301,6 +315,103 @@ fn login_stores_the_token_keyed_by_normalized_origin() {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600, "mode was {:03o}", mode & 0o777);
+    }
+}
+
+/// Against a live `auth-required` registry, `cabin login` probes
+/// `config.json` unauthenticated, parses the `WWW-Authenticate`
+/// challenge, and prints the server-declared login URL; a 401
+/// without the challenge degrades to the generic wording.  Either
+/// way the pasted token is stored.
+#[test]
+fn login_discovers_the_login_url_from_the_challenge() {
+    let dir = TempDir::new().unwrap();
+
+    // A 401 carrying the challenge: the login URL is printed verbatim.
+    let server = ChallengeRegistryServer::serve(Some(
+        r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#,
+    ));
+    let home = dir.path().join("home-a");
+    cabin()
+        .args(["-Z", "remote-registry", "login", "--index-url"])
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "visit https://cabinpkg.com/settings/tokens to create a token",
+        ));
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(body.contains(TEST_TOKEN), "token must be stored: {body}");
+    drop(server);
+
+    // A 401 without the challenge: the generic wording, still stored.
+    let server = ChallengeRegistryServer::serve(None);
+    let home = dir.path().join("home-b");
+    cabin()
+        .args(["-Z", "remote-registry", "login", "--index-url"])
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "create a token in the registry's web interface",
+        ));
+    assert!(home.join("credentials.toml").exists());
+}
+
+/// Registry answering every request 401, optionally with the
+/// `WWW-Authenticate` challenge - the shape `cabin login`'s probe
+/// sees on an `auth-required` registry.
+struct ChallengeRegistryServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    url: String,
+}
+
+impl ChallengeRegistryServer {
+    fn serve(challenge: Option<&'static str>) -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            while let Ok(req) = server_for_thread.recv() {
+                let mut response = tiny_http::Response::from_string(
+                    r#"{"errors":[{"detail":"authentication required"}]}"#,
+                )
+                .with_status_code(401);
+                if let Some(challenge) = challenge {
+                    response.add_header(
+                        tiny_http::Header::from_bytes(&b"WWW-Authenticate"[..], challenge)
+                            .expect("valid test header"),
+                    );
+                }
+                let _ = req.respond(response);
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            url,
+        }
+    }
+
+    fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+impl Drop for ChallengeRegistryServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -316,7 +427,7 @@ fn login_rejects_invalid_tokens_without_writing() {
             "remote-registry",
             "login",
             "--index-url",
-            "https://registry.example.com",
+            &dead_loopback_url(),
         ])
         .env("CABIN_CONFIG_HOME", &home)
         .write_stdin("ghp_notACabinToken12345\n")
@@ -341,8 +452,9 @@ fn login_rejects_invalid_tokens_without_writing() {
 fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
+    let base = dead_loopback_url();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
-        .write_str("[registry]\nindex-url = \"https://config-registry.example.com/index/\"\n")
+        .write_str(&format!("[registry]\nindex-url = \"{base}/index/\"\n"))
         .unwrap();
     let mut cmd = cabin();
     super::pin_test_user_config_home_to_empty(&mut cmd);
@@ -352,9 +464,9 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
         .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "token for `https://config-registry.example.com` saved",
-        ));
+        .stdout(predicate::str::contains(format!(
+            "token for `{base}` saved"
+        )));
 
     // Same setup with a local index-path: refused.
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
@@ -574,26 +686,21 @@ fn login_refuses_plain_http_beyond_loopback() {
 fn login_with_explicit_index_url_ignores_broken_config() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
+    let base = dead_loopback_url();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str("this is not toml [")
         .unwrap();
     let mut cmd = cabin();
     super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args([
-        "-Z",
-        "remote-registry",
-        "login",
-        "--index-url",
-        "https://registry.example.com",
-    ])
-    .env_remove("CABIN_NO_CONFIG")
-    .env("CABIN_CONFIG_HOME", &home)
-    .write_stdin(format!("{TEST_TOKEN}\n"))
-    .assert()
-    .success()
-    .stdout(predicate::str::contains(
-        "token for `https://registry.example.com` saved",
-    ));
+    cmd.args(["-Z", "remote-registry", "login", "--index-url", &base])
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "token for `{base}` saved"
+        )));
 }
 
 // -----------------------------------------------------------------
@@ -645,7 +752,7 @@ struct RemoteRegistryServer {
 
 impl RemoteRegistryServer {
     fn start(include_api: bool, require_auth: bool, put_statuses: &'static [u16]) -> Self {
-        Self::start_with_put_body(include_api, require_auth, put_statuses, None)
+        Self::start_full(include_api, None, require_auth, put_statuses, None)
     }
 
     /// Like [`Self::start`], but every mutation response carries
@@ -653,6 +760,27 @@ impl RemoteRegistryServer {
     /// with the verification lifecycle's `"verification":"pending"`.
     fn start_with_put_body(
         include_api: bool,
+        require_auth: bool,
+        put_statuses: &'static [u16],
+        put_body: Option<&'static str>,
+    ) -> Self {
+        Self::start_full(include_api, None, require_auth, put_statuses, put_body)
+    }
+
+    /// Like [`Self::start`], but `config.json` declares `api_origin` -
+    /// a *different* server - as the mutation origin, the shape of the
+    /// hostname-role split.
+    fn start_with_api_origin(
+        api_origin: String,
+        require_auth: bool,
+        put_statuses: &'static [u16],
+    ) -> Self {
+        Self::start_full(true, Some(api_origin), require_auth, put_statuses, None)
+    }
+
+    fn start_full(
+        include_api: bool,
+        api_override: Option<String>,
         require_auth: bool,
         put_statuses: &'static [u16],
         put_body: Option<&'static str>,
@@ -667,6 +795,7 @@ impl RemoteRegistryServer {
         } else {
             ""
         };
+        let api_value = api_override.unwrap_or_else(|| url.clone());
         let config = if include_api {
             format!(
                 r#"{{
@@ -674,7 +803,7 @@ impl RemoteRegistryServer {
     "kind": "file-registry",
     "packages": "packages",
     "artifacts": "artifacts"{auth_field},
-    "api": "{url}"
+    "api": "{api_value}"
 }}"#
             )
         } else {
@@ -916,6 +1045,66 @@ fn publish_uploads_bytes_identical_to_cabin_package() {
     assert_eq!(
         archive, packaged_archive,
         "uploaded archive must be byte-identical to the cabin package archive"
+    );
+}
+
+/// The amended credential-destination rule (`docs/remote-registry.md`,
+/// "When the token is sent"): a token stored under the index origin is
+/// sent to that origin's reads *and* to the `api` origin its
+/// authenticated `config.json` declares - here a different server, the
+/// hostname-role split's shape - and the mutation reaches only the api
+/// origin, never the index origin.
+#[test]
+fn publish_sends_the_token_to_the_config_declared_api_origin() {
+    let dir = TempDir::new().unwrap();
+    write_publishable_package(dir.path());
+
+    // The api origin accepts the upload; the index origin serves the
+    // auth-required reads and must see no mutation (a PUT reaching it
+    // would fail the run with its 500).
+    let api_server = RemoteRegistryServer::start(false, false, &[201]);
+    let index_server =
+        RemoteRegistryServer::start_with_api_origin(api_server.url.clone(), true, &[500]);
+
+    // The credential is stored under the *index* origin, exactly as
+    // `cabin login` would leave it.
+    let home = dir.path().join("config-home");
+    fs::create_dir_all(&home).unwrap();
+    let credentials_path = home.join("credentials.toml");
+    fs::write(
+        &credentials_path,
+        format!(
+            "[registries.\"{}\"]\ntoken = \"{TEST_TOKEN}\"\n",
+            index_server.url
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&credentials_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&index_server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .success();
+
+    let api_puts = api_server.puts.lock().unwrap();
+    assert_eq!(api_puts.len(), 1, "exactly one publish, on the api origin");
+    assert_eq!(api_puts[0].path, "/api/v1/packages/demo/0.1.0");
+    assert_eq!(
+        api_puts[0].authorization.as_deref(),
+        Some(format!("Bearer {TEST_TOKEN}").as_str()),
+        "the stored token must reach the config-declared api origin"
+    );
+    assert!(
+        index_server.puts.lock().unwrap().is_empty(),
+        "the index origin must never receive the mutation"
     );
 }
 
@@ -1267,12 +1456,16 @@ fn yank_requires_the_api_url_in_the_registry_config() {
 fn login_applies_source_replacement_to_the_config_registry() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
+    // The upstream is never contacted (the replacement wins before the
+    // login-URL probe); the mirror is a dead loopback port, so the
+    // probe degrades to the generic wording.
+    let mirror = dead_loopback_url();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
-        .write_str(
+        .write_str(&format!(
             "[registry]\nindex-url = \"https://upstream.example.com/index\"\n\n\
              [source-replacement]\n\"https://upstream.example.com/index\" = \
-             { index-url = \"https://mirror.example.com/index\" }\n",
-        )
+             {{ index-url = \"{mirror}/index\" }}\n",
+        ))
         .unwrap();
     let mut cmd = cabin();
     super::pin_test_user_config_home_to_empty(&mut cmd);
@@ -1282,10 +1475,10 @@ fn login_applies_source_replacement_to_the_config_registry() {
         .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "token for `https://mirror.example.com` saved",
-        ));
+        .stdout(predicate::str::contains(format!(
+            "token for `{mirror}` saved"
+        )));
     let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
-    assert!(body.contains("https://mirror.example.com"), "{body}");
+    assert!(body.contains(&mirror), "{body}");
     assert!(!body.contains("upstream.example.com"), "{body}");
 }

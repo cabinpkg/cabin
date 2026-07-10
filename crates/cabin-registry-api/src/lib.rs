@@ -53,10 +53,6 @@ pub struct RegistryApi {
     base: url::Url,
     /// Normalized API origin, for error messages.
     origin: String,
-    /// `<base>me`, the registry's usage page, for quota refusals.  Built
-    /// from the base (not the origin) so a path-prefixed deployment
-    /// links to its own `/me`.
-    usage_url: String,
     token: Option<Token>,
 }
 
@@ -110,7 +106,6 @@ impl RegistryApi {
             let path = format!("{}/", base.path());
             base.set_path(&path);
         }
-        let usage_url = format!("{base}me");
         Ok(Self {
             // Redirects are refused so a mutation can never be
             // bounced to a different origin than the one the
@@ -121,7 +116,6 @@ impl RegistryApi {
                 .build(),
             base,
             origin,
-            usage_url,
             token,
         })
     }
@@ -281,8 +275,9 @@ impl RegistryApi {
                     // A 403 whose envelope carries a `quota_*` code is a
                     // per-user quota refusal (`docs/remote-registry.md`,
                     // "Error envelope"), not a scope problem: the server
-                    // detail reaches the user with the pointer to the
-                    // usage page.
+                    // detail - which embeds the registry's own usage URL -
+                    // reaches the user verbatim. The client never derives
+                    // a web URL itself.
                     403 if code
                         .as_deref()
                         .is_some_and(|code| code.starts_with("quota_")) =>
@@ -291,7 +286,6 @@ impl RegistryApi {
                             // The envelope requires `detail`, so a parsed
                             // `code` guarantees one.
                             detail: detail.unwrap_or_default(),
-                            usage_url: self.usage_url.clone(),
                         }
                     }
                     // A tokenless 403 is not the protocol's
@@ -471,8 +465,8 @@ pub enum RegistryApiError {
     )]
     MissingScope { origin: String },
 
-    #[error("{detail}; see {usage_url} for current usage")]
-    QuotaExceeded { detail: String, usage_url: String },
+    #[error("{detail}")]
+    QuotaExceeded { detail: String },
 
     #[error("{}", with_retry(
         "the registry is temporarily not accepting publishes (over its free budget)",
@@ -859,11 +853,11 @@ mod tests {
     }
 
     /// A 403 whose envelope carries a `quota_*` code is a per-user quota
-    /// refusal, not the missing-scope case: the server detail must reach
-    /// the user verbatim, plus the pointer to `<origin>/me` where the
-    /// current usage is shown.
+    /// refusal, not the missing-scope case: the server detail - which
+    /// embeds the registry's own usage URL - must reach the user
+    /// verbatim. The client never builds a web URL itself.
     #[test]
-    fn publish_maps_coded_403_quota_refusals_to_the_usage_pointer() {
+    fn publish_maps_coded_403_quota_refusals_to_the_server_detail() {
         for code in [
             "quota_storage",
             "quota_packages_daily",
@@ -872,7 +866,7 @@ mod tests {
         ] {
             let body: &'static str = Box::leak(
                 format!(
-                    r#"{{"errors":[{{"detail":"the plan's quota is exhausted","code":"{code}"}}]}}"#
+                    r#"{{"errors":[{{"detail":"the plan's quota is exhausted; see https://cabinpkg.com/dashboard for current usage","code":"{code}"}}]}}"#
                 )
                 .into_boxed_str(),
             );
@@ -882,43 +876,25 @@ mod tests {
                 .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
                 .unwrap_err();
             match &err {
-                RegistryApiError::QuotaExceeded { detail, usage_url } => {
-                    assert_eq!(detail, "the plan's quota is exhausted");
-                    assert_eq!(usage_url, &format!("{}/me", mock.url));
+                RegistryApiError::QuotaExceeded { detail } => {
+                    assert_eq!(
+                        detail,
+                        "the plan's quota is exhausted; \
+                         see https://cabinpkg.com/dashboard for current usage"
+                    );
                 }
                 other => panic!("{code}: expected QuotaExceeded, got {other:?}"),
             }
             let message = err.to_string();
             assert!(
-                message.contains("the plan's quota is exhausted"),
-                "{code}: expected the detail verbatim in: {message}"
+                message.contains("see https://cabinpkg.com/dashboard for current usage"),
+                "{code}: expected the server-embedded usage URL verbatim in: {message}"
             );
             assert!(
-                message.contains(&format!("{}/me", mock.url)),
-                "{code}: expected the /me usage pointer in: {message}"
+                !message.contains(&mock.url),
+                "{code}: the client must not derive a URL from the API origin: {message}"
             );
             assert!(!message.contains("scope"), "{code}: {message}");
-        }
-    }
-
-    /// The usage pointer is built from the API base, not the bare
-    /// origin, so a registry hosted under a path prefix links to its
-    /// own `/me` page.
-    #[test]
-    fn quota_usage_pointer_preserves_the_api_base_path() {
-        let mock = MockApi::respond_with(
-            403,
-            r#"{"errors":[{"detail":"the plan's quota is exhausted","code":"quota_storage"}]}"#,
-        );
-        let api = RegistryApi::new(&format!("{}/base", mock.url), Some(token())).unwrap();
-        let err = api
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
-            .unwrap_err();
-        match &err {
-            RegistryApiError::QuotaExceeded { usage_url, .. } => {
-                assert_eq!(usage_url, &format!("{}/base/me", mock.url));
-            }
-            other => panic!("expected QuotaExceeded, got {other:?}"),
         }
     }
 

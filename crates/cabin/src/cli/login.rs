@@ -39,7 +39,13 @@ pub(crate) fn login(
     reporter: Reporter,
     features: &ExperimentalFeatures,
 ) -> Result<()> {
-    let origin = effective_registry_origin(args.index_url.as_deref(), features, "cabin login")?;
+    let index_url = effective_registry_index_url(
+        args.index_url.as_deref(),
+        features,
+        "cabin login",
+        "tokens only apply to `--index-url` registries",
+    )?;
+    let origin = cabin_credentials::normalize_origin(&index_url)?;
     // A token stored for a plain-http non-loopback origin could
     // never be attached (the client refuses cleartext beyond
     // loopback), so refuse to store it instead of confusing the
@@ -50,11 +56,20 @@ pub(crate) fn login(
              except to loopback hosts; use an `https` registry URL"
         );
     }
-    // The token-creation page is derived from the index origin by
-    // the protocol's origin convention; `config.json` is deliberately
-    // not consulted because on an auth-required registry it is itself
-    // behind auth.
-    reporter.note(format_args!("visit {origin}/me to create a token"));
+    // Login-URL discovery mirrors Cargo's `login_url` challenge
+    // (docs/remote-registry.md, "Authentication"): one advisory
+    // unauthenticated probe of the index's config.json. A registry
+    // without the challenge, an implausible URL, or a failed probe
+    // (offline) degrades to the generic wording - the probe never
+    // blocks login, and the pasted token is accepted either way.
+    match cabin_index_http::fetch_login_url(&index_url) {
+        Some(login_url) => {
+            reporter.note(format_args!("visit {login_url} to create a token"));
+        }
+        None => reporter.note(format_args!(
+            "create a token in the registry's web interface"
+        )),
+    }
     let token = read_token()?;
     let store = CredentialStore::from_env()?;
     let loaded = store.load()?;
