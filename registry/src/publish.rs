@@ -52,6 +52,7 @@ pub const BAD_FRAMING: &str = "malformed publish body framing";
 pub const METADATA_NOT_JSON: &str = "metadata is not valid JSON";
 pub const METADATA_NOT_CANONICAL: &str =
     "metadata does not match the canonical package metadata schema";
+pub const UNSUPPORTED_SCHEMA: &str = "unsupported metadata schema";
 pub const IDENTITY_MISMATCH: &str =
     "metadata name, version, or source path does not match the request URL";
 pub const INVALID_NAME: &str = "invalid package name";
@@ -108,10 +109,10 @@ pub fn is_valid_publish_name(name: &str) -> bool {
 
 /// Validates the metadata frame against the request URL's `name` /
 /// `version` segments, in the documented order: parse (unknown fields
-/// rejected), URL identity (including the archive path the `source`
-/// block implies), name charset, `SemVer`, `yanked`. The checksum is
-/// checked separately by [`verify_checksum`] once the caller has
-/// digested the archive bytes.
+/// rejected), schema, URL identity (including the archive path the
+/// `source` block implies), name charset, `SemVer`, `yanked`. The
+/// checksum is checked separately by [`verify_checksum`] once the
+/// caller has digested the archive bytes.
 ///
 /// # Errors
 ///
@@ -126,6 +127,12 @@ pub fn validate_metadata(
         Err(err) if err.is_syntax() || err.is_eof() => return Err(METADATA_NOT_JSON),
         Err(_) => return Err(METADATA_NOT_CANONICAL),
     };
+    // A schema the verification pipeline cannot judge must never
+    // enter the pending queue: it would sit pending forever and
+    // trip the stuck-verifier alert.
+    if parsed.schema != 1 {
+        return Err(UNSUPPORTED_SCHEMA);
+    }
     let canonical_source_path = format!("../artifacts/{url_name}/{url_name}-{url_version}.tar.gz");
     if parsed.name != url_name
         || parsed.version != url_version
@@ -266,6 +273,21 @@ mod tests {
         let parsed = validate_metadata("fmt", "1.0.0", body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
+    }
+
+    #[test]
+    fn validate_metadata_rejects_unsupported_schemas() {
+        // A schema the verification pipeline cannot judge would sit
+        // pending forever; it must be a 400 at publish.
+        for schema in ["0", "2"] {
+            let body = metadata_json("fmt", "10.2.1")
+                .replace("\"schema\": 1,", &format!("\"schema\": {schema},"));
+            assert_eq!(
+                validate_metadata("fmt", "10.2.1", body.as_bytes()).unwrap_err(),
+                UNSUPPORTED_SCHEMA,
+                "schema: {schema}"
+            );
+        }
     }
 
     #[test]
