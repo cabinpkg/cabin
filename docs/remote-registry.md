@@ -54,7 +54,9 @@ Authorization: Bearer cabin_<base62>
 - Tokens are issued on the registry web UI at `<origin>/me` after GitHub sign-in.  The login page
   URL is derived from the **index origin** by convention - on an `auth-required` registry,
   `config.json` itself requires auth, so the client cannot discover a login URL from it.
-- Token scopes: `publish` and `yank`.  Any valid token grants read access regardless of scope.
+- Token scopes: `publish`, `yank`, and `verify` (the
+  [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token grants
+  read access regardless of scope.
 
 ## Client-side token handling
 
@@ -134,6 +136,11 @@ On an `auth-required` registry, all three return `401` with the
 Unauthenticated requests **must not** be able to distinguish existing from non-existing packages:
 the `401` status and body are identical whether or not the requested package exists.
 
+On a registry with the [verification lifecycle](#verification-lifecycle), the composed
+`/packages/<name>.json` document contains **verified** versions only, and the artifact route
+serves verified versions to ordinary tokens; a package with no verified versions is
+indistinguishable from an unknown one.
+
 ## Publish
 
 ```text
@@ -158,9 +165,15 @@ Server-side behavior is part of the contract:
   requires the URL's `<name>` / `<version>` segments to match the metadata, and verifies the
   archive bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
-  `200` and body `{"ok":true,"no_op":true}`.  Publishing the same version with *different* bytes is
-  rejected with `409`.
-- A first-time publish succeeds with `201` and body `{"ok":true}`.
+  `200` and body `{"ok":true,"no_op":true,"verification":"<status>"}`, reporting the row's current
+  [verification status](#verification-lifecycle).  Publishing the same version with *different*
+  bytes is rejected with `409` - unless the existing row is **rejected**, in which case any bytes
+  are an accepted replacement: the row is updated in place (new checksum, metadata, size,
+  publisher, and timestamp) and returns to `pending` with a fresh `201`.
+- A first-time publish succeeds with `201` and body
+  `{"ok":true,"name":...,"version":...,"checksum":...,"verification":"pending"}`: the version is
+  accepted but becomes resolvable only once verified.  Clients read the `verification` field
+  tolerantly - a registry without the lifecycle simply omits it.
 
 ### Publishing from the client
 
@@ -196,8 +209,84 @@ Client-side behavior:
   byte-identical bytes were already published and exits successfully - the same "re-running with
   identical input succeeds" semantics as the local flows.  On `409` it explains that the version
   exists with different bytes and that published versions are immutable.
+- When the response's optional `"verification"` field says `"pending"`, the report adds that the
+  version was accepted and becomes resolvable after verification (typically within a few
+  minutes).  The field is read tolerantly: a registry that omits it changes nothing.
 - `--dry-run` stays entirely local: it stages into `--output-dir` (default `dist/`) and never
   opens a connection.
+
+## Verification lifecycle
+
+Every published version carries a verification status:
+
+```text
+publish (201) --> pending --verdict: verified--> verified (resolvable, immutable)
+                    ^  |
+                    |  +--verdict: rejected--> rejected (blob reclaimed, quota refunded)
+                    |                             |
+                    +--republish, any bytes (201)-+
+```
+
+- **pending** - accepted and stored, but not part of the registry yet: excluded from composed
+  `/packages/<name>.json` documents and not downloadable with ordinary tokens.  An external
+  verifier inspects pending versions and renders a verdict through the
+  [admin API](#admin-api-scope-verify).
+- **verified** - part of the registry: composed, resolvable, downloadable, and covered by the
+  immutability guarantee, which applies to verified versions **only**.
+- **rejected** - the version never became part of the registry: its archive blob is reclaimed
+  (unless another live version stores the same bytes), the publisher's storage quota is
+  refunded, and the same `(name, version)` may be republished with any bytes - the row is
+  replaced and returns to `pending` for a fresh verdict.
+
+**Fail-safe direction.**  If the verifier never runs, nothing new ever becomes resolvable.
+Broken verification infrastructure can only keep content unexposed; it must never expose
+unverified content.
+
+### Admin API (scope `verify`)
+
+The `verify` scope belongs to the verifier: it may list pending versions and download their
+artifacts (ordinary tokens cannot; rejected versions are downloadable by no one), and it gates
+the two admin routes, which authenticate with the same `Authorization: Bearer` mechanism on the
+same API origin.
+
+```text
+GET /api/v1/admin/versions?status=pending
+```
+
+Lists versions by status (`pending`, `verified`, or `rejected`; anything else is `400`) as a
+single JSON object, `{"versions":[...]}`.  Each entry carries `name`, `version`, `checksum`
+(lowercase SHA-256 hex), the publisher's numeric GitHub id as `published_by`, `published_at`,
+and the stored canonical metadata document as `metadata`.  Deterministic: ordered by name, then
+version.
+
+```text
+PATCH /api/v1/admin/versions/<name>/<version>
+{ "verdict": "verified" | "rejected", "reason": "...", "checksum": "...", "published_at": "..." }
+```
+
+Renders a verdict on a pending version; `reason` is required for rejections and recorded on the
+version.  `checksum` and `published_at` echo what the listing reported and bind the verdict to
+exactly that row generation - the checksum names the archive bytes, and `published_at` changes
+on every replacement, so even a same-bytes republish with new metadata breaks the binding.
+Both are **required** for `verified` verdicts (`400` without them - exposing content demands
+naming what was inspected, because a rejected version can be republished at any moment and a
+stale verdict must never land on content it never saw) and optional for rejections, the
+conservative direction.  A binding that does not match the stored row conflicts (`409`), and
+the same guard is enforced transactionally: a verdict racing a conflicting verdict or a
+replacement answers `409` rather than applying.
+An unbound rejection deliberately applies to whatever bytes are pending under the pair: refusing
+uninspected bytes exposes nothing and serves operator takedowns, and republishing remains the
+recovery path if a stale rejection catches a fresh replacement.
+`verified` stamps `verified_at` and makes the version resolvable; `rejected` reclaims the blob
+(when no live version references its bytes) and refunds the publisher's storage quota.  The
+response reports the resulting state and whether the request changed it, mirroring yank:
+`{"ok":true,"name":...,"version":...,"verification":"...","changed":<bool>}`.
+
+Verdicts are idempotent for the same value: repeating the verdict a verified version already
+carries is a `200` no-op.  Conflicts are `409`: a rejecting verdict on a verified version hits
+the immutability wall, and **any** verdict on a rejected version is refused - republishing is
+the recovery path, and a late duplicate verdict must never race the replacement.  An unknown
+`(name, version)` is an authenticated `404`.
 
 ## Yank
 
@@ -213,7 +302,10 @@ version's yanked state in the per-package index document:
 ```
 
 `{"yanked": false}` un-yanks.  The route is idempotent: setting the state a version already has
-succeeds with `200` and body `{"ok":true}`.
+succeeds with `200` and body `{"ok":true}`.  Yank applies to
+[**verified**](#verification-lifecycle) versions only - a pending or rejected version was never
+part of the registry's resolvable surface, so there is nothing to retract and the pair answers
+an authenticated `404`.
 
 ### Yanking from the client
 
@@ -255,8 +347,8 @@ What yanking means - matching the resolver behavior in
 | `401` | No token or an invalid token (never reveals whether the package exists). |
 | `402` | Writes are temporarily disabled service-wide: the registry's own budget breaker tripped (the hosted service runs on a free plan and blocks itself before provider limits are hit).  Reads are unaffected.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`. |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
-| `404` | Authenticated request for an unknown package or version. |
-| `409` | Publish of an existing version with different bytes. |
+| `404` | Authenticated request for an unknown package or version - including versions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
+| `409` | Publish of an existing (pending or verified) version with different bytes, or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the publisher plan's per-archive size limit (envelope code `archive_too_large`). |
 | `429` | Publish rate limit exceeded (token bucket).  Carries `Retry-After` (seconds) saying when the next publish will be accepted, and the envelope code `rate_limited`. |
 

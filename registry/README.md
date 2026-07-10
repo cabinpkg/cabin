@@ -6,8 +6,9 @@ sparse HTTP file-registry contract in
 [`../docs/remote-registry.md`](../docs/remote-registry.md) - the authoritative
 protocol document - with D1 as the canonical store and R2 for immutable
 archive blobs: the authenticated read routes plus the `publish` and `yank`
-API routes (validation order and the immutability rule are described in
-[`docs/architecture.md`](docs/architecture.md), "The write path"), and a
+API routes and the verifier's `verify`-scoped admin routes (validation
+order, the immutability rule, and the verification lifecycle are described
+in [`docs/architecture.md`](docs/architecture.md)), and a
 GitHub-sign-in web page at `/me` for issuing and revoking tokens. See
 [`docs/architecture.md`](docs/architecture.md) for the design and
 [`docs/runbook.md`](docs/runbook.md) for operations.
@@ -58,8 +59,11 @@ CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   # end-to-end, local
 `scripts/smoke.sh` runs `wrangler dev` with local D1/R2 state under
 `.wrangler/` and checks `/healthz`, the uniform unauthenticated `401`, the
 unauthenticated `/me` redirect to `/login`, the three authenticated read
-routes, and the full publish / yank flow (first publish, idempotent
-re-publish, immutability conflict, yank transitions, artifact checksum). Prerequisites: `rustup target add wasm32-unknown-unknown`
+routes, the full publish / yank flow (first publish, idempotent
+re-publish, immutability conflict, yank transitions, artifact checksum),
+and the verification lifecycle (pending -> verify -> resolvable with a
+verify-scoped token, plus the reject -> reclaim -> refund -> republish
+flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node (for `npx wrangler`); `worker-build` installs itself on first build.
 
 `scripts/gen-fixtures.sh <dir>` builds the in-tree `cabin` binary and
