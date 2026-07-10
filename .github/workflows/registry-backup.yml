@@ -87,13 +87,20 @@ jobs:
             "primary:$PRIMARY_BUCKET/blobs" "backup:$BACKUP_BUCKET/blobs"
 
       - name: Upload the dump and its checksum
-        # Sidecar first: restore tooling selects dumps by their .sql.gz key
-        # and requires the sidecar, so the dump object may only appear once
-        # its checksum is already in place (an orphaned sidecar is inert).
+        # Ordered so every intermediate state keeps the newest *.sql.gz
+        # restorable, even across a same-day re-run that replaces an
+        # existing pair: clear the old pair (dump first), then land the new
+        # sidecar, then the new dump. Restore tooling selects dumps by
+        # their .sql.gz key, so an orphaned sidecar is inert and a dump
+        # only ever appears with its matching checksum already in place; a
+        # run cancelled mid-publish leaves the previous day's pair as the
+        # newest, and the fix for any half state is simply a re-run.
         env:
           RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
           RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
         run: |
+          rclone deletefile "backup:$BACKUP_BUCKET/d1/$DUMP" 2>/dev/null || true
+          rclone deletefile "backup:$BACKUP_BUCKET/d1/$DUMP.sha256" 2>/dev/null || true
           rclone copyto --s3-no-check-bucket "$DUMP.sha256" "backup:$BACKUP_BUCKET/d1/$DUMP.sha256"
           rclone copyto --s3-no-check-bucket "$DUMP" "backup:$BACKUP_BUCKET/d1/$DUMP"
 
