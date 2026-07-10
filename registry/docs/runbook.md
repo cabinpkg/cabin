@@ -79,14 +79,17 @@ authorization callback `https://dev-registry.cabinpkg.com/callback`). Its
 client id is public and lives in `wrangler.jsonc` (`env.dev.vars`,
 `GITHUB_CLIENT_ID`), next to `ALLOWED_GITHUB_IDS` (the numeric GitHub user
 ids allowed to sign in at `/me`); the wrangler secrets are the client
-secret, the session secret, and `ANALYTICS_API_TOKEN` for the budget cron
-(plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget breaker and service
-mode" for both).
+secret, the session secret, `ANALYTICS_API_TOKEN` for the budget cron,
+and `D1_EXPORT_API_TOKEN` for the nightly dump (plus the optional
+`NOTIFY_WEBHOOK_URL`; see "Budget breaker and service mode" and
+"Disaster recovery").
 
 ```sh
 npx wrangler d1 create cabin-registry-dev
-# copy the printed database_id into env.dev.d1_databases in wrangler.jsonc
+# copy the printed database_id into env.dev.d1_databases AND
+# env.dev.vars.D1_DATABASE_ID in wrangler.jsonc
 npx wrangler r2 bucket create cabin-registry-dev-blobs
+npx wrangler r2 bucket create cabin-registry-dev-backup
 npx wrangler d1 migrations apply DB --env dev --remote
 npx wrangler deploy --env dev
 # deploy creates the dev-registry.cabinpkg.com custom domain and its DNS
@@ -95,6 +98,7 @@ npx wrangler deploy --env dev
 printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env dev
 openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env dev
 printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
+printf '%s' "$D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN --env dev
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -123,7 +127,10 @@ included.
    ```sh
    npx wrangler d1 delete cabin-registry-dev -y
    npx wrangler d1 create cabin-registry-dev
-   # update the dev database_id in wrangler.jsonc with the new id
+   # update BOTH the dev database_id and vars.D1_DATABASE_ID in
+   # wrangler.jsonc with the new id (the nightly dump exports whatever
+   # database D1_DATABASE_ID names - a stale value backs up the wrong,
+   # deleted database)
    npx wrangler d1 migrations apply DB --env dev --remote
    ```
 
@@ -186,16 +193,21 @@ blobs, users, tokens) is never migrated or promoted to production.
 
    ```sh
    npx wrangler d1 create cabin-registry-prod
-   # copy the printed database_id into env.production.d1_databases
+   # copy the printed database_id into env.production.d1_databases AND
+   # env.production.vars.D1_DATABASE_ID
    npx wrangler r2 bucket create cabin-registry-prod-blobs
+   npx wrangler r2 bucket create cabin-registry-prod-backup
    npx wrangler d1 migrations apply DB --env production --remote
    npx wrangler deploy --env production
    printf '%s' "$PROD_GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env production
    openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env production
+   printf '%s' "$PROD_ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env production
+   printf '%s' "$PROD_D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN --env production
    ```
 
    The `SESSION_SECRET` must be freshly generated for production - never
-   reuse the dev value.
+   reuse the dev value. After the first nightly dump lands, run
+   `scripts/restore-drill.sh production` once (see "Disaster recovery").
 4. Verify: `/healthz` 200; the three data routes answer the uniform 401
    without a token; sign-in at `https://registry.cabinpkg.com/me` works and
    issues a token; an authenticated `config.json` read echoes
@@ -239,10 +251,15 @@ Cloudflare free limit:
 
 | Var | Default | Free limit |
 | --- | --- | --- |
-| `BUDGET_R2_STORAGE_BYTES` | 9 GiB | 10 GiB-month |
+| `BUDGET_R2_STORAGE_BYTES` | 4 GiB | 10 GiB-month |
 | `BUDGET_R2_CLASS_A_MONTH` | 800,000 | 1,000,000 / month |
 | `BUDGET_WORKERS_REQ_DAY` | 80,000 | 100,000 / day |
 | `BUDGET_D1_ROWS_READ_DAY` | 4,000,000 | 5,000,000 / day |
+
+The storage budget counts primary (BLOBS) bytes only, but every blob is
+stored a second time in the backup bucket and the nightly dumps add
+metadata copies there (see "Disaster recovery"), so its default stays
+under half the account-wide free limit.
 
 Overrides are ordinary per-environment `vars` entries in `wrangler.jsonc`
 and take effect on the next deploy.
@@ -264,6 +281,139 @@ working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
 a JSON summary POST on every mode change.
+
+## Disaster recovery
+
+Backups run entirely inside Cloudflare - R2/D1 bindings and one
+D1-scoped API token, no second vendor holding credentials. Production
+registry data is a permanent commitment, so this machinery exists and is
+rehearsed against dev before production launch (see
+[`verification.md`](verification.md)).
+
+**What is backed up, and how.**
+
+- **Archive blobs (RPO ~0).** After the primary R2 put succeeds, publish
+  replicates the blob to the per-environment backup bucket
+  (`cabin-registry-dev-backup` / `cabin-registry-prod-backup`, Worker
+  binding `BACKUP`) under the same `blobs/sha256/<hex>` key, off the
+  response path via `waitUntil`. Nothing in the service ever deletes
+  from the backup bucket - the primary's reclaim paths do not propagate -
+  so it is append-only, and a malicious or accidental deletion in the
+  primary cannot reach it. Replication is best-effort: a failed copy is
+  logged with its key in the `backup_replication_failures` table, the
+  breaker cron alerts while any row exists, and
+  `scripts/backup-backfill.sh <env>` re-copies everything missing and
+  clears each verified key from the log (only handled keys, so a
+  publish racing the backfill cannot have its fresh failure erased).
+  Run the backfill once when enabling backups on an environment with
+  existing data.
+- **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
+  runs a nightly logical dump from the Worker itself: it drives the D1
+  REST export endpoint (the same API `wrangler d1 export --remote`
+  uses) with the `D1_EXPORT_API_TOKEN` secret, follows the returned
+  signed URL, and streams the official `.sql` dump into the backup
+  bucket at `d1/<YYYY-MM-DD>.sql` with a `.sha256` sidecar (hash
+  computed while streaming). Success requires validation: non-empty,
+  every expected `CREATE TABLE` present, and the re-read object matching
+  the checksum; only then are `meta.last_backup_at` and
+  `meta.last_backup_key` updated. Retention, pruned in the same job: the
+  30 most recent daily dumps plus the first dump of each month for 12
+  months. The cron handler routes on the expression - the breaker's
+  `*/15 * * * *` exactly; anything else runs the dump job - so a
+  temporary extra schedule in `wrangler.jsonc` is all it takes to force
+  a dump for a rehearsal. One validated dump per date: a re-run on a
+  date whose dump is already recorded skips instead of re-exporting, so
+  a failed re-export can never overwrite the day's verified copy (a
+  failed attempt never records itself, and is overwritten by the next
+  try).
+- **Freshness alerting.** A backup system's classic failure is stopping
+  silently, so every breaker pass evaluates backup health: it logs an
+  error and POSTs to `NOTIFY_WEBHOOK_URL` (when configured) while
+  `meta.last_backup_at` is older than 36 h (or missing) or the
+  replication failure log is non-empty; the webhook payload always
+  carries a `backup` block with `last_backup_at`, `freshness`, and the
+  failure count. Note the alert also fires between provisioning and the
+  first nightly pass - that is the "no dump recorded yet" state working
+  as intended.
+
+**The `D1_EXPORT_API_TOKEN` secret** is a custom API token whose only
+permission is Account | D1 | Edit, scoped to this single account: it can
+export (and at worst rewrite) D1 databases, nothing else - no Workers,
+R2, or zone access, so the Worker holding it cannot escalate. Rotate it
+like `ANALYTICS_API_TOKEN`: create the replacement token first, `wrangler
+secret put D1_EXPORT_API_TOKEN --env <env>` with the new value, then
+delete the old token in the dashboard. While the token is broken or
+absent the nightly job fails, which the freshness alert surfaces within
+36 h.
+
+**The three loss scenarios, and the recovery order.** Work down the
+list; each later option covers a case the earlier one cannot.
+
+1. **Bad deploy or migration** (data mangled in place, storage intact):
+   use **D1 Time Travel** first. It is always on for production-version
+   D1 databases with point-in-time restore at one-minute granularity -
+   retention 7 days on the Workers free plan, 30 days on paid (verified
+   against the Cloudflare docs 2026-07-10; re-check retention when
+   planning an incident response). Restore is destructive and in-place:
+
+   ```sh
+   npx wrangler d1 time-travel info cabin-registry-dev
+   npx wrangler d1 time-travel restore cabin-registry-dev --timestamp=<unix-ts>
+   ```
+
+   Blobs need nothing - R2 is untouched by a bad deploy, and archives
+   are immutable and content-addressed.
+2. **Accidental wipe of the wrong environment** (database deleted, or
+   overwritten beyond Time Travel's window): create a fresh database,
+   import the newest dump, re-point the config, redeploy - exactly what
+   `scripts/restore-drill.sh` rehearses against a scratch database:
+   download `meta.last_backup_key`... except after a real wipe that
+   meta row is gone too; list the backup bucket's `d1/` prefix and take
+   the newest date **whose `.sha256` sidecar exists and verifies**. The
+   sidecar is written strictly after validation and the job deletes an
+   invalid dump object again, so a failed export attempt cannot
+   masquerade as a good dump. Then `wrangler d1 execute <db> --remote
+   --file <dump>.sql`, update `database_id` + `D1_DATABASE_ID` in
+   `wrangler.jsonc`, `wrangler deploy`. Loss bounded by the nightly
+   cadence: at most 24 h of metadata. Blobs are still in both buckets.
+3. **Primary-bucket data loss** (bucket deleted or objects destroyed):
+   the backup bucket is the artifact store of last resort. Recreate the
+   primary bucket, then copy `blobs/sha256/*` back (the inverse of
+   `scripts/backup-backfill.sh` - same loop with source and destination
+   swapped, driven by the checksums in D1), and restore D1 from Time
+   Travel or the newest dump as above. Because blobs are
+   content-addressed and never mutated, the copied-back objects are
+   byte-identical to what clients pinned in lockfiles.
+
+**RPO / recovery time.** Blobs: RPO ~0 (replicated at publish; the
+failure log plus backfill close the gaps). Metadata: RPO <= 24 h from
+the nightly dump, and effectively minutes when Time Travel applies.
+Recovery time is dominated
+by operator response, not data volume, at today's scale: a Time Travel
+restore is minutes; a dump import plus redeploy is well under an hour
+(the drill's import of the dev dump takes seconds); copying blobs back
+is bounded by object count - budget roughly an hour per few thousand
+blobs with the wrangler loop, less with an S3-compatible bulk tool.
+
+**Rehearsal.** `scripts/restore-drill.sh <env>` downloads the latest
+dump, verifies the sidecar checksum, imports it into a scratch D1
+database (`cabin-registry-drill`), compares per-table row counts against
+the live database, spot-checks one version's `metadata_json`
+byte-for-byte, and deletes the scratch database. Run it after enabling
+backups, after changing the dump machinery, and periodically before
+production milestones; record runs in
+[`verification.md`](verification.md). Row counts legitimately drift on
+an active database (the dump is nightly) - investigate only differences
+the timeline cannot explain.
+
+**Known limitation - account-level compromise.** Everything above lives
+in one Cloudflare account, and no in-account (or in-account-targeting)
+pipeline can defend against losing the account itself: a compromised
+operator account or a hostile account closure takes primary and backup
+alike. The future hedge is an off-Cloudflare copy of the backup bucket -
+e.g. an `rclone` sync to Backblaze B2's free tier or to local disk,
+pulling with read-only credentials from outside - accepted as a
+follow-up before production carries data that cannot be re-published.
 
 ## Backfilling migration 0002
 
