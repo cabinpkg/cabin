@@ -8,7 +8,7 @@ the service.
 ## Storage
 
 - **D1 is canonical.** Users, tokens, packages, versions, and the `meta`
-  key-value table all live in one D1 database (`migrations/0001_init.sql`).
+  key-value table all live in one D1 database (`migrations/`).
   Everything the read routes serve is composed from D1 rows; in particular
   each version's canonical index entry is stored verbatim at publish time in
   `versions.metadata_json`, and only its `yanked` field is overwritten from
@@ -114,14 +114,83 @@ the in-tree `cabin` binary and packages real fixture pairs, which the
 through the full server-side validation path, so the client's canonical
 output and the server's schema cannot silently drift.
 
+## Billing model and the budget breaker
+
+The service runs on the Workers **free** plan on purpose. Workers requests
+and D1 fail closed on their own when the free limits are hit - without
+billing attached they cannot produce a bill. The only real billing exposure
+is R2 overage: storage and Class A (write/list) operations. The service
+therefore blocks itself gracefully *before* any Cloudflare limit or R2
+overage is reached, in two layers.
+
+**Per-user quotas** stop any single user from exhausting the shared free
+budget. `users.plan` (default `'free'`) selects a quota set from the map in
+`src/quota.rs` - per-archive bytes, total stored bytes per user, new
+packages per day, total packages, versions per package per day, and a
+publish token bucket (burst plus per-minute refill, state on the token row
+in `tokens.rl_tokens` / `tokens.rl_updated_at`). Daily windows are UTC
+calendar days. Publish enforces, in order: the budget gate (`402`), scope
+(`403`), the rate limit (`429`, `Retry-After`, charged per attempt),
+framing (`400`), metadata and checksum (`400`), the idempotent no-op /
+immutability wall (`200`/`409`), then - for genuinely new versions only -
+the archive-size cap (`413`) and the storage, package, and version quotas
+(`403` with per-quota envelope codes) - so a byte-identical re-publish,
+including one grandfathered above a later cap, never consumes quota. Attribution rides on
+`versions.published_by`, `versions.archive_size`, and `packages.created_by`
+(migration `0002`; `scripts/backfill-0002.sh` fills them for pre-migration
+rows). The bucket take is persisted as a compare-and-swap on the token
+row (retried up to a burst's worth of lost races), so concurrent requests
+cannot spend one snapshot twice, and the storage self-accounting is
+decided inside the write batch itself - the meta bump counts an archive
+only when the just-inserted row is the checksum's sole reference, so
+concurrent duplicate archives cannot double-count. The count quotas stay
+a preflight on purpose - concurrent publishes can overshoot a near-limit
+quota by at most the in-flight request count, which the bucket burst
+bounds per token (an allowlisted user holding several tokens scales that
+by their token count) and the budget headroom absorbs.
+
+**The service-wide breaker** compares usage against budgets set comfortably
+below the free limits (`src/breaker.rs`; the `BUDGET_*` env vars override
+the in-code defaults). Storage usage is **exact self-accounting**: the
+publish batch adds a blob's size to `meta.total_stored_bytes` the first
+time a version row references its checksum (so a retry after a crash
+between the R2 and D1 writes still counts the blob, and deduplicated
+re-use under a second name never double-counts it), so the one metric
+with direct billing exposure never depends on analytics. A missing or
+corrupt counter reads as unavailable data - never as zero - so it can
+keep or escalate the persisted mode but never unblock writes. Orphaned
+blobs (a crash or lost publish race that never commits the D1 rows) sit
+outside the counter on purpose; the budget headroom absorbs that bounded
+drift, and the runbook's backfill script doubles as the reconciliation
+tool. The other metrics (Workers requests/day, R2
+Class A operations/month, D1 rows read/day) come from the Cloudflare
+GraphQL Analytics API, queried by a cron pass every 15 minutes
+(`src/analytics.rs` holds the dataset names; a rejected dataset degrades to
+"metric unavailable", and partial data can escalate the mode but never
+de-escalate it - missing analytics never unblocks writes).
+
+Degradation order: `normal` -> `warn` (any metric at 80% of budget) ->
+`writes_blocked` (any metric at budget). The mode and a human-readable
+reason live in `meta.service_mode` / `meta.service_mode_reason`; mode
+changes are logged and optionally POSTed to `NOTIFY_WEBHOOK_URL`. On the
+request path, publish and yank read the mode through an isolate-memory
+cache (~60 s TTL, one D1 point read on expiry; dev pins
+`SERVICE_MODE_TTL_SECS` to 0 for the smoke test) and answer
+`402 registry_over_budget` with `Retry-After` while blocked. Writes fail
+closed - an unreadable or unknown mode blocks them - while reads never
+consult the mode at all, so they fail open and yanked-state and downloads
+keep working throughout an outage of the breaker itself.
+
 ## Code layout
 
 Domain logic - token hashing, formatting, and scopes (`src/auth.rs`), route
 matching and path-component validation (`src/routes.rs`), document
 composition (`src/documents.rs`), the error envelope (`src/error.rs`),
 cookie/CSRF signing (`src/session.rs`), the sign-in allowlist
-(`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`) -
-compiles and unit-tests on the host target. The Cloudflare glue
+(`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`), the
+quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), and
+the analytics query shapes (`src/analytics.rs`) - compiles and unit-tests
+on the host target. The Cloudflare glue
 (`src/glue.rs` for the data plane, `src/web_glue.rs` for the web plane,
 wasm32 only) is thin binding-and-I/O wiring covered by
 `scripts/smoke.sh`. Path

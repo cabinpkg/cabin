@@ -52,6 +52,61 @@ pub fn simple_page(title: &str, message: &str) -> String {
     )
 }
 
+/// The `/me` usage block: the user's plan, current consumption, and the
+/// plan's quota values.
+pub struct UsageInfo {
+    pub plan: String,
+    pub package_count: u64,
+    pub stored_bytes: u64,
+    pub published_today: u64,
+    pub quotas: crate::quota::PlanQuotas,
+}
+
+/// `bytes` for humans: the largest binary unit with one decimal.
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KiB", "MiB", "GiB"];
+    #[allow(clippy::cast_precision_loss)] // display only
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {unit}", unit = UNITS[unit])
+    }
+}
+
+/// The usage-and-quotas section of the `/me` page.
+fn usage_section(usage: &UsageInfo) -> String {
+    let quotas = &usage.quotas;
+    format!(
+        "<h2>Usage</h2><table>\
+         <tr><th>Plan</th><td>{plan}</td></tr>\
+         <tr><th>Packages</th><td>{package_count} of {max_packages}</td></tr>\
+         <tr><th>Stored archives</th><td>{stored} of {max_stored}</td></tr>\
+         <tr><th>Versions published today</th><td>{published_today}</td></tr>\
+         </table>\
+         <p>Limits: archives up to {max_archive} each; at most\
+         \u{20}{max_versions_day} versions per package and {max_new_day} new\
+         \u{20}packages per day; publishes refill at {refill} per minute with\
+         \u{20}a burst of {burst}.</p>",
+        plan = escape_html(&usage.plan),
+        package_count = usage.package_count,
+        max_packages = quotas.max_packages_total,
+        stored = format_bytes(usage.stored_bytes),
+        max_stored = format_bytes(quotas.max_total_bytes_per_user),
+        published_today = usage.published_today,
+        max_archive = format_bytes(quotas.max_archive_bytes),
+        max_versions_day = quotas.max_versions_per_package_per_day,
+        max_new_day = quotas.max_new_packages_per_day,
+        refill = quotas.publish_refill_per_minute,
+        burst = quotas.publish_burst,
+    )
+}
+
 /// One token row of the `/me` page, straight from the `tokens` table.
 /// Never carries the token hash - the page has no use for it.
 pub struct TokenRow {
@@ -63,9 +118,10 @@ pub struct TokenRow {
     pub revoked: bool,
 }
 
-/// The `/me` page: the signed-in user's tokens plus the create-token form.
-/// `csrf` is embedded as a hidden field in every form.
-pub fn me_page(login: &str, tokens: &[TokenRow], csrf: &str) -> String {
+/// The `/me` page: the signed-in user's usage and quotas, their tokens,
+/// and the create-token form. `csrf` is embedded as a hidden field in
+/// every form.
+pub fn me_page(login: &str, usage: &UsageInfo, tokens: &[TokenRow], csrf: &str) -> String {
     let mut rows = String::new();
     for token in tokens {
         let action = if token.revoked {
@@ -107,6 +163,7 @@ pub fn me_page(login: &str, tokens: &[TokenRow], csrf: &str) -> String {
         &format!(
             "<h1>Cabin registry</h1>\
              <p>Signed in as <strong>{login}</strong>.</p>\
+             {usage}\
              <h2>Tokens</h2>{table}\
              <h2>Create a token</h2>\
              <p>Every token grants read access; the scopes below add the\
@@ -118,6 +175,7 @@ pub fn me_page(login: &str, tokens: &[TokenRow], csrf: &str) -> String {
              \u{20}<label><input type=\"checkbox\" name=\"scope_yank\"> yank</label></p>\
              <p><button>Create token</button></p></form>",
             login = escape_html(login),
+            usage = usage_section(usage),
             csrf = escape_html(csrf),
         ),
     )
@@ -164,9 +222,69 @@ mod tests {
         }
     }
 
+    fn usage_fixture() -> UsageInfo {
+        UsageInfo {
+            plan: "free".to_owned(),
+            package_count: 3,
+            stored_bytes: 12 * 1024 * 1024,
+            published_today: 2,
+            quotas: crate::quota::quotas_for_plan("free"),
+        }
+    }
+
+    #[test]
+    fn format_bytes_picks_the_binary_unit() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1.0 KiB");
+        assert_eq!(format_bytes(16 * 1024 * 1024), "16.0 MiB");
+        assert_eq!(format_bytes(256 * 1024 * 1024), "256.0 MiB");
+        assert_eq!(format_bytes(9 * 1024 * 1024 * 1024), "9.0 GiB");
+    }
+
+    #[test]
+    fn me_page_renders_the_usage_and_quota_values() {
+        let body = me_page("octocat", &usage_fixture(), &[], "csrf-token");
+        assert!(
+            body.contains("<tr><th>Plan</th><td>free</td></tr>"),
+            "body: {body}"
+        );
+        assert!(body.contains("<td>3 of 50</td>"), "body: {body}");
+        assert!(
+            body.contains("<td>12.0 MiB of 256.0 MiB</td>"),
+            "body: {body}"
+        );
+        assert!(
+            body.contains("<tr><th>Versions published today</th><td>2</td></tr>"),
+            "body: {body}"
+        );
+        // The plan's remaining quota values appear in the limits line.
+        assert!(
+            body.contains("archives up to 16.0 MiB each"),
+            "body: {body}"
+        );
+        assert!(body.contains("30 versions per package"), "body: {body}");
+        assert!(body.contains("5 new packages per day"), "body: {body}");
+        assert!(
+            body.contains("refill at 1 per minute with a burst of 5"),
+            "body: {body}"
+        );
+    }
+
+    #[test]
+    fn me_page_escapes_a_hostile_plan_value() {
+        let usage = UsageInfo {
+            plan: "<b>free</b>".to_owned(),
+            ..usage_fixture()
+        };
+        let body = me_page("octocat", &usage, &[], "csrf-token");
+        assert!(body.contains("&lt;b&gt;free&lt;/b&gt;"), "body: {body}");
+        assert!(!body.contains("<b>free</b>"), "body: {body}");
+    }
+
     #[test]
     fn me_page_escapes_token_names() {
-        let body = me_page("octocat", &[hostile_row()], "csrf-token");
+        let body = me_page("octocat", &usage_fixture(), &[hostile_row()], "csrf-token");
         assert!(!body.contains("<script>"), "body: {body}");
         assert!(
             body.contains("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;"),
@@ -185,7 +303,7 @@ mod tests {
             last_used_at: Some("\"<b>\"".to_owned()),
             ..hostile_row()
         };
-        let body = me_page("octocat", &[row], "csrf-token");
+        let body = me_page("octocat", &usage_fixture(), &[row], "csrf-token");
         assert!(body.contains("<td>read-only</td>"), "body: {body}");
         assert!(body.contains("&lt;i&gt;now&lt;/i&gt;"), "body: {body}");
         assert!(body.contains("&quot;&lt;b&gt;&quot;"), "body: {body}");
@@ -196,7 +314,7 @@ mod tests {
             scopes: "<em>publish</em>".to_owned(),
             ..hostile_row()
         };
-        let body = me_page("octocat", &[hostile_scopes], "csrf-token");
+        let body = me_page("octocat", &usage_fixture(), &[hostile_scopes], "csrf-token");
         assert!(
             body.contains("&lt;em&gt;publish&lt;/em&gt;"),
             "body: {body}"
@@ -206,7 +324,7 @@ mod tests {
 
     #[test]
     fn me_page_escapes_the_login_and_embeds_the_csrf_field() {
-        let body = me_page("a<b", &[], "csrf-token");
+        let body = me_page("a<b", &usage_fixture(), &[], "csrf-token");
         assert!(body.contains("a&lt;b"), "body: {body}");
         assert!(
             body.contains("<input type=\"hidden\" name=\"csrf\" value=\"csrf-token\">"),
@@ -222,7 +340,12 @@ mod tests {
             revoked: true,
             ..hostile_row()
         };
-        let body = me_page("octocat", &[active, revoked], "csrf-token");
+        let body = me_page(
+            "octocat",
+            &usage_fixture(),
+            &[active, revoked],
+            "csrf-token",
+        );
         assert!(
             body.contains("action=\"/me/tokens/abc123/revoke\""),
             "body: {body}"

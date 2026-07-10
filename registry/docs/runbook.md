@@ -8,10 +8,12 @@ cabinpkg.com zone).
 ## Data policy
 
 - **dev (`dev-registry.cabinpkg.com`): disposable.** When the storage format
-  changes - D1 schema, `metadata_json` shape, R2 key layout - the dev
-  environment is wiped and recreated. There is deliberately no migration code
-  for dev-format changes; `migrations/` only ever describes the current
-  schema from scratch.
+  changes incompatibly - `metadata_json` shape, R2 key layout, reshaped D1
+  columns - the dev environment is wiped and recreated rather than migrated.
+  Additive schema changes ship as ordinary migrations (e.g.
+  `0002_quotas.sql`); where an additive migration leaves columns to
+  backfill, a one-shot script is provided (see "Backfilling migration
+  0002") so wiping stays optional.
 - **production (`registry.cabinpkg.com`): permanent.** Published archives and
   index state are never wiped, mutated, or deleted. Once production carries
   real data, format changes need real migrations - which is exactly why the
@@ -90,8 +92,11 @@ included.
    go one at a time:
 
    ```sh
-   npx wrangler r2 object delete cabin-registry-dev-blobs/blobs/sha256/<hex>
+   npx wrangler r2 object delete cabin-registry-dev-blobs/blobs/sha256/<hex> --remote
    ```
+
+   (`r2 object` commands default to local `.wrangler/` state; `--remote`
+   targets the deployed bucket.)
 
    For a full wipe use the Cloudflare dashboard (R2 ->
    `cabin-registry-dev-blobs` -> delete the `blobs/` folder): `wrangler r2
@@ -159,14 +164,84 @@ blobs, users, tokens) is never migrated or promoted to production.
 5. From production's first real publish onward, the data policy above is
    binding: no wipes, no deletes, format changes need real migrations.
 
+## Budget breaker and service mode
+
+The scheduled handler (cron, every 15 minutes) evaluates usage against the
+free-plan budgets and persists the result to `meta.service_mode`
+(`normal` | `warn` | `writes_blocked`) with a human-readable
+`meta.service_mode_reason` (`docs/architecture.md`, "Billing model and the
+budget breaker"). Inspect it:
+
+```sh
+npx wrangler d1 execute DB --env dev --remote --command \
+  "SELECT key, value FROM meta WHERE key IN
+   ('service_mode', 'service_mode_reason', 'total_stored_bytes')"
+```
+
+Override it (for example to force-block writes during an incident, or to
+unblock after freeing storage):
+
+```sh
+npx wrangler d1 execute DB --env dev --remote --command \
+  "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
+```
+
+Two caveats. First, the next cron pass **overwrites** a manual override
+with its own evaluation (within 15 minutes when analytics are healthy), so
+an override is a stopgap, not a switch; to keep writes blocked durably,
+lower the matching `BUDGET_*` var and redeploy. Second, the request path
+caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; dev
+pins it to 0), so an override can take up to a minute to bite in
+production.
+
+The analytics-sourced metrics need the `ANALYTICS_API_TOKEN` secret (an
+API token with Account Analytics Read):
+
+```sh
+printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
+```
+
+Without it the cron logs the skip, evaluates on the exact self-accounted
+storage alone, and never de-escalates the persisted mode on the missing
+data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive a JSON
+summary POST on every mode change.
+
+## Backfilling migration 0002
+
+Migration `0002_quotas.sql` adds `versions.archive_size`,
+`versions.published_by`, and `packages.created_by` with `0` defaults, and
+seeds `meta.total_stored_bytes` at `'0'`. Pre-existing rows therefore carry no
+usage attribution until either the environment is wiped (dev policy above)
+or the one-shot backfill runs:
+
+```sh
+scripts/backfill-0002.sh dev        # or production
+```
+
+It sizes each distinct archive blob via `wrangler r2 object get`, writes
+`archive_size` per checksum, attributes every unattributed version and
+package (`published_by`, `created_by`) to the sole existing user (it
+refuses to guess when several users exist), and sets
+`meta.total_stored_bytes` to the sum of the distinct blob sizes. Re-running
+it is safe; quotas under-count until it has run.
+
 ## Orphaned R2 blobs
 
 Publish writes the R2 blob before the D1 rows, so a crash between the two
 writes can leave a blob no `versions` row references. That is harmless,
 content-addressed garbage: it is unreachable through the API (artifact
-lookups go through D1), a retried publish reuses it instead of re-uploading,
-and there is deliberately no garbage collection. Ignore such blobs, or
-delete them manually from the dashboard if the storage ever bothers you.
+lookups go through D1), a retried publish reuses it instead of re-uploading
+(and counts it into `meta.total_stored_bytes` at that point), and there is
+deliberately no garbage collection. Ignore such blobs, or delete them
+manually from the dashboard if the storage ever bothers you.
+
+Orphaned bytes are also invisible to the storage self-accounting - the
+counter tracks referenced blobs only, by design ("never analytics"), and
+the storage budget's headroom below the free limit absorbs the bounded
+drift. If the dashboard's bucket size ever diverges noticeably from
+`meta.total_stored_bytes`, delete the orphans and re-run
+`scripts/backfill-0002.sh`, which recomputes the counter from the
+referenced blobs.
 
 ## Logs
 

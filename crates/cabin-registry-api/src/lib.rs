@@ -228,7 +228,10 @@ impl RegistryApi {
                 Ok(status)
             }
             Err(ureq::Error::Status(status, response)) => {
-                let detail = envelope_detail(response);
+                let (detail, code) = match envelope_entry(response) {
+                    Some(entry) => (Some(entry.detail), entry.code),
+                    None => (None, None),
+                };
                 Err(match status {
                     400 => RegistryApiError::BadRequest { detail },
                     401 if self.token.is_some() => RegistryApiError::TokenRejected {
@@ -240,10 +243,16 @@ impl RegistryApi {
                     // A tokenless 403 is not the protocol's
                     // missing-scope case (no scope was presented), so
                     // it keeps the generic mapping - same rule as the
-                    // read path.
-                    403 if self.token.is_some() => RegistryApiError::MissingScope {
-                        origin: self.origin.clone(),
-                    },
+                    // read path. A 403 carrying a machine-readable
+                    // `code` is a quota refusal
+                    // (`docs/remote-registry.md`, "Error envelope"),
+                    // not a scope problem: fall through to the generic
+                    // mapping so the envelope detail reaches the user.
+                    403 if self.token.is_some() && code.is_none() => {
+                        RegistryApiError::MissingScope {
+                            origin: self.origin.clone(),
+                        }
+                    }
                     404 => RegistryApiError::NotFound {
                         name: name.to_owned(),
                         version: version.to_string(),
@@ -295,7 +304,8 @@ pub fn encode_publish_body(
 }
 
 /// Serde shape of the protocol's error envelope:
-/// `{"errors":[{"detail":"..."}]}`.
+/// `{"errors":[{"detail":"...","code":"..."}]}`; `code` is the optional
+/// machine-readable refusal code quota and budget errors carry.
 #[derive(Deserialize)]
 struct ErrorEnvelope {
     errors: Vec<ErrorEntry>,
@@ -304,12 +314,14 @@ struct ErrorEnvelope {
 #[derive(Deserialize)]
 struct ErrorEntry {
     detail: String,
+    #[serde(default)]
+    code: Option<String>,
 }
 
 /// Read a non-2xx response body (capped) and extract the first error
-/// envelope `detail`.  A malformed or missing envelope yields `None`,
-/// so the caller's message degrades to the raw status.
-fn envelope_detail(response: ureq::Response) -> Option<String> {
+/// envelope entry.  A malformed or missing envelope yields `None`, so
+/// the caller's message degrades to the raw status.
+fn envelope_entry(response: ureq::Response) -> Option<ErrorEntry> {
     let mut body = Vec::new();
     response
         .into_reader()
@@ -317,7 +329,7 @@ fn envelope_detail(response: ureq::Response) -> Option<String> {
         .read_to_end(&mut body)
         .ok()?;
     let envelope: ErrorEnvelope = serde_json::from_slice(&body).ok()?;
-    envelope.errors.into_iter().next().map(|entry| entry.detail)
+    envelope.errors.into_iter().next()
 }
 
 /// Append the server's envelope `detail` to a base message when one
@@ -673,6 +685,31 @@ mod tests {
             other => panic!("expected MissingScope, got {other:?}"),
         }
         assert!(err.to_string().contains("scope"), "{err}");
+    }
+
+    /// A 403 whose envelope carries a machine-readable `code` is a quota
+    /// refusal, not the missing-scope case: the detail must reach the
+    /// user instead of the misleading scope message.
+    #[test]
+    fn publish_surfaces_coded_403_quota_refusals() {
+        let mock = MockApi::respond_with(
+            403,
+            r#"{"errors":[{"detail":"the plan's total package quota is exhausted","code":"quota_packages_total"}]}"#,
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::ServerError { status: 403, .. } => {}
+            other => panic!("expected the generic mapping, got {other:?}"),
+        }
+        assert!(
+            err.to_string()
+                .contains("the plan's total package quota is exhausted"),
+            "expected the quota detail in: {err}"
+        );
+        assert!(!err.to_string().contains("scope"), "{err}");
     }
 
     /// A well-formed envelope's `detail` reaches the 400 message; a

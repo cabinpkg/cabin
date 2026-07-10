@@ -23,6 +23,12 @@ pub struct AuthContext {
     pub token_id: String,
     pub user_id: i64,
     pub scopes: Vec<Scope>,
+    /// The user's quota plan (`users.plan`); `crate::quota` maps it to
+    /// the enforced limits.
+    pub plan: String,
+    /// Publish token-bucket state from the token row, `None` for a token
+    /// that has never published.
+    pub bucket: Option<crate::quota::Bucket>,
 }
 
 /// Extracts the token from an `Authorization` header value, accepting only

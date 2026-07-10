@@ -9,9 +9,9 @@ use worker::{
     D1Database, Env, Fetch, FormData, FormEntry, Headers, Method, Request, RequestInit, Response,
 };
 
-use crate::glue::now_iso8601;
+use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::WebRoute;
-use crate::{allowlist, auth, pages, session};
+use crate::{allowlist, auth, pages, quota, session};
 
 /// Routes one browser-plane request; the method check happens here, the
 /// path already matched in [`crate::routes::match_web_route`].
@@ -120,18 +120,50 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
     redirect_response(302, "/me", &[cookie, clear_state])
 }
 
-/// `GET /me`: the token list plus the create-token form, session required.
+/// `GET /me`: the usage-and-quotas block, the token list, and the
+/// create-token form; session required.
 async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
     let Some(session) = session_from_request(req, env)? else {
         return redirect_response(302, "/login", &[]);
     };
     let user: Option<UserRecord> = db
-        .prepare("SELECT login FROM users WHERE github_id = ?1")
+        .prepare("SELECT login, plan FROM users WHERE github_id = ?1")
         .bind(&[js_int(session.github_id)])?
         .first(None)
         .await?;
     let Some(user) = user else {
         return redirect_response(302, "/login", &[]);
+    };
+    // "Today" is the UTC calendar day, the same lexicographic window the
+    // publish quotas use; a non-ISO clock (impossible in practice) only
+    // zeroes the today counter. The package count matches the quota
+    // semantics: packages the user created, not merely published into.
+    let now = now_iso8601();
+    let day_prefix = quota::utc_day_prefix(&now).unwrap_or(&now);
+    let usage_record: Option<UsageRecord> = db
+        .prepare(
+            "SELECT COALESCE(SUM(archive_size), 0) AS stored_bytes, \
+             COALESCE(SUM(CASE WHEN published_at >= ?2 THEN 1 ELSE 0 END), 0) AS published_today \
+             FROM versions WHERE published_by = ?1",
+        )
+        .bind(&[js_int(session.github_id), day_prefix.into()])?
+        .first(None)
+        .await?;
+    let usage_record = usage_record.unwrap_or(UsageRecord {
+        stored_bytes: 0,
+        published_today: 0,
+    });
+    let package_record: Option<PackageCountRecord> = db
+        .prepare("SELECT COUNT(*) AS n FROM packages WHERE created_by = ?1")
+        .bind(&[js_int(session.github_id)])?
+        .first(None)
+        .await?;
+    let usage = pages::UsageInfo {
+        quotas: quota::quotas_for_plan(&user.plan),
+        plan: user.plan,
+        package_count: non_negative(package_record.map_or(0, |record| record.n)),
+        stored_bytes: non_negative(usage_record.stored_bytes),
+        published_today: non_negative(usage_record.published_today),
     };
     let records: Vec<TokenListRecord> = db
         .prepare(
@@ -154,7 +186,7 @@ async fn me(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Respons
         })
         .collect();
     let csrf = session::csrf_token(&session_secret(env)?, &session);
-    html_response(200, &pages::me_page(&user.login, &rows, &csrf))
+    html_response(200, &pages::me_page(&user.login, &usage, &rows, &csrf))
 }
 
 /// `POST /me/tokens`: issue a token. The plaintext is rendered exactly
@@ -228,6 +260,18 @@ async fn revoke_token(
 #[derive(Deserialize)]
 struct UserRecord {
     login: String,
+    plan: String,
+}
+
+#[derive(Deserialize)]
+struct UsageRecord {
+    stored_bytes: i64,
+    published_today: i64,
+}
+
+#[derive(Deserialize)]
+struct PackageCountRecord {
+    n: i64,
 }
 
 #[derive(Deserialize)]
@@ -411,13 +455,6 @@ fn random_bytes<const N: usize>() -> worker::Result<[u8; N]> {
     let mut bytes = [0u8; N];
     array.copy_to(&mut bytes);
     Ok(bytes)
-}
-
-/// A numeric D1 binding. D1 has no `BigInt` support, so the id rides as a
-/// float; GitHub ids sit far below 2^53, where f64 is exact.
-#[allow(clippy::cast_precision_loss)]
-fn js_int(value: i64) -> worker::wasm_bindgen::JsValue {
-    worker::wasm_bindgen::JsValue::from_f64(value as f64)
 }
 
 fn url_encode(value: &str) -> String {
