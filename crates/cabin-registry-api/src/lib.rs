@@ -70,6 +70,16 @@ pub enum PublishOutcome {
     AlreadyPublished,
 }
 
+/// A successful publish: the outcome plus the response body's optional
+/// `"verification"` field, read tolerantly - `Some("pending")` on a
+/// registry with the asynchronous verification lifecycle, `None` on one
+/// without it (or an unreadable body).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishReceipt {
+    pub outcome: PublishOutcome,
+    pub verification: Option<String>,
+}
+
 impl RegistryApi {
     /// Build a client for the registry API at `api_url` (the `api`
     /// field of the registry's `config.json`), attaching `token` to
@@ -142,20 +152,27 @@ impl RegistryApi {
         version: &semver::Version,
         metadata_json: &[u8],
         archive: &[u8],
-    ) -> Result<PublishOutcome, RegistryApiError> {
+    ) -> Result<PublishReceipt, RegistryApiError> {
         let url = self.package_route(name, version, "")?;
         let body = encode_publish_body(metadata_json, archive)?;
         let request = self
             .request("PUT", &url)
             .set("Content-Type", "application/octet-stream");
-        match self.send(request.send_bytes(&body), name, version)? {
-            201 => Ok(PublishOutcome::Created),
-            200 => Ok(PublishOutcome::AlreadyPublished),
-            status => Err(RegistryApiError::ServerError {
-                status,
-                detail: None,
-            }),
-        }
+        let (status, response) = self.send(request.send_bytes(&body), name, version)?;
+        let outcome = match status {
+            201 => PublishOutcome::Created,
+            200 => PublishOutcome::AlreadyPublished,
+            status => {
+                return Err(RegistryApiError::ServerError {
+                    status,
+                    detail: None,
+                });
+            }
+        };
+        Ok(PublishReceipt {
+            outcome,
+            verification: verification_field(response),
+        })
     }
 
     /// `PATCH <api>/api/v1/packages/<name>/<version>/yank` with a
@@ -180,8 +197,8 @@ impl RegistryApi {
             .request("PATCH", &url)
             .set("Content-Type", "application/json");
         match self.send(request.send_string(&body), name, version)? {
-            200 => Ok(()),
-            status => Err(RegistryApiError::ServerError {
+            (200, _) => Ok(()),
+            (status, _) => Err(RegistryApiError::ServerError {
                 status,
                 detail: None,
             }),
@@ -218,15 +235,15 @@ impl RegistryApi {
         request
     }
 
-    /// Map a `ureq` result into either a success status (2xx, for the
-    /// caller to interpret) or the typed error for the shared
-    /// protocol statuses.
+    /// Map a `ureq` result into either a success status (2xx, with the
+    /// response for the caller to interpret) or the typed error for
+    /// the shared protocol statuses.
     fn send(
         &self,
         result: Result<ureq::Response, ureq::Error>,
         name: &str,
         version: &semver::Version,
-    ) -> Result<u16, RegistryApiError> {
+    ) -> Result<(u16, ureq::Response), RegistryApiError> {
         match result {
             Ok(response) => {
                 let status = response.status();
@@ -238,7 +255,7 @@ impl RegistryApi {
                         detail: None,
                     });
                 }
-                Ok(status)
+                Ok((status, response))
             }
             Err(ureq::Error::Status(status, response)) => {
                 // `Retry-After` (delta seconds) rides on the 402 and 429
@@ -353,6 +370,30 @@ struct ErrorEntry {
     detail: String,
     #[serde(default)]
     code: Option<String>,
+}
+
+/// Serde shape of a publish success body's optional `"verification"`
+/// field; every other field is ignored on purpose - a registry without
+/// the verification lifecycle simply omits it.
+#[derive(Deserialize)]
+struct PublishSuccessBody {
+    #[serde(default)]
+    verification: Option<String>,
+}
+
+/// Read a publish success body (capped like the error envelope) and
+/// extract its optional `"verification"` field tolerantly: a missing,
+/// oversized, or malformed body yields `None` rather than an error.
+fn verification_field(response: ureq::Response) -> Option<String> {
+    let mut body = Vec::new();
+    response
+        .into_reader()
+        .take(MAX_ERROR_BODY_BYTES)
+        .read_to_end(&mut body)
+        .ok()?;
+    serde_json::from_slice::<PublishSuccessBody>(&body)
+        .ok()?
+        .verification
 }
 
 /// Read a non-2xx response body (capped) and extract the first error
@@ -678,11 +719,13 @@ mod tests {
         let metadata = br#"{"schema":1,"name":"fmt","version":"10.2.1"}"#;
         let archive = b"\x1f\x8b\x08\x00fake-gzip-bytes";
 
-        let outcome = mock
+        let receipt = mock
             .client(Some(token()))
             .publish("fmt", &version("10.2.1"), metadata, archive)
             .unwrap();
-        assert_eq!(outcome, PublishOutcome::Created);
+        assert_eq!(receipt.outcome, PublishOutcome::Created);
+        // No "verification" field: a registry without the lifecycle.
+        assert_eq!(receipt.verification, None);
 
         let captured = mock.captured();
         assert_eq!(captured.method, "PUT");
@@ -704,11 +747,49 @@ mod tests {
     #[test]
     fn publish_maps_200_to_already_published() {
         let mock = MockApi::respond_with(200, r#"{"ok":true,"no_op":true}"#);
-        let outcome = mock
+        let receipt = mock
             .client(Some(token()))
             .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap();
-        assert_eq!(outcome, PublishOutcome::AlreadyPublished);
+        assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
+        assert_eq!(receipt.verification, None);
+    }
+
+    /// The optional `"verification"` field is read tolerantly: present
+    /// on either success status it is surfaced verbatim, and a body
+    /// that is not the expected JSON degrades to `None` instead of
+    /// failing the publish.
+    #[test]
+    fn publish_reads_the_verification_field_tolerantly() {
+        let mock = MockApi::respond_with(
+            201,
+            r#"{"ok":true,"name":"fmt","version":"10.2.1","checksum":"sha256:aa","verification":"pending"}"#,
+        );
+        let receipt = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap();
+        assert_eq!(receipt.outcome, PublishOutcome::Created);
+        assert_eq!(receipt.verification.as_deref(), Some("pending"));
+
+        let mock =
+            MockApi::respond_with(200, r#"{"ok":true,"no_op":true,"verification":"verified"}"#);
+        let receipt = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap();
+        assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
+        assert_eq!(receipt.verification.as_deref(), Some("verified"));
+
+        // A body that is not the expected JSON shape never fails the
+        // publish: the field just reads as absent.
+        let mock = MockApi::respond_with(201, "not json at all");
+        let receipt = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap();
+        assert_eq!(receipt.outcome, PublishOutcome::Created);
+        assert_eq!(receipt.verification, None);
     }
 
     /// 409: the version exists with different bytes and stays
