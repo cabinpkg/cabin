@@ -65,6 +65,17 @@ jobs:
           cargo install -q "worker-build@^0.8" --locked
           worker-build --release
 
+  # Shellcheck plus the backup-script self-tests (retention plan,
+  # prune dry-run and delete modes, dump verification).
+  scripts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test the operations scripts
+        run: bash registry/scripts/test-backup-scripts.sh
+
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
   # client's canonical output and the server's schema cannot drift apart.

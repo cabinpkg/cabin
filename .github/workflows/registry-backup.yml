@@ -1,0 +1,111 @@
+name: Registry Backup
+
+# Nightly backup of the hosted registry (registry/docs/runbook.md,
+# "Disaster recovery"): a verified `wrangler d1 export` dump into the
+# backup R2 bucket plus a copy of the immutable archive blobs. Every
+# verification failure fails the run - a red run is the alarm.
+#
+# Secrets (exact token scopes in the runbook): CLOUDFLARE_API_TOKEN is
+# scoped to D1 only; the two R2 key pairs are S3 credentials scoped to
+# read the primary blobs bucket and write the backup bucket respectively.
+on:
+  schedule:
+    - cron: "13 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never interleave two backup runs; a queued run still runs afterwards.
+concurrency:
+  group: registry-backup
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The public account tag (also in registry/wrangler.jsonc, CF_ACCOUNT_ID).
+  CLOUDFLARE_ACCOUNT_ID: 7bd7dbea3c4c76cd396153fb0e92178f
+  # When production is provisioned, a second job covers cabin-registry-prod
+  # / cabin-registry-prod-blobs / cabin-registry-prod-backup (runbook,
+  # "Production checklist").
+  D1_DATABASE: cabin-registry-dev
+  PRIMARY_BUCKET: cabin-registry-dev-blobs
+  BACKUP_BUCKET: cabin-registry-dev-backup
+  # rclone remotes built entirely from the environment: `primary:` can only
+  # read the live blobs bucket, `backup:` can only touch the backup bucket.
+  # The key pairs are step-scoped below - like CLOUDFLARE_API_TOKEN - so the
+  # steps that execute fetched npm code (npx wrangler) never see them.
+  RCLONE_CONFIG_PRIMARY_TYPE: s3
+  RCLONE_CONFIG_PRIMARY_PROVIDER: Cloudflare
+  RCLONE_CONFIG_PRIMARY_ENDPOINT: https://7bd7dbea3c4c76cd396153fb0e92178f.r2.cloudflarestorage.com
+  RCLONE_CONFIG_BACKUP_TYPE: s3
+  RCLONE_CONFIG_BACKUP_PROVIDER: Cloudflare
+  RCLONE_CONFIG_BACKUP_ENDPOINT: https://7bd7dbea3c4c76cd396153fb0e92178f.r2.cloudflarestorage.com
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install rclone
+        run: sudo apt-get update -q && sudo apt-get install -qy rclone
+
+      - name: Export the D1 database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4 d1 export "$D1_DATABASE" --remote --output d1.sql
+
+      - name: Verify the dump
+        run: bash registry/scripts/backup-verify-dump.sh d1.sql
+
+      - name: Compress and checksum
+        run: |
+          dump="$(date -u +%F).sql.gz"
+          echo "DUMP=$dump" >>"$GITHUB_ENV"
+          gzip -9 -n -c d1.sql >"$dump"
+          sha256sum "$dump" >"$dump.sha256"
+
+      - name: Upload the dump and its checksum
+        env:
+          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
+        run: |
+          rclone copyto --s3-no-check-bucket "$DUMP" "backup:$BACKUP_BUCKET/d1/$DUMP"
+          rclone copyto --s3-no-check-bucket "$DUMP.sha256" "backup:$BACKUP_BUCKET/d1/$DUMP.sha256"
+
+      - name: Re-download and verify the checksum
+        env:
+          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
+        run: |
+          mkdir redownload
+          cd redownload
+          rclone copyto "backup:$BACKUP_BUCKET/d1/$DUMP" "$DUMP"
+          cp "../$DUMP.sha256" .
+          sha256sum -c "$DUMP.sha256"
+          cmp "$DUMP" "../$DUMP"
+
+      - name: Copy blobs to the backup bucket
+        # copy (not sync) never deletes on the destination, so a deletion in
+        # the primary cannot propagate to the backup. The blobs are immutable
+        # and content-addressed, which makes --size-only a sound change
+        # detector.
+        env:
+          RCLONE_CONFIG_PRIMARY_ACCESS_KEY_ID: ${{ secrets.R2_PRIMARY_READ_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_PRIMARY_SECRET_ACCESS_KEY: ${{ secrets.R2_PRIMARY_READ_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
+        run: |
+          rclone copy --s3-no-check-bucket --size-only --stats-one-line \
+            "primary:$PRIMARY_BUCKET/blobs" "backup:$BACKUP_BUCKET/blobs"
+
+      - name: Prune dumps past the retention policy
+        env:
+          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
+        run: bash registry/scripts/backup-prune.sh "backup:$BACKUP_BUCKET/d1"
