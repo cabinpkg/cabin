@@ -286,3 +286,10 @@ before.  The defined codes:
 | `quota_packages_total` | `403` | The plan's total package quota is exhausted. |
 | `quota_versions_daily` | `403` | The plan's daily per-package version quota is exhausted. |
 | `registry_over_budget` | `402` | The service-wide budget breaker has writes paused; `Retry-After` covers the next re-evaluation. |
+
+Cabin maps these refusals to actionable messages: the `402` reports the registry as temporarily
+not accepting publishes (over its free budget) and the `429` as rate limited, both echoing
+`Retry-After` as a "try again in N seconds" hint when the header is usable; the `413` reports the
+archive as too large, appending the server's `detail`; and a `403` whose `code` starts with
+`quota_` surfaces the server's `detail` verbatim plus a pointer to `<origin>/me`, where current
+usage is shown.  Unknown codes fall back to the plain detail string.

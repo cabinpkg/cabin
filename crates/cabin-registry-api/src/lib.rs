@@ -53,6 +53,10 @@ pub struct RegistryApi {
     base: url::Url,
     /// Normalized API origin, for error messages.
     origin: String,
+    /// `<base>me`, the registry's usage page, for quota refusals.  Built
+    /// from the base (not the origin) so a path-prefixed deployment
+    /// links to its own `/me`.
+    usage_url: String,
     token: Option<Token>,
 }
 
@@ -96,6 +100,7 @@ impl RegistryApi {
             let path = format!("{}/", base.path());
             base.set_path(&path);
         }
+        let usage_url = format!("{base}me");
         Ok(Self {
             // Redirects are refused so a mutation can never be
             // bounced to a different origin than the one the
@@ -106,6 +111,7 @@ impl RegistryApi {
                 .build(),
             base,
             origin,
+            usage_url,
             token,
         })
     }
@@ -120,9 +126,16 @@ impl RegistryApi {
     /// exceeds the `u32` framing limit.  Response statuses map per
     /// `docs/remote-registry.md`: `409` becomes
     /// [`RegistryApiError::VersionConflict`], `400` / `401` / `403`
-    /// map like the read path, and any other non-success status
-    /// surfaces as [`RegistryApiError::ServerError`] with the error
-    /// envelope's `detail` when the body carries one.
+    /// map like the read path (a `403` whose envelope carries a
+    /// `quota_*` code becomes [`RegistryApiError::QuotaExceeded`]),
+    /// the quota and budget refusals map to
+    /// [`RegistryApiError::RegistryOverBudget`] (`402`),
+    /// [`RegistryApiError::ArchiveTooLarge`] (`413`), and
+    /// [`RegistryApiError::RateLimited`] (`429`) - the first and last
+    /// carrying the response's `Retry-After` seconds when usable - and
+    /// any other non-success status surfaces as
+    /// [`RegistryApiError::ServerError`] with the error envelope's
+    /// `detail` when the body carries one.
     pub fn publish(
         &self,
         name: &str,
@@ -228,6 +241,13 @@ impl RegistryApi {
                 Ok(status)
             }
             Err(ureq::Error::Status(status, response)) => {
+                // `Retry-After` (delta seconds) rides on the 402 and 429
+                // refusals; an absent or non-numeric value (an HTTP date,
+                // say) degrades to no hint rather than failing the
+                // mapping.  Read before the body consumes the response.
+                let retry_after_secs = response
+                    .header("Retry-After")
+                    .and_then(|value| value.trim().parse::<u64>().ok());
                 let (detail, code) = match envelope_entry(response) {
                     Some(entry) => (Some(entry.detail), entry.code),
                     None => (None, None),
@@ -240,14 +260,29 @@ impl RegistryApi {
                     401 => RegistryApiError::AuthRequired {
                         origin: self.origin.clone(),
                     },
+                    402 => RegistryApiError::RegistryOverBudget { retry_after_secs },
+                    // A 403 whose envelope carries a `quota_*` code is a
+                    // per-user quota refusal (`docs/remote-registry.md`,
+                    // "Error envelope"), not a scope problem: the server
+                    // detail reaches the user with the pointer to the
+                    // usage page.
+                    403 if code
+                        .as_deref()
+                        .is_some_and(|code| code.starts_with("quota_")) =>
+                    {
+                        RegistryApiError::QuotaExceeded {
+                            // The envelope requires `detail`, so a parsed
+                            // `code` guarantees one.
+                            detail: detail.unwrap_or_default(),
+                            usage_url: self.usage_url.clone(),
+                        }
+                    }
                     // A tokenless 403 is not the protocol's
                     // missing-scope case (no scope was presented), so
                     // it keeps the generic mapping - same rule as the
-                    // read path. A 403 carrying a machine-readable
-                    // `code` is a quota refusal
-                    // (`docs/remote-registry.md`, "Error envelope"),
-                    // not a scope problem: fall through to the generic
-                    // mapping so the envelope detail reaches the user.
+                    // read path.  An unknown code also falls through to
+                    // the generic mapping so its detail still reaches
+                    // the user.
                     403 if self.token.is_some() && code.is_none() => {
                         RegistryApiError::MissingScope {
                             origin: self.origin.clone(),
@@ -261,6 +296,8 @@ impl RegistryApi {
                         name: name.to_owned(),
                         version: version.to_string(),
                     },
+                    413 => RegistryApiError::ArchiveTooLarge { detail },
+                    429 => RegistryApiError::RateLimited { retry_after_secs },
                     _ => RegistryApiError::ServerError { status, detail },
                 })
             }
@@ -341,6 +378,16 @@ fn with_detail(base: String, detail: Option<&String>) -> String {
     }
 }
 
+/// Append the retry hint: the server's `Retry-After` seconds when the
+/// response carried a usable one, a plain "try again later" otherwise.
+fn with_retry(base: &str, retry_after_secs: Option<u64>) -> String {
+    match retry_after_secs {
+        Some(1) => format!("{base}; try again in 1 second"),
+        Some(secs) => format!("{base}; try again in {secs} seconds"),
+        None => format!("{base}; try again later"),
+    }
+}
+
 /// Errors produced by the registry API client.  No variant ever
 /// embeds token bytes.
 #[derive(Debug, Error)]
@@ -382,6 +429,24 @@ pub enum RegistryApiError {
          required scope"
     )]
     MissingScope { origin: String },
+
+    #[error("{detail}; see {usage_url} for current usage")]
+    QuotaExceeded { detail: String, usage_url: String },
+
+    #[error("{}", with_retry(
+        "the registry is temporarily not accepting publishes (over its free budget)",
+        *.retry_after_secs,
+    ))]
+    RegistryOverBudget { retry_after_secs: Option<u64> },
+
+    #[error("{}", with_retry("the registry rate limited this request", *.retry_after_secs))]
+    RateLimited { retry_after_secs: Option<u64> },
+
+    #[error("{}", with_detail(
+        "the package archive is too large for this registry".to_owned(),
+        .detail.as_ref(),
+    ))]
+    ArchiveTooLarge { detail: Option<String> },
 
     #[error("`{name}@{version}` is not published on this registry")]
     NotFound { name: String, version: String },
@@ -431,6 +496,16 @@ mod tests {
             "frame must be exactly consumed"
         );
         (metadata, archive)
+    }
+
+    /// The retry hint degrades to "later" without a usable
+    /// `Retry-After` and pluralizes correctly ("in 1 second", not
+    /// "1 seconds" - live-verified wording).
+    #[test]
+    fn retry_hints_degrade_and_pluralize() {
+        assert_eq!(with_retry("x", None), "x; try again later");
+        assert_eq!(with_retry("x", Some(1)), "x; try again in 1 second");
+        assert_eq!(with_retry("x", Some(2)), "x; try again in 2 seconds");
     }
 
     #[test]
@@ -527,6 +602,10 @@ mod tests {
 
     impl MockApi {
         fn respond_with(status: u16, body: &'static str) -> Self {
+            Self::respond_with_headers(status, body, &[])
+        }
+
+        fn respond_with_headers(status: u16, body: &'static str, headers: &[(&str, &str)]) -> Self {
             let server = Arc::new(
                 tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
             );
@@ -534,6 +613,13 @@ mod tests {
             let url = format!("http://{addr}");
             let (sender, captured) = mpsc::channel();
             let server_for_thread = Arc::clone(&server);
+            let response_headers: Vec<tiny_http::Header> = headers
+                .iter()
+                .map(|(name, value)| {
+                    tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes())
+                        .expect("valid test header")
+                })
+                .collect();
             let thread = std::thread::spawn(move || {
                 while let Ok(mut req) = server_for_thread.recv() {
                     let mut body_bytes = Vec::new();
@@ -548,8 +634,12 @@ mod tests {
                             .map(|h| h.value.to_string()),
                         body: body_bytes,
                     });
-                    let _ = req
-                        .respond(tiny_http::Response::from_string(body).with_status_code(status));
+                    let mut response =
+                        tiny_http::Response::from_string(body).with_status_code(status);
+                    for header in &response_headers {
+                        response.add_header(header.clone());
+                    }
+                    let _ = req.respond(response);
                 }
             });
             Self {
@@ -687,29 +777,248 @@ mod tests {
         assert!(err.to_string().contains("scope"), "{err}");
     }
 
-    /// A 403 whose envelope carries a machine-readable `code` is a quota
-    /// refusal, not the missing-scope case: the detail must reach the
-    /// user instead of the misleading scope message.
+    /// A 403 whose envelope carries a `quota_*` code is a per-user quota
+    /// refusal, not the missing-scope case: the server detail must reach
+    /// the user verbatim, plus the pointer to `<origin>/me` where the
+    /// current usage is shown.
     #[test]
-    fn publish_surfaces_coded_403_quota_refusals() {
+    fn publish_maps_coded_403_quota_refusals_to_the_usage_pointer() {
+        for code in [
+            "quota_storage",
+            "quota_packages_daily",
+            "quota_packages_total",
+            "quota_versions_daily",
+        ] {
+            let body: &'static str = Box::leak(
+                format!(
+                    r#"{{"errors":[{{"detail":"the plan's quota is exhausted","code":"{code}"}}]}}"#
+                )
+                .into_boxed_str(),
+            );
+            let mock = MockApi::respond_with(403, body);
+            let err = mock
+                .client(Some(token()))
+                .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+                .unwrap_err();
+            match &err {
+                RegistryApiError::QuotaExceeded { detail, usage_url } => {
+                    assert_eq!(detail, "the plan's quota is exhausted");
+                    assert_eq!(usage_url, &format!("{}/me", mock.url));
+                }
+                other => panic!("{code}: expected QuotaExceeded, got {other:?}"),
+            }
+            let message = err.to_string();
+            assert!(
+                message.contains("the plan's quota is exhausted"),
+                "{code}: expected the detail verbatim in: {message}"
+            );
+            assert!(
+                message.contains(&format!("{}/me", mock.url)),
+                "{code}: expected the /me usage pointer in: {message}"
+            );
+            assert!(!message.contains("scope"), "{code}: {message}");
+        }
+    }
+
+    /// The usage pointer is built from the API base, not the bare
+    /// origin, so a registry hosted under a path prefix links to its
+    /// own `/me` page.
+    #[test]
+    fn quota_usage_pointer_preserves_the_api_base_path() {
         let mock = MockApi::respond_with(
             403,
-            r#"{"errors":[{"detail":"the plan's total package quota is exhausted","code":"quota_packages_total"}]}"#,
+            r#"{"errors":[{"detail":"the plan's quota is exhausted","code":"quota_storage"}]}"#,
+        );
+        let api = RegistryApi::new(&format!("{}/base", mock.url), Some(token())).unwrap();
+        let err = api
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::QuotaExceeded { usage_url, .. } => {
+                assert_eq!(usage_url, &format!("{}/base/me", mock.url));
+            }
+            other => panic!("expected QuotaExceeded, got {other:?}"),
+        }
+    }
+
+    /// A 403 with an unknown (non-`quota_*`) code falls back to the
+    /// generic mapping carrying the detail string - never the misleading
+    /// scope message, never a guessed quota message.
+    #[test]
+    fn publish_falls_back_to_the_detail_on_unknown_codes() {
+        let mock = MockApi::respond_with(
+            403,
+            r#"{"errors":[{"detail":"refused for a brand-new reason","code":"shiny_new_refusal"}]}"#,
         );
         let err = mock
             .client(Some(token()))
             .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
-            RegistryApiError::ServerError { status: 403, .. } => {}
+            RegistryApiError::ServerError {
+                status: 403,
+                detail: Some(detail),
+            } => assert_eq!(detail, "refused for a brand-new reason"),
             other => panic!("expected the generic mapping, got {other:?}"),
         }
-        assert!(
-            err.to_string()
-                .contains("the plan's total package quota is exhausted"),
-            "expected the quota detail in: {err}"
-        );
         assert!(!err.to_string().contains("scope"), "{err}");
+
+        // A code on a status with its own mapping does not hijack it:
+        // the 400 stays a BadRequest with the detail.
+        let mock = MockApi::respond_with(
+            400,
+            r#"{"errors":[{"detail":"metadata name mismatch","code":"quota_storage"}]}"#,
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::BadRequest { detail: Some(_) } => {}
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+        assert!(err.to_string().contains("metadata name mismatch"), "{err}");
+    }
+
+    /// 402: the service-wide budget breaker has writes paused. The message
+    /// says so and carries the `Retry-After` seconds when present.
+    #[test]
+    fn publish_maps_402_to_registry_over_budget() {
+        let mock = MockApi::respond_with_headers(
+            402,
+            r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#,
+            &[("Retry-After", "900")],
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RegistryOverBudget {
+                retry_after_secs: Some(900),
+            } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(message.contains("over its free budget"), "{message}");
+        assert!(
+            message.contains("900"),
+            "expected Retry-After in: {message}"
+        );
+
+        // Without a Retry-After header - or even without an envelope at
+        // all - the mapping still holds and degrades to "try again later".
+        let mock = MockApi::respond_with(402, "no envelope here");
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RegistryOverBudget {
+                retry_after_secs: None,
+            } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+        assert!(err.to_string().contains("try again later"), "{err}");
+    }
+
+    /// The breaker blocks yanks too: the shared mapping covers PATCH.
+    #[test]
+    fn set_yanked_maps_402_to_registry_over_budget() {
+        let mock = MockApi::respond_with_headers(
+            402,
+            r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#,
+            &[("Retry-After", "900")],
+        );
+        let err = mock
+            .client(Some(token()))
+            .set_yanked("fmt", &version("10.2.1"), true)
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RegistryOverBudget {
+                retry_after_secs: Some(900),
+            } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+    }
+
+    /// 429: the publish token bucket is empty; `Retry-After` says when
+    /// the next publish will be accepted.
+    #[test]
+    fn publish_maps_429_to_rate_limited() {
+        let mock = MockApi::respond_with_headers(
+            429,
+            r#"{"errors":[{"detail":"publish rate limit exceeded; retry after the token bucket refills","code":"rate_limited"}]}"#,
+            &[("Retry-After", "42")],
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RateLimited {
+                retry_after_secs: Some(42),
+            } => {}
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(message.contains("rate limit"), "{message}");
+        assert!(message.contains("42"), "expected Retry-After in: {message}");
+
+        // A missing or non-numeric Retry-After (an HTTP date, say)
+        // degrades to no hint rather than failing the mapping.
+        let mock = MockApi::respond_with_headers(
+            429,
+            r#"{"errors":[{"detail":"publish rate limit exceeded","code":"rate_limited"}]}"#,
+            &[("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT")],
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RateLimited {
+                retry_after_secs: None,
+            } => {}
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+        assert!(err.to_string().contains("try again later"), "{err}");
+    }
+
+    /// 413: the archive exceeds the plan's per-archive size limit. The
+    /// server detail (which carries the limit when the server states it)
+    /// is appended; without an envelope the fixed message stands alone.
+    #[test]
+    fn publish_maps_413_to_archive_too_large() {
+        let mock = MockApi::respond_with(
+            413,
+            r#"{"errors":[{"detail":"archive exceeds the plan's per-archive size limit (16777216 bytes)","code":"archive_too_large"}]}"#,
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::ArchiveTooLarge { detail: Some(_) } => {}
+            other => panic!("expected ArchiveTooLarge, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(message.contains("too large"), "{message}");
+        assert!(
+            message.contains("16777216 bytes"),
+            "expected the limit from the detail in: {message}"
+        );
+
+        let mock = MockApi::respond_with(413, "not an envelope");
+        let err = mock
+            .client(Some(token()))
+            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::ArchiveTooLarge { detail: None } => {}
+            other => panic!("expected ArchiveTooLarge, got {other:?}"),
+        }
+        assert!(err.to_string().contains("too large"), "{err}");
     }
 
     /// A well-formed envelope's `detail` reaches the 400 message; a

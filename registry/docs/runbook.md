@@ -34,6 +34,42 @@ free-plan Bot Fight Mode ignores skip rules; it can only be toggled
 zone-wide). Managing zone security needs API-token scopes beyond the
 provisioning set (Zone WAF Edit, Zone Settings Edit) or the dashboard.
 
+## Zone rate limiting (WAF)
+
+Zone-level defense for the Workers request budget: one rate limiting rule
+on the cabinpkg.com zone, created 2026-07-09 via the dashboard (Security ->
+WAF -> Rate limiting rules; the provisioning API token deliberately has no
+WAF scopes). The Free plan allows exactly one rate limiting rule, with the
+counting period and mitigation timeout fixed at 10 seconds and IP keying
+only, so the conservative 300 requests/minute target is expressed as 50
+requests per 10 seconds:
+
+- Name: `dev-registry-api-rate-limit`
+- Expression:
+  `(http.host eq "dev-registry.cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or http.request.uri.path eq "/callback"))`
+- Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
+  Block, mitigation timeout 10 seconds.
+
+The rule deliberately guards only the write/auth surface, not `/healthz`
+or the read routes. Covering reads with the same 50-per-10 s ceiling
+would throttle legitimate `cabin` traffic - resolving and fetching a
+dependency tree fans out many read requests from one IP in seconds -
+while abuse of the omitted routes can at worst exhaust free-plan quotas
+that fail closed without billing (Workers requests, D1 reads; artifact
+downloads are R2 Class B). The one rule the Free plan grants goes where
+the paid exposure (R2 Class A writes) and the heavy CPU live.
+
+Verified 2026-07-09 with a 70-request burst against an `/api/` path:
+exactly 50 requests reached the Worker, the rest answered a Cloudflare
+`429` with `retry-after: 10` (see `verification.md`). A WAF `429` carries
+no error envelope; cabin's rate-limit mapping degrades to the same "try
+again" hint off the header alone.
+
+When production is provisioned, the single Free-plan slot must cover both
+hosts: widen the host test to
+`http.host in {"dev-registry.cabinpkg.com" "registry.cabinpkg.com"}`
+instead of adding a second rule.
+
 ## First-time provisioning (dev)
 
 Verified end to end on 2026-07-09 (see
@@ -42,8 +78,10 @@ GitHub OAuth app for dev (homepage `https://dev-registry.cabinpkg.com`,
 authorization callback `https://dev-registry.cabinpkg.com/callback`). Its
 client id is public and lives in `wrangler.jsonc` (`env.dev.vars`,
 `GITHUB_CLIENT_ID`), next to `ALLOWED_GITHUB_IDS` (the numeric GitHub user
-ids allowed to sign in at `/me`); only the client secret and the session
-secret are wrangler secrets.
+ids allowed to sign in at `/me`); the wrangler secrets are the client
+secret, the session secret, and `ANALYTICS_API_TOKEN` for the budget cron
+(plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget breaker and service
+mode" for both).
 
 ```sh
 npx wrangler d1 create cabin-registry-dev
@@ -56,6 +94,7 @@ npx wrangler deploy --env dev
 # attach to a deployed Worker instead of prompting to create a draft.
 printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env dev
 openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env dev
+printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -194,17 +233,37 @@ caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; dev
 pins it to 0), so an override can take up to a minute to bite in
 production.
 
-The analytics-sourced metrics need the `ANALYTICS_API_TOKEN` secret (an
-API token with Account Analytics Read):
+The budget ceilings the cron evaluates against, with their in-code
+defaults (`src/breaker.rs`), each comfortably below the matching
+Cloudflare free limit:
+
+| Var | Default | Free limit |
+| --- | --- | --- |
+| `BUDGET_R2_STORAGE_BYTES` | 9 GiB | 10 GiB-month |
+| `BUDGET_R2_CLASS_A_MONTH` | 800,000 | 1,000,000 / month |
+| `BUDGET_WORKERS_REQ_DAY` | 80,000 | 100,000 / day |
+| `BUDGET_D1_ROWS_READ_DAY` | 4,000,000 | 5,000,000 / day |
+
+Overrides are ordinary per-environment `vars` entries in `wrangler.jsonc`
+and take effect on the next deploy.
+
+The analytics-sourced metrics need the `ANALYTICS_API_TOKEN` secret: an
+API token whose **only** permission is Account | Account Analytics | Read,
+scoped to the single account (dash.cloudflare.com -> My Profile -> API
+Tokens -> Create Token -> Custom token). It reads aggregate usage numbers
+and nothing else. Set on dev 2026-07-09.
 
 ```sh
 printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
 ```
 
-Without it the cron logs the skip, evaluates on the exact self-accounted
-storage alone, and never de-escalates the persisted mode on the missing
-data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive a JSON
-summary POST on every mode change.
+To rotate it, create the replacement token first, run the `secret put`
+with the new value, and only then delete the old token in the dashboard -
+revoking first would have the cron running degraded in between. Without a
+working token the cron logs the skip, evaluates on the exact
+self-accounted storage alone, and never de-escalates the persisted mode on
+the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
+a JSON summary POST on every mode change.
 
 ## Backfilling migration 0002
 
