@@ -391,3 +391,27 @@ available on every D1 database with no setup, 7-day retention on Workers
 Free (current plan), 30-day on Workers Paid; restore is in-place and
 destructive but reversible via the pre-restore bookmark. Recorded in the
 runbook as the first-line recovery option.
+
+### Workflow validation (GitHub Actions)
+
+The five repository secrets were provisioned from freshly minted tokens
+per the runbook table and sanity-tested before use: the D1 token is an
+account-owned token that verifies as active and can `d1 list`; the
+primary-read S3 pair lists the 6 blobs but is **denied writes** to the
+primary bucket (probed and confirmed); the backup-write pair reads and
+writes the backup bucket only.
+
+GitHub does not register a `workflow_dispatch` trigger for a workflow
+that only exists on a branch (the dispatch API answers 404 until the
+file lands on the default branch), so the pre-merge validation ran the
+workflow via a temporary `push` trigger on the PR branch, removed again
+before merge; the standing triggers are the nightly cron and
+`workflow_dispatch`.
+
+Run: <https://github.com/cabinpkg/cabin/actions/runs/29067663994> - all
+steps green on the first attempt: export (`dump OK: d1.sql`), compress +
+checksum, blob copy, publish (same-day pair cleared, sidecar first),
+re-download (`2026-07-10.sql.gz: OK`, byte-identical), prune ("nothing
+to prune"). The restore drill was then re-run against the
+workflow-written dump (not the rehearsal one) with identical results,
+including teardown.
