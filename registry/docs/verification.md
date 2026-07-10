@@ -210,3 +210,121 @@ Everything else - sign-in, token issuance, login, publish wording, no-op
 wording, lockfile checksums, yank cycle wording, logout guidance - behaved
 exactly as documented and needed no explanation beyond the CLI's own
 output.
+
+---
+
+# Quota, breaker, and client-mapping verification (2026-07-09)
+
+Follow-up run after the per-user quotas and budget breaker landed on the
+server (PR #1495) and the client learned to map the new refusals
+(`cabin-registry-api`, this change). Same operator and dev environment as
+above; client built from this branch (`cargo build --release -p cabinpkg`,
+`-Z remote-registry`).
+
+## Provisioning delta
+
+- `scripts/smoke.sh` (local `wrangler dev`, full token run): `smoke OK`,
+  including the writes-blocked 402 leg and its restore.
+- Migration `0002_quotas.sql` applied remotely. The dev database held one
+  user and one token and zero packages/versions, so nothing needed
+  backfilling and `meta.total_stored_bytes` seeded correctly at `'0'`.
+- `ANALYTICS_API_TOKEN` (an API token whose only permission is Account
+  Analytics Read) stored as a dev secret by the operator. No
+  `NOTIFY_WEBHOOK_URL` configured.
+- `wrangler deploy --env dev`; the deploy output listed the cron trigger
+  (`schedule: */15 * * * *`).
+- Cron verified end to end: the 01:45 UTC pass appeared in `wrangler tail`
+  (`{"cron":"*/15 * * * *"}`, outcome `ok`, 4 ms CPU, no analytics-skip
+  log) and overwrote the manually cleared `service_mode_reason` with its
+  own evaluation, `all budgets under 80%`.
+
+## Near-limit publish and CPU headroom
+
+A throwaway package carrying 16.3 MB of incompressible (random) payload
+published successfully: `versions.archive_size` recorded 16,303,328 bytes
+against the 16,777,216-byte per-archive cap, ~474 KB of headroom.
+Per-request CPU from `wrangler tail` (`cpuTime`, wall time in
+parentheses):
+
+| Request | Status | CPU |
+| --- | --- | --- |
+| `PUT` near-limit publish (16.3 MB body) | 201 | 61 ms (811 ms) |
+| `PUT` oversize publish (18 MB body) | 413 | 53 ms (241 ms) |
+| `GET` artifact download (16.3 MB) | 200 | 279 ms (1,137 ms) |
+| `PUT` small publish (scaffold-sized) | 201 | 5-10 ms |
+| Refused writes (402 / 429) | - | 2 ms |
+| Small reads (`config.json`, package docs) | 200 | 1-3 ms |
+
+**Decision note.** The Workers free plan documents a 10 ms CPU limit per
+invocation. Hashing costs ~4 ms/MiB, so a near-limit publish sits at
+~60 ms, and the 16.3 MB artifact download at 279 ms - both far past the
+documented limit, yet every request completed with outcome `ok` (no
+`exceededCpu` was observed): enforcement is evidently lenient at this
+volume. Lowering `max_archive_bytes` cannot buy real headroom - reads
+dominate, and 10 ms corresponds to a ~2.5 MiB archive, too small to be
+useful. Plan of record: keep dev as-is under its trivial traffic, and move
+to Workers Paid (30 s CPU per request) before production serves real
+traffic. Plans were deliberately not switched in this step.
+
+## Breaker end to end
+
+`meta.service_mode` forced to `writes_blocked` via `d1 execute` (dev pins
+`SERVICE_MODE_TTL_SECS=0`, so it bites immediately):
+
+```console
+$ cabin -Z remote-registry publish --index-url https://dev-registry.cabinpkg.com
+error: the registry is temporarily not accepting publishes (over its free budget); try again in 900 seconds
+```
+
+The 402's `Retry-After: 900` (the cron cadence) reached the message. While
+writes were blocked, `cabin resolve` and `cabin fetch` (the 16.3 MB
+artifact) worked unchanged from a consumer package. After restoring
+`service_mode = 'normal'`, publishes succeeded again.
+
+## Quota and rate-limit UX
+
+Observed client messages, in the order the walkthrough hit them:
+
+```console
+# oversize archive (18 MB > 16 MiB cap), HTTP 413
+error: the package archive is too large for this registry: archive exceeds the plan's per-archive size limit
+
+# bucket below one token after a charged idempotent republish, HTTP 429;
+# the 1 s Retry-After reflects the fractional refill (1 token/min) - a
+# fully drained bucket reports ~60 s
+error: the registry rate limited this request; try again in 1 seconds
+
+# sixth new package of the (UTC) day, HTTP 403 code quota_packages_daily
+error: the plan's daily new-package quota is exhausted; see https://dev-registry.cabinpkg.com/me for current usage
+```
+
+All three are actionable as-is; the `429`'s "1 seconds" plural was the one
+wart, fixed in the client in this same change ("try again in 1 second").
+Usage numbers moved as expected: packages created by the operator 0 -> 5,
+`meta.total_stored_bytes` 0 -> 16,304,759 (the near-limit archive's
+16,303,328 bytes plus four scaffold-sized archives of 357-359 bytes,
+exactly `SUM(archive_size)` over the published versions), and `/me`
+showed the matching usage (operator-confirmed in the browser). Note the daily quotas run on
+UTC days: the five throwaway packages exhaust the operator's new-package
+quota until the next UTC midnight (dev data is disposable; the rows can be
+deleted per the runbook if that ever blocks real work).
+
+## WAF rate limiting rule
+
+The operator created the dashboard rule recorded in `runbook.md` ("Zone
+rate limiting (WAF)"): 50 requests per 10 s per IP over
+`dev-registry.cabinpkg.com` paths `/api/*`, `/login`, `/callback`, action
+Block for 10 s - the Free plan's single rule slot, with period, timeout,
+and IP keying all fixed by the plan. Verified with a 70-request burst
+against an `/api/` path: exactly 50 reached the Worker (uniform 401), the
+remaining 20 answered a Cloudflare `429` with `retry-after: 10` and no
+error envelope.
+
+## Friction observed
+
+1. **(client, fixed here)** "try again in 1 seconds" - the retry hint now
+   pluralizes.
+2. **(ops, minor)** The Workers observability API was transiently
+   unavailable ("Upstream Cloudflare API unavailable") during the CPU
+   checks; `wrangler tail --format json` (which carries `cpuTime` and
+   `wallTime` per event) was sufficient on its own.
