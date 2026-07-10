@@ -328,3 +328,66 @@ error envelope.
    unavailable ("Upstream Cloudflare API unavailable") during the CPU
    checks; `wrangler tail --format json` (which carries `cpuTime` and
    `wallTime` per event) was sufficient on its own.
+
+## Backups and restore drill (2026-07-10, UTC)
+
+The backup pipeline (runbook, "Backups and disaster recovery") was
+provisioned and rehearsed end to end against dev. Executed with Claude
+driving; the two rehearsals below used the operator's provisioning token
+(S3 credentials derived as token id + SHA-256 of the token value) - the
+workflow itself runs on the narrowly scoped tokens in the runbook table.
+
+### Bucket provisioning
+
+`npx wrangler r2 bucket create cabin-registry-dev-backup` created the
+bucket; a second run failed cleanly with "The bucket you tried to create
+already exists, and you own it. [code: 10004]", confirming the create is
+safely re-runnable. `cabin-registry-prod-backup` was deliberately not
+created (production checklist item 6).
+
+### Local pipeline rehearsal
+
+Every workflow step run by hand, in order, against the real dev
+resources: `wrangler d1 export cabin-registry-dev --remote` produced a
+7,374-byte dump (31 statements; `d1_migrations` plus the five canonical
+tables - no `_cf_KV`, which `d1 export` excludes);
+`backup-verify-dump.sh` accepted it; gzip + sidecar uploaded to
+`d1/2026-07-10.sql.gz`; the re-downloaded object passed `sha256 -c` and
+`cmp` byte-identical (also confirming `gzip -n` determinism); the blob
+copy landed all 6 primary blobs under `blobs/`; the retention prune
+dry-run correctly reported "nothing to prune" for a one-dump bucket.
+
+### Restore drill
+
+```console
+$ scripts/restore-drill.sh dev
+==> locating the newest dump in cabin-registry-dev-backup/d1/
+    d1/2026-07-10.sql.gz
+==> downloading and checking the dump
+2026-07-10.sql.gz: OK
+dump OK: .../2026-07-10.sql
+==> importing into the scratch database cabin-registry-drill
+==> comparing per-table row counts against cabin-registry-dev
+    d1_migrations  live=2 restored=2
+    meta           live=4 restored=4
+    packages       live=5 restored=5
+    tokens         live=2 restored=2
+    users          live=1 restored=1
+    versions       live=5 restored=5
+==> spot-checking one version's metadata JSON
+    qv-a@0.1.0: metadata JSON parses, matches live byte for byte
+restore drill OK: d1/2026-07-10.sql.gz restores cleanly
+==> tearing down the scratch database
+```
+
+`wrangler d1 list` afterwards shows only `cabin-registry-dev`: the
+scratch database was torn down. The import wrote 81 rows across 31
+statements and left the scratch database at 0.08 MB.
+
+### Time Travel
+
+Checked against the current D1 docs (2026-07-10): Time Travel is
+available on every D1 database with no setup, 7-day retention on Workers
+Free (current plan), 30-day on Workers Paid; restore is in-place and
+destructive but reversible via the pre-restore bookmark. Recorded in the
+runbook as the first-line recovery option.

@@ -202,6 +202,117 @@ blobs, users, tokens) is never migrated or promoted to production.
    `x-cabin-registry-generation: 1` (fresh seed).
 5. From production's first real publish onward, the data policy above is
    binding: no wipes, no deletes, format changes need real migrations.
+6. Provision backups before announcing: create `cabin-registry-prod-backup`,
+   extend `.github/workflows/registry-backup.yml` with a production job,
+   mint production-scoped tokens ("Backups and disaster recovery" below),
+   and run `scripts/restore-drill.sh production` once.
+
+## Backups and disaster recovery
+
+Production registry data is a permanent commitment (see "Data policy"), so
+the backup machinery exists and is rehearsed against dev before production
+launch. Provisioned and verified end to end on 2026-07-10 (see
+[`verification.md`](verification.md)).
+
+### What is backed up, where
+
+- One backup R2 bucket per environment: `cabin-registry-dev-backup`
+  (created 2026-07-10; `npx wrangler r2 bucket create` re-runs fail
+  cleanly with "already exists") and `cabin-registry-prod-backup`, named
+  here and in the workflow but deliberately not created until production
+  is provisioned. Backup buckets are never bound to the Worker in
+  `wrangler.jsonc`: the service cannot touch its own backups.
+- D1: nightly logical dump via `wrangler d1 export`, from the
+  `registry-backup.yml` GitHub Actions workflow (02:13 UTC cron plus
+  `workflow_dispatch`; a concurrency group prevents overlapping runs).
+  Dumps land at `d1/<YYYY-MM-DD>.sql.gz` (gzip `-9 -n`, so identical
+  dumps compress identically) with a `.sha256` sidecar. Every run
+  verifies the dump before upload (`scripts/backup-verify-dump.sh`:
+  non-empty, every canonical table present, replays into SQLite) and
+  re-downloads the uploaded object to re-check the checksum. Any
+  verification mismatch fails the run - a red run is the alarm.
+- Blobs: `rclone copy` from `cabin-registry-dev-blobs/blobs/` to the
+  backup bucket's `blobs/` prefix over R2's S3 API. Copy semantics, never
+  a mirror: nothing is ever deleted from the backup side, so an
+  accidental or malicious deletion in the primary cannot propagate.
+- Retention: the 30 most recent daily dumps plus the first dump of each
+  of the last 12 calendar months; `scripts/backup-prune.sh` (it has a
+  `--dry-run` mode) deletes the rest of the `d1/` prefix. Blob copies are
+  kept indefinitely - nothing ever deletes from the backup side, by
+  design. Note what that means for the R2 bill: the free storage tier is
+  account-wide, the backup roughly doubles what the primary holds, and
+  the budget breaker cannot see any of it (it self-accounts the primary
+  bucket only). At dev scale that is megabytes; before production, size
+  `BUDGET_R2_STORAGE_BYTES` on the assumption that every primary byte
+  exists twice. A dev wipe also leaves the pre-wipe blobs in the backup
+  bucket - delete the backup's `blobs/` prefix by hand (dashboard, or
+  `rclone delete`) when a wipe is meant to reclaim the space.
+
+### Workflow secrets and exact token scopes
+
+GitHub Actions repository secrets; the workflow never echoes them.
+
+| Secret | Scope |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Custom API token whose sole permission is Account / D1 / Edit on this account. Used for `d1 export`; cannot touch R2, Workers, or DNS. |
+| `R2_PRIMARY_READ_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` | R2 API token (dashboard: R2 -> Manage API tokens), permission Object Read only, scoped to the single bucket `cabin-registry-dev-blobs`. |
+| `R2_BACKUP_WRITE_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` | R2 API token, permission Object Read & Write, scoped to the single bucket `cabin-registry-dev-backup`. |
+
+Two R2 tokens rather than one pair: an R2 API token carries a single
+permission level across its buckets, and nothing with write or delete
+rights may cover the primary bucket. (The R2 token page prints the S3
+key pair directly; in general the S3 credentials of any Cloudflare API
+token with R2 permissions are access key id = token id, secret = the
+SHA-256 hex of the token value.)
+
+### Recovery order
+
+1. **D1 Time Travel** - first line. Automatic point-in-time recovery for
+   every D1 database, no setup, restore to any minute; retention is 7
+   days on Workers Free (the current plan) and 30 days on Workers Paid
+   (checked against the D1 docs 2026-07-10; re-check at the planned move
+   to Paid). `wrangler d1 time-travel info <db>`, then
+   `wrangler d1 time-travel restore <db> --timestamp=<unix>`. The restore
+   is destructive in place - it overwrites the database - but reversible,
+   because pre-restore bookmarks stay valid.
+2. **Nightly dumps** - second line, for anything Time Travel cannot
+   reach (dropped database, retention window passed). Download the newest
+   `d1/<date>.sql.gz` from the backup bucket, check it against the
+   sidecar, `gunzip`, then
+   `wrangler d1 execute <db> --remote --file <dump.sql>` into a fresh
+   database. `scripts/restore-drill.sh dev` rehearses exactly this path
+   (scratch database, per-table row-count comparison against live,
+   metadata spot-check, teardown); run it after any change to the backup
+   pipeline, and against production before launch.
+3. **Backup-bucket blobs** - artifact store of last resort. `rclone copy`
+   the backup bucket's `blobs/` prefix back into the primary bucket.
+   Blobs are content-addressed and immutable, so a partial backfill is
+   safe to re-run.
+
+### Loss scenarios
+
+- **Bad deploy or migration** (data damaged in place): Time Travel back
+  to the pre-deploy minute. Blobs are untouched - deploys never delete
+  them.
+- **Accidental wipe of the wrong environment**: Time Travel if the
+  database still exists. A dropped database takes its Time Travel history
+  with it - that is what the dumps are for: create a fresh database,
+  import the newest dump, update the `database_id` in `wrangler.jsonc`,
+  redeploy, and backfill `blobs/` from the backup bucket.
+- **Primary-bucket data loss**: D1 rows are intact; backfill `blobs/`
+  from the backup bucket and spot-check an artifact download against a
+  `versions.checksum`.
+
+RPO: 24 hours with nightly dumps (Time Travel is minute-granular within
+its window). Rough recovery time: minutes for a Time Travel restore;
+tens of minutes for a dump import plus blob backfill at dev scale,
+dominated by operator time rather than data volume - revisit the
+estimate once production carries real data.
+
+The remaining hole is account-level compromise: every copy above lives in
+the same Cloudflare account. The future hedge is an off-Cloudflare copy -
+for example an `rclone sync` of the backup bucket to local or
+other-provider storage - deliberately not built yet.
 
 ## Budget breaker and service mode
 

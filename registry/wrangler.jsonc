@@ -57,6 +57,10 @@
                 }
             ],
             "r2_buckets": [
+                // The backup buckets (cabin-registry-{dev,prod}-backup, see
+                // docs/runbook.md "Backups and disaster recovery") are
+                // deliberately not bound: the Worker cannot touch its own
+                // backups.
                 { "binding": "BLOBS", "bucket_name": "cabin-registry-dev-blobs" }
             ]
         },
