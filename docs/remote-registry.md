@@ -29,19 +29,34 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
   "packages": "packages",
   "artifacts": "artifacts",
   "auth-required": true,
-  "api": "https://dev-registry.cabinpkg.com"
+  "api": "https://cabinpkg.com"
 }
 ```
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`. |
-| `api` | string | absent | Absolute base URL of the registry web/API origin, e.g. `"https://dev-registry.cabinpkg.com"`.  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
+| `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) parse the fields
 unconditionally, but *presence* of either field without `-Z remote-registry` fails the index load
 with an error naming the field and instructing `-Z remote-registry`.  Silently ignoring the field
 is forbidden: a client that ignored `auth-required` would surface it later as a confusing `401`.
+
+## One role per hostname
+
+The hosted registry splits its hostnames by role, exactly crates.io's discipline
+(`index.crates.io` serves the index, `static.crates.io` the downloads, and `crates.io` the web
+UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
+
+| Hostname | Role |
+| --- | --- |
+| `registry.cabinpkg.com` (dev: `dev-registry.cabinpkg.com`) | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, and the Bearer mutation routes.  `config.json`'s [`api`](#registry-configuration) field names this origin. |
+
+On the index host, every path outside the read plane - the mutation routes included - answers
+the same uniform `401` as a missing token, whatever credential comes along: the mutation
+surface is indistinguishable from any unknown path there.
 
 ## Authentication
 
@@ -51,12 +66,27 @@ Requests authenticate with a bearer token:
 Authorization: Bearer cabin_<base62>
 ```
 
-- Tokens are issued on the registry web UI at `<origin>/me` after GitHub sign-in.  The login page
-  URL is derived from the **index origin** by convention - on an `auth-required` registry,
-  `config.json` itself requires auth, so the client cannot discover a login URL from it.
+- Tokens are issued on the registry's web UI after GitHub sign-in.  Its URL is **not** derived
+  from the index origin by convention; it is discovered through the
+  [login-URL challenge](#the-login-url-challenge) below.
 - Token scopes: `publish`, `yank`, and `verify` (the
   [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token grants
   read access regardless of scope.
+
+### The login-URL challenge
+
+Every unauthenticated (`401`) response from the Bearer plane carries a `WWW-Authenticate`
+challenge naming the token-creation page, mirroring Cargo's `Cargo login_url` challenge:
+
+```text
+WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
+```
+
+The grammar is the scheme token `Cabin` (ASCII case-insensitive, per RFC 7235) followed by a
+quoted `login_url` parameter carrying an absolute `http(s)` URL.  The header is byte-identical
+on every path and failure reason - a missing token, an invalid token, and an unknown path all
+answer the same challenge - so unauthenticated responses stay indistinguishable and leak
+nothing about package existence.
 
 ## Client-side token handling
 
@@ -68,14 +98,21 @@ reads a credential.
 
 `cabin login` resolves the registry from `--index-url` (or the `[registry] index-url` setting in
 [`config.md`](config.md#registry) - a local `index-path` is rejected, since tokens only apply to
-HTTP registries), prints `visit <origin>/me to create a token`, and reads the token from stdin -
-without echo when stdin is a terminal, as a plain read otherwise so piping works:
+HTTP registries), discovers the token-creation page, and reads the token from stdin - without
+echo when stdin is a terminal, as a plain read otherwise so piping works:
 
 ```console
 $ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
-visit https://dev-registry.cabinpkg.com/me to create a token
+visit https://cabinpkg.com/settings/tokens to create a token
        Login token for `https://dev-registry.cabinpkg.com` saved
 ```
+
+Discovery is one advisory, always-unauthenticated `GET` of the index's `config.json`: on a
+`401` carrying the [login-URL challenge](#the-login-url-challenge), the challenge's URL is
+printed verbatim.  Every other outcome - a registry that does not require auth, a missing or
+malformed challenge, an implausible URL, or a failed probe (offline) - degrades to a generic
+`create a token in the registry's web interface` hint.  The probe never blocks login: the
+pasted token is read and stored either way.
 
 The token must start with `cabin_`; the confirmation only ever names the origin.  `cabin logout`
 removes the entry for the effective index origin and reports whether one existed.
@@ -112,12 +149,16 @@ code cannot read the credential.
 ### When the token is sent
 
 With a credential available, every request to the registry - `config.json`, package metadata, and
-artifact downloads - carries `Authorization: Bearer <token>`.  The token is only ever sent to the
-exact origin it is stored under, and never over plain `http` except to loopback hosts
-(`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.  Client-side error
-mapping: a `401` without a stored credential advises `cabin login --index-url <origin>`; a `401`
-despite one reports the token as rejected (revoked or expired); a `403` reports a missing scope.
-The token never appears in logs, error messages, or debug output.
+artifact downloads - carries `Authorization: Bearer <token>`.  A stored token is sent to exactly
+two destinations: (a) the index origin it is stored under, and (b) the
+[`api`](#registry-configuration) origin declared by that index's authenticated `config.json`,
+where the mutation routes live - and nowhere else.  This mirrors Cargo, whose tokens go to the
+api host named in `config.json`.  Neither destination ever sees the token over plain `http`
+except loopback hosts (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
+Client-side error mapping: a `401` without a stored credential advises
+`cabin login --index-url <origin>`; a `401` despite one reports the token as rejected (revoked
+or expired); a `403` reports a missing scope.  The token never appears in logs, error messages,
+or debug output.
 
 ## Read routes
 
@@ -132,9 +173,11 @@ The read routes are the same shapes as the sparse HTTP index in
 
 On an `auth-required` registry, all three return `401` with the
 [error envelope](#error-envelope) body
-`{"errors":[{"detail":"authentication required"}]}` when the request carries no valid token.
+`{"errors":[{"detail":"authentication required"}]}` and the
+[login-URL challenge](#the-login-url-challenge) when the request carries no valid token.
 Unauthenticated requests **must not** be able to distinguish existing from non-existing packages:
-the `401` status and body are identical whether or not the requested package exists.
+the `401` status, body, and challenge are identical whether or not the requested package exists -
+and identical again on every [non-read-plane path](#one-role-per-hostname) of the index host.
 
 On a registry with the [verification lifecycle](#verification-lifecycle), the composed
 `/packages/<name>.json` document contains **verified** versions only, and the artifact route
@@ -148,7 +191,8 @@ PUT /api/v1/packages/<name>/<version>
 ```
 
 Requires a token with the `publish` scope.  The route lives on the API origin - the
-[`api`](#registry-configuration) base URL the registry's `config.json` must declare for mutations.
+[`api`](#registry-configuration) base URL (the website origin, on the hosted registry) the
+registry's `config.json` must declare for mutations.
 The request body is a length-prefixed frame (crates.io-style):
 
 ```text
@@ -187,7 +231,7 @@ experimental-feature error.  The flow is log in once, publish, then resolve like
 
 ```console
 $ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
-visit https://dev-registry.cabinpkg.com/me to create a token
+visit https://cabinpkg.com/settings/tokens to create a token
        Login token for `https://dev-registry.cabinpkg.com` saved
 $ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
     --index-url https://dev-registry.cabinpkg.com
@@ -427,7 +471,7 @@ What yanking means - matching the resolver behavior in
 | `200` | Success without a state change: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has). |
 | `201` | Publish of a version that did not exist before. |
 | `400` | Malformed request: bad framing, invalid metadata, or an invalid JSON body. |
-| `401` | No token or an invalid token (never reveals whether the package exists). |
+| `401` | No token or an invalid token (never reveals whether the package exists).  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `402` | Writes are temporarily disabled service-wide: the registry's own budget breaker tripped (the hosted service runs on a free plan and blocks itself before provider limits are hit).  Reads are unaffected.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`. |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Authenticated request for an unknown package or version - including versions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
@@ -466,5 +510,7 @@ Cabin maps these refusals to actionable messages: the `402` reports the registry
 not accepting publishes (over its free budget) and the `429` as rate limited, both echoing
 `Retry-After` as a "try again in N seconds" hint when the header is usable; the `413` reports the
 archive as too large, appending the server's `detail`; and a `403` whose `code` starts with
-`quota_` surfaces the server's `detail` verbatim plus a pointer to `<origin>/me`, where current
-usage is shown.  Unknown codes fall back to the plain detail string.
+`quota_` surfaces the server's `detail` verbatim - the detail itself embeds the registry's
+usage-dashboard URL (`https://cabinpkg.com/dashboard` on the hosted registry), so the client
+never derives a web URL from the index origin.  Unknown codes fall back to the plain detail
+string.

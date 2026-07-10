@@ -316,7 +316,10 @@ public surface is intentionally small:
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
   origin (part of the experimental `-Z remote-registry` client, see
   [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests on that exact
-  origin and never over cleartext `http` beyond loopback hosts.
+  origin and never over cleartext `http` beyond loopback hosts;
+- [`cabin_index_http::fetch_login_url`] - `cabin login`'s advisory, always-unauthenticated probe of
+  `config.json` for the `WWW-Authenticate` `Cabin login_url` challenge; every failure degrades to
+  `None` so the probe can never block a login.
 
 The crate must:
 

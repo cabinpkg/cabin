@@ -46,9 +46,17 @@ requests per 10 seconds:
 
 - Name: `dev-registry-api-rate-limit`
 - Expression:
-  `(http.host eq "dev-registry.cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or http.request.uri.path eq "/callback"))`
+  `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback")))`
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
+
+The hostname-role split moved the whole write/auth surface to the
+website origin (see "Route management"), so the rule keys on
+`cabinpkg.com` - a rule still watching `dev-registry.cabinpkg.com`
+would protect only that host's cheap uniform-401 surface. Update the
+dashboard rule alongside deploying the split. The zone security
+exemption above must likewise keep the machine `/api/*` traffic on
+`cabinpkg.com` out of any visitor challenge.
 
 The rule deliberately guards only the write/auth surface, not `/healthz`
 or the read routes. Covering reads with the same 50-per-10 s ceiling
@@ -70,15 +78,50 @@ hosts: widen the host test to
 `http.host in {"dev-registry.cabinpkg.com" "registry.cabinpkg.com"}`
 instead of adding a second rule.
 
+## Route management
+
+The Worker reaches the website origin through **zone routes** on
+cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
+`cabinpkg.com/login`, and `cabinpkg.com/callback*`. Route facts that
+matter operationally:
+
+- Path routes are more specific than the website Worker's own domain,
+  so they take precedence on exactly these paths and nothing else
+  (Cloudflare picks the most specific matching route). Verify after any
+  route change: `/api/*` answers the registry Worker (uniform 401
+  envelope), while `/` and `/login/denied` still render the website.
+- A pattern without a trailing `*` never matches a URL carrying a query
+  string - GitHub redirects to `/callback?code=...&state=...`, hence
+  `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
+  website keeps serving `/login/denied`.
+- A route pattern can point at only **one** Worker, so `env.dev` holds
+  the three patterns for now and `env.production` declares none. The
+  production cutover consists of moving these exact patterns from the
+  dev Worker to the production Worker (edit `wrangler.jsonc`, deploy
+  both envs). At that moment the dev registry loses its browser plane:
+  recovery options are standing up a `dev.cabinpkg.com` website origin
+  for dev then (new routes + a dev `WEB_ORIGIN`), or falling back to
+  manual token insertion via `wrangler d1 execute` (mirror the INSERT
+  in `scripts/smoke.sh`, seeding `users` and a `tokens` row whose
+  `token_hash` is the SHA-256 hex of a locally generated
+  `cabin_<base62>` value).
+- Until the website ships its `/dashboard`, `/settings/tokens`, and
+  `/login/denied` pages (the next step), those paths 404 on the
+  website; the OAuth callback still sets the session cookie before
+  redirecting, so the session API is usable with `curl -H "Cookie:
+  cabin_session=..." -H "Content-Type: application/json" -H
+  "X-CSRF-Protection: 1"` against `https://cabinpkg.com/api/v1/user/...`.
+
 ## First-time provisioning (dev)
 
 Verified end to end on 2026-07-09 (see
 [`verification.md`](verification.md)). Prerequisite besides the API token: a
-GitHub OAuth app for dev (homepage `https://dev-registry.cabinpkg.com`,
-authorization callback `https://dev-registry.cabinpkg.com/callback`). Its
+GitHub OAuth app for dev (homepage `https://cabinpkg.com`,
+authorization callback `https://cabinpkg.com/callback` - the browser
+plane lives on the website origin, see "Route management"). Its
 client id is public and lives in `wrangler.jsonc` (`env.dev.vars`,
 `GITHUB_CLIENT_ID`), next to `ALLOWED_GITHUB_IDS` (the numeric GitHub user
-ids allowed to sign in at `/me`); the wrangler secrets are the client
+ids allowed to sign in); the wrangler secrets are the client
 secret, the session secret, `ANALYTICS_API_TOKEN` for the budget cron,
 and `D1_EXPORT_API_TOKEN` for the nightly dump (plus the optional
 `NOTIFY_WEBHOOK_URL`; see "Budget breaker and service mode" and
@@ -109,7 +152,9 @@ Smoke checks after any deploy:
 
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' https://dev-registry.cabinpkg.com/healthz   # 200
-curl -sS https://dev-registry.cabinpkg.com/config.json   # uniform 401 envelope
+curl -sS -D - https://dev-registry.cabinpkg.com/config.json   # uniform 401 envelope,
+# with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
+curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
 ```
 
 Propagation caveat: for up to ~a minute after `deploy`, requests can still
@@ -171,10 +216,11 @@ included.
    ```
 
 Tokens live in the dropped database, so a wipe revokes everything; users
-re-issue tokens at `/me` and `cabin login` again. A browser still holding a
-pre-wipe session cookie recovers transparently: `/me` redirects through
-`/login`, GitHub auto-approves the already-authorized OAuth app, and
-`/callback` recreates the user row.
+re-issue tokens through the website's token page and `cabin login` again.
+A browser still holding a pre-wipe session cookie recovers by visiting
+`/login`: GitHub auto-approves the already-authorized OAuth app, and
+`/callback` recreates the user row (the session API answers 401 for a
+session whose user row is gone until then).
 
 ## Production checklist
 
@@ -183,8 +229,10 @@ in order - and starting from an **empty** database: dev data (packages,
 blobs, users, tokens) is never migrated or promoted to production.
 
 1. Create a **separate** GitHub OAuth app for production: homepage
-   `https://registry.cabinpkg.com`, authorization callback
-   `https://registry.cabinpkg.com/callback`. Put its client id in
+   `https://cabinpkg.com`, authorization callback
+   `https://cabinpkg.com/callback` (both OAuth apps share the callback
+   URL; which app is in play follows the Worker holding the
+   cabinpkg.com routes - see "Route management"). Put its client id in
    `wrangler.jsonc` under `env.production.vars.GITHUB_CLIENT_ID`; confirm
    `ALLOWED_GITHUB_IDS` there lists exactly the intended operators.
 2. Make sure the zone security exemption covers `registry.cabinpkg.com`
@@ -208,11 +256,17 @@ blobs, users, tokens) is never migrated or promoted to production.
    The `SESSION_SECRET` must be freshly generated for production - never
    reuse the dev value. After the first nightly dump lands, run
    `scripts/restore-drill.sh production` once (see "Disaster recovery").
-4. Verify: `/healthz` 200; the three data routes answer the uniform 401
-   without a token; sign-in at `https://registry.cabinpkg.com/me` works and
-   issues a token; an authenticated `config.json` read echoes
+4. Move the cabinpkg.com route patterns from `env.dev` to
+   `env.production` in `wrangler.jsonc` and deploy both envs (see
+   "Route management", including what the dev registry loses at that
+   moment).
+5. Verify: `/healthz` 200; the three data routes answer the uniform 401
+   (with the challenge) without a token; sign-in via
+   `https://cabinpkg.com/login` works and the token page issues a
+   token; an authenticated `config.json` read reports
+   `"api": "https://cabinpkg.com"` and echoes
    `x-cabin-registry-generation: 1` (fresh seed).
-5. From production's first real publish onward, the data policy above is
+6. From production's first real publish onward, the data policy above is
    binding: no wipes, no deletes, format changes need real migrations.
 
 ## Budget breaker and service mode
@@ -313,18 +367,18 @@ verdicts do not fail the run - a rejection is the verifier working as
 designed, visible in the run log as
 `<name>@<version>: rejected (<reason codes>)`.
 
-`REGISTRY_VERIFY_TOKEN` is a registry token created on `/me` with
-**only** the `verify` scope (no publish, no yank - the verifier never
-needs them), stored as a GitHub repository secret:
+`REGISTRY_VERIFY_TOKEN` is a registry token created on the website's
+token page with **only** the `verify` scope (no publish, no yank - the
+verifier never needs them), stored as a GitHub repository secret:
 
 ```sh
 gh secret set REGISTRY_VERIFY_TOKEN
 ```
 
-Rotate it like `ANALYTICS_API_TOKEN`: create the replacement token at
-`/me` first, `gh secret set REGISTRY_VERIFY_TOKEN` with the new value,
-and only then revoke the old token at `/me` - revoking first would have
-the cron failing (versions pending) in between. A dev wipe drops the
+Rotate it like `ANALYTICS_API_TOKEN`: create the replacement token
+first, `gh secret set REGISTRY_VERIFY_TOKEN` with the new value, and
+only then revoke the old token - revoking first would have the cron
+failing (versions pending) in between. A dev wipe drops the
 tokens table, so re-provisioning dev always includes re-issuing this
 token and updating the secret.
 
@@ -341,8 +395,12 @@ tuning:
 | `VERIFY_MAX_PATH_LEN` | 256 |
 
 `REGISTRY_VERIFY_ORIGIN` (also a repository variable) selects the
-registry to verify and defaults to `https://dev-registry.cabinpkg.com`;
-point it at production when production exists.
+registry to verify - the **index** origin, defaulting to
+`https://dev-registry.cabinpkg.com`; point it at production when
+production exists. The workflow reads that index's `config.json` and
+sends the admin listing and verdicts to the `api` origin it declares
+(the website origin), while artifact downloads stay on the index
+origin.
 
 ## Disaster recovery
 

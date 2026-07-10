@@ -124,7 +124,9 @@ track:
   recognized; without `-Z remote-registry` their presence fails the
   index load with an error naming the field (never a silent ignore);
 - client-side credential handling uses `Authorization: Bearer` tokens
-  issued on the registry web UI at `<origin>/me`;
+  issued on the registry's web UI, whose URL the client discovers from
+  the `WWW-Authenticate` `Cabin login_url` challenge on unauthenticated
+  responses;
 - publishing uses `PUT /api/v1/packages/<name>/<version>` with a
   length-prefixed metadata + archive frame, and yanking uses
   `PATCH /api/v1/packages/<name>/<version>/yank`;
