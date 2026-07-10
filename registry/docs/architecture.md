@@ -181,6 +181,56 @@ closed - an unreadable or unknown mode blocks them - while reads never
 consult the mode at all, so they fail open and yanked-state and downloads
 keep working throughout an outage of the breaker itself.
 
+## Backups
+
+Backups are a data-plane concern and run entirely inside Cloudflare:
+R2/D1 bindings need no stored credentials, unlike an external pipeline,
+which would spread powerful tokens to a second vendor. The one secret
+involved (`D1_EXPORT_API_TOKEN`) is scoped to D1 alone. Three pieces,
+all operationally documented in [`runbook.md`](runbook.md) ("Disaster
+recovery"):
+
+- **Blob replication (RPO ~0).** After a publish's primary R2 put and
+  D1 batch succeed, the archive blob is copied to the per-environment
+  `BACKUP` bucket under the same content-addressed key, best-effort via
+  `waitUntil`; an idempotent re-publish re-schedules the copy (a retry
+  of a publish whose isolate died before replicating heals the gap),
+  and failures land in the `backup_replication_failures` table
+  for `scripts/backup-backfill.sh` to re-run. No code path deletes from
+  the backup bucket, so it is append-only: a deletion in the primary -
+  malicious or accidental - cannot propagate.
+- **Nightly D1 dump (RPO <= 24 h).** A second cron schedule drives the
+  D1 REST export endpoint from the Worker itself and streams the
+  official `.sql` dump into `BACKUP` at `d1/<date>.sql` plus a `.sha256`
+  sidecar, hashing and validating (expected `CREATE TABLE` statements)
+  on the way through, then verifying the re-read object against the
+  checksum before recording `meta.last_backup_at` /
+  `meta.last_backup_key` and pruning beyond retention (30 dailies + 12
+  monthly firsts). An invalid result is deleted from the dump key
+  again, the sidecar exists only for validated dumps, and a date whose
+  dump is already recorded is never re-exported - so a failed attempt
+  can neither pose as nor replace a good dump. Two same-date runs can
+  overlap only when an operator adds overlapping rehearsal schedules;
+  the writes are deliberately not serialized for that case, because
+  every interleaving ends either with a correct recorded dump or in a
+  state the machinery detects loudly (a sidecar mismatch, a missing
+  object, or the freshness alert) - never in silent loss. A D1 lock
+  around the dump job is the named upgrade if simultaneous schedules
+  ever become a real operational pattern. The scheduled handler routes on the cron expression:
+  the breaker's `*/15 * * * *` exactly; any other schedule runs the
+  dump job, so rehearsals need no recompile.
+- **Freshness alerting.** Every breaker pass evaluates backup health
+  (`src/backup.rs`; > 36 h without a successful dump, or a non-empty
+  replication failure log) and alerts via log + webhook on every pass
+  while unhealthy - a backup system that stops must not stop silently.
+
+First-line recovery is D1 Time Travel (always on; 7-day retention on
+the free plan), then the exported dumps, then the backup bucket's blobs
+as the artifact store of last resort; `scripts/restore-drill.sh`
+rehearses the dump-import path against a scratch database. The backup
+bucket doubles stored blob bytes account-wide, which is why the default
+storage budget above sits under half the free limit.
+
 ## Code layout
 
 Domain logic - token hashing, formatting, and scopes (`src/auth.rs`), route
@@ -188,11 +238,13 @@ matching and path-component validation (`src/routes.rs`), document
 composition (`src/documents.rs`), the error envelope (`src/error.rs`),
 cookie/CSRF signing (`src/session.rs`), the sign-in allowlist
 (`src/allowlist.rs`), HTML rendering and escaping (`src/pages.rs`), the
-quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), and
-the analytics query shapes (`src/analytics.rs`) - compiles and unit-tests
-on the host target. The Cloudflare glue
+quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the
+analytics query shapes (`src/analytics.rs`), and the backup logic -
+retention, dump validation, freshness (`src/backup.rs`) - compiles and
+unit-tests on the host target. The Cloudflare glue
 (`src/glue.rs` for the data plane, `src/web_glue.rs` for the web plane,
-wasm32 only) is thin binding-and-I/O wiring covered by
+`src/backup_glue.rs` for the nightly dump job, wasm32 only) is thin
+binding-and-I/O wiring covered by
 `scripts/smoke.sh`. Path
 components are validated before any lookup: names are `[a-z0-9_-]+`, versions
 must look like SemVer, and anything else 404s without touching storage.

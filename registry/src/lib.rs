@@ -9,6 +9,7 @@
 pub mod allowlist;
 pub mod analytics;
 pub mod auth;
+pub mod backup;
 pub mod breaker;
 pub mod documents;
 pub mod error;
@@ -18,6 +19,8 @@ pub mod quota;
 pub mod routes;
 pub mod session;
 
+#[cfg(target_arch = "wasm32")]
+mod backup_glue;
 #[cfg(target_arch = "wasm32")]
 mod glue;
 #[cfg(target_arch = "wasm32")]

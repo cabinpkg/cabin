@@ -328,3 +328,114 @@ error envelope.
    unavailable ("Upstream Cloudflare API unavailable") during the CPU
    checks; `wrangler tail --format json` (which carries `cpuTime` and
    `wallTime` per event) was sufficient on its own.
+
+---
+
+# Backup and restore-drill verification (2026-07-10)
+
+Rehearsal of the backup machinery (blob replication, nightly D1 dump,
+freshness alerting, restore drill - see `runbook.md`, "Disaster
+recovery") against the dev environment, before production exists. Same
+operator; Claude driving.
+
+## Provisioning delta
+
+- `cabin-registry-dev-backup` R2 bucket present (pre-created by the
+  operator; `wrangler r2 bucket create` fails cleanly on re-run, as the
+  runbook documents).
+- Migration `0003_backup.sql` (the `backup_replication_failures` table)
+  applied remotely.
+- `wrangler deploy --env dev`: bindings list `env.BACKUP`
+  (cabin-registry-dev-backup) and `env.D1_DATABASE_ID`; the deploy
+  registered both schedules, `*/15 * * * *` and `0 3 * * *`.
+- `D1_EXPORT_API_TOKEN` (custom API token, sole permission
+  Account | D1 | Edit, this account only) created by the operator and
+  stored as a dev secret.
+- `scripts/backup-backfill.sh dev`: all 5 referenced blobs were already
+  present in the backup bucket (`copied 0, already present 5`), and the
+  replication failure log was (harmlessly) cleared - the reconciliation
+  loop and the presence checks work against real remote buckets.
+
+## Local smoke (mocked export API)
+
+`scripts/smoke.sh` full-token run: `smoke OK`. The new legs verified,
+against local `wrangler dev --test-scheduled`: the published blob
+appears in the BACKUP bucket via the `waitUntil` replication and is
+byte-identical to the uploaded archive; `/__scheduled?cron=0+3+*+*+*`
+routes to the dump job, which polled the mocked export endpoint,
+streamed the dump into `d1/<today>.sql`, wrote a `.sha256` sidecar that
+`shasum -c` accepts, and recorded `meta.last_backup_at` /
+`meta.last_backup_key` (the script prints `last_backup_at` at the end).
+The mock serves a real `wrangler d1 export --local` dump, so the
+validation patterns run against the genuine dump format.
+
+## Real dump against the deployed dev worker
+
+The scheduled handler routes any non-breaker cron expression to the dump
+job, so the rehearsal used the documented path: a temporary third
+schedule (`*/5 * * * *`) was added to `env.dev.triggers` and deployed.
+The 05:10 UTC fire ran the job end to end against the real D1 export
+API with the operator's `D1_EXPORT_API_TOKEN`:
+
+```console
+$ npx wrangler d1 execute DB --env dev --remote --json --command \
+    "SELECT key, value FROM meta WHERE key LIKE 'last_backup%'"
+last_backup_at   2026-07-10T05:10:01.588Z
+last_backup_key  d1/2026-07-10.sql
+```
+
+`d1/2026-07-10.sql` and its sidecar were downloaded from the backup
+bucket with `wrangler r2 object get --remote`: 7,564 bytes,
+`shasum -a 256 -c` accepts the sidecar, and the dump carries the
+`CREATE TABLE` statements for all five canonical tables (plus
+`d1_migrations` and `backup_replication_failures`). The temporary
+schedule was then removed and the final two-schedule config redeployed.
+
+## Restore drill
+
+`scripts/restore-drill.sh dev`, run twice on purpose:
+
+1. The first run **failed the meta row-count comparison** (live 6,
+   restored 4) - the drill catching a real timeline artifact: the dump
+   is exported before the job records its own success, so the first
+   dump can never contain `last_backup_at` / `last_backup_key`. The
+   comparison now excludes exactly those two keys (they are the record
+   of the dump succeeding, not registry data).
+2. The second run passed everything:
+
+```console
+$ scripts/restore-drill.sh dev
+==> resolving the latest dump from meta.last_backup_key
+==> downloading d1/2026-07-10.sql and its checksum sidecar from cabin-registry-dev-backup
+2026-07-10.sql: OK
+==> creating the scratch database cabin-registry-drill
+==> importing the dump into cabin-registry-drill
+==> comparing per-table row counts against the live database
+    backup_replication_failures  live      0  restored      0
+    d1_migrations                live      3  restored      3
+    meta                         live      4  restored      4
+    packages                     live      5  restored      5
+    tokens                       live      2  restored      2
+    users                        live      1  restored      1
+    versions                     live      5  restored      5
+==> spot-checking one version's metadata JSON
+    qv-a@0.1.0: metadata_json matches and parses (478 bytes)
+==> tearing down cabin-registry-drill
+restore drill OK (d1/2026-07-10.sql)
+```
+
+The import processed 33 queries (53 rows read, 87 written) into the
+scratch database; teardown deleted it (`wrangler d1 list` shows only
+`cabin-registry-dev` afterwards).
+
+## Notes
+
+1. The backup bucket and the 5 referenced blobs were already in place
+   before this run (operator pre-provisioning); the backfill script
+   verified convergence rather than performing first copies. Live
+   publish-time replication was exercised via the local smoke's real
+   `waitUntil` path; a remote publish could not be exercised this run
+   because the operator's daily new-package quota was still consumed by
+   the previous verification's `qv-*` packages (UTC window).
+2. The first drill run's failure is recorded deliberately: a restore
+   drill that can fail - and explain why - is the point of rehearsing.

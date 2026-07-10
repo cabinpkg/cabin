@@ -17,7 +17,7 @@ use crate::error;
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, breaker, quota};
+use crate::{analytics, backup, breaker, quota};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -134,7 +134,7 @@ async fn handle(
         Method::Put => match match_api_route(&path) {
             Some(ApiRoute::Publish { name, version }) => {
                 let (name, version) = (name.to_owned(), version.to_owned());
-                publish_response(req, env, &db, &auth, &name, &version).await?
+                publish_response(req, env, ctx, &db, &auth, &name, &version).await?
             }
             Some(ApiRoute::Yank { .. }) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
@@ -257,6 +257,7 @@ async fn package_response(db: &D1Database, name: &str) -> worker::Result<Respons
 async fn publish_response(
     req: &mut Request,
     env: &Env,
+    ctx: &Context,
     db: &D1Database,
     auth: &AuthContext,
     name: &str,
@@ -305,6 +306,16 @@ async fn publish_response(
     };
 
     if let Some(response) = existing_version_response(db, name, version, metadata_text).await? {
+        // The idempotent no-op (200) is a retry of a committed publish;
+        // if the original isolate died before its replication ran (and
+        // before any failure row was recorded), this is the retry's one
+        // chance to heal the backup copy - head-first, so the common
+        // already-replicated case costs a single head. The 409 arm gets
+        // no copy: its uploaded bytes were rejected.
+        if response.status_code() == 200 {
+            let key = format!("blobs/sha256/{computed_hex}");
+            replicate_blob(env, ctx, &key, frame.archive);
+        }
         return Ok(response);
     }
 
@@ -335,6 +346,7 @@ async fn publish_response(
 
     persist_new_version(
         env,
+        ctx,
         db,
         &NewVersion {
             name,
@@ -527,9 +539,12 @@ struct NewVersion<'a> {
 /// already uploaded but never counted - still accounts for it, a second
 /// name sharing the blob never double-counts it, and two concurrent
 /// first publishes of the same archive serialize on the transaction so
-/// exactly one of them counts it.
+/// exactly one of them counts it. Once the batch commits, the blob is
+/// replicated to the BACKUP bucket off the response path
+/// ([`replicate_blob`]).
 async fn persist_new_version(
     env: &Env,
+    ctx: &Context,
     db: &D1Database,
     new: &NewVersion<'_>,
 ) -> worker::Result<()> {
@@ -584,7 +599,63 @@ async fn persist_new_version(
         ])?,
     ])
     .await?;
+
+    replicate_blob(env, ctx, &key, new.archive);
     Ok(())
+}
+
+/// Best-effort blob replication to the BACKUP bucket, scheduled off the
+/// response path once the D1 batch has committed - and again on the
+/// idempotent re-publish no-op, so a retry of a publish whose isolate
+/// died before replicating heals the gap - which keeps every logged
+/// failure referring to a referenced blob. Nothing ever deletes from BACKUP
+/// here or anywhere else in the service - the primary's reclaim paths do
+/// not propagate - so the backup is append-only. The head-first copy
+/// also self-heals a blob a crashed earlier publish never replicated. A
+/// failed copy is logged with its key and recorded in
+/// `backup_replication_failures` for `scripts/backup-backfill.sh` to
+/// re-run; the breaker cron alerts while such rows exist.
+fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
+    let (Ok(backup), Ok(db)) = (env.bucket("BACKUP"), env.d1("DB")) else {
+        console_error!("backup replication for {key}: BACKUP or DB binding is missing");
+        return;
+    };
+    let key = key.to_owned();
+    let archive = archive.to_vec();
+    ctx.wait_until(async move {
+        let outcome = match backup.head(&key).await {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => backup.put(&key, archive).execute().await.map(|_| ()),
+            Err(err) => Err(err),
+        };
+        let bookkeeping = match outcome {
+            Ok(()) => db
+                .prepare("DELETE FROM backup_replication_failures WHERE key = ?1")
+                .bind(&[key.clone().into()]),
+            Err(err) => {
+                console_error!(
+                    "backup replication failed for {key}: {err}; \
+                     recorded for scripts/backup-backfill.sh"
+                );
+                db.prepare(
+                    "INSERT INTO backup_replication_failures (key, failed_at) \
+                     VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET \
+                     failed_at = excluded.failed_at",
+                )
+                .bind(&[key.clone().into(), now_iso8601().into()])
+            }
+        };
+        match bookkeeping {
+            Ok(statement) => {
+                if statement.run().await.is_err() {
+                    console_error!("backup replication bookkeeping for {key} failed");
+                }
+            }
+            Err(_) => {
+                console_error!("backup replication bookkeeping for {key} could not be prepared");
+            }
+        }
+    });
 }
 
 /// Idempotency and immutability for an already-published `(name,
@@ -820,7 +891,7 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
 }
 
 /// Reads one `meta` row.
-async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
+pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
     let record: Option<MetaRecord> = db
         .prepare("SELECT value FROM meta WHERE key = ?1")
         .bind(&[key.into()])?
@@ -829,7 +900,7 @@ async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>>
     Ok(record.map(|record| record.value))
 }
 
-fn upsert_meta(
+pub(crate) fn upsert_meta(
     db: &D1Database,
     key: &str,
     value: &str,
@@ -841,27 +912,37 @@ fn upsert_meta(
     .bind(&[key.into(), value.into()])
 }
 
-/// The budget-breaker cron (`wrangler.jsonc` `triggers`, every 15
-/// minutes): gather usage, evaluate it against the budgets, persist the
-/// resulting service mode. Failed analytics queries leave their metric
-/// unset, which can escalate but never unblock writes
-/// ([`breaker::next_mode`]).
+/// The budget-breaker schedule (`wrangler.jsonc` `triggers`); the cron
+/// entry point routes on this exact expression.
+const BREAKER_CRON: &str = "*/15 * * * *";
+
+/// The cron entry point. The breaker's [`BREAKER_CRON`] runs the budget
+/// evaluation (every 15 minutes: gather usage, evaluate it against the
+/// budgets, persist the resulting service mode - failed analytics
+/// queries leave their metric unset, which can escalate but never
+/// unblock writes, [`breaker::next_mode`]). Any other trigger - the
+/// nightly `0 3 * * *`, or a temporary schedule added for an ops
+/// rehearsal - runs the D1 dump job, so exercising the backup path
+/// never needs a recompile.
 #[event(scheduled)]
-pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    if let Err(err) = evaluate_budgets(&env).await {
-        console_error!("budget evaluation failed; keeping the last service mode: {err}");
+pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    if event.cron() == BREAKER_CRON {
+        if let Err(err) = evaluate_budgets(&env).await {
+            console_error!("budget evaluation failed; keeping the last service mode: {err}");
+        }
+    } else if let Err(err) = crate::backup_glue::run_nightly_dump(&env).await {
+        console_error!("nightly backup failed: {err}");
     }
 }
 
-async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
-    let db = env.d1("DB")?;
-    let now = now_iso8601();
-
+/// One usage snapshot: the exact self-accounted storage plus the
+/// analytics-sourced metrics.
+async fn gather_usage(env: &Env, db: &D1Database, now: &str) -> worker::Result<breaker::Usage> {
     // Storage is the exact self-accounted meta row, never analytics. A
     // missing or non-numeric row is unavailable data - never zero - so a
     // corrupt counter can only keep or escalate the mode, not reopen
     // writes.
-    let stored_bytes = read_meta(&db, "total_stored_bytes")
+    let stored_bytes = read_meta(db, "total_stored_bytes")
         .await?
         .and_then(|value| value.parse::<u64>().ok());
     if stored_bytes.is_none() {
@@ -874,7 +955,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         .var("CF_ACCOUNT_ID")
         .map(|var| var.to_string())
         .unwrap_or_default();
-    let workers_requests_today = match analytics::utc_day_start(&now) {
+    let workers_requests_today = match analytics::utc_day_start(now) {
         Some(start) => {
             fetch_metric(
                 env,
@@ -886,7 +967,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         }
         None => None,
     };
-    let r2_class_a_month = match analytics::utc_month_start(&now) {
+    let r2_class_a_month = match analytics::utc_month_start(now) {
         Some(start) => {
             fetch_metric(
                 env,
@@ -898,7 +979,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         }
         None => None,
     };
-    let d1_rows_read_today = match analytics::utc_date(&now) {
+    let d1_rows_read_today = match analytics::utc_date(now) {
         Some(date) => {
             fetch_metric(
                 env,
@@ -911,12 +992,19 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         None => None,
     };
 
-    let usage = breaker::Usage {
+    Ok(breaker::Usage {
         stored_bytes,
         workers_requests_today,
         r2_class_a_month,
         d1_rows_read_today,
-    };
+    })
+}
+
+async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
+    let db = env.d1("DB")?;
+    let now = now_iso8601();
+
+    let usage = gather_usage(env, &db, &now).await?;
     let defaults = breaker::Budgets::default();
     let budgets = breaker::Budgets {
         r2_storage_bytes: env_budget(env, "BUDGET_R2_STORAGE_BYTES", defaults.r2_storage_bytes),
@@ -950,21 +1038,74 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
     };
 
     // Persist mode and reason every pass so operators always see the
-    // latest evaluation; log and notify only on a state change.
+    // latest evaluation.
     db.batch(vec![
         upsert_meta(&db, "service_mode", next.as_str())?,
         upsert_meta(&db, "service_mode_reason", &reason)?,
     ])
     .await?;
+
+    // Backup health rides every pass (docs/runbook.md, "Disaster
+    // recovery"): an unhealthy backup logs and notifies on every pass
+    // until resolved - a backup system's classic failure mode is
+    // stopping silently - while mode changes notify once.
+    let health = match read_backup_health(&db, &now).await {
+        Ok(health) => health,
+        Err(_) => BackupHealth::unreadable(),
+    };
+    if let Some(alert) = &health.alert {
+        console_error!("backup health: {alert}");
+    }
     if next != current {
         console_log!(
             "service_mode {} -> {}: {reason}",
             current.as_str(),
             next.as_str()
         );
-        notify_webhook(env, current, next, &reason, &usage).await;
+    }
+    if next != current || health.alert.is_some() {
+        notify_webhook(env, current, next, &reason, &usage, &health).await;
     }
     Ok(())
+}
+
+/// One breaker pass's view of backup health, for the log line and the
+/// webhook payload.
+struct BackupHealth {
+    last_backup_at: Option<String>,
+    freshness: backup::Freshness,
+    replication_failures: Option<u64>,
+    alert: Option<String>,
+}
+
+impl BackupHealth {
+    /// Fail closed when D1 would not answer: alert rather than report
+    /// an unknown state as healthy.
+    fn unreadable() -> BackupHealth {
+        BackupHealth {
+            last_backup_at: None,
+            freshness: backup::Freshness::Never,
+            replication_failures: None,
+            alert: Some("backup health could not be read from d1".to_owned()),
+        }
+    }
+}
+
+async fn read_backup_health(db: &D1Database, now: &str) -> worker::Result<BackupHealth> {
+    let last_backup_at = read_meta(db, "last_backup_at").await?;
+    let failures: CountRecord = db
+        .prepare("SELECT COUNT(*) AS n FROM backup_replication_failures")
+        .first(None)
+        .await?
+        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
+    let replication_failures = non_negative(failures.n);
+    let freshness = backup::freshness(now, last_backup_at.as_deref());
+    Ok(BackupHealth {
+        last_backup_at,
+        freshness,
+        replication_failures: Some(replication_failures),
+        alert: backup::alert(freshness, replication_failures),
+    })
 }
 
 fn env_budget(env: &Env, name: &str, default: u64) -> u64 {
@@ -1010,14 +1151,16 @@ async fn fetch_metric(
     sum
 }
 
-/// POSTs a state-change summary to `NOTIFY_WEBHOOK_URL` when it is
-/// configured; failures only log.
+/// POSTs a summary to `NOTIFY_WEBHOOK_URL` when it is configured, on
+/// service-mode changes (`from != to`) and backup alerts alike;
+/// failures only log.
 async fn notify_webhook(
     env: &Env,
     from: breaker::Mode,
     to: breaker::Mode,
     reason: &str,
     usage: &breaker::Usage,
+    health: &BackupHealth,
 ) {
     let Ok(url) = env.secret("NOTIFY_WEBHOOK_URL") else {
         return;
@@ -1031,6 +1174,12 @@ async fn notify_webhook(
         "workers_requests_today": usage.workers_requests_today,
         "r2_class_a_month": usage.r2_class_a_month,
         "d1_rows_read_today": usage.d1_rows_read_today,
+        "backup": {
+            "last_backup_at": health.last_backup_at,
+            "freshness": health.freshness.as_str(),
+            "replication_failures": health.replication_failures,
+            "alert": health.alert,
+        },
     })
     .to_string();
     if post_json(&url.to_string(), &body, None).await.is_err() {
@@ -1039,8 +1188,12 @@ async fn notify_webhook(
 }
 
 /// A JSON POST, optionally with a bearer token; used for the analytics
-/// queries and the state-change webhook.
-async fn post_json(url: &str, body: &str, bearer: Option<&str>) -> worker::Result<Response> {
+/// queries, the state-change webhook, and the D1 export calls.
+pub(crate) async fn post_json(
+    url: &str,
+    body: &str,
+    bearer: Option<&str>,
+) -> worker::Result<Response> {
     let headers = Headers::new();
     headers.set("content-type", "application/json")?;
     if let Some(bearer) = bearer {

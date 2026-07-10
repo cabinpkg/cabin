@@ -15,8 +15,9 @@
     // Secrets, set per environment via `wrangler secret put <NAME> --env <env>`
     // (never in this file): GITHUB_CLIENT_SECRET, SESSION_SECRET,
     // ANALYTICS_API_TOKEN (Account Analytics Read; the budget cron degrades
-    // gracefully without it), and optionally NOTIFY_WEBHOOK_URL (POSTed a
-    // JSON summary on service-mode changes).
+    // gracefully without it), D1_EXPORT_API_TOKEN (D1 only; the nightly
+    // dump job), and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary
+    // on service-mode changes and backup-freshness alerts).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
@@ -27,9 +28,12 @@
             "routes": [
                 { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true }
             ],
-            // The budget-breaker evaluation (src/glue.rs `scheduled`);
-            // ~100 invocations/day, negligible against the free limits.
-            "triggers": { "crons": ["*/15 * * * *"] },
+            // The budget-breaker evaluation plus the nightly D1 dump
+            // (src/glue.rs `scheduled` routes on the expression: the
+            // breaker's `*/15 * * * *` exactly, any other schedule runs
+            // the backup job); ~100 invocations/day, negligible against
+            // the free limits.
+            "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
             "vars": {
                 "REGISTRY_ORIGIN": "https://dev-registry.cabinpkg.com",
                 // Comma-separated numeric GitHub user ids allowed to sign in
@@ -46,7 +50,12 @@
                 // Dev only: no service-mode caching, so scripts/smoke.sh
                 // can flip modes via d1 execute and observe the effect
                 // immediately. Production uses the in-code 60 s TTL.
-                "SERVICE_MODE_TTL_SECS": "0"
+                "SERVICE_MODE_TTL_SECS": "0",
+                // The bound database's id, for the nightly dump's D1
+                // export REST call (bindings do not expose it). Must
+                // mirror d1_databases[0].database_id - a dev wipe changes
+                // both (docs/runbook.md, "Dev wipe procedure").
+                "D1_DATABASE_ID": "c0e6469d-37bf-47be-aed0-15abf16eb867"
             },
             "d1_databases": [
                 {
@@ -57,7 +66,8 @@
                 }
             ],
             "r2_buckets": [
-                { "binding": "BLOBS", "bucket_name": "cabin-registry-dev-blobs" }
+                { "binding": "BLOBS", "bucket_name": "cabin-registry-dev-blobs" },
+                { "binding": "BACKUP", "bucket_name": "cabin-registry-dev-backup" }
             ]
         },
         "production": {
@@ -65,12 +75,15 @@
             "routes": [
                 { "pattern": "registry.cabinpkg.com", "custom_domain": true }
             ],
-            "triggers": { "crons": ["*/15 * * * *"] },
+            "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
             "vars": {
                 "REGISTRY_ORIGIN": "https://registry.cabinpkg.com",
                 // 26405363 = ken-matsui
                 "ALLOWED_GITHUB_IDS": "26405363",
-                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f"
+                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
+                // Placeholder like database_id below; set both when
+                // production is provisioned.
+                "D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"
             },
             "d1_databases": [
                 {
@@ -82,7 +95,10 @@
                 }
             ],
             "r2_buckets": [
-                { "binding": "BLOBS", "bucket_name": "cabin-registry-prod-blobs" }
+                { "binding": "BLOBS", "bucket_name": "cabin-registry-prod-blobs" },
+                // Defined ahead of provisioning; created alongside the
+                // production checklist (docs/runbook.md).
+                { "binding": "BACKUP", "bucket_name": "cabin-registry-prod-backup" }
             ]
         }
     }
