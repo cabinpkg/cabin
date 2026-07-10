@@ -61,7 +61,10 @@ challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
 401s deliberately do not, keeping the planes distinguishable. In production
 the website origin reaches this Worker through zone routes
 (`cabinpkg.com/api/*`, `/login`, `/callback*` - see `wrangler.jsonc` and
-[`runbook.md`](runbook.md), "Route management").
+[`runbook.md`](runbook.md), "Route management"). The frontend consuming
+the session plane - `/dashboard`, `/settings/*`, and `/login/denied`, all
+static pages - lives in the repository's `website/` project ("Account
+pages" in its README).
 
 ## Two credential planes
 
