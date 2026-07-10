@@ -891,7 +891,7 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
 }
 
 /// Reads one `meta` row.
-async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
+pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
     let record: Option<MetaRecord> = db
         .prepare("SELECT value FROM meta WHERE key = ?1")
         .bind(&[key.into()])?
@@ -900,7 +900,7 @@ async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>>
     Ok(record.map(|record| record.value))
 }
 
-fn upsert_meta(
+pub(crate) fn upsert_meta(
     db: &D1Database,
     key: &str,
     value: &str,
@@ -912,15 +912,26 @@ fn upsert_meta(
     .bind(&[key.into(), value.into()])
 }
 
-/// The budget-breaker cron (`wrangler.jsonc` `triggers`, every 15
-/// minutes): gather usage, evaluate it against the budgets, persist the
-/// resulting service mode. Failed analytics queries leave their metric
-/// unset, which can escalate but never unblock writes
-/// ([`breaker::next_mode`]).
+/// The budget-breaker schedule (`wrangler.jsonc` `triggers`); the cron
+/// entry point routes on this exact expression.
+const BREAKER_CRON: &str = "*/15 * * * *";
+
+/// The cron entry point. The breaker's [`BREAKER_CRON`] runs the budget
+/// evaluation (every 15 minutes: gather usage, evaluate it against the
+/// budgets, persist the resulting service mode - failed analytics
+/// queries leave their metric unset, which can escalate but never
+/// unblock writes, [`breaker::next_mode`]). Any other trigger - the
+/// nightly `0 3 * * *`, or a temporary schedule added for an ops
+/// rehearsal - runs the D1 dump job, so exercising the backup path
+/// never needs a recompile.
 #[event(scheduled)]
-pub async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    if let Err(err) = evaluate_budgets(&env).await {
-        console_error!("budget evaluation failed; keeping the last service mode: {err}");
+pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+    if event.cron() == BREAKER_CRON {
+        if let Err(err) = evaluate_budgets(&env).await {
+            console_error!("budget evaluation failed; keeping the last service mode: {err}");
+        }
+    } else if let Err(err) = crate::backup_glue::run_nightly_dump(&env).await {
+        console_error!("nightly backup failed: {err}");
     }
 }
 
@@ -1110,8 +1121,12 @@ async fn notify_webhook(
 }
 
 /// A JSON POST, optionally with a bearer token; used for the analytics
-/// queries and the state-change webhook.
-async fn post_json(url: &str, body: &str, bearer: Option<&str>) -> worker::Result<Response> {
+/// queries, the state-change webhook, and the D1 export calls.
+pub(crate) async fn post_json(
+    url: &str,
+    body: &str,
+    bearer: Option<&str>,
+) -> worker::Result<Response> {
     let headers = Headers::new();
     headers.set("content-type", "application/json")?;
     if let Some(bearer) = bearer {

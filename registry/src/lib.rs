@@ -20,6 +20,8 @@ pub mod routes;
 pub mod session;
 
 #[cfg(target_arch = "wasm32")]
+mod backup_glue;
+#[cfg(target_arch = "wasm32")]
 mod glue;
 #[cfg(target_arch = "wasm32")]
 mod web_glue;
