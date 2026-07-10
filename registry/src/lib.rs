@@ -9,6 +9,7 @@
 pub mod allowlist;
 pub mod analytics;
 pub mod auth;
+pub mod backup;
 pub mod breaker;
 pub mod documents;
 pub mod error;
