@@ -70,6 +70,22 @@ jobs:
           gzip -9 -n -c d1.sql >"$dump"
           sha256sum "$dump" >"$dump.sha256"
 
+      - name: Copy blobs to the backup bucket
+        # copy (not sync) never deletes on the destination, so a deletion in
+        # the primary cannot propagate to the backup. The blobs are immutable
+        # and content-addressed, which makes --size-only a sound change
+        # detector. Blobs go first: the dump below is only published once
+        # every blob it can reference is already in the backup bucket, so
+        # the newest dump never points at blobs a failed run left behind.
+        env:
+          RCLONE_CONFIG_PRIMARY_ACCESS_KEY_ID: ${{ secrets.R2_PRIMARY_READ_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_PRIMARY_SECRET_ACCESS_KEY: ${{ secrets.R2_PRIMARY_READ_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
+        run: |
+          rclone copy --s3-no-check-bucket --size-only --stats-one-line \
+            "primary:$PRIMARY_BUCKET/blobs" "backup:$BACKUP_BUCKET/blobs"
+
       - name: Upload the dump and its checksum
         env:
           RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
@@ -89,20 +105,6 @@ jobs:
           cp "../$DUMP.sha256" .
           sha256sum -c "$DUMP.sha256"
           cmp "$DUMP" "../$DUMP"
-
-      - name: Copy blobs to the backup bucket
-        # copy (not sync) never deletes on the destination, so a deletion in
-        # the primary cannot propagate to the backup. The blobs are immutable
-        # and content-addressed, which makes --size-only a sound change
-        # detector.
-        env:
-          RCLONE_CONFIG_PRIMARY_ACCESS_KEY_ID: ${{ secrets.R2_PRIMARY_READ_ACCESS_KEY_ID }}
-          RCLONE_CONFIG_PRIMARY_SECRET_ACCESS_KEY: ${{ secrets.R2_PRIMARY_READ_SECRET_ACCESS_KEY }}
-          RCLONE_CONFIG_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_WRITE_ACCESS_KEY_ID }}
-          RCLONE_CONFIG_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_WRITE_SECRET_ACCESS_KEY }}
-        run: |
-          rclone copy --s3-no-check-bucket --size-only --stats-one-line \
-            "primary:$PRIMARY_BUCKET/blobs" "backup:$BACKUP_BUCKET/blobs"
 
       - name: Prune dumps past the retention policy
         env:
