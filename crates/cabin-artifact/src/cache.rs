@@ -44,13 +44,30 @@ impl ArtifactCache {
     }
 }
 
-/// Sibling `<archive>.partial` path used while streaming a download
-/// before the atomic rename into place.  Built by appending `.partial`
-/// rather than via `Path::with_extension`, which would clobber the
-/// trailing `.gz` of `<name>-<version>.tar.gz`.
+/// Sibling `<path>.partial` used while streaming a download (or
+/// extracting a source tree) before the atomic rename into place.
+/// Built by appending `.partial` rather than via
+/// `Path::with_extension`, which would clobber the trailing `.gz`
+/// of `<name>-<version>.tar.gz`.
 pub fn partial_sibling(archive_path: &Path) -> PathBuf {
     let mut s: OsString = archive_path.as_os_str().to_owned();
     s.push(".partial");
+    PathBuf::from(s)
+}
+
+/// Sibling `<dir>.partial.<pid>` scratch directory used while
+/// extracting a source tree before the atomic rename into place.
+///
+/// The process id keeps two concurrent Cabin processes populating the
+/// same cache entry from writing into each other's half-built tree:
+/// each builds its own, and the rename decides the winner.  The loser
+/// surfaces the rename failure rather than silently adopting a tree it
+/// did not build.  A crashed process leaves its scratch directory
+/// behind; the next run that picks up the same pid removes it before
+/// extracting.
+pub fn partial_dir_sibling(dir: &Path) -> PathBuf {
+    let mut s: OsString = dir.as_os_str().to_owned();
+    s.push(format!(".partial.{}", std::process::id()));
     PathBuf::from(s)
 }
 

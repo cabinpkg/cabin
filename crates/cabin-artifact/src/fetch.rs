@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use cabin_core::PackageName;
 
-use crate::cache::{ArtifactCache, extraction_marker_path, partial_sibling};
+use crate::cache::{ArtifactCache, extraction_marker_path, partial_dir_sibling, partial_sibling};
 use crate::error::ArtifactError;
 use crate::extract;
 use crate::model::ChecksumDigest;
@@ -271,16 +271,46 @@ fn ensure_source(
             source,
         })?;
     }
-    fs::create_dir_all(source_dir).map_err(|source| ArtifactError::Io {
-        path: source_dir.to_path_buf(),
+    // Extract and validate in a sibling temp directory, renamed
+    // into place only on success: a hostile archive rejected
+    // mid-extraction (or a crash) never leaves a partial tree at
+    // the final path, mirroring the `.partial` + rename convention
+    // the archive download above uses.
+    let tmp_dir = partial_dir_sibling(source_dir);
+    if tmp_dir.exists() {
+        fs::remove_dir_all(&tmp_dir).map_err(|source| ArtifactError::Io {
+            path: tmp_dir.clone(),
+            source,
+        })?;
+    }
+    fs::create_dir_all(&tmp_dir).map_err(|source| ArtifactError::Io {
+        path: tmp_dir.clone(),
         source,
     })?;
-    extract::extract_tar_gz(archive_path, source_dir)?;
-    extract::validate_extracted(source_dir, &entry.name, &entry.version)?;
-    // Write the marker only after extraction and validation
-    // succeed.  A crash between extract_tar_gz and this write
-    // leaves the marker absent, so the next run treats the
-    // directory as interrupted and re-extracts.
+    let extracted = extract::extract_tar_gz(archive_path, &tmp_dir)
+        .and_then(|()| extract::validate_extracted(&tmp_dir, &entry.name, &entry.version));
+    if let Err(err) = extracted {
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return Err(err);
+    }
+    // Rename the validated tree into place.  A failure - including a
+    // concurrent process having populated `source_dir` first, which
+    // makes the rename onto a non-empty directory fail - removes the
+    // scratch so no partial state leaks, and surfaces the error so the
+    // caller retries rather than adopting a tree it did not build.
+    // The cache is content-addressed, so a retry finds the winner's
+    // now-valid entry on its cache-hit check.
+    if let Err(source) = fs::rename(&tmp_dir, source_dir) {
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return Err(ArtifactError::Io {
+            path: source_dir.to_path_buf(),
+            source,
+        });
+    }
+    // Write the marker only after the validated tree is renamed
+    // into place.  A crash before this write leaves the marker
+    // absent, so the next run treats the directory as interrupted
+    // and re-extracts.
     File::create(&marker).map_err(|source| ArtifactError::Io {
         path: marker.clone(),
         source,
@@ -589,6 +619,70 @@ mod tests {
         };
         let err = fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap_err();
         assert!(matches!(err, ArtifactError::FrozenCacheMiss { .. }));
+    }
+
+    #[test]
+    fn a_rejected_archive_leaves_no_partial_source_tree() {
+        // A hostile archive whose first entry extracts fine and whose
+        // second is refused.  Extraction happens in a scratch sibling
+        // directory, so the cache is left exactly as it was: no
+        // half-populated source tree, no completion marker, no
+        // scratch directory.
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("artifacts/evil.tar.gz");
+        fs::create_dir_all(archive.path().parent().unwrap()).unwrap();
+        let f = File::create(archive.path()).unwrap();
+        let enc = GzEncoder::new(f, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+        for (path, body) in [
+            ("cabin.toml", manifest("fmt", "10.2.1")),
+            ("src/main.cc", "int main() {}\n".to_owned()),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, path, std::io::Cursor::new(body.as_bytes()))
+                .unwrap();
+        }
+        // A fifo entry: rejected by the entry-type gate, after the
+        // two regular files above have already been written.
+        let mut header = tar::Header::new_gnu();
+        header.set_path("pipe").unwrap();
+        header.set_size(0);
+        header.set_entry_type(tar::EntryType::Fifo);
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).unwrap();
+        let enc = builder.into_inner().unwrap();
+        enc.finish().unwrap().flush().unwrap();
+
+        let hex = hash_file(archive.path()).unwrap();
+        let cache = cache_root(dir.path());
+        let plan = FetchPlan {
+            entries: vec![FetchEntry {
+                name: pkg("fmt"),
+                version: ver("10.2.1"),
+                checksum: format!("sha256:{hex}"),
+                source: FetchSource::LocalArchive(archive.to_path_buf()),
+            }],
+        };
+        let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
+        assert!(
+            matches!(err, ArtifactError::UnsupportedArchiveEntry(_)),
+            "{err:?}"
+        );
+        let source_dir = cache.source_dir(&hex);
+        assert!(!source_dir.exists(), "partial source tree left behind");
+        assert!(!extraction_marker_path(&source_dir).exists());
+        assert!(
+            !partial_dir_sibling(&source_dir).exists(),
+            "scratch dir left"
+        );
+        // The verified archive itself is still cached: only the
+        // extraction failed.
+        assert!(cache.archive_path(&hex).is_file());
     }
 
     #[test]
