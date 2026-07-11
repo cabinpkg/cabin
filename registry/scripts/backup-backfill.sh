@@ -4,10 +4,10 @@
 # recovery"): copies every referenced archive blob that is missing from
 # the BACKUP bucket, then clears the blob-replication failure log.
 # Publish-time replication is best-effort, so run this once after
-# enabling backups for an environment with existing data, and again
-# whenever the breaker cron alerts on replication failures.
+# enabling backups over existing data, and again whenever the breaker
+# cron alerts on replication failures.
 #
-#   scripts/backup-backfill.sh dev            # or production
+#   scripts/backup-backfill.sh
 #
 # Requires CLOUDFLARE_API_TOKEN in the environment. Idempotent:
 # re-running skips blobs the backup already holds.
@@ -16,23 +16,23 @@ set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-env_name="${1:?usage: scripts/backup-backfill.sh <dev|production>}"
-case "$env_name" in
-  dev) primary="cabin-registry-dev-blobs" backup="cabin-registry-dev-backup" ;;
-  production) primary="cabin-registry-prod-blobs" backup="cabin-registry-prod-backup" ;;
-  *) echo "unknown environment: $env_name (expected dev or production)" >&2; exit 1 ;;
-esac
+# The pre-cutover form took an environment argument; refuse it loudly
+# instead of silently acting on the sole remaining deployment.
+[[ $# -eq 0 ]] || { echo "usage: scripts/backup-backfill.sh (no arguments)" >&2; exit 1; }
+
+primary="cabin-registry-blobs"
+backup="cabin-registry-backup"
 
 step() { printf '==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 wrangler() { npx --yes wrangler "$@"; }
 
-d1_exec() { wrangler d1 execute DB --env "$env_name" --remote --command "$1" >/dev/null; }
+d1_exec() { wrangler d1 execute DB --remote --command "$1" >/dev/null; }
 
 # d1_column <sql> <column>: one value per line from a remote query.
 d1_column() {
-  wrangler d1 execute DB --env "$env_name" --remote --json --command "$1" |
+  wrangler d1 execute DB --remote --json --command "$1" |
     node -e '
       const column = process.argv[1];
       const out = JSON.parse(require("fs").readFileSync(0, "utf8"));

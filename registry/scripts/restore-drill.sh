@@ -8,10 +8,10 @@
 # metadata JSON byte-for-byte, and tears the scratch database down.
 # Run it after enabling backups and again whenever the dump machinery
 # changes. Row counts can legitimately drift on an active database
-# (the dump is from the last nightly pass); on quiet dev they match
-# exactly.
+# (the dump is from the last nightly pass); on a quiet registry they
+# match exactly.
 #
-#   scripts/restore-drill.sh dev            # or production
+#   scripts/restore-drill.sh
 #
 # Requires CLOUDFLARE_API_TOKEN in the environment. The scratch
 # database is cabin-registry-drill; the script refuses to run when one
@@ -21,12 +21,11 @@ set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-env_name="${1:?usage: scripts/restore-drill.sh <dev|production>}"
-case "$env_name" in
-  dev) backup="cabin-registry-dev-backup" ;;
-  production) backup="cabin-registry-prod-backup" ;;
-  *) echo "unknown environment: $env_name (expected dev or production)" >&2; exit 1 ;;
-esac
+# The pre-cutover form took an environment argument; refuse it loudly
+# instead of silently acting on the sole remaining deployment.
+[[ $# -eq 0 ]] || { echo "usage: scripts/restore-drill.sh (no arguments)" >&2; exit 1; }
+
+backup="cabin-registry-backup"
 scratch="cabin-registry-drill"
 
 step() { printf '==> %s\n' "$*"; }
@@ -47,7 +46,7 @@ column() {
     ' "$2"
 }
 
-live_column() { column DB --env "$env_name" -- "$1" "$2"; }
+live_column() { column DB -- "$1" "$2"; }
 scratch_column() { column "$scratch" -- "$1" "$2"; }
 
 work="$(mktemp -d)"

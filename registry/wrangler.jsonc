@@ -1,6 +1,9 @@
 {
-    // Hosted registry service (see README.md). Both environments share this
-    // Worker code; always deploy with an explicit --env dev / --env production.
+    // Hosted registry service (see README.md). One configuration, no
+    // wrangler environments: the registry runs under its final production
+    // names while remaining closed to allowlisted maintainers and labeled
+    // as under development. Launch is a data/policy event, not an
+    // infrastructure cutover (docs/runbook.md, "Launch checklist").
     "name": "cabin-registry",
     "main": "build/index.js",
     "compatibility_date": "2026-07-09",
@@ -12,121 +15,74 @@
         "enabled": true,
         "head_sampling_rate": 1
     },
-    // Secrets, set per environment via `wrangler secret put <NAME> --env <env>`
-    // (never in this file): GITHUB_CLIENT_SECRET, SESSION_SECRET,
-    // ANALYTICS_API_TOKEN (Account Analytics Read; the budget cron degrades
-    // gracefully without it), D1_EXPORT_API_TOKEN (D1 only; the nightly
-    // dump job), and optionally NOTIFY_WEBHOOK_URL (POSTed a JSON summary
-    // on service-mode changes and backup-freshness alerts).
+    // Secrets, set via `wrangler secret put <NAME>` (never in this file):
+    // GITHUB_CLIENT_SECRET, SESSION_SECRET, ANALYTICS_API_TOKEN (Account
+    // Analytics Read; the budget cron degrades gracefully without it),
+    // D1_EXPORT_API_TOKEN (D1 only; the nightly dump job), and optionally
+    // NOTIFY_WEBHOOK_URL (POSTed a JSON summary on service-mode changes
+    // and backup-freshness alerts).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
     // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
     // defaults (src/breaker.rs) and only need `vars` entries to override.
     // One Worker, one role per hostname (docs/architecture.md, "Origins
     // and roles"): the registry custom domain serves only the machine
-    // read plane, and the website origin (cabinpkg.com, the production
-    // hostname even during development) serves /login, /callback, and
-    // /api/* via the zone routes below. A route pattern can point at only
-    // one Worker, so env dev holds the cabinpkg.com routes for now; the
-    // production cutover moves these exact patterns to env production
-    // (docs/runbook.md, "Integrated topology and route management").
-    "env": {
-        "dev": {
-            "name": "cabin-registry-dev",
-            "routes": [
-                { "pattern": "dev-registry.cabinpkg.com", "custom_domain": true },
-                // Path routes are more specific than the website Worker's
-                // domain, so they win on these paths and only these paths.
-                // /callback needs the trailing * because a pattern without
-                // one never matches a URL carrying a query string (GitHub
-                // redirects to /callback?code=...&state=...); /login stays
-                // exact so /login/denied keeps rendering on the website.
-                { "pattern": "cabinpkg.com/api/*", "zone_name": "cabinpkg.com" },
-                { "pattern": "cabinpkg.com/login", "zone_name": "cabinpkg.com" },
-                { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" }
-            ],
-            // The budget-breaker evaluation plus the nightly D1 dump
-            // (src/glue.rs `scheduled` routes on the expression: the
-            // breaker's `*/15 * * * *` exactly, any other schedule runs
-            // the backup job); ~100 invocations/day, negligible against
-            // the free limits.
-            "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
-            "vars": {
-                // The website origin: config.json's `api` field, the
-                // WWW-Authenticate login_url, OAuth redirects, and the
-                // quota details' usage URLs all derive from it. The index
-                // stays on the registry custom domain declared in
-                // `routes` above; no var names it because no code reads it.
-                "WEB_ORIGIN": "https://cabinpkg.com",
-                // Comma-separated numeric GitHub user ids allowed to sign
-                // in; empty means nobody. Not a secret.
-                // 26405363 = ken-matsui
-                "ALLOWED_GITHUB_IDS": "26405363",
-                // Client id of the dev GitHub OAuth app (callback
-                // https://cabinpkg.com/callback). Public, not a secret;
-                // the matching GITHUB_CLIENT_SECRET is a secret.
-                "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H",
-                // Account tag for the GraphQL Analytics queries. Not a
-                // secret (it is in every dashboard URL).
-                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
-                // Dev only: no service-mode caching, so scripts/smoke.sh
-                // can flip modes via d1 execute and observe the effect
-                // immediately. Production uses the in-code 60 s TTL.
-                "SERVICE_MODE_TTL_SECS": "0",
-                // The bound database's id, for the nightly dump's D1
-                // export REST call (bindings do not expose it). Must
-                // mirror d1_databases[0].database_id - a dev wipe changes
-                // both (docs/runbook.md, "Dev wipe procedure").
-                "D1_DATABASE_ID": "c0e6469d-37bf-47be-aed0-15abf16eb867"
-            },
-            "d1_databases": [
-                {
-                    "binding": "DB",
-                    "database_name": "cabin-registry-dev",
-                    "database_id": "c0e6469d-37bf-47be-aed0-15abf16eb867",
-                    "migrations_dir": "migrations"
-                }
-            ],
-            "r2_buckets": [
-                { "binding": "BLOBS", "bucket_name": "cabin-registry-dev-blobs" },
-                { "binding": "BACKUP", "bucket_name": "cabin-registry-dev-backup" }
-            ]
-        },
-        "production": {
-            "name": "cabin-registry",
-            // No cabinpkg.com routes yet on purpose: env dev holds them
-            // (a pattern can point at only one Worker). The production
-            // cutover moves the three patterns here, at which point the
-            // dev registry loses its browser plane (docs/runbook.md,
-            // "Integrated topology and route management").
-            "routes": [
-                { "pattern": "registry.cabinpkg.com", "custom_domain": true }
-            ],
-            "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
-            "vars": {
-                "WEB_ORIGIN": "https://cabinpkg.com",
-                // 26405363 = ken-matsui
-                "ALLOWED_GITHUB_IDS": "26405363",
-                "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
-                // Placeholder like database_id below; set both when
-                // production is provisioned.
-                "D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"
-            },
-            "d1_databases": [
-                {
-                    "binding": "DB",
-                    "database_name": "cabin-registry-prod",
-                    // Placeholder until `wrangler d1 create cabin-registry-prod`.
-                    "database_id": "00000000-0000-0000-0000-000000000000",
-                    "migrations_dir": "migrations"
-                }
-            ],
-            "r2_buckets": [
-                { "binding": "BLOBS", "bucket_name": "cabin-registry-prod-blobs" },
-                // Defined ahead of provisioning; created alongside the
-                // production checklist (docs/runbook.md).
-                { "binding": "BACKUP", "bucket_name": "cabin-registry-prod-backup" }
-            ]
+    // read plane, and the website origin (cabinpkg.com) serves /login,
+    // /callback, and /api/* via the zone routes below.
+    "routes": [
+        { "pattern": "registry.cabinpkg.com", "custom_domain": true },
+        // Path routes are more specific than the website Worker's
+        // domain, so they win on these paths and only these paths.
+        // /callback needs the trailing * because a pattern without
+        // one never matches a URL carrying a query string (GitHub
+        // redirects to /callback?code=...&state=...); /login stays
+        // exact so /login/denied keeps rendering on the website.
+        { "pattern": "cabinpkg.com/api/*", "zone_name": "cabinpkg.com" },
+        { "pattern": "cabinpkg.com/login", "zone_name": "cabinpkg.com" },
+        { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" }
+    ],
+    // The budget-breaker evaluation plus the nightly D1 dump
+    // (src/glue.rs `scheduled` routes on the expression: the
+    // breaker's `*/15 * * * *` exactly, any other schedule runs
+    // the backup job); ~100 invocations/day, negligible against
+    // the free limits.
+    "triggers": { "crons": ["*/15 * * * *", "0 3 * * *"] },
+    "vars": {
+        // The website origin: config.json's `api` field, the
+        // WWW-Authenticate login_url, OAuth redirects, and the
+        // quota details' usage URLs all derive from it. The index
+        // stays on the registry custom domain declared in
+        // `routes` above; no var names it because no code reads it.
+        "WEB_ORIGIN": "https://cabinpkg.com",
+        // Comma-separated numeric GitHub user ids allowed to sign
+        // in; empty means nobody. Not a secret.
+        // 26405363 = ken-matsui
+        "ALLOWED_GITHUB_IDS": "26405363",
+        // Client id of the GitHub OAuth app (callback
+        // https://cabinpkg.com/callback). Public, not a secret;
+        // the matching GITHUB_CLIENT_SECRET is a secret.
+        "GITHUB_CLIENT_ID": "Ov23liAgmw27EQavKC8H",
+        // Account tag for the GraphQL Analytics queries. Not a
+        // secret (it is in every dashboard URL).
+        "CF_ACCOUNT_ID": "7bd7dbea3c4c76cd396153fb0e92178f",
+        // The bound database's id, for the nightly dump's D1
+        // export REST call (bindings do not expose it). Must
+        // mirror d1_databases[0].database_id - a wipe that
+        // recreates the database changes both (docs/runbook.md,
+        // "Wipe procedure (pre-launch)").
+        "D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"
+    },
+    "d1_databases": [
+        {
+            "binding": "DB",
+            "database_name": "cabin-registry",
+            // Placeholder until `wrangler d1 create cabin-registry`.
+            "database_id": "00000000-0000-0000-0000-000000000000",
+            "migrations_dir": "migrations"
         }
-    }
+    ],
+    "r2_buckets": [
+        { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" },
+        { "binding": "BACKUP", "bucket_name": "cabin-registry-backup" }
+    ]
 }

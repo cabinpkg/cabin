@@ -186,7 +186,7 @@ async fn handle_registry(
         error_response(405, error::METHOD_NOT_ALLOWED)?
     };
 
-    // Debug aid for the disposable dev environment (see docs/runbook.md):
+    // Debug aid for the pre-launch registry (see docs/runbook.md):
     // stamp every authenticated response with the registry generation.
     if let Some(generation) = registry_generation(&db).await {
         response.headers_mut().set(GENERATION_HEADER, &generation)?;
@@ -1521,8 +1521,8 @@ const SERVICE_MODE_TTL_SECS: f64 = 60.0;
 
 /// The service mode for the write routes, cached in isolate memory for
 /// ~60 s (one cheap D1 point read on expiry; the `SERVICE_MODE_TTL_SECS`
-/// env var overrides the TTL, and dev pins it to 0 so the smoke test can
-/// flip modes without waiting it out). Fail closed: a missing or unknown
+/// env var overrides the TTL, and the smoke test pins it to 0 via
+/// `.dev.vars` so it can flip modes without waiting it out). Fail closed: a missing or unknown
 /// `meta.service_mode` is `WritesBlocked`, and a D1 failure propagates
 /// into the caller's 500. Reads never call this - they fail open by
 /// construction.

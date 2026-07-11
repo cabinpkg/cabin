@@ -42,7 +42,7 @@ base="http://127.0.0.1:${port}"
 # D1/R2 state, because each instance pins the Host header the Worker's
 # role dispatch reads.
 web_base="http://127.0.0.1:${web_port}"
-# WEB_ORIGIN from wrangler.jsonc (env dev), which the challenge, the
+# WEB_ORIGIN from wrangler.jsonc, which the challenge, the
 # config.json api field, and the quota details embed.
 web_origin="https://cabinpkg.com"
 token="${CABIN_REGISTRY_SMOKE_TOKEN:-}"
@@ -53,7 +53,7 @@ web_log="$(mktemp)"
 dev_pid=""
 web_pid=""
 mock_pid=""
-dev_vars=".dev.vars.dev"
+dev_vars=".dev.vars"
 dev_vars_backup=""
 dev_vars_created=""
 
@@ -137,17 +137,17 @@ frame() {
   } >"$out"
 }
 
-step "applying migrations to the local dev database"
-wrangler d1 migrations apply DB --env dev --local
+step "applying migrations to the local database"
+wrangler d1 migrations apply DB --local
 
 verify_token="${token:+${token}-verify}"
 if [[ -n "$token" ]]; then
-  step "seeding the smoke tokens into the local dev database"
+  step "seeding the smoke tokens into the local database"
   hash="$(printf '%s' "$token" | shasum -a 256 | cut -d' ' -f1)"
   verify_hash="$(printf '%s' "$verify_token" | shasum -a 256 | cut -d' ' -f1)"
   # The fixture rows are cleared so re-runs still see a first publish; the
   # content-addressed R2 blob may survive, which the publish path skips.
-  wrangler d1 execute DB --env dev --local --command "
+  wrangler d1 execute DB --local --command "
     INSERT OR IGNORE INTO users (github_id, login, created_at)
       VALUES (0, 'smoke', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
@@ -167,7 +167,7 @@ fi
 step "exporting a local dump for the export-API mock"
 mock_dir="$(mktemp -d)"
 trap 'cleanup; rm -rf "$mock_dir"' EXIT
-wrangler d1 export DB --env dev --local --output "$mock_dir/dump.sql"
+wrangler d1 export DB --local --output "$mock_dir/dump.sql"
 
 step "starting the export-API mock on port ${mock_port}"
 cat >"$mock_dir/mock.js" <<'MOCK_EOF'
@@ -201,7 +201,7 @@ for _ in $(seq 1 20); do
 done
 
 # Point the worker's export calls at the mock. Wrangler reads
-# .dev.vars.dev for --env dev; an existing file is saved and restored.
+# .dev.vars for `wrangler dev`; an existing file is saved and restored.
 if [[ -f "$dev_vars" ]]; then
   dev_vars_backup="$(mktemp)"
   cp "$dev_vars" "$dev_vars_backup"
@@ -210,12 +210,15 @@ fi
 # valid session cookie for the seeded user (github id 0) without a
 # GitHub round trip; ALLOWED_GITHUB_IDS admits that id plus id 1, whose
 # user row deliberately does not exist (the post-wipe ghost-session
-# case).
+# case). SERVICE_MODE_TTL_SECS=0 disables the service-mode cache so the
+# breaker leg below observes a flipped mode immediately (the deployed
+# worker uses the in-code 60 s TTL).
 cat >"$dev_vars" <<EOF
 CF_API_BASE="http://127.0.0.1:${mock_port}"
 D1_EXPORT_API_TOKEN="smoke-placeholder"
 SESSION_SECRET="smoke-session-secret"
 ALLOWED_GITHUB_IDS="0,1"
+SERVICE_MODE_TTL_SECS="0"
 EOF
 dev_vars_created=1
 
@@ -231,7 +234,7 @@ step "starting wrangler dev on port ${port} (first build takes a while)"
 # Job control (-m) gives each dev-server tree its own process group so
 # cleanup can kill all of it at once.
 set -m
-wrangler dev --env dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
+wrangler dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
 dev_pid=$!
 set +m
 disown "$dev_pid"
@@ -248,7 +251,7 @@ done
 # is already cached.
 step "starting the website-role wrangler dev on port ${web_port}"
 set -m
-wrangler dev --env dev --port "$web_port" --host cabinpkg.com >"$web_log" 2>&1 &
+wrangler dev --port "$web_port" --host cabinpkg.com >"$web_log" 2>&1 &
 web_pid=$!
 set +m
 disown "$web_pid"
@@ -546,7 +549,7 @@ as_publisher
 await_backup_blob() {
   local key="$1" out="$2"
   for _ in $(seq 1 20); do
-    wrangler r2 object get "cabin-registry-dev-backup/$key" \
+    wrangler r2 object get "cabin-registry-backup/$key" \
       --file "$out" --local >/dev/null 2>&1 && return 0
     sleep 0.5
   done
@@ -561,8 +564,8 @@ cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
 # A retry of a publish whose isolate died before replicating takes the
 # idempotent no-op path; it must re-schedule the copy.
 step "an idempotent re-publish heals missing primary and backup blobs"
-wrangler r2 object delete "cabin-registry-dev-backup/blobs/sha256/$blob_hash" --local >/dev/null
-wrangler r2 object delete "cabin-registry-dev-blobs/blobs/sha256/$blob_hash" --local >/dev/null
+wrangler r2 object delete "cabin-registry-backup/blobs/sha256/$blob_hash" --local >/dev/null
+wrangler r2 object delete "cabin-registry-blobs/blobs/sha256/$blob_hash" --local >/dev/null
 wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
@@ -618,7 +621,7 @@ grep -qF "sha256:$old_hash" "$fixture_metadata" \
 # The dev vars pin SERVICE_MODE_TTL_SECS to 0, so the running worker sees
 # the flipped mode immediately instead of after the 60 s cache TTL.
 step "writes answer 402 while writes_blocked; reads stay open"
-wrangler d1 execute DB --env dev --local --command "
+wrangler d1 execute DB --local --command "
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
   UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';"
 wrequest PUT "$publish_path" "$work/publish.bin" 402
@@ -628,7 +631,7 @@ expect_body 'registry_over_budget'
 check "/packages/$name.json" 200
 
 step "restoring service_mode reopens writes"
-wrangler d1 execute DB --env dev --local --command "
+wrangler d1 execute DB --local --command "
   UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
   UPDATE meta SET value = '' WHERE key = 'service_mode_reason';"
 wrequest PUT "$publish_path" "$work/publish.bin" 200
@@ -637,12 +640,12 @@ expect_body '"no_op":true'
 # --- The reject -> blob reclaim -> quota refund -> republish flow. ---
 # The PUTs above consumed the publish bucket's full burst; give this leg
 # its own by resetting the token's bucket columns.
-wrangler d1 execute DB --env dev --local --command "
+wrangler d1 execute DB --local --command "
   UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';"
 
 # meta.total_stored_bytes, the exact storage self-accounting.
 stored_bytes() {
-  wrangler d1 execute DB --env dev --local --json --command \
+  wrangler d1 execute DB --local --json --command \
     "SELECT value FROM meta WHERE key = 'total_stored_bytes'" |
     node -e '
       const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -707,7 +710,7 @@ wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected.
 as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "the rejection did not refund the replacement bytes: $(stored_bytes)"
-if wrangler r2 object get "cabin-registry-dev-blobs/blobs/sha256/$replacement_hash" \
+if wrangler r2 object get "cabin-registry-blobs/blobs/sha256/$replacement_hash" \
   --file "$work/reclaimed.tar.gz" --local >/dev/null 2>&1; then
   fail "the rejected version's unshared blob was not reclaimed"
 fi
@@ -730,7 +733,7 @@ dump_key="d1/$today.sql"
 check "/__scheduled?cron=0+3+*+*+*" 200
 stored=""
 for _ in $(seq 1 20); do
-  if wrangler r2 object get "cabin-registry-dev-backup/$dump_key" \
+  if wrangler r2 object get "cabin-registry-backup/$dump_key" \
     --file "$work/stored-dump.sql" --local >/dev/null 2>&1; then
     stored=1
     break
@@ -745,7 +748,7 @@ cmp -s "$work/stored-dump.sql" "$mock_dir/dump.sql" \
   || fail "stored dump differs from the mock's exported dump"
 
 step "the dump's sha256 sidecar verifies with shasum -c"
-wrangler r2 object get "cabin-registry-dev-backup/$dump_key.sha256" \
+wrangler r2 object get "cabin-registry-backup/$dump_key.sha256" \
   --file "$work/$today.sql.sha256" --local >/dev/null 2>&1 \
   || fail "sidecar $dump_key.sha256 is missing"
 cp "$work/stored-dump.sql" "$work/$today.sql"
@@ -753,7 +756,7 @@ cp "$work/stored-dump.sql" "$work/$today.sql"
   || fail "shasum -c rejected the sidecar: $(cat "$work/$today.sql.sha256")"
 
 step "meta records the backup"
-last_backup_at="$(wrangler d1 execute DB --env dev --local --json --command \
+last_backup_at="$(wrangler d1 execute DB --local --json --command \
   "SELECT key, value FROM meta WHERE key IN ('last_backup_at', 'last_backup_key')" |
   node -e '
     const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -769,7 +772,7 @@ printf '    last_backup_at = %s\n' "$last_backup_at"
 # so last_backup_at must not move.
 step "a same-day re-run of the dump job is a no-op"
 check "/__scheduled?cron=0+3+*+*+*" 200
-rerun_at="$(wrangler d1 execute DB --env dev --local --json --command \
+rerun_at="$(wrangler d1 execute DB --local --json --command \
   "SELECT value FROM meta WHERE key = 'last_backup_at'" |
   node -e '
     const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
