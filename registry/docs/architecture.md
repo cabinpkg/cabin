@@ -389,7 +389,9 @@ and unit-tests on the host target. The Cloudflare glue
 `src/web_glue.rs` for the OAuth and session planes,
 `src/backup_glue.rs` for the nightly dump job, wasm32 only) is thin
 binding-and-I/O wiring covered by
-`scripts/smoke.sh`. Path
+`scripts/smoke.sh`. Every SQL statement the glue executes is a named
+const in `src/sql.rs`, schema-validated at test time and guarded in CI
+(see "Why no ORM" below). Path
 components are validated before any lookup: names are `[a-z0-9_-]+`, versions
 must look like SemVer, and anything else 404s without touching storage.
 
@@ -397,6 +399,32 @@ Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client
 talking to a freshly wiped (pre-launch) registry is immediately visible
 (see [`runbook.md`](runbook.md)).
+
+## Why no ORM
+
+An ORM was evaluated for the D1 access and rejected: the usual Rust
+choices either do not compile for `wasm32-unknown-unknown` or drag in a
+driver stack the Workers runtime cannot host, the generated code works
+against the script-size limit, and - decisively - D1's only atomicity
+primitive is the batch (see "The write path"), which an ORM's
+connection-held transaction model fights rather than uses. What an ORM
+would actually buy is covered without one:
+
+- **Injection safety** comes from parameterization: every statement the
+  Worker executes is prepared, and every runtime value rides a `?N`
+  bind (the few fixed queries take no input at all).
+- **Atomicity** is D1 batches by design; the multi-statement writes are
+  explicit batches with their guards spelled out in SQL.
+- **Typo and schema-drift assurance** - what an ORM's typed columns
+  would catch at compile time - comes at test time instead: every
+  executed statement is a named const in `src/sql.rs`, and
+  `tests/sql_validation.rs` prepares each one with `rusqlite` against
+  the real schema, freshly migrated from zero (D1 speaks `SQLite`'s
+  dialect for everything the service uses). `scripts/check-sql.sh`,
+  run by CI, keeps executed SQL from growing outside that module.
+- Dynamic query construction does not exist today; if it ever
+  genuinely grows, the designated escape hatch is `sea-query` (a
+  wasm-safe query builder, not an ORM).
 
 ## Why a standalone workspace
 
