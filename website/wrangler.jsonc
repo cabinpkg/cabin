@@ -1,6 +1,6 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "cabin",
+    "name": "cabin-website",
     "compatibility_date": "2026-05-03",
     "assets": {
         "directory": "./dist",
