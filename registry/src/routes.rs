@@ -136,6 +136,8 @@ pub enum SessionRoute<'a> {
     Tokens,
     /// `POST /api/v1/user/tokens/<id>/revoke`.
     RevokeToken { id: &'a str },
+    /// `POST /api/v1/user/logout`: clear the session cookie.
+    Logout,
 }
 
 /// Matches `path` against the session routes. Token ids are validated
@@ -146,6 +148,7 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
         "/api/v1/user/usage" => Some(SessionRoute::Usage),
         "/api/v1/user/packages" => Some(SessionRoute::Packages),
         "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
+        "/api/v1/user/logout" => Some(SessionRoute::Logout),
         _ => {
             let id = path
                 .strip_prefix("/api/v1/user/tokens/")?
@@ -360,6 +363,10 @@ mod tests {
             match_session_route("/api/v1/user/tokens/0aB_-9/revoke"),
             Some(SessionRoute::RevokeToken { id: "0aB_-9" })
         );
+        assert_eq!(
+            match_session_route("/api/v1/user/logout"),
+            Some(SessionRoute::Logout)
+        );
     }
 
     #[test]
@@ -375,6 +382,7 @@ mod tests {
             "/api/v1/user/tokens/a%2f/revoke",
             "/api/v1/user/packages/",
             "/api/v1/user/packages/fmt",
+            "/api/v1/user/logout/",
             "/api/v1/users",
         ] {
             assert_eq!(match_session_route(path), None, "path: {path:?}");
