@@ -1,6 +1,6 @@
 -- Per-user quota and budget-breaker state (see docs/architecture.md,
 -- "Billing model and the budget breaker"). Additive: existing rows get the
--- defaults; operators either wipe dev per docs/runbook.md or backfill
+-- defaults; operators either wipe pre-launch per docs/runbook.md or backfill
 -- archive_size / published_by / total_stored_bytes with
 -- scripts/backfill-0002.sh.
 

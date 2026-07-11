@@ -51,7 +51,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 
 | Hostname | Role |
 | --- | --- |
-| `registry.cabinpkg.com` (dev: `dev-registry.cabinpkg.com`) | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
 | `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, and the Bearer mutation routes.  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
@@ -102,9 +102,9 @@ HTTP registries), discovers the token-creation page, and reads the token from st
 echo when stdin is a terminal, as a plain read otherwise so piping works:
 
 ```console
-$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
 visit https://cabinpkg.com/settings/tokens to create a token
-       Login token for `https://dev-registry.cabinpkg.com` saved
+       Login token for `https://registry.cabinpkg.com` saved
 ```
 
 Discovery is one advisory, always-unauthenticated `GET` of the index's `config.json`: on a
@@ -125,7 +125,7 @@ verbatim when set, else the platform user config home with the `cabin` suffix (L
 `$XDG_CONFIG_HOME/cabin` / `$HOME/.config/cabin`; Windows: `%APPDATA%\cabin`).
 
 ```toml
-[registries."https://dev-registry.cabinpkg.com"]
+[registries."https://registry.cabinpkg.com"]
 token = "cabin_..."
 ```
 
@@ -230,15 +230,15 @@ with `--dry-run`) and publishing against a config-supplied HTTP index both fail 
 experimental-feature error.  The flow is log in once, publish, then resolve like any consumer:
 
 ```console
-$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
 visit https://cabinpkg.com/settings/tokens to create a token
-       Login token for `https://dev-registry.cabinpkg.com` saved
+       Login token for `https://registry.cabinpkg.com` saved
 $ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
-    --index-url https://dev-registry.cabinpkg.com
-Published fmt 10.2.1 to https://dev-registry.cabinpkg.com
+    --index-url https://registry.cabinpkg.com
+Published fmt 10.2.1 to https://registry.cabinpkg.com
   checksum: sha256:...
 $ cabin -Z remote-registry resolve --manifest-path app/cabin.toml \
-    --index-url https://dev-registry.cabinpkg.com
+    --index-url https://registry.cabinpkg.com
 ```
 
 Client-side behavior:
@@ -443,9 +443,9 @@ rejected, since yanked state lives in the remote registry's index.  The registry
 must declare the [`api`](#registry-configuration) origin the request is sent to.
 
 ```console
-$ cabin -Z remote-registry yank fmt@10.2.1 --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry yank fmt@10.2.1 --index-url https://registry.cabinpkg.com
 fmt@10.2.1 is now yanked
-$ cabin -Z remote-registry yank --undo fmt@10.2.1 --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry yank --undo fmt@10.2.1 --index-url https://registry.cabinpkg.com
 fmt@10.2.1 is no longer yanked
 ```
 

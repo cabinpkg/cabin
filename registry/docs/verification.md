@@ -1,6 +1,15 @@
+> **Historical note (2026-07-11).** Sections dated before 2026-07-11
+> were verified against the disposable dev deployment that predated the
+> single-environment cutover - a separate Worker, database, buckets, and
+> index domain under `dev-`prefixed/`-dev`-suffixed names, all since
+> decommissioned. Their hostnames, resource names, and `--env` command
+> shapes in the transcripts below have been rewritten to the current
+> final names so no stale reference survives; the observations and
+> conclusions are unchanged.
+
 # Dev Environment Verification (2026-07-09)
 
-End-to-end verification of the dev registry (`dev-registry.cabinpkg.com`)
+End-to-end verification of the dev registry (`registry.cabinpkg.com`)
 against a from-source build of the client (`cabin 0.17.0`,
 `cargo build --release -p cabinpkg`, `-Z remote-registry`). Executed by the
 operator (ken-matsui, GitHub id 26405363) with Claude driving. Tokens are
@@ -15,10 +24,10 @@ from it.
 ## Provisioning (summary)
 
 Resources created with wrangler from `registry/` exactly as recorded in the
-runbook: D1 `cabin-registry-dev`, R2 `cabin-registry-dev-blobs`, migrations
+runbook: D1 `cabin-registry`, R2 `cabin-registry-blobs`, migrations
 applied remotely, `GITHUB_CLIENT_ID` + `ALLOWED_GITHUB_IDS` as plain vars in
 `wrangler.jsonc`, `GITHUB_CLIENT_SECRET` + fresh `SESSION_SECRET` (32 random
-bytes, base64) as secrets, deploy with `--env dev` (the custom domain and
+bytes, base64) as secrets, deploy (the custom domain and
 its DNS record were created by the deploy). No production resource was
 touched.
 
@@ -32,16 +41,16 @@ constraint and options.
 ## Service verification
 
 ```console
-$ curl -sS -o /dev/null -w '%{http_code}' https://dev-registry.cabinpkg.com/healthz
+$ curl -sS -o /dev/null -w '%{http_code}' https://registry.cabinpkg.com/healthz
 200        # empty body
 
-$ curl -sS https://dev-registry.cabinpkg.com/config.json
+$ curl -sS https://registry.cabinpkg.com/config.json
 {"errors":[{"detail":"authentication required"}]}    # 401
 
-$ curl -sS https://dev-registry.cabinpkg.com/packages/zz-no-such-pkg.json
+$ curl -sS https://registry.cabinpkg.com/packages/zz-no-such-pkg.json
 {"errors":[{"detail":"authentication required"}]}    # 401
 
-$ curl -sS https://dev-registry.cabinpkg.com/artifacts/zz-no-such-pkg/zz-no-such-pkg-9.9.9.tar.gz
+$ curl -sS https://registry.cabinpkg.com/artifacts/zz-no-such-pkg/zz-no-such-pkg-9.9.9.tar.gz
 {"errors":[{"detail":"authentication required"}]}    # 401
 ```
 
@@ -53,10 +62,10 @@ every authenticated response:
 
 ```console
 $ curl -sS -D - -H "Authorization: Bearer cabin_<redacted>" \
-    https://dev-registry.cabinpkg.com/config.json
+    https://registry.cabinpkg.com/config.json
 HTTP/2 200
 x-cabin-registry-generation: 1
-{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://dev-registry.cabinpkg.com"}
+{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://registry.cabinpkg.com"}
 ```
 
 Unauthenticated `/me` answered `302` with `location: /login`.
@@ -91,28 +100,28 @@ validation).
 
 ## Operator UX walkthrough
 
-Sign-in at `https://dev-registry.cabinpkg.com/me` via GitHub (OAuth app
+Sign-in at `https://registry.cabinpkg.com/me` via GitHub (OAuth app
 "Cabin (dev)", public-data-only scope) worked first try; the allowlist
 admitted the operator and the token page rendered. A token
 `dev-verification` with `publish` + `yank` scopes was created; plaintext
 shown exactly once.
 
 ```console
-$ cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
-visit https://dev-registry.cabinpkg.com/me to create a token
-       Login token for `https://dev-registry.cabinpkg.com` saved
+$ cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
+visit https://registry.cabinpkg.com/me to create a token
+       Login token for `https://registry.cabinpkg.com` saved
 ```
 
 Sample package: `cabin new --lib hello_registry` (scaffold untouched:
 c++17, one `add(int, int)` function), published as-is:
 
 ```console
-$ cabin -Z remote-registry publish --index-url https://dev-registry.cabinpkg.com
-Published hello_registry 0.1.0 to https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry publish --index-url https://registry.cabinpkg.com
+Published hello_registry 0.1.0 to https://registry.cabinpkg.com
   checksum: sha256:7f1ded07a18e471c9fb2121bc35ae7982c901b833b277b58b4fd926a9eb4a137
 
-$ cabin -Z remote-registry publish --index-url https://dev-registry.cabinpkg.com
-hello_registry 0.1.0 is already published to https://dev-registry.cabinpkg.com with identical bytes; nothing to do
+$ cabin -Z remote-registry publish --index-url https://registry.cabinpkg.com
+hello_registry 0.1.0 is already published to https://registry.cabinpkg.com with identical bytes; nothing to do
   checksum: sha256:7f1ded07a18e471c9fb2121bc35ae7982c901b833b277b58b4fd926a9eb4a137
 ```
 
@@ -121,17 +130,17 @@ Consumer (`cabin new consumer`, `hello_registry = "^0.1"` under
 calling `hello_registry::add`):
 
 ```console
-$ cabin -Z remote-registry resolve --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry resolve --index-url https://registry.cabinpkg.com
 Resolved dependencies for consumer 0.1.0:
   hello_registry 0.1.0
 # cabin.lock pins checksum = "sha256:7f1ded07a18e471c9fb2121bc35ae7982c901b833b277b58b4fd926a9eb4a137"
 
-$ cabin -Z remote-registry fetch --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry fetch --index-url https://registry.cabinpkg.com
 Fetched artifacts:
   hello_registry 0.1.0 -> ~/.cache/cabin/sources/sha256/7f1ded07...
 # content-addressed by the lockfile checksum; a mismatched archive cannot land
 
-$ cabin -Z remote-registry build --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry build --index-url https://registry.cabinpkg.com
    Compiling hello_registry v0.1.0
    Compiling consumer v0.1.0 (...)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
@@ -143,18 +152,18 @@ $ ./build/dev/packages/consumer/consumer
 Yank cycle:
 
 ```console
-$ cabin -Z remote-registry yank hello_registry@0.1.0 --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry yank hello_registry@0.1.0 --index-url https://registry.cabinpkg.com
 hello_registry@0.1.0 is now yanked
 
-$ cabin -Z remote-registry update --index-url https://dev-registry.cabinpkg.com   # in consumer/
+$ cabin -Z remote-registry update --index-url https://registry.cabinpkg.com   # in consumer/
 error: all matching versions of "hello_registry" are yanked
   help: loosen the version requirement so a non-yanked release is in range,
         or contact the package maintainer to republish
 
-$ cabin -Z remote-registry yank --undo hello_registry@0.1.0 --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry yank --undo hello_registry@0.1.0 --index-url https://registry.cabinpkg.com
 hello_registry@0.1.0 is no longer yanked
 
-$ cabin -Z remote-registry update --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry update --index-url https://registry.cabinpkg.com
 Resolved dependencies for consumer 0.1.0:
   hello_registry 0.1.0
 ```
@@ -162,12 +171,12 @@ Resolved dependencies for consumer 0.1.0:
 Logout and the guidance on the next read:
 
 ```console
-$ cabin -Z remote-registry logout --index-url https://dev-registry.cabinpkg.com
-      Logout token for `https://dev-registry.cabinpkg.com` removed
+$ cabin -Z remote-registry logout --index-url https://registry.cabinpkg.com
+      Logout token for `https://registry.cabinpkg.com` removed
 
-$ cabin -Z remote-registry resolve --index-url https://dev-registry.cabinpkg.com
-error: authentication required by registry `https://dev-registry.cabinpkg.com`;
-run `cabin login --index-url https://dev-registry.cabinpkg.com` with
+$ cabin -Z remote-registry resolve --index-url https://registry.cabinpkg.com
+error: authentication required by registry `https://registry.cabinpkg.com`;
+run `cabin login --index-url https://registry.cabinpkg.com` with
 `-Z remote-registry` to store a token
 ```
 
@@ -197,7 +206,7 @@ tokens are dead, as documented.
 2. **(client, minor)** `cabin fetch -v` prints the cache path but never says
    "checksum verified"; the guarantee is real (content-addressed layout)
    but invisible. One verbose line would make the property observable.
-3. **(service/ops)** For a few seconds after `wrangler deploy --env dev`,
+3. **(service/ops)** For a few seconds after `wrangler deploy`,
    requests can still hit the previous worker version - observed once as a
    stale package document and once as a `500` `internal error` right after
    the wipe's redeploy (old version bound to the deleted D1). Retry after
@@ -231,7 +240,7 @@ above; client built from this branch (`cargo build --release -p cabinpkg`,
 - `ANALYTICS_API_TOKEN` (an API token whose only permission is Account
   Analytics Read) stored as a dev secret by the operator. No
   `NOTIFY_WEBHOOK_URL` configured.
-- `wrangler deploy --env dev`; the deploy output listed the cron trigger
+- `wrangler deploy`; the deploy output listed the cron trigger
   (`schedule: */15 * * * *`).
 - Cron verified end to end: the 01:45 UTC pass appeared in `wrangler tail`
   (`{"cron":"*/15 * * * *"}`, outcome `ok`, 4 ms CPU, no analytics-skip
@@ -272,7 +281,7 @@ traffic. Plans were deliberately not switched in this step.
 `SERVICE_MODE_TTL_SECS=0`, so it bites immediately):
 
 ```console
-$ cabin -Z remote-registry publish --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry publish --index-url https://registry.cabinpkg.com
 error: the registry is temporarily not accepting publishes (over its free budget); try again in 900 seconds
 ```
 
@@ -295,7 +304,7 @@ error: the package archive is too large for this registry: archive exceeds the p
 error: the registry rate limited this request; try again in 1 seconds
 
 # sixth new package of the (UTC) day, HTTP 403 code quota_packages_daily
-error: the plan's daily new-package quota is exhausted; see https://dev-registry.cabinpkg.com/me for current usage
+error: the plan's daily new-package quota is exhausted; see https://registry.cabinpkg.com/me for current usage
 ```
 
 All three are actionable as-is; the `429`'s "1 seconds" plural was the one
@@ -312,8 +321,9 @@ deleted per the runbook if that ever blocks real work).
 ## WAF rate limiting rule
 
 The operator created the dashboard rule recorded in `runbook.md` ("Zone
-rate limiting (WAF)"): 50 requests per 10 s per IP over
-`dev-registry.cabinpkg.com` paths `/api/*`, `/login`, `/callback`, action
+rate limiting (WAF)"): 50 requests per 10 s per IP over the write/auth
+paths `/api/*`, `/login`, `/callback` (the expression has since been
+re-keyed to `cabinpkg.com` - see the runbook), action
 Block for 10 s - the Free plan's single rule slot, with period, timeout,
 and IP keying all fixed by the plan. Verified with a 70-request burst
 against an `/api/` path: exactly 50 reached the Worker (uniform 401), the
@@ -340,18 +350,18 @@ operator; Claude driving.
 
 ## Provisioning delta
 
-- `cabin-registry-dev-backup` R2 bucket present (pre-created by the
+- `cabin-registry-backup` R2 bucket present (pre-created by the
   operator; `wrangler r2 bucket create` fails cleanly on re-run, as the
   runbook documents).
 - Migration `0003_backup.sql` (the `backup_replication_failures` table)
   applied remotely.
-- `wrangler deploy --env dev`: bindings list `env.BACKUP`
-  (cabin-registry-dev-backup) and `env.D1_DATABASE_ID`; the deploy
+- `wrangler deploy`: bindings list `env.BACKUP`
+  (cabin-registry-backup) and `env.D1_DATABASE_ID`; the deploy
   registered both schedules, `*/15 * * * *` and `0 3 * * *`.
 - `D1_EXPORT_API_TOKEN` (custom API token, sole permission
   Account | D1 | Edit, this account only) created by the operator and
   stored as a dev secret.
-- `scripts/backup-backfill.sh dev`: all 5 referenced blobs were already
+- `scripts/backup-backfill.sh`: all 5 referenced blobs were already
   present in the backup bucket (`copied 0, already present 5`), and the
   replication failure log was (harmlessly) cleared - the reconciliation
   loop and the presence checks work against real remote buckets.
@@ -373,12 +383,12 @@ validation patterns run against the genuine dump format.
 
 The scheduled handler routes any non-breaker cron expression to the dump
 job, so the rehearsal used the documented path: a temporary third
-schedule (`*/5 * * * *`) was added to `env.dev.triggers` and deployed.
+schedule (`*/5 * * * *`) was added to `triggers` and deployed.
 The 05:10 UTC fire ran the job end to end against the real D1 export
 API with the operator's `D1_EXPORT_API_TOKEN`:
 
 ```console
-$ npx wrangler d1 execute DB --env dev --remote --json --command \
+$ npx wrangler d1 execute DB --remote --json --command \
     "SELECT key, value FROM meta WHERE key LIKE 'last_backup%'"
 last_backup_at   2026-07-10T05:10:01.588Z
 last_backup_key  d1/2026-07-10.sql
@@ -393,7 +403,7 @@ schedule was then removed and the final two-schedule config redeployed.
 
 ## Restore drill
 
-`scripts/restore-drill.sh dev`, run twice on purpose:
+`scripts/restore-drill.sh`, run twice on purpose:
 
 1. The first run **failed the meta row-count comparison** (live 6,
    restored 4) - the drill catching a real timeline artifact: the dump
@@ -404,9 +414,9 @@ schedule was then removed and the final two-schedule config redeployed.
 2. The second run passed everything:
 
 ```console
-$ scripts/restore-drill.sh dev
+$ scripts/restore-drill.sh
 ==> resolving the latest dump from meta.last_backup_key
-==> downloading d1/2026-07-10.sql and its checksum sidecar from cabin-registry-dev-backup
+==> downloading d1/2026-07-10.sql and its checksum sidecar from cabin-registry-backup
 2026-07-10.sql: OK
 ==> creating the scratch database cabin-registry-drill
 ==> importing the dump into cabin-registry-drill
@@ -426,7 +436,7 @@ restore drill OK (d1/2026-07-10.sql)
 
 The import processed 33 queries (53 rows read, 87 written) into the
 scratch database; teardown deleted it (`wrangler d1 list` shows only
-`cabin-registry-dev` afterwards).
+`cabin-registry` afterwards).
 
 ## Notes
 
@@ -458,10 +468,10 @@ registry token created on `/me` with **only** the `verify` scope.
 ## Provisioning delta
 
 - Migration `0004_verification.sql` applied remotely (`wrangler d1
-  migrations apply DB --env dev --remote`): the `versions.verification`
+  migrations apply DB --remote`): the `versions.verification`
   / `verification_reason` / `verified_at` columns plus the backfill of
   the 5 pre-pipeline rows to `verified`.
-- `wrangler deploy --env dev` with the verification code (publish sets
+- `wrangler deploy` with the verification code (publish sets
   `pending`, reads gate on `verified`, the admin list/verdict API, the
   publish-time `schema != 1` refusal).
 - A `verify`-only token (`github-actions-verifier`) created at `/me`;
@@ -477,8 +487,8 @@ per-package cap, so this exercised the same publish path.
 
 ```console
 $ cabin -Z remote-registry publish --manifest-path .../qv-a/cabin.toml \
-    --index-url https://dev-registry.cabinpkg.com
-Published qv-a 0.2.0 to https://dev-registry.cabinpkg.com
+    --index-url https://registry.cabinpkg.com
+Published qv-a 0.2.0 to https://registry.cabinpkg.com
   checksum: sha256:ee8d454f...
   verification: pending (the version was accepted and becomes resolvable
     after verification, typically within a few minutes)
@@ -582,13 +592,13 @@ $ cabin -Z remote-registry resolve   # consumer qv-a = "=0.3.0"
 
 End-to-end verification of the hostname-role split (one Worker, one role
 per hostname) with the website's account pages live on the production
-origin: `dev-registry.cabinpkg.com` serves only the machine read plane,
+origin: `registry.cabinpkg.com` serves only the machine read plane,
 and `https://cabinpkg.com` carries `/login`, `/callback*`, and `/api/*`
-through the zone routes held by env dev. The operator had performed the
+through the zone routes. The operator had performed the
 three manual cutover steps earlier the same day (GitHub OAuth app
 callback switched to `https://cabinpkg.com/callback`, the WAF
-rate-limit expression re-keyed to `cabinpkg.com`, `wrangler deploy
---env dev`); this run re-provisioned idempotently and walked the whole
+rate-limit expression re-keyed to `cabinpkg.com`, a redeploy); this
+run re-provisioned idempotently and walked the whole
 integrated system. Same operator (ken-matsui, GitHub id 26405363);
 Claude driving, including the browser session. Client built from source
 (`cabin 0.17.0`, `-Z remote-registry`). Tokens and cookie values are
@@ -600,9 +610,9 @@ walkthrough itself.
 - Website: the normal production deployment (Workers Builds on push to
   `main`) was already current - the tip commit's build succeeded at
   05:48 UTC. No manual deploy exists for the website by design.
-- Registry: `npx wrangler deploy --env dev` re-run from `registry/`.
+- Registry: `npx wrangler deploy` re-run from `registry/`.
   The deploy output listed the expected surface: the
-  `dev-registry.cabinpkg.com` custom domain, the three `cabinpkg.com`
+  `registry.cabinpkg.com` custom domain, the three `cabinpkg.com`
   zone routes (`/api/*`, `/login`, `/callback*`), both cron schedules,
   and `WEB_ORIGIN` / `GITHUB_CLIENT_ID` / `ALLOWED_GITHUB_IDS` vars.
 - Route shadowing: `https://cabinpkg.com/` and
@@ -624,12 +634,12 @@ publish `PUT`, and a random path all answer the byte-identical uniform
 cookie:
 
 ```console
-$ curl -sS -D - https://dev-registry.cabinpkg.com/me   # same for the other three
+$ curl -sS -D - https://registry.cabinpkg.com/me   # same for the other three
 HTTP/2 401
 www-authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
 {"errors":[{"detail":"authentication required"}]}
 
-$ curl -sS -H "Authorization: Bearer cabin_<redacted>" https://dev-registry.cabinpkg.com/config.json
+$ curl -sS -H "Authorization: Bearer cabin_<redacted>" https://registry.cabinpkg.com/config.json
 {"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://cabinpkg.com"}
 # x-cabin-registry-generation: 2
 ```
@@ -668,9 +678,9 @@ panel discards it for good."); after dismissing and reloading, no
 plaintext appears anywhere and the token is listed as metadata only.
 
 ```console
-$ cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
 visit https://cabinpkg.com/settings/tokens to create a token
-       Login token for `https://dev-registry.cabinpkg.com` saved
+       Login token for `https://registry.cabinpkg.com` saved
 ```
 
 The printed URL is the website origin's token page, sourced from the
@@ -680,8 +690,8 @@ first try; `wrangler tail` shows the split working - reads on the index
 origin, the mutation on the api origin discovered from `config.json`:
 
 ```text
-GET https://dev-registry.cabinpkg.com/config.json            status=200
-GET https://dev-registry.cabinpkg.com/packages/hello-split.json  status=404
+GET https://registry.cabinpkg.com/config.json            status=200
+GET https://registry.cabinpkg.com/packages/hello-split.json  status=404
 PUT https://cabinpkg.com/api/v1/packages/hello-split/0.1.0   status=200
 ```
 
@@ -705,7 +715,7 @@ package (`hello-split = "^0.1"`) then resolved, fetched
 the registry:
 
 ```console
-$ cabin -Z remote-registry build --index-url https://dev-registry.cabinpkg.com
+$ cabin -Z remote-registry build --index-url https://registry.cabinpkg.com
    Compiling hello-split v0.1.0
    Compiling consumer v0.1.0 (...)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
@@ -718,10 +728,10 @@ Revoking `split-walkthrough` on `/settings/tokens` (badge flips to
 guidance on the next index read:
 
 ```console
-$ cabin -Z remote-registry resolve --index-url https://dev-registry.cabinpkg.com
-error: registry `https://dev-registry.cabinpkg.com` rejected the stored
+$ cabin -Z remote-registry resolve --index-url https://registry.cabinpkg.com
+error: registry `https://registry.cabinpkg.com` rejected the stored
 token (revoked or expired); re-run `cabin login --index-url
-https://dev-registry.cabinpkg.com`
+https://registry.cabinpkg.com`
 ```
 
 ## Negative auth and cookie hygiene
@@ -752,7 +762,7 @@ authenticated reads, and all four uniform-401 shapes).
 The plane-separation checks, all against the live origins:
 
 - The session cookie presented to the Bearer plane
-  (`dev-registry.cabinpkg.com/config.json`) answers the uniform 401
+  (`registry.cabinpkg.com/config.json`) answers the uniform 401
   with the challenge - cookies are never consulted there - while the
   same cookie is simultaneously good for a 200 on
   `cabinpkg.com/api/v1/user`.
@@ -804,3 +814,139 @@ token issuance, the challenge-sourced login URL, the pending badge and
 its verified flip, resolve/fetch/build, revocation guidance - behaved
 exactly as documented, with no explanation needed beyond the UI and CLI
 output.
+
+# Single-environment cutover and first launch-rehearsal (2026-07-11)
+
+The environment split is gone: the registry now runs under its final
+production names from the single top-level `wrangler.jsonc` - Worker
+`cabin-registry`, index domain `registry.cabinpkg.com`, D1
+`cabin-registry`, R2 `cabin-registry-blobs` / `cabin-registry-backup`,
+the three `cabinpkg.com` zone routes, both cron schedules - while
+remaining closed (allowlist unchanged) and labeled under development.
+Same operator (ken-matsui, GitHub id 26405363); Claude driving,
+including the browser session and the route cutover. Client built from
+this branch (`cargo build --release -p cabinpkg`, `-Z remote-registry`).
+Tokens redacted; the walkthrough token was revoked as part of the
+walkthrough.
+
+## Provisioning and route cutover
+
+- `d1 create cabin-registry` (id baked into both `database_id` and
+  `vars.D1_DATABASE_ID`), both buckets created, all five migrations
+  applied from zero; `meta` seeded `launched='false'`,
+  `registry_generation='1'`.
+- Bootstrap deploy from a temporary config *without* the zone routes
+  (the custom domain and both crons only), so secrets could be
+  installed before the browser plane went live: fresh `SESSION_SECRET`
+  (32 random bytes, piped straight into `wrangler secret put`),
+  the carried-through `GITHUB_CLIENT_SECRET`, and freshly minted
+  `ANALYTICS_API_TOKEN` / `D1_EXPORT_API_TOKEN` (operator-entered;
+  never in transcripts).
+- The three `cabinpkg.com` routes (`/api/*`, `/login`, `/callback*`)
+  were then moved from the dev Worker to `cabin-registry` one by one
+  through the Workers Routes update API (each route stays continuously
+  attached to some Worker; no browser-plane gap beyond the move
+  itself), followed by a final `wrangler deploy` from the checked-in
+  config - wrangler and the dashboard agree on the full surface.
+- `REGISTRY_VERIFY_ORIGIN` repository variable set to
+  `https://registry.cabinpkg.com` so the verify workflow on `main`
+  (cron and dispatch alike) targets the new registry before this
+  branch merges; the workflow default changes in the same branch.
+
+## Hostname-role checks (final names)
+
+`/healthz` 200; `/me`, `/api/v1/user`, an unauthenticated publish
+`PUT`, and a random path all answer the byte-identical uniform 401
+(`cmp`), each carrying
+`WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"`
+and never a `Set-Cookie`. On the website origin the read plane does
+not exist (`/config.json`, `/packages/*`, `/healthz` are the website's
+404), `/api/v1/user` answers the session-plane 401 without the
+challenge, `/` renders the site, `/login` 302s to GitHub with
+`redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fcallback`, and
+`/login/denied` stays on the website. An authenticated `config.json`
+read reports `"api":"https://cabinpkg.com"` and echoes
+`x-cabin-registry-generation: 1` (fresh seed).
+
+## First launch-day rehearsal: start empty, republish through the pipeline
+
+This provisioning deliberately doubled as the first rehearsal of the
+launch-day wipe-and-republish procedure: a fresh, empty database and
+bucket under the final names, then the full pipeline from scratch.
+
+- Sign-in via `https://cabinpkg.com/login` auto-approved the
+  carried-through OAuth app and landed on `/dashboard` showing the
+  empty state (packages 0/50, storage 0 B, all version counts 0) with
+  the under-development labels in place.
+- A `launch-rehearsal` token (`publish` + `yank`) and a
+  `registry-verify` token (`verify` only) were created on
+  `/settings/tokens`; `gh secret set REGISTRY_VERIFY_TOKEN` updated the
+  Actions secret against the new database.
+- `cabin login` printed the challenge-sourced
+  `https://cabinpkg.com/settings/tokens`; a scaffold library
+  (`cabin new --lib hello-cutover`, untouched) published first try
+  (`201`, `verification: pending`), republished as the idempotent
+  no-op, and `workflow_dispatch` of `registry-verify` (36 s-class run)
+  verified it: `hello-cutover@0.1.0: verified` in the run log.
+- A consumer (`hello-cutover = "^0.1"`) resolved, fetched
+  (content-addressed by the lockfile checksum), built, and ran
+  (`2 + 3 = 5`); yank -> "all matching versions are yanked" ->
+  un-yank -> resolvable again.
+- The published blob was already replicated into
+  `cabin-registry-backup` when checked (publish-time `waitUntil`
+  replication; checksum matches).
+- Revoking `launch-rehearsal` flipped the row to `revoked` in place and
+  the next CLI read answered the documented token-rejected guidance.
+
+## Breaker, backup, and guard
+
+- Force-trip through the production 60 s mode cache: `service_mode =
+  'writes_blocked'` -> publish answers the 402 mapping ("temporarily
+  not accepting publishes... try again in 900 seconds") while resolve
+  stays open; restoring `normal` reopens writes. (First restore attempt
+  ran `wrangler` outside `registry/` and silently no-oped - the
+  known wrong-cwd trap; re-run from `registry/`.)
+- Nightly-dump rehearsal via the documented temporary third schedule:
+  the job exported, validated, and stored `d1/2026-07-11.sql` plus its
+  verifying `.sha256` sidecar in `cabin-registry-backup` (`shasum -c`
+  OK, all `CREATE TABLE`s present, the dump carries
+  `launched='false'`), and recorded `meta.last_backup_at`; the
+  temporary schedule was removed and the two-schedule config
+  redeployed.
+- Launch guard: `meta.launched` seeded `'false'`; the guard's refusal
+  branch is exercised hermetically by `tests/launch_guard.rs` (10
+  tests) and end to end by the smoke run (full local `smoke.sh` passed
+  on the collapsed config, wipe-refusal leg included).
+  `scripts/wipe.sh`'s **remote** success path was *not* executed
+  against the live registry in this run (the driving harness declined
+  the mass-delete class of command); run it once against real
+  pre-launch data before relying on it for launch day.
+
+## Decommission
+
+After the checks above passed: Worker `cabin-registry-dev` deleted
+(its `dev-registry.cabinpkg.com` custom domain and DNS record cascaded
+away; the hostname no longer resolves), D1 `cabin-registry-dev`
+deleted, and both dev buckets emptied through the R2 REST API (9 and
+16 objects) and deleted. The declared-but-never-deployed `production`
+wrangler environment had no Worker to delete (confirmed against the
+account's script list before and after). Operator dashboard
+follow-ups: revoke the superseded dev-era analytics/export API tokens,
+and delete the old GitHub OAuth client secret if a fresh one was
+generated during this cutover.
+
+## Friction observed
+
+1. **(ops)** `wrangler` commands run from the repository root instead
+   of `registry/` fail confusingly (missing DB binding, or an
+   assets-project error on `deploy`) - and inside `&&` chains that
+   silently skips the rest. Cost one puzzled minute during the breaker
+   leg; always `cd registry/` first.
+2. **(ops, note)** The permission harness treats a guarded wipe of the
+   *live* registry as a mass delete and blocks it even pre-launch;
+   the launch checklist's final wipe is an operator-run step, not an
+   agent-run one.
+3. **(ops)** At 08:15 UTC the temporary `*/5` schedule and the
+   breaker's `*/15` fired in the same minute and the dump job ran
+   immediately - convenient here, but a reminder that expression-based
+   routing runs *every* matching schedule's job.

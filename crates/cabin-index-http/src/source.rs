@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn api_without_feature_is_rejected_with_flag_hint() {
         let err = HttpIndexConfig::from_raw(
-            raw_config(r#", "api": "https://dev-registry.cabinpkg.com""#),
+            raw_config(r#", "api": "https://registry.cabinpkg.com""#),
             &example_base(),
             &ExperimentalFeatures::default(),
         )
@@ -764,16 +764,13 @@ mod tests {
     #[test]
     fn remote_registry_fields_parse_with_the_feature_enabled() {
         let config = HttpIndexConfig::from_raw(
-            raw_config(r#", "auth-required": true, "api": "https://dev-registry.cabinpkg.com""#),
+            raw_config(r#", "auth-required": true, "api": "https://registry.cabinpkg.com""#),
             &example_base(),
             &remote_registry_enabled(),
         )
         .unwrap();
         assert!(config.auth_required);
-        assert_eq!(
-            config.api.as_deref(),
-            Some("https://dev-registry.cabinpkg.com")
-        );
+        assert_eq!(config.api.as_deref(), Some("https://registry.cabinpkg.com"));
     }
 
     #[test]
@@ -1054,7 +1051,7 @@ mod tests {
             "packages": "packages",
             "artifacts": "artifacts",
             "auth-required": true,
-            "api": "https://dev-registry.cabinpkg.com"
+            "api": "https://registry.cabinpkg.com"
         }"#;
         const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
         let server = StaticRegistry::start(CONFIG, "fmt", PACKAGE);
@@ -1078,7 +1075,7 @@ mod tests {
         assert!(entry.versions.is_empty());
         // The parsed `api` base survives onto the opened index so the
         // publish client can find the mutation origin.
-        assert_eq!(index.api(), Some("https://dev-registry.cabinpkg.com"));
+        assert_eq!(index.api(), Some("https://registry.cabinpkg.com"));
     }
 
     /// A registry without an `api` field opens with `api() == None`;

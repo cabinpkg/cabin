@@ -46,7 +46,7 @@ jobs:
           # The registry to verify.  Repository variables tune the
           # verifier's caps; unset variables arrive as empty strings,
           # which the verifier treats as "use the default".
-          REGISTRY_ORIGIN: ${{ vars.REGISTRY_VERIFY_ORIGIN || 'https://dev-registry.cabinpkg.com' }}
+          REGISTRY_ORIGIN: ${{ vars.REGISTRY_VERIFY_ORIGIN || 'https://registry.cabinpkg.com' }}
           VERIFY_RATIO_CAP: ${{ vars.VERIFY_RATIO_CAP }}
           VERIFY_ABS_CAP_BYTES: ${{ vars.VERIFY_ABS_CAP_BYTES }}
           VERIFY_MAX_ENTRIES: ${{ vars.VERIFY_MAX_ENTRIES }}

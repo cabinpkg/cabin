@@ -10,7 +10,7 @@
 //! in a published archive.
 //!
 //! ```toml
-//! [registries."https://dev-registry.cabinpkg.com"]
+//! [registries."https://registry.cabinpkg.com"]
 //! token = "cabin_..."
 //! ```
 //!
@@ -617,16 +617,16 @@ mod tests {
     fn normalize_origin_strips_path_slash_and_default_port() {
         for (input, expected) in [
             (
-                "https://dev-registry.cabinpkg.com",
-                "https://dev-registry.cabinpkg.com",
+                "https://registry.cabinpkg.com",
+                "https://registry.cabinpkg.com",
             ),
             (
-                "https://dev-registry.cabinpkg.com/",
-                "https://dev-registry.cabinpkg.com",
+                "https://registry.cabinpkg.com/",
+                "https://registry.cabinpkg.com",
             ),
             (
-                "https://Dev-Registry.CabinPkg.com/index/path?q=1#frag",
-                "https://dev-registry.cabinpkg.com",
+                "https://Registry.CabinPkg.com/index/path?q=1#frag",
+                "https://registry.cabinpkg.com",
             ),
             ("https://example.com:443/index", "https://example.com"),
             ("http://example.com:80/index", "http://example.com"),
@@ -697,20 +697,20 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let store = CredentialStore::at(dir.path().join("credentials.toml"));
         let mut credentials = Credentials::default();
-        credentials.set_token("https://dev-registry.cabinpkg.com".to_owned(), token());
+        credentials.set_token("https://registry.cabinpkg.com".to_owned(), token());
         store.save(&credentials).unwrap();
 
         let body = std::fs::read_to_string(store.path()).unwrap();
         assert_eq!(
             body,
-            format!("[registries.\"https://dev-registry.cabinpkg.com\"]\ntoken = \"{SECRET}\"\n")
+            format!("[registries.\"https://registry.cabinpkg.com\"]\ntoken = \"{SECRET}\"\n")
         );
 
         let loaded = store.load().unwrap();
         assert_eq!(
             loaded
                 .credentials
-                .token_for("https://dev-registry.cabinpkg.com")
+                .token_for("https://registry.cabinpkg.com")
                 .unwrap()
                 .expose(),
             SECRET

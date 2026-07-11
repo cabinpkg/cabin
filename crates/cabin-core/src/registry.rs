@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn api_url_accepts_http_and_https_origins() {
         for value in [
-            "https://dev-registry.cabinpkg.com",
+            "https://registry.cabinpkg.com",
             "http://localhost:8080",
             "HTTPS://example.com/base/",
         ] {

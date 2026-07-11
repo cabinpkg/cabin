@@ -19,23 +19,27 @@ the design and [`docs/runbook.md`](docs/runbook.md) for operations.
 Everything here is experimental, matching the client's `-Z remote-registry`
 gate: routes and storage formats may change without migration paths.
 
-## Environments
+## Deployment
 
-Both environments share this Worker code (`wrangler.jsonc`); always pass an
-explicit `--env`:
+One deployment, one top-level `wrangler.jsonc` configuration (no wrangler
+environments, no `--env`), running under its final production names while
+the registry remains closed to allowlisted maintainers:
 
-| | dev | production |
-| --- | --- | --- |
-| Index domain | `dev-registry.cabinpkg.com` | `registry.cabinpkg.com` |
-| Browser/API origin | `https://cabinpkg.com` (routes held by dev for now) | `https://cabinpkg.com` (after the route cutover) |
-| D1 database | `cabin-registry-dev` | `cabin-registry-prod` |
-| R2 bucket | `cabin-registry-dev-blobs` | `cabin-registry-prod-blobs` |
+| | |
+| --- | --- |
+| Index domain | `registry.cabinpkg.com` |
+| Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`) |
+| D1 database | `cabin-registry` |
+| R2 buckets | `cabin-registry-blobs`, `cabin-registry-backup` |
 
-**Dev data is disposable.** The dev environment exists to exercise the
-experimental protocol; its database and bucket are wiped and recreated instead
-of migrated whenever the storage format changes
-([`docs/runbook.md`](docs/runbook.md)). Production data is permanent and never
-wiped.
+**The disposable/permanent data boundary is temporal, not spatial.** Until
+launch (`meta.launched` = `'false'`), the database and the primary blob
+data are wiped and recreated instead of migrated whenever the storage
+format changes (the backup bucket is append-only and never wiped); from
+launch onward the data is permanent and never wiped. The launch guard in
+`scripts/wipe.sh` enforces the boundary, and flipping the flag is a
+launch-checklist item ([`docs/runbook.md`](docs/runbook.md), "Launch
+checklist").
 
 ## Getting a token
 
@@ -90,17 +94,18 @@ manual for now.
 
 ## First-time provisioning
 
-Resources are created per environment with wrangler (no account ids or
-resource ids are hardcoded; fill `database_id` in `wrangler.jsonc` after
-creating each database):
+Resources are created with wrangler (`wrangler.jsonc` carries the account
+id and the database id - both public identifiers, not secrets; fill
+`database_id` after creating the database):
 
 ```sh
-npx wrangler d1 create cabin-registry-dev
-npx wrangler r2 bucket create cabin-registry-dev-blobs
-npx wrangler d1 migrations apply DB --env dev --remote
-npx wrangler deploy --env dev
-npx wrangler secret put GITHUB_CLIENT_SECRET --env dev
-npx wrangler secret put SESSION_SECRET --env dev
+npx wrangler d1 create cabin-registry
+npx wrangler r2 bucket create cabin-registry-blobs
+npx wrangler r2 bucket create cabin-registry-backup
+npx wrangler d1 migrations apply DB --remote
+npx wrangler deploy
+npx wrangler secret put GITHUB_CLIENT_SECRET
+npx wrangler secret put SESSION_SECRET
 ```
 
 The secrets back the GitHub sign-in flow ("Getting a token" above):

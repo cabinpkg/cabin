@@ -4,10 +4,10 @@
 # versions.archive_size from the R2 blob sizes, versions.published_by and
 # packages.created_by from the sole existing user, and
 # meta.total_stored_bytes from the distinct blob sizes. For operators who
-# prefer not to wipe dev; a database created after the migration never
-# needs this.
+# prefer not to wipe pre-launch; a database created after the migration
+# never needs this.
 #
-#   scripts/backfill-0002.sh dev            # or production
+#   scripts/backfill-0002.sh
 #
 # Requires CLOUDFLARE_API_TOKEN in the environment. Idempotent: re-running
 # rewrites the same values.
@@ -16,23 +16,22 @@ set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-env_name="${1:?usage: scripts/backfill-0002.sh <dev|production>}"
-case "$env_name" in
-  dev) bucket="cabin-registry-dev-blobs" ;;
-  production) bucket="cabin-registry-prod-blobs" ;;
-  *) echo "unknown environment: $env_name (expected dev or production)" >&2; exit 1 ;;
-esac
+# The pre-cutover form took an environment argument; refuse it loudly
+# instead of silently acting on the sole remaining deployment.
+[[ $# -eq 0 ]] || { echo "usage: scripts/backfill-0002.sh (no arguments)" >&2; exit 1; }
+
+bucket="cabin-registry-blobs"
 
 step() { printf '==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 wrangler() { npx --yes wrangler "$@"; }
 
-d1_exec() { wrangler d1 execute DB --env "$env_name" --remote --command "$1"; }
+d1_exec() { wrangler d1 execute DB --remote --command "$1"; }
 
 # d1_column <sql> <column>: one value per line from a remote query.
 d1_column() {
-  wrangler d1 execute DB --env "$env_name" --remote --json --command "$1" |
+  wrangler d1 execute DB --remote --json --command "$1" |
     node -e '
       const column = process.argv[1];
       const out = JSON.parse(require("fs").readFileSync(0, "utf8"));

@@ -84,7 +84,7 @@ fn remote_registry_config_fields_gate_on_the_flag() {
         &registry,
         r#",
     "auth-required": true,
-    "api": "https://dev-registry.cabinpkg.com""#,
+    "api": "https://registry.cabinpkg.com""#,
     );
 
     let denied = cabin()
