@@ -1,24 +1,31 @@
 # Registry Service Runbook
 
-All wrangler commands run with `registry/` as the working directory and an
-explicit `--env`. Authentication: `CLOUDFLARE_API_TOKEN` in the environment
-(scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit on the
-cabinpkg.com zone).
+All wrangler commands run with `registry/` as the working directory against
+the single top-level configuration in `wrangler.jsonc` (no wrangler
+environments, no `--env`). Authentication: `CLOUDFLARE_API_TOKEN` in the
+environment (scopes: Workers Scripts Edit, D1 Edit, R2 Edit, and DNS Edit
+on the cabinpkg.com zone).
 
 ## Data policy
 
-- **dev (`dev-registry.cabinpkg.com`): disposable.** When the storage format
-  changes incompatibly - `metadata_json` shape, R2 key layout, reshaped D1
-  columns - the dev environment is wiped and recreated rather than migrated.
-  Additive schema changes ship as ordinary migrations (e.g.
-  `0002_quotas.sql`); where an additive migration leaves columns to
-  backfill, a one-shot script is provided (see "Backfilling migration
-  0002") so wiping stays optional.
-- **production (`registry.cabinpkg.com`): permanent.** Published archives and
-  index state are never wiped, mutated, or deleted. Once production carries
-  real data, format changes need real migrations - which is exactly why the
-  dev environment gets to burn its data instead while the format is still
-  moving.
+The disposable/permanent boundary is **temporal** (pre-launch vs
+post-launch), not spatial - there is one registry, running under its final
+names from day one, and launch is a data/policy event rather than an
+infrastructure cutover.
+
+- **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
+  storage format changes incompatibly - `metadata_json` shape, R2 key
+  layout, reshaped D1 columns - the registry is wiped and recreated
+  (`scripts/wipe.sh`) rather than migrated. Additive schema changes ship
+  as ordinary migrations (e.g. `0002_quotas.sql`); where an additive
+  migration leaves columns to backfill, a one-shot script is provided
+  (see "Backfilling migration 0002") so wiping stays optional.
+- **Post-launch (`meta.launched` = `'true'`): permanent.** Published
+  archives and index state are never wiped, mutated, or deleted; format
+  changes need real migrations. The flag is flipped exactly once, by
+  hand, as a launch-checklist item (see "Launch checklist"), and every
+  destructive maintenance path checks it first and refuses while it is
+  `'true'` (the launch guard, `scripts/launch-guard.sh`).
 
 ## Zone security prerequisite
 
@@ -29,10 +36,11 @@ cabinpkg.com answered every registry request with `403` /
 dashboard: Security -> Bots). If zone-wide bot protection is ever wanted
 again, it needs a plan that exempts the registry hosts first - e.g. a WAF
 custom rule skipping the challenge products for
-`http.host in {"dev-registry.cabinpkg.com" "registry.cabinpkg.com"}` (note
-free-plan Bot Fight Mode ignores skip rules; it can only be toggled
-zone-wide). Managing zone security needs API-token scopes beyond the
-provisioning set (Zone WAF Edit, Zone Settings Edit) or the dashboard.
+`http.host eq "registry.cabinpkg.com"` and the `/api/*` paths on
+`cabinpkg.com` (note free-plan Bot Fight Mode ignores skip rules; it can
+only be toggled zone-wide). Managing zone security needs API-token scopes
+beyond the provisioning set (Zone WAF Edit, Zone Settings Edit) or the
+dashboard.
 
 ## Zone rate limiting (WAF)
 
@@ -44,29 +52,24 @@ counting period and mitigation timeout fixed at 10 seconds and IP keying
 only, so the conservative 300 requests/minute target is expressed as 50
 requests per 10 seconds:
 
-- Name: `dev-registry-api-rate-limit`
+- Name: `registry-api-rate-limit`
 - Expression:
   `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback")))`
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
 
-The hostname-role split moved the whole write/auth surface to the
-website origin (see "Integrated topology and route management"), so
-the rule keys on
-`cabinpkg.com` - a rule still watching `dev-registry.cabinpkg.com`
-would protect only that host's cheap uniform-401 surface. Update the
-dashboard rule alongside deploying the split. The zone security
-exemption above must likewise keep the machine `/api/*` traffic on
-`cabinpkg.com` out of any visitor challenge.
-
-The rule deliberately guards only the write/auth surface, not `/healthz`
-or the read routes. Covering reads with the same 50-per-10 s ceiling
+The rule keys on `cabinpkg.com` because the hostname-role split put the
+whole write/auth surface on the website origin; it deliberately guards
+only that surface, not `/healthz` or the read routes on
+`registry.cabinpkg.com`. Covering reads with the same 50-per-10 s ceiling
 would throttle legitimate `cabin` traffic - resolving and fetching a
 dependency tree fans out many read requests from one IP in seconds -
 while abuse of the omitted routes can at worst exhaust free-plan quotas
 that fail closed without billing (Workers requests, D1 reads; artifact
 downloads are R2 Class B). The one rule the Free plan grants goes where
-the paid exposure (R2 Class A writes) and the heavy CPU live.
+the paid exposure (R2 Class A writes) and the heavy CPU live. The zone
+security exemption above must likewise keep the machine `/api/*` traffic
+on `cabinpkg.com` out of any visitor challenge.
 
 Verified 2026-07-09 with a 70-request burst against an `/api/` path:
 exactly 50 requests reached the Worker, the rest answered a Cloudflare
@@ -74,37 +77,18 @@ exactly 50 requests reached the Worker, the rest answered a Cloudflare
 no error envelope; cabin's rate-limit mapping degrades to the same "try
 again" hint off the header alone.
 
-When production is provisioned, the single Free-plan slot must cover both
-hosts: widen the host test to
-`http.host in {"dev-registry.cabinpkg.com" "registry.cabinpkg.com"}`
-instead of adding a second rule.
-
 ## Integrated topology and route management
 
-Three hostnames, one zone, verified live on 2026-07-11 (see
-[`verification.md`](verification.md), "Hostname-role split and
-integrated-system verification"):
+Two hostnames, one zone:
 
 - **`cabinpkg.com`** - the website Worker (`cabin-website`, deployed by
   Workers Builds from `website/` on every push to `main`) serves the
   marketing site, docs, and the account pages; the registry Worker
-  takes exactly `/api/*`, `/login`, and `/callback*` via the zone
-  routes below. This one origin is the browser plane for whichever
-  registry environment holds the routes - env **dev** today.
-- **`dev-registry.cabinpkg.com`** - the dev registry's machine read
-  plane (custom domain of `cabin-registry-dev`), nothing else.
-- **`registry.cabinpkg.com`** - the production registry's machine read
-  plane, once production is provisioned.
-
-The production cutover is a pure route move: the three `cabinpkg.com`
-patterns transfer from `env.dev` to `env.production` in
-`wrangler.jsonc` and both envs are redeployed. Nothing else about the
-topology changes - the website keeps its origin, each registry keeps
-its custom domain, and `config.json`'s `api` field keeps pointing at
-`https://cabinpkg.com` from both environments. What changes is which
-registry's browser plane answers there, so the dev registry loses
-sign-in, token issuance, and its session API at that moment (recovery
-options below).
+  (`cabin-registry`) takes exactly `/api/*`, `/login`, and `/callback*`
+  via the zone routes below. This one origin is the registry's browser
+  plane.
+- **`registry.cabinpkg.com`** - the registry's machine read plane
+  (custom domain of `cabin-registry`), nothing else.
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
@@ -120,54 +104,42 @@ matter operationally:
   string - GitHub redirects to `/callback?code=...&state=...`, hence
   `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
   website keeps serving `/login/denied`.
-- A route pattern can point at only **one** Worker, so `env.dev` holds
-  the three patterns for now and `env.production` declares none. The
-  production cutover consists of moving these exact patterns from the
-  dev Worker to the production Worker (edit `wrangler.jsonc`, deploy
-  both envs). At that moment the dev registry loses its browser plane:
-  recovery options are standing up a `dev.cabinpkg.com` website origin
-  for dev then (new routes + a dev `WEB_ORIGIN`), or falling back to
-  manual token insertion via `wrangler d1 execute` (mirror the INSERT
-  in `scripts/smoke.sh`, seeding `users` and a `tokens` row whose
-  `token_hash` is the SHA-256 hex of a locally generated
-  `cabin_<base62>` value).
+- A route pattern can point at only **one** Worker; all three patterns
+  belong to `cabin-registry`.
 - The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
   are live on the origin ("Account pages" in `website/README.md`). For
   ops debugging, the session API also works directly: `curl -H "Cookie:
   cabin_session=..." -H "Content-Type: application/json" -H
   "X-CSRF-Protection: 1"` against `https://cabinpkg.com/api/v1/user/...`.
 
-## First-time provisioning (dev)
+## First-time provisioning
 
-Verified end to end on 2026-07-09 (see
-[`verification.md`](verification.md)). Prerequisite besides the API
-token: the GitHub OAuth app (homepage `https://cabinpkg.com`,
-authorization callback `https://cabinpkg.com/callback` - the browser
-plane lives on the website origin, see "Integrated topology and route
-management"; the same app carries through to production). Its
-client id is public and lives in `wrangler.jsonc` (`env.dev.vars`,
-`GITHUB_CLIENT_ID`), next to `ALLOWED_GITHUB_IDS` (the numeric GitHub user
-ids allowed to sign in); the wrangler secrets are the client
-secret, the session secret, `ANALYTICS_API_TOKEN` for the budget cron,
-and `D1_EXPORT_API_TOKEN` for the nightly dump (plus the optional
-`NOTIFY_WEBHOOK_URL`; see "Budget breaker and service mode" and
-"Disaster recovery").
+Prerequisite besides the API token: the GitHub OAuth app (homepage
+`https://cabinpkg.com`, authorization callback
+`https://cabinpkg.com/callback` - the browser plane lives on the website
+origin, see "Integrated topology and route management"). Its client id is
+public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
+`ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in);
+the wrangler secrets are the client secret, the session secret,
+`ANALYTICS_API_TOKEN` for the budget cron, and `D1_EXPORT_API_TOKEN` for
+the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget
+breaker and service mode" and "Disaster recovery").
 
 ```sh
-npx wrangler d1 create cabin-registry-dev
-# copy the printed database_id into env.dev.d1_databases AND
-# env.dev.vars.D1_DATABASE_ID in wrangler.jsonc
-npx wrangler r2 bucket create cabin-registry-dev-blobs
-npx wrangler r2 bucket create cabin-registry-dev-backup
-npx wrangler d1 migrations apply DB --env dev --remote
-npx wrangler deploy --env dev
-# deploy creates the dev-registry.cabinpkg.com custom domain and its DNS
+npx wrangler d1 create cabin-registry
+# copy the printed database_id into d1_databases AND vars.D1_DATABASE_ID
+# in wrangler.jsonc
+npx wrangler r2 bucket create cabin-registry-blobs
+npx wrangler r2 bucket create cabin-registry-backup
+npx wrangler d1 migrations apply DB --remote
+npx wrangler deploy
+# deploy creates the registry.cabinpkg.com custom domain and its DNS
 # record on the cabinpkg.com zone; deploy first so the secret puts below
 # attach to a deployed Worker instead of prompting to create a draft.
-printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env dev
-openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env dev
-printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
-printf '%s' "$D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN --env dev
+printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET
+openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET
+printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN
+printf '%s' "$D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -177,8 +149,8 @@ exists (`d1 list` / `r2 bucket list` to check); `migrations apply` and
 Smoke checks after any deploy:
 
 ```sh
-curl -sS -o /dev/null -w '%{http_code}\n' https://dev-registry.cabinpkg.com/healthz   # 200
-curl -sS -D - https://dev-registry.cabinpkg.com/config.json   # uniform 401 envelope,
+curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz   # 200
+curl -sS -D - https://registry.cabinpkg.com/config.json   # uniform 401 envelope,
 # with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
 curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
 ```
@@ -188,126 +160,103 @@ reach the previous Worker version. Right after a wipe that skew can even
 surface as a `500` `internal error` (old version, deleted database). Retry
 before diagnosing.
 
-## Dev wipe procedure
+## Wipe procedure (pre-launch only)
 
-Verified against the real dev database on 2026-07-09, generation bump
-included.
+`scripts/wipe.sh` scripts the whole procedure and is the guarded
+destructive path: it refuses to run unless the live `meta.launched` row
+is exactly `'false'` (missing row or unreadable flag also refuse -
+fail-safe; `scripts/launch-guard.sh`, host-target-tested in
+`tests/launch_guard.rs` and exercised end to end by the smoke test).
+What it does, in order:
 
-1. Drop and recreate the dev database, then reapply migrations:
+1. Asks for interactive confirmation (`CABIN_WIPE_YES=1` skips it), then
+   runs the guard immediately before anything destructive and reads the
+   current `meta.registry_generation` (the input for step 5). The guard
+   first proves the config's `DB` binding and the account's database
+   named `cabin-registry` are the same database (a stale binding could
+   otherwise have the flag read one database while `d1 delete` removes
+   another), then reads `meta.launched` through the binding.
+2. Deletes and recreates the database
+   (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
+   cabin-registry`) and bakes the new id into BOTH
+   `d1_databases[0].database_id` and `vars.D1_DATABASE_ID` in
+   `wrangler.jsonc`, verifying the file now carries it exactly twice
+   (the nightly dump exports whatever database `D1_DATABASE_ID` names -
+   a stale value backs up the wrong, deleted database). Commit that
+   change.
+3. Applies all migrations from zero:
+   `wrangler d1 migrations apply DB --remote`.
+4. Deletes every `blobs/`-prefixed object from `cabin-registry-blobs`
+   through the R2 REST API (list by prefix, delete per key -
+   `wrangler r2 object delete` removes exactly one object and has no
+   prefix or bulk mode, which is why the script drives the API
+   directly). The BACKUP bucket is never wiped.
+5. Bumps `meta.registry_generation` to one more than the pre-wipe value
+   read in step 1 (every authenticated response echoes it as
+   `x-cabin-registry-generation`, so clients and smoke runs can tell the
+   wipe happened).
+6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
+   the Worker's bindings.
 
-   ```sh
-   npx wrangler d1 delete cabin-registry-dev -y
-   npx wrangler d1 create cabin-registry-dev
-   # update BOTH the dev database_id and vars.D1_DATABASE_ID in
-   # wrangler.jsonc with the new id (the nightly dump exports whatever
-   # database D1_DATABASE_ID names - a stale value backs up the wrong,
-   # deleted database)
-   npx wrangler d1 migrations apply DB --env dev --remote
-   ```
+`scripts/wipe.sh --local` is the same idea for the local `.wrangler/`
+state (guard, drop the emulated D1/R2 state - the emulated backup
+bucket included, since local state is test data rather than a backup -
+reapply migrations, bump the generation); the smoke test uses it to
+assert the refusal branch.
 
-2. Delete the archive blobs (keys are `blobs/sha256/<hex>`). Known keys can
-   go one at a time:
-
-   ```sh
-   npx wrangler r2 object delete cabin-registry-dev-blobs/blobs/sha256/<hex> --remote
-   ```
-
-   (`r2 object` commands default to local `.wrangler/` state; `--remote`
-   targets the deployed bucket.)
-
-   For a full wipe use the Cloudflare dashboard (R2 ->
-   `cabin-registry-dev-blobs` -> delete the `blobs/` folder): `wrangler r2
-   object delete` removes exactly one object and has no prefix or bulk mode,
-   so the dashboard - or any S3-compatible bulk tool - is the practical way
-   to wipe the prefix.
-
-3. Bump the registry generation so clients and smoke runs can tell the wipe
-   happened (every authenticated response echoes it as
-   `x-cabin-registry-generation`):
-
-   ```sh
-   npx wrangler d1 execute DB --env dev --remote --command \
-     "UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'registry_generation'"
-   ```
-
-   The `0001_init.sql` seed starts a fresh database at `'1'`, so the `+1`
-   yields `2` - correct when the previous database was at `1`. In general,
-   set the value to one more than the *previous* database's generation.
-
-4. Redeploy (the new `database_id` must be baked into the Worker's
-   bindings):
-
-   ```sh
-   npx wrangler deploy --env dev
-   ```
+If a remote wipe is interrupted between the delete and the end, the
+guard cannot read the half-provisioned database and refuses the re-run;
+finish by hand with the remaining steps ("First-time provisioning" has
+the same commands).
 
 Tokens live in the dropped database, so a wipe revokes everything; users
 re-issue tokens through the website's token page and `cabin login` again.
 A browser still holding a pre-wipe session cookie recovers by visiting
 `/login`: GitHub auto-approves the already-authorized OAuth app, and
 `/callback` recreates the user row (the session API answers 401 for a
-session whose user row is gone until then).
+session whose user row is gone until then). Re-provisioning also always
+includes re-issuing the verifier's token (see "Verification pipeline").
 
-## Production checklist
+## Launch checklist
 
-Production has deliberately **not** been provisioned. When the time comes,
-in order - and starting from an **empty** database: dev data (packages,
-blobs, users, tokens) is never migrated or promoted to production.
+Launch contains **no infrastructure work** - the Worker, domain, database,
+buckets, crons, secrets, WAF rule, and verifier are already the production
+ones. Launch is a data and policy event, in order:
 
-1. The GitHub OAuth app carries through from dev: its callback is
-   already `https://cabinpkg.com/callback`, and which environment it
-   signs users into follows the Worker holding the cabinpkg.com routes
-   (see "Integrated topology and route management") - no new app and no
-   callback change. Put the same client id in `wrangler.jsonc` under
-   `env.production.vars.GITHUB_CLIENT_ID` (`WEB_ORIGIN` is already
-   declared there); confirm `ALLOWED_GITHUB_IDS` lists exactly the
-   intended operators.
-2. Make sure the zone security exemption covers `registry.cabinpkg.com`
-   (see "Zone security prerequisite").
-3. Create the resources and deploy:
+1. Final wipe: `scripts/wipe.sh` (the guard still passes -
+   `meta.launched` is `'false'`), so the registry starts empty of
+   pre-launch test data.
+2. Flip the launch flag - once, by hand:
 
    ```sh
-   npx wrangler d1 create cabin-registry-prod
-   # copy the printed database_id into env.production.d1_databases AND
-   # env.production.vars.D1_DATABASE_ID
-   npx wrangler r2 bucket create cabin-registry-prod-blobs
-   npx wrangler r2 bucket create cabin-registry-prod-backup
-   npx wrangler d1 migrations apply DB --env production --remote
-   npx wrangler deploy --env production
-   printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env production
-   openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env production
-   printf '%s' "$PROD_ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env production
-   printf '%s' "$PROD_D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN --env production
+   npx wrangler d1 execute DB --remote --command \
+     "UPDATE meta SET value = 'true' WHERE key = 'launched'"
    ```
 
-   `GITHUB_CLIENT_SECRET` is the carried-through OAuth app's secret -
-   the same value dev holds. The `SESSION_SECRET` must be freshly
-   generated for production - never reuse the dev value. After the
-   first nightly dump lands, run `scripts/restore-drill.sh production`
-   once (see "Disaster recovery").
-4. Move the cabinpkg.com route patterns from `env.dev` to
-   `env.production` in `wrangler.jsonc` and deploy both envs. **The dev
-   registry loses its browser plane at this moment** - no sign-in, no
-   token page, no session API for dev. The two recovery options if dev
-   still needs them: stand up a `dev.cabinpkg.com` website origin then
-   (new zone routes plus a dev `WEB_ORIGIN`), or insert tokens manually
-   with `wrangler d1 execute` (mirror the INSERT in `scripts/smoke.sh`,
-   seeding `users` and a `tokens` row whose `token_hash` is the SHA-256
-   hex of a locally generated `cabin_<base62>` value).
-5. Re-run the hostname-role verification from `verification.md`
-   ("Hostname-role split and integrated-system verification"), now
-   against `registry.cabinpkg.com`: `/healthz` 200; every non-read
-   path on the registry domain (including `/api/*`) answers the
-   byte-identical uniform 401 with the
-   `WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"`
-   challenge; the read plane does not exist on the website origin
-   (`/config.json` and `/packages/*` are the website's 404); sign-in
-   via `https://cabinpkg.com/login` works and the token page issues a
-   token; an authenticated `config.json` read reports
-   `"api": "https://cabinpkg.com"` and echoes
-   `x-cabin-registry-generation: 1` (fresh seed).
-6. From production's first real publish onward, the data policy above is
-   binding: no wipes, no deletes, format changes need real migrations.
+   From this moment the data policy is binding (no wipes, no deletes,
+   real migrations only) and `scripts/wipe.sh` refuses to run. The flag
+   lives in `meta`, so a disaster-recovery restore of a pre-launch dump
+   would reset it - re-running this `UPDATE` is part of any such
+   restore (see "Disaster recovery").
+3. Remove the under-development labels from the website (the `restricted`
+   badge on the sign-in affordance and the private-development copy on
+   `/login/denied` - see `website/`).
+4. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
+   open sign-up, and keep `auth-required` reads or enable whatever
+   public-read work package applies by then.
+5. Re-issue any long-lived operational tokens (`REGISTRY_VERIFY_TOKEN`)
+   against the post-wipe database and re-run the verification workflow
+   once (see "Verification pipeline").
+
+**Post-launch staging is intentionally not maintained.** There is no
+standing second environment: with a single maintainer there is nothing to
+coexist with, and a permanently-running staging copy would immediately go
+stale. Risky changes (migrations, storage-format work, breaker changes)
+are rehearsed against a temporary scratch deployment recreated from this
+directory's `wrangler.jsonc` and `migrations/` - deploy under scratch
+names (worker, database, buckets), run the rehearsal, tear it down. The
+restore drill's scratch database (`scripts/restore-drill.sh`) is the
+existing example of the pattern.
 
 ## Budget breaker and service mode
 
@@ -318,7 +267,7 @@ free-plan budgets and persists the result to `meta.service_mode`
 budget breaker"). Inspect it:
 
 ```sh
-npx wrangler d1 execute DB --env dev --remote --command \
+npx wrangler d1 execute DB --remote --command \
   "SELECT key, value FROM meta WHERE key IN
    ('service_mode', 'service_mode_reason', 'total_stored_bytes')"
 ```
@@ -327,7 +276,7 @@ Override it (for example to force-block writes during an incident, or to
 unblock after freeing storage):
 
 ```sh
-npx wrangler d1 execute DB --env dev --remote --command \
+npx wrangler d1 execute DB --remote --command \
   "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
 ```
 
@@ -335,9 +284,9 @@ Two caveats. First, the next cron pass **overwrites** a manual override
 with its own evaluation (within 15 minutes when analytics are healthy), so
 an override is a stopgap, not a switch; to keep writes blocked durably,
 lower the matching `BUDGET_*` var and redeploy. Second, the request path
-caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; dev
-pins it to 0), so an override can take up to a minute to bite in
-production.
+caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; the
+smoke test pins it to 0 via `.dev.vars`), so an override can take up to a
+minute to bite.
 
 The budget ceilings the cron evaluates against, with their in-code
 defaults (`src/breaker.rs`), each comfortably below the matching
@@ -355,17 +304,17 @@ stored a second time in the backup bucket and the nightly dumps add
 metadata copies there (see "Disaster recovery"), so its default stays
 under half the account-wide free limit.
 
-Overrides are ordinary per-environment `vars` entries in `wrangler.jsonc`
-and take effect on the next deploy.
+Overrides are ordinary `vars` entries in `wrangler.jsonc` and take effect
+on the next deploy.
 
 The analytics-sourced metrics need the `ANALYTICS_API_TOKEN` secret: an
 API token whose **only** permission is Account | Account Analytics | Read,
 scoped to the single account (dash.cloudflare.com -> My Profile -> API
 Tokens -> Create Token -> Custom token). It reads aggregate usage numbers
-and nothing else. Set on dev 2026-07-09.
+and nothing else.
 
 ```sh
-printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env dev
+printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN
 ```
 
 To rotate it, create the replacement token first, run the `secret put`
@@ -418,9 +367,9 @@ gh secret set REGISTRY_VERIFY_TOKEN
 Rotate it like `ANALYTICS_API_TOKEN`: create the replacement token
 first, `gh secret set REGISTRY_VERIFY_TOKEN` with the new value, and
 only then revoke the old token - revoking first would have the cron
-failing (versions pending) in between. A dev wipe drops the
-tokens table, so re-provisioning dev always includes re-issuing this
-token and updating the secret.
+failing (versions pending) in between. A wipe drops the tokens table,
+so re-provisioning always includes re-issuing this token and updating
+the secret.
 
 The verifier's caps are GitHub **repository variables** (`gh variable
 set <NAME>`), passed through to the binary; unset or empty means the
@@ -436,37 +385,34 @@ tuning:
 
 `REGISTRY_VERIFY_ORIGIN` (also a repository variable) selects the
 registry to verify - the **index** origin, defaulting to
-`https://dev-registry.cabinpkg.com`; point it at production when
-production exists. The workflow reads that index's `config.json` and
-sends the admin listing and verdicts to the `api` origin it declares
-(the website origin), while artifact downloads stay on the index
-origin.
+`https://registry.cabinpkg.com`. The workflow reads that index's
+`config.json` and sends the admin listing and verdicts to the `api`
+origin it declares (the website origin), while artifact downloads stay
+on the index origin.
 
 ## Disaster recovery
 
 Backups run entirely inside Cloudflare - R2/D1 bindings and one
-D1-scoped API token, no second vendor holding credentials. Production
-registry data is a permanent commitment, so this machinery exists and is
-rehearsed against dev before production launch (see
-[`verification.md`](verification.md)).
+D1-scoped API token, no second vendor holding credentials. Post-launch
+registry data is a permanent commitment, so this machinery exists and
+was rehearsed pre-launch (see [`verification.md`](verification.md)).
 
 **What is backed up, and how.**
 
 - **Archive blobs (RPO ~0).** After the primary R2 put succeeds, publish
-  replicates the blob to the per-environment backup bucket
-  (`cabin-registry-dev-backup` / `cabin-registry-prod-backup`, Worker
-  binding `BACKUP`) under the same `blobs/sha256/<hex>` key, off the
-  response path via `waitUntil`. Nothing in the service ever deletes
-  from the backup bucket - the primary's reclaim paths do not propagate -
-  so it is append-only, and a malicious or accidental deletion in the
-  primary cannot reach it. Replication is best-effort: a failed copy is
-  logged with its key in the `backup_replication_failures` table, the
-  breaker cron alerts while any row exists, and
-  `scripts/backup-backfill.sh <env>` re-copies everything missing and
-  clears each verified key from the log (only handled keys, so a
-  publish racing the backfill cannot have its fresh failure erased).
-  Run the backfill once when enabling backups on an environment with
-  existing data.
+  replicates the blob to the backup bucket
+  (`cabin-registry-backup`, Worker binding `BACKUP`) under the same
+  `blobs/sha256/<hex>` key, off the response path via `waitUntil`.
+  Nothing in the service ever deletes from the backup bucket - the
+  primary's reclaim paths do not propagate - so it is append-only, and a
+  malicious or accidental deletion in the primary cannot reach it.
+  Replication is best-effort: a failed copy is logged with its key in
+  the `backup_replication_failures` table, the breaker cron alerts while
+  any row exists, and `scripts/backup-backfill.sh` re-copies everything
+  missing and clears each verified key from the log (only handled keys,
+  so a publish racing the backfill cannot have its fresh failure
+  erased). Run the backfill once when enabling backups over existing
+  data.
 - **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
   runs a nightly logical dump from the Worker itself: it drives the D1
   REST export endpoint (the same API `wrangler d1 export --remote`
@@ -501,10 +447,9 @@ permission is Account | D1 | Edit, scoped to this single account: it can
 export (and at worst rewrite) D1 databases, nothing else - no Workers,
 R2, or zone access, so the Worker holding it cannot escalate. Rotate it
 like `ANALYTICS_API_TOKEN`: create the replacement token first, `wrangler
-secret put D1_EXPORT_API_TOKEN --env <env>` with the new value, then
-delete the old token in the dashboard. While the token is broken or
-absent the nightly job fails, which the freshness alert surfaces within
-36 h.
+secret put D1_EXPORT_API_TOKEN` with the new value, then delete the old
+token in the dashboard. While the token is broken or absent the nightly
+job fails, which the freshness alert surfaces within 36 h.
 
 **The three loss scenarios, and the recovery order.** Work down the
 list; each later option covers a case the earlier one cannot.
@@ -517,17 +462,17 @@ list; each later option covers a case the earlier one cannot.
    planning an incident response). Restore is destructive and in-place:
 
    ```sh
-   npx wrangler d1 time-travel info cabin-registry-dev
-   npx wrangler d1 time-travel restore cabin-registry-dev --timestamp=<unix-ts>
+   npx wrangler d1 time-travel info cabin-registry
+   npx wrangler d1 time-travel restore cabin-registry --timestamp=<unix-ts>
    ```
 
    Blobs need nothing - R2 is untouched by a bad deploy, and archives
    are immutable and content-addressed.
-2. **Accidental wipe of the wrong environment** (database deleted, or
-   overwritten beyond Time Travel's window): create a fresh database,
-   import the newest dump, re-point the config, redeploy - exactly what
+2. **Accidental database loss** (database deleted, or overwritten beyond
+   Time Travel's window): create a fresh database, import the newest
+   dump, re-point the config, redeploy - exactly what
    `scripts/restore-drill.sh` rehearses against a scratch database:
-   download `meta.last_backup_key`... except after a real wipe that
+   download `meta.last_backup_key`... except after a real loss that
    meta row is gone too; list the backup bucket's `d1/` prefix and take
    the newest date **whose `.sha256` sidecar exists and verifies**. The
    sidecar is written strictly after validation and the job deletes an
@@ -536,6 +481,11 @@ list; each later option covers a case the earlier one cannot.
    --file <dump>.sql`, update `database_id` + `D1_DATABASE_ID` in
    `wrangler.jsonc`, `wrangler deploy`. Loss bounded by the nightly
    cadence: at most 24 h of metadata. Blobs are still in both buckets.
+   The restored `meta` rows are whatever the dump carried - after
+   restoring any dump (or Time Travel point) that predates launch,
+   immediately re-run the launch-checklist `UPDATE` that sets
+   `meta.launched = 'true'`, or the launch guard would treat the
+   restored registry as pre-launch and let a wipe through.
 3. **Primary-bucket data loss** (bucket deleted or objects destroyed):
    the backup bucket is the artifact store of last resort. Recreate the
    primary bucket, then copy `blobs/sha256/*` back (the inverse of
@@ -551,17 +501,17 @@ the nightly dump, and effectively minutes when Time Travel applies.
 Recovery time is dominated
 by operator response, not data volume, at today's scale: a Time Travel
 restore is minutes; a dump import plus redeploy is well under an hour
-(the drill's import of the dev dump takes seconds); copying blobs back
+(the drill's import of the dump takes seconds); copying blobs back
 is bounded by object count - budget roughly an hour per few thousand
 blobs with the wrangler loop, less with an S3-compatible bulk tool.
 
-**Rehearsal.** `scripts/restore-drill.sh <env>` downloads the latest
+**Rehearsal.** `scripts/restore-drill.sh` downloads the latest
 dump, verifies the sidecar checksum, imports it into a scratch D1
 database (`cabin-registry-drill`), compares per-table row counts against
 the live database, spot-checks one version's `metadata_json`
 byte-for-byte, and deletes the scratch database. Run it after enabling
 backups, after changing the dump machinery, and periodically before
-production milestones; record runs in
+launch milestones; record runs in
 [`verification.md`](verification.md). Row counts legitimately drift on
 an active database (the dump is nightly) - investigate only differences
 the timeline cannot explain.
@@ -573,18 +523,18 @@ operator account or a hostile account closure takes primary and backup
 alike. The future hedge is an off-Cloudflare copy of the backup bucket -
 e.g. an `rclone` sync to Backblaze B2's free tier or to local disk,
 pulling with read-only credentials from outside - accepted as a
-follow-up before production carries data that cannot be re-published.
+follow-up before the registry carries data that cannot be re-published.
 
 ## Backfilling migration 0002
 
 Migration `0002_quotas.sql` adds `versions.archive_size`,
 `versions.published_by`, and `packages.created_by` with `0` defaults, and
 seeds `meta.total_stored_bytes` at `'0'`. Pre-existing rows therefore carry no
-usage attribution until either the environment is wiped (dev policy above)
-or the one-shot backfill runs:
+usage attribution until either the registry is wiped (pre-launch policy
+above) or the one-shot backfill runs:
 
 ```sh
-scripts/backfill-0002.sh dev        # or production
+scripts/backfill-0002.sh
 ```
 
 It sizes each distinct archive blob via `wrangler r2 object get`, writes
@@ -614,6 +564,6 @@ referenced blobs.
 
 ## Logs
 
-`wrangler tail --env dev` (or the dashboard). One line per request:
+`wrangler tail` (or the dashboard). One line per request:
 `req=<id> method=<m> path=<p> status=<s> token=<token-row-id|->`. Tokens and
 token hashes are never logged.

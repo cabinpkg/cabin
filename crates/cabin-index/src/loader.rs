@@ -1348,7 +1348,7 @@ mod tests {
     #[test]
     fn api_without_feature_is_rejected_with_flag_hint() {
         let dir = TempDir::new().unwrap();
-        write_registry_with_config_fields(&dir, r#", "api": "https://dev-registry.cabinpkg.com""#);
+        write_registry_with_config_fields(&dir, r#", "api": "https://registry.cabinpkg.com""#);
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::InvalidRegistryConfig { message, .. } => assert_eq!(
@@ -1365,7 +1365,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_registry_with_config_fields(
             &dir,
-            r#", "auth-required": true, "api": "https://dev-registry.cabinpkg.com""#,
+            r#", "auth-required": true, "api": "https://registry.cabinpkg.com""#,
         );
         let index = load_index_with_features(dir.path(), &remote_registry_enabled()).unwrap();
         assert!(index.packages.is_empty());

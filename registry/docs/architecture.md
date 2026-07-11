@@ -42,7 +42,7 @@ Host header (`src/routes.rs` `role_for_host`; any host that is not the
 `WEB_ORIGIN` host gets the registry role, deny by default). The matrix -
 which routes and which credential exist where:
 
-| | Registry custom domain (`dev-registry.cabinpkg.com` / `registry.cabinpkg.com`) | Website origin (`cabinpkg.com`) |
+| | Registry custom domain (`registry.cabinpkg.com`) | Website origin (`cabinpkg.com`) |
 | --- | --- | --- |
 | `/healthz` | 200, unauthenticated | - |
 | `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
@@ -314,8 +314,8 @@ Degradation order: `normal` -> `warn` (any metric at 80% of budget) ->
 reason live in `meta.service_mode` / `meta.service_mode_reason`; mode
 changes are logged and optionally POSTed to `NOTIFY_WEBHOOK_URL`. On the
 request path, publish and yank read the mode through an isolate-memory
-cache (~60 s TTL, one D1 point read on expiry; dev pins
-`SERVICE_MODE_TTL_SECS` to 0 for the smoke test) and answer
+cache (~60 s TTL, one D1 point read on expiry; the smoke test pins
+`SERVICE_MODE_TTL_SECS` to 0 via `.dev.vars`) and answer
 `402 registry_over_budget` with `Retry-After` while blocked. Writes fail
 closed - an unreadable or unknown mode blocks them - while reads never
 consult the mode at all, so they fail open and yanked-state and downloads
@@ -331,7 +331,7 @@ all operationally documented in [`runbook.md`](runbook.md) ("Disaster
 recovery"):
 
 - **Blob replication (RPO ~0).** After a publish's primary R2 put and
-  D1 batch succeed, the archive blob is copied to the per-environment
+  D1 batch succeed, the archive blob is copied to the
   `BACKUP` bucket under the same content-addressed key, best-effort via
   `waitUntil`; an idempotent re-publish re-schedules the copy (a retry
   of a publish whose isolate died before replicating heals the gap),
@@ -395,8 +395,8 @@ must look like SemVer, and anything else 404s without touching storage.
 
 Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client
-talking to a freshly wiped dev environment is immediately visible (see
-[`runbook.md`](runbook.md)).
+talking to a freshly wiped (pre-launch) registry is immediately visible
+(see [`runbook.md`](runbook.md)).
 
 ## Why a standalone workspace
 
