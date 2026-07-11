@@ -70,14 +70,13 @@
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
-        "D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"
+        "D1_DATABASE_ID": "f2332148-ca5d-43ce-8034-60ba24e97db7"
     },
     "d1_databases": [
         {
             "binding": "DB",
             "database_name": "cabin-registry",
-            // Placeholder until `wrangler d1 create cabin-registry`.
-            "database_id": "00000000-0000-0000-0000-000000000000",
+            "database_id": "f2332148-ca5d-43ce-8034-60ba24e97db7",
             "migrations_dir": "migrations"
         }
     ],
