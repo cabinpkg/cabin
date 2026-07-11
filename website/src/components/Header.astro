@@ -2,7 +2,14 @@
 import BrandIcon from "./BrandIcon.astro";
 import Icon from "./Icon.astro";
 import Logo from "./Logo.astro";
-import { DOCS_SEARCH_PATH, NAV_LINKS, SEARCH_PATH } from "../lib/constants";
+import {
+    ACCOUNT_URLS,
+    DOCS_SEARCH_PATH,
+    NAV_LINKS,
+    SEARCH_PATH,
+    SIGNIN_RESTRICTION,
+} from "../lib/constants";
+import Badge from "./ui/Badge.astro";
 import Button from "./ui/Button.astro";
 
 interface Props {
@@ -80,6 +87,32 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                 <BrandIcon name="github" class="h-5 w-5 shrink-0" />
             </Button>
         </div>
+
+        {/* The static default is signed-out; account-nav.ts swaps in the
+            signed-in link when the session probe says so, and leaves this
+            untouched without JS or with the registry unreachable. */}
+        <div class="flex shrink-0 items-center" data-account-nav>
+            <span data-account-signed-out>
+                {/* prefetch opt-out: /login is the Worker's stateful OAuth
+                    route (mints the state cookie), never a static page. */}
+                <Button
+                    href={ACCOUNT_URLS.signIn}
+                    variant="ghost"
+                    title={SIGNIN_RESTRICTION}
+                    data-astro-prefetch="false"
+                >
+                    Sign in
+                    <Badge tone="muted">restricted</Badge>
+                </Button>
+            </span>
+            <span data-account-signed-in hidden>
+                <Button href={ACCOUNT_URLS.dashboard} variant="ghost">
+                    <Icon name="user" class="h-4 w-4" />
+                    <span data-account-login></span>
+                </Button>
+            </span>
+        </div>
     </nav>
     <script src="../scripts/header-typeahead.ts"></script>
+    <script src="../scripts/account-nav.ts"></script>
 </header>

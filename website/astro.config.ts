@@ -9,6 +9,14 @@ import remarkMath from "remark-math";
 import { SITE_URL } from "./src/lib/constants";
 import { remarkDocsLinks } from "./src/lib/remark-docs-links";
 
+// The dev-server proxy target for the registry routes (see `vite.server`
+// below). `changeOrigin` makes the upstream see the production Host so the
+// Worker's hostname-role split picks the website plane.
+const proxyToProduction = {
+    target: SITE_URL,
+    changeOrigin: true,
+};
+
 export default defineConfig({
     site: SITE_URL,
     output: "static",
@@ -62,6 +70,19 @@ export default defineConfig({
             // enhancer) are emitted as external files and the strict CSP
             // (`script-src 'self'`, no inline scripts) holds.
             assetsInlineLimit: 0,
+        },
+        // Dev-server-only (`astro dev`; Vite server options never reach the
+        // static build): forward the registry routes mounted on the website
+        // origin to production, so the account pages' relative fetches and
+        // the host-only session cookie work from localhost. `/login` is
+        // matched exactly - `/login/denied` is a static page of this site
+        // and must not be proxied.
+        server: {
+            proxy: {
+                "^/api/": proxyToProduction,
+                "^/login(?:\\?|$)": proxyToProduction,
+                "^/callback(?:\\?|$)": proxyToProduction,
+            },
         },
     },
 });

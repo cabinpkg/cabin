@@ -310,6 +310,7 @@ curl -sS -o /dev/null -D "$headers" "$web_base/api/v1/user"
 ! grep -qi '^www-authenticate:' "$headers" \
   || fail "the session-plane 401 must not carry the bearer challenge"
 wcheck /api/v1/user/usage 401
+wcheck /api/v1/user/packages 401
 wcheck /api/v1/user/tokens 401
 
 step "the oauth plane lives on the website origin with host-only cookies"
@@ -401,6 +402,8 @@ expect_body '"github_id":0'
 expect_body '"login":"smoke"'
 session_request GET /api/v1/user/usage 200
 expect_body '"quotas"'
+session_request GET /api/v1/user/packages 200
+expect_body '"packages"'
 
 step "a valid session whose user row is gone answers 401 everywhere"
 # The post-wipe ghost: allowlisted id 1 has a validly sealed cookie but
@@ -571,6 +574,12 @@ wrequest PATCH "$publish_path/yank" "$work/yank.json" 200
 expect_body '"yanked":true'
 expect_body '"changed":true'
 check "/packages/$name.json" 200
+expect_body '"yanked":true'
+# The session packages listing mirrors the row: the seeded user created
+# the package, its version is verified by now, and currently yanked.
+session_request GET /api/v1/user/packages 200
+expect_body '"name":"withdep"'
+expect_body '"verification":"verified"'
 expect_body '"yanked":true'
 printf '{"yanked":false}' >"$work/unyank.json"
 wrequest PATCH "$publish_path/yank" "$work/unyank.json" 200

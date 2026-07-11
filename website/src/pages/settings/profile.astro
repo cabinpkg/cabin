@@ -1,0 +1,56 @@
+---
+// Read-only for now: the registry stores nothing editable about the
+// account beyond what GitHub provides, so this page shows the GitHub
+// identity and the plan, and points at GitHub for the rest.
+import AccountShell from "../../components/account/AccountShell.astro";
+import SettingsNav from "../../components/account/SettingsNav.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import ExternalLink from "../../components/ui/ExternalLink.astro";
+
+const rowClass = "flex flex-wrap items-center justify-between gap-2 px-5 py-4";
+const labelClass = "text-sm text-ink-muted";
+const valueClass = "font-mono text-sm text-ink";
+---
+
+<BaseLayout
+    title="Profile"
+    description="Your account on the Cabin registry."
+    canonicalPath="/settings/profile"
+    contentClass="container-shell max-w-4xl py-10"
+>
+    <SettingsNav current="profile" />
+    <AccountShell title="Profile">
+        <section aria-labelledby="identity-heading">
+            <h2 id="identity-heading" class="spec-label mb-4">
+                GitHub identity
+            </h2>
+            <div class="divide-y divide-line rounded-md border border-line bg-night-raised">
+                <div class={rowClass}>
+                    <span class={labelClass}>Login</span>
+                    <span class={valueClass} data-profile-login></span>
+                </div>
+                <div class={rowClass}>
+                    <span class={labelClass}>Numeric id</span>
+                    <span class={valueClass} data-profile-id></span>
+                </div>
+                <div class={rowClass}>
+                    <span class={labelClass}>Plan</span>
+                    <span class={valueClass} data-profile-plan></span>
+                </div>
+            </div>
+            <p class="mt-4 text-sm text-ink-muted">
+                The registry identifies you by your numeric GitHub id and
+                keeps nothing else editable here. Name, email, and avatar
+                come from your GitHub account.
+            </p>
+            <div class="mt-4">
+                <ExternalLink
+                    href="https://github.com/settings/profile"
+                    variant="secondary"
+                    label="GitHub account settings"
+                />
+            </div>
+        </section>
+    </AccountShell>
+    <script src="../../scripts/profile.ts"></script>
+</BaseLayout>

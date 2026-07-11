@@ -1,0 +1,45 @@
+---
+// Where the registry's /callback sends every refused sign-in (wrong OAuth
+// state, GitHub refusal, or - most commonly right now - a GitHub account
+// that is not on the allowlist). Fully static: this page must render even
+// when the registry is unreachable.
+import Icon from "../../components/Icon.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { EXTERNAL_URLS } from "../../lib/constants";
+import Button from "../../components/ui/Button.astro";
+---
+
+<BaseLayout
+    title="Sign-in restricted"
+    description="The Cabin package registry is in private development."
+    canonicalPath="/login/denied"
+    contentClass="container-shell flex min-h-[70vh] flex-col items-center justify-center py-20 text-center"
+>
+    <div class="icon-surface mb-6 h-14 w-14">
+        <Icon name="lock" class="h-6 w-6" />
+    </div>
+    <h1 class="text-2xl font-bold tracking-tight">
+        Sign-in could not be completed
+    </h1>
+    <p class="mt-4 max-w-xl text-ink-muted">
+        The Cabin package registry is in private development, and signing
+        in is limited to an allowlist of maintainer accounts &mdash; the
+        most common reason to end up here is a GitHub account that isn't
+        on it. Either way, no session was created.
+    </p>
+    <p class="mt-2 max-w-xl text-ink-muted">
+        If your account is allowlisted, the sign-in may simply have timed
+        out or been interrupted &mdash; trying again usually works. Follow
+        the project on GitHub to see the registry take shape.
+    </p>
+    <div class="mt-8 flex items-center gap-3">
+        <Button href="/" variant="secondary">
+            <Icon name="home" class="h-4 w-4" />
+            Back to the homepage
+        </Button>
+        <Button href={EXTERNAL_URLS.githubOrg} external variant="ghost">
+            GitHub repository
+            <Icon name="external" class="h-4 w-4" />
+        </Button>
+    </div>
+</BaseLayout>

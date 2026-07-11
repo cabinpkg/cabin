@@ -63,6 +63,36 @@ yarn wrangler deploy
 No deploy workflow is included because Cloudflare account and project secrets
 vary by environment.
 
+### Account pages
+
+`/dashboard`, `/settings/tokens`, `/settings/profile`, and `/login/denied`
+are the registry account pages, styled after crates.io. They are static
+pages like everything else: their scripts talk to the registry's session
+user API, which the registry Worker mounts on this site's production
+origin under `/api/*` (plus `/login` and `/callback` for the GitHub
+OAuth flow) - see `registry/docs/architecture.md` in the repository. The
+website itself holds no sessions and no secrets.
+
+- The pages ship labeled as under development, and sign-in is restricted
+  to an allowlist of maintainer accounts while the registry is in private
+  development; every sign-in affordance says so.
+- Without the registry routes mounted (or with the registry down), the
+  account pages render their signed-out/error states and the rest of the
+  site is unaffected; `yarn verify:progressive` enforces at build time
+  that no marketing page's HTML depends on `/api/`.
+- During `yarn dev`, an Astro dev-server proxy forwards `/api/*`,
+  `/login`, and `/callback` to the production origin, so the pages'
+  relative fetches resolve and cookies set by proxied responses land on
+  localhost. The proxy is dev-only and absent from the production build.
+  Signed-in flows still cannot be exercised locally: the OAuth callback
+  URL and the host-only session cookie are pinned to the production
+  origin, so GitHub always returns the browser to production and no
+  session can be minted for localhost. Local development sees the
+  signed-out and error states against real API responses; end-to-end
+  sign-in happens on production.
+- The session API client lives in `src/lib/account.ts`; `yarn test` runs
+  its `node:test` suite directly on Node (>= 22.18).
+
 ### Static search
 
 `/search` is a static page. In the browser it reads `q`, `page`, and `perPage`

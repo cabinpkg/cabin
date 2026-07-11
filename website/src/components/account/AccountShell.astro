@@ -1,0 +1,73 @@
+---
+// The shared frame of the authenticated pages (/dashboard, /settings/*).
+// The static default is the "loading" section; the page's script settles
+// it into signed-out, error, or the page content via `accountShell()`
+// (src/lib/accountShell.ts). The website holds no session knowledge, so
+// an unauthenticated visit renders the signed-out state right here -
+// never a server-side redirect.
+import Icon from "../Icon.astro";
+import { ACCOUNT_URLS, SIGNIN_RESTRICTION } from "../../lib/constants";
+import Badge from "../ui/Badge.astro";
+import Button from "../ui/Button.astro";
+
+interface Props {
+    title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<section data-account-shell>
+    <header class="mb-8 flex items-center justify-between gap-4">
+        <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
+            {title}
+        </h1>
+        <Badge tone="default">under development</Badge>
+    </header>
+
+    <div data-shell-loading>
+        <p class="text-ink-muted" aria-live="polite">Checking your session&hellip;</p>
+        <noscript>
+            <p class="mt-2 text-ink-muted">
+                This page needs JavaScript to talk to the registry.
+            </p>
+        </noscript>
+    </div>
+
+    <div data-shell-signed-out hidden>
+        <div
+            class="rounded-md border border-line bg-night-raised px-6 py-16 text-center"
+        >
+            <div class="mb-6 flex justify-center text-ink-faint">
+                <Icon name="lock" class="h-12 w-12" />
+            </div>
+            <h2 class="mb-3 text-2xl font-bold tracking-tight">
+                You're not signed in
+            </h2>
+            <p class="mx-auto mb-2 max-w-xl text-ink-muted">
+                Sign in with GitHub to see this page.
+            </p>
+            <p class="mx-auto mb-8 max-w-xl text-ink-muted">
+                {SIGNIN_RESTRICTION}
+            </p>
+            {/* prefetch opt-out: /login is the Worker's stateful OAuth
+                route (mints the state cookie), never a static page. */}
+            <Button href={ACCOUNT_URLS.signIn} data-astro-prefetch="false">
+                Sign in with GitHub
+            </Button>
+        </div>
+    </div>
+
+    <div data-shell-error hidden>
+        <div
+            class="rounded-sm border border-steel/35 bg-steel/10 px-4 py-3 text-sm"
+            role="alert"
+        >
+            <p data-shell-error-message></p>
+        </div>
+    </div>
+
+    <div data-shell-content hidden>
+        <slot />
+    </div>
+</section>

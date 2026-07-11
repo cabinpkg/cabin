@@ -37,3 +37,19 @@ export const NAV_LINKS = {
         href: EXTERNAL_URLS.githubOrg,
     },
 } as const;
+
+// The account pages (see "Account pages" in README.md). `/login` is the
+// registry Worker's OAuth route mounted on this origin; the rest are
+// static pages of this site.
+export const ACCOUNT_URLS = {
+    signIn: "/login",
+    dashboard: "/dashboard",
+    tokens: "/settings/tokens",
+    profile: "/settings/profile",
+} as const;
+
+// Shown on every sign-in affordance while the registry is in private
+// development - the visitor must see this before being sent to GitHub.
+export const SIGNIN_RESTRICTION =
+    "The registry is in private development; sign-in is restricted to " +
+    "allowlisted maintainer accounts.";

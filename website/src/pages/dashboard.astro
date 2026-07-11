@@ -1,0 +1,120 @@
+---
+// The signed-in landing page (the registry's /callback redirects here):
+// today's usage with quota progress, and the user's packages with each
+// version's verification and yanked state. All data is fetched by
+// dashboard.ts from the session user API; the static build carries only
+// the skeleton.
+import AccountShell from "../components/account/AccountShell.astro";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Badge from "../components/ui/Badge.astro";
+import Card from "../components/ui/Card.astro";
+
+const barClass = "mt-3 h-1.5 overflow-hidden rounded-sm bg-night-lifted";
+const statClass = "mt-2 font-mono text-2xl text-ink";
+const quotaClass = "mt-1 text-xs text-ink-faint";
+---
+
+<BaseLayout
+    title="Dashboard"
+    description="Your packages, usage, and quotas on the Cabin registry."
+    canonicalPath="/dashboard"
+    contentClass="container-shell max-w-4xl py-10"
+>
+    <AccountShell title="Dashboard">
+        <section class="mb-10" aria-labelledby="usage-heading">
+            <h2 id="usage-heading" class="spec-label mb-4">Usage</h2>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Card class="p-5">
+                    <p class="spec-label">Packages</p>
+                    <p class={statClass} data-usage-packages></p>
+                    <p class={quotaClass} data-usage-packages-quota></p>
+                    <div
+                        class={barClass}
+                        role="progressbar"
+                        aria-label="Packages used against the plan quota"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        data-usage-packages-bar
+                    >
+                        <div class="h-full w-0 bg-steel" data-fill></div>
+                    </div>
+                </Card>
+                <Card class="p-5">
+                    <p class="spec-label">Storage</p>
+                    <p class={statClass} data-usage-storage></p>
+                    <p class={quotaClass} data-usage-storage-quota></p>
+                    <div
+                        class={barClass}
+                        role="progressbar"
+                        aria-label="Stored bytes against the plan quota"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        data-usage-storage-bar
+                    >
+                        <div class="h-full w-0 bg-steel" data-fill></div>
+                    </div>
+                </Card>
+                <Card class="p-5">
+                    <p class="spec-label">Published today</p>
+                    <p class={statClass} data-usage-published-today></p>
+                    <p class={quotaClass}>versions published this UTC day</p>
+                </Card>
+                <Card class="p-5">
+                    <p class="spec-label">Version status</p>
+                    <dl class="mt-2 space-y-1 font-mono text-sm">
+                        <div class="flex justify-between">
+                            <dt class="text-ink-muted">verified</dt>
+                            <dd data-usage-verified></dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-ink-muted">pending</dt>
+                            <dd data-usage-pending></dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-ink-muted">rejected</dt>
+                            <dd data-usage-rejected></dd>
+                        </div>
+                    </dl>
+                </Card>
+            </div>
+        </section>
+
+        <section aria-labelledby="packages-heading">
+            <h2 id="packages-heading" class="spec-label mb-4">Your packages</h2>
+            <p class="text-ink-muted" data-packages-empty hidden>
+                You haven't published any packages yet.
+            </p>
+            <ul class="grid gap-4" data-packages-list></ul>
+        </section>
+
+        <template id="package-template">
+            <li>
+                <article class="rounded-md border border-line bg-night-raised p-5">
+                    <h3
+                        class="font-mono text-lg font-semibold text-steel"
+                        data-slot="name"
+                    >
+                    </h3>
+                    <ul class="mt-2" data-slot="versions"></ul>
+                </article>
+            </li>
+        </template>
+        <template id="version-template">
+            <li
+                class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5 first:border-t-0 first:pt-1"
+            >
+                <code class="font-mono text-sm" data-slot="version"></code>
+                <Badge tone="success" data-slot="verified" hidden>verified</Badge>
+                <Badge tone="muted" data-slot="pending" hidden>pending</Badge>
+                <Badge tone="warning" data-slot="rejected" hidden>rejected</Badge>
+                <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
+                <span
+                    class="ml-auto text-xs text-ink-faint"
+                    data-slot="published"
+                >
+                </span>
+            </li>
+        </template>
+    </AccountShell>
+    <script src="../scripts/dashboard.ts"></script>
+</BaseLayout>

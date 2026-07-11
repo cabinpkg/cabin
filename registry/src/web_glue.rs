@@ -51,6 +51,7 @@ pub async fn respond_session(
             &user.plan,
         )),
         (SessionRoute::Usage, Method::Get) => usage(&db, &session, user).await,
+        (SessionRoute::Packages, Method::Get) => list_packages(&db, &session).await,
         (SessionRoute::Tokens, Method::Get) => list_tokens(&db, &session).await,
         (SessionRoute::Tokens, Method::Post) => create_token(req, &db, &session).await,
         (SessionRoute::RevokeToken { id }, Method::Post) => {
@@ -232,6 +233,44 @@ async fn usage(
         rejected_count: non_negative(usage_record.rejected_count),
     };
     json_response(&user_api::usage_json(&usage))
+}
+
+#[derive(Deserialize)]
+struct PackageVersionRecord {
+    name: String,
+    version: String,
+    verification: String,
+    yanked: i64,
+    published_at: String,
+}
+
+/// `GET /api/v1/user/packages`: the packages the user created, every
+/// version's verification and yanked state included. The ORDER BY keeps
+/// the payload deterministic and the rows grouped by name for
+/// [`user_api::packages_json`]; versions run newest first.
+async fn list_packages(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
+    let records: Vec<PackageVersionRecord> = db
+        .prepare(
+            "SELECT v.name, v.version, v.verification, v.yanked, v.published_at \
+             FROM packages p JOIN versions v ON v.name = p.name \
+             WHERE p.created_by = ?1 \
+             ORDER BY v.name, v.published_at DESC, v.version",
+        )
+        .bind(&[js_int(session.github_id)])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::PackageVersionRow> = records
+        .into_iter()
+        .map(|record| user_api::PackageVersionRow {
+            name: record.name,
+            version: record.version,
+            verification: record.verification,
+            yanked: record.yanked != 0,
+            published_at: record.published_at,
+        })
+        .collect();
+    json_response(&user_api::packages_json(&rows))
 }
 
 #[derive(Deserialize)]
