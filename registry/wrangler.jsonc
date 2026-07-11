@@ -29,7 +29,7 @@
     // /api/* via the zone routes below. A route pattern can point at only
     // one Worker, so env dev holds the cabinpkg.com routes for now; the
     // production cutover moves these exact patterns to env production
-    // (docs/runbook.md, "Route management").
+    // (docs/runbook.md, "Integrated topology and route management").
     "env": {
         "dev": {
             "name": "cabin-registry-dev",
@@ -98,7 +98,7 @@
             // (a pattern can point at only one Worker). The production
             // cutover moves the three patterns here, at which point the
             // dev registry loses its browser plane (docs/runbook.md,
-            // "Route management").
+            // "Integrated topology and route management").
             "routes": [
                 { "pattern": "registry.cabinpkg.com", "custom_domain": true }
             ],

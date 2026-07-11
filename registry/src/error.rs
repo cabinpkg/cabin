@@ -34,11 +34,10 @@ pub const INVALID_TOKEN_NAME_OR_SCOPES: &str = "invalid token name or scopes";
 /// and failure reason, so unauthenticated responses stay
 /// indistinguishable and leak nothing about package existence.
 ///
-/// The token page it names ships with the website step; until that
-/// lands, the challenged URL 404s on the dev deployment and the interim
-/// token flow is `docs/runbook.md` ("Route management"). That gap is
-/// deliberate sequencing on the operator-only dev registry - `cabin
-/// login` never depends on the URL resolving, only on the grammar.
+/// The token page it names is the website's `/settings/tokens` on the
+/// origin holding the browser plane (`docs/runbook.md`, "Integrated
+/// topology and route management") - but `cabin login` never depends
+/// on the URL resolving, only on the grammar.
 pub fn www_authenticate(web_origin: &str) -> String {
     format!(
         "Cabin login_url=\"{origin}/settings/tokens\"",
