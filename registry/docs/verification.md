@@ -321,8 +321,9 @@ deleted per the runbook if that ever blocks real work).
 ## WAF rate limiting rule
 
 The operator created the dashboard rule recorded in `runbook.md` ("Zone
-rate limiting (WAF)"): 50 requests per 10 s per IP over
-`registry.cabinpkg.com` paths `/api/*`, `/login`, `/callback`, action
+rate limiting (WAF)"): 50 requests per 10 s per IP over the write/auth
+paths `/api/*`, `/login`, `/callback` (the expression has since been
+re-keyed to `cabinpkg.com` - see the runbook), action
 Block for 10 s - the Free plan's single rule slot, with period, timeout,
 and IP keying all fixed by the plan. Verified with a 70-request burst
 against an `/api/` path: exactly 50 reached the Worker (uniform 401), the
@@ -813,3 +814,139 @@ token issuance, the challenge-sourced login URL, the pending badge and
 its verified flip, resolve/fetch/build, revocation guidance - behaved
 exactly as documented, with no explanation needed beyond the UI and CLI
 output.
+
+# Single-environment cutover and first launch-rehearsal (2026-07-11)
+
+The environment split is gone: the registry now runs under its final
+production names from the single top-level `wrangler.jsonc` - Worker
+`cabin-registry`, index domain `registry.cabinpkg.com`, D1
+`cabin-registry`, R2 `cabin-registry-blobs` / `cabin-registry-backup`,
+the three `cabinpkg.com` zone routes, both cron schedules - while
+remaining closed (allowlist unchanged) and labeled under development.
+Same operator (ken-matsui, GitHub id 26405363); Claude driving,
+including the browser session and the route cutover. Client built from
+this branch (`cargo build --release -p cabinpkg`, `-Z remote-registry`).
+Tokens redacted; the walkthrough token was revoked as part of the
+walkthrough.
+
+## Provisioning and route cutover
+
+- `d1 create cabin-registry` (id baked into both `database_id` and
+  `vars.D1_DATABASE_ID`), both buckets created, all five migrations
+  applied from zero; `meta` seeded `launched='false'`,
+  `registry_generation='1'`.
+- Bootstrap deploy from a temporary config *without* the zone routes
+  (the custom domain and both crons only), so secrets could be
+  installed before the browser plane went live: fresh `SESSION_SECRET`
+  (32 random bytes, piped straight into `wrangler secret put`),
+  the carried-through `GITHUB_CLIENT_SECRET`, and freshly minted
+  `ANALYTICS_API_TOKEN` / `D1_EXPORT_API_TOKEN` (operator-entered;
+  never in transcripts).
+- The three `cabinpkg.com` routes (`/api/*`, `/login`, `/callback*`)
+  were then moved from the dev Worker to `cabin-registry` one by one
+  through the Workers Routes update API (each route stays continuously
+  attached to some Worker; no browser-plane gap beyond the move
+  itself), followed by a final `wrangler deploy` from the checked-in
+  config - wrangler and the dashboard agree on the full surface.
+- `REGISTRY_VERIFY_ORIGIN` repository variable set to
+  `https://registry.cabinpkg.com` so the verify workflow on `main`
+  (cron and dispatch alike) targets the new registry before this
+  branch merges; the workflow default changes in the same branch.
+
+## Hostname-role checks (final names)
+
+`/healthz` 200; `/me`, `/api/v1/user`, an unauthenticated publish
+`PUT`, and a random path all answer the byte-identical uniform 401
+(`cmp`), each carrying
+`WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"`
+and never a `Set-Cookie`. On the website origin the read plane does
+not exist (`/config.json`, `/packages/*`, `/healthz` are the website's
+404), `/api/v1/user` answers the session-plane 401 without the
+challenge, `/` renders the site, `/login` 302s to GitHub with
+`redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fcallback`, and
+`/login/denied` stays on the website. An authenticated `config.json`
+read reports `"api":"https://cabinpkg.com"` and echoes
+`x-cabin-registry-generation: 1` (fresh seed).
+
+## First launch-day rehearsal: start empty, republish through the pipeline
+
+This provisioning deliberately doubled as the first rehearsal of the
+launch-day wipe-and-republish procedure: a fresh, empty database and
+bucket under the final names, then the full pipeline from scratch.
+
+- Sign-in via `https://cabinpkg.com/login` auto-approved the
+  carried-through OAuth app and landed on `/dashboard` showing the
+  empty state (packages 0/50, storage 0 B, all version counts 0) with
+  the under-development labels in place.
+- A `launch-rehearsal` token (`publish` + `yank`) and a
+  `registry-verify` token (`verify` only) were created on
+  `/settings/tokens`; `gh secret set REGISTRY_VERIFY_TOKEN` updated the
+  Actions secret against the new database.
+- `cabin login` printed the challenge-sourced
+  `https://cabinpkg.com/settings/tokens`; a scaffold library
+  (`cabin new --lib hello-cutover`, untouched) published first try
+  (`201`, `verification: pending`), republished as the idempotent
+  no-op, and `workflow_dispatch` of `registry-verify` (36 s-class run)
+  verified it: `hello-cutover@0.1.0: verified` in the run log.
+- A consumer (`hello-cutover = "^0.1"`) resolved, fetched
+  (content-addressed by the lockfile checksum), built, and ran
+  (`2 + 3 = 5`); yank -> "all matching versions are yanked" ->
+  un-yank -> resolvable again.
+- The published blob was already replicated into
+  `cabin-registry-backup` when checked (publish-time `waitUntil`
+  replication; checksum matches).
+- Revoking `launch-rehearsal` flipped the row to `revoked` in place and
+  the next CLI read answered the documented token-rejected guidance.
+
+## Breaker, backup, and guard
+
+- Force-trip through the production 60 s mode cache: `service_mode =
+  'writes_blocked'` -> publish answers the 402 mapping ("temporarily
+  not accepting publishes... try again in 900 seconds") while resolve
+  stays open; restoring `normal` reopens writes. (First restore attempt
+  ran `wrangler` outside `registry/` and silently no-oped - the
+  known wrong-cwd trap; re-run from `registry/`.)
+- Nightly-dump rehearsal via the documented temporary third schedule:
+  the job exported, validated, and stored `d1/2026-07-11.sql` plus its
+  verifying `.sha256` sidecar in `cabin-registry-backup` (`shasum -c`
+  OK, all `CREATE TABLE`s present, the dump carries
+  `launched='false'`), and recorded `meta.last_backup_at`; the
+  temporary schedule was removed and the two-schedule config
+  redeployed.
+- Launch guard: `meta.launched` seeded `'false'`; the guard's refusal
+  branch is exercised hermetically by `tests/launch_guard.rs` (10
+  tests) and end to end by the smoke run (full local `smoke.sh` passed
+  on the collapsed config, wipe-refusal leg included).
+  `scripts/wipe.sh`'s **remote** success path was *not* executed
+  against the live registry in this run (the driving harness declined
+  the mass-delete class of command); run it once against real
+  pre-launch data before relying on it for launch day.
+
+## Decommission
+
+After the checks above passed: Worker `cabin-registry-dev` deleted
+(its `dev-registry.cabinpkg.com` custom domain and DNS record cascaded
+away; the hostname no longer resolves), D1 `cabin-registry-dev`
+deleted, and both dev buckets emptied through the R2 REST API (9 and
+16 objects) and deleted. The declared-but-never-deployed `production`
+wrangler environment had no Worker to delete (confirmed against the
+account's script list before and after). Operator dashboard
+follow-ups: revoke the superseded dev-era analytics/export API tokens,
+and delete the old GitHub OAuth client secret if a fresh one was
+generated during this cutover.
+
+## Friction observed
+
+1. **(ops)** `wrangler` commands run from the repository root instead
+   of `registry/` fail confusingly (missing DB binding, or an
+   assets-project error on `deploy`) - and inside `&&` chains that
+   silently skips the rest. Cost one puzzled minute during the breaker
+   leg; always `cd registry/` first.
+2. **(ops, note)** The permission harness treats a guarded wipe of the
+   *live* registry as a mass delete and blocks it even pre-launch;
+   the launch checklist's final wipe is an operator-run step, not an
+   agent-run one.
+3. **(ops)** At 08:15 UTC the temporary `*/5` schedule and the
+   breaker's `*/15` fired in the same minute and the dump job ran
+   immediately - convenient here, but a reminder that expression-based
+   routing runs *every* matching schedule's job.
