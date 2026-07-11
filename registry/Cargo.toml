@@ -25,6 +25,12 @@ sha2 = "0.11"
 futures-util = "0.3"
 worker = { version = "0.8", features = ["d1"] }
 
+# Host-target only: tests/sql_validation.rs prepares every executed
+# statement (src/sql.rs) against the real migrated schema. The wasm
+# build never sees it.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }
 must_use_candidate = "allow"

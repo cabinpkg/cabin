@@ -17,6 +17,7 @@ pub mod publish;
 pub mod quota;
 pub mod routes;
 pub mod session;
+pub mod sql;
 pub mod user_api;
 pub mod verify;
 

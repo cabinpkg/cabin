@@ -9,7 +9,7 @@ use worker::{D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Resp
 
 use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::{LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, SessionRoute, WebRoute};
-use crate::{allowlist, auth, error, quota, session, user_api};
+use crate::{allowlist, auth, error, quota, session, sql, user_api};
 
 /// Routes one OAuth request; the method check happens here, the path
 /// already matched in [`crate::routes::match_web_route`].
@@ -167,13 +167,10 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         return denied(&[clear_state]);
     }
 
-    db.prepare(
-        "INSERT INTO users (github_id, login, created_at) VALUES (?1, ?2, ?3) \
-         ON CONFLICT (github_id) DO UPDATE SET login = excluded.login",
-    )
-    .bind(&[js_int(user.id), user.login.into(), now_iso8601().into()])?
-    .run()
-    .await?;
+    db.prepare(sql::UPSERT_USER)
+        .bind(&[js_int(user.id), user.login.into(), now_iso8601().into()])?
+        .run()
+        .await?;
 
     let expires_at = now_secs() + session::SESSION_MAX_AGE_SECS;
     let sealed = session::seal_session(&secret, user.id, expires_at);
@@ -223,15 +220,7 @@ async fn usage(
     // they are excluded from the stored sum; the per-status counts show
     // where everything the user published stands.
     let usage_record: Option<UsageRecord> = db
-        .prepare(
-            "SELECT COALESCE(SUM(CASE WHEN verification != 'rejected' \
-             THEN archive_size ELSE 0 END), 0) AS stored_bytes, \
-             COALESCE(SUM(CASE WHEN published_at >= ?2 THEN 1 ELSE 0 END), 0) AS published_today, \
-             COALESCE(SUM(verification = 'verified'), 0) AS verified_count, \
-             COALESCE(SUM(verification = 'pending'), 0) AS pending_count, \
-             COALESCE(SUM(verification = 'rejected'), 0) AS rejected_count \
-             FROM versions WHERE published_by = ?1",
-        )
+        .prepare(sql::USER_USAGE)
         .bind(&[js_int(session.github_id), day_prefix.into()])?
         .first(None)
         .await?;
@@ -243,7 +232,7 @@ async fn usage(
         rejected_count: 0,
     });
     let package_record: Option<PackageCountRecord> = db
-        .prepare("SELECT COUNT(*) AS n FROM packages WHERE created_by = ?1")
+        .prepare(sql::USER_CREATED_PACKAGE_COUNT)
         .bind(&[js_int(session.github_id)])?
         .first(None)
         .await?;
@@ -275,12 +264,7 @@ struct PackageVersionRecord {
 /// [`user_api::packages_json`]; versions run newest first.
 async fn list_packages(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
     let records: Vec<PackageVersionRecord> = db
-        .prepare(
-            "SELECT v.name, v.version, v.verification, v.yanked, v.published_at \
-             FROM packages p JOIN versions v ON v.name = p.name \
-             WHERE p.created_by = ?1 \
-             ORDER BY v.name, v.published_at DESC, v.version",
-        )
+        .prepare(sql::LIST_USER_PACKAGES)
         .bind(&[js_int(session.github_id)])?
         .all()
         .await?
@@ -311,10 +295,7 @@ struct TokenListRecord {
 /// `GET /api/v1/user/tokens`: metadata only, never hashes.
 async fn list_tokens(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
     let records: Vec<TokenListRecord> = db
-        .prepare(
-            "SELECT id, name, scopes, created_at, last_used_at, revoked_at \
-             FROM tokens WHERE user_id = ?1 ORDER BY created_at DESC, id",
-        )
+        .prepare(sql::LIST_USER_TOKENS)
         .bind(&[js_int(session.github_id)])?
         .all()
         .await?
@@ -368,20 +349,17 @@ async fn create_token(
 
     let id = auth::hex(&random_bytes::<16>()?);
     let token = auth::format_token(&random_bytes()?);
-    db.prepare(
-        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-    )
-    .bind(&[
-        id.as_str().into(),
-        js_int(session.github_id),
-        parsed.name.as_str().into(),
-        auth::token_hash(&token).into(),
-        parsed.scopes.as_str().into(),
-        now_iso8601().into(),
-    ])?
-    .run()
-    .await?;
+    db.prepare(sql::INSERT_TOKEN)
+        .bind(&[
+            id.as_str().into(),
+            js_int(session.github_id),
+            parsed.name.as_str().into(),
+            auth::token_hash(&token).into(),
+            parsed.scopes.as_str().into(),
+            now_iso8601().into(),
+        ])?
+        .run()
+        .await?;
     let body = user_api::token_created_json(&id, &parsed.name, &parsed.scopes, &token);
     Ok(json_response(&body)?.with_status(201))
 }
@@ -398,13 +376,10 @@ async fn revoke_token(
     if !csrf_ok(req)? {
         return json_error(403, error::CSRF_REQUIRED);
     }
-    db.prepare(
-        "UPDATE tokens SET revoked_at = ?1 \
-         WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL",
-    )
-    .bind(&[now_iso8601().into(), id.into(), js_int(session.github_id)])?
-    .run()
-    .await?;
+    db.prepare(sql::REVOKE_TOKEN)
+        .bind(&[now_iso8601().into(), id.into(), js_int(session.github_id)])?
+        .run()
+        .await?;
     json_response(r#"{"ok":true}"#)
 }
 
@@ -495,7 +470,7 @@ async fn user_record(
     db: &D1Database,
     session: &session::Session,
 ) -> worker::Result<Option<UserRecord>> {
-    db.prepare("SELECT login, plan FROM users WHERE github_id = ?1")
+    db.prepare(sql::USER_BY_GITHUB_ID)
         .bind(&[js_int(session.github_id)])?
         .first(None)
         .await

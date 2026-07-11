@@ -46,6 +46,9 @@ jobs:
         with:
           workspaces: registry
 
+      - name: SQL consolidation guard
+        run: bash scripts/check-sql.sh
+
       - name: Check formatting
         run: cargo fmt --all --verbose -- --check
 

@@ -17,7 +17,7 @@ use crate::error;
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, backup, breaker, quota, verify};
+use crate::{analytics, backup, breaker, quota, sql, verify};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -283,11 +283,7 @@ async fn authenticate(
     };
     let hash = auth::token_hash(token);
     let record: Option<TokenRecord> = db
-        .prepare(
-            "SELECT t.id, t.user_id, t.scopes, u.plan, t.rl_tokens, t.rl_updated_at \
-             FROM tokens t JOIN users u ON u.github_id = t.user_id \
-             WHERE t.token_hash = ?1 AND t.revoked_at IS NULL",
-        )
+        .prepare(sql::AUTH_TOKEN_LOOKUP)
         .bind(&[hash.into()])?
         .first(None)
         .await?;
@@ -297,7 +293,7 @@ async fn authenticate(
 
     // Best-effort bookkeeping: never fail or delay the request over it.
     if let Ok(update) = db
-        .prepare("UPDATE tokens SET last_used_at = ?1 WHERE id = ?2")
+        .prepare(sql::TOUCH_TOKEN_LAST_USED)
         .bind(&[now_iso8601().into(), record.id.clone().into()])
     {
         ctx.wait_until(async move {
@@ -333,10 +329,7 @@ fn bucket_from_columns(tokens: Option<f64>, updated_at: Option<&str>) -> Option<
 /// never runs, nothing new ever becomes resolvable).
 async fn package_response(db: &D1Database, name: &str) -> worker::Result<Response> {
     let records: Vec<VersionRecord> = db
-        .prepare(
-            "SELECT version, metadata_json, yanked FROM versions \
-             WHERE name = ?1 AND verification = 'verified'",
-        )
+        .prepare(sql::VERIFIED_VERSIONS_BY_NAME)
         .bind(&[name.into()])?
         .all()
         .await?
@@ -542,7 +535,7 @@ async fn yank_response(
     };
 
     let existing: Option<YankedRecord> = db
-        .prepare("SELECT yanked, verification FROM versions WHERE name = ?1 AND version = ?2")
+        .prepare(sql::VERSION_YANK_STATE)
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
@@ -554,7 +547,7 @@ async fn yank_response(
     }
     let changed = (existing.yanked != 0) != yanked;
     if changed {
-        db.prepare("UPDATE versions SET yanked = ?1 WHERE name = ?2 AND version = ?3")
+        db.prepare(sql::SET_VERSION_YANKED)
             .bind(&[i32::from(yanked).into(), name.into(), version.into()])?
             .run()
             .await?;
@@ -602,10 +595,7 @@ async fn admin_versions_response(
         return error_response(400, error::INVALID_STATUS_QUERY);
     };
     let records: Vec<AdminVersionRecord> = db
-        .prepare(
-            "SELECT name, version, checksum, published_by, published_at, metadata_json \
-             FROM versions WHERE verification = ?1 ORDER BY name, version",
-        )
+        .prepare(sql::VERSIONS_BY_VERIFICATION_STATUS)
         .bind(&[status.as_str().into()])?
         .all()
         .await?
@@ -677,10 +667,7 @@ async fn verdict_response(
     };
 
     let target: Option<VerdictTargetRecord> = db
-        .prepare(
-            "SELECT verification, checksum, published_at, archive_size FROM versions \
-             WHERE name = ?1 AND version = ?2",
-        )
+        .prepare(sql::VERDICT_TARGET)
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
@@ -758,12 +745,7 @@ async fn apply_verdict(
     match parsed.verdict {
         verify::Verdict::Verified => {
             let result = db
-                .prepare(
-                    "UPDATE versions SET verification = 'verified', verified_at = ?1 \
-                     WHERE name = ?2 AND version = ?3 \
-                     AND verification = 'pending' AND checksum = ?4 \
-                     AND published_at = ?5",
-                )
+                .prepare(sql::MARK_VERSION_VERIFIED)
                 .bind(&[
                     now_iso8601().into(),
                     name.into(),
@@ -813,33 +795,14 @@ async fn apply_rejection(
     let archive_size = js_int(target.archive_size);
     let results = db
         .batch(vec![
-            db.prepare(
-                "UPDATE meta SET value = MAX(CAST(value AS INTEGER) - \
-                 CASE WHEN (SELECT COUNT(*) FROM versions \
-                            WHERE checksum = ?1 AND verification != 'rejected') = 1 \
-                      AND (SELECT verification FROM versions \
-                           WHERE name = ?2 AND version = ?3) = 'pending' \
-                      AND (SELECT checksum FROM versions \
-                           WHERE name = ?2 AND version = ?3) = ?1 \
-                      AND (SELECT published_at FROM versions \
-                           WHERE name = ?2 AND version = ?3) = ?5 \
-                      THEN CAST(?4 AS INTEGER) ELSE 0 END, 0) \
-                 WHERE key = 'total_stored_bytes'",
-            )
-            .bind(&[
+            db.prepare(sql::REFUND_STORED_BYTES_ON_REJECTION).bind(&[
                 target.checksum.as_str().into(),
                 name.into(),
                 version.into(),
                 archive_size,
                 target.published_at.as_str().into(),
             ])?,
-            db.prepare(
-                "UPDATE versions SET verification = 'rejected', verification_reason = ?1, \
-                 verified_at = NULL \
-                 WHERE name = ?2 AND version = ?3 \
-                 AND verification = 'pending' AND checksum = ?4 AND published_at = ?5",
-            )
-            .bind(&[
+            db.prepare(sql::MARK_VERSION_REJECTED).bind(&[
                 reason.into(),
                 name.into(),
                 version.into(),
@@ -893,7 +856,7 @@ async fn artifact_response(
     version: &str,
 ) -> worker::Result<Response> {
     let record: Option<ArtifactRecord> = db
-        .prepare("SELECT checksum, verification FROM versions WHERE name = ?1 AND version = ?2")
+        .prepare(sql::ARTIFACT_BY_NAME_VERSION)
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
@@ -937,7 +900,7 @@ async fn artifact_response(
 /// aid, not part of the client contract).
 async fn registry_generation(db: &D1Database) -> Option<String> {
     let record: Option<MetaRecord> = db
-        .prepare("SELECT value FROM meta WHERE key = 'registry_generation'")
+        .prepare(sql::REGISTRY_GENERATION)
         .first(None)
         .await
         .ok()?;
@@ -1004,21 +967,12 @@ async fn persist_new_version(
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
     db.batch(vec![
-        db.prepare(
-            "INSERT OR IGNORE INTO packages (name, created_at, created_by) \
-             VALUES (?1, ?2, ?3)",
-        )
-        .bind(&[
+        db.prepare(sql::INSERT_PACKAGE).bind(&[
             new.name.into(),
             new.published_at.into(),
             js_int(new.user_id),
         ])?,
-        db.prepare(
-            "INSERT INTO versions (name, version, checksum, metadata_json, yanked, \
-             published_at, archive_size, published_by, verification) \
-             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'pending')",
-        )
-        .bind(&[
+        db.prepare(sql::INSERT_VERSION).bind(&[
             new.name.into(),
             new.version.into(),
             new.checksum_hex.into(),
@@ -1027,21 +981,7 @@ async fn persist_new_version(
             archive_size.clone(),
             js_int(new.user_id),
         ])?,
-        // The CASTs keep the TEXT-affinity meta value integer-shaped: D1
-        // binds numbers as floats, and INTEGER + REAL would otherwise
-        // store "254.0", which the breaker's strict u64 parse rejects.
-        db.prepare(
-            "INSERT INTO meta (key, value) VALUES ('total_stored_bytes', \
-             CASE WHEN (SELECT COUNT(*) FROM versions \
-                        WHERE checksum = ?1 AND verification != 'rejected') = 1 \
-                  THEN CAST(?2 AS INTEGER) ELSE 0 END) \
-             ON CONFLICT (key) DO UPDATE SET \
-             value = CAST(value AS INTEGER) + \
-             CASE WHEN (SELECT COUNT(*) FROM versions \
-                        WHERE checksum = ?3 AND verification != 'rejected') = 1 \
-                  THEN CAST(?4 AS INTEGER) ELSE 0 END",
-        )
-        .bind(&[
+        db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
             new.checksum_hex.into(),
             archive_size.clone(),
             new.checksum_hex.into(),
@@ -1107,32 +1047,14 @@ async fn replace_rejected_version(
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
     let results = db
         .batch(vec![
-            db.prepare(
-                "UPDATE meta SET value = CAST(value AS INTEGER) + \
-                 CASE WHEN (SELECT verification FROM versions \
-                            WHERE name = ?1 AND version = ?2) = 'rejected' \
-                      AND (SELECT checksum FROM versions \
-                           WHERE name = ?1 AND version = ?2) = ?3 \
-                      AND (SELECT COUNT(*) FROM versions \
-                           WHERE checksum = ?4 AND verification != 'rejected') = 0 \
-                      THEN CAST(?5 AS INTEGER) ELSE 0 END \
-                 WHERE key = 'total_stored_bytes'",
-            )
-            .bind(&[
+            db.prepare(sql::COUNT_STORED_BYTES_ON_REPLACEMENT).bind(&[
                 new.name.into(),
                 new.version.into(),
                 old_checksum.into(),
                 new.checksum_hex.into(),
                 archive_size.clone(),
             ])?,
-            db.prepare(
-                "UPDATE versions SET checksum = ?1, metadata_json = ?2, yanked = 0, \
-                 published_at = ?3, archive_size = ?4, published_by = ?5, \
-                 verification = 'pending', verification_reason = NULL, verified_at = NULL \
-                 WHERE name = ?6 AND version = ?7 \
-                 AND verification = 'rejected' AND checksum = ?8",
-            )
-            .bind(&[
+            db.prepare(sql::REPLACE_REJECTED_VERSION).bind(&[
                 new.checksum_hex.into(),
                 new.metadata_text.into(),
                 new.published_at.into(),
@@ -1187,10 +1109,7 @@ async fn delete_blob_if_unreferenced(
     checksum: &str,
 ) -> worker::Result<()> {
     let references: CountRecord = db
-        .prepare(
-            "SELECT COUNT(*) AS n FROM versions \
-             WHERE checksum = ?1 AND verification != 'rejected'",
-        )
+        .prepare(sql::COUNT_LIVE_BLOB_REFERENCES)
         .bind(&[checksum.into()])?
         .first(None)
         .await?
@@ -1205,7 +1124,7 @@ async fn delete_blob_if_unreferenced(
     // a blob whose backup copy never landed would keep the breaker
     // alerting - and abort scripts/backup-backfill.sh against a
     // deleted primary object - forever.
-    db.prepare("DELETE FROM backup_replication_failures WHERE key = ?1")
+    db.prepare(sql::CLEAR_REPLICATION_FAILURE)
         .bind(&[key.as_str().into()])?
         .run()
         .await?;
@@ -1260,19 +1179,15 @@ fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
         };
         let bookkeeping = match outcome {
             Ok(()) => db
-                .prepare("DELETE FROM backup_replication_failures WHERE key = ?1")
+                .prepare(sql::CLEAR_REPLICATION_FAILURE)
                 .bind(&[key.clone().into()]),
             Err(err) => {
                 console_error!(
                     "backup replication failed for {key}: {err}; \
                      recorded for scripts/backup-backfill.sh"
                 );
-                db.prepare(
-                    "INSERT INTO backup_replication_failures (key, failed_at) \
-                     VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET \
-                     failed_at = excluded.failed_at",
-                )
-                .bind(&[key.clone().into(), now_iso8601().into()])
+                db.prepare(sql::RECORD_REPLICATION_FAILURE)
+                    .bind(&[key.clone().into(), now_iso8601().into()])
             }
         };
         match bookkeeping {
@@ -1314,10 +1229,7 @@ async fn existing_version(
     metadata_text: &str,
 ) -> worker::Result<Option<ExistingVersion>> {
     let existing: Option<StoredVersionRecord> = db
-        .prepare(
-            "SELECT metadata_json, checksum, verification FROM versions \
-             WHERE name = ?1 AND version = ?2",
-        )
+        .prepare(sql::EXISTING_VERSION)
         .bind(&[name.into(), version.into()])?
         .first(None)
         .await?;
@@ -1403,7 +1315,7 @@ struct BucketRecord {
 /// The current bucket state straight from the token row.
 async fn read_bucket(db: &D1Database, token_id: &str) -> worker::Result<Option<quota::Bucket>> {
     let record: Option<BucketRecord> = db
-        .prepare("SELECT rl_tokens, rl_updated_at FROM tokens WHERE id = ?1")
+        .prepare(sql::TOKEN_BUCKET)
         .bind(&[token_id.into()])?
         .first(None)
         .await?;
@@ -1430,10 +1342,7 @@ async fn cas_bucket(
         None => (JsValue::NULL, JsValue::NULL),
     };
     let result = db
-        .prepare(
-            "UPDATE tokens SET rl_tokens = ?1, rl_updated_at = ?2 \
-             WHERE id = ?3 AND rl_tokens IS ?4 AND rl_updated_at IS ?5",
-        )
+        .prepare(sql::CAS_TOKEN_BUCKET)
         .bind(&[
             next.tokens.into(),
             next.updated_at_ms.to_string().into(),
@@ -1459,24 +1368,16 @@ async fn publish_counts(
         .batch(vec![
             // Rejected versions are excluded: their bytes were refunded
             // when the verdict landed.
-            db.prepare(
-                "SELECT COALESCE(SUM(archive_size), 0) AS stored_bytes \
-                 FROM versions WHERE published_by = ?1 AND verification != 'rejected'",
-            )
-            .bind(&[js_int(user_id)])?,
+            db.prepare(sql::USER_STORED_BYTES)
+                .bind(&[js_int(user_id)])?,
             // Both package quotas key on creation (`created_by`), so a
             // version published into someone else's package never counts
             // against the publisher's package quotas.
-            db.prepare(
-                "SELECT COUNT(*) AS package_count, \
-                 COALESCE(SUM(created_at >= ?2), 0) AS new_today \
-                 FROM packages WHERE created_by = ?1",
-            )
-            .bind(&[js_int(user_id), day_prefix.into()])?,
-            db.prepare("SELECT COUNT(*) AS n FROM versions WHERE name = ?1 AND published_at >= ?2")
+            db.prepare(sql::USER_PACKAGE_COUNTS)
+                .bind(&[js_int(user_id), day_prefix.into()])?,
+            db.prepare(sql::COUNT_PACKAGE_VERSIONS_SINCE)
                 .bind(&[name.into(), day_prefix.into()])?,
-            db.prepare("SELECT COUNT(*) AS n FROM packages WHERE name = ?1")
-                .bind(&[name.into()])?,
+            db.prepare(sql::PACKAGE_EXISTS).bind(&[name.into()])?,
         ])
         .await?;
     let user_usage: UserUsageRecord = first_row(&results, 0)?;
@@ -1563,7 +1464,7 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
 /// Reads one `meta` row.
 pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
     let record: Option<MetaRecord> = db
-        .prepare("SELECT value FROM meta WHERE key = ?1")
+        .prepare(sql::META_VALUE)
         .bind(&[key.into()])?
         .first(None)
         .await?;
@@ -1575,11 +1476,8 @@ pub(crate) fn upsert_meta(
     key: &str,
     value: &str,
 ) -> worker::Result<worker::D1PreparedStatement> {
-    db.prepare(
-        "INSERT INTO meta (key, value) VALUES (?1, ?2) \
-         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(&[key.into(), value.into()])
+    db.prepare(sql::UPSERT_META)
+        .bind(&[key.into(), value.into()])
 }
 
 /// The budget-breaker schedule (`wrangler.jsonc` `triggers`); the cron
@@ -1764,10 +1662,7 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 /// clock writes), so the comparison stays lexicographic.
 async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
     let record: CountRecord = db
-        .prepare(
-            "SELECT COUNT(*) AS n FROM versions WHERE verification = 'pending' \
-             AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')",
-        )
+        .prepare(sql::COUNT_STALE_PENDING)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
@@ -1799,7 +1694,7 @@ impl BackupHealth {
 async fn read_backup_health(db: &D1Database, now: &str) -> worker::Result<BackupHealth> {
     let last_backup_at = read_meta(db, "last_backup_at").await?;
     let failures: CountRecord = db
-        .prepare("SELECT COUNT(*) AS n FROM backup_replication_failures")
+        .prepare(sql::COUNT_REPLICATION_FAILURES)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
