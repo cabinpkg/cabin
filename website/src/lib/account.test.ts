@@ -11,6 +11,7 @@ import {
     getUser,
     resolveAuth,
     revokeToken,
+    signOut,
 } from "./account.ts";
 
 interface Call {
@@ -158,6 +159,19 @@ test("revokeToken hits the id's revoke route with the CSRF pair", async () => {
     assert.equal(headers["X-CSRF-Protection"], "1");
     // The declared JSON content type stays truthful: a JSON body rides.
     assert.equal(String(calls[0]?.init?.body), "{}");
+});
+
+test("signOut posts the logout mutation with the CSRF pair", async () => {
+    const { fetch, calls } = mockFetch(jsonResponse(200, { ok: true }));
+
+    const result = await signOut(fetch);
+    assert.deepEqual(result, { ok: true, data: { ok: true } });
+    assert.equal(calls[0]?.input, "/api/v1/user/logout");
+    assert.equal(calls[0]?.init?.method, "POST");
+    assert.equal(calls[0]?.init?.credentials, "same-origin");
+    const headers = calls[0]?.init?.headers as Record<string, string>;
+    assert.equal(headers["Content-Type"], "application/json");
+    assert.equal(headers["X-CSRF-Protection"], "1");
 });
 
 test("the create flow settles created, signed-out, or failed", async () => {

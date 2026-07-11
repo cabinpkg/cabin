@@ -171,6 +171,14 @@ export function createToken(
     return request(fetchFn, "/api/v1/user/tokens", mutation({ name, scopes }));
 }
 
+// Signing out is a session-plane mutation: the cookie is HttpOnly, so
+// only the response's Set-Cookie can clear it.
+export function signOut(
+    fetchFn: FetchLike,
+): Promise<ApiResult<{ ok: boolean }>> {
+    return request(fetchFn, "/api/v1/user/logout", mutation({}));
+}
+
 export function revokeToken(
     fetchFn: FetchLike,
     id: string,

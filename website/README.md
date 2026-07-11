@@ -92,6 +92,9 @@ website itself holds no sessions and no secrets.
   sign-in happens on production.
 - The session API client lives in `src/lib/account.ts`; `yarn test` runs
   its `node:test` suite directly on Node (>= 22.18).
+- Signing out posts to the registry's `/api/v1/user/logout` (the session
+  cookie is HttpOnly, so only the server's `Set-Cookie` can clear it),
+  reached from the signed-in header menu.
 
 ### Static search
 
