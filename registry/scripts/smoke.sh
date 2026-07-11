@@ -312,6 +312,7 @@ curl -sS -o /dev/null -D "$headers" "$web_base/api/v1/user"
 wcheck /api/v1/user/usage 401
 wcheck /api/v1/user/packages 401
 wcheck /api/v1/user/tokens 401
+wcheck /api/v1/user/logout 401 -X POST
 
 step "the oauth plane lives on the website origin with host-only cookies"
 curl -sS -o /dev/null -D "$headers" "$web_base/login"
@@ -418,6 +419,10 @@ session_request GET /api/v1/user 401
 session_request GET /api/v1/user/tokens 401
 session_request POST /api/v1/user/tokens 401 \
   "${csrf_headers[@]}" --data-binary '{"name":"ghost","scopes":[]}'
+# Logout is the one exception: a validly sealed cookie is always
+# cleared, user row or not.
+session_request POST /api/v1/user/logout 200 "${csrf_headers[@]}"
+expect_body '"ok":true'
 session_cookie="$real_session_cookie"
 
 step "session mutations enforce the csrf header pair"
@@ -450,6 +455,19 @@ session_request POST "/api/v1/user/tokens/$minted_id/revoke" 200 "${csrf_headers
 expect_body '"ok":true'
 uniform_401 "$base" /config.json -H "Authorization: Bearer $minted"
 as_publisher
+
+step "logout requires the csrf pair and clears the session cookie"
+session_request POST /api/v1/user/logout 403
+expect_body 'X-CSRF-Protection'
+curl -sS -o "$body" -D "$headers" -X POST -H "Cookie: $session_cookie" \
+  "${csrf_headers[@]}" "$web_base/api/v1/user/logout"
+grep -q '"ok":true' "$body" || fail "logout did not answer ok: $(cat "$body")"
+logout_cookie="$(grep -i '^set-cookie: cabin_session=' "$headers" || true)"
+[[ -n "$logout_cookie" ]] || fail "logout set no clearing cookie: $(cat "$headers")"
+case "$logout_cookie" in
+  *"Max-Age=0"*) ;;
+  *) fail "logout cookie does not clear: $logout_cookie" ;;
+esac
 
 step "authenticated responses carry the generation header"
 curl -sS -o /dev/null -D "$body" ${curl_args[@]+"${curl_args[@]}"} "$base/config.json"

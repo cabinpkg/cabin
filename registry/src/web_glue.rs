@@ -36,6 +36,15 @@ pub async fn respond_session(
     let Some(session) = session_from_request(req, env)? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
+    // Logout needs no D1 state - and must work even when the session's
+    // user row is gone (the post-wipe ghost), where the endpoints below
+    // answer 401: a valid cookie presented for logout is always cleared.
+    if route == SessionRoute::Logout {
+        return match req.method() {
+            Method::Post => logout(req),
+            _ => json_error(405, error::METHOD_NOT_ALLOWED),
+        };
+    }
     let db = env.d1("DB")?;
     // The allowlist admitted the id, but its user row may be gone (the
     // dev-wipe scenario): every endpoint - the token routes included -
@@ -60,6 +69,22 @@ pub async fn respond_session(
         }
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
+}
+
+/// `POST /api/v1/user/logout`: clear the session cookie. Only a
+/// `Set-Cookie` can remove it (it is `HttpOnly`), so signing out is a
+/// session-plane mutation like any other, CSRF discipline included.
+/// Sessions are stateless HMAC values, so the sealed value itself stays
+/// verifiable until its expiry - clearing the browser's cookie is the
+/// sign-out; the allowlist is the hard revocation lever.
+fn logout(req: &Request) -> worker::Result<Response> {
+    if !csrf_ok(req)? {
+        return json_error(403, error::CSRF_REQUIRED);
+    }
+    let clear = session::set_cookie(session::SESSION_COOKIE, "", 0, session::SESSION_COOKIE_PATH);
+    let mut response = json_response(r#"{"ok":true}"#)?;
+    response.headers_mut().append("set-cookie", &clear)?;
+    Ok(response)
 }
 
 /// `GET /login`: mint a random `state`, seal it into a short-lived cookie,

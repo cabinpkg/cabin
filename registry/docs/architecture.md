@@ -47,7 +47,7 @@ which routes and which credential exist where:
 | `/healthz` | 200, unauthenticated | - |
 | `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
-| `/api/v1/user`, `/api/v1/user/{usage,packages}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
 
@@ -105,7 +105,12 @@ the JSON user API the website frontend consumes:
 - `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
   repeated scopes refused) -> `201` with the plaintext token, exactly once;
 - `POST /api/v1/user/tokens/<id>/revoke` -> idempotent `{"ok":true}`,
-  scoped to the session's own tokens (a foreign or unknown id is a no-op).
+  scoped to the session's own tokens (a foreign or unknown id is a no-op);
+- `POST /api/v1/user/logout` -> `{"ok":true}` with a `Set-Cookie` that
+  clears the session cookie (it is HttpOnly, so only the server can).
+  Sessions are stateless HMAC values: the sealed value stays verifiable
+  until its 8-hour expiry, so clearing the cookie is the sign-out and
+  removing the id from `ALLOWED_GITHUB_IDS` is the hard revocation.
 
 The exact response shapes live in `src/user_api.rs` (host-tested). The
 `Authorization` header is never read on this plane, and unauthenticated

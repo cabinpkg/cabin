@@ -105,11 +105,48 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                     <Badge tone="muted">restricted</Badge>
                 </Button>
             </span>
-            <span data-account-signed-in hidden>
-                <Button href={ACCOUNT_URLS.dashboard} variant="ghost">
+            {/* Signed-in: a disclosure button opening the account menu
+                (account-nav.ts wires toggle, outside-click, and Escape). */}
+            <span class="relative" data-account-signed-in hidden>
+                <Button
+                    type="button"
+                    variant="ghost"
+                    aria-expanded="false"
+                    aria-controls="account-menu"
+                    data-account-menu-button
+                >
                     <Icon name="user" class="h-4 w-4" />
                     <span data-account-login></span>
+                    <Icon name="chevron-down" class="h-3.5 w-3.5 text-ink-faint" />
                 </Button>
+                <div
+                    id="account-menu"
+                    class="absolute right-0 top-full z-40 mt-2 w-44 rounded-sm border border-line-strong bg-night-raised py-2 shadow-lg shadow-black/50"
+                    hidden
+                >
+                    {
+                        [
+                            { label: "Dashboard", href: ACCOUNT_URLS.dashboard },
+                            { label: "API tokens", href: ACCOUNT_URLS.tokens },
+                            { label: "Profile", href: ACCOUNT_URLS.profile },
+                        ].map((item) => (
+                            <a
+                                href={item.href}
+                                class="block px-4 py-2 text-sm text-ink-muted transition-colors hover:bg-night-lifted hover:text-ink"
+                            >
+                                {item.label}
+                            </a>
+                        ))
+                    }
+                    <div class="mx-4 my-2 h-px bg-line"></div>
+                    <button
+                        type="button"
+                        class="block w-full px-4 py-2 text-left text-sm text-ink-muted transition-colors hover:bg-night-lifted hover:text-ink"
+                        data-account-signout
+                    >
+                        Sign out
+                    </button>
+                </div>
             </span>
         </div>
     </nav>
