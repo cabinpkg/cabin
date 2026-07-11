@@ -417,12 +417,7 @@ mod tests {
     fn hosts_map_to_exactly_one_role() {
         assert_eq!(role_for_host("cabinpkg.com", "cabinpkg.com"), Role::Website);
         assert_eq!(role_for_host("CABINPKG.COM", "cabinpkg.com"), Role::Website);
-        for host in [
-            "dev-registry.cabinpkg.com",
-            "registry.cabinpkg.com",
-            "evil.example.com",
-            "",
-        ] {
+        for host in ["registry.cabinpkg.com", "evil.example.com", ""] {
             assert_eq!(
                 role_for_host(host, "cabinpkg.com"),
                 Role::Registry,

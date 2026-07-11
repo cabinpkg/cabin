@@ -7,7 +7,9 @@
 # /healthz, the uniform 401 with its
 # byte-identical WWW-Authenticate challenge, the OAuth and session planes
 # on the website origin (redirects, cookie attributes, 401 JSON without a
-# session), and - given a token - the three authenticated read routes on
+# session), the launch guard (scripts/wipe.sh refuses while
+# meta.launched is 'true'), and - given a token - the three
+# authenticated read routes on
 # the registry host plus the full publish / yank write flow on the
 # website origin (first publish, idempotent re-publish, immutability
 # conflict, yank state transitions, artifact checksum), the verification
@@ -343,6 +345,30 @@ grep -qi '^location: /login/denied' "$headers" \
   || fail "/callback refusal is not /login/denied: $(cat "$headers")"
 # /login is absent from the registry host like everything non-read-plane.
 uniform_401 "$base" /login
+
+step "the wipe script refuses while meta.launched is 'true'"
+# The launch guard end to end (docs/runbook.md, "Data policy"): flip the
+# local flag, expect scripts/wipe.sh to refuse with the guard's message
+# and to leave the state untouched, then flip it back.
+wrangler d1 execute DB --local --command \
+  "UPDATE meta SET value = 'true' WHERE key = 'launched'" >/dev/null
+if wipe_err="$(scripts/wipe.sh --local 2>&1)"; then
+  fail "wipe.sh --local ran against a launched registry"
+fi
+grep -qF "meta.launched = 'true'" <<<"$wipe_err" \
+  || fail "wipe.sh refusal is missing the guard's message: $wipe_err"
+# Sentinel: the database survived the refusal (and the servers with it).
+generation_rows="$(wrangler d1 execute DB --local --json --command \
+  "SELECT value FROM meta WHERE key = 'registry_generation'" |
+  node -e '
+    const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    console.log(out[0].results.length);
+  ')"
+[[ "$generation_rows" == "1" ]] \
+  || fail "the refused wipe still touched the database"
+check /healthz 200
+wrangler d1 execute DB --local --command \
+  "UPDATE meta SET value = 'false' WHERE key = 'launched'" >/dev/null
 
 if [[ -z "$token" ]]; then
   step "CABIN_REGISTRY_SMOKE_TOKEN not set; skipping authenticated checks"
