@@ -51,7 +51,8 @@ requests per 10 seconds:
   Block, mitigation timeout 10 seconds.
 
 The hostname-role split moved the whole write/auth surface to the
-website origin (see "Route management"), so the rule keys on
+website origin (see "Integrated topology and route management"), so
+the rule keys on
 `cabinpkg.com` - a rule still watching `dev-registry.cabinpkg.com`
 would protect only that host's cheap uniform-401 surface. Update the
 dashboard rule alongside deploying the split. The zone security
@@ -78,7 +79,32 @@ hosts: widen the host test to
 `http.host in {"dev-registry.cabinpkg.com" "registry.cabinpkg.com"}`
 instead of adding a second rule.
 
-## Route management
+## Integrated topology and route management
+
+Three hostnames, one zone, verified live on 2026-07-11 (see
+[`verification.md`](verification.md), "Hostname-role split and
+integrated-system verification"):
+
+- **`cabinpkg.com`** - the website Worker (`cabin-website`, deployed by
+  Workers Builds from `website/` on every push to `main`) serves the
+  marketing site, docs, and the account pages; the registry Worker
+  takes exactly `/api/*`, `/login`, and `/callback*` via the zone
+  routes below. This one origin is the browser plane for whichever
+  registry environment holds the routes - env **dev** today.
+- **`dev-registry.cabinpkg.com`** - the dev registry's machine read
+  plane (custom domain of `cabin-registry-dev`), nothing else.
+- **`registry.cabinpkg.com`** - the production registry's machine read
+  plane, once production is provisioned.
+
+The production cutover is a pure route move: the three `cabinpkg.com`
+patterns transfer from `env.dev` to `env.production` in
+`wrangler.jsonc` and both envs are redeployed. Nothing else about the
+topology changes - the website keeps its origin, each registry keeps
+its custom domain, and `config.json`'s `api` field keeps pointing at
+`https://cabinpkg.com` from both environments. What changes is which
+registry's browser plane answers there, so the dev registry loses
+sign-in, token issuance, and its session API at that moment (recovery
+options below).
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
@@ -105,20 +131,20 @@ matter operationally:
   in `scripts/smoke.sh`, seeding `users` and a `tokens` row whose
   `token_hash` is the SHA-256 hex of a locally generated
   `cabin_<base62>` value).
-- Until the website ships its `/dashboard`, `/settings/tokens`, and
-  `/login/denied` pages (the next step), those paths 404 on the
-  website; the OAuth callback still sets the session cookie before
-  redirecting, so the session API is usable with `curl -H "Cookie:
+- The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
+  are live on the origin ("Account pages" in `website/README.md`). For
+  ops debugging, the session API also works directly: `curl -H "Cookie:
   cabin_session=..." -H "Content-Type: application/json" -H
   "X-CSRF-Protection: 1"` against `https://cabinpkg.com/api/v1/user/...`.
 
 ## First-time provisioning (dev)
 
 Verified end to end on 2026-07-09 (see
-[`verification.md`](verification.md)). Prerequisite besides the API token: a
-GitHub OAuth app for dev (homepage `https://cabinpkg.com`,
+[`verification.md`](verification.md)). Prerequisite besides the API
+token: the GitHub OAuth app (homepage `https://cabinpkg.com`,
 authorization callback `https://cabinpkg.com/callback` - the browser
-plane lives on the website origin, see "Route management"). Its
+plane lives on the website origin, see "Integrated topology and route
+management"; the same app carries through to production). Its
 client id is public and lives in `wrangler.jsonc` (`env.dev.vars`,
 `GITHUB_CLIENT_ID`), next to `ALLOWED_GITHUB_IDS` (the numeric GitHub user
 ids allowed to sign in); the wrangler secrets are the client
@@ -228,13 +254,14 @@ Production has deliberately **not** been provisioned. When the time comes,
 in order - and starting from an **empty** database: dev data (packages,
 blobs, users, tokens) is never migrated or promoted to production.
 
-1. Create a **separate** GitHub OAuth app for production: homepage
-   `https://cabinpkg.com`, authorization callback
-   `https://cabinpkg.com/callback` (both OAuth apps share the callback
-   URL; which app is in play follows the Worker holding the
-   cabinpkg.com routes - see "Route management"). Put its client id in
-   `wrangler.jsonc` under `env.production.vars.GITHUB_CLIENT_ID`; confirm
-   `ALLOWED_GITHUB_IDS` there lists exactly the intended operators.
+1. The GitHub OAuth app carries through from dev: its callback is
+   already `https://cabinpkg.com/callback`, and which environment it
+   signs users into follows the Worker holding the cabinpkg.com routes
+   (see "Integrated topology and route management") - no new app and no
+   callback change. Put the same client id in `wrangler.jsonc` under
+   `env.production.vars.GITHUB_CLIENT_ID` (`WEB_ORIGIN` is already
+   declared there); confirm `ALLOWED_GITHUB_IDS` lists exactly the
+   intended operators.
 2. Make sure the zone security exemption covers `registry.cabinpkg.com`
    (see "Zone security prerequisite").
 3. Create the resources and deploy:
@@ -247,22 +274,35 @@ blobs, users, tokens) is never migrated or promoted to production.
    npx wrangler r2 bucket create cabin-registry-prod-backup
    npx wrangler d1 migrations apply DB --env production --remote
    npx wrangler deploy --env production
-   printf '%s' "$PROD_GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env production
+   printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET --env production
    openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET --env production
    printf '%s' "$PROD_ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN --env production
    printf '%s' "$PROD_D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN --env production
    ```
 
-   The `SESSION_SECRET` must be freshly generated for production - never
-   reuse the dev value. After the first nightly dump lands, run
-   `scripts/restore-drill.sh production` once (see "Disaster recovery").
+   `GITHUB_CLIENT_SECRET` is the carried-through OAuth app's secret -
+   the same value dev holds. The `SESSION_SECRET` must be freshly
+   generated for production - never reuse the dev value. After the
+   first nightly dump lands, run `scripts/restore-drill.sh production`
+   once (see "Disaster recovery").
 4. Move the cabinpkg.com route patterns from `env.dev` to
-   `env.production` in `wrangler.jsonc` and deploy both envs (see
-   "Route management", including what the dev registry loses at that
-   moment).
-5. Verify: `/healthz` 200; the three data routes answer the uniform 401
-   (with the challenge) without a token; sign-in via
-   `https://cabinpkg.com/login` works and the token page issues a
+   `env.production` in `wrangler.jsonc` and deploy both envs. **The dev
+   registry loses its browser plane at this moment** - no sign-in, no
+   token page, no session API for dev. The two recovery options if dev
+   still needs them: stand up a `dev.cabinpkg.com` website origin then
+   (new zone routes plus a dev `WEB_ORIGIN`), or insert tokens manually
+   with `wrangler d1 execute` (mirror the INSERT in `scripts/smoke.sh`,
+   seeding `users` and a `tokens` row whose `token_hash` is the SHA-256
+   hex of a locally generated `cabin_<base62>` value).
+5. Re-run the hostname-role verification from `verification.md`
+   ("Hostname-role split and integrated-system verification"), now
+   against `registry.cabinpkg.com`: `/healthz` 200; every non-read
+   path on the registry domain (including `/api/*`) answers the
+   byte-identical uniform 401 with the
+   `WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"`
+   challenge; the read plane does not exist on the website origin
+   (`/config.json` and `/packages/*` are the website's 404); sign-in
+   via `https://cabinpkg.com/login` works and the token page issues a
    token; an authenticated `config.json` read reports
    `"api": "https://cabinpkg.com"` and echoes
    `x-cabin-registry-generation: 1` (fresh seed).

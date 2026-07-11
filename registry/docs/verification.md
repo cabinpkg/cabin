@@ -575,3 +575,232 @@ $ cabin -Z remote-registry resolve   # consumer qv-a = "=0.3.0"
    entry, so it exercises the boundary the task targets: the server's
    synchronous checks (framing, checksum, metadata) all pass, and the
    verifier is the only thing that catches it.
+
+---
+
+# Hostname-role split and integrated-system verification (2026-07-11)
+
+End-to-end verification of the hostname-role split (one Worker, one role
+per hostname) with the website's account pages live on the production
+origin: `dev-registry.cabinpkg.com` serves only the machine read plane,
+and `https://cabinpkg.com` carries `/login`, `/callback*`, and `/api/*`
+through the zone routes held by env dev. The operator had performed the
+three manual cutover steps earlier the same day (GitHub OAuth app
+callback switched to `https://cabinpkg.com/callback`, the WAF
+rate-limit expression re-keyed to `cabinpkg.com`, `wrangler deploy
+--env dev`); this run re-provisioned idempotently and walked the whole
+integrated system. Same operator (ken-matsui, GitHub id 26405363);
+Claude driving, including the browser session. Client built from source
+(`cabin 0.17.0`, `-Z remote-registry`). Tokens and cookie values are
+redacted throughout; the walkthrough token was revoked as part of the
+walkthrough itself.
+
+## Provisioning (idempotent re-run)
+
+- Website: the normal production deployment (Workers Builds on push to
+  `main`) was already current - the tip commit's build succeeded at
+  05:48 UTC. No manual deploy exists for the website by design.
+- Registry: `npx wrangler deploy --env dev` re-run from `registry/`.
+  The deploy output listed the expected surface: the
+  `dev-registry.cabinpkg.com` custom domain, the three `cabinpkg.com`
+  zone routes (`/api/*`, `/login`, `/callback*`), both cron schedules,
+  and `WEB_ORIGIN` / `GITHUB_CLIENT_ID` / `ALLOWED_GITHUB_IDS` vars.
+- Route shadowing: `https://cabinpkg.com/` and
+  `/docs/installation/` were captured before and after the registry
+  deploy and compared - byte-identical except for Cloudflare's
+  edge-injected per-request bootstrap script (`__CF$cv$params`, a new
+  ray id and timestamp on every response), which changes between any
+  two fetches regardless of deploys. The zone routes shadow nothing
+  the website serves.
+- Note: the provisioning API token lacks the All Zones permission, so
+  wrangler falls back to updating each zone route individually
+  ("zone-based API endpoint"); the routes deploy fine.
+
+## Hostname-role checks
+
+On the registry domain, `/me`, `/api/v1/user`, an unauthenticated
+publish `PUT`, and a random path all answer the byte-identical uniform
+401 (compared with `cmp`), each carrying the challenge and never a
+cookie:
+
+```console
+$ curl -sS -D - https://dev-registry.cabinpkg.com/me   # same for the other three
+HTTP/2 401
+www-authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
+{"errors":[{"detail":"authentication required"}]}
+
+$ curl -sS -H "Authorization: Bearer cabin_<redacted>" https://dev-registry.cabinpkg.com/config.json
+{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://cabinpkg.com"}
+# x-cabin-registry-generation: 2
+```
+
+On the website origin the read plane does not exist: `/config.json`,
+`/packages/hello_registry.json`, and `/me` are the website's own HTML
+404. Route precedence: `/api/v1/user` answers the registry's
+session-plane JSON 401 (no challenge - plane separation is visible in
+the headers), `/` renders the marketing site, `/login` answers a 302 to
+`github.com/login/oauth/authorize` with
+`redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fcallback`, and
+`/login/denied` stays on the website (a 307 to `/login/denied/`, the
+static site's trailing-slash canonicalization, then 200). An unknown
+unauthenticated `/api/` path on the website origin answers the uniform
+401 with the challenge, matching the origin/role matrix in
+`docs/architecture.md`.
+
+## Operator UX walkthrough
+
+Signed out (via the header dropdown's Sign out, which flipped the
+header immediately), the marketing pages render fully, and the sign-in
+affordance is a "Sign in" link with a `restricted` badge whose title
+reads "The registry is in private development; sign-in is restricted to
+allowlisted maintainer accounts." Sign-in via GitHub auto-approved the
+already-authorized OAuth app and landed on `/dashboard`, which rendered
+usage (packages 5/50, storage 15.5 MiB/256 MiB, published today,
+per-status version counts) and every package with per-version
+verification badges. Account pages show their static signed-out default
+("Checking your session...") for a beat before the enhancer flips them -
+the documented progressive-enhancement design, noticeable but brief.
+
+A `split-walkthrough` token (`publish` + `yank`) was created on
+`/settings/tokens`: the plaintext appears exactly once with a working
+Copy button ("Copy it now - it won't be shown again. Dismissing this
+panel discards it for good."); after dismissing and reloading, no
+plaintext appears anywhere and the token is listed as metadata only.
+
+```console
+$ cabin -Z remote-registry login --index-url https://dev-registry.cabinpkg.com
+visit https://cabinpkg.com/settings/tokens to create a token
+       Login token for `https://dev-registry.cabinpkg.com` saved
+```
+
+The printed URL is the website origin's token page, sourced from the
+401 challenge on the client's unauthenticated `config.json` probe. A
+scaffold library (`cabin new --lib hello-split`, untouched) published
+first try; `wrangler tail` shows the split working - reads on the index
+origin, the mutation on the api origin discovered from `config.json`:
+
+```text
+GET https://dev-registry.cabinpkg.com/config.json            status=200
+GET https://dev-registry.cabinpkg.com/packages/hello-split.json  status=404
+PUT https://cabinpkg.com/api/v1/packages/hello-split/0.1.0   status=200
+```
+
+(The capture is the byte-identical republish - the tail connected after
+the first publish's 201 - hence the idempotent 200 and the 404 on the
+existence probe while the version was pending. `cabin publish -vv`
+itself never prints the PUT's target origin; the tail was the
+observation channel - see friction.)
+
+`/dashboard` showed `hello-split 0.1.0` with a `pending` badge and the
+usage tiles updated (packages 6/50, published today 1, pending 1). The
+registry-verify workflow's 5-minute GitHub cron was in a ~2 h drought
+(last scheduled runs 01:05 and 04:22 UTC - the best-effort behavior the
+runbook warns about), so the run was dispatched manually
+(`gh workflow run registry-verify.yml`, the documented remedy); it
+completed in 36 s and the dashboard badge flipped to `verified`.
+The publish spent well under the breaker's one-hour stuck-pending
+threshold, so no alert fired - consistent, not a gap. A consumer
+package (`hello-split = "^0.1"`) then resolved, fetched
+(content-addressed by the lockfile checksum), built, and ran against
+the registry:
+
+```console
+$ cabin -Z remote-registry build --index-url https://dev-registry.cabinpkg.com
+   Compiling hello-split v0.1.0
+   Compiling consumer v0.1.0 (...)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+$ ./build/dev/packages/consumer/consumer
+2 + 3 = 5
+```
+
+Revoking `split-walkthrough` on `/settings/tokens` (badge flips to
+`revoked` in place) makes the CLI fail with the token-rejected
+guidance on the next index read:
+
+```console
+$ cabin -Z remote-registry resolve --index-url https://dev-registry.cabinpkg.com
+error: registry `https://dev-registry.cabinpkg.com` rejected the stored
+token (revoked or expired); re-run `cabin login --index-url
+https://dev-registry.cabinpkg.com`
+```
+
+## Negative auth and cookie hygiene
+
+A parallel session was minted through the real OAuth flow with curl
+holding the state cookie (the browser's own attempt at the same
+authorize URL was refused on the state mismatch - `/callback` answered
+it before exchanging the code, rendering `/login/denied`, and left the
+code unconsumed for curl to exchange). Observed `Set-Cookie` headers,
+values redacted:
+
+```text
+# /login
+cabin_oauth_state=<...>; Max-Age=600; Path=/callback; HttpOnly; Secure; SameSite=Lax
+# /callback (success): 302 /dashboard, cache-control: no-store
+cabin_session=<...>; Max-Age=28800; Path=/api/v1/user; HttpOnly; Secure; SameSite=Lax
+cabin_oauth_state=<...>; Max-Age=0; Path=/callback; HttpOnly; Secure; SameSite=Lax
+# /api/v1/user/logout: 200 {"ok":true}
+cabin_session=<...>; Max-Age=0; Path=/api/v1/user; HttpOnly; Secure; SameSite=Lax
+```
+
+Both cookies are host-only (no `Domain` attribute), `HttpOnly`,
+`Secure`, `SameSite=Lax`, path-narrowed to where they are read, and the
+state cookie is actively cleared by the callback. No response from the
+registry domain ever carried a `Set-Cookie` (checked across `/healthz`,
+authenticated reads, and all four uniform-401 shapes).
+
+The plane-separation checks, all against the live origins:
+
+- The session cookie presented to the Bearer plane
+  (`dev-registry.cabinpkg.com/config.json`) answers the uniform 401
+  with the challenge - cookies are never consulted there - while the
+  same cookie is simultaneously good for a 200 on
+  `cabinpkg.com/api/v1/user`.
+- The freshly created Bearer token presented to the session plane
+  (`cabinpkg.com/api/v1/user`) answers the plain 401 without the
+  challenge.
+- A token-create `POST` carrying the valid session cookie and a JSON
+  body but no `X-CSRF-Protection` header answers
+  `403 {"errors":[{"detail":"the request must declare Content-Type:
+  application/json and carry the X-CSRF-Protection header"}]}`.
+- Allowlist denial, exercised by temporarily deploying
+  `ALLOWED_GITHUB_IDS="1"`: the operator's live session answered 401 on
+  the next request (immediate lockout, as documented), and a full
+  OAuth round-trip - state validated, code exchanged at GitHub -
+  answered `302 /login/denied` clearing the state cookie and minting
+  **no** session cookie. `/login/denied` renders the full "Sign-in
+  could not be completed" page with the private-development/allowlist
+  explanation. Restoring the allowlist and redeploying brought the
+  existing session back to 200 without a new sign-in.
+- Replaying a captured session value **after** logout still
+  authenticates until the 8-hour expiry - observed, and exactly what
+  `docs/architecture.md` documents for stateless HMAC sessions: logout
+  clears the browser's HttpOnly cookie (the only copy a browser ever
+  has), and allowlist removal is the hard revocation, which the
+  lockout check above proves works immediately.
+
+## Friction observed
+
+1. **(ops)** GitHub's 5-minute cron for `registry-verify` sat idle for
+   ~2 h; a fresh publish stayed `pending` on the dashboard until a
+   manual `workflow_dispatch`. Known best-effort behavior with the
+   documented remedy and the stuck-pending alert as backstop, but the
+   first thing a maintainer will notice when showing someone a publish.
+2. **(client, minor)** `cabin publish -vv` never names the api origin
+   or the PUT URL, so "the mutation went to the origin `config.json`
+   declared" is only observable server-side (`wrangler tail`). One
+   verbose line naming the api origin would make the discovery
+   contract visible from the client.
+3. **(website, cosmetic)** The registry redirects refusals to the
+   fixed path `/login/denied`, which the static site 307s to
+   `/login/denied/` - one extra hop on every denial. Harmless;
+   redirecting to the canonical trailing-slash path would remove it.
+4. **(ops, note)** The provisioning API token triggers wrangler's
+   per-zone route-update fallback (no All Zones permission). Cosmetic,
+   but a fact to remember when reading deploy output.
+
+Everything else - sign-out/sign-in, the dashboard tiles, plaintext-once
+token issuance, the challenge-sourced login URL, the pending badge and
+its verified flip, resolve/fetch/build, revocation guidance - behaved
+exactly as documented, with no explanation needed beyond the UI and CLI
+output.
