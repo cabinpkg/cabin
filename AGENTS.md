@@ -50,6 +50,12 @@ same change and treat the architecture doc as authoritative.
   unrelated files, or removing pre-existing dead code unless asked. Prefer
   simple, direct Rust and existing local patterns; add abstractions only when
   they remove real duplication or match an established boundary.
+- Comments explain constraints and rationale, not mechanics: non-obvious
+  invariants, compatibility requirements, workarounds, external constraints,
+  or why an obvious alternative is incorrect. Do not write comments that
+  restate what the code does. Before keeping or adding a comment, first
+  consider whether clearer naming, extracting a function, introducing a
+  type, or restructuring would make it unnecessary.
 - Business logic belongs in the owning crate; `crates/cabin` parses flags,
   calls typed APIs, and renders results. Boundary or scope questions:
   `docs/architecture.md` ("Scope and limitations" lists what is deliberately
