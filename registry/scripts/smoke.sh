@@ -149,13 +149,17 @@ if [[ -n "$token" ]]; then
   verify_hash="$(printf '%s' "$verify_token" | shasum -a 256 | cut -d' ' -f1)"
   # The fixture rows are cleared so re-runs still see a first publish; the
   # content-addressed R2 blob may survive, which the publish path skips.
+  # The seeded identity mirrors a first sign-in of GitHub account 0: a
+  # registry-native user (id 1) bound through the identities table.
   wrangler d1 execute DB --local --command "
-    INSERT OR IGNORE INTO users (github_id, login, created_at)
-      VALUES (0, 'smoke', '1970-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO users (id, created_at)
+      VALUES (1, '1970-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
+      VALUES ('github', '0', 'smoke', 1);
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke', 0, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
+      VALUES ('smoke', 1, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke-verify', 0, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
+      VALUES ('smoke-verify', 1, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
     DELETE FROM versions WHERE name = 'withdep';
     DELETE FROM packages WHERE name = 'withdep';
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
@@ -211,7 +215,7 @@ fi
 # SESSION_SECRET is pinned so the session-plane leg below can mint a
 # valid session cookie for the seeded user (github id 0) without a
 # GitHub round trip; ALLOWED_GITHUB_IDS admits that id plus id 1, whose
-# user row deliberately does not exist (the post-wipe ghost-session
+# identity row deliberately does not exist (the post-wipe ghost-session
 # case). SERVICE_MODE_TTL_SECS=0 disables the service-mode cache so the
 # breaker leg below observes a flipped mode immediately (the deployed
 # worker uses the in-code 60 s TTL).
@@ -435,10 +439,10 @@ expect_body '"quotas"'
 session_request GET /api/v1/user/packages 200
 expect_body '"packages"'
 
-step "a valid session whose user row is gone answers 401 everywhere"
+step "a valid session whose identity row is gone answers 401 everywhere"
 # The post-wipe ghost: allowlisted id 1 has a validly sealed cookie but
-# no users row - every endpoint (the token routes included) answers the
-# same 401 as no session, never an empty listing or a 500.
+# no identity row - every endpoint (the token routes included) answers
+# the same 401 as no session, never an empty listing or a 500.
 ghost_payload="1:$(($(date +%s) + 3600))"
 ghost_mac="$(printf 'session:%s' "$ghost_payload" |
   openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
@@ -449,7 +453,7 @@ session_request GET /api/v1/user/tokens 401
 session_request POST /api/v1/user/tokens 401 \
   "${csrf_headers[@]}" --data-binary '{"name":"ghost","scopes":[]}'
 # Logout is the one exception: a validly sealed cookie is always
-# cleared, user row or not.
+# cleared, identity row or not.
 session_request POST /api/v1/user/logout 200 "${csrf_headers[@]}"
 expect_body '"ok":true'
 session_cookie="$real_session_cookie"
@@ -534,7 +538,7 @@ as_verifier
 wcheck "/api/v1/admin/versions?status=pending" 200
 expect_body '"name":"withdep"'
 expect_body '"version":"0.2.0"'
-expect_body '"published_by":0'
+expect_body '"published_by":1'
 expect_body '"metadata":{'
 # A verified verdict must echo the listing's checksum and published_at.
 listed_published_at="$(node -e '
