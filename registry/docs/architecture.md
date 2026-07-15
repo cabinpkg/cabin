@@ -7,8 +7,9 @@ the service.
 
 ## Storage
 
-- **D1 is canonical.** Users, tokens, packages, versions, and the `meta`
-  key-value table all live in one D1 database (`migrations/`).
+- **D1 is canonical.** Users and their external identities, scopes and
+  their members, tokens, packages, versions, and the `meta` key-value
+  table all live in one D1 database (`migrations/`).
   Everything the read routes serve is composed from D1 rows; in particular
   each version's canonical index entry is stored verbatim at publish time in
   `versions.metadata_json`, and only its `yanked` field is overwritten from
@@ -121,14 +122,29 @@ the website's `/dashboard` on success and `/login/denied` on every refusal;
 both targets are fixed relative paths, never derived from request input
 (the open-redirect guard).
 
-- Identity is the **numeric GitHub id**, never the login name (logins can
-  be renamed and reassigned); sign-in is allowed iff the id is listed in
-  `ALLOWED_GITHUB_IDS`. Adding a user later = adding their numeric id there
-  and redeploying; a malformed entry panics at parse time instead of
-  guessing. The allowlist is re-checked on every session request, so
+- Identity is **registry-native**: a `users` row (registry id, quota
+  plan) plus one `identities` row per external account, keyed by
+  `(provider, provider_account_id)` - provider-neutral in schema,
+  GitHub-only in policy (`provider = 'github'`). The account id is the
+  **numeric** GitHub id as text, never the login name (logins can be
+  renamed and reassigned; `login_snapshot` is display-only, refreshed
+  on each sign-in). Sign-in upserts the identity and creates the user
+  row on first sign-in, in one D1 batch. Tokens, quotas, and package
+  attribution all key on `users.id`; the provider account id lives
+  only in `identities` (and in scope proof records).
+- Sign-in is allowed iff the numeric GitHub id is listed in
+  `ALLOWED_GITHUB_IDS`. Adding a user later = adding their numeric id
+  there and redeploying; a malformed entry panics at parse time instead
+  of guessing. The allowlist is re-checked on every session request, so
   removing an id locks it out immediately. Per-package ownership is
   intentionally out of scope for now: every allowlisted user can publish
   and yank any package.
+- The session cookie names the external identity (the numeric GitHub
+  id), resolved through `identities` on every request - deliberately
+  not the `users.id`, which a pre-launch wipe would re-issue: a
+  still-valid ghost cookie sealed over a row id could bind to whoever
+  received that id after the wipe. A session whose identity row is gone
+  answers the same 401 as no session.
 - The GitHub access token is used for one `/user` call and never stored.
 - Cookies (the short-lived OAuth `state` and the 8-hour session) are
   HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
@@ -151,6 +167,24 @@ both targets are fixed relative paths, never derived from request input
   plaintext token).
 - Sessions, GitHub access tokens, and issued registry tokens are never
   logged.
+
+## Scopes
+
+Registry package names are scoped (`<scope>/<name>`, e.g. `fmtlib/fmt`),
+and a scope is a registry-native entity: it is claimed by proving
+control of the same-named GitHub account, and the `scopes` row freezes
+the proof - provider plus numeric account id - at claim time, so a
+later GitHub account reusing the login can never re-claim the string
+(disputes are handled manually; there is no reservation list and no
+alias mechanism). `scope_members` holds per-scope membership, where
+`owner` is the member role with admin rights - "owner" never means the
+name prefix; the prefix entity is always called "scope". Publish/yank
+authorization consults only registry state (`scope_members`), never a
+live GitHub call: cabin tokens carry no GitHub credentials. The claim
+flow, the scope-aware routes, and the membership checks land in the
+scoped-names steps that follow migration `0006`; until the route step
+lands, publish cannot satisfy the schema's `NOT NULL` scope columns (a
+mid-track state that is never deployed).
 
 ## The write path
 
@@ -276,9 +310,9 @@ immutability wall (`200`/`409`), then - for genuinely new versions only -
 the archive-size cap (`413`) and the storage, package, and version quotas
 (`403` with per-quota envelope codes) - so a byte-identical re-publish,
 including one grandfathered above a later cap, never consumes quota. Attribution rides on
-`versions.published_by`, `versions.archive_size`, and `packages.created_by`
-(migration `0002`; `scripts/backfill-0002.sh` fills them for pre-migration
-rows). The bucket take is persisted as a compare-and-swap on the token
+`versions.published_by`, `versions.archive_size`, and `packages.created_by`,
+keyed by the registry-native `users.id` (never a provider account
+id). The bucket take is persisted as a compare-and-swap on the token
 row (retried up to a burst's worth of lost races), so concurrent requests
 cannot spend one snapshot twice, and the storage self-accounting is
 decided inside the write batch itself - the meta bump counts an archive
@@ -301,8 +335,10 @@ corrupt counter reads as unavailable data - never as zero - so it can
 keep or escalate the persisted mode but never unblock writes. Orphaned
 blobs (a crash or lost publish race that never commits the D1 rows) sit
 outside the counter on purpose; the budget headroom absorbs that bounded
-drift, and the runbook's backfill script doubles as the reconciliation
-tool. The other metrics (Workers requests/day, R2
+drift, and the counter can be recomputed from D1 alone if drift ever
+needs reconciling - every version row carries `archive_size`, one size
+per distinct live checksum (see [`runbook.md`](runbook.md), "Orphaned
+R2 blobs"). The other metrics (Workers requests/day, R2
 Class A operations/month, D1 rows read/day) come from the Cloudflare
 GraphQL Analytics API, queried by a cron pass every 15 minutes
 (`src/analytics.rs` holds the dataset names; a rejected dataset degrades to

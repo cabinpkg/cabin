@@ -52,9 +52,14 @@ client with `cabin login` (`-Z remote-registry`).
 
 Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later
-means adding their numeric id there and redeploying. Per-package ownership is
-intentionally out of scope for now: every allowlisted user can publish and
-yank any package.
+means adding their numeric id there and redeploying. The first sign-in
+creates a registry-native user, bound to the GitHub account through the
+`identities` table - the numeric id (never the login, which can be renamed
+and reassigned) is the external identity, and everything package- or
+token-related keys on the registry's own user id
+([`docs/architecture.md`](docs/architecture.md), "Two credential planes").
+Per-package ownership is intentionally out of scope for now: every
+allowlisted user can publish and yank any package.
 
 ## Development
 

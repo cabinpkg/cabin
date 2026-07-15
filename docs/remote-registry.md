@@ -301,9 +301,9 @@ GET /api/v1/admin/versions?status=pending
 
 Lists versions by status (`pending`, `verified`, or `rejected`; anything else is `400`) as a
 single JSON object, `{"versions":[...]}`.  Each entry carries `name`, `version`, `checksum`
-(lowercase SHA-256 hex), the publisher's numeric GitHub id as `published_by`, `published_at`,
-and the stored canonical metadata document as `metadata`.  Deterministic: ordered by name, then
-version.
+(lowercase SHA-256 hex), the publisher's registry-native user id as `published_by`,
+`published_at`, and the stored canonical metadata document as `metadata`.  Deterministic:
+ordered by name, then version.
 
 ```text
 PATCH /api/v1/admin/versions/<name>/<version>
