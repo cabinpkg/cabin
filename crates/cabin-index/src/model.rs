@@ -14,7 +14,6 @@ pub struct PackageIndex {
 }
 
 impl PackageIndex {
-    /// Look up a package by name.
     pub fn package(&self, name: &PackageName) -> Option<&IndexEntry> {
         self.packages.get(name)
     }

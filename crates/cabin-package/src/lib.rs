@@ -584,7 +584,6 @@ sources = ["src/main.cc"]
         )
         .unwrap();
 
-        // Extract the staged tar.gz and check the manifest entry.
         let manifest_text = archived_manifest_text(&staged);
         assert!(
             manifest_text.contains("cxx-standard = \"c++20\""),
@@ -686,7 +685,6 @@ sources = ["src/main.cc"]
         )
         .unwrap();
 
-        // Extract the staged tar.gz and check the manifest entry.
         let manifest_text = archived_manifest_text(&staged);
         assert!(
             manifest_text.contains("cxx-standard = \"c++20\""),

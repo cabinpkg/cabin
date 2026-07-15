@@ -96,7 +96,6 @@ openssl = { version = "^3", optional = true }
         "3.2.0",
         &"0".repeat(64),
     );
-    // Without --no-default-features, openssl appears.
     let with_default = cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -105,7 +104,6 @@ openssl = { version = "^3", optional = true }
         .assert()
         .success();
     assert!(String::from_utf8_lossy(&with_default.get_output().stdout).contains("openssl"));
-    // With --no-default-features, openssl is dropped.
     let no_default = cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))

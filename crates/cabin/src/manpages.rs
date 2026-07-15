@@ -51,7 +51,6 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)
         .with_context(|| format!("failed to create man-page output dir {}", dir.display()))?;
 
-    // Root page first: `cabin.1`.
     let root_path = dir.join(filename_for_root());
     let mut file = fs::File::create(&root_path)
         .with_context(|| format!("failed to create {}", root_path.display()))?;

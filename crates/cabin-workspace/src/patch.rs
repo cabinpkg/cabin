@@ -296,7 +296,6 @@ pub fn resolve_active_patches(
     // package; only Version-source deps contribute requirements.
     let requirements = collect_version_requirements(inputs.graph, &merged);
 
-    // Resolve each merged entry into an `ActivePatch`.
     let mut entries: Vec<ActivePatch> = Vec::with_capacity(merged.len());
     for (name, entry) in merged {
         let resolved = resolve_one_patch(&name, entry, &requirements)?;

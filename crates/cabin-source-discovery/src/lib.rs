@@ -240,11 +240,8 @@ fn walk_root(
 }
 
 fn path_under_any(path: &Path, dirs: &BTreeSet<PathBuf>) -> bool {
-    dirs.iter().any(|dir| {
-        // Direct match (the path *is* the excluded entry) or
-        // strict-prefix match (the path is a descendant).
-        path == dir.as_path() || path.starts_with(dir)
-    })
+    dirs.iter()
+        .any(|dir| path == dir.as_path() || path.starts_with(dir))
 }
 
 fn path_under_any_builtin_name(path: &Path) -> bool {

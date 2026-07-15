@@ -492,7 +492,6 @@ mod tests {
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
-        // Populate first.
         fetch(&plan, &cache, FetchOptions::default()).unwrap();
         // Now run with frozen - cache hit should succeed.
         fetch(&plan, &cache, FetchOptions { frozen: true }).unwrap();

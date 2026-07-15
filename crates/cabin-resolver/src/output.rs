@@ -32,7 +32,6 @@ pub struct ResolveOutput {
 ///   `preference-mode.md` section 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeldBack {
-    /// The package name.
     pub name: PackageName,
     /// The version preference mode selected.
     pub selected: Version,

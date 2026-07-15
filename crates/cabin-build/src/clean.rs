@@ -337,7 +337,6 @@ mod tests {
     }
 
     fn populate_layout(build_dir: &assert_fs::fixture::ChildPath) {
-        // dev profile.
         build_dir.child("dev/build.ninja").write_str("x").unwrap();
         build_dir
             .child("dev/packages/hello/hello")
@@ -347,7 +346,6 @@ mod tests {
             .child("dev/packages/util/libutil.a")
             .write_str("x")
             .unwrap();
-        // release profile.
         build_dir
             .child("release/build.ninja")
             .write_str("x")

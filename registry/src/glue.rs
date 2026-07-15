@@ -1461,7 +1461,6 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
     Ok(None)
 }
 
-/// Reads one `meta` row.
 pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
     let record: Option<MetaRecord> = db
         .prepare(sql::META_VALUE)

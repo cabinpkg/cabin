@@ -439,7 +439,6 @@ impl ResolverState {
             return Ok(());
         }
 
-        // Walk the right-hand side of the now-enabled feature.
         let entries = features
             .features
             .get(feature)
@@ -558,7 +557,6 @@ impl ResolverState {
             // enabled.
             return Ok(());
         }
-        // Resolve the target index in the package graph.
         let Some(edge) = pkg.deps.iter().find(|e| {
             graph.packages[e.index].package.name.as_str() == dep_name && e.kind == dep_entry.kind
         }) else {
@@ -569,7 +567,6 @@ impl ResolverState {
             return Ok(());
         };
         let target_idx = edge.index;
-        // Validate that the requested feature exists on the dep.
         let target_pkg = &graph.packages[target_idx];
         if feature != DEFAULT_FEATURE_KEY
             && !target_pkg.package.features.features.contains_key(feature)
@@ -608,7 +605,6 @@ impl ResolverState {
             if !declared.matches_platform(&self.platform) {
                 continue;
             }
-            // Find the matching graph edge by `(name, kind)`.
             let Some(edge) = pkg.deps.iter().find(|e| {
                 graph.packages[e.index].package.name.as_str() == dep_name && e.kind == declared.kind
             }) else {
