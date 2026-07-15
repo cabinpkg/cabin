@@ -1865,8 +1865,10 @@ fn denial_response(
 }
 
 /// A numeric D1 binding. D1 has no `BigInt` support, so the value rides
-/// as a float; everything bound this way (GitHub ids, byte counts, row
-/// counts) sits far below 2^53, where f64 is exact.
+/// as a float; everything bound this way (registry user ids, byte
+/// counts, row counts) sits far below 2^53, where f64 is exact. Never
+/// use it for `identities.provider_account_id`: that column is TEXT,
+/// and a float bind would store "26405363.0".
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn js_int(value: i64) -> worker::wasm_bindgen::JsValue {
     worker::wasm_bindgen::JsValue::from_f64(value as f64)

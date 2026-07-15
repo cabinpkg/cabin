@@ -2,7 +2,9 @@
 -- "Billing model and the budget breaker"). Additive: existing rows get the
 -- defaults; operators either wipe pre-launch per docs/runbook.md or backfill
 -- archive_size / published_by / total_stored_bytes with
--- scripts/backfill-0002.sh.
+-- scripts/backfill-0002.sh. Superseded by migration 0006, which recreates
+-- these tables with explicit, registry-native attribution and retired the
+-- backfill script.
 
 -- Size of the version's archive blob in bytes, and the numeric GitHub id
 -- (users.github_id) of the publisher. Both are 0 on rows that predate this

@@ -37,7 +37,7 @@ statements! {
     /// tokens never match.
     AUTH_TOKEN_LOOKUP =
         "SELECT t.id, t.user_id, t.scopes, u.plan, t.rl_tokens, t.rl_updated_at \
-         FROM tokens t JOIN users u ON u.github_id = t.user_id \
+         FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL";
 
     /// Best-effort `last_used_at` bookkeeping on every
@@ -60,14 +60,34 @@ statements! {
         "UPDATE tokens SET revoked_at = ?1 \
          WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL";
 
-    /// Admits a signed-in GitHub user, refreshing the display login on
-    /// conflict.
-    UPSERT_USER =
-        "INSERT INTO users (github_id, login, created_at) VALUES (?1, ?2, ?3) \
-         ON CONFLICT (github_id) DO UPDATE SET login = excluded.login";
+    /// Creates the registry-native user row exactly when the identity
+    /// is new. Must run in one batch (one transaction) directly before
+    /// [`UPSERT_IDENTITY`], which reads `last_insert_rowid()` from this
+    /// statement's insert.
+    INSERT_USER_FOR_NEW_IDENTITY =
+        "INSERT INTO users (created_at) \
+         SELECT ?1 WHERE NOT EXISTS \
+         (SELECT 1 FROM identities WHERE provider = ?2 AND provider_account_id = ?3)";
 
-    /// The session's user row (login and quota plan).
-    USER_BY_GITHUB_ID = "SELECT login, plan FROM users WHERE github_id = ?1";
+    /// Binds a new identity to the user row the batch just created,
+    /// refreshing the display login on every sign-in. When the identity
+    /// already exists, `last_insert_rowid()` is stale - the preceding
+    /// statement inserted nothing - and the DO UPDATE discards it: only
+    /// `login_snapshot` is ever rewritten, the user binding is
+    /// immutable.
+    UPSERT_IDENTITY =
+        "INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id) \
+         VALUES (?1, ?2, ?3, last_insert_rowid()) \
+         ON CONFLICT (provider, provider_account_id) \
+         DO UPDATE SET login_snapshot = excluded.login_snapshot";
+
+    /// The session's user resolution: the sealed cookie names the
+    /// external identity, resolved to the registry-native user row on
+    /// every request.
+    USER_BY_IDENTITY =
+        "SELECT i.user_id, i.login_snapshot, u.plan \
+         FROM identities i JOIN users u ON u.id = i.user_id \
+         WHERE i.provider = ?1 AND i.provider_account_id = ?2";
 
     // ------------------------------------------------------------------
     // packages/versions: the read plane, publish, yank, verification
@@ -118,12 +138,18 @@ statements! {
         "SELECT metadata_json, checksum, verification FROM versions \
          WHERE name = ?1 AND version = ?2";
 
-    /// Creates the package row on its first published version.
+    /// Creates the package row on its first published version. No scope
+    /// bind yet, so this cannot satisfy the 0006 schema's `NOT NULL`
+    /// scope column at runtime: the scoped-routes step supplies it, and
+    /// the registry is pre-launch - this mid-track state is deliberate
+    /// and never deployed (see `migrations/0006_identity.sql`).
     INSERT_PACKAGE =
         "INSERT OR IGNORE INTO packages (name, created_at, created_by) \
          VALUES (?1, ?2, ?3)";
 
-    /// Inserts a genuinely new version row, starting `pending`.
+    /// Inserts a genuinely new version row, starting `pending`. Same
+    /// mid-track caveat as [`INSERT_PACKAGE`]: the scope bind lands
+    /// with the scoped-routes step.
     INSERT_VERSION =
         "INSERT INTO versions (name, version, checksum, metadata_json, yanked, \
          published_at, archive_size, published_by, verification) \
@@ -148,9 +174,9 @@ statements! {
     /// user created, deterministically ordered.
     LIST_USER_PACKAGES =
         "SELECT v.name, v.version, v.verification, v.yanked, v.published_at \
-         FROM packages p JOIN versions v ON v.name = p.name \
+         FROM packages p JOIN versions v ON v.scope = p.scope AND v.name = p.name \
          WHERE p.created_by = ?1 \
-         ORDER BY v.name, v.published_at DESC, v.version";
+         ORDER BY v.scope, v.name, v.published_at DESC, v.version";
 
     // ------------------------------------------------------------------
     // quota: the publish rate limit and the per-user quota counts

@@ -11,6 +11,11 @@ use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::{LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, SessionRoute, WebRoute};
 use crate::{allowlist, auth, error, quota, session, sql, user_api};
 
+/// The one identity provider policy admits today; the `identities`
+/// schema stays provider-neutral (docs/architecture.md, "Two credential
+/// planes").
+const GITHUB_PROVIDER: &str = "github";
+
 /// Routes one OAuth request; the method check happens here, the path
 /// already matched in [`crate::routes::match_web_route`].
 pub async fn respond_web(req: &Request, env: &Env, route: WebRoute) -> worker::Result<Response> {
@@ -37,8 +42,9 @@ pub async fn respond_session(
         return json_error(401, error::AUTH_REQUIRED);
     };
     // Logout needs no D1 state - and must work even when the session's
-    // user row is gone (the post-wipe ghost), where the endpoints below
-    // answer 401: a valid cookie presented for logout is always cleared.
+    // identity row is gone (the post-wipe ghost), where the endpoints
+    // below answer 401: a valid cookie presented for logout is always
+    // cleared.
     if route == SessionRoute::Logout {
         return match req.method() {
             Method::Post => logout(req),
@@ -46,26 +52,26 @@ pub async fn respond_session(
         };
     }
     let db = env.d1("DB")?;
-    // The allowlist admitted the id, but its user row may be gone (the
-    // dev-wipe scenario): every endpoint - the token routes included -
-    // answers the same 401 as no session, never a phantom empty listing
-    // or a foreign-key 500.
+    // The allowlist admitted the id, but its identity row may be gone
+    // (the post-wipe scenario): every endpoint - the token routes
+    // included - answers the same 401 as no session, never a phantom
+    // empty listing or a foreign-key 500.
     let Some(user) = user_record(&db, &session).await? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
     match (route, req.method()) {
         (SessionRoute::User, Method::Get) => json_response(&user_api::user_json(
             session.github_id,
-            &user.login,
+            &user.login_snapshot,
             &user.plan,
         )),
-        (SessionRoute::Usage, Method::Get) => usage(&db, &session, user).await,
-        (SessionRoute::Packages, Method::Get) => list_packages(&db, &session).await,
-        (SessionRoute::Tokens, Method::Get) => list_tokens(&db, &session).await,
-        (SessionRoute::Tokens, Method::Post) => create_token(req, &db, &session).await,
+        (SessionRoute::Usage, Method::Get) => usage(&db, user).await,
+        (SessionRoute::Packages, Method::Get) => list_packages(&db, user.user_id).await,
+        (SessionRoute::Tokens, Method::Get) => list_tokens(&db, user.user_id).await,
+        (SessionRoute::Tokens, Method::Post) => create_token(req, &db, user.user_id).await,
         (SessionRoute::RevokeToken { id }, Method::Post) => {
             let id = id.to_owned();
-            revoke_token(req, &db, &session, &id).await
+            revoke_token(req, &db, user.user_id, &id).await
         }
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
@@ -167,10 +173,24 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         return denied(&[clear_state]);
     }
 
-    db.prepare(sql::UPSERT_USER)
-        .bind(&[js_int(user.id), user.login.into(), now_iso8601().into()])?
-        .run()
-        .await?;
+    // The identity upsert: one transaction, user-creation first - the
+    // identity insert reads its `last_insert_rowid()`. The account id is
+    // bound as text on purpose (the column is TEXT, and a numeric D1
+    // bind rides as a float, which would store "26405363.0").
+    let account_id = user.id.to_string();
+    db.batch(vec![
+        db.prepare(sql::INSERT_USER_FOR_NEW_IDENTITY).bind(&[
+            now_iso8601().into(),
+            GITHUB_PROVIDER.into(),
+            account_id.as_str().into(),
+        ])?,
+        db.prepare(sql::UPSERT_IDENTITY).bind(&[
+            GITHUB_PROVIDER.into(),
+            account_id.as_str().into(),
+            user.login.into(),
+        ])?,
+    ])
+    .await?;
 
     let expires_at = now_secs() + session::SESSION_MAX_AGE_SECS;
     let sealed = session::seal_session(&secret, user.id, expires_at);
@@ -185,7 +205,8 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
 
 #[derive(Deserialize)]
 struct UserRecord {
-    login: String,
+    user_id: i64,
+    login_snapshot: String,
     plan: String,
 }
 
@@ -204,11 +225,7 @@ struct PackageCountRecord {
 }
 
 /// `GET /api/v1/user/usage`: the usage-and-quotas payload.
-async fn usage(
-    db: &D1Database,
-    session: &session::Session,
-    user: UserRecord,
-) -> worker::Result<Response> {
+async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
     // "Today" is the UTC calendar day, the same lexicographic window the
     // publish quotas use; a non-ISO clock (impossible in practice) only
     // zeroes the today counter. The package count matches the quota
@@ -221,7 +238,7 @@ async fn usage(
     // where everything the user published stands.
     let usage_record: Option<UsageRecord> = db
         .prepare(sql::USER_USAGE)
-        .bind(&[js_int(session.github_id), day_prefix.into()])?
+        .bind(&[js_int(user.user_id), day_prefix.into()])?
         .first(None)
         .await?;
     let usage_record = usage_record.unwrap_or(UsageRecord {
@@ -233,7 +250,7 @@ async fn usage(
     });
     let package_record: Option<PackageCountRecord> = db
         .prepare(sql::USER_CREATED_PACKAGE_COUNT)
-        .bind(&[js_int(session.github_id)])?
+        .bind(&[js_int(user.user_id)])?
         .first(None)
         .await?;
     let usage = user_api::UsageInfo {
@@ -262,10 +279,10 @@ struct PackageVersionRecord {
 /// version's verification and yanked state included. The ORDER BY keeps
 /// the payload deterministic and the rows grouped by name for
 /// [`user_api::packages_json`]; versions run newest first.
-async fn list_packages(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
+async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response> {
     let records: Vec<PackageVersionRecord> = db
         .prepare(sql::LIST_USER_PACKAGES)
-        .bind(&[js_int(session.github_id)])?
+        .bind(&[js_int(user_id)])?
         .all()
         .await?
         .results()?;
@@ -293,10 +310,10 @@ struct TokenListRecord {
 }
 
 /// `GET /api/v1/user/tokens`: metadata only, never hashes.
-async fn list_tokens(db: &D1Database, session: &session::Session) -> worker::Result<Response> {
+async fn list_tokens(db: &D1Database, user_id: i64) -> worker::Result<Response> {
     let records: Vec<TokenListRecord> = db
         .prepare(sql::LIST_USER_TOKENS)
-        .bind(&[js_int(session.github_id)])?
+        .bind(&[js_int(user_id)])?
         .all()
         .await?
         .results()?;
@@ -323,7 +340,7 @@ const MAX_SESSION_BODY_BYTES: usize = 4 * 1024;
 async fn create_token(
     req: &mut Request,
     db: &D1Database,
-    session: &session::Session,
+    user_id: i64,
 ) -> worker::Result<Response> {
     if !csrf_ok(req)? {
         return json_error(403, error::CSRF_REQUIRED);
@@ -352,7 +369,7 @@ async fn create_token(
     db.prepare(sql::INSERT_TOKEN)
         .bind(&[
             id.as_str().into(),
-            js_int(session.github_id),
+            js_int(user_id),
             parsed.name.as_str().into(),
             auth::token_hash(&token).into(),
             parsed.scopes.as_str().into(),
@@ -370,14 +387,14 @@ async fn create_token(
 async fn revoke_token(
     req: &Request,
     db: &D1Database,
-    session: &session::Session,
+    user_id: i64,
     id: &str,
 ) -> worker::Result<Response> {
     if !csrf_ok(req)? {
         return json_error(403, error::CSRF_REQUIRED);
     }
     db.prepare(sql::REVOKE_TOKEN)
-        .bind(&[now_iso8601().into(), id.into(), js_int(session.github_id)])?
+        .bind(&[now_iso8601().into(), id.into(), js_int(user_id)])?
         .run()
         .await?;
     json_response(r#"{"ok":true}"#)
@@ -464,14 +481,15 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
     Ok(allowed.contains(&current.github_id).then_some(current))
 }
 
-/// The session's D1 user row; `None` (the transient, post-wipe case of a
-/// session whose user row is gone) answers the same 401 as no session.
+/// The registry-native user the session's external identity resolves
+/// to; `None` (the transient, post-wipe case of a session whose
+/// identity row is gone) answers the same 401 as no session.
 async fn user_record(
     db: &D1Database,
     session: &session::Session,
 ) -> worker::Result<Option<UserRecord>> {
-    db.prepare(sql::USER_BY_GITHUB_ID)
-        .bind(&[js_int(session.github_id)])?
+    db.prepare(sql::USER_BY_IDENTITY)
+        .bind(&[GITHUB_PROVIDER.into(), session.github_id.to_string().into()])?
         .first(None)
         .await
 }

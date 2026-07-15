@@ -27,6 +27,9 @@ pub const MONTHLY_KEEP_MONTHS: u64 = 12;
 /// a table the registry cannot run without.
 pub const EXPECTED_TABLES: &[&str] = &[
     "users",
+    "identities",
+    "scopes",
+    "scope_members",
     "tokens",
     "packages",
     "versions",
@@ -626,6 +629,9 @@ mod tests {
         assert_eq!(
             check.missing_tables,
             vec![
+                "identities",
+                "scopes",
+                "scope_members",
                 "tokens",
                 "packages",
                 "versions",
