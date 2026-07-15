@@ -54,7 +54,6 @@ fn main() -> ExitCode {
             "--dry-run" => dry_run = true,
             "-Werror" => werror = true,
             other if other.starts_with("--style=") => style_argument_seen = true,
-            // Anything else is treated as a file argument.
             other => files.push(PathBuf::from(other)),
         }
     }
@@ -67,9 +66,8 @@ fn main() -> ExitCode {
     }
 
     if write_mode {
-        // Append the marker to any file that does not already
-        // carry it.  Real clang-format rewrites the file in
-        // place, which is good enough to simulate.
+        // Real clang-format rewrites the file in place, which is
+        // good enough to simulate.
         for path in &files {
             let body = match fs::read_to_string(path) {
                 Ok(b) => b,

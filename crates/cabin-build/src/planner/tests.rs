@@ -560,7 +560,6 @@ fn cross_package_path_dep_links_library() {
     // Outputs should be namespaced by package.
     let greet_lib = Utf8PathBuf::from("/abs/build/dev/packages/greet/libgreet.a");
     let app_exe = Utf8PathBuf::from("/abs/build/dev/packages/app/app");
-    // app's link action must include greet's static archive.
     let link = link_action(&bg);
     assert!(link.inputs.contains(&greet_lib));
     assert_eq!(link.output, app_exe);

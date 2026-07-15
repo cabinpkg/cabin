@@ -126,8 +126,6 @@ impl FileRegistry {
         if config_path.is_file() {
             return Self::open(root);
         }
-        // Greenfield registry: create the directory tree + write a
-        // default config.json.
         fs::create_dir_all(root).map_err(|source| RegistryError::Io {
             path: root.to_path_buf(),
             source,

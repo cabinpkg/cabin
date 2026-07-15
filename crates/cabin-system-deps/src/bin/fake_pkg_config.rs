@@ -137,7 +137,6 @@ fn main() -> ExitCode {
         fixtures.insert(q.name.clone(), fixture);
     }
 
-    // Evaluate every version constraint.
     for q in &queries {
         if let Some(constraint) = &q.constraint {
             let fixture = &fixtures[&q.name];

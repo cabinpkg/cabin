@@ -1326,8 +1326,7 @@ mod tests {
     fn explain_target_returns_owning_package_and_kind_flags() {
         let graph = three_pkg_graph();
         // Build a small fixture with one target so we can hit
-        // the explain_target path.  Re-use the helper graph and
-        // append a target by mutating a clone.
+        // the explain_target path.
         let mut graph = graph;
         let target = cabin_core::Target {
             name: cabin_core::TargetName::new("util").unwrap(),

@@ -543,7 +543,6 @@ fn resolve_features(
     features: &Features,
     request: &SelectionRequest,
 ) -> Result<BTreeSet<String>, ValidationError> {
-    // Validate every requested name exists.
     for name in &request.features {
         if !features.features.contains_key(name) {
             return Err(ValidationError::UnknownFeature {

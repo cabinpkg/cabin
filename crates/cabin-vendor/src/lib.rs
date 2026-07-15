@@ -554,7 +554,6 @@ fn copy_archive_if_changed(
             }
         })?;
         if !actual.eq_ignore_ascii_case(expected_hex) {
-            // Drop the partial copy before surfacing the error.
             let _ = fs::remove_file(&temp);
             return Err(VendorError::ChecksumMismatch {
                 name: name.as_str().to_owned(),

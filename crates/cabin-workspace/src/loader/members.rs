@@ -87,7 +87,6 @@ pub(super) fn expand_workspace_members(
         }
     }
 
-    // Convert the surviving directories to canonical manifest paths.
     let mut out: Vec<PathBuf> = Vec::with_capacity(included.len());
     for dir in &included {
         let manifest = dir.join("cabin.toml");

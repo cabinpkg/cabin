@@ -170,7 +170,6 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("PATH", OsString::from(dir.path().to_str().unwrap()));
 
-        // The first two candidates don't exist on PATH; ninja does.
         let found =
             find_command_with_env(fake_env(env), "NINJA", &["ninja-build", "ninja4", "ninja"])
                 .unwrap();

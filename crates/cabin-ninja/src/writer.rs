@@ -112,8 +112,6 @@ pub fn render_build_ninja(
     out.push_str("  description = $description\n\n");
 
     for action in &graph.actions {
-        // Lower semantic intent to a concrete command for the graph's
-        // dialect right at the backend boundary, then render the edge.
         let lowered = lower(graph.dialect, action);
         write_edge(&mut out, &lowered)?;
     }

@@ -540,7 +540,6 @@ struct RawVersion {
     /// Normal-kind dependencies.
     #[serde(default)]
     dependencies: BTreeMap<String, RawIndexPackageDep>,
-    /// `[dev-dependencies]` of this version.
     #[serde(default, rename = "dev-dependencies")]
     dev_dependencies: BTreeMap<String, RawIndexPackageDep>,
     /// `system-dependencies` field of this version.  Each entry

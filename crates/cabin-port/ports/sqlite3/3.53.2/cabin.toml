@@ -32,6 +32,5 @@ c-standard = "c11"
 [target.'cfg(family = "unix")'.profile]
 link-libs = ["pthread", "dl", "m"]
 
-# Opt-in single-threaded build: omit SQLite's threading layer.
 [target.'cfg(feature = "single-threaded")'.profile]
 defines = ["SQLITE_THREADSAFE=0"]

@@ -121,7 +121,6 @@ fn format_commands_block(cmd: &clap::Command) -> String {
         if row.about.is_empty() {
             out.push('\n');
         } else {
-            // Pad to the column where the about text begins.
             let padding = width.saturating_sub(plain_width);
             for _ in 0..padding {
                 out.push(' ');

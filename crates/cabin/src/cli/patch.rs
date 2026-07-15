@@ -118,8 +118,6 @@ pub(crate) fn apply_source_replacement(
         .map_err(|err| anyhow!(err.to_string()))
 }
 
-/// Render the active patch set as a sorted list of
-/// [`LockedPatch`] entries for the lockfile.
 pub(crate) fn lockfile_patches(set: &ActivePatchSet) -> Vec<LockedPatch> {
     let mut out: Vec<LockedPatch> = set
         .iter()
@@ -140,8 +138,6 @@ pub(crate) fn lockfile_patches(set: &ActivePatchSet) -> Vec<LockedPatch> {
     out
 }
 
-/// Render every active source-replacement entry as a
-/// [`LockedSourceReplacement`] for the lockfile.
 pub(crate) fn lockfile_source_replacements(
     settings: &SourceReplacementSettings,
     no_patches: bool,
