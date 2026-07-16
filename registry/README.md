@@ -58,8 +58,12 @@ creates a registry-native user, bound to the GitHub account through the
 and reassigned) is the external identity, and everything package- or
 token-related keys on the registry's own user id
 ([`docs/architecture.md`](docs/architecture.md), "Two credential planes").
-Per-package ownership is intentionally out of scope for now: every
-allowlisted user can publish and yank any package.
+Package names are scoped (`<scope>/<name>`), and publish/yank
+authorization is per scope: the token's user must be a member of the
+target scope ([`docs/architecture.md`](docs/architecture.md),
+"Scopes" and "The write path"). Per-package ownership within a scope is
+intentionally out of scope: every member can act on every package under
+the scope.
 
 ## Development
 
