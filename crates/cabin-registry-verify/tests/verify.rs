@@ -170,6 +170,45 @@ fn benign_archive_verifies() {
     assert_eq!(verdict, Verdict::Verified);
 }
 
+/// A hosted package is always scoped: the full `<scope>/<name>`
+/// string threads identically through the archive manifest, the
+/// canonical metadata document, and the admin listing row, and the
+/// three-way consistency check verifies it.
+#[test]
+fn scoped_archive_verifies() {
+    let dir = TempDir::new().unwrap();
+    dir.child("pkg/cabin.toml")
+        .write_str(
+            "[package]\n\
+             name = \"acme/demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n",
+        )
+        .unwrap();
+    dir.child("pkg/src/lib.cc").write_str("int f();\n").unwrap();
+    let staged = cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap();
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_eq!(pending.name, "acme/demo");
+    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+
+    // A listing row naming a different scope must not bind this
+    // archive's verdict.
+    let mut mismatched = pending;
+    mismatched.name = "intruder/demo".to_owned();
+    assert_rejected(&archive, &mismatched, Reason::NameMismatch);
+}
+
 #[test]
 fn long_paths_within_the_cap_verify() {
     // Paths over the 100-byte tar header field ride on GNU
