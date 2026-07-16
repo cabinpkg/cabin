@@ -1117,6 +1117,38 @@ fn yank_rejects_malformed_specs() {
     }
 }
 
+/// A bare name cannot exist on a remote registry, so `cabin yank`
+/// refuses it before credentials, config reads, or any connection.
+#[test]
+fn yank_rejects_bare_names_before_any_connection() {
+    // A bound-but-unaccepting listener: any connection attempt would
+    // be observable below.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1", "--index-url"])
+        .arg(&url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "registry packages must be named `<scope>/<name>`"),
+        "expected the bare-name rejection in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "`<scope>/fmt@10.2.1`"),
+        "expected the scoped-spec example in: {stderr}"
+    );
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("a refused yank must not open a connection to the registry"),
+        Err(err) => panic!("unexpected listener state: {err}"),
+    }
+}
+
 /// The full yank path against an `auth-required` registry: the PATCH
 /// hits the registry's `api` origin with the bearer token and the
 /// documented JSON body, and the report states the resulting state.
@@ -1127,14 +1159,20 @@ fn yank_and_undo_patch_the_yank_route() {
     let server = RemoteRegistryServer::start(true, true, &[200]);
 
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1", "--index-url"])
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "fmtlib/fmt@10.2.1",
+            "--index-url",
+        ])
         .arg(&server.url)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     assert!(
-        stdout.contains("fmt@10.2.1 is now yanked"),
+        stdout.contains("fmtlib/fmt@10.2.1 is now yanked"),
         "expected the resulting-state report in: {stdout}"
     );
 
@@ -1144,7 +1182,7 @@ fn yank_and_undo_patch_the_yank_route() {
             "remote-registry",
             "yank",
             "--undo",
-            "fmt@10.2.1",
+            "fmtlib/fmt@10.2.1",
             "--index-url",
         ])
         .arg(&server.url)
@@ -1153,7 +1191,7 @@ fn yank_and_undo_patch_the_yank_route() {
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     assert!(
-        stdout.contains("fmt@10.2.1 is no longer yanked"),
+        stdout.contains("fmtlib/fmt@10.2.1 is no longer yanked"),
         "expected the resulting-state report in: {stdout}"
     );
 
@@ -1164,7 +1202,7 @@ fn yank_and_undo_patch_the_yank_route() {
         br#"{"yanked":false}"#.as_slice(),
     ]) {
         assert_eq!(request.method, "PATCH");
-        assert_eq!(request.path, "/api/v1/packages/fmt/10.2.1/yank");
+        assert_eq!(request.path, "/api/v1/packages/fmtlib/fmt/10.2.1/yank");
         assert_eq!(request.body, expected_body);
         assert_eq!(
             request.authorization.as_deref(),
@@ -1179,14 +1217,23 @@ fn yank_and_undo_patch_the_yank_route() {
 fn yank_maps_404_to_not_published() {
     let server = RemoteRegistryServer::start(true, false, &[404]);
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "yank", "fmt@9.9.9", "--index-url"])
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "fmtlib/fmt@9.9.9",
+            "--index-url",
+        ])
         .arg(&server.url)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        flat_contains(&stderr, "`fmt@9.9.9` is not published on this registry"),
+        flat_contains(
+            &stderr,
+            "`fmtlib/fmt@9.9.9` is not published on this registry"
+        ),
         "expected the not-published error in: {stderr}"
     );
 }
@@ -1203,7 +1250,7 @@ fn yank_rejects_a_local_index_path() {
     let mut cmd = cabin();
     super::pin_test_user_config_home_to_empty(&mut cmd);
     let assertion = cmd
-        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1"])
+        .args(["-Z", "remote-registry", "yank", "fmtlib/fmt@10.2.1"])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .assert()
@@ -1222,7 +1269,13 @@ fn yank_rejects_a_local_index_path() {
 fn yank_requires_the_api_url_in_the_registry_config() {
     let server = RemoteRegistryServer::start(false, false, &[200]);
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "yank", "fmt@10.2.1", "--index-url"])
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "fmtlib/fmt@10.2.1",
+            "--index-url",
+        ])
         .arg(&server.url)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
