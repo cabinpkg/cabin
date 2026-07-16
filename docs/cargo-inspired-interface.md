@@ -15,7 +15,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 |---|---|---|
 | `cabin init` | `cargo init` | Single-package generator (current directory).  `--bin` / `--lib` select scaffold kind (binary by default).  See [`new-and-init.md`](new-and-init.md). |
 | `cabin new` | `cargo new` | Single-package generator (new directory).  `--bin` / `--lib` select scaffold kind (binary by default).  See [`new-and-init.md`](new-and-init.md). |
-| `cabin add` | `cargo add` | Adds a dependency to `cabin.toml`, editing the manifest format-preservingly. v1 covers foundation ports (`--port`) and local path dependencies (`--path`); bare registry names are rejected until a registry exists.  See [`dependency-kinds.md`](dependency-kinds.md). |
+| `cabin add` | `cargo add` | Adds a dependency to `cabin.toml`, editing the manifest format-preservingly. Covers registry dependencies (`<scope>/<name>@<req>`, requirement required - `cabin add` never queries the registry), foundation ports (`--port`), and local path dependencies (`--path`); a bare registry name is rejected because registry packages are always `<scope>/<name>`.  See [`dependency-kinds.md`](dependency-kinds.md). |
 | `cabin remove` | `cargo remove` | Removes a `[dependencies]` (or, with `--dev`, `[dev-dependencies]`) entry from `cabin.toml`. |
 | `cabin build` | `cargo build` | Plans + invokes Ninja |
 | `cabin check` | `cargo check` | Reuses the build graph but compiles in syntax-only mode (`-fsyntax-only`; `/Zs` under MSVC); no objects or binaries |
