@@ -22,6 +22,13 @@ pub struct BuildGraph {
     pub dialect: Dialect,
     /// Output paths that should be marked as default targets.
     pub default_outputs: Vec<Utf8PathBuf>,
+    /// Full names of every package with at least one planned target.
+    /// Consumers that map build paths back to packages (progress
+    /// banners, link diagnostics) restrict their lookups to this
+    /// set, so an unplanned workspace member whose bare name equals
+    /// a planned package's scope can never win the reverse parse.
+    /// Sorted for determinism.
+    pub planned_packages: std::collections::BTreeSet<String>,
     /// One entry per C/C++ source compile, used to emit
     /// `compile_commands.json`.  Both languages contribute entries
     /// with their language-appropriate compiler driver and flags

@@ -259,15 +259,23 @@ above); there is no automatic GitHub org sync (TODO: revisit once
 sign-up opens beyond the allowlist), so org membership changes on
 GitHub propagate only when an owner edits the member list.
 
-The external verifier (`crates/cabin-registry-verify` and its
-workflow) and the client still speak bare names; they are updated in
-the scoped-names steps that follow. With scopes claimable, a real
-scoped publish is therefore accepted and stored but fails the
-verifier's artifact download or archive/manifest name check, so it
-stays `pending` (or is rejected) instead of ever resolving - the
-fail-safe direction ("The verification lifecycle"), made loud by the
-stale-pending alert rather than silent. End-to-end publishes on the
-deployed registry begin working when the verifier step lands.
+The client's *name model* is scoped: manifests, local file
+registries, lockfiles, and the resolver carry `<scope>/<name>`
+verbatim, and `cabin publish` rejects bare names outright. Its *wire
+protocol* and the external verifier
+(`crates/cabin-registry-verify` and its workflow) still speak bare
+names, so in the interim the client blocks every remote publish
+before any connection (bare names fail the scoped-name requirement;
+scoped names cannot be expressed on the bare routes) and rejects
+scoped names at the remote fetch boundary. With scopes claimable, a
+scoped publish crafted against the registry directly is accepted and
+stored but fails the verifier's artifact download or
+archive/manifest name check, so it stays `pending` (or is rejected)
+instead of ever resolving - the fail-safe direction ("The
+verification lifecycle"), made loud by the stale-pending alert
+rather than silent. End-to-end publishes on the deployed registry
+begin working when the scoped-routes step rewires the client and the
+verifier.
 
 ## The write path
 

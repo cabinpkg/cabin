@@ -161,7 +161,13 @@ pub fn plan_clean(req: &CleanRequest<'_>) -> Result<CleanPlan, CleanError> {
             for profile in profiles {
                 let profile_root = req.build_dir.join(profile.as_str());
                 for pkg in packages {
-                    out.push(profile_root.join("packages").join(pkg.as_str()));
+                    // Mirror the planner's `packages/<scope>/<name>`
+                    // nesting so clean removes exactly the directory
+                    // the planner writes.
+                    out.push(
+                        pkg.path_components()
+                            .fold(profile_root.join("packages"), |dir, c| dir.join(c)),
+                    );
                 }
             }
             out

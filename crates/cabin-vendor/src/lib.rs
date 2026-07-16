@@ -287,9 +287,8 @@ pub fn materialize(
                 });
             }
 
-            let artifact_path = registry.artifact_path(entry.name.as_str(), &entry.version);
-            let artifact_relative =
-                registry.relative_source_path(entry.name.as_str(), &entry.version);
+            let artifact_path = registry.artifact_path(&entry.name, &entry.version);
+            let artifact_relative = registry.relative_source_path(&entry.name, &entry.version);
             let written = copy_archive_if_changed(
                 &entry.archive_source,
                 &artifact_path,
@@ -340,7 +339,7 @@ pub fn materialize(
             name: name.as_str().to_owned(),
             versions: version_entries,
         };
-        let target = registry.package_index_path(name.as_str());
+        let target = registry.package_index_path(name);
         let body =
             cabin_registry_file::index::render(&index, &target).map_err(VendorError::Registry)?;
         write_if_changed(&target, body.as_bytes())?;

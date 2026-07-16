@@ -39,7 +39,7 @@ fn write_pkg(root: &Path, manifest: &str, files: &[(&str, &str)]) {
 fn header_only_cxx(version: &str, cxx: &str, interface_cxx: &str) -> String {
     format!(
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "{version}"
 
 [target.hdr]
@@ -57,7 +57,7 @@ interface-cxx-standard = "{interface_cxx}"
 fn compiled_cxx(version: &str, interface_cxx: &str) -> String {
     format!(
         r#"[package]
-name = "demo"
+name = "acme/demo"
 version = "{version}"
 
 [target.demo]
@@ -74,7 +74,7 @@ interface-cxx-standard = "{interface_cxx}"
 fn compiled_c(version: &str, interface_c: &str) -> String {
     format!(
         r#"[package]
-name = "demo"
+name = "acme/demo"
 version = "{version}"
 
 [target.demo]
@@ -153,7 +153,7 @@ fn pl1_rejects_for_c() {
     write_pkg(
         &pkg_root,
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "1.0.0"
 
 [target.hdr]
@@ -187,7 +187,7 @@ fn pl2_warns_on_inferred_cxx_interface() {
     write_pkg(
         &pkg_root,
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "1.0.0"
 
 [target.hdr]
@@ -210,7 +210,7 @@ cxx-standard = "c++20"
             && stderr.contains("inferred"),
         "expected the PL2 warning in: {stderr}"
     );
-    assert!(registry.join("packages/hdr.json").is_file());
+    assert!(registry.join("packages/acme/hdr.json").is_file());
 }
 
 /// PL2's C sibling: a header-only target declaring only the C++
@@ -222,7 +222,7 @@ fn pl2_warns_on_inferred_c_interface() {
     write_pkg(
         &pkg_root,
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "1.0.0"
 
 [target.hdr]
@@ -365,7 +365,7 @@ fn dry_run_staging_only_skips_pl3_and_still_warns() {
     write_pkg(
         &pkg_root,
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "1.0.0"
 
 [target.hdr]
@@ -409,7 +409,7 @@ fn publish_json_reports_warnings() {
     write_pkg(
         &pkg_root,
         r#"[package]
-name = "hdr"
+name = "acme/hdr"
 version = "1.0.0"
 
 [target.hdr]

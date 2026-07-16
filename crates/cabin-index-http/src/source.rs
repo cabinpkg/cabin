@@ -1219,16 +1219,43 @@ mod tests {
     #[test]
     fn package_name_constructor_rejects_url_reserved() {
         // The structural reason `Url::join` cannot be reached: every
-        // call site funnels names through `PackageName::new`, which
-        // applies the same grammar as `ensure_path_safe`.  Confirm
-        // that path here so a future refactor cannot quietly weaken
-        // the upstream validation while leaving the downstream
-        // checks intact.
+        // call site funnels names through `PackageName::new`, whose
+        // bare grammar matches `ensure_path_safe`.  Confirm that path
+        // here so a future refactor cannot quietly weaken the
+        // upstream validation while leaving the downstream checks
+        // intact.  (Scoped names pass construction but not
+        // `ensure_path_safe` - see the test below.)
         for raw in ["foo?bar", "foo#bar", "foo%2Fbar", "foo:bar"] {
             assert!(
                 PackageName::new(raw).is_err(),
                 "PackageName::new({raw:?}) should fail at construction"
             );
+        }
+    }
+
+    /// A scoped name is a valid `PackageName` but not a valid sparse
+    /// URL segment under the current protocol: the fetch boundary
+    /// rejects it before any request until the scoped read routes
+    /// land.
+    #[test]
+    fn scoped_names_are_rejected_at_the_fetch_boundary() {
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        // The server would answer any package URL with 404; getting
+        // `UnsafePackageName` proves the gate fired before a request
+        // was attempted.
+        let server = StaticRegistry::start(CONFIG, "unused", "{}");
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        let err = index
+            .fetch_package(&PackageName::new("fmtlib/fmt").unwrap())
+            .unwrap_err();
+        match err {
+            IndexHttpError::UnsafePackageName { name } => assert_eq!(name, "fmtlib/fmt"),
+            other => panic!("expected UnsafePackageName, got {other:?}"),
         }
     }
 }

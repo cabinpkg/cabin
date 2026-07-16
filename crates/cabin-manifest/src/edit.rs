@@ -506,6 +506,29 @@ mod tests {
         );
     }
 
+    /// A scoped name is not a legal bare TOML key; `toml_edit` must
+    /// quote it on insert and the result must parse back to the same
+    /// dependency key.
+    #[test]
+    fn upserts_scoped_dependency_with_quoted_key() {
+        let mut doc = parse_document(PACKAGE_ONLY).unwrap();
+        let dep = NewDependency {
+            name: "fmtlib/fmt".to_owned(),
+            version: Some("^10".to_owned()),
+            ..NewDependency::default()
+        };
+        upsert_dependency(&mut doc, DepTable::Normal, &dep).unwrap();
+        let out = doc.to_string();
+        assert!(
+            out.contains("\"fmtlib/fmt\" = \"^10\""),
+            "scoped key must be quoted, got:\n{out}"
+        );
+        // The emitted document round-trips through the real parser
+        // with the full name as the dependency identity.
+        let package = crate::parse_manifest_str(&out).unwrap().package.unwrap();
+        assert_eq!(package.dependencies[0].name.as_str(), "fmtlib/fmt");
+    }
+
     #[test]
     fn bare_version_when_only_version_is_set() {
         let mut doc = parse_document(PACKAGE_ONLY).unwrap();

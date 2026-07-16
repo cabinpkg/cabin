@@ -617,6 +617,48 @@ mod tests {
         assert_eq!(parsed, expected);
     }
 
+    /// Scoped names are the canonical identity and round-trip
+    /// verbatim: `/` is not TOML-special, so `quote_string` writes
+    /// the full string and the parse path reconstructs the identical
+    /// `PackageName` - no code path strips or normalizes the scope.
+    #[test]
+    fn scoped_names_round_trip_verbatim() {
+        let lock = Lockfile {
+            version: 1,
+            packages: vec![
+                LockedPackage {
+                    name: pkg("fmtlib/fmt"),
+                    version: ver("10.2.1"),
+                    source: LockedSource::Index,
+                    checksum: Some("sha256:aa".into()),
+                    dependencies: vec![pkg("gabime/spdlog"), pkg("bare")],
+                },
+                LockedPackage {
+                    name: pkg("bare"),
+                    version: ver("1.0.0"),
+                    source: LockedSource::Index,
+                    checksum: None,
+                    dependencies: Vec::new(),
+                },
+            ],
+            patches: Vec::new(),
+            source_replacements: Vec::new(),
+        };
+        let body = render_lockfile(&lock).unwrap();
+        assert!(
+            body.contains("name = \"fmtlib/fmt\""),
+            "the full scoped identity must be written verbatim: {body}"
+        );
+        let parsed = parse_lockfile_str(&body).unwrap();
+        let scoped = parsed
+            .find(&pkg("fmtlib/fmt"))
+            .expect("scoped package survives the round trip");
+        // Dependencies render sorted; identities keep their scopes.
+        assert_eq!(scoped.dependencies, vec![pkg("bare"), pkg("gabime/spdlog")]);
+        // Render is deterministic across the round trip.
+        assert_eq!(render_lockfile(&parsed).unwrap(), body);
+    }
+
     #[test]
     fn old_lockfile_without_patch_arrays_remains_valid() {
         // Older lockfiles only carry `version` + `[[package]]`.

@@ -25,6 +25,27 @@ include-dirs = ["include"]
         .unwrap();
 }
 
+/// Same sources as [`write_simple_package`], but with a scoped package
+/// name so `cabin publish` accepts it: the registry rejects bare names.
+/// The staged artifacts flatten the scope into `acme-fmt-10.2.1.*`.
+fn write_scoped_package(root: &Path) {
+    write_simple_package(root);
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/fmt"
+version = "10.2.1"
+cxx-standard = "c++17"
+
+[target.fmt]
+type = "library"
+sources = ["src/fmt.cc"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+}
+
 fn read_archive_entries(archive: &Path) -> BTreeSet<String> {
     let f = fs::File::open(archive).unwrap();
     let dec = GzDecoder::new(f);
@@ -278,7 +299,7 @@ fn package_is_byte_deterministic_across_runs() {
 #[test]
 fn publish_dry_run_creates_archive_and_reports_no_registry_modified() {
     let dir = TempDir::new().unwrap();
-    write_simple_package(dir.path());
+    write_scoped_package(dir.path());
     let dist = dir.path().join("dist");
     let output = cabin()
         .args(["publish", "--dry-run", "--manifest-path"])
@@ -292,14 +313,14 @@ fn publish_dry_run_creates_archive_and_reports_no_registry_modified() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Publish dry-run"));
     assert!(stdout.contains("No registry was modified"));
-    assert!(dist.join("fmt-10.2.1.tar.gz").is_file());
-    assert!(dist.join("fmt-10.2.1.json").is_file());
+    assert!(dist.join("acme-fmt-10.2.1.tar.gz").is_file());
+    assert!(dist.join("acme-fmt-10.2.1.json").is_file());
 }
 
 #[test]
 fn publish_dry_run_json_format_is_valid_json() {
     let dir = TempDir::new().unwrap();
-    write_simple_package(dir.path());
+    write_scoped_package(dir.path());
     let dist = dir.path().join("dist");
     let value = run_json(
         cabin()
@@ -311,7 +332,7 @@ fn publish_dry_run_json_format_is_valid_json() {
     );
     assert_eq!(value["dry_run"], true);
     assert_eq!(value["registry_modified"], false);
-    assert_eq!(value["name"], "fmt");
+    assert_eq!(value["name"], "acme/fmt");
     assert_eq!(value["version"], "10.2.1");
 }
 

@@ -13,10 +13,22 @@ use crate::patch::PatchManifestSettings;
 use crate::profile::{ProfileDefinition, ProfileName};
 use crate::toolchain::ToolchainSettings;
 
-/// Validated package name.
+/// Validated package name: either a bare `name` or a scoped
+/// `<scope>/<name>`.
 ///
-/// Newtype wrapper so future versions can centralize package-name syntax
-/// rules (e.g. registry-specific patterns) without touching every callsite.
+/// Bare names exist only in local manifests (path dependencies,
+/// unpublished packages); registry packages are always scoped, and
+/// the publish flow rejects bare names.  There is no alias or short
+/// name mechanism: the full string is the one canonical identity
+/// everywhere (manifest, index, lockfile, resolver), so `as_str` /
+/// `Display` always yield it verbatim.
+///
+/// A scoped name contains exactly one `/`.  The scope must satisfy
+/// [`is_valid_package_scope`]; the package part (and a bare name)
+/// must satisfy [`is_path_safe_package_name`].  Because `/` is a
+/// path separator, the full string must never be used as a single
+/// filesystem path component - path sinks go through
+/// [`PackageName::path_components`] instead of `as_str`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PackageName(String);
@@ -24,33 +36,99 @@ pub struct PackageName(String);
 impl PackageName {
     /// Construct a [`PackageName`] after running validation rules.
     ///
-    /// The grammar enforced here covers filesystem path
-    /// components, sparse-HTTP path segments, package archive
-    /// filenames, and Windows-reserved filename characters in a
-    /// single rule.  See [`is_path_safe_package_name`] for the
-    /// full predicate.
+    /// The per-component grammar covers filesystem path components,
+    /// sparse-HTTP path segments, package archive filenames, and
+    /// Windows-reserved filename characters in a single rule.  See
+    /// [`is_path_safe_package_name`] (bare names and the package part)
+    /// and [`is_valid_package_scope`] (the scope part) for the full
+    /// predicates.
     ///
     /// # Errors
     /// Returns [`ValidationError::EmptyPackageName`] for an empty name,
-    /// [`ValidationError::PackageNameContainsWhitespace`] when the name contains
-    /// whitespace, and [`ValidationError::UnsafePackageName`] when it fails the
-    /// [`is_path_safe_package_name`] predicate.
+    /// [`ValidationError::PackageNameContainsWhitespace`] when the name
+    /// contains whitespace,
+    /// [`ValidationError::PackageNameTooManySlashes`] when the name
+    /// contains more than one `/`,
+    /// [`ValidationError::InvalidPackageScope`] when the scope part fails
+    /// [`is_valid_package_scope`], and
+    /// [`ValidationError::UnsafePackageName`] when a bare name or the
+    /// package part fails the [`is_path_safe_package_name`] predicate.
     pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
-        validate_path_safe_name(
-            value.into(),
-            ValidationError::EmptyPackageName,
-            ValidationError::PackageNameContainsWhitespace,
-            ValidationError::UnsafePackageName,
-        )
-        .map(Self)
+        let value = value.into();
+        if value.is_empty() {
+            return Err(ValidationError::EmptyPackageName);
+        }
+        if value.chars().any(char::is_whitespace) {
+            return Err(ValidationError::PackageNameContainsWhitespace(value));
+        }
+        let Some((scope, base)) = value.split_once('/') else {
+            if !is_path_safe_package_name(&value) {
+                return Err(ValidationError::UnsafePackageName(value));
+            }
+            return Ok(Self(value));
+        };
+        if base.contains('/') {
+            return Err(ValidationError::PackageNameTooManySlashes(value));
+        }
+        if !is_valid_package_scope(scope) {
+            return Err(ValidationError::InvalidPackageScope {
+                scope: scope.to_owned(),
+                name: value,
+            });
+        }
+        if !is_path_safe_package_name(base) {
+            return Err(ValidationError::UnsafePackageName(value));
+        }
+        Ok(Self(value))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The scope part of a scoped name, `None` for a bare name.
+    pub fn scope(&self) -> Option<&str> {
+        self.0.split_once('/').map(|(scope, _)| scope)
+    }
+
+    /// The package part: everything after the `/` for a scoped name,
+    /// the whole name for a bare one.  This is the value to derive
+    /// default target names, artifact/library file names, and
+    /// pkg-config module names from - those grammars have no `/`.
+    pub fn base_name(&self) -> &str {
+        self.0
+            .split_once('/')
+            .map_or(self.0.as_str(), |(_, base)| base)
+    }
+
+    pub fn is_scoped(&self) -> bool {
+        self.0.contains('/')
+    }
+
+    /// Filesystem path components for this package's directory
+    /// subtree: `[scope, name]` for a scoped name, `[name]` for a
+    /// bare one.  Every name-to-path sink must fold these into the
+    /// base directory instead of joining `as_str`, which would embed
+    /// a `/` into what callers treat as one component.  Each yielded
+    /// component satisfies [`is_path_safe_package_name`] by
+    /// construction: the package part is validated with exactly that
+    /// predicate and the scope grammar is a strict subset of it.
+    pub fn path_components(&self) -> impl Iterator<Item = &str> {
+        self.0.split('/')
+    }
+
+    /// Filename fragment identifying this package inside artifact and
+    /// staging filenames (`<stem>-<version>.tar.gz` /
+    /// `<stem>-<version>.json`): `<scope>-<name>` for a scoped name,
+    /// the bare name otherwise.  The scope is embedded on purpose so a
+    /// downloaded tarball stays self-identifying outside the registry
+    /// directory tree.
+    pub fn artifact_stem(&self) -> String {
+        self.0.replace('/', "-")
+    }
 }
 
-/// Shared package-name validity predicate.
+/// Shared single-component name validity predicate.
 ///
 /// A name passes when it is safe to use **simultaneously** as
 /// (a) a single filesystem path component on every supported
@@ -60,6 +138,14 @@ impl PackageName {
 /// from manifest parsing through the workspace loader, the
 /// resolver, the lockfile, the artifact cache, and the registry
 /// (file or sparse HTTP) without any per-stage re-encoding.
+///
+/// This predicate is single-component on purpose: it guards bare
+/// package names, the package part of a scoped name, every
+/// [`PackageName::path_components`] element, [`TargetName`], and the
+/// URL boundaries in `cabin-index-http` / `cabin-registry-api`.  A
+/// scoped `<scope>/<name>` string fails it (the `/` is outside the
+/// alphabet), which is what keeps scoped names out of the remote
+/// registry protocol until the scoped routes land.
 ///
 /// A name is valid iff:
 ///
@@ -105,12 +191,32 @@ pub fn is_path_safe_package_name(name: &str) -> bool {
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
-/// Run the shared three-step validation behind every path-safe name
+/// Scope validity predicate for scoped package names.
+///
+/// Mirrors the registry's scope grammar (`registry/src/routes.rs`,
+/// `is_valid_scope`): `[a-z0-9]([a-z0-9-]*[a-z0-9])?`, at most 39
+/// bytes.  The grammar is GitHub-login-compatible on purpose: a scope
+/// is granted by proving control of the same-named GitHub account
+/// (logins are lowercased at claim time), so every claimable login
+/// must fit.  Every scope passing this predicate also passes
+/// [`is_path_safe_package_name`], so a scope directory component
+/// never needs a second guard.
+pub fn is_valid_package_scope(scope: &str) -> bool {
+    !scope.is_empty()
+        && scope.len() <= 39
+        && scope
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !scope.starts_with('-')
+        && !scope.ends_with('-')
+}
+
+/// Run the shared three-step validation behind a path-safe name
 /// newtype: reject an empty value, reject any whitespace, then enforce
-/// [`is_path_safe_package_name`].  The per-type [`ValidationError`]
-/// variants are supplied by the caller so the rejection still names the
-/// specific kind of name, keeping [`PackageName`] and [`TargetName`]
-/// from drifting on the rule.
+/// [`is_path_safe_package_name`].  [`TargetName`] routes through this;
+/// [`PackageName`] validates its components directly (its scoped form
+/// is not a single path-safe component) but shares the same predicate
+/// per component, keeping the two from drifting on the rule.
 fn validate_path_safe_name(
     value: String,
     empty: ValidationError,
@@ -1224,13 +1330,155 @@ mod tests {
 
     #[test]
     fn package_name_rejects_path_traversal() {
-        for raw in [".", "..", "../evil", ".hidden", "foo/bar", "foo\\bar"] {
+        for raw in [".", "..", ".hidden", "foo\\bar"] {
             assert!(
                 matches!(
                     PackageName::new(raw).unwrap_err(),
                     ValidationError::UnsafePackageName(_)
                 ),
                 "{raw:?} should be rejected as unsafe"
+            );
+        }
+        // `../evil` parses as scope `..` + package `evil`; the dot is
+        // outside the scope alphabet, so the traversal is rejected as
+        // an invalid scope rather than an unsafe bare name.
+        assert!(matches!(
+            PackageName::new("../evil").unwrap_err(),
+            ValidationError::InvalidPackageScope { .. }
+        ));
+    }
+
+    // -----------------------------------------------------------------
+    // Scoped names: `<scope>/<name>` with exactly one `/`.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn package_name_accepts_scoped_form() {
+        for raw in [
+            "fmtlib/fmt",
+            "a/b",
+            "boost-org/boost",
+            "s0me-org/pkg_name",
+            "gabime/spdlog.core",
+        ] {
+            assert!(PackageName::new(raw).is_ok(), "{raw:?} should be accepted");
+        }
+    }
+
+    #[test]
+    fn package_name_rejects_more_than_one_slash() {
+        for raw in ["a/b/c", "a//b", "fmtlib/fmt/extra", "a/b/"] {
+            assert!(
+                matches!(
+                    PackageName::new(raw).unwrap_err(),
+                    ValidationError::PackageNameTooManySlashes(_)
+                ),
+                "{raw:?} should be rejected: more than one `/`"
+            );
+        }
+    }
+
+    #[test]
+    fn package_name_rejects_invalid_scopes() {
+        // Uppercase, `_`, `.`, leading/trailing `-`, empty, and
+        // over-long scopes are all outside the GitHub-login-compatible
+        // scope grammar.
+        let too_long = format!("{}/fmt", "a".repeat(40));
+        for raw in [
+            "Fmtlib/fmt",
+            "fmt_lib/fmt",
+            "fmt.lib/fmt",
+            "-fmtlib/fmt",
+            "fmtlib-/fmt",
+            "/fmt",
+            "../fmt",
+            too_long.as_str(),
+        ] {
+            assert!(
+                matches!(
+                    PackageName::new(raw).unwrap_err(),
+                    ValidationError::InvalidPackageScope { .. }
+                ),
+                "{raw:?} should be rejected: invalid scope"
+            );
+        }
+        // The 39-character maximum itself is accepted.
+        assert!(PackageName::new(format!("{}/fmt", "a".repeat(39))).is_ok());
+    }
+
+    #[test]
+    fn package_name_rejects_unsafe_scoped_package_part() {
+        for raw in ["fmtlib/", "fmtlib/..", "fmtlib/.hidden", "fmtlib/-flag"] {
+            assert!(
+                matches!(
+                    PackageName::new(raw).unwrap_err(),
+                    ValidationError::UnsafePackageName(_)
+                ),
+                "{raw:?} should be rejected: unsafe package part"
+            );
+        }
+    }
+
+    #[test]
+    fn package_name_scoped_accessors() {
+        let scoped = PackageName::new("fmtlib/fmt").unwrap();
+        assert!(scoped.is_scoped());
+        assert_eq!(scoped.scope(), Some("fmtlib"));
+        assert_eq!(scoped.base_name(), "fmt");
+        assert_eq!(scoped.as_str(), "fmtlib/fmt");
+        assert_eq!(scoped.artifact_stem(), "fmtlib-fmt");
+
+        let bare = PackageName::new("fmt").unwrap();
+        assert!(!bare.is_scoped());
+        assert_eq!(bare.scope(), None);
+        assert_eq!(bare.base_name(), "fmt");
+        assert_eq!(bare.artifact_stem(), "fmt");
+    }
+
+    /// The full scoped string must never act as one filesystem path
+    /// component: `path_components` is the only sanctioned name-to-path
+    /// mapping, and it yields one slash-free, path-safe component per
+    /// part.
+    #[test]
+    fn package_name_path_components_never_yield_a_slash() {
+        let scoped = PackageName::new("fmtlib/fmt").unwrap();
+        let components: Vec<&str> = scoped.path_components().collect();
+        assert_eq!(components, ["fmtlib", "fmt"]);
+
+        let bare = PackageName::new("fmt").unwrap();
+        let components: Vec<&str> = bare.path_components().collect();
+        assert_eq!(components, ["fmt"]);
+
+        for name in ["fmtlib/fmt", "a/b", "plain", "foo-bar"] {
+            for component in PackageName::new(name).unwrap().path_components() {
+                assert!(
+                    is_path_safe_package_name(component),
+                    "component {component:?} of {name:?} must be path-safe"
+                );
+                assert!(!component.contains('/'));
+            }
+        }
+    }
+
+    /// The scoped form is preserved verbatim through serde: identity is
+    /// the full string, with no normalization on either direction.
+    #[test]
+    fn package_name_scoped_serde_round_trip() {
+        let scoped: PackageName = serde_json::from_str("\"fmtlib/fmt\"").unwrap();
+        assert_eq!(scoped.as_str(), "fmtlib/fmt");
+        assert_eq!(serde_json::to_string(&scoped).unwrap(), "\"fmtlib/fmt\"");
+        assert!(serde_json::from_str::<PackageName>("\"a/b/c\"").is_err());
+    }
+
+    #[test]
+    fn valid_package_scope_grammar() {
+        for scope in ["a", "a-b", "a0", "0a", "fmtlib", &"a".repeat(39)] {
+            assert!(is_valid_package_scope(scope), "{scope:?} should be valid");
+        }
+        for scope in ["", "-a", "a-", "A", "a_b", "a.b", &"a".repeat(40)] {
+            assert!(
+                !is_valid_package_scope(scope),
+                "{scope:?} should be invalid"
             );
         }
     }

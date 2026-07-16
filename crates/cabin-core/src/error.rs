@@ -16,9 +16,19 @@ pub enum ValidationError {
     PackageNameContainsWhitespace(String),
 
     #[error(
-        "package name {0:?} is not valid; package names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`"
+        "package name {0:?} is not valid; package names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`; registry packages are named `<scope>/<name>` with exactly one `/`"
     )]
     UnsafePackageName(String),
+
+    #[error(
+        "package name {0:?} is not valid; a scoped package name is `<scope>/<name>` with exactly one `/`"
+    )]
+    PackageNameTooManySlashes(String),
+
+    #[error(
+        "package scope {scope:?} in {name:?} is not valid; scopes must consist only of ASCII lowercase letters, ASCII digits, and `-`, must not start or end with `-`, and must be at most 39 characters"
+    )]
+    InvalidPackageScope { name: String, scope: String },
 
     #[error("target name must not be empty")]
     EmptyTargetName,

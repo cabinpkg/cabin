@@ -31,7 +31,8 @@ cabin check
 Cabin plans the build for the selected package(s), rewrites every compile into an `-fsyntax-only`
 check, and runs them through Ninja.  No `.o` objects, no `.a` archives, and no executables are
 written; each successful check records a small stamp file under
-`build/<profile>/packages/<pkg>/obj/` so Ninja can skip unchanged translation units next time.  The
+`build/<profile>/packages/<pkg>/obj/` (a scoped package nests as `packages/<scope>/<name>/`) so
+Ninja can skip unchanged translation units next time.  The
 `build.ninja` and `compile_commands.json` files are written to `build/<profile>/`, the same path
 `cabin build` uses.
 

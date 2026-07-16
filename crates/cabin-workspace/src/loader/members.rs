@@ -198,9 +198,12 @@ pub(super) fn parse_workspace_dep_source(
     // Wrap the raw requirement in a tiny manifest to reuse the
     // existing dependency parser.  We round-trip through the
     // manifest crate so error messages mention the dependency name
-    // and the failing requirement consistently.
+    // and the failing requirement consistently.  The key is always
+    // quoted: a scoped name (`fmtlib/fmt`) is not a legal bare TOML
+    // key, and the package-name grammar excludes quotes and
+    // backslashes, so plain quoting is enough.
     let manifest = format!(
-        "[package]\nname = \"__workspace_root__\"\nversion = \"0.0.0\"\n[dependencies]\n{name} = \"{}\"\n",
+        "[package]\nname = \"__workspace_root__\"\nversion = \"0.0.0\"\n[dependencies]\n\"{name}\" = \"{}\"\n",
         req.replace('"', "\\\""),
     );
     let parsed = cabin_manifest::parse_manifest_str(&manifest).map_err(|source| {

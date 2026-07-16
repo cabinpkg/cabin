@@ -197,7 +197,7 @@ fn prepare_one(
     // ports that share the same upstream archive but ship different
     // overlays do not clobber each other's `cabin.toml`.
     let source_dir = cache.source_dir(
-        entry.descriptor.name.as_str(),
+        &entry.descriptor.name,
         &entry.descriptor.version.to_string(),
         &expected_hex,
     );
@@ -888,11 +888,7 @@ mod tests {
         );
         let descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
         let cache = PortCache::new(dir.path().join("cache"));
-        let source_dir = cache.source_dir(
-            descriptor.name.as_str(),
-            &descriptor.version.to_string(),
-            &hex,
-        );
+        let source_dir = cache.source_dir(&descriptor.name, &descriptor.version.to_string(), &hex);
         // Simulate an interrupted previous run: manifest present
         // but no completion marker.
         assert_fs::fixture::ChildPath::new(source_dir.join("cabin.toml"))
@@ -1126,7 +1122,11 @@ mod tests {
         // The whole preparation is staged in a scratch directory, so
         // a failure after extraction - here a `[[copy]]` step whose
         // source is absent - leaves no half-prepared port behind.
-        let source_dir = cache.source_dir("zlib", "1.3.1", &hex);
+        let source_dir = cache.source_dir(
+            &cabin_core::PackageName::new("zlib").unwrap(),
+            "1.3.1",
+            &hex,
+        );
         assert!(!source_dir.exists(), "partial port tree left behind");
         assert!(!extraction_marker_path(&source_dir).exists());
         assert!(
@@ -1183,7 +1183,11 @@ mod tests {
         };
         let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
         assert!(matches!(err, PortError::Extract { .. }), "{err:?}");
-        let source_dir = cache.source_dir("zlib", "1.3.1", &hex);
+        let source_dir = cache.source_dir(
+            &cabin_core::PackageName::new("zlib").unwrap(),
+            "1.3.1",
+            &hex,
+        );
         assert!(!source_dir.exists(), "partial port tree left behind");
         assert!(
             !partial_dir_sibling(&source_dir).exists(),

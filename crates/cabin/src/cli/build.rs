@@ -323,10 +323,19 @@ pub(super) fn build(
     // workspace packages' own translation units.
     let plan_graph = if matches!(mode, BuildMode::Check) {
         let packages_root = build_dir.join(profile.name.as_str()).join("packages");
+        // Fold `path_components` so the scoping roots stay
+        // byte-identical to the planner's `packages/<scope>/<name>`
+        // output dirs, which the check-graph filter compares against.
         let selected_pkg_dirs: Vec<PathBuf> = resolved_selection
             .packages
             .iter()
-            .map(|&idx| packages_root.join(graph.packages[idx].package.name.as_str()))
+            .map(|&idx| {
+                graph.packages[idx]
+                    .package
+                    .name
+                    .path_components()
+                    .fold(packages_root.clone(), |dir, c| dir.join(c))
+            })
             .collect();
         cabin_build::into_check_graph(plan_graph, &selected_pkg_dirs)
     } else {

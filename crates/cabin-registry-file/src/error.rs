@@ -64,7 +64,12 @@ pub enum RegistryError {
     Json(#[from] serde_json::Error),
 
     #[error(
-        "package name `{name}` is not valid; package names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`"
+        "registry packages must be named `<scope>/<name>`; `{name}` is a bare name and cannot be published"
     )]
-    UnsafePackageName { name: String },
+    BarePackageName { name: String },
+
+    #[error(
+        "staged package name `{staged}` does not match its metadata name `{metadata}`; refusing to write an index document that disagrees with its location"
+    )]
+    StagedMetadataNameMismatch { staged: String, metadata: String },
 }

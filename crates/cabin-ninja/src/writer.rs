@@ -391,6 +391,7 @@ mod tests {
     };
     use cabin_core::OptLevel;
     use camino::Utf8PathBuf;
+    use std::collections::BTreeSet;
 
     // These fixtures are *semantic* actions; the writer lowers them to
     // concrete commands as it renders, so the assertions below check
@@ -486,6 +487,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         }
     }
 
@@ -541,6 +543,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         }
     }
 

@@ -278,10 +278,10 @@ impl InvalidFeatureEntryKind {
                 "`<dep>/<feature>` entries require both a dependency name and a feature name"
             }
             InvalidFeatureEntryKind::MultiplePathSeparators => {
-                "feature entries may contain at most one `/`"
+                "feature entries may contain at most one `/` after the dependency name, and a dependency name itself at most one (`<scope>/<name>`)"
             }
             InvalidFeatureEntryKind::UnsupportedCharacter(_) => {
-                "feature entries may only use ASCII letters, digits, `_`, `-`, `.`, plus the leading `dep:` or single `/` separator"
+                "feature entries may only use ASCII letters, digits, `_`, `-`, `.`, plus the leading `dep:`, the scope separator in `<scope>/<name>`, and the `/` before a feature name"
             }
         }
     }
@@ -290,11 +290,18 @@ impl InvalidFeatureEntryKind {
 impl FeatureEntry {
     /// Parse a single `[features]` value into a typed entry.
     ///
+    /// The dependency/feature split is on the *last* `/`: feature
+    /// names never contain `/`, while a dependency name may be
+    /// scoped (`<scope>/<name>`), so `fmtlib/fmt/json` reads as
+    /// dependency `fmtlib/fmt` + feature `json` and the legacy
+    /// `fmt/json` keeps meaning dependency `fmt` + feature `json`.
+    ///
     /// # Errors
     /// Returns [`InvalidFeatureEntryKind::Empty`] for an empty input,
     /// [`InvalidFeatureEntryKind::EmptyDepName`] for a bare `dep:`,
-    /// [`InvalidFeatureEntryKind::MultiplePathSeparators`] for more than one
-    /// `/`, [`InvalidFeatureEntryKind::EmptyDepOrFeature`] when either side of
+    /// [`InvalidFeatureEntryKind::MultiplePathSeparators`] when the
+    /// dependency part itself carries more than one `/`,
+    /// [`InvalidFeatureEntryKind::EmptyDepOrFeature`] when either side of
     /// `<dep>/<feature>` is empty, and
     /// [`InvalidFeatureEntryKind::UnsupportedCharacter`] for a name containing a
     /// character outside the allowed identifier set.
@@ -306,17 +313,14 @@ impl FeatureEntry {
             if rest.is_empty() {
                 return Err(InvalidFeatureEntryKind::EmptyDepName);
             }
-            check_identifier_chars(rest)?;
+            check_dep_reference_chars(rest)?;
             return Ok(FeatureEntry::OptionalDep(rest.to_owned()));
         }
-        if let Some((dep, feature)) = input.split_once('/') {
-            if feature.contains('/') {
-                return Err(InvalidFeatureEntryKind::MultiplePathSeparators);
-            }
+        if let Some((dep, feature)) = input.rsplit_once('/') {
             if dep.is_empty() || feature.is_empty() {
                 return Err(InvalidFeatureEntryKind::EmptyDepOrFeature);
             }
-            check_identifier_chars(dep)?;
+            check_dep_reference_chars(dep)?;
             check_identifier_chars(feature)?;
             return Ok(FeatureEntry::DepFeature {
                 dep: dep.to_owned(),
@@ -325,6 +329,26 @@ impl FeatureEntry {
         }
         check_identifier_chars(input)?;
         Ok(FeatureEntry::Local(input.to_owned()))
+    }
+}
+
+/// Character/shape check for a dependency reference inside a feature
+/// entry: a bare name, or a scoped `<scope>/<name>` with exactly one
+/// `/` and identifier characters on both sides.  Whether the
+/// reference names a declared dependency is a separate validation.
+fn check_dep_reference_chars(s: &str) -> Result<(), InvalidFeatureEntryKind> {
+    match s.split_once('/') {
+        None => check_identifier_chars(s),
+        Some((scope, base)) => {
+            if base.contains('/') {
+                return Err(InvalidFeatureEntryKind::MultiplePathSeparators);
+            }
+            if scope.is_empty() || base.is_empty() {
+                return Err(InvalidFeatureEntryKind::EmptyDepOrFeature);
+            }
+            check_identifier_chars(scope)?;
+            check_identifier_chars(base)
+        }
     }
 }
 
@@ -716,6 +740,48 @@ mod tests {
         ProfileDefinition, ProfileName, ProfileSelection, ResolvedProfile, resolve_profile,
     };
     use camino::Utf8PathBuf;
+
+    /// The dep/feature split is on the *last* `/`: legacy
+    /// `dep/feature` keeps its meaning and a scoped dependency
+    /// (`<scope>/<name>`) is addressable in both `dep:` and
+    /// `<dep>/<feature>` entries.
+    #[test]
+    fn feature_entries_accept_scoped_dependency_references() {
+        assert_eq!(
+            FeatureEntry::parse("dep:fmtlib/fmt").unwrap(),
+            FeatureEntry::OptionalDep("fmtlib/fmt".to_owned())
+        );
+        assert_eq!(
+            FeatureEntry::parse("fmtlib/fmt/json").unwrap(),
+            FeatureEntry::DepFeature {
+                dep: "fmtlib/fmt".to_owned(),
+                feature: "json".to_owned(),
+            }
+        );
+        assert_eq!(
+            FeatureEntry::parse("fmt/json").unwrap(),
+            FeatureEntry::DepFeature {
+                dep: "fmt".to_owned(),
+                feature: "json".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn feature_entries_reject_over_slashed_references() {
+        assert_eq!(
+            FeatureEntry::parse("a/b/c/d").unwrap_err(),
+            InvalidFeatureEntryKind::MultiplePathSeparators
+        );
+        assert_eq!(
+            FeatureEntry::parse("dep:a/b/c").unwrap_err(),
+            InvalidFeatureEntryKind::MultiplePathSeparators
+        );
+        assert_eq!(
+            FeatureEntry::parse("a//b").unwrap_err(),
+            InvalidFeatureEntryKind::EmptyDepOrFeature
+        );
+    }
 
     fn dev() -> ResolvedProfile {
         resolve_profile(

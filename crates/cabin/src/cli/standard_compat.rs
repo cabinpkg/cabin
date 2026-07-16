@@ -219,7 +219,7 @@ fn violation_diagnostic(
         (EdgeRequirement::Forbidden, Some(section)) => format!(
             "; as a last resort, `{} = {{ ..., ignore-interface-standard = true }}` in the \
              `{section}` table of {} leaves exactly this edge unchecked",
-            violation.dependency_package,
+            toml_dependency_key(&violation.dependency_package),
             violation.consumer_manifest_path.display(),
         ),
         _ => String::new(),
@@ -254,6 +254,23 @@ fn violation_diagnostic(
 /// The downgraded note for an edge the consuming package opted out
 /// of the check: the violation is suppressed, but the edge is
 /// called out as unchecked so the override cannot silently rot.
+/// Render a dependency name as a `[dependencies]` table key: quoted
+/// unless every character is bare-key-legal (`A-Za-z0-9_-`) - a
+/// scoped name's `/` and a dotted name's `.` both need quotes (a
+/// bare dotted key would parse as a nested table) - so pasting the
+/// suggested line always yields the intended TOML.
+fn toml_dependency_key(name: &str) -> String {
+    let bare_legal = !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if bare_legal {
+        name.to_owned()
+    } else {
+        format!("\"{name}\"")
+    }
+}
+
 fn unchecked_note(violation: &StandardCompatViolation) -> StandardCompatDiagnostic {
     // Only override-suppressed violations reach this note, and a
     // suppressing entry always has a section.
@@ -334,6 +351,18 @@ fn consumer_snippet(site: &DeclSite) -> (miette::NamedSource<String>, Option<mie
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// Pasting the override remedy must always yield the intended
+    /// TOML: bare-legal names stay bare, while scoped (`/`) and
+    /// dotted (`.`) names are quoted - a bare dotted key would parse
+    /// as a nested table, not the dependency.
+    #[test]
+    fn toml_dependency_key_quotes_non_bare_names() {
+        assert_eq!(toml_dependency_key("liba"), "liba");
+        assert_eq!(toml_dependency_key("lib-a_2"), "lib-a_2");
+        assert_eq!(toml_dependency_key("acme/liba"), "\"acme/liba\"");
+        assert_eq!(toml_dependency_key("foo.bar"), "\"foo.bar\"");
+    }
 
     fn render(diagnostic: &dyn miette::Diagnostic) -> String {
         let mut out = String::new();

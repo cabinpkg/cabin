@@ -452,3 +452,57 @@ fn capture_dry_run(cwd: &Path, args: &[&str]) -> String {
         .clone();
     String::from_utf8(output.stdout).unwrap()
 }
+
+/// `packages/<bare>` doubles as the scope directory of every
+/// `<bare>/<name>` package, and package-scoped clean removes
+/// recursively: a bare selection whose name is also a scope in the
+/// loaded workspace is refused instead of silently deleting scoped
+/// outputs that were never selected.  Cleaning the scoped package
+/// itself stays precise and allowed.
+#[test]
+fn clean_refuses_bare_package_named_like_a_workspace_scope() {
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
+        .write_str("[workspace]\nmembers = [\"fmtlib\", \"fmt\"]\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("fmtlib/cabin.toml"))
+        .write_str(
+            "[package]\nname = \"fmtlib\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.fmtlib]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("fmtlib/src/lib.cc"))
+        .write_str("int x() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("fmt/cabin.toml"))
+        .write_str(
+            "[package]\nname = \"fmtlib/fmt\"\nversion = \"1.0.0\"\ncxx-standard = \"c++17\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("fmt/src/fmt.cc"))
+        .write_str("int f() { return 0; }\n")
+        .unwrap();
+    // A scoped output that a recursive `packages/fmtlib` removal
+    // would take with it.
+    let scoped_output = dir.path().join("build/dev/packages/fmtlib/fmt/libfmt.a");
+    assert_fs::fixture::ChildPath::new(scoped_output.clone())
+        .write_str("archive")
+        .unwrap();
+
+    cabin()
+        .current_dir(dir.path())
+        .args(["clean", "-p", "fmtlib"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("also holds"));
+    assert!(
+        scoped_output.exists(),
+        "the scoped package's output must survive the refused clean"
+    );
+
+    cabin()
+        .current_dir(dir.path())
+        .args(["clean", "-p", "fmtlib/fmt"])
+        .assert()
+        .success();
+    assert!(!scoped_output.exists());
+}

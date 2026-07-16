@@ -15,6 +15,15 @@ pub enum PublishError {
     )]
     DryRunRequired,
 
+    /// The staged package carries a bare (unscoped) name.  Registry
+    /// packages are always `<scope>/<name>`; bare names exist only in
+    /// local manifests.  Raised before any lint, registry, or network
+    /// work so the fix is the first thing the user sees.
+    #[error(
+        "registry packages must be named `<scope>/<name>`, but `{name}` is a bare name; in {manifest_path}, change\n    name = \"{name}\"\nto your claimed scope, e.g.\n    name = \"<scope>/{name}\"\n(local-only builds and path dependencies may keep bare names)"
+    )]
+    BarePackageName { name: String, manifest_path: String },
+
     /// One or more rejecting standard-compatibility lints (PL1) failed
     /// the publish before any registry artifact or index write.
     #[error("{}", format_lint_errors(.0))]

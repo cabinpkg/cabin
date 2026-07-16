@@ -895,6 +895,7 @@ mod tests {
             compile_commands: Vec::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let mut plan = cabin_test::plan_tests(&graph, &build_graph, Some(&[0]));
         assert_eq!(plan.len(), 1);

@@ -384,7 +384,7 @@ pub(crate) fn run(
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(vec![ManifestTargetSelector {
-            package: Some(run_target.package_name.clone()),
+            package: Some(run_target.package_name.as_str().to_owned()),
             name: run_target.target_name.clone(),
         }]),
         configuration: root_configuration.as_ref(),
@@ -455,7 +455,7 @@ pub(crate) fn run(
     let env_overlay = cabin_env::package_env(&cabin_env::PackageEnvInputs {
         manifest_dir: &run_target.manifest_dir,
         manifest_path: &run_target.manifest_path,
-        package_name: &run_target.package_name,
+        package_name: run_target.package_name.as_str(),
         package_version: &run_target.package_version,
         profile: profile.name.as_str(),
         build_dir: &build_dir,
@@ -515,7 +515,7 @@ fn exit_code_byte(code: Option<i32>) -> u8 {
 /// exactly one of these before invoking the planner.
 #[derive(Debug, Clone)]
 struct RunTarget {
-    package_name: String,
+    package_name: cabin_core::PackageName,
     package_version: String,
     target_name: String,
     manifest_dir: PathBuf,
@@ -629,7 +629,10 @@ fn find_target(
         bail!("{flag} `{name}` was not found in the selected packages");
     }
     if candidates.len() > 1 {
-        let owners: Vec<String> = candidates.iter().map(|t| t.package_name.clone()).collect();
+        let owners: Vec<String> = candidates
+            .iter()
+            .map(|t| t.package_name.to_string())
+            .collect();
         bail!(
             "{flag} `{name}` is ambiguous; declared by packages: {}",
             owners.join(", ")
@@ -645,7 +648,7 @@ fn make_run_target(
     target_name: &str,
 ) -> RunTarget {
     RunTarget {
-        package_name: package.name.as_str().to_owned(),
+        package_name: package.name.clone(),
         package_version: package.version.to_string(),
         target_name: target_name.to_owned(),
         manifest_dir: manifest_dir.to_path_buf(),
@@ -673,9 +676,11 @@ fn display_run_path(executable: &Path, manifest_path: &Path) -> String {
 /// Walk the planner's `default_outputs` looking for the
 /// executable produced for `target`.  The planner names every
 /// `executable` output
-/// `<build_dir>/<profile>/packages/<pkg>/<target>` (no extension
-/// on POSIX; `.exe` on Windows).  We scan rather than re-deriving
-/// the path so the planner stays the single source of truth.
+/// `<build_dir>/<profile>/packages/<pkg-components>/<target>` (no
+/// extension on POSIX; `.exe` on Windows), where a scoped package
+/// contributes `<scope>/<name>` and a bare one `<name>`.  We scan
+/// rather than re-deriving the path so the planner stays the single
+/// source of truth.
 fn locate_target_executable(
     default_outputs: &[Utf8PathBuf],
     target: &RunTarget,
@@ -683,13 +688,12 @@ fn locate_target_executable(
     // The build graph carries UTF-8 paths; the located executable is
     // demoted to a native `PathBuf` here because the caller spawns it
     // through `std::process::Command`.
-    let needle_tail: PathBuf = [
-        "packages",
-        target.package_name.as_str(),
-        target.target_name.as_str(),
-    ]
-    .iter()
-    .collect();
+    // `path_components` mirrors the planner's name-to-path mapping so
+    // the needle matches the emitted layout for scoped names too.
+    let parent_tail: PathBuf = std::iter::once("packages")
+        .chain(target.package_name.path_components())
+        .collect();
+    let needle_tail = parent_tail.join(&target.target_name);
     default_outputs
         .iter()
         .find(|p| p.as_std_path().ends_with(&needle_tail))
@@ -699,7 +703,6 @@ fn locate_target_executable(
             // unsuffixed needle does not match.  Try matching
             // the parent directory and last component
             // separately.
-            let parent_tail: PathBuf = ["packages", target.package_name.as_str()].iter().collect();
             default_outputs.iter().find_map(|p| {
                 let std = p.as_std_path();
                 let same_parent = std.parent().is_some_and(|pp| pp.ends_with(&parent_tail));
@@ -790,7 +793,7 @@ mod tests {
         ]);
         let chosen = find_target(&graph, &[0, 1], "shared", TargetKind::Executable, "--bin")
             .expect("an executable candidate exists in pkg[1]");
-        assert_eq!(chosen.package_name, "exe_pkg");
+        assert_eq!(chosen.package_name.as_str(), "exe_pkg");
         assert_eq!(chosen.target_name, "shared");
     }
 
@@ -807,6 +810,36 @@ mod tests {
             msg.contains("matched a target of kind") && msg.contains("library"),
             "expected kind-mismatch wording, got: {msg}",
         );
+    }
+
+    /// The locate needle mirrors the planner's scoped layout: a
+    /// scoped package's executable sits under
+    /// `packages/<scope>/<name>/<target>`, and a bare needle never
+    /// matches across a scope boundary.
+    #[test]
+    fn locate_target_executable_handles_scoped_package_dirs() {
+        let outputs = vec![
+            Utf8PathBuf::from("/b/dev/packages/fmtlib/fmt/demo"),
+            Utf8PathBuf::from("/b/dev/packages/other/tool"),
+        ];
+        let scoped = RunTarget {
+            package_name: PackageName::new("fmtlib/fmt").unwrap(),
+            package_version: "1.0.0".to_owned(),
+            target_name: "demo".to_owned(),
+            manifest_dir: PathBuf::new(),
+            manifest_path: PathBuf::new(),
+        };
+        assert_eq!(
+            locate_target_executable(&outputs, &scoped),
+            Some(PathBuf::from("/b/dev/packages/fmtlib/fmt/demo"))
+        );
+        // A bare package named like the scoped base must not match
+        // the scoped package's output across the scope boundary.
+        let bare = RunTarget {
+            package_name: PackageName::new("fmt").unwrap(),
+            ..scoped
+        };
+        assert_eq!(locate_target_executable(&outputs, &bare), None);
     }
 
     #[test]

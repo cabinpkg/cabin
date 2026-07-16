@@ -281,6 +281,12 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         resolved_deps.insert(tid, resolved);
     }
 
+    // The layout hazard is per plan: only packages that actually
+    // land in this build tree can clash, so an unrelated bare
+    // workspace member named like some scope must not block a
+    // selection that never builds it.
+    reject_bare_name_scope_collisions(req.graph, &reachable)?;
+
     let topo = topo_sort_targets(&reachable, &resolved_deps, req.graph)?;
 
     // Post-resolution standard-compatibility check (spec D13 over
@@ -342,14 +348,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         transitive_deps.insert(tid.clone(), dep_closure.clone());
 
         let pkg = &req.graph.packages[tid.0];
-        let pkg_name = pkg.package.name.as_str();
         // Per-profile output root keeps `dev` and `release`
         // builds from overwriting each other and gives custom
         // profiles a deterministic, non-colliding output tree.
-        let pkg_build_dir = build_dir
-            .join(req.profile.name.as_str())
-            .join("packages")
-            .join(pkg_name);
+        // A scoped package nests as `packages/<scope>/<name>`;
+        // `path_components` is the sanctioned name-to-path mapping
+        // (the full name string is never one path component).
+        let pkg_build_dir = pkg.package.name.path_components().fold(
+            build_dir.join(req.profile.name.as_str()).join("packages"),
+            |dir, component| dir.join(component),
+        );
         // The manifest directory is an OS-canonicalized path; promote
         // it to UTF-8 (rejecting non-UTF-8) so the source and include
         // paths it anchors enter the IR as `Utf8PathBuf`.
@@ -719,10 +727,16 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         .filter_map(|tid| output_for_target.get(tid).cloned())
         .collect();
 
+    let planned_packages: BTreeSet<String> = reachable
+        .iter()
+        .map(|tid| req.graph.packages[tid.0].package.name.as_str().to_owned())
+        .collect();
+
     Ok(BuildGraph {
         actions,
         dialect: req.dialect,
         default_outputs,
+        planned_packages,
         compile_commands,
         standard_violations,
         standard_compat_violations,
@@ -782,6 +796,49 @@ pub(crate) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
 /// consumer compiles.  The chronological `>=` comparison is a
 /// compatibility policy, not a proof of header validity - see
 /// `docs/language-standards.md`.
+/// Reject a plan where one planned package's bare name equals
+/// another planned package's scope.  Both would claim
+/// `packages/<name>` in this build tree: the bare package writes its
+/// target files there while the scoped one nests its package
+/// directory inside, so the build could fail on a file/directory
+/// clash and `cabin clean -p <name>` would remove the scoped
+/// package's output too.  Rejecting the combination up front keeps
+/// the on-disk layout unambiguous for every consumer that parses it
+/// back (progress banners, link diagnostics, clean).  Only packages
+/// whose targets are reachable from this plan's selection
+/// participate: an unrelated bare workspace member named like some
+/// dependency's scope never blocks a selection that does not build
+/// it.
+fn reject_bare_name_scope_collisions(
+    graph: &PackageGraph,
+    reachable: &HashSet<TargetId>,
+) -> Result<(), BuildError> {
+    // Sorted so a multi-collision graph reports the same pair every
+    // run.
+    let planned: BTreeSet<usize> = reachable.iter().map(|tid| tid.0).collect();
+    let bare: HashSet<&str> = planned
+        .iter()
+        .map(|&idx| &graph.packages[idx].package.name)
+        .filter(|name| !name.is_scoped())
+        .map(cabin_core::PackageName::as_str)
+        .collect();
+    if bare.is_empty() {
+        return Ok(());
+    }
+    for &idx in &planned {
+        let name = &graph.packages[idx].package.name;
+        if let Some(scope) = name.scope()
+            && bare.contains(scope)
+        {
+            return Err(BuildError::PackageNameCollidesWithScope {
+                package: scope.to_owned(),
+                scoped: name.as_str().to_owned(),
+            });
+        }
+    }
+    Ok(())
+}
+
 ///
 /// Incompatibilities are *recorded* on the consumer's first compile
 /// of the offending language rather than failing the plan: the

@@ -266,7 +266,22 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
 
     let name = package.name.as_str().to_owned();
     let version = package.version.to_string();
-    let source_path = format!("../artifacts/{name}/{name}-{version}.tar.gz");
+    // Canonical relative link from the package's index document to
+    // its artifact.  A bare index doc lives at `packages/<name>.json`
+    // (one level up to the root), a scoped one at
+    // `packages/<scope>/<name>.json` (two levels), and the artifact
+    // filename embeds the scope.  The scoped shape must byte-match
+    // the hosted registry's canonical source path
+    // (`registry/src/publish.rs`) - it is validated verbatim at
+    // publish time.
+    let source_path = match package.name.scope() {
+        Some(scope) => format!(
+            "../../artifacts/{scope}/{base}/{stem}-{version}.tar.gz",
+            base = package.name.base_name(),
+            stem = package.name.artifact_stem(),
+        ),
+        None => format!("../artifacts/{name}/{name}-{version}.tar.gz"),
+    };
 
     PackageMetadata {
         schema: PACKAGE_METADATA_SCHEMA,
@@ -441,6 +456,22 @@ mod tests {
         assert_eq!(meta.source.kind, "archive");
         assert_eq!(meta.source.format, "tar.gz");
         assert_eq!(meta.source.path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
+    }
+
+    /// The scoped shape climbs two levels (the index doc lives at
+    /// `packages/<scope>/<name>.json`) and embeds the scope in both
+    /// the artifact directory and the filename.  It must byte-match
+    /// the hosted registry's canonical source path
+    /// (`registry/src/publish.rs`), which validates it verbatim.
+    #[test]
+    fn scoped_metadata_source_path_embeds_the_scope_twice() {
+        let proj = package("fmtlib/fmt", "1.0.0", Vec::new());
+        let meta = canonical_metadata(&proj, "sha256:x");
+        assert_eq!(meta.name, "fmtlib/fmt");
+        assert_eq!(
+            meta.source.path,
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+        );
     }
 
     #[test]

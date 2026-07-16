@@ -118,7 +118,7 @@ fn published_member_with_workspace_dep_resolves_at_foreign_consumer() {
     assert_fs::fixture::ChildPath::new(core_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "core"
+name = "acme/core"
 version = "1.0.0"
 cxx-standard = "c++17"
 
@@ -150,23 +150,23 @@ include-dirs = ["include"]
     write_workspace_root(
         &publisher,
         r#"[workspace.dependencies]
-core = "^1""#,
+"acme/core" = "^1""#,
     );
     let app_root = publisher.join("packages/app");
     assert_fs::fixture::ChildPath::new(app_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "app"
+name = "acme/app"
 version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-core = { workspace = true }
+"acme/core" = { workspace = true }
 
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["core"]
+deps = ["acme/core"]
 "#,
         )
         .unwrap();
@@ -176,7 +176,7 @@ deps = ["core"]
     cabin()
         .args(["publish", "--manifest-path"])
         .arg(publisher.join("cabin.toml"))
-        .args(["--package", "app", "--registry-dir"])
+        .args(["--package", "acme/app", "--registry-dir"])
         .arg(&registry)
         .assert()
         .success();
@@ -189,13 +189,13 @@ deps = ["core"]
     write_workspace_root(
         &consumer,
         r#"[workspace.dependencies]
-core = "=99.0.0""#,
+"acme/core" = "=99.0.0""#,
     );
     write_member(
         &consumer,
         "demo",
         r#"[dependencies]
-app = "=0.1.0""#,
+"acme/app" = "=0.1.0""#,
     );
     cabin()
         .args(["build", "--manifest-path"])
@@ -209,11 +209,11 @@ app = "=0.1.0""#,
         .assert()
         .success();
     let lock = fs::read_to_string(consumer.join("cabin.lock")).unwrap();
-    assert!(lock.contains(r#"name = "app""#), "lockfile: {lock}");
+    assert!(lock.contains(r#"name = "acme/app""#), "lockfile: {lock}");
     // The renderer emits `name` / `version` as adjacent LF-separated
     // lines, so this pins core specifically at the publisher's 1.x.
     assert!(
-        lock.contains("name = \"core\"\nversion = \"1.0.0\""),
+        lock.contains("name = \"acme/core\"\nversion = \"1.0.0\""),
         "lockfile: {lock}"
     );
     assert!(

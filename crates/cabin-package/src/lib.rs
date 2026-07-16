@@ -328,8 +328,8 @@ pub fn write_staged(
     staged: &StagedPackage,
     output_dir: &Path,
 ) -> Result<PackagedArtifact, PackageError> {
-    let archive_path = output_dir.join(archive_filename(staged.name.as_str(), &staged.version));
-    let metadata_path = output_dir.join(metadata_filename(staged.name.as_str(), &staged.version));
+    let archive_path = output_dir.join(archive_filename(&staged.name, &staged.version));
+    let metadata_path = output_dir.join(metadata_filename(&staged.name, &staged.version));
 
     let metadata_bytes = metadata::render_canonical_json(&staged.metadata)?;
 
@@ -350,14 +350,21 @@ pub fn write_staged(
     })
 }
 
-/// Conventional `<name>-<version>.tar.gz` archive filename.
-pub(crate) fn archive_filename(name: &str, version: &semver::Version) -> String {
-    format!("{name}-{version}.tar.gz")
+/// Conventional `<stem>-<version>.tar.gz` archive filename, where a
+/// scoped name flattens to `<scope>-<name>` so the file stays
+/// self-identifying outside any registry directory tree.  Distinct
+/// packages can flatten to the same stem (`a-b/c`, `a/b-c`, and bare
+/// `a-b-c`), so an output directory holds the staging products of
+/// one package only; `write_idempotent` fails closed on a byte
+/// mismatch rather than clobbering another package's files.
+pub(crate) fn archive_filename(name: &PackageName, version: &semver::Version) -> String {
+    format!("{}-{version}.tar.gz", name.artifact_stem())
 }
 
-/// Conventional `<name>-<version>.json` metadata filename.
-pub(crate) fn metadata_filename(name: &str, version: &semver::Version) -> String {
-    format!("{name}-{version}.json")
+/// Conventional `<stem>-<version>.json` metadata filename; see
+/// [`archive_filename`] for the stem rule.
+pub(crate) fn metadata_filename(name: &PackageName, version: &semver::Version) -> String {
+    format!("{}-{version}.json", name.artifact_stem())
 }
 
 /// Write `body` to `path`, succeeding silently when the file already
@@ -460,6 +467,17 @@ fmt = { workspace = true, features = ["color"] }
         package.dependencies[0].source =
             cabin_core::DependencySource::Version(semver::VersionReq::parse(">=10, <11").unwrap());
         package
+    }
+
+    /// A scoped package's staging products land flat in the output
+    /// directory under the flattened `<scope>-<name>` stem - the `/`
+    /// never reaches a filename, so nothing nests.
+    #[test]
+    fn staged_filenames_flatten_the_scope() {
+        let name = PackageName::new("fmtlib/fmt").unwrap();
+        let version = semver::Version::parse("1.0.0").unwrap();
+        assert_eq!(archive_filename(&name, &version), "fmtlib-fmt-1.0.0.tar.gz");
+        assert_eq!(metadata_filename(&name, &version), "fmtlib-fmt-1.0.0.json");
     }
 
     #[test]

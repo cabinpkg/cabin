@@ -36,9 +36,11 @@ This keeps ordinary feature identifiers separate from the feature-entry syntax d
  - `"feature_name"` - enables another local feature on the same package (transitive feature
    implication).
  - `"dep:dependency_name"` - enables an optional Cabin package dependency declared by this package's
-   `[dependencies]` table.
+   `[dependencies]` table.  The dependency name may be scoped: `"dep:fmtlib/fmt"`.
  - `"dependency_name/feature_name"` - requests a feature on a Cabin package dependency.  If the
-   dependency is optional this form also enables it.
+   dependency is optional this form also enables it.  The split is on the *last* `/` (feature names
+   never contain one), so `"fmtlib/fmt/json"` requests feature `json` of the scoped dependency
+   `fmtlib/fmt` and the legacy `"fmt/json"` keeps its meaning.
 - The on-disk shape stays a list of strings; the typed
   [`FeatureEntry`](https://github.com/cabinpkg/cabin/blob/main/crates/cabin-core/src/config.rs) view
   is produced lazily by the feature resolver.
@@ -48,8 +50,9 @@ This keeps ordinary feature identifiers separate from the feature-entry syntax d
   b -> a` error.
 - Declaring a normal feature called `default` is rejected (the key is reserved for the default
   group).
-- Feature entries may only use ASCII letters, digits, `_`, `-`, `.`, plus the leading `dep:` prefix
-  or a single `/` separator.  Anything else is rejected with a clear error.
+- Feature entries may only use ASCII letters, digits, `_`, `-`, `.`, plus the leading `dep:`
+  prefix, the scope separator inside a scoped dependency name, and the `/` before a feature name.
+  Anything else is rejected with a clear error.
 
 ## Optional dependencies and the feature resolver
 

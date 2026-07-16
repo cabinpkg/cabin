@@ -92,14 +92,53 @@ include-dirs = ["include"]
     assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
             .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
             .unwrap();
-    let registry = dir.join("registry");
+    // `cabin publish` now requires scoped names, but the sparse-HTTP
+    // protocol still speaks bare names until the scoped read routes
+    // land, so assemble the bare fixture registry by hand from the
+    // ungated `cabin package` staging output.
+    let dist = dir.join("dist");
     cabin()
-        .args(["publish", "--manifest-path"])
+        .args(["package", "--manifest-path"])
         .arg(pkg_root.join("cabin.toml"))
-        .arg("--registry-dir")
-        .arg(&registry)
+        .arg("--output-dir")
+        .arg(&dist)
         .assert()
         .success();
+    let staged: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dist.join("fmt-10.2.1.json")).unwrap()).unwrap();
+    let mut version_entry = serde_json::json!({
+        "dependencies": {},
+        "yanked": false,
+        "checksum": staged["checksum"],
+        "source": {
+            "type": "archive",
+            "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
+            "format": "tar.gz"
+        }
+    });
+    if let Some(standards) = staged.get("standards") {
+        version_entry["standards"] = standards.clone();
+    }
+    let index = serde_json::json!({
+        "schema": 1,
+        "name": "fmt",
+        "versions": { "10.2.1": version_entry }
+    });
+    let registry = dir.join("registry");
+    assert_fs::fixture::ChildPath::new(registry.join("config.json"))
+        .write_str(
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(registry.join("packages/fmt.json"))
+        .write_str(&index.to_string())
+        .unwrap();
+    fs::create_dir_all(registry.join("artifacts/fmt")).unwrap();
+    fs::copy(
+        dist.join("fmt-10.2.1.tar.gz"),
+        registry.join("artifacts/fmt/fmt-10.2.1.tar.gz"),
+    )
+    .unwrap();
     registry
 }
 

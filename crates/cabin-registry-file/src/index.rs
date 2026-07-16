@@ -114,7 +114,7 @@ pub fn read_published_standards(
     name: &PackageName,
 ) -> Result<Vec<(semver::Version, StandardsMetadata)>, RegistryError> {
     let registry = FileRegistry::inspect(registry_dir)?;
-    let path = registry.package_index_path(name.as_str());
+    let path = registry.package_index_path(name);
     let Some(index) = read_optional(&path)? else {
         return Ok(Vec::new());
     };

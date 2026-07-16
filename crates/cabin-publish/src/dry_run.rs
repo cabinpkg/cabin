@@ -70,6 +70,10 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
         Some(request.output_dir),
         &request.workspace_dep_requirements,
     )?;
+    // A dry-run rehearses a publish, so the bare-name gate fires
+    // here too - the point of `--dry-run` is to surface exactly what
+    // the real publish would reject.
+    crate::registry::require_scoped_name(&staged.name, request.manifest_path)?;
     // Reject on a PL1 error before writing any staging output.
     let warnings = crate::lints::split(crate::lints::manifest_findings(&staged.package))
         .map_err(PublishError::StandardCompatibility)?;
@@ -98,7 +102,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
             .unwrap();
         let out = dir.child("dist");
         let report = dry_run(DryRunRequest {
@@ -108,7 +112,7 @@ mod tests {
             workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
-        assert_eq!(report.name.as_str(), "fmt");
+        assert_eq!(report.name.as_str(), "fmtlib/fmt");
         assert_eq!(report.version.to_string(), "10.2.1");
         assert!(report.archive_path.is_file());
         assert!(report.metadata_path.is_file());
@@ -121,7 +125,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
             .unwrap();
         let out = dir.child("dist");
         let first = dry_run(DryRunRequest {
@@ -139,5 +143,35 @@ mod tests {
         })
         .unwrap();
         assert_eq!(first.checksum, second.checksum);
+    }
+
+    /// The staging dry-run rehearses a publish, so a bare name fails
+    /// with the actionable rename diagnostic before anything is
+    /// written.
+    #[test]
+    fn dry_run_rejects_bare_names_before_writing() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let out = dir.child("dist");
+        let err = dry_run(DryRunRequest {
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+        })
+        .unwrap_err();
+        match &err {
+            PublishError::BarePackageName { name, .. } => assert_eq!(name, "fmt"),
+            other => panic!("expected BarePackageName, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(
+            message.contains("name = \"fmt\"") && message.contains("name = \"<scope>/fmt\""),
+            "diagnostic must show the exact manifest line to change, got: {message}"
+        );
+        out.assert(predicates::path::missing());
     }
 }

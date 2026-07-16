@@ -43,7 +43,7 @@ pub enum IndexHttpError {
     Index(#[from] cabin_index::IndexError),
 
     #[error(
-        "package name `{name}` is not valid; package names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`"
+        "package name `{name}` cannot be fetched from a remote registry; names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`; scoped names (`<scope>/<name>`) are not supported by the remote registry protocol yet"
     )]
     UnsafePackageName { name: String },
 }

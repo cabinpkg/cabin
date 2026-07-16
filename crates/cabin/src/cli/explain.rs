@@ -174,8 +174,10 @@ pub(crate) fn explain(
             // package the user named.  We look up the package up
             // front so we can map its enabled features into the
             // typed view the cabin-explain crate consumes.
+            // Split on the last `/` to mirror `explain_feature`:
+            // the package part of the query may itself be scoped.
             let pkg_name = query
-                .split_once('/')
+                .rsplit_once('/')
                 .map_or_else(|| query.clone(), |(p, _)| p.to_owned());
             let view = if let Some(idx) = graph.index_of(&pkg_name) {
                 let enabled = feature_resolution.for_package(idx).enabled_features.clone();

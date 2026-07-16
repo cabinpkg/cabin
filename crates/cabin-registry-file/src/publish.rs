@@ -41,8 +41,10 @@ pub struct RegistryPublishOutcome {
 /// orphaned binary.
 ///
 /// # Errors
-/// Returns [`RegistryError::UnsafePackageName`] for a path-unsafe
-/// package name, [`RegistryError::Io`] if the registry directory
+/// Returns [`RegistryError::BarePackageName`] for an unscoped name
+/// and [`RegistryError::StagedMetadataNameMismatch`] when the staged
+/// metadata disagrees with the typed staged name,
+/// [`RegistryError::Io`] if the registry directory
 /// cannot be created, and [`RegistryError::Locked`] if another process
 /// holds the lock.  Once locked, propagates every error from the write
 /// path, including registry initialization
@@ -53,7 +55,7 @@ pub struct RegistryPublishOutcome {
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    ensure_path_safe_package_name(request.staged.name.as_str())?;
+    ensure_publishable_registry_name(request.staged)?;
     let registry_dir = request.registry_dir;
     fs::create_dir_all(registry_dir).map_err(|source| RegistryError::Io {
         path: registry_dir.to_path_buf(),
@@ -72,8 +74,10 @@ pub fn publish_to_registry(
 /// version, orphaned artifact) without writing anything.
 ///
 /// # Errors
-/// Returns [`RegistryError::UnsafePackageName`] for a path-unsafe
-/// package name, propagates the registry-open errors of
+/// Returns [`RegistryError::BarePackageName`] for an unscoped name
+/// and [`RegistryError::StagedMetadataNameMismatch`] when the staged
+/// metadata disagrees with the typed staged name, propagates the
+/// registry-open errors of
 /// [`FileRegistry::inspect`], and propagates the pre-write checks
 /// (`plan_publish`): [`RegistryError::DuplicateVersion`],
 /// [`RegistryError::OrphanedArtifact`],
@@ -82,27 +86,36 @@ pub fn publish_to_registry(
 pub fn validate_publish(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    ensure_path_safe_package_name(request.staged.name.as_str())?;
+    ensure_publishable_registry_name(request.staged)?;
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    plan_publish(&registry, &metadata).map(|mut plan| {
+    plan_publish(&registry, request.staged, &metadata).map(|mut plan| {
         plan.registry_modified = false;
         plan
     })
 }
 
-/// Defense-in-depth at the file-registry boundary.
-/// `cabin-package` rejects unsafe names earlier, but the
-/// registry crate is also reachable by tooling that bypasses
-/// staging, so we re-check here before any path is built from
-/// the package name.  The predicate itself lives in `cabin-core`
-/// so this crate, `cabin-package`, and `cabin-index-http` cannot
-/// drift on the rule.
-fn ensure_path_safe_package_name(name: &str) -> Result<(), RegistryError> {
-    if !cabin_core::is_path_safe_package_name(name) {
-        return Err(RegistryError::UnsafePackageName {
-            name: name.to_owned(),
+/// Defense-in-depth at the file-registry boundary.  Registry
+/// packages are always scoped (`<scope>/<name>`): `cabin-publish`
+/// rejects bare names earlier with an actionable diagnostic, but
+/// this crate is also reachable by tooling that bypasses that flow,
+/// so re-require the invariant before anything is written.  Legacy
+/// bare-name registries stay readable and vendorable - only new
+/// publication is gated.  The staged metadata must also agree with
+/// the typed staged name, because every registry path is derived
+/// from the latter while the former is what lands in the index
+/// document.
+fn ensure_publishable_registry_name(staged: &StagedPackage) -> Result<(), RegistryError> {
+    if !staged.name.is_scoped() {
+        return Err(RegistryError::BarePackageName {
+            name: staged.name.as_str().to_owned(),
+        });
+    }
+    if staged.metadata.name != staged.name.as_str() {
+        return Err(RegistryError::StagedMetadataNameMismatch {
+            staged: staged.name.as_str().to_owned(),
+            metadata: staged.metadata.name.clone(),
         });
     }
     Ok(())
@@ -113,7 +126,7 @@ fn publish_locked(
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
     let metadata = staged_metadata_for_registry(&registry, request.staged);
-    let plan = plan_publish(&registry, &metadata)?;
+    let plan = plan_publish(&registry, request.staged, &metadata)?;
 
     // Both paths come from `FileRegistry::artifact_path` /
     // `package_index_path`, which always nest at least one
@@ -178,9 +191,13 @@ fn publish_locked(
 /// - load and validate the existing index file (if any).
 fn plan_publish(
     registry: &FileRegistry,
+    staged: &StagedPackage,
     metadata: &PackageMetadata,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
-    let package_index_path = registry.package_index_path(&metadata.name);
+    // Paths derive from the *typed* staged identity;
+    // `ensure_publishable_registry_name` already pinned the
+    // metadata's name to it.
+    let package_index_path = registry.package_index_path(&staged.name);
     let version = semver::Version::parse(&metadata.version).map_err(|err| {
         RegistryError::PackageIndexInvalid {
             path: package_index_path.clone(),
@@ -190,7 +207,7 @@ fn plan_publish(
             ),
         }
     })?;
-    let artifact_path = registry.artifact_path(&metadata.name, &version);
+    let artifact_path = registry.artifact_path(&staged.name, &version);
 
     let existing = read_optional(&package_index_path)?;
     let already_in_index = existing
@@ -218,7 +235,7 @@ fn plan_publish(
         artifact_path,
         registry_modified: true,
         registry_initialized: registry.was_initialized_now(),
-        source_path: registry.relative_source_path(&metadata.name, &version),
+        source_path: registry.relative_source_path(&staged.name, &version),
         checksum: metadata.checksum.clone(),
     })
 }
@@ -231,7 +248,7 @@ fn staged_metadata_for_registry(
     staged: &StagedPackage,
 ) -> PackageMetadata {
     let mut metadata = staged.metadata.clone();
-    metadata.source.path = registry.relative_source_path(staged.name.as_str(), &staged.version);
+    metadata.source.path = registry.relative_source_path(&staged.name, &staged.version);
     metadata
 }
 
@@ -289,7 +306,15 @@ mod tests {
                 // path.
                 source: SourceMetadata {
                     kind: "archive".to_owned(),
-                    path: format!("../artifacts/{name}/{name}-{version}.tar.gz"),
+                    path: {
+                        let n = pkg(name);
+                        let climb = if n.is_scoped() { "../../" } else { "../" };
+                        let dirs = n.path_components().collect::<Vec<_>>().join("/");
+                        format!(
+                            "{climb}artifacts/{dirs}/{}-{version}.tar.gz",
+                            n.artifact_stem()
+                        )
+                    },
                     format: "tar.gz".to_owned(),
                 },
             },
@@ -300,7 +325,7 @@ mod tests {
     fn publish_writes_layout_and_artifact() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        let staged = staged("fmt", "10.2.1", b"hello world");
+        let staged = staged("fmtlib/fmt", "10.2.1", b"hello world");
         let outcome = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &staged,
@@ -315,21 +340,24 @@ mod tests {
             .child(".cabin-registry.lock")
             .assert(predicate::path::missing());
         // Source path is registry-relative.
-        assert_eq!(outcome.source_path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
+        assert_eq!(
+            outcome.source_path,
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+        );
     }
 
     #[test]
     fn duplicate_publish_fails_and_does_not_mutate() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        let s = staged("fmt", "10.2.1", b"first");
+        let s = staged("fmtlib/fmt", "10.2.1", b"first");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &s,
         })
         .unwrap();
 
-        let again = staged("fmt", "10.2.1", b"second");
+        let again = staged("fmtlib/fmt", "10.2.1", b"second");
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &again,
@@ -337,13 +365,18 @@ mod tests {
         .unwrap_err();
         match err {
             RegistryError::DuplicateVersion { name, version } => {
-                assert_eq!(name, "fmt");
+                assert_eq!(name, "fmtlib/fmt");
                 assert_eq!(version, "10.2.1");
             }
             other => panic!("expected DuplicateVersion, got {other:?}"),
         }
         // Original artifact still present, unchanged.
-        let body = fs::read(registry_dir.path().join("artifacts/fmt/fmt-10.2.1.tar.gz")).unwrap();
+        let body = fs::read(
+            registry_dir
+                .path()
+                .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"),
+        )
+        .unwrap();
         assert_eq!(body, b"first");
     }
 
@@ -353,22 +386,23 @@ mod tests {
         let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.1.0", b"v1"),
+            staged: &staged("fmtlib/fmt", "10.1.0", b"v1"),
         })
         .unwrap();
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"v2"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"v2"),
         })
         .unwrap();
-        let body = fs::read_to_string(registry_dir.path().join("packages/fmt.json")).unwrap();
+        let body =
+            fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
         assert!(body.contains("10.1.0"));
         assert!(body.contains("10.2.1"));
         registry_dir
-            .child("artifacts/fmt/fmt-10.1.0.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0.tar.gz")
             .assert(predicate::path::is_file());
         registry_dir
-            .child("artifacts/fmt/fmt-10.2.1.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
             .assert(predicate::path::is_file());
     }
 
@@ -376,7 +410,7 @@ mod tests {
     fn validate_publish_does_not_mutate_registry() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        let s = staged("fmt", "10.2.1", b"hi");
+        let s = staged("fmtlib/fmt", "10.2.1", b"hi");
         let outcome = validate_publish(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &s,
@@ -399,12 +433,12 @@ mod tests {
         let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"v1"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"v1"),
         })
         .unwrap();
         let err = validate_publish(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"v2"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"v2"),
         })
         .unwrap_err();
         assert!(matches!(err, RegistryError::DuplicateVersion { .. }));
@@ -418,13 +452,13 @@ mod tests {
         // updating the index - that's the "orphan" state.
         FileRegistry::open_or_initialize(registry_dir.path()).unwrap();
         registry_dir
-            .child("artifacts/fmt/fmt-10.2.1.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
             .write_binary(b"orphan")
             .unwrap();
 
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"new bytes"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"new bytes"),
         })
         .unwrap_err();
         assert!(matches!(err, RegistryError::OrphanedArtifact { .. }));
@@ -443,7 +477,7 @@ mod tests {
 
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"x"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"x"),
         })
         .unwrap_err();
         assert!(matches!(err, RegistryError::Locked));
@@ -455,14 +489,61 @@ mod tests {
         let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmt", "10.2.1", b"x"),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"x"),
         })
         .unwrap();
-        let body = fs::read_to_string(registry_dir.path().join("packages/fmt.json")).unwrap();
+        let body =
+            fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let source = &value["versions"]["10.2.1"]["source"];
         assert_eq!(source["type"], "archive");
         assert_eq!(source["format"], "tar.gz");
-        assert_eq!(source["path"], "../artifacts/fmt/fmt-10.2.1.tar.gz");
+        assert_eq!(
+            source["path"],
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+        );
+    }
+
+    /// Registry packages are always scoped: a bare name is refused
+    /// at this boundary even when the caller bypasses
+    /// `cabin-publish`, and nothing is written.
+    #[test]
+    fn bare_names_cannot_be_published() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+        for run in [publish_to_registry, validate_publish] {
+            let err = run(&RegistryPublishRequest {
+                registry_dir: registry_dir.path(),
+                staged: &staged("fmt", "10.2.1", b"x"),
+            })
+            .unwrap_err();
+            match err {
+                RegistryError::BarePackageName { name } => assert_eq!(name, "fmt"),
+                other => panic!("expected BarePackageName, got {other:?}"),
+            }
+        }
+        registry_dir
+            .child("config.json")
+            .assert(predicate::path::missing());
+    }
+
+    /// The index document location derives from the typed staged
+    /// name; metadata that disagrees is refused rather than written
+    /// somewhere its own `name` field contradicts.
+    #[test]
+    fn mismatched_metadata_name_is_refused() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+        let mut s = staged("fmtlib/fmt", "10.2.1", b"x");
+        s.metadata.name = "fmtlib/other".to_owned();
+        let err = publish_to_registry(&RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &s,
+        })
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryError::StagedMetadataNameMismatch { .. }
+        ));
     }
 }

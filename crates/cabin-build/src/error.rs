@@ -40,6 +40,16 @@ pub enum BuildError {
         candidates: Vec<String>,
     },
 
+    /// One package's bare name equals another package's scope, so
+    /// both would claim `packages/<name>` in the build tree (the
+    /// bare package's target files vs the scoped package's nested
+    /// directory).  The layout cannot host both; rename the local
+    /// bare package.
+    #[error(
+        "package {package:?} collides with the scope of package {scoped:?} in the build layout (both claim `packages/{package}`); rename the bare package"
+    )]
+    PackageNameCollidesWithScope { package: String, scoped: String },
+
     /// A target's `deps` entry names a package that the owning
     /// manifest only declares under `[dev-dependencies]`, but no
     /// active dev edge backs it: either the referencing target is

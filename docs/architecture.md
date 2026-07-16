@@ -180,12 +180,20 @@ are intentionally not traversed here.  Current invariants:
   the workspace: registry entries are required only for packages reachable from the selected
   closure, so unrelated workspace members' versioned deps are silently skipped during loading rather
   than being materialized into the package graph.
-- `cabin_core::is_path_safe_package_name` is the single authoritative `PackageName` grammar: ASCII
+- `PackageName` accepts a bare `name` or a scoped `<scope>/<name>` with exactly one `/`.
+  `cabin_core::is_path_safe_package_name` is the single authoritative *component* grammar: ASCII
   alphanumerics plus `_-.`, non-empty, not `.`/`..`, no leading dot.  It covers filesystem path
   components, sparse-HTTP URL path segments, and Windows-reserved filename characters in one rule,
-  and is enforced by `PackageName::new` so URL-reserved characters cannot reach `Url::join` through
-  any code path.  The diagnostic emitted on rejection echoes the offending name and describes the
-  grammar.
+  guarding bare names, the package part of a scoped name, `TargetName`, and the remote URL
+  boundaries (which therefore keep rejecting scoped names until the scoped routes land).  The scope
+  part uses `cabin_core::is_valid_package_scope`, the registry's GitHub-login-compatible scope
+  grammar (lowercase alphanumerics plus interior `-`, at most 39 bytes) - a strict subset of the
+  component grammar.  Both are enforced by `PackageName::new` so URL-reserved characters cannot
+  reach `Url::join` through any code path.  The full name string is the one canonical identity
+  (manifest, index, lockfile, resolver) and is never used as a single filesystem path component:
+  path sinks fold `PackageName::path_components` (scope dir + name dir for scoped names), and
+  filename/pkg-config/linker sinks use `base_name()` or the flattened `artifact_stem()`.  The
+  diagnostic emitted on rejection echoes the offending name and describes the grammar.
 - `cabin_workspace::standards` implements the effective-requirement recursion `R_L` of
   `docs/design/standard-compatibility/spec.md` (D10) over an already-resolved target graph: one
   topological pass per language over the public-edge subgraph, `O(|V| + |E|)` per language (spec
@@ -963,14 +971,20 @@ PackageMetadata { schema, name, version, dependencies,
    |
    |  cabin_package::package writes both files into --output-dir
    v
-dist/<name>-<version>.tar.gz
-dist/<name>-<version>.json
+dist/<stem>-<version>.tar.gz
+dist/<stem>-<version>.json
 ```
+
+The filename stem flattens a scoped name (`fmtlib/fmt` -> `fmtlib-fmt`) so the staged files stay
+self-identifying and land flat in the output directory; a bare name is its own stem.
 
 `cabin-publish::dry_run` calls into the same pipeline and returns a `DryRunReport` whose
 `registry_modified` flag is always `false`.  No registry, no network, no server is involved in the
-dry-run flow.  The canonical metadata's `source` block matches the existing index `source` shape
-(`type = "archive"`, `format = "tar.gz"`, `path = "../artifacts/<name>/<name>-<version>.tar.gz"`).
+dry-run flow - though it does require a scoped name, because a dry run rehearses a publish.  The
+canonical metadata's `source` block matches the existing index `source` shape
+(`type = "archive"`, `format = "tar.gz"`, `path = "../artifacts/<name>/<name>-<version>.tar.gz"`
+for a bare name, `path = "../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` for a
+scoped one - the shape the hosted registry validates verbatim).
 
 ### Local file-registry publish
 
@@ -985,15 +999,19 @@ StagedPackage { name, version, archive_bytes, checksum, metadata }
    v
 cabin_registry_file::publish_to_registry
    |
+   |  Require a scoped name: registry packages are always
+   |  `<scope>/<name>`; bare names fail (`cabin-publish` already
+   |  rejected them earlier with the rename diagnostic).
+   |
    |  RegistryLock::acquire(<registry>/.cabin-registry.lock)
    |  FileRegistry::open_or_initialize (writes config.json on first run)
    |
-   |  Read the existing packages/<name>.json (if any), validate name,
-   |  reject duplicate versions and orphaned artifacts.
+   |  Read the existing package index (if any), reject duplicate
+   |  versions and orphaned artifacts.
    |
    |  Phase 1: write artifact through `atomic-write-file` (sibling
    |           temp + rename)
-   |  Phase 2: write packages/<name>.json the same way; on failure,
+   |  Phase 2: write the package index file the same way; on failure,
    |           delete the placed artifact so the registry
    |           never carries an orphan.
    |
@@ -1015,13 +1033,16 @@ The registry written by this flow lands at:
 ```
 <registry>/
   config.json
-  packages/<name>.json
-  artifacts/<name>/<name>-<version>.tar.gz
+  packages/<scope>/<name>.json
+  artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz
 ```
 
-`cabin-index::load_index` detects `config.json` and reads packages out of the configured `packages/`
-subdirectory, so the same path that publish wrote to is consumable by `cabin resolve`, `cabin
-fetch`, and `cabin build --index-path` without any repackaging step.
+Publishing requires scoped names, so new entries always nest one scope directory deep; legacy
+bare-name registries (`packages/<name>.json`, `artifacts/<name>/<name>-<version>.tar.gz`) stay
+readable and vendorable.  `cabin-index::load_index` detects `config.json` and reads packages out of
+the configured `packages/` subdirectory - flat `<name>.json` files as bare names, one-level
+`<scope>/<name>.json` nesting as scoped names - so the same path that publish wrote to is consumable
+by `cabin resolve`, `cabin fetch`, and `cabin build --index-path` without any repackaging step.
 
 ### Sparse HTTP index read path
 

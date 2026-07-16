@@ -109,11 +109,13 @@ pub(crate) fn run_ninja(
     profile_build_root: &std::path::Path,
     reporter: Reporter,
     graph: &cabin_workspace::PackageGraph,
-    dialect: cabin_build::Dialect,
+    plan_graph: &cabin_build::BuildGraph,
     apply_discovered_msvc_install: bool,
 ) -> std::io::Result<NinjaRun> {
     use std::io::{BufRead, BufReader, Write as _};
     use std::process::Stdio;
+
+    let dialect = plan_graph.dialect;
 
     // Only an MSVC build graph gets the MSVC environment overlay
     // (`VSLANG`, and the auto-discovered `INCLUDE` / `LIB` / `PATH`).
@@ -147,9 +149,17 @@ pub(crate) fn run_ninja(
     // banner temporally accurate - header-only libraries that
     // contribute no actions never get a `Compiling` line because
     // they never appear in Ninja's output.
+    // Restricted to the packages this plan actually builds: an
+    // unplanned workspace member whose bare name equals a planned
+    // package's scope must never win the path-candidate match.
     let pkg_by_name: HashMap<&str, &cabin_workspace::WorkspacePackage> = graph
         .packages
         .iter()
+        .filter(|pkg| {
+            plan_graph
+                .planned_packages
+                .contains(pkg.package.name.as_str())
+        })
         .map(|pkg| (pkg.package.name.as_str(), pkg))
         .collect();
     let mut announced: HashSet<String> = HashSet::new();
@@ -197,9 +207,14 @@ pub(crate) fn run_ninja(
             captured_stdout.push_str(&line);
             captured_stdout.push('\n');
             if let Some(path) = ninja_progress_path(&line) {
-                if let Some(pkg_name) = package_segment_from_path(path, profile_root_str)
+                // Bare candidate first, scoped second: only a
+                // candidate naming a known package is announced, so
+                // a scope directory never wins over a real package.
+                if let Some((pkg_name, pkg)) = package_segment_candidates(path, profile_root_str)
+                    .into_iter()
+                    .flatten()
+                    .find_map(|candidate| pkg_by_name.get(candidate).map(|pkg| (candidate, *pkg)))
                     && announced.insert(pkg_name.to_owned())
-                    && let Some(pkg) = pkg_by_name.get(pkg_name)
                 {
                     announce_compiling(reporter, pkg);
                 }
@@ -242,6 +257,7 @@ pub(crate) fn run_ninja(
 pub(crate) fn emit_link_diagnostic_if_applicable(
     run: &NinjaRun,
     graph: &cabin_workspace::PackageGraph,
+    planned_packages: &BTreeSet<String>,
     feature_resolution: &cabin_feature::FeatureResolution,
     include_dev_for: &BTreeSet<String>,
     reporter: Reporter,
@@ -263,6 +279,13 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
 
     let host_platform = cabin_core::TargetPlatform::current();
     let lookup = |pkg_name: &str, target_name: &str| -> Option<TargetDepInfo> {
+        // A candidate reading only counts when the package was part
+        // of this plan: the failing path came out of this plan's
+        // Ninja file, so an unplanned bare member named like a
+        // scope must not absorb the failure.
+        if !planned_packages.contains(pkg_name) {
+            return None;
+        }
         let pkg_idx = graph.index_of(pkg_name)?;
         let wp = &graph.packages[pkg_idx];
         let target = wp
@@ -388,25 +411,44 @@ fn ninja_progress_path(line: &str) -> Option<&str> {
     Some(path)
 }
 
-/// Extract the package name from a planner-emitted build path.
-/// Every per-package artifact lives under `<build_dir>/<profile>
-/// /packages/<name>/…`, so locating the first `/packages/`
-/// segment after the profile build root and taking the next path
-/// component yields the owning package's name.  The search is
-/// anchored past `profile_root` (when it prefixes the path) so a
-/// `packages/` directory in the user's own build path - e.g. a
-/// project checked out under `~/packages/` - cannot shadow the
-/// planner's per-package segment.  Returns `None` when the path
+/// Extract the owning package's name candidates from a
+/// planner-emitted build path.  Every per-package artifact lives
+/// under `<build_dir>/<profile>/packages/<name>/…` for a bare
+/// package and `…/packages/<scope>/<name>/…` for a scoped one, so
+/// locating the first `/packages/` segment after the profile build
+/// root yields the candidates.  The parse alone cannot tell a scope
+/// directory from a bare package directory, so both readings are
+/// returned - bare (one component) first, scoped (two components
+/// re-joined with `/`) second - and the caller picks whichever
+/// matches a known package.  The search is anchored past
+/// `profile_root` (when it prefixes the path) so a `packages/`
+/// directory in the user's own build path - e.g. a project checked
+/// out under `~/packages/` - cannot shadow the planner's
+/// per-package segment.  Both candidates are `None` when the path
 /// lacks the segment (a custom-command output the planner did not
 /// route through the per-package tree).
-fn package_segment_from_path<'a>(path: &'a str, profile_root: Option<&str>) -> Option<&'a str> {
+fn package_segment_candidates<'a>(
+    path: &'a str,
+    profile_root: Option<&str>,
+) -> [Option<&'a str>; 2] {
     const SEGMENT: &str = "/packages/";
     let search = profile_root
         .and_then(|root| path.strip_prefix(root))
         .unwrap_or(path);
-    let after = search.find(SEGMENT)?;
+    let Some(after) = search.find(SEGMENT) else {
+        return [None, None];
+    };
     let tail = &search[after + SEGMENT.len()..];
-    tail.split('/').next().filter(|s| !s.is_empty())
+    let mut parts = tail.split('/');
+    let first = parts.next().filter(|s| !s.is_empty());
+    let second = parts.next().filter(|s| !s.is_empty());
+    let scoped = match (first, second) {
+        // Re-slice `tail` so the scoped candidate is one contiguous
+        // `<scope>/<name>` borrow rather than an allocation.
+        (Some(f), Some(s)) => Some(&tail[..f.len() + 1 + s.len()]),
+        _ => None,
+    };
+    [first, scoped]
 }
 
 /// Render the optional `-jN` token plus a trailing space for
@@ -529,7 +571,7 @@ pub(crate) fn invoke_ninja_and_report(
         &profile_build_root,
         req.reporter,
         req.graph,
-        req.plan_graph.dialect,
+        req.plan_graph,
         discovered_msvc_install_applies(req.toolchain, req.cxx_kind),
     )
     .with_context(|| format!("failed to invoke ninja at {}", req.ninja.display()))?;
@@ -537,6 +579,7 @@ pub(crate) fn invoke_ninja_and_report(
         emit_link_diagnostic_if_applicable(
             &run,
             req.graph,
+            &req.plan_graph.planned_packages,
             req.feature_resolution,
             req.dev_for,
             req.reporter,
@@ -606,18 +649,39 @@ mod tests {
         // finds the planner's own segment.
         let path = "/home/u/packages/proj/build/dev/packages/foo/src_main.cc.o";
         assert_eq!(
-            package_segment_from_path(path, Some("/home/u/packages/proj/build/dev")),
-            Some("foo")
+            package_segment_candidates(path, Some("/home/u/packages/proj/build/dev")),
+            [Some("foo"), Some("foo/src_main.cc.o")]
         );
-        assert_eq!(package_segment_from_path(path, None), Some("proj"));
+        assert_eq!(
+            package_segment_candidates(path, None),
+            [Some("proj"), Some("proj/build")]
+        );
         // Paths the planner did not route through the per-package
         // tree stay unattributed.
         assert_eq!(
-            package_segment_from_path(
+            package_segment_candidates(
                 "/home/u/proj/build/dev/stamp",
                 Some("/home/u/proj/build/dev")
             ),
-            None
+            [None, None]
+        );
+    }
+
+    /// A scoped package's artifacts live two components below
+    /// `packages/`; the scoped candidate re-joins them so the caller
+    /// can match `<scope>/<name>` against the workspace package set.
+    #[test]
+    fn package_segment_yields_the_scoped_candidate() {
+        let path = "/w/build/dev/packages/fmtlib/fmt/src_lib.cc.o";
+        assert_eq!(
+            package_segment_candidates(path, Some("/w/build/dev")),
+            [Some("fmtlib"), Some("fmtlib/fmt")]
+        );
+        // An output file directly under `packages/<name>` (a bare
+        // package's executable) has no second component.
+        assert_eq!(
+            package_segment_candidates("/w/build/dev/packages/tool", Some("/w/build/dev")),
+            [Some("tool"), None]
         );
     }
 }

@@ -84,6 +84,7 @@ pub fn into_check_graph(graph: BuildGraph, selected_pkg_dirs: &[PathBuf]) -> Bui
         // syntax-check commands are spelled the same way.
         dialect: graph.dialect,
         default_outputs,
+        planned_packages: graph.planned_packages,
         compile_commands: graph.compile_commands,
         standard_violations,
         // Edge-level standard-compat violations describe the
@@ -102,6 +103,7 @@ mod tests {
         ArchiveAction, CompileAction, CompileArguments, Dialect, LinkAction, LoweredActionKind,
         lower,
     };
+    use std::collections::BTreeSet;
 
     fn compile(language: SourceLanguage, object: &str) -> BuildAction {
         let depfile = format!("{object}.d");
@@ -165,6 +167,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
 
@@ -231,6 +234,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(
@@ -253,6 +257,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1, "only the compile survives");
@@ -279,6 +284,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         let lowered = lower(Dialect::GnuLike, &out.actions[0]);
@@ -303,6 +309,7 @@ mod tests {
             compile_commands: Vec::<CompileCommand>::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[PathBuf::from("/b/dev/packages/app")]);
         assert_eq!(out.actions.len(), 1);
@@ -334,6 +341,7 @@ mod tests {
             compile_commands: vec![cc.clone()],
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let out = into_check_graph(graph, &[]);
         assert_eq!(out.compile_commands, vec![cc]);
@@ -361,6 +369,7 @@ mod tests {
                 violation("/abs/build/dev/packages/app/app/exotic.o"),
             ],
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let selected = vec![PathBuf::from("/abs/build/dev/packages/app")];
         let checked = into_check_graph(graph, &selected);

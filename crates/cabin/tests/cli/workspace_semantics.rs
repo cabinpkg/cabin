@@ -454,6 +454,13 @@ fn package_in_workspace_requires_explicit_selection() {
 fn publish_in_workspace_requires_explicit_selection() {
     let dir = TempDir::new().unwrap();
     write_three_member_workspace(dir.path(), None, None);
+    // The registry rejects bare names, so the published member must be
+    // scoped; its bare siblings stay local-only.
+    assert_fs::fixture::ChildPath::new(dir.path().join("packages/alpha/cabin.toml"))
+        .write_str(
+            "[package]\nname = \"acme/alpha\"\nversion = \"0.1.0\"\ncxx-standard = \"c++17\"\n\n[target.alpha]\ntype = \"executable\"\nsources = [\"src/main.cc\"]\n",
+        )
+        .unwrap();
     let registry = dir.path().join("registry");
 
     // Without --package, publishing the workspace root must
@@ -472,9 +479,9 @@ fn publish_in_workspace_requires_explicit_selection() {
     cabin()
         .args(["publish", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
-        .args(["-p", "alpha", "--registry-dir"])
+        .args(["-p", "acme/alpha", "--registry-dir"])
         .arg(&registry)
         .assert()
         .success();
-    assert!(registry.join("packages/alpha.json").is_file());
+    assert!(registry.join("packages/acme/alpha.json").is_file());
 }
