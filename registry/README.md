@@ -28,7 +28,7 @@ the registry remains closed to allowlisted maintainers:
 | | |
 | --- | --- |
 | Index domain | `registry.cabinpkg.com` |
-| Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`) |
+| Browser/API origin | `https://cabinpkg.com` (zone routes `/api/*`, `/login`, `/callback*`, `/claim/*`) |
 | D1 database | `cabin-registry` |
 | R2 buckets | `cabin-registry-blobs`, `cabin-registry-backup` |
 
@@ -61,9 +61,20 @@ token-related keys on the registry's own user id
 Package names are scoped (`<scope>/<name>`), and publish/yank
 authorization is per scope: the token's user must be a member of the
 target scope ([`docs/architecture.md`](docs/architecture.md),
-"Scopes" and "The write path"). Per-package ownership within a scope is
-intentionally out of scope: every member can act on every package under
-the scope.
+"Scopes" and "The write path"). A scope is claimed from the website
+(`https://cabinpkg.com/claim/<scope>`) by proving control of the
+same-named GitHub account through a dedicated OAuth roundtrip: the
+scope must be your own login (lowercased) or an organization you are an
+active admin of. The claim freezes the scope string to that account's
+**numeric** GitHub id forever - a later GitHub account reusing the
+login can never re-claim it, and disputes are handled manually by the
+operator. Scope owners manage members through the session API
+(members are added by GitHub numeric id and must have signed in once);
+authorization consults only registry-side membership, never a live
+GitHub call, and the proof automation is GitHub-only by policy even
+though the schema is provider-neutral. Per-package ownership within a
+scope is intentionally out of scope: every member can act on every
+package under the scope.
 
 ## Development
 
@@ -79,9 +90,13 @@ D1/R2 state under `.wrangler/` - one per hostname role - and checks
 `/healthz`, the uniform `401` with its byte-identical `WWW-Authenticate`
 challenge, the hostname dispatch (no read plane on the website origin, no
 API surface on the registry domain), the OAuth and session planes'
-refusals and cookie attributes, the three authenticated read routes, the
-full publish / yank flow on the website origin (first publish, idempotent
-re-publish, immutability conflict, yank transitions, artifact checksum),
+refusals and cookie attributes, the three authenticated read routes,
+claim -> publish -> fetch end to end - the scope-claim flow against a
+local GitHub mock (self-claim, org claim, refusals) and membership
+management through the session API, then the full publish / yank flow
+on the website origin under the just-claimed scope (first publish,
+idempotent re-publish, immutability conflict, yank transitions,
+artifact checksum) -
 and the verification lifecycle (pending -> verify -> resolvable with a
 verify-scoped token, plus the reject -> reclaim -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`

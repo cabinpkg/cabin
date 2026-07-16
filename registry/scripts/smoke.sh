@@ -10,12 +10,16 @@
 # session), the launch guard (scripts/wipe.sh refuses while
 # meta.launched is 'true'), and - given a token - the three
 # authenticated read routes on
-# the registry host plus the full publish / yank write flow on the
-# website origin under scoped names (first publish, idempotent
-# re-publish, immutability conflict, yank state transitions, artifact
-# checksum, and the write plane's uniform 403 for unclaimed and foreign
-# scopes - the scope and membership rows are claim-less fixtures seeded
-# straight into D1 until the claim flow lands), the verification
+# the registry host plus claim -> publish -> fetch end to end: the
+# scope-claim flow against a local GitHub mock (self-claim, org claim,
+# refused re-claims and non-admin org claims, state-cookie discipline),
+# membership management through the session API (list/add/remove, the
+# uniform owner 403, the last-owner 409), then the full publish / yank
+# write flow on the website origin under the just-claimed scope (first
+# publish, idempotent re-publish, immutability conflict, yank state
+# transitions, artifact checksum, and the write plane's uniform 403 for
+# unclaimed and foreign scopes - 'foreign' stays a seeded fixture
+# because it must belong to somebody else), the verification
 # lifecycle (pending -> verify -> resolvable with a verify-scoped token,
 # verdict idempotency and conflicts, and the reject -> blob reclaim ->
 # quota refund -> republish flow including the shared-blob refcount
@@ -23,10 +27,10 @@
 # writes_blocked, reads unaffected), blob replication into the BACKUP
 # bucket, and the nightly dump job (triggered via the /__scheduled test
 # route against a local mock of the D1 export API serving a real
-# `wrangler d1 export --local` dump). Session-authenticated flows (token
-# create/revoke) need a real GitHub sign-in and stay out of scope here;
-# their logic is unit-tested. Local-only: state lives in .wrangler/,
-# never a deployed environment.
+# `wrangler d1 export --local` dump). Ordinary sign-in still needs a
+# real GitHub roundtrip and stays out of scope; the session cookie is
+# minted directly under the pinned SESSION_SECRET instead. Local-only:
+# state lives in .wrangler/, never a deployed environment.
 #
 #   scripts/smoke.sh                                   healthz + 401 only
 #   CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   full run
@@ -41,6 +45,7 @@ cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 port="${SMOKE_PORT:-8787}"
 web_port="${SMOKE_WEB_PORT:-8789}"
 mock_port="${SMOKE_MOCK_PORT:-8788}"
+github_port="${SMOKE_GITHUB_PORT:-8790}"
 base="http://127.0.0.1:${port}"
 # The website role: a second wrangler dev instance emulating the
 # website origin's hostname (--host cabinpkg.com) over the same local
@@ -58,6 +63,7 @@ web_log="$(mktemp)"
 dev_pid=""
 web_pid=""
 mock_pid=""
+github_pid=""
 dev_vars=".dev.vars"
 dev_vars_backup=""
 dev_vars_created=""
@@ -69,6 +75,7 @@ cleanup() {
   [[ -n "$dev_pid" ]] && kill -- "-$dev_pid" 2>/dev/null || true
   [[ -n "$web_pid" ]] && kill -- "-$web_pid" 2>/dev/null || true
   [[ -n "$mock_pid" ]] && kill "$mock_pid" 2>/dev/null || true
+  [[ -n "$github_pid" ]] && kill "$github_pid" 2>/dev/null || true
   [[ -n "$dev_vars_created" ]] && rm -f "$dev_vars" || true
   [[ -n "$dev_vars_backup" ]] && mv "$dev_vars_backup" "$dev_vars" || true
   rm -f "$body" "$headers" "$dev_log" "$web_log"
@@ -147,17 +154,19 @@ wrangler d1 migrations apply DB --local
 
 verify_token="${token:+${token}-verify}"
 if [[ -n "$token" ]]; then
-  step "seeding the smoke tokens and scopes into the local database"
+  step "seeding the smoke tokens and fixtures into the local database"
   hash="$(printf '%s' "$token" | shasum -a 256 | cut -d' ' -f1)"
   verify_hash="$(printf '%s' "$verify_token" | shasum -a 256 | cut -d' ' -f1)"
-  # The fixture rows are cleared so re-runs still see a first publish; the
-  # content-addressed R2 blob may survive, which the publish path skips.
-  # The seeded identity mirrors a first sign-in of GitHub account 0: a
-  # registry-native user (id 1) bound through the identities table. The
-  # scope rows are claim-less fixtures - inserted directly until the
-  # claim flow lands (the next scoped-names step): user 1 is a member of
-  # 'smoke'; 'foreign' belongs only to user 2, so publishing there must
-  # be exactly as forbidden as the unclaimed 'ghost'.
+  # The fixture rows are cleared so re-runs still see a first publish
+  # and a first claim; the content-addressed R2 blob may survive, which
+  # the publish path skips. The seeded identities mirror first sign-ins:
+  # GitHub account 0 is the claiming user (registry user 1), account 2
+  # ('friend', registry user 2) exists so membership management has an
+  # account to add. The scopes user 1 works with ('smoke', 'smokeorg',
+  # 'denyorg') are claimed through the real flow against the GitHub mock
+  # below - only 'foreign' stays a seeded fixture, because it must
+  # belong to somebody else (user 2): publishing there must be exactly
+  # as forbidden as the unclaimed 'ghost'.
   wrangler d1 execute DB --local --command "
     INSERT OR IGNORE INTO users (id, created_at)
       VALUES (1, '1970-01-01T00:00:00Z');
@@ -165,10 +174,8 @@ if [[ -n "$token" ]]; then
       VALUES (2, '1970-01-01T00:00:00Z');
     INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
       VALUES ('github', '0', 'smoke', 1);
-    INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
-      VALUES ('smoke', 'github', '0', '1970-01-01T00:00:00Z');
-    INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
-      VALUES ('smoke', 1, 'owner');
+    INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
+      VALUES ('github', '2', 'friend', 2);
     INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
       VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00Z');
     INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
@@ -177,8 +184,12 @@ if [[ -n "$token" ]]; then
       VALUES ('smoke', 1, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke-verify', 1, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
-    DELETE FROM versions WHERE scope = 'smoke' AND name = 'withdep';
-    DELETE FROM packages WHERE scope = 'smoke' AND name = 'withdep';
+    DELETE FROM versions WHERE scope = 'smoke';
+    DELETE FROM packages WHERE scope = 'smoke';
+    DELETE FROM scope_members WHERE scope_name IN
+      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift');
+    DELETE FROM scopes WHERE name IN
+      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift');
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
     DELETE FROM backup_replication_failures;"
 fi
@@ -223,6 +234,104 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 
+# The GitHub mock the claim flow's server-side calls run against
+# (GITHUB_OAUTH_BASE / GITHUB_API_BASE below): the token exchange
+# (which requires the claim callback's exact redirect_uri, like
+# GitHub), the authenticated /user read (id 0, login 'Smoke' - the
+# uppercase spelling exercises the lowercased self-claim comparison),
+# and the org-claim reads. 'smokeorg' grants (active admin); 'denyorg'
+# refuses (plain member); 'imposterorg' and 'swaporg' refuse on the
+# numeric-id bindings (the membership's user is not the authenticated
+# claimant / the membership's organization is not the account /users
+# resolves); 'statedrift' is deliberately grantable so its leg's
+# refusal can only be the state check; the /__drift toggle turns
+# /users/smoke into a different account than /user for the self-claim
+# binding leg. API reads without a bearer token answer 401 like GitHub.
+step "starting the GitHub mock on port ${github_port}"
+cat >"$mock_dir/github-mock.js" <<'MOCK_EOF'
+const http = require("http");
+const port = process.argv[2];
+const api = {
+  "/user": { id: 0, login: "Smoke" },
+  "/users/smoke": { id: 0, login: "smoke", type: "User" },
+  "/users/smokeorg": { id: 7280970, login: "smokeorg", type: "Organization" },
+  "/users/denyorg": { id: 555, login: "denyorg", type: "Organization" },
+  "/users/imposterorg": { id: 666, login: "imposterorg", type: "Organization" },
+  "/users/swaporg": { id: 777, login: "swaporg", type: "Organization" },
+  "/orgs/smokeorg/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 7280970, login: "smokeorg" },
+  },
+  "/orgs/denyorg/memberships/Smoke": {
+    state: "active", role: "member",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 555, login: "denyorg" },
+  },
+  "/orgs/imposterorg/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 999, login: "Smoke" },
+    organization: { id: 666, login: "imposterorg" },
+  },
+  "/orgs/swaporg/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 778, login: "swaporg" },
+  },
+  "/users/statedrift": { id: 888, login: "statedrift", type: "Organization" },
+  "/orgs/statedrift/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 888, login: "statedrift" },
+  },
+};
+// POST /__drift/on makes /users/smoke name a different account than
+// /user, so the self-claim's id-equality refusal can be exercised and
+// then reverted within one run.
+let drift = false;
+http.createServer((req, res) => {
+  res.setHeader("content-type", "application/json");
+  if (req.method === "POST" && (req.url === "/__drift/on" || req.url === "/__drift/off")) {
+    drift = req.url === "/__drift/on";
+    res.end("{}");
+  } else if (req.method === "POST" && req.url === "/login/oauth/access_token") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const redirect = new URLSearchParams(body).get("redirect_uri");
+      if (redirect !== "https://cabinpkg.com/callback/claim") {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: "redirect_uri_mismatch" }));
+        return;
+      }
+      res.end(JSON.stringify({ access_token: "gho_smoke", token_type: "bearer" }));
+    });
+  } else if (req.method === "GET" && api[req.url]) {
+    if (!/^Bearer gho_smoke$/.test(req.headers.authorization || "")) {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ message: "Requires authentication" }));
+      return;
+    }
+    if (req.url === "/users/smoke" && drift) {
+      res.end(JSON.stringify({ id: 999, login: "smoke", type: "User" }));
+      return;
+    }
+    res.end(JSON.stringify(api[req.url]));
+  } else {
+    res.statusCode = 404;
+    res.end(JSON.stringify({ message: "Not Found" }));
+  }
+}).listen(port, "127.0.0.1");
+MOCK_EOF
+node "$mock_dir/github-mock.js" "$github_port" >"$mock_dir/github-mock.log" 2>&1 &
+github_pid=$!
+disown "$github_pid"
+for _ in $(seq 1 20); do
+  kill -0 "$github_pid" 2>/dev/null || { cat "$mock_dir/github-mock.log" >&2; fail "the GitHub mock exited early"; }
+  [[ "$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${github_port}/user" 2>/dev/null)" == "401" ]] && break
+  sleep 0.5
+done
+
 # Point the worker's export calls at the mock. Wrangler reads
 # .dev.vars for `wrangler dev`; an existing file is saved and restored.
 if [[ -f "$dev_vars" ]]; then
@@ -235,13 +344,18 @@ fi
 # identity row deliberately does not exist (the post-wipe ghost-session
 # case). SERVICE_MODE_TTL_SECS=0 disables the service-mode cache so the
 # breaker leg below observes a flipped mode immediately (the deployed
-# worker uses the in-code 60 s TTL).
+# worker uses the in-code 60 s TTL). The GITHUB_* entries point the
+# claim flow's server-side calls at the GitHub mock above (the client
+# secret only has to exist for the mock exchange).
 cat >"$dev_vars" <<EOF
 CF_API_BASE="http://127.0.0.1:${mock_port}"
 D1_EXPORT_API_TOKEN="smoke-placeholder"
 SESSION_SECRET="smoke-session-secret"
 ALLOWED_GITHUB_IDS="0,1"
 SERVICE_MODE_TTL_SECS="0"
+GITHUB_OAUTH_BASE="http://127.0.0.1:${github_port}"
+GITHUB_API_BASE="http://127.0.0.1:${github_port}"
+GITHUB_CLIENT_SECRET="smoke-client-secret"
 EOF
 dev_vars_created=1
 
@@ -343,8 +457,13 @@ wcheck /api/v1/user/logout 401 -X POST
 step "the oauth plane lives on the website origin with host-only cookies"
 curl -sS -o /dev/null -D "$headers" "$web_base/login"
 grep -q '^HTTP/[^ ]* 302' "$headers" || fail "/login did not answer 302: $(head -1 "$headers")"
-grep -qi '^location: https://github.com/login/oauth/authorize' "$headers" \
-  || fail "/login redirect is not to github: $(cat "$headers")"
+# The authorize base is the GitHub mock (GITHUB_OAUTH_BASE above);
+# deployed environments use the real https://github.com default.
+grep -qi "^location: http://127.0.0.1:${github_port}/login/oauth/authorize" "$headers" \
+  || fail "/login redirect is not the authorize page: $(cat "$headers")"
+# Ordinary sign-in requests no OAuth scopes; only the claim flow does.
+! grep -i '^location: ' "$headers" | grep -q 'scope=' \
+  || fail "/login must not request an oauth scope: $(cat "$headers")"
 state_cookie="$(grep -i '^set-cookie: cabin_oauth_state=' "$headers" || true)"
 [[ -n "$state_cookie" ]] || fail "/login set no state cookie: $(cat "$headers")"
 case "$state_cookie" in
@@ -518,6 +637,147 @@ case "$logout_cookie" in
   *"Max-Age=0"*) ;;
   *) fail "logout cookie does not clear: $logout_cookie" ;;
 esac
+
+# --- The claim flow, end to end against the GitHub mock. ---
+
+# claim_scope <scope> <granted|denied>: drive the claim flow - initiate,
+# capture the sealed state cookie and the authorize redirect's state,
+# then complete the callback (the mock exchanges any code).
+claim_scope() {
+  local scope="$1" expected="$2"
+  curl -sS -o /dev/null -D "$headers" "$web_base/claim/$scope"
+  grep -q '^HTTP/[^ ]* 302' "$headers" || fail "/claim/$scope did not answer 302: $(head -1 "$headers")"
+  local location claim_cookie state
+  location="$(grep -i '^location: ' "$headers" | sed 's/^[^:]*: //' | tr -d '\r')"
+  case "$location" in
+    *"/login/oauth/authorize?"*) ;;
+    *) fail "/claim/$scope redirect is not the authorize page: $location" ;;
+  esac
+  # The dedicated roundtrip's shape: read:org, and the subdirectory
+  # callback GitHub accepts under the registered /callback URL.
+  case "$location" in
+    *"scope=read%3Aorg"*) ;;
+    *) fail "the claim authorize request must ask for read:org: $location" ;;
+  esac
+  case "$location" in
+    *"redirect_uri=https%3A%2F%2Fcabinpkg.com%2Fcallback%2Fclaim"*) ;;
+    *) fail "the claim redirect_uri is not /callback/claim: $location" ;;
+  esac
+  state="$(printf '%s' "$location" | sed -n 's/.*[?&]state=\([0-9a-f]*\).*/\1/p')"
+  [[ -n "$state" ]] || fail "no state in the authorize redirect: $location"
+  claim_cookie="$(grep -i '^set-cookie: cabin_claim_state=' "$headers" |
+    sed 's/^[^:]*: cabin_claim_state=\([^;]*\);.*/\1/' | tr -d '\r')"
+  [[ -n "$claim_cookie" ]] || fail "/claim/$scope set no claim-state cookie: $(cat "$headers")"
+  curl -sS -o /dev/null -D "$headers" -H "Cookie: cabin_claim_state=$claim_cookie" \
+    "$web_base/callback/claim?code=smoke&state=$state"
+  location="$(grep -i '^location: ' "$headers" | sed 's/^[^:]*: //' | tr -d '\r')"
+  [[ "$location" == "/dashboard?claim=$expected" ]] \
+    || fail "/callback/claim for $scope answered '$location', expected claim=$expected"
+  # The claim-state cookie is one-shot: cleared on every outcome.
+  grep -i '^set-cookie: cabin_claim_state=' "$headers" | grep -q 'Max-Age=0' \
+    || fail "the claim callback did not clear the state cookie: $(cat "$headers")"
+  printf '    claim %s -> %s\n' "$scope" "$expected"
+}
+
+step "the claim-state cookie is scoped to the claim callback"
+curl -sS -o /dev/null -D "$headers" "$web_base/claim/smoke"
+claim_cookie_line="$(grep -i '^set-cookie: cabin_claim_state=' "$headers" || true)"
+[[ -n "$claim_cookie_line" ]] || fail "/claim/smoke set no claim-state cookie: $(cat "$headers")"
+for attribute in "Path=/callback/claim" HttpOnly Secure "SameSite=Lax"; do
+  case "$claim_cookie_line" in
+    *"$attribute"*) ;;
+    *) fail "claim-state cookie is missing $attribute: $claim_cookie_line" ;;
+  esac
+done
+! printf '%s' "$claim_cookie_line" | grep -qi 'domain=' \
+  || fail "the claim-state cookie must be host-only: $claim_cookie_line"
+
+step "a self-claim is refused when /users/<scope> is another account"
+# With the drift toggle on, /users/smoke names account 999 while the
+# authenticated /user is account 0; 'smoke' is still unclaimed, so the
+# id-equality binding is the only thing refusing here.
+curl -fsS -X POST -o /dev/null "http://127.0.0.1:${github_port}/__drift/on"
+claim_scope smoke denied
+curl -fsS -X POST -o /dev/null "http://127.0.0.1:${github_port}/__drift/off"
+
+step "a self-claim grants the scope, frozen to the account's numeric id"
+# The mock /user answers login 'Smoke'; the grant compares it lowercased.
+claim_scope smoke granted
+proof="$(wrangler d1 execute DB --local --json --command \
+  "SELECT proof_provider, proof_account_id FROM scopes WHERE name = 'smoke'" |
+  node -e '
+    const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const row = out[0].results[0];
+    console.log(`${row.proof_provider}:${row.proof_account_id}`);
+  ')"
+[[ "$proof" == "github:0" ]] \
+  || fail "the claim did not freeze the numeric proof: $proof"
+
+step "an org claim needs an active admin membership bound by numeric ids"
+claim_scope smokeorg granted
+# A plain member, a membership naming a different user than the
+# authenticated one, and a membership naming a different organization
+# than /users/<scope> resolves must all refuse.
+claim_scope denyorg denied
+claim_scope imposterorg denied
+claim_scope swaporg denied
+
+step "claims are permanent: a re-claim refuses even the owning account"
+claim_scope smoke denied
+
+step "a claim callback without a valid matching state is refused"
+curl -sS -o /dev/null -D "$headers" "$web_base/callback/claim"
+grep -qi '^location: /dashboard?claim=denied' "$headers" \
+  || fail "a bare claim callback did not refuse: $(cat "$headers")"
+# A sealed cookie with a mismatched state parameter refuses before any
+# GitHub call. 'statedrift' is unclaimed AND fully grantable in the
+# mock, so nothing but the state comparison can be what refused it.
+curl -sS -o /dev/null -D "$headers" "$web_base/claim/statedrift"
+drift_cookie="$(grep -i '^set-cookie: cabin_claim_state=' "$headers" |
+  sed 's/^[^:]*: cabin_claim_state=\([^;]*\);.*/\1/' | tr -d '\r')"
+[[ -n "$drift_cookie" ]] || fail "/claim/statedrift set no claim-state cookie"
+curl -sS -o /dev/null -D "$headers" -H "Cookie: cabin_claim_state=$drift_cookie" \
+  "$web_base/callback/claim?code=smoke&state=deadbeef"
+grep -qi '^location: /dashboard?claim=denied' "$headers" \
+  || fail "a mismatched claim state did not refuse: $(cat "$headers")"
+
+# --- Membership management through the session API. ---
+step "scope owners list, add, and remove members"
+session_request GET /api/v1/user/scopes/smoke/members 200
+expect_body '"github_id":0'
+expect_body '"role":"owner"'
+session_request POST /api/v1/user/scopes/smoke/members 200 \
+  "${csrf_headers[@]}" --data-binary '{"github_id":2,"role":"member"}'
+expect_body '"changed":true'
+session_request GET /api/v1/user/scopes/smoke/members 200
+expect_body '"login":"friend"'
+# An existing member keeps their role: no role-change endpoint.
+session_request POST /api/v1/user/scopes/smoke/members 200 \
+  "${csrf_headers[@]}" --data-binary '{"github_id":2,"role":"owner"}'
+expect_body '"role":"member"'
+expect_body '"changed":false'
+session_request POST /api/v1/user/scopes/smoke/members 400 \
+  "${csrf_headers[@]}" --data-binary '{"github_id":999,"role":"member"}'
+expect_body 'no registry account'
+session_request POST /api/v1/user/scopes/smoke/members 403 \
+  -H "Content-Type: application/json" --data-binary '{"github_id":2,"role":"member"}'
+expect_body 'X-CSRF-Protection'
+session_request POST /api/v1/user/scopes/smoke/members/2/remove 200 "${csrf_headers[@]}"
+expect_body '"changed":true'
+session_request POST /api/v1/user/scopes/smoke/members/2/remove 200 "${csrf_headers[@]}"
+expect_body '"changed":false'
+
+step "the last owner cannot be removed"
+session_request POST /api/v1/user/scopes/smoke/members/0/remove 409 "${csrf_headers[@]}"
+expect_body 'last owner'
+
+step "the owner gate is one uniform 403 for foreign and unclaimed scopes"
+session_request GET /api/v1/user/scopes/foreign/members 403
+expect_body 'not an owner'
+cp "$body" "$mock_dir/owner-403.json"
+session_request GET /api/v1/user/scopes/ghost/members 403
+cmp -s "$body" "$mock_dir/owner-403.json" \
+  || fail "foreign-scope and unclaimed-scope owner 403s differ: $(cat "$body")"
 
 step "authenticated responses carry the generation header"
 curl -sS -o /dev/null -D "$body" ${curl_args[@]+"${curl_args[@]}"} "$base/config.json"

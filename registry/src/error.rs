@@ -17,6 +17,14 @@ pub const YANK_SCOPE_REQUIRED: &str = "the token does not have the yank scope";
 /// (`docs/architecture.md`, "The write path").
 pub const SCOPE_MEMBERSHIP_REQUIRED: &str =
     "the scope does not exist or the token's user is not a member of it";
+/// The membership-management analogue of [`SCOPE_MEMBERSHIP_REQUIRED`]:
+/// byte-identical for a scope that does not exist and one the session's
+/// user does not own, so the session plane is no scope-existence oracle
+/// either.
+pub const SCOPE_OWNER_REQUIRED: &str = "the scope does not exist or you are not an owner of it";
+pub const MEMBER_HAS_NO_ACCOUNT: &str =
+    "the github account has no registry account; it must sign in once first";
+pub const LAST_OWNER: &str = "cannot remove a scope's last owner";
 pub const VERSION_IMMUTABLE: &str = "published versions are immutable";
 pub const INVALID_YANK_BODY: &str = r#"the yank body must be exactly {"yanked": <bool>}"#;
 pub const VERIFY_SCOPE_REQUIRED: &str = "the token does not have the verify scope";

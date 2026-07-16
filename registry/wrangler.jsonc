@@ -28,18 +28,22 @@
     // One Worker, one role per hostname (docs/architecture.md, "Origins
     // and roles"): the registry custom domain serves only the machine
     // read plane, and the website origin (cabinpkg.com) serves /login,
-    // /callback, and /api/* via the zone routes below.
+    // /callback (plus the claim flow's /callback/claim), /claim/*, and
+    // /api/* via the zone routes below.
     "routes": [
         { "pattern": "registry.cabinpkg.com", "custom_domain": true },
         // Path routes are more specific than the website Worker's
         // domain, so they win on these paths and only these paths.
         // /callback needs the trailing * because a pattern without
         // one never matches a URL carrying a query string (GitHub
-        // redirects to /callback?code=...&state=...); /login stays
-        // exact so /login/denied keeps rendering on the website.
+        // redirects to /callback?code=...&state=...); it also covers
+        // the claim flow's /callback/claim. /login stays exact so
+        // /login/denied keeps rendering on the website; /claim/* is
+        // the claim-initiate route (one path segment, the scope).
         { "pattern": "cabinpkg.com/api/*", "zone_name": "cabinpkg.com" },
         { "pattern": "cabinpkg.com/login", "zone_name": "cabinpkg.com" },
-        { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" }
+        { "pattern": "cabinpkg.com/callback*", "zone_name": "cabinpkg.com" },
+        { "pattern": "cabinpkg.com/claim/*", "zone_name": "cabinpkg.com" }
     ],
     // The budget-breaker evaluation plus the nightly D1 dump
     // (src/glue.rs `scheduled` routes on the expression: the

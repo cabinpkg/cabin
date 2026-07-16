@@ -18,9 +18,12 @@ type HmacSha256 = Hmac<Sha256>;
 /// Cookie carrying the sealed OAuth `state` between `/login` and
 /// `/callback`.
 pub const STATE_COOKIE: &str = "cabin_oauth_state";
+/// Cookie carrying the sealed claim `state` (which also names the scope
+/// being claimed) between `/claim/<scope>` and `/callback/claim`.
+pub const CLAIM_STATE_COOKIE: &str = "cabin_claim_state";
 /// Cookie carrying the sealed session after a successful sign-in.
 pub const SESSION_COOKIE: &str = "cabin_session";
-/// The state cookie lives just long enough to complete the OAuth dance.
+/// The state cookies live just long enough to complete the OAuth dance.
 pub const STATE_MAX_AGE_SECS: u64 = 600;
 /// Sessions last eight hours; signing in again is cheap.
 pub const SESSION_MAX_AGE_SECS: u64 = 8 * 60 * 60;
@@ -77,6 +80,25 @@ pub fn open_state(secret: &[u8], sealed: &str, now: u64) -> Option<String> {
     (!state.is_empty() && now < expires_at).then(|| state.to_owned())
 }
 
+/// Seals a claim's OAuth `state` plus the scope being claimed into the
+/// claim-state-cookie value. The scope rides inside the sealed payload -
+/// never a query parameter the callback would have to trust - so the
+/// callback grants exactly the scope the initiate route validated.
+pub fn seal_claim_state(secret: &[u8], scope: &str, state: &str, expires_at: u64) -> String {
+    seal(secret, "claim", &format!("{scope}:{state}:{expires_at}"))
+}
+
+/// Opens a claim-state-cookie value, returning `(scope, state)` while it
+/// is unexpired.
+pub fn open_claim_state(secret: &[u8], sealed: &str, now: u64) -> Option<(String, String)> {
+    let payload = open(secret, "claim", sealed)?;
+    let (rest, expires_at) = payload.rsplit_once(':')?;
+    let (scope, state) = rest.rsplit_once(':')?;
+    let expires_at: u64 = expires_at.parse().ok()?;
+    (!scope.is_empty() && !state.is_empty() && now < expires_at)
+        .then(|| (scope.to_owned(), state.to_owned()))
+}
+
 /// Seals a session into the session-cookie value.
 pub fn seal_session(secret: &[u8], github_id: i64, expires_at: u64) -> String {
     seal(secret, "session", &format!("{github_id}:{expires_at}"))
@@ -116,12 +138,15 @@ pub fn csrf_headers_ok(content_type: Option<&str>, csrf_header: Option<&str>) ->
 /// exactly `1`).
 pub const CSRF_HEADER: &str = "x-csrf-protection";
 
-/// The session cookie only ever travels to the session-plane subtree, and
-/// the state cookie only to the one route that reads it: even the website
-/// origin's own page loads never carry either, so the website Worker
-/// never sees a session.
+/// The session cookie only ever travels to the session-plane subtree,
+/// and each state cookie only to its own callback: even the website
+/// origin's own page loads never carry any of them, so the website
+/// Worker never sees a session. (`Path=/callback` also cookie-matches
+/// `/callback/claim`, which reads only the claim cookie - distinct
+/// names and MAC purposes keep the two states apart regardless.)
 pub const SESSION_COOKIE_PATH: &str = "/api/v1/user";
 pub const STATE_COOKIE_PATH: &str = "/callback";
+pub const CLAIM_STATE_COOKIE_PATH: &str = "/callback/claim";
 
 /// `Set-Cookie` value for a browser-plane cookie. Host-only on purpose:
 /// no `Domain` attribute, so the cookie never flows to registry
@@ -152,6 +177,16 @@ mod tests {
         assert_eq!(open_state(SECRET, &sealed, 999), Some("a1b2c3".to_owned()));
         assert_eq!(open_state(SECRET, &sealed, 1_000), None);
         assert_eq!(open_state(SECRET, &sealed, 2_000), None);
+    }
+
+    #[test]
+    fn claim_state_round_trips_until_expiry() {
+        let sealed = seal_claim_state(SECRET, "fmtlib", "a1b2c3", 1_000);
+        assert_eq!(
+            open_claim_state(SECRET, &sealed, 999),
+            Some(("fmtlib".to_owned(), "a1b2c3".to_owned()))
+        );
+        assert_eq!(open_claim_state(SECRET, &sealed, 1_000), None);
     }
 
     #[test]
@@ -197,16 +232,26 @@ mod tests {
             let sealed = seal(SECRET, "session", payload);
             assert_eq!(open_session(SECRET, &sealed, 0), None, "{payload:?}");
         }
+        for payload in ["", "fmtlib:1000", ":abc:1000", "fmtlib::1000", "a:b:c"] {
+            let sealed = seal(SECRET, "claim", payload);
+            assert_eq!(open_claim_state(SECRET, &sealed, 0), None, "{payload:?}");
+        }
     }
 
     #[test]
     fn purposes_are_not_interchangeable() {
-        // A state cookie must never open as a session, however its
-        // payload happens to parse, and vice versa.
+        // A state cookie must never open as a session or a claim state,
+        // however its payload happens to parse - and so on for every
+        // other pair of purposes.
         let state = seal_state(SECRET, "42", 2_000);
         assert_eq!(open_session(SECRET, &state, 0), None);
+        assert_eq!(open_claim_state(SECRET, &state, 0), None);
         let session = seal_session(SECRET, 42, 2_000);
         assert_eq!(open_state(SECRET, &session, 0), None);
+        assert_eq!(open_claim_state(SECRET, &session, 0), None);
+        let claim = seal_claim_state(SECRET, "fmtlib", "42", 2_000);
+        assert_eq!(open_state(SECRET, &claim, 0), None);
+        assert_eq!(open_session(SECRET, &claim, 0), None);
     }
 
     #[test]

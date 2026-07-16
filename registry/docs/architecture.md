@@ -48,6 +48,7 @@ which routes and which credential exist where:
 | `/healthz` | 200, unauthenticated | - |
 | `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
+| `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
 | `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
@@ -61,8 +62,9 @@ byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/settings/tokens"
 challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
 401s deliberately do not, keeping the planes distinguishable. In production
 the website origin reaches this Worker through zone routes
-(`cabinpkg.com/api/*`, `/login`, `/callback*` - see `wrangler.jsonc` and
-[`runbook.md`](runbook.md), "Integrated topology and route
+(`cabinpkg.com/api/*`, `/login`, `/callback*` - which also covers the
+claim flow's `/callback/claim` - and `/claim/*`; see `wrangler.jsonc`
+and [`runbook.md`](runbook.md), "Integrated topology and route
 management"). The frontend consuming
 the session plane - `/dashboard`, `/settings/*`, and `/login/denied`, all
 static pages - lives in the repository's `website/` project ("Account
@@ -92,9 +94,12 @@ the verifier's admin plane.
 carry the token row id - never the token or its hash.
 
 **The session plane is cookie-only JSON.** `/login` and `/callback` run the
-GitHub OAuth sign-in (web application flow, no extra scopes, explicit
-`redirect_uri` of `<WEB_ORIGIN>/callback`); the `/api/v1/user` subtree is
-the JSON user API the website frontend consumes:
+GitHub OAuth sign-in (web application flow, no OAuth scopes requested,
+explicit `redirect_uri` of `<WEB_ORIGIN>/callback`); `/claim/<scope>`
+and `/callback/claim` run the scope-claim flow's dedicated roundtrip
+("Scopes" below), the one flow that requests an OAuth scope
+(`read:org`); and the `/api/v1/user` subtree is the JSON user API the
+website frontend consumes:
 
 - `GET /api/v1/user` -> `{"github_id":..,"login":..,"plan":..}`;
 - `GET /api/v1/user/usage` -> plan, package count, stored bytes (rejected
@@ -108,6 +113,23 @@ the JSON user API the website frontend consumes:
   repeated scopes refused) -> `201` with the plaintext token, exactly once;
 - `POST /api/v1/user/tokens/<id>/revoke` -> idempotent `{"ok":true}`,
   scoped to the session's own tokens (a foreign or unknown id is a no-op);
+- `GET /api/v1/user/scopes/<scope>/members` -> the scope's members
+  (GitHub numeric id, display login, role) - like the two mutations
+  below it is owner-gated behind one uniform `403` ("the scope does not
+  exist or you are not an owner of it"), byte-identical for a scope
+  that does not exist and one the user does not own, so the session
+  plane is no scope-existence oracle either;
+- `POST /api/v1/user/scopes/<scope>/members`
+  (`{"github_id":..,"role":"owner"|"member"}`) -> the resulting
+  membership; the account is identified by GitHub numeric id and must
+  already have a registry account (an `identities` row - it must have
+  signed in once; `400` otherwise), and an existing member keeps their
+  role (there is no role-change endpoint);
+- `POST /api/v1/user/scopes/<scope>/members/<github_id>/remove` ->
+  idempotent resulting-state `{"ok":true,"changed":..}`, except that
+  removing the scope's last `owner` is a `409` - the rule is enforced
+  inside the DELETE itself, so concurrent removals cannot race a scope
+  into ownerlessness;
 - `POST /api/v1/user/logout` -> `{"ok":true}` with a `Set-Cookie` that
   clears the session cookie (it is HttpOnly, so only the server can).
   Sessions are stateless HMAC values: the sealed value stays verifiable
@@ -146,7 +168,14 @@ both targets are fixed relative paths, never derived from request input
   still-valid ghost cookie sealed over a row id could bind to whoever
   received that id after the wipe. A session whose identity row is gone
   answers the same 401 as no session.
-- The GitHub access token is used for one `/user` call and never stored.
+- GitHub access tokens are transient: sign-in uses one for a single
+  `/user` call, a claim for its few verification reads ("Scopes"
+  below), and both drop it - never stored, never logged. Sign-in
+  requests no OAuth scopes; only the claim roundtrip requests
+  `read:org`. (GitHub grants are per app and cumulative, so after a
+  user's first claim GitHub may attach the already-granted `read:org`
+  to later sign-in tokens too - harmless here precisely because every
+  token is transient and sign-in reads only `/user`.)
 - Cookies (the short-lived OAuth `state` and the 8-hour session) are
   HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
   separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`, and
@@ -192,13 +221,53 @@ by the claim flow's account-control check, never by the charset, and an
 unclaimable string can never gain members, so it answers the write
 plane's uniform 403 forever. The package part keeps the package grammar
 `^[a-z0-9][a-z0-9_-]*$`, and the full name contains exactly one `/`.
-The claim flow is the next scoped-names step; until it lands, scope and
-membership rows exist only as operator-seeded fixtures
-(`scripts/smoke.sh`, `tests/sql_validation.rs`), so the deployed
-registry accepts no publishes yet - and the external verifier
-(`crates/cabin-registry-verify`) and the client still speak bare names,
-which is fine exactly as long as nothing can create pending scoped
-rows in production.
+
+**The claim flow.** `GET /claim/<scope>` starts a dedicated GitHub
+OAuth roundtrip - sign-in discards its token after one `/user` call, so
+a claim cannot ride on it - mirroring `/login`'s sealed-state
+discipline with its own cookie (`cabin_claim_state`, `Path=
+/callback/claim`, its own HMAC purpose) that also seals the scope being
+claimed, and requesting `read:org` (this flow only). On
+`/callback/claim`, with the transient token: the claim is granted iff
+the scope equals the authenticated user's lowercased login
+(self-claim), or `GET /orgs/<scope>/memberships/<login>` shows an
+`active` membership with the `admin` role (org claim). The scope
+string is frozen to the account's **numeric** id, resolved via
+`GET /users/<scope>` and bound by id equality against the claimant
+(self) or the membership's organization (org) - logins can be renamed
+and reassigned between any two calls; ids cannot. The claimant must be
+allowlisted and have a registry account (sign in first), because the
+grant writes `scopes` plus the claimant as the first `owner` in
+`scope_members`, in one D1 batch - a plain primary-key insert, so the
+loser of a claim race rolls back seedless and is refused. Every
+refusal is one uniform redirect with no detail. A claim is
+**permanent**: an already-claimed scope refuses whoever asks - even an
+account that now controls the GitHub name - and there are no transfer
+or release endpoints; disputes are handled manually by the operator
+(direct D1 surgery; migration `0007` pins the role domain so a
+hand-run typo cannot orphan a scope). Because a claim only ever binds
+a scope to the account that genuinely controls the same-named GitHub
+account, with that account's user as owner, a forced navigation to
+`/claim/<scope>` can at worst claim the victim's own name for the
+victim - accepted pre-launch griefing, not a takeover vector.
+
+Scope-proof automation is GitHub-only **by policy**, even though the
+schema (`proof_provider`, `identities.provider`) is provider-neutral.
+Membership management is registry-side only: owners list, add, and
+remove members through the session API ("Two credential planes"
+above); there is no automatic GitHub org sync (TODO: revisit once
+sign-up opens beyond the allowlist), so org membership changes on
+GitHub propagate only when an owner edits the member list.
+
+The external verifier (`crates/cabin-registry-verify` and its
+workflow) and the client still speak bare names; they are updated in
+the scoped-names steps that follow. With scopes claimable, a real
+scoped publish is therefore accepted and stored but fails the
+verifier's artifact download or archive/manifest name check, so it
+stays `pending` (or is rejected) instead of ever resolving - the
+fail-safe direction ("The verification lifecycle"), made loud by the
+stale-pending alert rather than silent. End-to-end publishes on the
+deployed registry begin working when the verifier step lands.
 
 ## The write path
 
@@ -300,8 +369,7 @@ gate, and the verdict body live in `src/verify.rs`.
   duplicate verdict must never race the replacement back to pending).
 - **Trust model.** The `verify` scope is mintable through the session
   token API like `publish` and `yank`: every allowlisted user is
-  currently an operator, matching the registry-wide "no per-package
-  ownership yet" stance above. A dedicated verifier-only issuance path
+  currently an operator. A dedicated verifier-only issuance path
   is deliberate future work for when sign-up opens beyond the
   allowlist.
 - **Fail-safe direction.** Nothing becomes resolvable unless its status
@@ -455,8 +523,9 @@ hostname roles, route matching, and path-component validation
 (`src/routes.rs`), document composition (`src/documents.rs`), the error
 envelope and the challenge header (`src/error.rs`), cookie signing, the
 cookie shape, and the CSRF header rule (`src/session.rs`), the session
-API's JSON shapes and body validation (`src/user_api.rs`), the sign-in
-allowlist (`src/allowlist.rs`), the
+API's JSON shapes and body validation (`src/user_api.rs`), the
+scope-claim grant rules and GitHub-response parsing (`src/claim.rs`),
+the sign-in allowlist (`src/allowlist.rs`), the
 quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the
 analytics query shapes (`src/analytics.rs`), the verification lifecycle's
 statuses, verdict rules, and read gate (`src/verify.rs`), and the backup

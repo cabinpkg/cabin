@@ -140,26 +140,45 @@ pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
 /// only. These never accept bearer tokens, and the data routes above
 /// never accept the session cookie.
 #[derive(Debug, PartialEq, Eq)]
-pub enum WebRoute {
+pub enum WebRoute<'a> {
     Login,
     Callback,
+    /// `GET /claim/<scope>`: start a scope claim's dedicated OAuth
+    /// roundtrip. The scope is validated here, before a cookie is
+    /// minted or a redirect built.
+    Claim {
+        scope: &'a str,
+    },
+    /// `GET /callback/claim`: the claim flow's OAuth callback. A
+    /// subdirectory of `/callback` on purpose: GitHub only accepts a
+    /// `redirect_uri` at or under the OAuth app's registered callback
+    /// URL, and the `cabinpkg.com/callback*` zone route already covers
+    /// it.
+    ClaimCallback,
 }
 
 /// Matches `path` against the OAuth routes.
-pub fn match_web_route(path: &str) -> Option<WebRoute> {
+pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
     match path {
         "/login" => Some(WebRoute::Login),
         "/callback" => Some(WebRoute::Callback),
-        _ => None,
+        "/callback/claim" => Some(WebRoute::ClaimCallback),
+        _ => {
+            let scope = path.strip_prefix("/claim/")?;
+            is_valid_scope(scope).then_some(WebRoute::Claim { scope })
+        }
     }
 }
 
 /// Where `/callback` sends the browser after a successful sign-in and on
-/// a refused one. Both are relative paths rendered by the website; they
-/// are never derived from request input, so the callback cannot be turned
-/// into an open redirect.
+/// a refused one, and where `/callback/claim` sends it after a granted
+/// and a refused claim. All are relative paths rendered by the website;
+/// they are never derived from request input, so neither callback can be
+/// turned into an open redirect.
 pub const POST_LOGIN_REDIRECT: &str = "/dashboard";
 pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied";
+pub const CLAIM_GRANTED_REDIRECT: &str = "/dashboard?claim=granted";
+pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard?claim=denied";
 
 /// A matched session-plane route: the JSON user API under
 /// `/api/v1/user`, session-cookie authenticated on the website origin.
@@ -178,12 +197,18 @@ pub enum SessionRoute<'a> {
     Tokens,
     /// `POST /api/v1/user/tokens/<id>/revoke`.
     RevokeToken { id: &'a str },
+    /// `GET /api/v1/user/scopes/<scope>/members` lists a scope's
+    /// members, `POST` adds one.
+    ScopeMembers { scope: &'a str },
+    /// `POST /api/v1/user/scopes/<scope>/members/<github_id>/remove`.
+    RemoveScopeMember { scope: &'a str, github_id: i64 },
     /// `POST /api/v1/user/logout`: clear the session cookie.
     Logout,
 }
 
-/// Matches `path` against the session routes. Token ids are validated
-/// here (`[A-Za-z0-9_-]+`) before they reach a D1 query.
+/// Matches `path` against the session routes. Token ids
+/// (`[A-Za-z0-9_-]+`), scopes (the scope grammar), and GitHub ids
+/// (numeric) are validated here before they reach a D1 query.
 pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
     match path {
         "/api/v1/user" => Some(SessionRoute::User),
@@ -192,6 +217,26 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
         "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         "/api/v1/user/logout" => Some(SessionRoute::Logout),
         _ => {
+            if let Some(rest) = path.strip_prefix("/api/v1/user/scopes/") {
+                let (scope, rest) = rest.split_once('/')?;
+                if !is_valid_scope(scope) {
+                    return None;
+                }
+                if rest == "members" {
+                    return Some(SessionRoute::ScopeMembers { scope });
+                }
+                let id = rest.strip_prefix("members/")?.strip_suffix("/remove")?;
+                if !id.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                let github_id: i64 = id.parse().ok()?;
+                // Only the canonical decimal form GitHub ids are stored
+                // as: a zero-padded spelling would dodge exact matches.
+                if github_id.to_string() != id {
+                    return None;
+                }
+                return Some(SessionRoute::RemoveScopeMember { scope, github_id });
+            }
             let id = path
                 .strip_prefix("/api/v1/user/tokens/")?
                 .strip_suffix("/revoke")?;
@@ -431,13 +476,46 @@ mod tests {
     fn matches_the_web_routes() {
         assert_eq!(match_web_route("/login"), Some(WebRoute::Login));
         assert_eq!(match_web_route("/callback"), Some(WebRoute::Callback));
+        assert_eq!(
+            match_web_route("/claim/fmtlib"),
+            Some(WebRoute::Claim { scope: "fmtlib" })
+        );
+        assert_eq!(
+            match_web_route("/claim/my-org"),
+            Some(WebRoute::Claim { scope: "my-org" })
+        );
+        // The exact path wins over the claim pattern; "claim" itself
+        // stays claimable.
+        assert_eq!(
+            match_web_route("/callback/claim"),
+            Some(WebRoute::ClaimCallback)
+        );
+        assert_eq!(
+            match_web_route("/claim/claim"),
+            Some(WebRoute::Claim { scope: "claim" })
+        );
     }
 
     #[test]
     fn rejects_malformed_web_paths() {
         // `/me` is gone on purpose: the pre-1.0 no-deprecation convention
         // means no redirect shim either.
-        for path in ["/", "/login/", "/callback/", "/me", "/me/tokens"] {
+        for path in [
+            "/",
+            "/login/",
+            "/callback/",
+            "/me",
+            "/me/tokens",
+            "/claim",
+            "/claim/",
+            "/claim/Fmtlib",
+            "/claim/fmt.lib",
+            "/claim/-fmtlib",
+            "/claim/fmtlib/extra",
+            "/claim/..%2fescape",
+            "/callback/claim/",
+            "/callback/other",
+        ] {
             assert_eq!(match_web_route(path), None, "path: {path:?}");
         }
     }
@@ -468,6 +546,17 @@ mod tests {
             match_session_route("/api/v1/user/logout"),
             Some(SessionRoute::Logout)
         );
+        assert_eq!(
+            match_session_route("/api/v1/user/scopes/fmtlib/members"),
+            Some(SessionRoute::ScopeMembers { scope: "fmtlib" })
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/scopes/my-org/members/26405363/remove"),
+            Some(SessionRoute::RemoveScopeMember {
+                scope: "my-org",
+                github_id: 26_405_363
+            })
+        );
     }
 
     #[test]
@@ -485,6 +574,21 @@ mod tests {
             "/api/v1/user/packages/fmt",
             "/api/v1/user/logout/",
             "/api/v1/users",
+            "/api/v1/user/scopes",
+            "/api/v1/user/scopes/",
+            "/api/v1/user/scopes/fmtlib",
+            "/api/v1/user/scopes/fmtlib/",
+            "/api/v1/user/scopes/fmtlib/members/",
+            "/api/v1/user/scopes/Fmtlib/members",
+            "/api/v1/user/scopes/fmt.lib/members",
+            "/api/v1/user/scopes//members",
+            "/api/v1/user/scopes/fmtlib/members/26405363",
+            "/api/v1/user/scopes/fmtlib/members//remove",
+            "/api/v1/user/scopes/fmtlib/members/abc/remove",
+            "/api/v1/user/scopes/fmtlib/members/-1/remove",
+            "/api/v1/user/scopes/fmtlib/members/007/remove",
+            "/api/v1/user/scopes/fmtlib/members/99999999999999999999/remove",
+            "/api/v1/user/scopes/fmtlib/members/1/remove/extra",
         ] {
             assert_eq!(match_session_route(path), None, "path: {path:?}");
         }
@@ -500,6 +604,8 @@ mod tests {
             "/api/v1/user/usage",
             "/api/v1/user/tokens",
             "/api/v1/user/tokens/abc/revoke",
+            "/api/v1/user/scopes/fmtlib/members",
+            "/api/v1/user/scopes/fmtlib/members/1/remove",
             "/api/v1/user/anything/else",
         ] {
             assert!(is_session_path(path), "path: {path:?}");
@@ -540,9 +646,14 @@ mod tests {
 
     #[test]
     fn post_login_redirects_are_relative_paths() {
-        // The open-redirect guard: both targets are same-origin relative
-        // paths, never absolute URLs (and never protocol-relative `//`).
-        for target in [POST_LOGIN_REDIRECT, LOGIN_DENIED_REDIRECT] {
+        // The open-redirect guard: every target is a same-origin relative
+        // path, never an absolute URL (and never protocol-relative `//`).
+        for target in [
+            POST_LOGIN_REDIRECT,
+            LOGIN_DENIED_REDIRECT,
+            CLAIM_GRANTED_REDIRECT,
+            CLAIM_DENIED_REDIRECT,
+        ] {
             assert!(target.starts_with('/'), "target: {target:?}");
             assert!(!target.starts_with("//"), "target: {target:?}");
             assert!(!target.contains("://"), "target: {target:?}");

@@ -119,10 +119,10 @@ pub fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 ///
 /// The scoped shape accepted here is deliberately ahead of the client
 /// and the external verifier, which both still speak bare names until
-/// the client-side scoped-names steps land - safe because production
-/// publishes stay impossible (the membership gate, with no claimable
-/// scopes) until the claim flow lands (`docs/architecture.md`,
-/// "Scopes").
+/// the client-side scoped-names steps land. With scopes claimable that
+/// is fail-safe rather than impossible: a scoped publish stores content
+/// but fails the verifier's checks, staying pending or rejected - never
+/// resolvable (`docs/architecture.md`, "Scopes").
 ///
 /// # Errors
 ///

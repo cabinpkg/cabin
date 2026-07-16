@@ -90,6 +90,66 @@ statements! {
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
 
     // ------------------------------------------------------------------
+    // scopes: the claim flow and membership management
+    // ------------------------------------------------------------------
+
+    /// The claim callback's pre-check: claims are permanent, so an
+    /// existing row refuses whoever asks.
+    SCOPE_EXISTS = "SELECT COUNT(*) AS n FROM scopes WHERE name = ?1";
+
+    /// Claims a scope. Deliberately a plain INSERT: `name` is the
+    /// primary key, so the loser of a claim race fails the statement,
+    /// which rolls back its whole batch - [`SEED_CLAIM_OWNER`] must run
+    /// in that same batch, so a lost race can never seed the loser as
+    /// an owner of the winner's scope.
+    CLAIM_SCOPE =
+        "INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at) \
+         VALUES (?1, ?2, ?3, ?4)";
+
+    /// Seeds the claiming user as the new scope's first owner, in the
+    /// same batch as [`CLAIM_SCOPE`].
+    SEED_CLAIM_OWNER =
+        "INSERT INTO scope_members (scope_name, user_id, role) VALUES (?1, ?2, 'owner')";
+
+    /// Whether the user holds the `owner` role in the scope: the gate on
+    /// every membership-management endpoint. A scope that does not exist
+    /// has no owners, so nonexistent and foreign scopes answer
+    /// identically, mirroring [`SCOPE_MEMBERSHIP`].
+    SCOPE_OWNER_MEMBERSHIP =
+        "SELECT COUNT(*) AS n FROM scope_members \
+         WHERE scope_name = ?1 AND user_id = ?2 AND role = 'owner'";
+
+    /// The members listing, resolved back to the external identity the
+    /// management API speaks (the provider bind is policy's `github`).
+    /// Ordered by the stable registry user id for determinism.
+    LIST_SCOPE_MEMBERS =
+        "SELECT i.provider_account_id, i.login_snapshot, sm.role \
+         FROM scope_members sm \
+         JOIN identities i ON i.user_id = sm.user_id AND i.provider = ?2 \
+         WHERE sm.scope_name = ?1 ORDER BY sm.user_id";
+
+    /// One member's current role, if any (shapes the add/remove
+    /// responses).
+    SCOPE_MEMBER_ROLE =
+        "SELECT role FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
+
+    /// Adds a member; an existing membership keeps its role (there is no
+    /// role-change endpoint, and an upsert here could demote the last
+    /// owner).
+    ADD_SCOPE_MEMBER =
+        "INSERT OR IGNORE INTO scope_members (scope_name, user_id, role) \
+         VALUES (?1, ?2, ?3)";
+
+    /// Removes a member unless that would leave the scope ownerless: the
+    /// last-owner rule is enforced inside the statement, so concurrent
+    /// removals cannot race past it.
+    REMOVE_SCOPE_MEMBER =
+        "DELETE FROM scope_members WHERE scope_name = ?1 AND user_id = ?2 \
+         AND (role != 'owner' OR \
+              (SELECT COUNT(*) FROM scope_members \
+               WHERE scope_name = ?1 AND role = 'owner') > 1)";
+
+    // ------------------------------------------------------------------
     // packages/versions: the read plane, publish, yank, verification
     // ------------------------------------------------------------------
 

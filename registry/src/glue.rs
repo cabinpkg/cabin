@@ -196,7 +196,8 @@ async fn handle_registry(
     Ok((response, Some(auth.token_id)))
 }
 
-/// The website origin: the OAuth plane (`/login`, `/callback`), the
+/// The website origin: the OAuth plane (`/login`, `/callback`, and the
+/// claim flow's `/claim/<scope>` and `/callback/claim`), the
 /// session-only `/api/v1/user` subtree, and the Bearer mutation plane.
 /// The read plane does not exist here - nothing outside those planes
 /// matches a data route, so this origin never serves `/config.json`,
@@ -637,9 +638,11 @@ struct AdminVersionRecord {
 /// deterministic: ordered by scope, then name, then version. The
 /// external verifier (`crates/cabin-registry-verify` and its workflow)
 /// still consumes bare names and is updated with the client-side
-/// scoped-names steps - safe exactly as long as nothing can create
-/// pending scoped rows in production, which holds until the claim flow
-/// lands (`docs/architecture.md`, "Scopes").
+/// scoped-names steps; now that the claim flow can mint scoped pending
+/// rows, a real one fails the verifier's artifact download (staying
+/// pending, surfacing the stale-pending alert) or its name check
+/// (rejected) - either way never resolvable, the fail-safe direction
+/// (`docs/architecture.md`, "Scopes").
 async fn admin_versions_response(
     req: &Request,
     db: &D1Database,
