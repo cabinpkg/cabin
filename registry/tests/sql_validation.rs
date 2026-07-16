@@ -253,3 +253,143 @@ fn an_unknown_identity_resolves_to_nothing() {
     );
     assert_eq!(resolve(&conn, "github", "583231"), None);
 }
+
+/// Seeds one user, two scopes the user is a member of, and the same
+/// `(name, version)` under both - the collision the scoped statements
+/// must keep apart.
+fn seed_scope_collision(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z');
+         INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+           VALUES ('alpha', 'github', '1', '2026-07-15T00:00:00.000Z'),
+                  ('beta', 'github', '2', '2026-07-15T00:00:00.000Z');
+         INSERT INTO scope_members (scope_name, user_id, role) VALUES ('alpha', 1, 'owner');
+         INSERT INTO packages (scope, name, created_at, created_by)
+           VALUES ('alpha', 'pkg', '2026-07-15T00:00:00.000Z', 1),
+                  ('beta', 'pkg', '2026-07-15T00:00:00.000Z', 1);
+         INSERT INTO versions (scope, name, version, checksum, metadata_json, \
+                               published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'pkg', '1.0.0', 'aa', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'verified'),
+                  ('beta', 'pkg', '1.0.0', 'bb', '{}', '2026-07-15T00:00:00.000Z', 20, 1, 'pending');
+         UPDATE meta SET value = '30' WHERE key = 'total_stored_bytes';",
+    )
+    .expect("seed the cross-scope collision");
+}
+
+/// The scoped statements executed against colliding `(name, version)`
+/// rows: `prepare` alone cannot catch a missing scope predicate or a
+/// wrong bind order, so this pins per-statement isolation between
+/// scopes. (The wasm glue's end-to-end flow is `scripts/smoke.sh`'s
+/// job; this covers the SQL itself.)
+#[test]
+fn scoped_statements_never_cross_scopes() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    // Reads address exactly one scope's row.
+    let checksum: String = conn
+        .query_row(
+            sql::ARTIFACT_BY_PACKAGE_VERSION,
+            rusqlite::params!["alpha", "pkg", "1.0.0"],
+            |row| row.get(0),
+        )
+        .expect("alpha artifact row");
+    assert_eq!(checksum, "aa");
+    let verified: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM ({})",
+                sql::VERIFIED_VERSIONS_BY_PACKAGE
+            ),
+            rusqlite::params!["beta", "pkg"],
+            |row| row.get(0),
+        )
+        .expect("beta verified count");
+    assert_eq!(verified, 0, "beta's row is pending, alpha's must not leak");
+
+    // Membership is per scope; a scope with no members answers like a
+    // missing scope.
+    for (scope, expected) in [("alpha", 1), ("beta", 0), ("ghost", 0)] {
+        let members: i64 = conn
+            .query_row(sql::SCOPE_MEMBERSHIP, rusqlite::params![scope, 1], |row| {
+                row.get(0)
+            })
+            .expect("membership count");
+        assert_eq!(members, expected, "scope: {scope}");
+    }
+
+    // Quota counts key on (scope, name).
+    let versions_today: i64 = conn
+        .query_row(
+            sql::COUNT_PACKAGE_VERSIONS_SINCE,
+            rusqlite::params!["alpha", "pkg", "2026-07-15"],
+            |row| row.get(0),
+        )
+        .expect("alpha versions since");
+    assert_eq!(versions_today, 1);
+
+    // Mutations only touch the addressed scope.
+    let changed = conn
+        .execute(
+            sql::SET_VERSION_YANKED,
+            rusqlite::params![1, "alpha", "pkg", "1.0.0"],
+        )
+        .expect("yank alpha");
+    assert_eq!(changed, 1);
+    let beta_yanked: i64 = conn
+        .query_row(
+            sql::VERSION_YANK_STATE,
+            rusqlite::params!["beta", "pkg", "1.0.0"],
+            |row| row.get(0),
+        )
+        .expect("beta yank state");
+    assert_eq!(beta_yanked, 0, "yanking alpha/pkg must not touch beta/pkg");
+    let changed = conn
+        .execute(
+            sql::MARK_VERSION_VERIFIED,
+            rusqlite::params![
+                "2026-07-15T01:00:00.000Z",
+                "beta",
+                "pkg",
+                "1.0.0",
+                "bb",
+                "2026-07-15T00:00:00.000Z"
+            ],
+        )
+        .expect("verify beta");
+    assert_eq!(changed, 1);
+
+    // The rejection refund's guards address one scope's row: refunding
+    // with the wrong scope bound must be a no-op even though the other
+    // scope holds the same (name, version).
+    conn.execute(
+        "UPDATE versions SET verification = 'pending' WHERE scope = 'beta'",
+        [],
+    )
+    .expect("reset beta to pending");
+    conn.execute(
+        sql::REFUND_STORED_BYTES_ON_REJECTION,
+        rusqlite::params![
+            "bb",
+            "alpha",
+            "pkg",
+            "1.0.0",
+            20,
+            "2026-07-15T00:00:00.000Z"
+        ],
+    )
+    .expect("refund bound to the wrong scope");
+    let stored: String = conn
+        .query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
+        .expect("stored bytes");
+    assert_eq!(stored, "30", "a wrong-scope refund must not fire");
+    conn.execute(
+        sql::REFUND_STORED_BYTES_ON_REJECTION,
+        rusqlite::params!["bb", "beta", "pkg", "1.0.0", 20, "2026-07-15T00:00:00.000Z"],
+    )
+    .expect("refund bound to the right scope");
+    let stored: String = conn
+        .query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
+        .expect("stored bytes");
+    assert_eq!(stored, "10", "the right-scope refund fires exactly once");
+}

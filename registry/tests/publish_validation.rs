@@ -12,12 +12,16 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use cabin_registry_worker::publish::{
-    CHECKSUM_MISMATCH, METADATA_NOT_CANONICAL, decode_frame, validate_metadata, verify_checksum,
+    CHECKSUM_MISMATCH, IDENTITY_MISMATCH, METADATA_NOT_CANONICAL, decode_frame, validate_metadata,
+    verify_checksum,
 };
 use sha2::{Digest, Sha256};
 
 const FROZEN_METADATA: &[u8] = include_bytes!("fixtures/withdep-0.2.0.json");
 const FROZEN_ARCHIVE: &[u8] = include_bytes!("fixtures/withdep-0.2.0.tar.gz");
+
+/// The scope the bare client fixtures are published under here.
+const SCOPE: &str = "testscope";
 
 /// Client-side framing (`cabin_registry_api::encode_publish_body`).
 fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
@@ -27,6 +31,29 @@ fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
     body.extend_from_slice(&u32::try_from(archive.len()).unwrap().to_le_bytes());
     body.extend_from_slice(archive);
     body
+}
+
+/// Rewrites a bare-name client fixture into the scoped shape the
+/// registry accepts: `name` becomes `<scope>/<name>` and `source.path`
+/// the scope-embedding canonical path. Mid-track shim: `cabin package`
+/// still emits bare names until the client-side scoped-names steps land,
+/// after which the fixtures are scoped natively and this rewrite (plus
+/// [`SCOPE`]) goes away.
+fn scoped(metadata: &[u8], scope: &str, name: &str, version: &str) -> Vec<u8> {
+    let mut doc: serde_json::Value = serde_json::from_slice(metadata).unwrap();
+    // Assert the exact pre-scopes shape of both rewritten fields: when
+    // the client starts emitting scoped names, these fail and force the
+    // shim's removal instead of silently double-rewriting.
+    assert_eq!(doc["name"], name, "fixture must carry the bare name");
+    assert_eq!(
+        doc["source"]["path"],
+        format!("../artifacts/{name}/{name}-{version}.tar.gz"),
+        "fixture must carry the bare source path"
+    );
+    doc["name"] = format!("{scope}/{name}").into();
+    doc["source"]["path"] =
+        format!("../../artifacts/{scope}/{name}/{scope}-{name}-{version}.tar.gz").into();
+    serde_json::to_vec(&doc).unwrap()
 }
 
 /// What the wasm glue computes with `SubtleCrypto`, the host computes
@@ -44,6 +71,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// `glue::publish_response` runs it: decode, metadata validation, digest
 /// comparison.
 fn validate_pair(
+    scope: &str,
     name: &str,
     version: &str,
     metadata: &[u8],
@@ -51,33 +79,52 @@ fn validate_pair(
 ) -> Result<(), &'static str> {
     let body = frame(metadata, archive);
     let frame = decode_frame(&body)?;
-    let parsed = validate_metadata(name, version, frame.metadata)?;
+    let parsed = validate_metadata(scope, name, version, frame.metadata)?;
     verify_checksum(&parsed, &sha256_hex(frame.archive))
 }
 
 #[test]
 fn frozen_fixture_passes_the_full_validation_path() {
-    validate_pair("withdep", "0.2.0", FROZEN_METADATA, FROZEN_ARCHIVE).unwrap();
+    let metadata = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
+    validate_pair(SCOPE, "withdep", "0.2.0", &metadata, FROZEN_ARCHIVE).unwrap();
+}
+
+#[test]
+fn frozen_fixture_with_a_bare_name_is_rejected() {
+    // What the pre-scopes client uploads verbatim: the bare-name
+    // document can never match a scoped URL.
+    assert_eq!(
+        validate_pair(SCOPE, "withdep", "0.2.0", FROZEN_METADATA, FROZEN_ARCHIVE),
+        Err(IDENTITY_MISMATCH)
+    );
 }
 
 #[test]
 fn frozen_fixture_with_a_flipped_archive_byte_fails_the_checksum() {
+    let metadata = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
     let mut archive = FROZEN_ARCHIVE.to_vec();
     let last = archive.len() - 1;
     archive[last] ^= 0x01;
     assert_eq!(
-        validate_pair("withdep", "0.2.0", FROZEN_METADATA, &archive),
+        validate_pair(SCOPE, "withdep", "0.2.0", &metadata, &archive),
         Err(CHECKSUM_MISMATCH)
     );
 }
 
 #[test]
 fn frozen_fixture_with_an_extra_metadata_key_is_rejected() {
-    let text = std::str::from_utf8(FROZEN_METADATA).unwrap();
-    let with_extra = text.replace("\"schema\": 1,", "\"schema\": 1,\n  \"extra-key\": true,");
+    let scoped = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
+    let text = std::str::from_utf8(&scoped).unwrap();
+    let with_extra = text.replace("\"schema\":1,", "\"schema\":1,\"extra-key\":true,");
     assert_ne!(text, with_extra, "the mutation must have applied");
     assert_eq!(
-        validate_pair("withdep", "0.2.0", with_extra.as_bytes(), FROZEN_ARCHIVE),
+        validate_pair(
+            SCOPE,
+            "withdep",
+            "0.2.0",
+            with_extra.as_bytes(),
+            FROZEN_ARCHIVE
+        ),
         Err(METADATA_NOT_CANONICAL)
     );
 }
@@ -101,7 +148,10 @@ fn generated_fixtures_pass_the_full_validation_path() {
         let metadata = std::fs::read(&metadata_path).unwrap();
         let archive = std::fs::read(&archive_path)
             .unwrap_or_else(|err| panic!("archive for {metadata_path:?} must exist: {err}"));
-        validate_pair(&name, &version, &metadata, &archive)
+        // The same mid-track scope injection as the frozen tests: the
+        // in-tree client still packages bare names.
+        let metadata = scoped(&metadata, SCOPE, &name, &version);
+        validate_pair(SCOPE, &name, &version, &metadata, &archive)
             .unwrap_or_else(|detail| panic!("{name}@{version} failed validation: {detail}"));
         checked += 1;
     }
