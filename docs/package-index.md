@@ -58,6 +58,12 @@ When a `config.json` is present at the index root the loader uses the registry-r
 `config.packages` (default `"packages"`) points at the directory holding `<name>.json` files, and
 source paths in those files resolve relative to that directory - i.e.
 `"../artifacts/fmt/fmt-10.2.1.tar.gz"` lands at `registry/artifacts/fmt/fmt-10.2.1.tar.gz`.
+
+In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper as
+`<scope>/<name>.json` (e.g. `packages/fmtlib/fmt.json`); its declared `name` must be the full
+`<scope>/<name>`, and its source paths resolve relative to the scope directory, matching the
+published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` form.  Anything nested
+deeper than one scope directory is ignored.
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
 the full layout contract.
@@ -239,6 +245,12 @@ These are deferred.
 `--index-url <url>` consumes the same registry-root layout served as static HTTP files.  The base
 URL may include or omit a trailing slash; the loader normalizes it.
 
+> **Interim limitation.** The sparse HTTP routes still address bare names only: a scoped name is
+> rejected at the fetch boundary before any request.  Because `cabin publish` now requires scoped
+> names, a freshly published registry is *not* consumable over `--index-url` until the scoped read
+> routes land - consume it locally with `--index-path` instead.  Legacy bare-name registries stay
+> HTTP-readable.
+
 Request shape:
 
 | Step | URL | Purpose |
@@ -287,23 +299,26 @@ documented in [`vendoring-offline.md`](vendoring-offline.md).
 
 ### End-to-end example
 
-A registry written by `cabin publish --registry-dir` can be served as static HTTP and consumed by
-every read command without conversion:
+A *bare-name* registry (one written before scoped names, or assembled by hand) can be served as
+static HTTP and consumed by every read command without conversion.  A registry written by
+`cabin publish --registry-dir` today holds scoped packages, so consume it with `--index-path`
+until the scoped read routes land:
 
 ```sh
 # 1. Publish a package into a local file registry.
 cabin publish --manifest-path fmt/cabin.toml --registry-dir registry
 
-# 2. Serve the registry as static HTTP files.
-python3 -m http.server --directory registry 8000  # any static server works
-
-# 3. Resolve / fetch / build using the HTTP URL.
-cabin resolve --manifest-path app/cabin.toml --index-url http://localhost:8000
+# 2. Consume it locally (scoped packages are not HTTP-readable yet).
+cabin resolve --manifest-path app/cabin.toml --index-path registry
 cabin fetch \
-  --manifest-path app/cabin.toml --index-url http://localhost:8000 --cache-dir cache
+  --manifest-path app/cabin.toml --index-path registry --cache-dir cache
 cabin build \
-  --manifest-path app/cabin.toml --index-url http://localhost:8000 --cache-dir cache \
+  --manifest-path app/cabin.toml --index-path registry --cache-dir cache \
   --build-dir build
+
+# For a bare-name registry, the same reads work over static HTTP:
+python3 -m http.server --directory registry 8000  # any static server works
+cabin resolve --manifest-path app/cabin.toml --index-url http://localhost:8000
 ```
 
 ## Relationship to `cabin package`

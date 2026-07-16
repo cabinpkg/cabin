@@ -27,10 +27,14 @@ The directory layout is the existing Cabin file registry:
 ```
 vendor/
   config.json                                 # {"schema":1, "kind":"file-registry", ...}
-  packages/<name>.json                        # per-package version index
-  artifacts/<name>/<name>-<version>.tar.gz    # verified source archives
+  packages/<scope>/<name>.json                # per-package version index
+  artifacts/<scope>/<name>/                   # verified source archives
+    <scope>-<name>-<version>.tar.gz
   cabin-vendor.json                           # deterministic summary of this run
 ```
+
+A bare-name package (from a legacy source registry) keeps the flat shape: `packages/<name>.json`
+and `artifacts/<name>/<name>-<version>.tar.gz`.
 
 `cabin-vendor.json` records the `(name, version, checksum, artifact)` set this invocation wrote, in
 stable `(name, version)` order.  Re-running `cabin vendor` against the same inputs produces a

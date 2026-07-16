@@ -27,26 +27,38 @@ that the resolver can read back through `--index-path <dir>`.
 <registry>/
   config.json
   packages/
-    fmt.json
-    spdlog.json
+    fmtlib/
+      fmt.json
+    gabime/
+      spdlog.json
   artifacts/
-    fmt/
-      fmt-10.2.1.tar.gz
-    spdlog/
-      spdlog-1.13.0.tar.gz
+    fmtlib/
+      fmt/
+        fmtlib-fmt-10.2.1.tar.gz
+    gabime/
+      spdlog/
+        gabime-spdlog-1.13.0.tar.gz
 ```
 
 `config.json` identifies the registry layout and the relative `packages`
-and `artifacts` directories.  Each `packages/<name>.json` file contains
-the deterministic per-package version list.  Each version points at its
-source archive by a registry-relative path such as
-`../artifacts/fmt/fmt-10.2.1.tar.gz`.
+and `artifacts` directories.  Registry packages are always scoped
+(`<scope>/<name>`), so each package's index file nests one scope
+directory deep and its artifact filename embeds the scope
+(`<scope>-<name>-<version>.tar.gz`, self-identifying outside the tree).
+Each `packages/<scope>/<name>.json` file contains the deterministic
+per-package version list.  Each version points at its source archive by
+a registry-relative path such as
+`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz`.  Legacy
+bare-name registries (`packages/<name>.json`,
+`artifacts/<name>/<name>-<version>.tar.gz`) remain readable and
+vendorable; only new publication requires a scope.
 
 The file-registry writer:
 
 - stages package archives and canonical metadata through the same
   package code used by `cabin package`;
-- validates package names before they become path components;
+- requires a scoped name and validates each name component before it
+  becomes a path component;
 - rejects duplicate versions;
 - writes version entries in deterministic semver order;
 - replaces the artifact and the per-package index atomically: each
@@ -81,6 +93,13 @@ The sparse HTTP client reads the same file-registry shape over plain
 - `GET <url>/config.json`
 - `GET <url>/packages/<name>.json`
 - `GET <url>/artifacts/<name>/<name>-<version>.tar.gz`
+
+These routes still address bare names only: the client rejects a
+scoped name at the fetch boundary before any request, so scoped
+packages are not resolvable over sparse HTTP until the scoped read
+routes (`/packages/<scope>/<name>.json`,
+`/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`) land on
+both sides.
 
 The client is read-only.  It does not publish packages, mutate registry
 state, persist HTTP metadata for offline use, or infer a default remote

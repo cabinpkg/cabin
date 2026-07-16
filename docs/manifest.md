@@ -54,7 +54,7 @@ deps = ["greet", "fmt"]
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | string | yes | Package name.  Must be non-empty and contain no whitespace. |
+| `name` | string | yes | Package name: a bare `name` or a scoped `<scope>/<name>` with exactly one `/`.  Each part must be non-empty, contain no whitespace, consist only of ASCII letters, digits, `_`, `-`, and `.`, not start with `.` or `-`, and not be `.` or `..`; the scope part is stricter (lowercase letters, digits, and interior `-` only, at most 39 characters - a claimable GitHub login).  Registry packages are always scoped; bare names are local-only and rejected by `cabin publish`. |
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
@@ -102,6 +102,10 @@ greet = { path = "../greet" }
 
 # Versioned dependency, string form
 fmt = ">=10.0.0 <11.0.0"
+
+# Scoped registry dependency: `/` is not a bare-key character,
+# so the key must be quoted
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
 
 # Versioned dependency, table form
 spdlog = { version = "^1.13.0" }
@@ -230,9 +234,11 @@ semantics.
 Inside a target's `deps` array, each entry is a reference string or a table wrapping one:
 
 - `"name"` - a same-package target.  When no local target matches and `name` is a declared package
-  dependency, the entry is *shorthand for `"name:name"`* - it resolves only when that dependency
-  declares a `library` or `header-only` target with the same name.  The shorthand is pure name
-  matching; a package never exports a "default" or "unique" library target, and a bare name that
+  dependency, the entry is *shorthand for the dependency's same-named target* - `"fmt"` means
+  `"fmt:fmt"`, and a scoped `"fmtlib/fmt"` means `"fmtlib/fmt:fmt"` (target names never contain
+  `/`, so the shorthand target is the package's *base* name).  It resolves only when that
+  dependency declares a `library` or `header-only` target with that name.  The shorthand is pure
+  name matching; a package never exports a "default" or "unique" library target, and a name that
   matches neither form (including one that only matches a same-named executable) is a hard error
   suggesting the qualified spelling.
 - `"package:target"` - qualified reference.  The `package` part must be either the current package

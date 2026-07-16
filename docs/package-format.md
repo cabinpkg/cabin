@@ -26,7 +26,8 @@ Archives are gzipped tar files conforming to the extractor contract:
 - all entry paths are relative; a path containing `..`, an absolute path, or one that would escape
   the package root is rejected.
 
-The default `<output-dir>/<name>-<version>.tar.gz` filename is conventional; the in-archive path
+The default `<output-dir>/<stem>-<version>.tar.gz` filename is conventional - the stem flattens a
+scoped name (`fmtlib/fmt` -> `fmtlib-fmt`) so the file stays self-identifying; the in-archive path
 layout is what registries and extractors care about.
 
 ## Extraction safety contract
@@ -150,9 +151,10 @@ Before archive bytes are written, `cabin-package` validates:
 - the manifest parses (existing `cabin-manifest` rules);
 - the manifest contains a `[package]` table - workspace-only roots are rejected with `cannot package
   workspace root without a [package] section; pass --manifest-path for a package`;
-- the package name is path-safe for registry publishing: names containing `/`, `\`, `..`, leading
-  dots, control characters, or Windows drive prefixes are rejected with `package name "<name>" is
-  not path-safe for registry publishing`;
+- the package name parses under the `PackageName` grammar (`cabin-manifest` enforces this at load
+  time): a bare `name` or a scoped `<scope>/<name>` with exactly one `/`.  Bare names stage locally
+  but cannot be published - `cabin publish` (including `--dry-run`) rejects them with a diagnostic
+  showing the `name = "..."` line to change;
 - no declared dependency uses `path = "..."`.  Path dependencies are not publishable and produce
   `cannot package path dependency `foo`; path dependencies are not publishable`;
 - no declared dependency uses `{ workspace = true }` without workspace context.  The CLI passes a
@@ -235,7 +237,7 @@ would not contain cabin.toml`.
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |
 | `source.type` | Always `"archive"`. |
 | `source.format` | Always `"tar.gz"`. |
-| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>.tar.gz`.  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
+| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>.tar.gz` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` for a scoped one (the index document nests one scope directory deeper and the filename embeds the scope).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
 
 The metadata document is rendered with `serde_json::to_string_pretty` in struct-declaration order,
 dependencies sorted by name, and a trailing newline.  Repeated runs over the same input produce the
@@ -270,9 +272,12 @@ setting) publishes the same staged bytes remotely; see
 
 ```
 dist/
-  <name>-<version>.tar.gz
-  <name>-<version>.json
+  <stem>-<version>.tar.gz
+  <stem>-<version>.json
 ```
+
+`<stem>` is the bare name, or `<scope>-<name>` for a scoped package - the two files always sit flat
+in the output directory.
 
 Re-running with identical input is idempotent: if the on-disk file already matches the current run's
 bytes, the file is left alone and the run succeeds.  If the bytes differ, the run fails with `output
@@ -288,10 +293,12 @@ file is the same one this document defines.
 
 Behavioral notes specific to registry publish:
 
-- `source.path` in the registry's `packages/<name>.json` is the registry-relative
-  `"../artifacts/<name>/<name>-<version>.tar.gz"`, regardless of what the dry-run
-  `dist/<name>-<version>.json` happened to carry.  The registry crate normalizes this so static
-  sparse-HTTP serving can read the same layout without rewriting.
+- Registry packages are always scoped: the publish is rejected (before any lint or write) when the
+  `[package]` name has no `<scope>/` prefix, with a diagnostic showing the `name = "..."` line to
+  change.  Local-only builds and path dependencies keep bare names.
+- `source.path` in the registry's package index file is the registry-relative reference described
+  above, regardless of what the dry-run metadata happened to carry.  The registry crate normalizes
+  this so static sparse-HTTP serving can read the same layout without rewriting.
 - Duplicate `(name, version)` publishes fail with a clear error.
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a
   matching index entry, the publish run refuses.

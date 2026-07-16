@@ -125,7 +125,8 @@ array is empty for that invocation.
 
 Reports a feature's enablement on a specific package: whether the resolver enabled it for the
 current selection, what other features it implies, and whether it is in the package's default group.
-The query string must contain a single `/`; querying `default` is supported.
+The query splits on its *last* `/`, so a scoped package's feature is `fmtlib/fmt/json`; querying
+`default` is supported.
 
 ### `cabin explain build-config <name>`
 

@@ -8,8 +8,13 @@
 > (`<scope>/<name>`, e.g. `fmtlib/fmt`): every route below gains a `<scope>` segment, the artifact
 > filename becomes `<scope>-<name>-<version>.tar.gz`, and publish/yank additionally require the
 > token's user to be a member of the target scope (see `registry/docs/architecture.md`, "Scopes").
-> The client in this repository still speaks the bare-name protocol this page describes; the page
-> is rewritten together with the client-side scoped-names steps.
+> The client's *name model* is scoped (manifests, local file registries, lockfiles, and the
+> resolver all carry `<scope>/<name>` verbatim, and `cabin publish` rejects bare names), but its
+> *wire protocol* is still the bare-name one this page describes.  In the interim every remote
+> publish is blocked before any connection - bare names fail the scoped-name requirement, and
+> scoped names cannot be expressed on these routes - and scoped names are rejected at the remote
+> fetch boundary.  The page is rewritten together with the client-side scoped-routes step, which
+> lifts the block.
 
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
