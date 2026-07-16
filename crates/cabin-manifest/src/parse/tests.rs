@@ -1246,6 +1246,32 @@ fn parses_string_version_dependency() {
     }
 }
 
+/// A scoped `[package]` name and scoped (quoted) dependency keys
+/// parse to their full verbatim identity; TOML requires the quotes
+/// because `/` is not a bare-key character.  Both requirement
+/// spellings (string and rich table) work unchanged.
+#[test]
+fn parses_scoped_package_and_dependency_names() {
+    let manifest = r#"
+            [package]
+            name = "fmtlib/fmt"
+            version = "0.1.0"
+
+            [dependencies]
+            "gabime/spdlog" = ">=1.14 <2"
+            "google/gtest" = { version = "^1.14" }
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.name.as_str(), "fmtlib/fmt");
+    let names: Vec<&str> = package
+        .dependencies
+        .iter()
+        .map(|d| d.name.as_str())
+        .collect();
+    assert!(names.contains(&"gabime/spdlog"));
+    assert!(names.contains(&"google/gtest"));
+}
+
 #[test]
 fn parses_table_version_dependency() {
     let manifest = r#"

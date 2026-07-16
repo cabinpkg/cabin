@@ -959,6 +959,50 @@ fmt = { workspace = true }
     }
 }
 
+/// Workspace-dependency inheritance keys on the full name string, so
+/// a scoped dependency inherits its requirement; the synthesized
+/// lookup manifest must quote the key (a scoped name is not a legal
+/// bare TOML key).
+#[test]
+fn workspace_dependency_inheritance_with_scoped_name() {
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[workspace]
+members = ["packages/app"]
+
+[workspace.dependencies]
+"fmtlib/fmt" = ">=10 <11"
+"#,
+        )
+        .unwrap();
+    dir.child("packages/app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"fmtlib/fmt" = { workspace = true }
+"#,
+        )
+        .unwrap();
+    let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
+    let app = graph
+        .packages
+        .iter()
+        .find(|p| p.package.name.as_str() == "app")
+        .unwrap();
+    assert_eq!(app.package.dependencies.len(), 1);
+    assert_eq!(app.package.dependencies[0].name.as_str(), "fmtlib/fmt");
+    match &app.package.dependencies[0].source {
+        cabin_core::DependencySource::Version(req) => {
+            assert!(req.to_string().contains(">=10"));
+        }
+        other => panic!("expected resolved Version, got {other:?}"),
+    }
+}
+
 #[test]
 fn workspace_dependency_inheritance_per_kind() {
     // Each `dep = { workspace = true }` looks up the matching
