@@ -123,11 +123,6 @@ pub enum PackageError {
     )]
     ManifestNormalizationIncomplete { path: PathBuf },
 
-    #[error(
-        "package name `{name}` is not path-safe for registry publishing; package names cannot contain `/`, `\\`, `..`, leading dots, or platform path prefixes"
-    )]
-    UnsafeRegistryPackageName { name: String },
-
     /// `cabin package` was asked to archive a manifest with a
     /// non-empty `[patch]` table.  Patches are local development
     /// policy and must not enter published archives; remove the

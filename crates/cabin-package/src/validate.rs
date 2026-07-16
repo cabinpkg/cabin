@@ -71,7 +71,6 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// table, [`PackageError::Io`] if canonicalizing the manifest path
 /// fails, and [`PackageError::ManifestPathHasNoParent`] if it has no
 /// parent directory.  Validation additionally yields
-/// [`PackageError::UnsafeRegistryPackageName`],
 /// [`PackageError::PatchTableNotPublishable`],
 /// [`PackageError::PathDependencyNotPublishable`],
 /// [`PackageError::PortDependencyNotPublishable`],
@@ -137,16 +136,12 @@ pub fn load_and_validate_with_project(
 /// interface-standard contradiction, or a target source / include
 /// directory escaping the package root.
 pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
-    // package names must be safe to use as
-    // registry filesystem paths.  The shared predicate now lives
-    // in `cabin-core` so this validator, the file-registry
-    // publisher, and the sparse HTTP fetcher cannot drift on the
-    // rule.
-    if !cabin_core::is_path_safe_package_name(package.name.as_str()) {
-        return Err(PackageError::UnsafeRegistryPackageName {
-            name: package.name.as_str().to_owned(),
-        });
-    }
+    // The name itself needs no re-validation: `PackageName` enforces
+    // the per-component path-safe grammar at construction, and this
+    // validator accepts both bare and scoped forms - the
+    // bare-name-rejecting publish gate lives in `cabin-publish`, so
+    // the registry verifier can keep re-running these checks on
+    // already-published bare archives.
 
     // Patches are local development policy.  Including a `[patch]`
     // table in a published archive would silently leak local
