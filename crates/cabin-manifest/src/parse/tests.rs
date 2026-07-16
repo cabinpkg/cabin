@@ -3241,6 +3241,7 @@ fn patch_table_rejects_empty_path() {
 
 #[test]
 fn patch_table_rejects_invalid_package_name() {
+    // Two slashes exceed the scoped `<scope>/<name>` form.
     let err = parse_manifest_str(
         r#"
             [package]
@@ -3248,16 +3249,35 @@ fn patch_table_rejects_invalid_package_name() {
             version = "0.1.0"
 
             [patch]
-            "evil/name" = { path = "../fmt" }
+            "evil/na/me" = { path = "../fmt" }
         "#,
     )
     .unwrap_err();
     // Goes through the shared PackageName validator.
     let message = err.to_string();
     assert!(
-        message.contains("evil/name"),
+        message.contains("evil/na/me"),
         "expected the offending name in the error, got: {message}"
     );
+}
+
+#[test]
+fn patch_table_accepts_scoped_package_key() {
+    let package = parse_manifest_str(
+        r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [patch]
+            "fmtlib/fmt" = { path = "../fmt" }
+        "#,
+    )
+    .unwrap()
+    .package
+    .unwrap();
+    let key = cabin_core::PackageName::new("fmtlib/fmt").unwrap();
+    assert!(package.patches.entries.contains_key(&key));
 }
 
 #[test]
