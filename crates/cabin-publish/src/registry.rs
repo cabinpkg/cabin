@@ -64,6 +64,7 @@ pub fn publish_to_file_registry(
         None,
         &workflow.workspace_dep_requirements,
     )?;
+    require_scoped_name(&staged.name, workflow.manifest_path)?;
     // Reject on a PL1 error before touching the registry; a passing
     // check returns the PL2/PL3 warnings to surface.
     let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
@@ -93,12 +94,36 @@ pub fn dry_run_against_file_registry(
         None,
         &workflow.workspace_dep_requirements,
     )?;
+    require_scoped_name(&staged.name, workflow.manifest_path)?;
     let warnings = evaluate_lints(&staged, workflow.registry_dir)?;
     let outcome = validate_publish(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
     })?;
     Ok(into_report(staged, outcome, true, warnings))
+}
+
+/// The publish gate for bare names: registry packages are always
+/// `<scope>/<name>`, so every publish workflow (file, staging
+/// dry-run, and the CLI's remote flow) rejects a bare name right
+/// after staging - before any lint, registry, or network work - with
+/// the manifest line to change.  Local staging via `cabin package`
+/// stays ungated.
+///
+/// # Errors
+/// Returns [`PublishError::BarePackageName`] when `name` has no
+/// scope.
+pub fn require_scoped_name(
+    name: &cabin_core::PackageName,
+    manifest_path: &Path,
+) -> Result<(), PublishError> {
+    if !name.is_scoped() {
+        return Err(PublishError::BarePackageName {
+            name: name.as_str().to_owned(),
+            manifest_path: manifest_path.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Run the standard-compatibility lints against a staged package and
@@ -172,7 +197,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
             .unwrap();
         let registry = dir.child("registry");
         let report = publish_to_file_registry(RegistryPublishWorkflow {
@@ -182,14 +207,17 @@ mod tests {
             workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
         })
         .unwrap();
-        assert_eq!(report.name.as_str(), "fmt");
+        assert_eq!(report.name.as_str(), "fmtlib/fmt");
         assert_eq!(report.version.to_string(), "10.2.1");
         assert!(report.registry_modified);
         assert!(report.registry_initialized);
         assert!(!report.dry_run);
         assert!(report.package_index_path.is_file());
         assert!(report.artifact_path.is_file());
-        assert_eq!(report.source_path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
+        assert_eq!(
+            report.source_path,
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+        );
     }
 
     #[test]
@@ -197,7 +225,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let manifest = dir.child("cabin.toml");
         manifest
-            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .write_str("[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n")
             .unwrap();
         let registry = dir.child("registry");
         let report = dry_run_against_file_registry(RegistryPublishWorkflow {
@@ -210,6 +238,31 @@ mod tests {
         assert!(!report.registry_modified);
         assert!(report.dry_run);
         // Dry-run does not initialize on disk.
+        registry
+            .child("config.json")
+            .assert(predicates::path::missing());
+    }
+
+    /// Both file-registry workflows fire the bare-name gate right
+    /// after staging: no lint runs and no registry is initialized.
+    #[test]
+    fn file_registry_workflows_reject_bare_names() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.1\"\n")
+            .unwrap();
+        let registry = dir.child("registry");
+        let workflow = || RegistryPublishWorkflow {
+            manifest_path: manifest.path(),
+            registry_dir: registry.path(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+        };
+        let err = publish_to_file_registry(workflow()).unwrap_err();
+        assert!(matches!(err, PublishError::BarePackageName { .. }));
+        let err = dry_run_against_file_registry(workflow()).unwrap_err();
+        assert!(matches!(err, PublishError::BarePackageName { .. }));
         registry
             .child("config.json")
             .assert(predicates::path::missing());

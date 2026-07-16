@@ -350,7 +350,7 @@ fn published_index_preserves_language_standards() {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "fmt"
+name = "acme/fmt"
 version = "10.2.1"
 cxx-standard = "c++20"
 interface-cxx-standard = "c++17"
@@ -376,7 +376,7 @@ include-dirs = ["include"]
         .arg(&registry)
         .assert()
         .success();
-    let body = fs::read_to_string(registry.join("packages/fmt.json")).unwrap();
+    let body = fs::read_to_string(registry.join("packages/acme/fmt.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let entry = &value["versions"]["10.2.1"];
     // Interface requirements carry the reserved `max` slot in every
@@ -400,7 +400,7 @@ fn registry_package_standards_apply_at_the_consumer() {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "fmt"
+name = "acme/fmt"
 version = "10.2.1"
 cxx-standard = "c++14"
 
@@ -437,12 +437,12 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-fmt = "10.2.1"
+"acme/fmt" = "10.2.1"
 
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["fmt"]
+deps = ["acme/fmt"]
 "#,
         )
         .unwrap();
@@ -1279,7 +1279,7 @@ fn registry_target_level_standard_applies_at_the_consumer() {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "fmt"
+name = "acme/fmt"
 version = "10.2.1"
 
 [target.fmt]
@@ -1314,12 +1314,12 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-fmt = "10.2.1"
+"acme/fmt" = "10.2.1"
 
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["fmt"]
+deps = ["acme/fmt"]
 "#,
         )
         .unwrap();

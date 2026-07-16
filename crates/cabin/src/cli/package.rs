@@ -195,6 +195,21 @@ fn publish_to_remote_registry(
         None,
         workspace_dep_requirements,
     )?;
+    // Registry packages are always `<scope>/<name>`: fail a bare name
+    // here, before credentials, index reads, or the API call.
+    cabin_publish::require_scoped_name(&staged.name, manifest_path)?;
+    // Interim hard gate: the remote publish route still addresses
+    // bare names (`/api/v1/packages/<name>/...`), so a scoped
+    // publish cannot be expressed on the wire yet.  With bare names
+    // rejected above, every remote publish stops here - before
+    // credentials or any connection - until the scoped routes land.
+    // The registry side already treats scoped uploads as
+    // unverifiable, so nothing publishable is lost in the interim.
+    if staged.name.is_scoped() {
+        bail!(
+            "scoped packages cannot be published to a remote registry yet; the scoped publish route lands together with the scoped read routes"
+        );
+    }
 
     // One credential lookup serves the reads and the API call alike.
     let origin = cabin_credentials::normalize_origin(index_url)?;

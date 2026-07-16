@@ -4,7 +4,7 @@ fn write_simple_package(root: &Path) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "fmt"
+name = "fmtlib/fmt"
 version = "10.2.1"
 cxx-standard = "c++17"
 
@@ -39,8 +39,12 @@ fn publish_creates_registry_layout() {
         .success();
 
     assert!(registry.join("config.json").is_file());
-    assert!(registry.join("packages/fmt.json").is_file());
-    assert!(registry.join("artifacts/fmt/fmt-10.2.1.tar.gz").is_file());
+    assert!(registry.join("packages/fmtlib/fmt.json").is_file());
+    assert!(
+        registry
+            .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
+            .is_file()
+    );
 }
 
 #[test]
@@ -58,10 +62,10 @@ fn published_package_index_is_well_formed() {
         .assert()
         .success();
 
-    let body = fs::read_to_string(registry.join("packages/fmt.json")).unwrap();
+    let body = fs::read_to_string(registry.join("packages/fmtlib/fmt.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(value["schema"], 1);
-    assert_eq!(value["name"], "fmt");
+    assert_eq!(value["name"], "fmtlib/fmt");
     let entry = &value["versions"]["10.2.1"];
     assert_eq!(entry["yanked"], false);
     assert!(entry["checksum"].as_str().unwrap().starts_with("sha256:"));
@@ -69,7 +73,7 @@ fn published_package_index_is_well_formed() {
     assert_eq!(entry["source"]["format"], "tar.gz");
     assert_eq!(
         entry["source"]["path"],
-        "../artifacts/fmt/fmt-10.2.1.tar.gz"
+        "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
     );
 }
 
@@ -99,7 +103,7 @@ compiler-wrapper = "sccache"
         .assert()
         .success();
 
-    let body = fs::read_to_string(registry.join("packages/fmt.json")).unwrap();
+    let body = fs::read_to_string(registry.join("packages/fmtlib/fmt.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let entry = &value["versions"]["10.2.1"];
     assert_eq!(
@@ -115,7 +119,7 @@ fn write_standards_package(root: &Path) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "demo"
+name = "acme/demo"
 version = "1.0.0"
 
 [target.cxxlib]
@@ -177,7 +181,7 @@ fn published_index_carries_per_target_standards_table() {
         .assert()
         .success();
 
-    let body = fs::read_to_string(registry.join("packages/demo.json")).unwrap();
+    let body = fs::read_to_string(registry.join("packages/acme/demo.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let targets = &value["versions"]["1.0.0"]["standards"]["targets"];
 
@@ -251,13 +255,13 @@ fn publish_json_format_emits_machine_readable_summary() {
     assert_eq!(value["published"], true);
     assert_eq!(value["dry_run"], false);
     assert_eq!(value["registry_modified"], true);
-    assert_eq!(value["name"], "fmt");
+    assert_eq!(value["name"], "fmtlib/fmt");
     assert_eq!(value["version"], "10.2.1");
     assert!(
         value["artifact_path"]
             .as_str()
             .unwrap()
-            .ends_with("fmt-10.2.1.tar.gz")
+            .ends_with("fmtlib-fmt-10.2.1.tar.gz")
     );
     assert!(
         value["package_index_path"]
@@ -403,6 +407,47 @@ version = "0.1.0"
         .stderr(predicate::str::contains("--package <name>"));
 }
 
+/// Like [`write_app_using_fmt`], but the consumer depends on the
+/// scoped package `fmtlib/fmt` (a quoted dependency key) and its
+/// `deps` shorthand resolves to the dependency's base-named target
+/// `fmt`. Publish rejects bare registry names, so the file-registry
+/// round-trip fixtures publish `fmtlib/fmt`; the shared bare-`fmt`
+/// helper is kept for the sparse-HTTP and artifact-fetch modules that
+/// hand-write their index.
+fn write_app_using_scoped_fmt(dir: &Path, app_main: Option<&str>) {
+    let manifest = if app_main.is_some() {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmtlib/fmt"]
+"#
+    } else {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
+"#
+    };
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(manifest)
+        .unwrap();
+    if let Some(body) = app_main {
+        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+            .write_str(body)
+            .unwrap();
+    }
+}
+
 fn publish_simple_package(dir: &Path) -> std::path::PathBuf {
     let pkg_root = dir.join("pkg");
     write_simple_package(&pkg_root);
@@ -421,7 +466,7 @@ fn publish_simple_package(dir: &Path) -> std::path::PathBuf {
 fn published_registry_can_be_resolved() {
     let dir = TempDir::new().unwrap();
     let registry = publish_simple_package(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
 
     let value = run_json(
         cabin()
@@ -438,8 +483,8 @@ fn published_registry_can_be_resolved() {
         .map(|p| p["name"].as_str().unwrap())
         .collect();
     assert!(
-        names.contains(&"fmt"),
-        "fmt missing from resolve: {names:?}"
+        names.contains(&"fmtlib/fmt"),
+        "fmtlib/fmt missing from resolve: {names:?}"
     );
 }
 
@@ -447,7 +492,7 @@ fn published_registry_can_be_resolved() {
 fn published_registry_can_be_fetched() {
     let dir = TempDir::new().unwrap();
     let registry = publish_simple_package(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
 
     let cache = dir.path().join("cache");
     cabin()
@@ -481,7 +526,7 @@ fn published_registry_can_be_built() {
     let dir = TempDir::new().unwrap();
     let registry = publish_simple_package(dir.path());
     let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
-    write_app_using_fmt(dir.path(), Some(app_main));
+    write_app_using_scoped_fmt(dir.path(), Some(app_main));
 
     let cache = dir.path().join("cache");
     let build_dir = dir.path().join("build");

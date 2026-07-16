@@ -700,7 +700,7 @@ fn registry_dependency_errors_on_fresh_and_lockfile_paths() {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "libnone"
+name = "acme/libnone"
 version = "0.1.0"
 cxx-standard = "c++17"
 interface-cxx-standard = "none"
@@ -736,12 +736,12 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-libnone = "0.1.0"
+"acme/libnone" = "0.1.0"
 
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["libnone"]
+deps = ["acme/libnone"]
 "#,
         )
         .unwrap();
@@ -786,15 +786,15 @@ deps = ["libnone"]
     assert!(
         flat_contains(
             &first_stderr,
-            "or pin `libnone` to an older version (currently 0.1.0)"
+            "or pin `acme/libnone` to an older version (currently 0.1.0)"
         ),
         "expected the pin remedy in: {first_flat}"
     );
     assert!(
         flat_contains(
             &first_stderr,
-            "as a last resort, `libnone = { ..., ignore-interface-standard = true }` in the \
-             `[dependencies]` table of"
+            "as a last resort, `\"acme/libnone\" = { ..., ignore-interface-standard = true }` in \
+             the `[dependencies]` table of"
         ),
         "expected the override remedy in: {first_flat}"
     );
@@ -838,7 +838,7 @@ fn lockfile_loaded_violation_explains_staleness_and_suggests_update() {
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
             r#"[package]
-name = "libiface"
+name = "acme/libiface"
 version = "0.1.0"
 cxx-standard = "c++20"
 interface-cxx-standard = "c++20"
@@ -874,17 +874,17 @@ version = "0.1.0"
 cxx-standard = "{cxx_standard}"
 
 [dependencies]
-libiface = "0.1.0"
+"acme/libiface" = "0.1.0"
 
 [target.app]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["libiface"]
+deps = ["acme/libiface"]
 
 [target.app_test]
 type = "test"
 sources = ["tests/app_test.cc"]
-deps = ["libiface"]
+deps = ["acme/libiface"]
 "#
         )
     };

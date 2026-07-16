@@ -109,7 +109,7 @@ fn cabin_publish_registry_dir_preserves_declarations() {
     dir.child("cabin.toml")
         .write_str(
             r#"[package]
-name = "demo"
+name = "acme/demo"
 version = "0.1.0"
 cxx-standard = "c++17"
 
@@ -131,7 +131,7 @@ sources = ["src/main.cc"]
         .arg(&registry)
         .assert()
         .success();
-    let entry_path = registry.join("packages/demo.json");
+    let entry_path = registry.join("packages/acme/demo.json");
     let body = fs::read_to_string(&entry_path).unwrap();
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
     let v = &json["versions"]["0.1.0"];
