@@ -55,16 +55,23 @@ impl std::fmt::Debug for SourceContext<'_> {
 ///    exists it must be a valid Cabin file-registry config; package
 ///    index files are read from `path/<config.packages>/`.  Source
 ///    paths recorded in those package files resolve relative to the
-///    package files' parent directory (`path/<config.packages>/`),
-///    so the published `"../artifacts/<name>/<name>-<version>.tar.gz"`
-///    form lands at `path/artifacts/<name>/<name>-<version>.tar.gz`.
+///    package files' parent directory, so the published
+///    `"../artifacts/<name>/<name>-<version>.tar.gz"` form lands at
+///    `path/artifacts/<name>/<name>-<version>.tar.gz`.
 ///    The `config.artifacts` field is accepted for schema
 ///    compatibility but is not consulted during resolution.
 /// 2. **Flat layout**.  Used by hand-written
 ///    fixtures that drop `<name>.json` directly under `path` with no
 ///    `config.json`.  Source paths resolve relative to `path`.
 ///
-/// Files whose names do not end in `.json` are ignored.  The
+/// In both shapes a scoped package `<scope>/<name>` nests exactly
+/// one level deeper as `<scope>/<name>.json`; its source paths
+/// resolve relative to the scope directory (matching the published
+/// `"../../<artifacts>/<scope>/<name>/..."` form), and the declared
+/// `name` must equal `<scope>/<name>`.
+///
+/// Files whose names do not end in `.json` are ignored, as is
+/// anything nested deeper than one scope directory.  The
 /// `config.json` file at the registry root is itself excluded from
 /// the package scan.
 ///
@@ -119,7 +126,12 @@ pub fn load_index_with_features(
         source,
     })?;
     let mut packages: BTreeMap<PackageName, IndexEntry> = BTreeMap::new();
-    let mut paths: Vec<PathBuf> = Vec::new();
+    // (scope, file path) pairs: a bare package is a top-level
+    // `<name>.json`, a scoped one nests exactly one level as
+    // `<scope>/<name>.json`.  Anything deeper (or any non-`.json`
+    // file) is ignored, mirroring how stray files are skipped in
+    // the flat layout.
+    let mut files: Vec<(Option<String>, PathBuf)> = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|source| IndexError::Io {
             path: packages_dir.clone(),
@@ -135,13 +147,36 @@ pub fn load_index_with_features(
             if stem == Some("config") && packages_dir == path {
                 continue;
             }
-            paths.push(entry_path);
+            files.push((None, entry_path));
+        } else if entry_path.is_dir() {
+            let Some(scope) = entry_path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let scope = scope.to_owned();
+            let nested = std::fs::read_dir(&entry_path).map_err(|source| IndexError::Io {
+                path: entry_path.clone(),
+                source,
+            })?;
+            for nested_entry in nested {
+                let nested_entry = nested_entry.map_err(|source| IndexError::Io {
+                    path: entry_path.clone(),
+                    source,
+                })?;
+                let nested_path = nested_entry.path();
+                if nested_path.is_file()
+                    && nested_path.extension().and_then(|e| e.to_str()) == Some("json")
+                {
+                    files.push((Some(scope.clone()), nested_path));
+                }
+            }
         }
     }
-    paths.sort();
+    // Sort on (scope, path) so bare and scoped discoveries load in
+    // one deterministic order regardless of readdir order.
+    files.sort();
 
-    for entry_path in paths {
-        let pkg = load_package_file(&entry_path)?;
+    for (scope, entry_path) in files {
+        let pkg = load_package_file(&entry_path, scope.as_deref())?;
         packages.insert(pkg.name.clone(), pkg);
     }
 
@@ -223,7 +258,7 @@ fn load_registry_config(
     Ok(root.join(raw.packages))
 }
 
-fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
+fn load_package_file(path: &Path, scope: Option<&str>) -> Result<IndexEntry, IndexError> {
     let body = std::fs::read_to_string(path).map_err(|source| IndexError::Io {
         path: path.to_path_buf(),
         source,
@@ -231,14 +266,24 @@ fn load_package_file(path: &Path) -> Result<IndexEntry, IndexError> {
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_owned();
+        .unwrap_or_default();
+    // The expected full name reconstructs the on-disk location:
+    // `<scope>/<stem>` for a nested file, the bare stem otherwise.
+    // The declared JSON `name` must match it exactly.
+    let hint = match scope {
+        Some(scope) => format!("{scope}/{stem}"),
+        None => stem.to_owned(),
+    };
+    // Relative `source.path` values resolve against the file's own
+    // parent (the scope directory for a scoped package) - which is
+    // exactly what the published `../../<artifacts>/...` form
+    // expects.
     let parent_dir = path
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
     parse_package_entry(
         &body,
-        Some(&stem),
+        Some(&hint),
         &SourceContext::LocalDir(&parent_dir),
         Some(path),
     )
@@ -713,6 +758,75 @@ mod tests {
         assert_eq!(ver, &semver::Version::parse("10.2.1").unwrap());
         assert!(!meta.yanked);
         assert_eq!(meta.checksum.as_deref(), Some("sha256:x"));
+    }
+
+    /// A scoped package nests one level (`packages/<scope>/<name>.json`),
+    /// its declared name is the full `<scope>/<name>`, and its
+    /// relative `source.path` resolves against the scope directory -
+    /// so the published `../../artifacts/...` form lands at the
+    /// registry root.
+    #[test]
+    fn loads_scoped_package_from_scope_directory() {
+        let dir = TempDir::new().unwrap();
+        dir.child("config.json")
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+            )
+            .unwrap();
+        dir.child("packages/fmtlib/fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmtlib/fmt",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {},
+                        "checksum": "sha256:x",
+                        "source": {
+                            "type": "archive",
+                            "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
+                            "format": "tar.gz"
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index
+            .package(&PackageName::new("fmtlib/fmt").unwrap())
+            .expect("scoped entry");
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        let source = meta.source.as_ref().expect("source artifact");
+        match &source.location {
+            SourceLocation::LocalPath(p) => assert_eq!(
+                p,
+                &dir.path()
+                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz")
+            ),
+            other @ SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {other:?}"),
+        }
+    }
+
+    /// A scoped index document in the wrong location (its scope dir
+    /// disagreeing with its declared name) is a hard error, not a
+    /// silent re-homing.
+    #[test]
+    fn scoped_package_in_wrong_scope_dir_is_a_name_mismatch() {
+        let dir = TempDir::new().unwrap();
+        dir.child("other/fmt.json")
+            .write_str(r#"{"schema":1,"name":"fmtlib/fmt","versions":{}}"#)
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        match err {
+            IndexError::NameMismatch {
+                declared, expected, ..
+            } => {
+                assert_eq!(declared, "fmtlib/fmt");
+                assert_eq!(expected, "other/fmt");
+            }
+            other => panic!("expected NameMismatch, got {other:?}"),
+        }
     }
 
     #[test]

@@ -302,7 +302,14 @@ fn build_vendor_plan(
         let parsed = if let Some(v) = by_name.get(&name) {
             v.clone()
         } else {
-            let path = index_dir.join("packages").join(format!("{name}.json"));
+            // Mirror the file-registry layout: a scoped index doc
+            // nests under its scope dir (`packages/<scope>/<name>.json`),
+            // one path segment per name component.
+            let mut path = index_dir.join("packages");
+            if let Some(scope) = pkg.name.scope() {
+                path.push(scope);
+            }
+            path.push(format!("{}.json", pkg.name.base_name()));
             let body = std::fs::read_to_string(&path).with_context(|| {
                 format!(
                     "vendoring requires the source index to expose `packages/{name}.json` at `{}`",

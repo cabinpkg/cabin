@@ -1,6 +1,8 @@
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use cabin_core::PackageName;
 use cabin_core::registry::{REGISTRY_CONFIG_SCHEMA, REGISTRY_KIND, relative_subdir_is_safe};
 use serde::{Deserialize, Serialize};
 
@@ -186,46 +188,90 @@ impl FileRegistry {
     }
 
     /// Directory containing per-package index files
-    /// (`packages/<name>.json`).
+    /// (`packages/<name>.json` for a bare name,
+    /// `packages/<scope>/<name>.json` for a scoped one).
     pub fn packages_dir(&self) -> PathBuf {
         self.root.join(&self.config.packages)
     }
 
     /// Directory containing per-package artifact directories
-    /// (`artifacts/<name>/`).
+    /// (`artifacts/<name>/` for a bare name,
+    /// `artifacts/<scope>/<name>/` for a scoped one).
     pub fn artifacts_dir(&self) -> PathBuf {
         self.root.join(&self.config.artifacts)
     }
 
-    /// Absolute path of the package index file for `name`.
-    pub fn package_index_path(&self, name: &str) -> PathBuf {
-        self.packages_dir().join(format!("{name}.json"))
+    /// Absolute path of the package index file for `name`.  A scoped
+    /// name nests its `.json` under a scope directory; every path
+    /// segment is one `path_components` element, never the full
+    /// name string.
+    pub fn package_index_path(&self, name: &PackageName) -> PathBuf {
+        let mut path = self.packages_dir();
+        if let Some(scope) = name.scope() {
+            path.push(scope);
+        }
+        path.join(format!("{}.json", name.base_name()))
     }
 
     /// Absolute path of the per-package artifact directory for
     /// `name`.
-    pub fn artifact_dir_for(&self, name: &str) -> PathBuf {
-        self.artifacts_dir().join(name)
+    pub fn artifact_dir_for(&self, name: &PackageName) -> PathBuf {
+        name.path_components()
+            .fold(self.artifacts_dir(), |dir, c| dir.join(c))
     }
 
     /// Absolute path of the artifact for one resolved
-    /// (name, version).
-    pub fn artifact_path(&self, name: &str, version: &semver::Version) -> PathBuf {
+    /// (name, version).  The filename flattens a scoped name to
+    /// `<scope>-<name>` so a downloaded tarball stays
+    /// self-identifying outside the registry tree - the same shape
+    /// the hosted registry serves.
+    pub fn artifact_path(&self, name: &PackageName, version: &semver::Version) -> PathBuf {
         self.artifact_dir_for(name)
-            .join(format!("{name}-{version}.tar.gz"))
+            .join(format!("{}-{version}.tar.gz", name.artifact_stem()))
     }
 
     /// `source.path` value to embed in package index metadata, given
     /// the `(name, version)` pair.  The path is forward-slashed and
     /// relative to the package index file's parent directory so
     /// static sparse-HTTP serving sees consistent links.
-    pub fn relative_source_path(&self, name: &str, version: &semver::Version) -> String {
-        // packages/<name>.json -> ../<artifacts>/<name>/<name>-<version>.tar.gz
-        format!(
-            "../{}/{name}/{name}-{version}.tar.gz",
-            self.config.artifacts
-        )
+    ///
+    /// The climb back to the registry root is one `..` per *normal
+    /// path component* of the configured `packages` subdir (which
+    /// may be nested, e.g. `a/b`) plus one for a scoped name's scope
+    /// directory; the descent then mirrors
+    /// [`FileRegistry::artifact_path`].  Counting and rendering use
+    /// the same `Path::components` semantics as the config
+    /// validation, so legal-but-unnormalized values (`./packages`,
+    /// `packages/`, platform separators) climb and render exactly
+    /// where the index document really sits.  For the default config
+    /// this yields the same canonical shapes the hosted registry
+    /// validates: `../artifacts/<name>/<name>-<version>.tar.gz` and
+    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`.
+    pub fn relative_source_path(&self, name: &PackageName, version: &semver::Version) -> String {
+        let climb =
+            subdir_normal_components(&self.config.packages).count() + usize::from(name.is_scoped());
+        let mut out = String::new();
+        for _ in 0..climb {
+            out.push_str("../");
+        }
+        let descent: Vec<&str> = subdir_normal_components(&self.config.artifacts)
+            .chain(name.path_components())
+            .collect();
+        out.push_str(&descent.join("/"));
+        let _ = write!(out, "/{}-{version}.tar.gz", name.artifact_stem());
+        out
     }
+}
+
+/// Normal path components of a config-declared subdirectory, under
+/// the same path semantics [`validate_subdir`] accepts: `.` segments
+/// are legal and contribute neither depth nor a rendered segment.
+/// Non-UTF-8 components cannot occur (the value comes from JSON).
+fn subdir_normal_components(value: &str) -> impl Iterator<Item = &str> {
+    Path::new(value).components().filter_map(|c| match c {
+        std::path::Component::Normal(part) => part.to_str(),
+        _ => None,
+    })
 }
 
 /// Reject `..`-bearing or absolute config-declared subdirectories;
@@ -351,17 +397,104 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("10.2.1").unwrap();
+        let fmt = PackageName::new("fmt").unwrap();
         assert_eq!(
-            registry.package_index_path("fmt"),
+            registry.package_index_path(&fmt),
             dir.path().join("packages/fmt.json")
         );
         assert_eq!(
-            registry.artifact_path("fmt", &v),
+            registry.artifact_path(&fmt, &v),
             dir.path().join("artifacts/fmt/fmt-10.2.1.tar.gz")
         );
         assert_eq!(
-            registry.relative_source_path("fmt", &v),
+            registry.relative_source_path(&fmt, &v),
             "../artifacts/fmt/fmt-10.2.1.tar.gz"
+        );
+    }
+
+    /// A scoped name nests one directory per component in both trees
+    /// and flattens to `<scope>-<name>` inside the artifact filename;
+    /// the relative source link climbs one extra level because the
+    /// index document sits inside the scope directory.  The shapes
+    /// match what the hosted registry serves and validates.
+    #[test]
+    fn scoped_paths_nest_per_component() {
+        let dir = TempDir::new().unwrap();
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
+        let v = semver::Version::parse("1.0.0").unwrap();
+        let name = PackageName::new("fmtlib/fmt").unwrap();
+        assert_eq!(
+            registry.package_index_path(&name),
+            dir.path().join("packages/fmtlib/fmt.json")
+        );
+        assert_eq!(
+            registry.artifact_path(&name, &v),
+            dir.path()
+                .join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz")
+        );
+        assert_eq!(
+            registry.relative_source_path(&name, &v),
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+        );
+    }
+
+    /// The configured `packages` / `artifacts` subdirs may be nested
+    /// (`a/b` is legal); the relative source link climbs one `..`
+    /// per normal component of the packages subdir, so the emitted
+    /// link resolves from the index document's real location.
+    #[test]
+    fn relative_source_path_climbs_nested_packages_subdirs() {
+        let dir = TempDir::new().unwrap();
+        dir.child("config.json")
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"meta/packages","artifacts":"blobs"}"#,
+            )
+            .unwrap();
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
+        let v = semver::Version::parse("1.0.0").unwrap();
+        assert_eq!(
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
+            "../../blobs/fmt/fmt-1.0.0.tar.gz"
+        );
+        assert_eq!(
+            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
+            "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+        );
+    }
+
+    /// Legal-but-unnormalized subdir values (`./packages`, trailing
+    /// separator, a bare `.`) contribute depth and rendered segments
+    /// by their *normal* path components only - matching where the
+    /// index document actually lands on disk.
+    #[test]
+    fn relative_source_path_normalizes_dot_and_trailing_separators() {
+        let dir = TempDir::new().unwrap();
+        dir.child("config.json")
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"./packages/","artifacts":"./blobs"}"#,
+            )
+            .unwrap();
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
+        let v = semver::Version::parse("1.0.0").unwrap();
+        assert_eq!(
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
+            "../blobs/fmt/fmt-1.0.0.tar.gz"
+        );
+
+        let dir = TempDir::new().unwrap();
+        dir.child("config.json")
+            .write_str(r#"{"schema":1,"kind":"file-registry","packages":".","artifacts":"blobs"}"#)
+            .unwrap();
+        let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
+        // Index docs sit at the registry root: no climb at all for a
+        // bare name, one level for a scoped one.
+        assert_eq!(
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
+            "blobs/fmt/fmt-1.0.0.tar.gz"
+        );
+        assert_eq!(
+            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
+            "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
         );
     }
 
