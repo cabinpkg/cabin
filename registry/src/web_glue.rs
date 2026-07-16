@@ -268,6 +268,7 @@ async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
 
 #[derive(Deserialize)]
 struct PackageVersionRecord {
+    scope: String,
     name: String,
     version: String,
     verification: String,
@@ -276,7 +277,8 @@ struct PackageVersionRecord {
 }
 
 /// `GET /api/v1/user/packages`: the packages the user created, every
-/// version's verification and yanked state included. The ORDER BY keeps
+/// version's verification and yanked state included. Each package is
+/// listed under its canonical `<scope>/<name>` name. The ORDER BY keeps
 /// the payload deterministic and the rows grouped by name for
 /// [`user_api::packages_json`]; versions run newest first.
 async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response> {
@@ -289,7 +291,7 @@ async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response
     let rows: Vec<user_api::PackageVersionRow> = records
         .into_iter()
         .map(|record| user_api::PackageVersionRow {
-            name: record.name,
+            name: format!("{}/{}", record.scope, record.name),
             version: record.version,
             verification: record.verification,
             yanked: record.yanked != 0,

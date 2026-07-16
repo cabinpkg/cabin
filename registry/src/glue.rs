@@ -175,10 +175,12 @@ async fn handle_registry(
     let mut response = if req.method() == Method::Get {
         match route {
             Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
-            Route::Package { name } => package_response(&db, name).await?,
-            Route::Artifact { name, version } => {
-                artifact_response(env, &db, &auth, name, version).await?
-            }
+            Route::Package { scope, name } => package_response(&db, scope, name).await?,
+            Route::Artifact {
+                scope,
+                name,
+                version,
+            } => artifact_response(env, &db, &auth, scope, name, version).await?,
             // Answered above before the auth gate.
             Route::Healthz => Response::empty()?,
         }
@@ -234,9 +236,14 @@ async fn handle_website(
             _ => error_response(404, error::NOT_FOUND)?,
         },
         Method::Put => match match_api_route(path) {
-            Some(ApiRoute::Publish { name, version }) => {
-                let (name, version) = (name.to_owned(), version.to_owned());
-                publish_response(req, env, ctx, &db, &auth, &name, &version).await?
+            Some(ApiRoute::Publish {
+                scope,
+                name,
+                version,
+            }) => {
+                let (scope, name, version) =
+                    (scope.to_owned(), name.to_owned(), version.to_owned());
+                publish_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
             }
             Some(
                 ApiRoute::Yank { .. } | ApiRoute::AdminVersions | ApiRoute::AdminVerdict { .. },
@@ -244,13 +251,23 @@ async fn handle_website(
             None => error_response(404, error::NOT_FOUND)?,
         },
         Method::Patch => match match_api_route(path) {
-            Some(ApiRoute::Yank { name, version }) => {
-                let (name, version) = (name.to_owned(), version.to_owned());
-                yank_response(req, env, &db, &auth, &name, &version).await?
+            Some(ApiRoute::Yank {
+                scope,
+                name,
+                version,
+            }) => {
+                let (scope, name, version) =
+                    (scope.to_owned(), name.to_owned(), version.to_owned());
+                yank_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
-            Some(ApiRoute::AdminVerdict { name, version }) => {
-                let (name, version) = (name.to_owned(), version.to_owned());
-                verdict_response(req, env, &db, &auth, &name, &version).await?
+            Some(ApiRoute::AdminVerdict {
+                scope,
+                name,
+                version,
+            }) => {
+                let (scope, name, version) =
+                    (scope.to_owned(), name.to_owned(), version.to_owned());
+                verdict_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
             Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions) => {
                 error_response(405, error::METHOD_NOT_ALLOWED)?
@@ -322,15 +339,15 @@ fn bucket_from_columns(tokens: Option<f64>, updated_at: Option<&str>) -> Option<
     })
 }
 
-/// `GET /packages/<name>.json`: composed from **verified** versions
-/// only - the filter is in the query, so pending and rejected rows
-/// never reach composition, and a package with no verified versions is
-/// indistinguishable from an unknown one (fail safe: if the verifier
+/// `GET /packages/<scope>/<name>.json`: composed from **verified**
+/// versions only - the filter is in the query, so pending and rejected
+/// rows never reach composition, and a package with no verified versions
+/// is indistinguishable from an unknown one (fail safe: if the verifier
 /// never runs, nothing new ever becomes resolvable).
-async fn package_response(db: &D1Database, name: &str) -> worker::Result<Response> {
+async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::Result<Response> {
     let records: Vec<VersionRecord> = db
-        .prepare(sql::VERIFIED_VERSIONS_BY_NAME)
-        .bind(&[name.into()])?
+        .prepare(sql::VERIFIED_VERSIONS_BY_PACKAGE)
+        .bind(&[scope.into(), name.into()])?
         .all()
         .await?
         .results()?;
@@ -345,33 +362,39 @@ async fn package_response(db: &D1Database, name: &str) -> worker::Result<Respons
             yanked: record.yanked != 0,
         })
         .collect();
-    match documents::package_json(name, &rows) {
+    let full_name = format!("{scope}/{name}");
+    match documents::package_json(&full_name, &rows) {
         Ok(body) => json_response(&body),
         Err(detail) => {
-            console_error!("package document for {name}: {detail}");
+            console_error!("package document for {full_name}: {detail}");
             error_response(500, error::INTERNAL)
         }
     }
 }
 
-/// `PUT /api/v1/packages/<name>/<version>`: the publish route
+/// `PUT /api/v1/packages/<scope>/<name>/<version>`: the publish route
 /// (`docs/remote-registry.md`, "Publish"). Validation order and status
-/// mapping follow `crate::publish`, preceded by the budget gate (`402`)
-/// and the publish rate limit (`429`), and followed - for genuinely new
-/// versions and replacements of rejected ones only - by the
-/// archive-size cap (`413`) and the per-user quota checks (`403`); on
-/// success the archive lands in R2 first (an orphaned blob from a crash
-/// between the two writes is harmless, content-addressed garbage - see
-/// `docs/runbook.md`), then one atomic D1 batch inserts (or, for a
+/// mapping follow `crate::publish`, preceded by the budget gate (`402`),
+/// the publish rate limit (`429`), and the scope-membership gate (the
+/// uniform `403` - publishing under a scope creates the package row, so
+/// membership alone decides, and a scope that does not exist answers
+/// exactly like one the user is not a member of), and followed - for
+/// genuinely new versions and replacements of rejected ones only - by
+/// the archive-size cap (`413`) and the per-user quota checks (`403`);
+/// on success the archive lands in R2 first (an orphaned blob from a
+/// crash between the two writes is harmless, content-addressed garbage -
+/// see `docs/runbook.md`), then one atomic D1 batch inserts (or, for a
 /// rejected row, replaces) the package and version rows and bumps the
 /// storage self-accounting. New rows start `pending` and the `201`
 /// reports it: nothing becomes resolvable before the verifier says so.
+#[allow(clippy::too_many_arguments)] // the route triple plus the request plumbing
 async fn publish_response(
     req: &mut Request,
     env: &Env,
     ctx: &Context,
     db: &D1Database,
     auth: &AuthContext,
+    scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
@@ -385,6 +408,13 @@ async fn publish_response(
     let quotas = quota::quotas_for_plan(&auth.plan);
     if let Some(limited) = publish_rate_limit(env, db, auth, &quotas).await? {
         return Ok(limited);
+    }
+
+    // After the rate limit, so probing scopes is throttled like any
+    // other publish attempt; before the body is buffered, like every
+    // other authorization check.
+    if !is_scope_member(db, scope, auth.user_id).await? {
+        return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
 
     // Reject oversized uploads before buffering when the client declared
@@ -403,7 +433,7 @@ async fn publish_response(
         Err(detail) => return error_response(400, detail),
     };
     let archive_bytes = frame.archive.len() as u64;
-    let metadata = match publish::validate_metadata(name, version, frame.metadata) {
+    let metadata = match publish::validate_metadata(scope, name, version, frame.metadata) {
         Ok(metadata) => metadata,
         Err(detail) => return error_response(400, detail),
     };
@@ -417,7 +447,7 @@ async fn publish_response(
         return error_response(400, publish::METADATA_NOT_JSON);
     };
 
-    let replaced = match existing_version(db, name, version, metadata_text).await? {
+    let replaced = match existing_version(db, scope, name, version, metadata_text).await? {
         Some(ExistingVersion::Answered(response)) => {
             // The idempotent no-op (200) is a retry of a committed
             // publish that still holds the row's exact bytes, so it is
@@ -457,12 +487,13 @@ async fn publish_response(
         console_error!("clock produced a non-ISO timestamp: {now}");
         return error_response(500, error::INTERNAL);
     };
-    let counts = publish_counts(db, auth.user_id, name, &day_prefix).await?;
+    let counts = publish_counts(db, auth.user_id, scope, name, &day_prefix).await?;
     if let Err(denial) = quota::check_publish(archive_bytes, &counts, &quotas) {
         return denial_response(env, &denial, None);
     }
 
     let new = NewVersion {
+        scope,
         name,
         version,
         checksum_hex: &computed_hex,
@@ -477,7 +508,7 @@ async fn publish_response(
                 // A concurrent replacement or verdict moved the rejected
                 // row first; answer for the row's new state exactly as if
                 // this request had arrived after the winner.
-                return match existing_version(db, name, version, metadata_text).await? {
+                return match existing_version(db, scope, name, version, metadata_text).await? {
                     Some(ExistingVersion::Answered(response)) => {
                         if response.status_code() == 200 {
                             heal_blobs_on_retry(env, ctx, &computed_hex, frame.archive).await?;
@@ -497,7 +528,7 @@ async fn publish_response(
         201,
         &serde_json::json!({
             "ok": true,
-            "name": name,
+            "name": format!("{scope}/{name}"),
             "version": version,
             "checksum": metadata.checksum,
             "verification": "pending",
@@ -506,20 +537,36 @@ async fn publish_response(
     )
 }
 
-/// `PATCH /api/v1/packages/<name>/<version>/yank`
+/// Whether the token's user is a member (any role) of `scope`. A scope
+/// that does not exist has no members, so the caller's uniform refusal
+/// needs no separate existence check.
+async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::Result<bool> {
+    let membership: CountRecord = db
+        .prepare(sql::SCOPE_MEMBERSHIP)
+        .bind(&[scope.into(), js_int(user_id)])?
+        .first(None)
+        .await?
+        .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
+    Ok(membership.n > 0)
+}
+
+/// `PATCH /api/v1/packages/<scope>/<name>/<version>/yank`
 /// (`docs/remote-registry.md`, "Yank"): idempotent, and the row's
 /// `yanked` column is the single home of yank state - the read path
 /// overrides the stored metadata's field from it. Gated by the budget
 /// breaker (`402`) like every write; yank has no rate limit or quota.
-/// Yank applies to **verified** versions only: a pending or rejected
-/// version was never part of the registry's resolvable surface, so
-/// there is nothing to retract and the pair answers an authenticated
-/// 404.
+/// The scope-membership gate (the uniform `403`) answers before the
+/// version lookup, so a non-member can never probe which versions exist
+/// under a foreign scope. Yank applies to **verified** versions only: a
+/// pending or rejected version was never part of the registry's
+/// resolvable surface, so there is nothing to retract and the triple
+/// answers an authenticated 404.
 async fn yank_response(
     req: &mut Request,
     env: &Env,
     db: &D1Database,
     auth: &AuthContext,
+    scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
@@ -529,6 +576,9 @@ async fn yank_response(
     if !auth.scopes.contains(&Scope::Yank) {
         return error_response(403, error::YANK_SCOPE_REQUIRED);
     }
+    if !is_scope_member(db, scope, auth.user_id).await? {
+        return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
+    }
     let body = req.bytes().await?;
     let Ok(YankBody { yanked }) = serde_json::from_slice(&body) else {
         return error_response(400, error::INVALID_YANK_BODY);
@@ -536,7 +586,7 @@ async fn yank_response(
 
     let existing: Option<YankedRecord> = db
         .prepare(sql::VERSION_YANK_STATE)
-        .bind(&[name.into(), version.into()])?
+        .bind(&[scope.into(), name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(existing) = existing else {
@@ -548,7 +598,12 @@ async fn yank_response(
     let changed = (existing.yanked != 0) != yanked;
     if changed {
         db.prepare(sql::SET_VERSION_YANKED)
-            .bind(&[i32::from(yanked).into(), name.into(), version.into()])?
+            .bind(&[
+                i32::from(yanked).into(),
+                scope.into(),
+                name.into(),
+                version.into(),
+            ])?
             .run()
             .await?;
     }
@@ -566,6 +621,7 @@ fn has_verify_scope(auth: &AuthContext) -> bool {
 
 #[derive(Deserialize)]
 struct AdminVersionRecord {
+    scope: String,
     name: String,
     version: String,
     checksum: String,
@@ -575,9 +631,15 @@ struct AdminVersionRecord {
 }
 
 /// `GET /api/v1/admin/versions?status=<status>` (`verify` scope): the
-/// verifier's work list. Each entry carries the stored canonical
-/// metadata document (parsed, so the response is one JSON value), and
-/// the listing is deterministic: ordered by name, then version.
+/// verifier's work list. Each entry's `name` is the canonical
+/// `<scope>/<name>` and carries the stored canonical metadata document
+/// (parsed, so the response is one JSON value); the listing is
+/// deterministic: ordered by scope, then name, then version. The
+/// external verifier (`crates/cabin-registry-verify` and its workflow)
+/// still consumes bare names and is updated with the client-side
+/// scoped-names steps - safe exactly as long as nothing can create
+/// pending scoped rows in production, which holds until the claim flow
+/// lands (`docs/architecture.md`, "Scopes").
 async fn admin_versions_response(
     req: &Request,
     db: &D1Database,
@@ -604,14 +666,15 @@ async fn admin_versions_response(
     for record in records {
         let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&record.metadata_json) else {
             console_error!(
-                "stored metadata for {}@{} is not valid JSON",
+                "stored metadata for {}/{}@{} is not valid JSON",
+                record.scope,
                 record.name,
                 record.version
             );
             return error_response(500, error::INTERNAL);
         };
         versions.push(serde_json::json!({
-            "name": record.name,
+            "name": format!("{}/{}", record.scope, record.name),
             "version": record.version,
             "checksum": record.checksum,
             "published_by": record.published_by,
@@ -630,8 +693,8 @@ struct VerdictTargetRecord {
     archive_size: i64,
 }
 
-/// `PATCH /api/v1/admin/versions/<name>/<version>` (`verify` scope):
-/// the verifier's verdict. Pending versions accept either verdict; a
+/// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>` (`verify`
+/// scope): the verifier's verdict. Pending versions accept either verdict; a
 /// repeat of the verdict a verified version already carries is the
 /// idempotent 200; anything else is the 409 matrix in
 /// [`verify::transition`]. The body's optional `checksum` binds the
@@ -651,6 +714,7 @@ async fn verdict_response(
     env: &Env,
     db: &D1Database,
     auth: &AuthContext,
+    scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
@@ -668,7 +732,7 @@ async fn verdict_response(
 
     let target: Option<VerdictTargetRecord> = db
         .prepare(sql::VERDICT_TARGET)
-        .bind(&[name.into(), version.into()])?
+        .bind(&[scope.into(), name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(target) = target else {
@@ -676,7 +740,7 @@ async fn verdict_response(
     };
     let Some(current) = verify::Status::parse(&target.verification) else {
         console_error!(
-            "stored verification for {name}@{version} is invalid: {}",
+            "stored verification for {scope}/{name}@{version} is invalid: {}",
             target.verification
         );
         return error_response(500, error::INTERNAL);
@@ -700,7 +764,7 @@ async fn verdict_response(
         verify::Transition::Conflict(detail) => return error_response(409, detail),
         verify::Transition::NoOp => false,
         verify::Transition::Apply => {
-            if !apply_verdict(env, db, name, version, &parsed, &target).await? {
+            if !apply_verdict(env, db, scope, name, version, &parsed, &target).await? {
                 // The row moved between this request's read and its
                 // guarded update: a concurrent conflicting verdict or a
                 // replacement won the race.
@@ -717,7 +781,7 @@ async fn verdict_response(
         200,
         &serde_json::json!({
             "ok": true,
-            "name": name,
+            "name": format!("{scope}/{name}"),
             "version": version,
             "verification": resulting.as_str(),
             "changed": changed,
@@ -734,9 +798,11 @@ fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
 /// Applies a verdict to a pending row under the transactional guards
 /// (still pending, still the checksum and `published_at` this request
 /// read); `false` means the row moved first and nothing was changed.
+#[allow(clippy::too_many_arguments)] // the route triple plus the verdict plumbing
 async fn apply_verdict(
     env: &Env,
     db: &D1Database,
+    scope: &str,
     name: &str,
     version: &str,
     parsed: &verify::ParsedVerdict,
@@ -748,6 +814,7 @@ async fn apply_verdict(
                 .prepare(sql::MARK_VERSION_VERIFIED)
                 .bind(&[
                     now_iso8601().into(),
+                    scope.into(),
                     name.into(),
                     version.into(),
                     target.checksum.as_str().into(),
@@ -760,6 +827,7 @@ async fn apply_verdict(
         verify::Verdict::Rejected => {
             let applied = apply_rejection(
                 db,
+                scope,
                 name,
                 version,
                 parsed.reason.as_deref().unwrap_or_default(),
@@ -787,6 +855,7 @@ async fn apply_verdict(
 /// non-numeric value as unavailable and fails closed.
 async fn apply_rejection(
     db: &D1Database,
+    scope: &str,
     name: &str,
     version: &str,
     reason: &str,
@@ -797,6 +866,7 @@ async fn apply_rejection(
         .batch(vec![
             db.prepare(sql::REFUND_STORED_BYTES_ON_REJECTION).bind(&[
                 target.checksum.as_str().into(),
+                scope.into(),
                 name.into(),
                 version.into(),
                 archive_size,
@@ -804,6 +874,7 @@ async fn apply_rejection(
             ])?,
             db.prepare(sql::MARK_VERSION_REJECTED).bind(&[
                 reason.into(),
+                scope.into(),
                 name.into(),
                 version.into(),
                 target.checksum.as_str().into(),
@@ -852,12 +923,13 @@ async fn artifact_response(
     env: &Env,
     db: &D1Database,
     auth: &AuthContext,
+    scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
     let record: Option<ArtifactRecord> = db
-        .prepare(sql::ARTIFACT_BY_NAME_VERSION)
-        .bind(&[name.into(), version.into()])?
+        .prepare(sql::ARTIFACT_BY_PACKAGE_VERSION)
+        .bind(&[scope.into(), name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(record) = record else {
@@ -877,12 +949,12 @@ async fn artifact_response(
     // downloadable on purpose (docs/remote-registry.md, "Yank").
     let key = format!("blobs/sha256/{}", record.checksum);
     let Some(object) = env.bucket("BLOBS")?.get(&key).execute().await? else {
-        console_error!("blob {key} for {name}@{version} is missing from R2");
+        console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
     };
     let size = object.size();
     let Some(body) = object.body() else {
-        console_error!("blob {key} for {name}@{version} has no body");
+        console_error!("blob {key} for {scope}/{name}@{version} has no body");
         return error_response(500, error::INTERNAL);
     };
 
@@ -926,6 +998,7 @@ struct CountRecord {
 /// Everything the write phase of a validated, quota-cleared publish
 /// needs.
 struct NewVersion<'a> {
+    scope: &'a str,
     name: &'a str,
     version: &'a str,
     checksum_hex: &'a str,
@@ -968,11 +1041,13 @@ async fn persist_new_version(
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
     db.batch(vec![
         db.prepare(sql::INSERT_PACKAGE).bind(&[
+            new.scope.into(),
             new.name.into(),
             new.published_at.into(),
             js_int(new.user_id),
         ])?,
         db.prepare(sql::INSERT_VERSION).bind(&[
+            new.scope.into(),
             new.name.into(),
             new.version.into(),
             new.checksum_hex.into(),
@@ -1048,6 +1123,7 @@ async fn replace_rejected_version(
     let results = db
         .batch(vec![
             db.prepare(sql::COUNT_STORED_BYTES_ON_REPLACEMENT).bind(&[
+                new.scope.into(),
                 new.name.into(),
                 new.version.into(),
                 old_checksum.into(),
@@ -1060,6 +1136,7 @@ async fn replace_rejected_version(
                 new.published_at.into(),
                 archive_size,
                 js_int(new.user_id),
+                new.scope.into(),
                 new.name.into(),
                 new.version.into(),
                 old_checksum.into(),
@@ -1203,8 +1280,8 @@ fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
     });
 }
 
-/// What the publish handler found for an already-existing `(name,
-/// version)` row.
+/// What the publish handler found for an already-existing
+/// `(scope, name, version)` row.
 enum ExistingVersion {
     /// The request is answered directly: byte-identical metadata means
     /// a byte-identical archive too (the metadata embeds the checksum
@@ -1220,17 +1297,18 @@ enum ExistingVersion {
 }
 
 /// Idempotency, immutability, and the rejected-replacement carve-out
-/// for an already-published `(name, version)`. `None` means the version
-/// is new.
+/// for an already-published `(scope, name, version)`. `None` means the
+/// version is new.
 async fn existing_version(
     db: &D1Database,
+    scope: &str,
     name: &str,
     version: &str,
     metadata_text: &str,
 ) -> worker::Result<Option<ExistingVersion>> {
     let existing: Option<StoredVersionRecord> = db
         .prepare(sql::EXISTING_VERSION)
-        .bind(&[name.into(), version.into()])?
+        .bind(&[scope.into(), name.into(), version.into()])?
         .first(None)
         .await?;
     let Some(existing) = existing else {
@@ -1240,7 +1318,7 @@ async fn existing_version(
         // An invariant break (the schema never writes other values);
         // fail safe by refusing rather than guessing a transition.
         console_error!(
-            "stored verification for {name}@{version} is invalid: {}",
+            "stored verification for {scope}/{name}@{version} is invalid: {}",
             existing.verification
         );
         return error_response(500, error::INTERNAL)
@@ -1361,6 +1439,7 @@ async fn cas_bucket(
 async fn publish_counts(
     db: &D1Database,
     user_id: i64,
+    scope: &str,
     name: &str,
     day_prefix: &str,
 ) -> worker::Result<quota::PublishCounts> {
@@ -1375,9 +1454,13 @@ async fn publish_counts(
             // against the publisher's package quotas.
             db.prepare(sql::USER_PACKAGE_COUNTS)
                 .bind(&[js_int(user_id), day_prefix.into()])?,
-            db.prepare(sql::COUNT_PACKAGE_VERSIONS_SINCE)
-                .bind(&[name.into(), day_prefix.into()])?,
-            db.prepare(sql::PACKAGE_EXISTS).bind(&[name.into()])?,
+            db.prepare(sql::COUNT_PACKAGE_VERSIONS_SINCE).bind(&[
+                scope.into(),
+                name.into(),
+                day_prefix.into(),
+            ])?,
+            db.prepare(sql::PACKAGE_EXISTS)
+                .bind(&[scope.into(), name.into()])?,
         ])
         .await?;
     let user_usage: UserUsageRecord = first_row(&results, 0)?;

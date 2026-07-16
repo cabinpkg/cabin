@@ -11,6 +11,12 @@ pub const METHOD_NOT_ALLOWED: &str = "method not allowed";
 pub const INTERNAL: &str = "internal error";
 pub const PUBLISH_SCOPE_REQUIRED: &str = "the token does not have the publish scope";
 pub const YANK_SCOPE_REQUIRED: &str = "the token does not have the yank scope";
+/// The write plane's uniform authorization refusal, byte-identical for a
+/// scope that does not exist and one the user is not a member of, so
+/// authenticated writes are no scope-existence oracle
+/// (`docs/architecture.md`, "The write path").
+pub const SCOPE_MEMBERSHIP_REQUIRED: &str =
+    "the scope does not exist or the token's user is not a member of it";
 pub const VERSION_IMMUTABLE: &str = "published versions are immutable";
 pub const INVALID_YANK_BODY: &str = r#"the yank body must be exactly {"yanked": <bool>}"#;
 pub const VERIFY_SCOPE_REQUIRED: &str = "the token does not have the verify scope";

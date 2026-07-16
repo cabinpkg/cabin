@@ -100,24 +100,35 @@ pub struct SourceMetadata {
     pub format: String,
 }
 
-/// Package names accepted at publish: `^[a-z0-9][a-z0-9_-]*$` - the
-/// read-route charset (`routes::is_valid_name`) with a leading
-/// alphanumeric required.
-pub fn is_valid_publish_name(name: &str) -> bool {
-    crate::routes::is_valid_name(name) && name.as_bytes()[0].is_ascii_alphanumeric()
+/// Package names accepted at publish: both parts of the canonical
+/// `<scope>/<name>`, under exactly the read-route grammars
+/// (`routes::is_valid_scope`, `routes::is_valid_name`) - what cannot be
+/// published cannot be routed to, and vice versa.
+pub fn is_valid_publish_name(scope: &str, name: &str) -> bool {
+    crate::routes::is_valid_scope(scope) && crate::routes::is_valid_name(name)
 }
 
-/// Validates the metadata frame against the request URL's `name` /
-/// `version` segments, in the documented order: parse (unknown fields
-/// rejected), schema, URL identity (including the archive path the
-/// `source` block implies), name charset, `SemVer`, `yanked`. The
-/// checksum is checked separately by [`verify_checksum`] once the
-/// caller has digested the archive bytes.
+/// Validates the metadata frame against the request URL's `scope` /
+/// `name` / `version` segments, in the documented order: parse (unknown
+/// fields rejected), schema, URL identity (the document's `name` is the
+/// full `<scope>/<name>`, and the archive path its `source` block
+/// implies embeds the scope twice - directory and filename), scope and
+/// name charsets, `SemVer`, `yanked`. The checksum is checked separately
+/// by [`verify_checksum`] once the caller has digested the archive
+/// bytes.
+///
+/// The scoped shape accepted here is deliberately ahead of the client
+/// and the external verifier, which both still speak bare names until
+/// the client-side scoped-names steps land - safe because production
+/// publishes stay impossible (the membership gate, with no claimable
+/// scopes) until the claim flow lands (`docs/architecture.md`,
+/// "Scopes").
 ///
 /// # Errors
 ///
 /// The fixed `400` detail string for the first check that fails.
 pub fn validate_metadata(
+    url_scope: &str,
     url_name: &str,
     url_version: &str,
     metadata: &[u8],
@@ -133,8 +144,11 @@ pub fn validate_metadata(
     if parsed.schema != 1 {
         return Err(UNSUPPORTED_SCHEMA);
     }
-    let canonical_source_path = format!("../artifacts/{url_name}/{url_name}-{url_version}.tar.gz");
-    if parsed.name != url_name
+    let canonical_name = format!("{url_scope}/{url_name}");
+    let canonical_source_path = format!(
+        "../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}.tar.gz"
+    );
+    if parsed.name != canonical_name
         || parsed.version != url_version
         || parsed.source.kind != "archive"
         || parsed.source.format != "tar.gz"
@@ -142,7 +156,7 @@ pub fn validate_metadata(
     {
         return Err(IDENTITY_MISMATCH);
     }
-    if !is_valid_publish_name(url_name) {
+    if !is_valid_publish_name(url_scope, url_name) {
         return Err(INVALID_NAME);
     }
     if semver::Version::parse(url_version).is_err() {
@@ -186,18 +200,18 @@ mod tests {
         body
     }
 
-    fn metadata_json(name: &str, version: &str) -> String {
+    fn metadata_json(scope: &str, name: &str, version: &str) -> String {
         format!(
             r#"{{
   "schema": 1,
-  "name": "{name}",
+  "name": "{scope}/{name}",
   "version": "{version}",
   "dependencies": {{}},
   "yanked": false,
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../artifacts/{name}/{name}-{version}.tar.gz",
+    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}.tar.gz",
     "format": "tar.gz"
   }}
 }}"#
@@ -243,9 +257,9 @@ mod tests {
 
     #[test]
     fn validate_metadata_accepts_the_canonical_document() {
-        let body = metadata_json("fmt", "10.2.1");
-        let parsed = validate_metadata("fmt", "10.2.1", body.as_bytes()).unwrap();
-        assert_eq!(parsed.name, "fmt");
+        let body = metadata_json("fmtlib", "fmt", "10.2.1");
+        let parsed = validate_metadata("fmtlib", "fmt", "10.2.1", body.as_bytes()).unwrap();
+        assert_eq!(parsed.name, "fmtlib/fmt");
         assert_eq!(parsed.checksum, "sha256:aa");
         assert!(parsed.dependencies.is_empty());
     }
@@ -254,7 +268,7 @@ mod tests {
     fn validate_metadata_accepts_optional_blocks() {
         let body = r#"{
   "schema": 1,
-  "name": "fmt",
+  "name": "fmtlib/fmt",
   "version": "1.0.0",
   "dependencies": {"zlib": "^1.3", "rich": {"version": "^2", "optional": true}},
   "dev-dependencies": {"catch2": "^3"},
@@ -268,9 +282,9 @@ mod tests {
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
   "yanked": false,
   "checksum": "sha256:bb",
-  "source": {"type": "archive", "path": "../artifacts/fmt/fmt-1.0.0.tar.gz", "format": "tar.gz"}
+  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz", "format": "tar.gz"}
 }"#;
-        let parsed = validate_metadata("fmt", "1.0.0", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
     }
@@ -280,10 +294,10 @@ mod tests {
         // A schema the verification pipeline cannot judge would sit
         // pending forever; it must be a 400 at publish.
         for schema in ["0", "2"] {
-            let body = metadata_json("fmt", "10.2.1")
+            let body = metadata_json("fmtlib", "fmt", "10.2.1")
                 .replace("\"schema\": 1,", &format!("\"schema\": {schema},"));
             assert_eq!(
-                validate_metadata("fmt", "10.2.1", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "10.2.1", body.as_bytes()).unwrap_err(),
                 UNSUPPORTED_SCHEMA,
                 "schema: {schema}"
             );
@@ -293,80 +307,107 @@ mod tests {
     #[test]
     fn validate_metadata_rejects_unknown_fields_and_non_json() {
         assert_eq!(
-            validate_metadata("fmt", "1.0.0", b"not json").unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", b"not json").unwrap_err(),
             METADATA_NOT_JSON,
         );
-        let with_extra = metadata_json("fmt", "1.0.0")
+        let with_extra = metadata_json("fmtlib", "fmt", "1.0.0")
             .replace("\"schema\": 1,", "\"schema\": 1,\n  \"extra-key\": true,");
         assert_eq!(
-            validate_metadata("fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
             METADATA_NOT_CANONICAL,
         );
         // Unknown fields inside `source` are rejected too.
-        let with_extra = metadata_json("fmt", "1.0.0").replace(
+        let with_extra = metadata_json("fmtlib", "fmt", "1.0.0").replace(
             "\"type\": \"archive\",",
             "\"type\": \"archive\",\n    \"mirror\": \"x\",",
         );
         assert_eq!(
-            validate_metadata("fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
             METADATA_NOT_CANONICAL,
         );
     }
 
     #[test]
     fn validate_metadata_requires_url_and_source_identity() {
-        let body = metadata_json("fmt", "10.2.1");
-        // URL name / version disagree with the document.
+        let body = metadata_json("fmtlib", "fmt", "10.2.1");
+        // URL scope / name / version disagree with the document.
         assert_eq!(
-            validate_metadata("other", "10.2.1", body.as_bytes()).unwrap_err(),
+            validate_metadata("other", "fmt", "10.2.1", body.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         assert_eq!(
-            validate_metadata("fmt", "9.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "other", "10.2.1", body.as_bytes()).unwrap_err(),
+            IDENTITY_MISMATCH,
+        );
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "9.0.0", body.as_bytes()).unwrap_err(),
+            IDENTITY_MISMATCH,
+        );
+        // A bare (unscoped) document name never matches the URL pair.
+        let bare = body.replace("\"name\": \"fmtlib/fmt\"", "\"name\": \"fmt\"");
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "10.2.1", bare.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         // A source path pointing at some other artifact.
-        let moved = body.replace("../artifacts/fmt/fmt-10.2.1.tar.gz", "../elsewhere.tar.gz");
+        let moved = body.replace(
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
+            "../elsewhere.tar.gz",
+        );
         assert_eq!(
-            validate_metadata("fmt", "10.2.1", moved.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "10.2.1", moved.as_bytes()).unwrap_err(),
+            IDENTITY_MISMATCH,
+        );
+        // The pre-scopes source path shape (bare directory, bare
+        // filename) is not the canonical path any more.
+        let unscoped = body.replace(
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
+            "../artifacts/fmt/fmt-10.2.1.tar.gz",
+        );
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "10.2.1", unscoped.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
     }
 
     #[test]
     fn validate_metadata_enforces_name_version_and_yanked_rules() {
-        for (name, version, detail) in [
-            ("_fmt", "1.0.0", INVALID_NAME),
-            ("-fmt", "1.0.0", INVALID_NAME),
-            ("Fmt", "1.0.0", INVALID_NAME),
-            ("fmt", "01.0.0", INVALID_VERSION),
-            ("fmt", "1.0.0-", INVALID_VERSION),
+        for (scope, name, version, detail) in [
+            ("fmtlib", "_fmt", "1.0.0", INVALID_NAME),
+            ("fmtlib", "-fmt", "1.0.0", INVALID_NAME),
+            ("fmtlib", "Fmt", "1.0.0", INVALID_NAME),
+            ("-fmtlib", "fmt", "1.0.0", INVALID_NAME),
+            ("fmt_lib", "fmt", "1.0.0", INVALID_NAME),
+            ("Fmtlib", "fmt", "1.0.0", INVALID_NAME),
+            ("fmtlib", "fmt", "01.0.0", INVALID_VERSION),
+            ("fmtlib", "fmt", "1.0.0-", INVALID_VERSION),
         ] {
             // The document carries the same name / version as the URL,
             // so identity passes and the charset / SemVer checks fire.
-            let body = metadata_json(name, version);
+            let body = metadata_json(scope, name, version);
             assert_eq!(
-                validate_metadata(name, version, body.as_bytes()).unwrap_err(),
+                validate_metadata(scope, name, version, body.as_bytes()).unwrap_err(),
                 detail,
-                "name: {name}, version: {version}"
+                "scope: {scope}, name: {name}, version: {version}"
             );
         }
-        let yanked = metadata_json("fmt", "1.0.0").replace("\"yanked\": false", "\"yanked\": true");
+        let yanked = metadata_json("fmtlib", "fmt", "1.0.0")
+            .replace("\"yanked\": false", "\"yanked\": true");
         assert_eq!(
-            validate_metadata("fmt", "1.0.0", yanked.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", yanked.as_bytes()).unwrap_err(),
             YANKED_AT_PUBLISH,
         );
     }
 
     #[test]
     fn verify_checksum_requires_the_exact_sha256_claim() {
-        let body = metadata_json("fmt", "1.0.0").replace("sha256:aa", "sha256:0011");
-        let parsed = validate_metadata("fmt", "1.0.0", body.as_bytes()).unwrap();
+        let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "sha256:0011");
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert_eq!(verify_checksum(&parsed, "0011"), Ok(()));
         assert_eq!(verify_checksum(&parsed, "0012"), Err(CHECKSUM_MISMATCH));
         // A claim without the scheme prefix never matches.
-        let body = metadata_json("fmt", "1.0.0").replace("sha256:aa", "0011");
-        let parsed = validate_metadata("fmt", "1.0.0", body.as_bytes()).unwrap();
+        let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "0011");
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert_eq!(verify_checksum(&parsed, "0011"), Err(CHECKSUM_MISMATCH));
     }
 }
