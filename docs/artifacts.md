@@ -14,8 +14,9 @@ Every registry package source archive must be a `.tar.gz` whose root contains th
 `cabin.toml`.  `cabin package` produces archives in exactly this shape.  See
 [`package-format.md`](package-format.md) for the producer contract, including the determinism rules
 and the include / exclude policy.  `cabin publish --registry-dir` writes those archives into a local
-file registry under `<registry>/artifacts/<name>/<name>-<version>.tar.gz`, matching what the
-artifact fetcher reads back; see [`registry-design.md`](registry-design.md).
+file registry under `<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` (publish
+requires a scoped name), matching what the artifact fetcher reads back; see
+[`registry-design.md`](registry-design.md).
 
 ```
 fmt-10.2.1.tar.gz

@@ -318,6 +318,46 @@ fmt = ">=10.0.0 <11.0.0"
     }
 }
 
+/// Like [`write_app_using_fmt`], but the consumer depends on the
+/// scoped package `fmtlib/fmt` (a quoted dependency key) and its
+/// `deps` shorthand resolves to the dependency's base-named target
+/// `fmt`. Publish requires scoped names, so the file-registry and
+/// sparse-HTTP fixtures publish `fmtlib/fmt`; the bare-`fmt` helper
+/// above is kept for modules that hand-write their index.
+fn write_app_using_scoped_fmt(dir: &Path, app_main: Option<&str>) {
+    let manifest = if app_main.is_some() {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmtlib/fmt"]
+"#
+    } else {
+        r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
+"#
+    };
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(manifest)
+        .unwrap();
+    if let Some(body) = app_main {
+        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
+            .write_str(body)
+            .unwrap();
+    }
+}
+
 /// Like [`write_index_entry`] but without a `source` block, for index
 /// entries whose archive is never fetched (resolver-only tests).
 fn write_index_entry_no_source(

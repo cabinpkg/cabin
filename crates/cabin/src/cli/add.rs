@@ -1,8 +1,12 @@
 //! `cabin add` - add a dependency to a `cabin.toml` manifest.
 //!
-//! v1 supports two dependency kinds: bundled foundation ports
-//! (`--port <name>`) and local path dependencies (`--path <dir>`).
-//! Bare registry names are rejected until Cabin has a hosted registry.
+//! Supports three dependency kinds: registry dependencies
+//! (`<scope>/<name>@<REQ>`), bundled foundation ports
+//! (`--port <name>`), and local path dependencies (`--path <dir>`).
+//! Registry packages are always `<scope>/<name>`, so a bare name is
+//! rejected with that explanation; the requirement is explicit
+//! because `cabin add` never queries a registry (no name search or
+//! latest-version lookup).
 //! The manifest is edited format-preservingly via
 //! [`cabin_manifest::edit`], and status output mirrors `cargo add`'s
 //! visible lines (`Adding <name> v<ver> to dependencies`).  After a
@@ -22,10 +26,10 @@ use crate::cli::term_verbosity::Reporter;
 
 #[derive(Debug, Args)]
 pub(crate) struct AddArgs {
-    /// Dependency to add, as `<NAME>` or `<NAME>@<REQ>`.
-    ///
-    /// Required with `--port`.  With `--path`, the name is optional and
-    /// defaults to the depended-on package's own name.
+    /// Dependency to add.  A registry dependency is
+    /// `<scope>/<name>@<REQ>` (both parts required); a `--port`
+    /// dependency is `<NAME>` or `<NAME>@<REQ>`.  With `--path`, the
+    /// name is omitted and taken from the depended-on package.
     #[arg(value_name = "DEP")]
     pub dep: Option<String>,
 
@@ -73,6 +77,10 @@ pub(crate) struct AddArgs {
 enum AddStatus {
     /// A concrete version (foundation ports): `Adding zlib v1.3.1 …`.
     Version(String),
+    /// A registry dependency's declared requirement:
+    /// `Adding fmtlib/fmt@^10 …`.  No registry is queried, so there
+    /// is no concrete version to report.
+    Requirement(String),
     /// A local path dependency: `Adding mylib (local) …`.
     Local,
 }
@@ -108,10 +116,7 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     } else if args.port {
         build_port_dependency(args, features)?
     } else {
-        bail!(
-            "registry dependencies are not supported yet; use `cabin add --port <name>` to add a \
-             foundation port, or `cabin add --path <path>` for a local package"
-        );
+        build_registry_dependency(args, features)?
     };
 
     edit::upsert_dependency(&mut doc, table, &dep)?;
@@ -122,6 +127,9 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     match status {
         AddStatus::Version(version) => {
             reporter.status("Adding", format_args!("{name} v{version} to {table_label}"));
+        }
+        AddStatus::Requirement(req) => {
+            reporter.status("Adding", format_args!("{name}@{req} to {table_label}"));
         }
         AddStatus::Local => {
             reporter.status("Adding", format_args!("{name} (local) to {table_label}"));
@@ -136,6 +144,51 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
          it, e.g. `deps = [\"{name}\"]`"
     ));
     Ok(())
+}
+
+/// Resolve a registry dependency (`<scope>/<name>@<REQ>`).  Registry
+/// packages are always scoped, so a bare name fails with that
+/// explanation instead of a lookup: `cabin add` never queries a
+/// registry, which is also why the requirement must be explicit -
+/// there is no "latest version" to default to (use `@*` for a
+/// deliberately unconstrained requirement).
+fn build_registry_dependency(
+    args: &AddArgs,
+    features: Vec<String>,
+) -> Result<(NewDependency, AddStatus)> {
+    let spec = args
+        .dep
+        .as_deref()
+        .context("`cabin add` requires a dependency, e.g. `cabin add fmtlib/fmt@^10`")?;
+    let (name, req) = split_dep_spec(spec);
+    let name = cabin_core::PackageName::new(name)
+        .map_err(|err| anyhow::anyhow!("invalid package name `{name}`: {err}"))?;
+    if !name.is_scoped() {
+        bail!(
+            "registry packages are named `<scope>/<name>` (e.g. `fmtlib/fmt`), but `{name}` is a \
+             bare name; pass the package's full scoped name, use `cabin add --port {name}` for a \
+             bundled foundation port, or `cabin add --path <dir>` for a local package",
+            name = name.as_str()
+        );
+    }
+    let Some(req_str) = req else {
+        bail!(
+            "specify a version requirement for the registry dependency, e.g. `cabin add {name}@^1` \
+             (`cabin add` does not query the registry for the newest version)",
+            name = name.as_str()
+        );
+    };
+    parse_req(name.as_str(), req_str)?;
+
+    let dep = NewDependency {
+        name: name.as_str().to_owned(),
+        version: Some(req_str.to_owned()),
+        port: false,
+        path: None,
+        features,
+        no_default_features: args.no_default_features,
+    };
+    Ok((dep, AddStatus::Requirement(req_str.to_owned())))
 }
 
 /// Resolve a `--port` dependency: look the name up in the bundled

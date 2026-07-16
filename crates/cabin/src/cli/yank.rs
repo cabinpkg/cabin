@@ -19,8 +19,8 @@ use crate::cli::term_verbosity::Reporter;
 
 #[derive(Debug, Args)]
 pub(crate) struct YankArgs {
-    /// Package to yank, as `<name>@<version>` with an exact `SemVer`
-    /// version (no ranges).
+    /// Package to yank, as `<scope>/<name>@<version>` with an exact
+    /// `SemVer` version (no ranges).
     #[arg(value_name = "SPEC")]
     pub spec: String,
 
@@ -45,6 +45,16 @@ pub(crate) fn yank(
         ));
     }
     let (name, version) = parse_spec(&args.spec)?;
+    // Registry packages are always `<scope>/<name>`: fail a bare name
+    // here, before credentials, config.json reads, or the API call.
+    if !name.is_scoped() {
+        bail!(
+            "registry packages must be named `<scope>/<name>`, but `{}` is a bare name; yank the \
+             package under its full scoped name, e.g. `<scope>/{}@{version}`",
+            name.as_str(),
+            name.as_str()
+        );
+    }
     let index_url = crate::cli::login::effective_registry_index_url(
         args.index_url.as_deref(),
         features,
@@ -95,7 +105,7 @@ fn parse_spec(spec: &str) -> Result<(PackageName, semver::Version)> {
     let Some((name, version)) = spec.split_once('@') else {
         bail!(
             "invalid package spec `{spec}`: expected `<name>@<version>` with an exact SemVer \
-             version, e.g. `fmt@10.2.1`"
+             version, e.g. `fmtlib/fmt@10.2.1`"
         );
     };
     let name = PackageName::new(name)
@@ -122,6 +132,12 @@ mod tests {
         let (name, version) = parse_spec("my-lib@0.1.0-alpha.1").unwrap();
         assert_eq!(name.as_str(), "my-lib");
         assert_eq!(version.to_string(), "0.1.0-alpha.1");
+
+        // A scoped name's `/` sits before the `@`, so the split is
+        // unambiguous.
+        let (name, version) = parse_spec("fmtlib/fmt@10.2.1").unwrap();
+        assert_eq!(name.as_str(), "fmtlib/fmt");
+        assert_eq!(version, semver::Version::new(10, 2, 1));
     }
 
     #[test]

@@ -6,8 +6,10 @@
 //! ```text
 //! <base>/
 //! config.json
-//! packages/<name>.json
-//! artifacts/<name>/<name>-<version>.tar.gz
+//! packages/<name>.json                                     (bare name)
+//! packages/<scope>/<name>.json                             (scoped name)
+//! artifacts/<name>/<name>-<version>.tar.gz                 (bare name)
+//! artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz (scoped name)
 //! ```
 //!
 //! The crate is intentionally narrow:

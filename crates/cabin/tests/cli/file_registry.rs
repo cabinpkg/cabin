@@ -407,47 +407,6 @@ version = "0.1.0"
         .stderr(predicate::str::contains("--package <name>"));
 }
 
-/// Like [`write_app_using_fmt`], but the consumer depends on the
-/// scoped package `fmtlib/fmt` (a quoted dependency key) and its
-/// `deps` shorthand resolves to the dependency's base-named target
-/// `fmt`. Publish rejects bare registry names, so the file-registry
-/// round-trip fixtures publish `fmtlib/fmt`; the shared bare-`fmt`
-/// helper is kept for the sparse-HTTP and artifact-fetch modules that
-/// hand-write their index.
-fn write_app_using_scoped_fmt(dir: &Path, app_main: Option<&str>) {
-    let manifest = if app_main.is_some() {
-        r#"[package]
-name = "app"
-version = "0.1.0"
-cxx-standard = "c++17"
-
-[dependencies]
-"fmtlib/fmt" = ">=10.0.0 <11.0.0"
-
-[target.app]
-type = "executable"
-sources = ["src/main.cc"]
-deps = ["fmtlib/fmt"]
-"#
-    } else {
-        r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-"fmtlib/fmt" = ">=10.0.0 <11.0.0"
-"#
-    };
-    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
-        .write_str(manifest)
-        .unwrap();
-    if let Some(body) = app_main {
-        assert_fs::fixture::ChildPath::new(dir.join("app/src/main.cc"))
-            .write_str(body)
-            .unwrap();
-    }
-}
-
 fn publish_simple_package(dir: &Path) -> std::path::PathBuf {
     let pkg_root = dir.join("pkg");
     write_simple_package(&pkg_root);

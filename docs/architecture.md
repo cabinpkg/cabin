@@ -184,8 +184,8 @@ are intentionally not traversed here.  Current invariants:
   `cabin_core::is_path_safe_package_name` is the single authoritative *component* grammar: ASCII
   alphanumerics plus `_-.`, non-empty, not `.`/`..`, no leading dot.  It covers filesystem path
   components, sparse-HTTP URL path segments, and Windows-reserved filename characters in one rule,
-  guarding bare names, the package part of a scoped name, `TargetName`, and the remote URL
-  boundaries (which therefore keep rejecting scoped names until the scoped routes land).  The scope
+  guarding bare names, the package part of a scoped name, `TargetName`, and - one URL segment at a
+  time - the remote URL boundaries in `cabin-index-http` / `cabin-registry-api`.  The scope
   part uses `cabin_core::is_valid_package_scope`, the registry's GitHub-login-compatible scope
   grammar (lowercase alphanumerics plus interior `-`, at most 39 bytes) - a strict subset of the
   component grammar.  Both are enforced by `PackageName::new` so URL-reserved characters cannot
@@ -361,9 +361,10 @@ normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override a
 ### `cabin-registry-api`
 
 Owns the typed HTTP client for the experimental remote-registry *mutations*
-([`remote-registry.md`](remote-registry.md)): `PUT /api/v1/packages/<name>/<version>` with the
-crates.io-style length-prefixed metadata + archive frame, and
-`PATCH /api/v1/packages/<name>/<version>/yank`.  Requests target the API origin a registry's
+([`remote-registry.md`](remote-registry.md)): `PUT /api/v1/packages/<scope>/<name>/<version>`
+with the crates.io-style length-prefixed metadata + archive frame, and
+`PATCH /api/v1/packages/<scope>/<name>/<version>/yank`; the routes address scoped names only.
+Requests target the API origin a registry's
 `config.json` declares (`api`), carry the caller-supplied bearer token, and map the protocol's
 status codes (`200` no-op, `201` created, `400`, `401`, `403`, `404`, `409`) plus the
 `{"errors":[{"detail":"..."}]}` envelope into typed errors, degrading to the raw status when the

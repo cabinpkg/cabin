@@ -91,15 +91,13 @@ The sparse HTTP client reads the same file-registry shape over plain
 `GET` requests:
 
 - `GET <url>/config.json`
-- `GET <url>/packages/<name>.json`
-- `GET <url>/artifacts/<name>/<name>-<version>.tar.gz`
+- `GET <url>/packages/<scope>/<name>.json`
+- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`
 
-These routes still address bare names only: the client rejects a
-scoped name at the fetch boundary before any request, so scoped
-packages are not resolvable over sparse HTTP until the scoped read
-routes (`/packages/<scope>/<name>.json`,
-`/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`) land on
-both sides.
+A bare name (legal only in locally-produced file registries) reads
+from the flat `packages/<name>.json` /
+`artifacts/<name>/<name>-<version>.tar.gz` shape; the hosted registry
+serves scoped routes only.
 
 The client is read-only.  It does not publish packages, mutate registry
 state, persist HTTP metadata for offline use, or infer a default remote
@@ -146,9 +144,9 @@ track:
   issued on the registry's web UI, whose URL the client discovers from
   the `WWW-Authenticate` `Cabin login_url` challenge on unauthenticated
   responses;
-- publishing uses `PUT /api/v1/packages/<name>/<version>` with a
-  length-prefixed metadata + archive frame, and yanking uses
-  `PATCH /api/v1/packages/<name>/<version>/yank`;
+- publishing uses `PUT /api/v1/packages/<scope>/<name>/<version>`
+  with a length-prefixed metadata + archive frame, and yanking uses
+  `PATCH /api/v1/packages/<scope>/<name>/<version>/yank`;
 - remote `cabin publish` (an HTTP index source without
   `--registry-dir`) reuses the local staging pipeline byte-for-byte:
   the same validation, the same publish lints, and the same

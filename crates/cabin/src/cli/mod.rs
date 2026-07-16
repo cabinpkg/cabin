@@ -293,9 +293,9 @@ pub(crate) enum Command {
     /// Add a dependency to a cabin.toml manifest file.
     ///
     /// Edits the manifest in place, preserving its existing
-    /// formatting and comments.  Use `--port <name>` to add a bundled
-    /// foundation port or `--path <dir>` to add a local package;
-    /// registry dependencies are not supported yet.
+    /// formatting and comments.  Use `<scope>/<name>@<req>` to add a
+    /// registry dependency, `--port <name>` to add a bundled
+    /// foundation port, or `--path <dir>` to add a local package.
     Add(crate::cli::add::AddArgs),
     /// Remove a dependency from a cabin.toml manifest file.
     ///
@@ -632,7 +632,8 @@ pub(crate) struct BuildArgs {
     /// Sparse HTTP index URL to read package metadata from.
     /// Mutually exclusive with `--index-path`.  Static sparse HTTP
     /// serving of the file-registry layout is supported
-    /// (`<url>/config.json`, `<url>/packages/<name>.json`).
+    /// (`<url>/config.json`, `<url>/packages/<scope>/<name>.json`;
+    /// a bare local name reads `<url>/packages/<name>.json`).
     #[arg(long, value_name = "URL")]
     pub index_url: Option<String>,
 

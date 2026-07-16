@@ -101,9 +101,15 @@ jobs:
 
             workdir=$(mktemp -d)
             printf '%s' "$entry" >"$workdir/entry.json"
+            # The scoped name `<scope>/<name>` nests the artifact
+            # directory (`artifacts/<scope>/<name>/`) while the
+            # filename flattens the `/` to `-`
+            # (`<scope>-<name>-<version>.tar.gz`), matching the
+            # registry's read route.
+            stem=${name//\//-}
             if ! curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
               -o "$workdir/archive.tar.gz" \
-              "$REGISTRY_ORIGIN/artifacts/$name/$name-$version.tar.gz"; then
+              "$REGISTRY_ORIGIN/artifacts/$name/$stem-$version.tar.gz"; then
               echo "$name@$version: archive download failed; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"

@@ -1,8 +1,9 @@
 //! Integration tests for `cabin add`.
 //!
-//! v1 supports foundation-port dependencies (`--port`) and local path
-//! dependencies (`--path`); bare registry names are rejected until a
-//! registry exists.  Status output mirrors `cargo add`'s visible lines.
+//! Covers registry dependencies (`<scope>/<name>@<REQ>`), foundation
+//! ports (`--port`), and local path dependencies (`--path`); bare
+//! registry names are rejected with the scoped-name explanation.
+//! Status output mirrors `cargo add`'s visible lines.
 
 use super::*;
 
@@ -280,7 +281,29 @@ fn add_path_to_missing_target_fails() {
 }
 
 #[test]
-fn add_registry_dependency_is_rejected() {
+fn add_scoped_registry_dependency_writes_a_quoted_key() {
+    let dir = package_dir();
+    let manifest = dir.path().join("cabin.toml");
+    cabin()
+        .args(["add", "fmtlib/fmt@^10", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Adding fmtlib/fmt@^10 to dependencies",
+        ));
+
+    let body = fs::read_to_string(&manifest).unwrap();
+    assert!(
+        body.contains("\"fmtlib/fmt\" = \"^10\""),
+        "expected a quoted scoped dependency key:\n{body}"
+    );
+}
+
+/// Registry packages are always `<scope>/<name>`; a bare name is
+/// explained, never guessed or searched for.
+#[test]
+fn add_bare_registry_name_is_rejected_with_the_scoped_explanation() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
@@ -289,11 +312,51 @@ fn add_registry_dependency_is_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "registry dependencies are not supported",
+            "registry packages are named `<scope>/<name>`",
         ));
 
     let body = fs::read_to_string(&manifest).unwrap();
-    assert!(!body.contains("fmt"), "manifest changed:\n{body}");
+    assert!(
+        !body.contains("[dependencies]"),
+        "manifest changed:\n{body}"
+    );
+}
+
+/// `cabin add` never queries the registry, so a scoped dependency
+/// without `@<REQ>` has no version to write and fails with that
+/// explanation.
+#[test]
+fn add_scoped_registry_dependency_requires_a_requirement() {
+    let dir = package_dir();
+    let manifest = dir.path().join("cabin.toml");
+    cabin()
+        .args(["add", "fmtlib/fmt", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("specify a version requirement"));
+
+    let body = fs::read_to_string(&manifest).unwrap();
+    assert!(!body.contains("fmtlib"), "manifest changed:\n{body}");
+}
+
+/// The requirement is validated the same lenient way the manifest
+/// parser reads it, so a spec `cabin add` accepts also resolves.
+#[test]
+fn add_scoped_registry_dependency_rejects_invalid_requirements() {
+    let dir = package_dir();
+    let manifest = dir.path().join("cabin.toml");
+    cabin()
+        .args(["add", "fmtlib/fmt@banana", "--manifest-path"])
+        .arg(&manifest)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid version requirement `banana`",
+        ));
+
+    let body = fs::read_to_string(&manifest).unwrap();
+    assert!(!body.contains("fmtlib"), "manifest changed:\n{body}");
 }
 
 #[test]

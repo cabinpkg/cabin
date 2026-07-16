@@ -70,7 +70,51 @@ impl Drop for TestServer {
     }
 }
 
-fn publish_fmt_to_registry(dir: &Path) -> PathBuf {
+/// Publish the scoped package `fmtlib/fmt` into a fresh file
+/// registry through the real `cabin publish --registry-dir` flow, so
+/// the fixture served over HTTP has exactly the scoped layout the
+/// hosted registry speaks: `packages/fmtlib/fmt.json` and
+/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz`, linked by the
+/// canonical `../../artifacts/...` source path.
+fn publish_scoped_fmt_to_registry(dir: &Path) -> PathBuf {
+    let pkg_root = dir.join("pkg");
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "fmtlib/fmt"
+version = "10.2.1"
+cxx-standard = "c++17"
+
+[target.fmt]
+type = "library"
+sources = ["src/fmt.cc"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("include/fmt.h"))
+        .write_str("#pragma once\nvoid say_hello();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
+            .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
+            .unwrap();
+    let registry = dir.join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    registry
+}
+
+/// Hand-assemble a *bare*-name registry (`packages/fmt.json`,
+/// `artifacts/fmt/fmt-10.2.1.tar.gz`) from ungated `cabin package`
+/// staging output.  Bare names stay legal in locally-produced file
+/// registries, and serving one over HTTP must keep working; `cabin
+/// publish` requires scoped names, hence the by-hand assembly.
+fn assemble_bare_fmt_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
     assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
         .write_str(
@@ -92,10 +136,6 @@ include-dirs = ["include"]
     assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
             .write_str("#include <iostream>\n#include \"fmt.h\"\nvoid say_hello() { std::cout << \"hello from fmt\\n\"; }\n")
             .unwrap();
-    // `cabin publish` now requires scoped names, but the sparse-HTTP
-    // protocol still speaks bare names until the scoped read routes
-    // land, so assemble the bare fixture registry by hand from the
-    // ungated `cabin package` staging output.
     let dist = dir.join("dist");
     cabin()
         .args(["package", "--manifest-path"])
@@ -145,7 +185,38 @@ include-dirs = ["include"]
 #[test]
 fn resolve_via_index_url_finds_published_package() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
+    let server = TestServer::serve(registry);
+
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-url")
+            .arg(server.url())
+            .args(["--format", "json"]),
+    );
+    let names: Vec<&str> = value["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"fmtlib/fmt"),
+        "fmtlib/fmt missing from resolve: {names:?}"
+    );
+}
+
+/// Bare names stay legal in locally-produced file registries, and
+/// the sparse-HTTP client keeps reading their flat layout
+/// (`packages/<name>.json`, `../artifacts/<name>/...`) when one is
+/// served over HTTP.
+#[test]
+fn resolve_via_index_url_reads_bare_name_layouts() {
+    let dir = TempDir::new().unwrap();
+    let registry = assemble_bare_fmt_registry(dir.path());
     write_app_using_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
 
@@ -172,8 +243,8 @@ fn resolve_via_index_url_finds_published_package() {
 #[test]
 fn fetch_via_index_url_extracts_archive_into_cache() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
 
     let cache = dir.path().join("cache");
@@ -206,9 +277,9 @@ fn fetch_via_index_url_extracts_archive_into_cache() {
 fn build_via_index_url_builds_executable() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
+    let registry = publish_scoped_fmt_to_registry(dir.path());
     let app_main = "#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n";
-    write_app_using_fmt(dir.path(), Some(app_main));
+    write_app_using_scoped_fmt(dir.path(), Some(app_main));
     let server = TestServer::serve(registry);
 
     let cache = dir.path().join("cache");
@@ -233,8 +304,8 @@ fn build_via_index_url_builds_executable() {
 #[test]
 fn index_path_and_index_url_together_fail() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry.clone());
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -264,7 +335,7 @@ fn http_package_not_found_surfaces_clear_error() {
             r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
         )
         .unwrap();
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(empty_registry);
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -291,10 +362,10 @@ fn http_invalid_metadata_surfaces_clear_error() {
             r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
         )
         .unwrap();
-    assert_fs::fixture::ChildPath::new(registry.join("packages/fmt.json"))
+    assert_fs::fixture::ChildPath::new(registry.join("packages/fmtlib/fmt.json"))
         .write_binary(b"{ not really json")
         .unwrap();
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -309,8 +380,8 @@ fn http_invalid_metadata_surfaces_clear_error() {
 #[test]
 fn cross_origin_http_artifact_url_is_rejected() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    let pkg_index = registry.join("packages/fmt.json");
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    let pkg_index = registry.join("packages/fmtlib/fmt.json");
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
     value["versions"]["10.2.1"]["source"]["path"] =
@@ -318,7 +389,7 @@ fn cross_origin_http_artifact_url_is_rejected() {
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
         .unwrap();
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -333,11 +404,11 @@ fn cross_origin_http_artifact_url_is_rejected() {
 #[test]
 fn http_artifact_checksum_mismatch_fails() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
+    let registry = publish_scoped_fmt_to_registry(dir.path());
     // Tamper with the published `fmt.json` to advertise a wrong
     // checksum so the artifact bytes the server returns will
     // mismatch what the index claims.
-    let pkg_index = registry.join("packages/fmt.json");
+    let pkg_index = registry.join("packages/fmtlib/fmt.json");
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
     value["versions"]["10.2.1"]["checksum"] =
@@ -345,7 +416,7 @@ fn http_artifact_checksum_mismatch_fails() {
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
         .unwrap();
-    write_app_using_fmt(dir.path(), None);
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     let cache = dir.path().join("cache");
     cabin()
@@ -362,12 +433,12 @@ fn http_artifact_checksum_mismatch_fails() {
 
 #[test]
 fn relative_artifact_path_resolves_correctly() {
-    // A successful resolve confirms the HTTP loader resolves
-    // `../artifacts/<name>/<name>-<version>.tar.gz` against the
-    // package metadata URL.
+    // A successful resolve confirms the HTTP loader resolves the
+    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`
+    // source path against the nested package metadata URL.
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     cabin()
         .args(["resolve", "--manifest-path"])
@@ -381,8 +452,8 @@ fn relative_artifact_path_resolves_correctly() {
 #[test]
 fn frozen_with_index_url_fails_clearly() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     // Pre-populate a lockfile so `--frozen` reaches the
     // documented HTTP-metadata-cache check rather than the
@@ -411,8 +482,8 @@ fn frozen_with_index_url_fails_clearly() {
 #[test]
 fn resolve_frozen_rejects_config_index_url() {
     let dir = TempDir::new().unwrap();
-    let registry = publish_fmt_to_registry(dir.path());
-    write_app_using_fmt(dir.path(), None);
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
     let server = TestServer::serve(registry);
     assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))

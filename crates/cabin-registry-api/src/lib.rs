@@ -2,14 +2,17 @@
 //! (`-Z remote-registry`).
 //!
 //! This crate owns the *mutating* half of the remote-registry
-//! protocol specified in `docs/remote-registry.md`:
+//! protocol specified in `docs/remote-registry.md`.  Registry
+//! packages are always scoped, so both routes address the
+//! `<scope>/<name>` pair:
 //!
-//! - [`RegistryApi::publish`] - `PUT /api/v1/packages/<name>/<version>`
-//!   with the crates.io-style length-prefixed body
+//! - [`RegistryApi::publish`] -
+//!   `PUT /api/v1/packages/<scope>/<name>/<version>` with the
+//!   crates.io-style length-prefixed body
 //!   (`[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`);
 //! - [`RegistryApi::set_yanked`] -
-//!   `PATCH /api/v1/packages/<name>/<version>/yank` with a JSON
-//!   `{"yanked": bool}` body.
+//!   `PATCH /api/v1/packages/<scope>/<name>/<version>/yank` with a
+//!   JSON `{"yanked": bool}` body.
 //!
 //! Both routes live on the registry's `api` origin (the `api` field of
 //! its `config.json`, fetched by `cabin-index-http` through the
@@ -120,18 +123,23 @@ impl RegistryApi {
         })
     }
 
-    /// `PUT <api>/api/v1/packages/<name>/<version>` with the framed
-    /// metadata + archive body.
+    /// `PUT <api>/api/v1/packages/<scope>/<name>/<version>` with the
+    /// framed metadata + archive body.  `name` is the full scoped
+    /// `<scope>/<name>` string.
     ///
     /// # Errors
     /// Returns [`RegistryApiError::UnsafePackageName`] before any
-    /// request when `name` fails the path-safety gate, and
+    /// request when `name` is bare or fails the hosted registry's
+    /// name grammar (scope: lowercase/digits/interior `-`; name part:
+    /// `[a-z0-9][a-z0-9_-]*`), and
     /// [`RegistryApiError::FrameTooLarge`] when either payload
     /// exceeds the `u32` framing limit.  Response statuses map per
     /// `docs/remote-registry.md`: `409` becomes
-    /// [`RegistryApiError::VersionConflict`], `400` / `401` / `403`
-    /// map like the read path (a `403` whose envelope carries a
-    /// `quota_*` code becomes [`RegistryApiError::QuotaExceeded`]),
+    /// [`RegistryApiError::VersionConflict`], `400` / `401` map like
+    /// the read path, a token-authenticated `403` surfaces the
+    /// server's envelope detail as [`RegistryApiError::Forbidden`]
+    /// (unless a `quota_*` code marks it as
+    /// [`RegistryApiError::QuotaExceeded`]),
     /// the quota and budget refusals map to
     /// [`RegistryApiError::RegistryOverBudget`] (`402`),
     /// [`RegistryApiError::ArchiveTooLarge`] (`413`), and
@@ -169,13 +177,17 @@ impl RegistryApi {
         })
     }
 
-    /// `PATCH <api>/api/v1/packages/<name>/<version>/yank` with a
-    /// JSON `{"yanked": bool}` body.  `true` yanks, `false` un-yanks;
-    /// the route is idempotent.
+    /// `PATCH <api>/api/v1/packages/<scope>/<name>/<version>/yank`
+    /// with a JSON `{"yanked": bool}` body.  `true` yanks, `false`
+    /// un-yanks; the route is idempotent.  `name` is the full scoped
+    /// `<scope>/<name>` string.
     ///
     /// # Errors
     /// Returns [`RegistryApiError::UnsafePackageName`] before any
-    /// request when `name` fails the path-safety gate.  Response
+    /// request when `name` is bare or fails the hosted registry's
+    /// name grammar (scope: lowercase/digits/interior `-`; name part:
+    /// `[a-z0-9][a-z0-9_-]*`).
+    /// Response
     /// statuses map per `docs/remote-registry.md`; a `404` for an
     /// unknown package or version becomes
     /// [`RegistryApiError::NotFound`].
@@ -199,16 +211,23 @@ impl RegistryApi {
         }
     }
 
-    /// `<api>/api/v1/packages/<name>/<version><suffix>`, with the
-    /// package name re-validated at the URL boundary (defense in
-    /// depth, mirroring `cabin-index-http`).
+    /// `<api>/api/v1/packages/<scope>/<name>/<version><suffix>`.  The
+    /// hosted routes have no bare-name form, so a bare name fails
+    /// here, before any request; the scoped name is re-validated
+    /// against the full `PackageName` grammar plus the registry's
+    /// stricter publish grammar for the name part at this URL
+    /// boundary (defense in depth, mirroring `cabin-index-http`), so
+    /// both segments it embeds are path-safe by construction.
     fn package_route(
         &self,
         name: &str,
         version: &semver::Version,
         suffix: &str,
     ) -> Result<url::Url, RegistryApiError> {
-        if !cabin_core::is_path_safe_package_name(name) {
+        let safe = cabin_core::PackageName::new(name).is_ok_and(|parsed| {
+            parsed.is_scoped() && is_valid_registry_package_name(parsed.base_name())
+        });
+        if !safe {
             return Err(RegistryApiError::UnsafePackageName {
                 name: name.to_owned(),
             });
@@ -288,17 +307,21 @@ impl RegistryApi {
                             detail: detail.unwrap_or_default(),
                         }
                     }
-                    // A tokenless 403 is not the protocol's
-                    // missing-scope case (no scope was presented), so
-                    // it keeps the generic mapping - same rule as the
-                    // read path.  An unknown code also falls through to
-                    // the generic mapping so its detail still reaches
-                    // the user.
-                    403 if self.token.is_some() && code.is_none() => {
-                        RegistryApiError::MissingScope {
-                            origin: self.origin.clone(),
-                        }
-                    }
+                    // A token-authenticated, code-less 403 covers two
+                    // distinct server refusals that differ only in
+                    // their `detail`: a token permission the user did
+                    // not grant, and a scope the token's user is not a
+                    // member of.  The detail is surfaced verbatim so
+                    // the user fixes the right one; only an
+                    // envelope-less response falls back to the generic
+                    // token-permission wording.  A tokenless 403 is
+                    // neither case (no credential was presented), and
+                    // an unknown code falls through to the generic
+                    // mapping so its detail still reaches the user.
+                    403 if self.token.is_some() && code.is_none() => RegistryApiError::Forbidden {
+                        origin: self.origin.clone(),
+                        detail,
+                    },
                     404 => RegistryApiError::NotFound {
                         name: name.to_owned(),
                         version: version.to_string(),
@@ -327,6 +350,20 @@ impl std::fmt::Debug for RegistryApi {
             .field("token", &self.token)
             .finish_non_exhaustive()
     }
+}
+
+/// Mirror of the hosted registry's package-name grammar
+/// (`registry/src/routes.rs`, `is_valid_name`):
+/// `^[a-z0-9][a-z0-9_-]*$`.  `PackageName`'s own grammar is looser
+/// (uppercase and `.` are legal in local-only names), so without this
+/// check a name the registry refuses would fail publish only after
+/// staging and network work - and 404 a yank misleadingly.
+fn is_valid_registry_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.as_bytes()[0].is_ascii_alphanumeric()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 /// Encode the publish request body:
@@ -413,6 +450,19 @@ fn with_detail(base: String, detail: Option<&String>) -> String {
     }
 }
 
+/// The token-authenticated 403 message: the server's envelope
+/// `detail` verbatim when present (it distinguishes a missing token
+/// permission from missing scope membership), else the generic
+/// token-permission wording for registries that answer without an
+/// envelope.
+fn forbidden_message(origin: &str, detail: Option<&String>) -> String {
+    let reason = detail.map_or(
+        "the stored token does not have the required scope",
+        String::as_str,
+    );
+    format!("registry API `{origin}` refused the request: {reason}")
+}
+
 /// Append the retry hint: the server's `Retry-After` seconds when the
 /// response carried a usable one, a plain "try again later" otherwise.
 fn with_retry(base: &str, retry_after_secs: Option<u64>) -> String {
@@ -437,7 +487,7 @@ pub enum RegistryApiError {
     CleartextApiUrl { origin: String },
 
     #[error(
-        "package name `{name}` cannot be used on remote registry routes; names must consist only of ASCII letters, ASCII digits, `_`, `-`, and `.`, must be non-empty, must not start with `.` or `-`, and must not be `.` or `..`; scoped names (`<scope>/<name>`) are not supported by the remote registry protocol yet"
+        "package name `{name}` cannot be used on remote registry routes; registry packages are named `<scope>/<name>` (exactly one `/`), where the scope is lowercase ASCII letters, digits, and interior `-` (at most 39 characters) and the name part matches `[a-z0-9][a-z0-9_-]*`"
     )]
     UnsafePackageName { name: String },
 
@@ -459,11 +509,11 @@ pub enum RegistryApiError {
     )]
     TokenRejected { origin: String },
 
-    #[error(
-        "registry API `{origin}` refused the request: the stored token does not have the \
-         required scope"
-    )]
-    MissingScope { origin: String },
+    #[error("{}", forbidden_message(.origin, .detail.as_ref()))]
+    Forbidden {
+        origin: String,
+        detail: Option<String>,
+    },
 
     #[error("{detail}")]
     QuotaExceeded { detail: String },
@@ -545,7 +595,7 @@ mod tests {
 
     #[test]
     fn publish_body_round_trips_through_the_decoder() {
-        let metadata = br#"{"schema":1,"name":"fmt"}"#;
+        let metadata = br#"{"schema":1,"name":"fmtlib/fmt"}"#;
         let archive = [0x1fu8, 0x8b, 0x08, 0x00, 0xff];
         let body = encode_publish_body(metadata, &archive).unwrap();
         assert_eq!(
@@ -590,15 +640,42 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_package_names_never_reach_the_wire() {
+    fn unsafe_and_bare_package_names_never_reach_the_wire() {
         // No server bound: an attempted request would surface as a
         // transport error, so getting `UnsafePackageName` proves the
-        // gate fires first.
+        // gate fires first.  Bare names are rejected alongside unsafe
+        // segments: the hosted routes have no bare-name form.
         let api = RegistryApi::new("http://127.0.0.1:9", Some(token())).unwrap();
-        for name in ["../evil", "foo/bar", ".hidden", "-flag"] {
+        for name in [
+            "fmt",
+            "../evil",
+            ".hidden",
+            "-flag",
+            "acme/../evil",
+            "../evil/fmt",
+            "acme/.hidden",
+            "acme/fmt/extra",
+            "acme//fmt",
+            "/fmt",
+            "acme/",
+            // The full grammar applies, not just path safety: a scope
+            // is lowercase-only, and the name part follows the
+            // registry's publish grammar (`[a-z0-9][a-z0-9_-]*`), so
+            // uppercase or `.`-bearing local-only names are refused
+            // before any request.
+            "ACME/fmt",
+            "acme/Foo",
+            "acme/foo.bar",
+            "acme/_foo",
+        ] {
             let err = api
                 .publish(name, &version("1.0.0"), b"{}", b"")
                 .unwrap_err();
+            assert!(
+                matches!(err, RegistryApiError::UnsafePackageName { .. }),
+                "{name}: {err:?}"
+            );
+            let err = api.set_yanked(name, &version("1.0.0"), true).unwrap_err();
             assert!(
                 matches!(err, RegistryApiError::UnsafePackageName { .. }),
                 "{name}: {err:?}"
@@ -710,12 +787,12 @@ mod tests {
     #[test]
     fn publish_created_sends_the_framed_body_and_bearer_token() {
         let mock = MockApi::respond_with(201, r#"{"ok":true}"#);
-        let metadata = br#"{"schema":1,"name":"fmt","version":"10.2.1"}"#;
+        let metadata = br#"{"schema":1,"name":"fmtlib/fmt","version":"10.2.1"}"#;
         let archive = b"\x1f\x8b\x08\x00fake-gzip-bytes";
 
         let receipt = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), metadata, archive)
+            .publish("fmtlib/fmt", &version("10.2.1"), metadata, archive)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         // No "verification" field: a registry without the lifecycle.
@@ -723,7 +800,7 @@ mod tests {
 
         let captured = mock.captured();
         assert_eq!(captured.method, "PUT");
-        assert_eq!(captured.path, "/api/v1/packages/fmt/10.2.1");
+        assert_eq!(captured.path, "/api/v1/packages/fmtlib/fmt/10.2.1");
         assert_eq!(
             captured.authorization.as_deref(),
             Some(format!("Bearer {TEST_TOKEN}").as_str())
@@ -743,7 +820,7 @@ mod tests {
         let mock = MockApi::respond_with(200, r#"{"ok":true,"no_op":true}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification, None);
@@ -757,11 +834,11 @@ mod tests {
     fn publish_reads_the_verification_field_tolerantly() {
         let mock = MockApi::respond_with(
             201,
-            r#"{"ok":true,"name":"fmt","version":"10.2.1","checksum":"sha256:aa","verification":"pending"}"#,
+            r#"{"ok":true,"name":"fmtlib/fmt","version":"10.2.1","checksum":"sha256:aa","verification":"pending"}"#,
         );
         let receipt = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification.as_deref(), Some("pending"));
@@ -770,7 +847,7 @@ mod tests {
             MockApi::respond_with(200, r#"{"ok":true,"no_op":true,"verification":"verified"}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification.as_deref(), Some("verified"));
@@ -780,7 +857,7 @@ mod tests {
         let mock = MockApi::respond_with(201, "not json at all");
         let receipt = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification, None);
@@ -793,11 +870,11 @@ mod tests {
         let mock = MockApi::respond_with(409, r#"{"errors":[{"detail":"checksum mismatch"}]}"#);
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::VersionConflict { name, version } => {
-                assert_eq!(name, "fmt");
+                assert_eq!(name, "fmtlib/fmt");
                 assert_eq!(version, "10.2.1");
             }
             other => panic!("expected VersionConflict, got {other:?}"),
@@ -815,7 +892,7 @@ mod tests {
             MockApi::respond_with(401, r#"{"errors":[{"detail":"authentication required"}]}"#);
         let err = mock
             .client(None)
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::AuthRequired { .. }),
@@ -825,7 +902,7 @@ mod tests {
 
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::TokenRejected { .. }),
@@ -837,19 +914,52 @@ mod tests {
         );
     }
 
-    /// 403 with a token is the protocol's missing-scope case.
+    /// A token-authenticated, code-less 403 surfaces the server's
+    /// `detail` verbatim: it distinguishes a token permission the
+    /// user did not grant from a scope the token's user is not a
+    /// member of, and the client must not collapse the second into
+    /// the first.  Without an envelope the message degrades to the
+    /// generic token-permission wording.
     #[test]
-    fn publish_maps_403_to_missing_scope() {
-        let mock = MockApi::respond_with(403, r#"{"errors":[{"detail":"missing publish scope"}]}"#);
+    fn publish_maps_403_details_verbatim() {
+        for detail in [
+            "the token does not have the publish scope",
+            "the scope does not exist or the token's user is not a member of it",
+        ] {
+            let body: &'static str =
+                Box::leak(format!(r#"{{"errors":[{{"detail":"{detail}"}}]}}"#).into_boxed_str());
+            let mock = MockApi::respond_with(403, body);
+            let err = mock
+                .client(Some(token()))
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+                .unwrap_err();
+            match &err {
+                RegistryApiError::Forbidden {
+                    origin,
+                    detail: Some(got),
+                } => {
+                    assert_eq!(origin, &mock.url);
+                    assert_eq!(got, detail);
+                }
+                other => panic!("{detail}: expected Forbidden with the detail, got {other:?}"),
+            }
+            assert!(err.to_string().contains(detail), "{err}");
+        }
+
+        let mock = MockApi::respond_with(403, "no envelope here");
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
-            RegistryApiError::MissingScope { origin } => assert_eq!(origin, &mock.url),
-            other => panic!("expected MissingScope, got {other:?}"),
+            RegistryApiError::Forbidden { detail: None, .. } => {}
+            other => panic!("expected Forbidden without detail, got {other:?}"),
         }
-        assert!(err.to_string().contains("scope"), "{err}");
+        assert!(
+            err.to_string()
+                .contains("the stored token does not have the required scope"),
+            "{err}"
+        );
     }
 
     /// A 403 whose envelope carries a `quota_*` code is a per-user quota
@@ -873,7 +983,7 @@ mod tests {
             let mock = MockApi::respond_with(403, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
                 .unwrap_err();
             match &err {
                 RegistryApiError::QuotaExceeded { detail } => {
@@ -909,7 +1019,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {
@@ -928,7 +1038,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: Some(_) } => {}
@@ -948,7 +1058,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -968,7 +1078,7 @@ mod tests {
         let mock = MockApi::respond_with(402, "no envelope here");
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -989,7 +1099,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .set_yanked("fmt", &version("10.2.1"), true)
+            .set_yanked("fmtlib/fmt", &version("10.2.1"), true)
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -1010,7 +1120,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -1031,7 +1141,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -1053,7 +1163,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: Some(_) } => {}
@@ -1069,7 +1179,7 @@ mod tests {
         let mock = MockApi::respond_with(413, "not an envelope");
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: None } => {}
@@ -1086,7 +1196,7 @@ mod tests {
             MockApi::respond_with(400, r#"{"errors":[{"detail":"metadata name mismatch"}]}"#);
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         assert!(
             err.to_string().contains("metadata name mismatch"),
@@ -1096,7 +1206,7 @@ mod tests {
         let mock = MockApi::respond_with(400, "<html>not the envelope</html>");
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: None } => {}
@@ -1110,7 +1220,7 @@ mod tests {
         let mock = MockApi::respond_with(500, "garbage");
         let err = mock
             .client(Some(token()))
-            .publish("fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {
@@ -1127,11 +1237,11 @@ mod tests {
     fn set_yanked_patches_the_yank_route() {
         let mock = MockApi::respond_with(200, r#"{"ok":true}"#);
         mock.client(Some(token()))
-            .set_yanked("fmt", &version("10.2.1"), true)
+            .set_yanked("fmtlib/fmt", &version("10.2.1"), true)
             .unwrap();
         let captured = mock.captured();
         assert_eq!(captured.method, "PATCH");
-        assert_eq!(captured.path, "/api/v1/packages/fmt/10.2.1/yank");
+        assert_eq!(captured.path, "/api/v1/packages/fmtlib/fmt/10.2.1/yank");
         assert_eq!(captured.body, br#"{"yanked":true}"#);
         assert_eq!(
             captured.authorization.as_deref(),
@@ -1139,18 +1249,18 @@ mod tests {
         );
 
         mock.client(Some(token()))
-            .set_yanked("fmt", &version("10.2.1"), false)
+            .set_yanked("fmtlib/fmt", &version("10.2.1"), false)
             .unwrap();
         assert_eq!(mock.captured().body, br#"{"yanked":false}"#);
 
         let mock = MockApi::respond_with(404, r#"{"errors":[{"detail":"unknown version"}]}"#);
         let err = mock
             .client(Some(token()))
-            .set_yanked("fmt", &version("9.9.9"), true)
+            .set_yanked("fmtlib/fmt", &version("9.9.9"), true)
             .unwrap_err();
         match &err {
             RegistryApiError::NotFound { name, version } => {
-                assert_eq!(name, "fmt");
+                assert_eq!(name, "fmtlib/fmt");
                 assert_eq!(version, "9.9.9");
             }
             other => panic!("expected NotFound, got {other:?}"),
@@ -1163,11 +1273,11 @@ mod tests {
     fn routes_join_under_a_base_path() {
         let api = RegistryApi::new("https://registry.example.com/base", None).unwrap();
         let url = api
-            .package_route("fmt", &version("10.2.1"), "/yank")
+            .package_route("fmtlib/fmt", &version("10.2.1"), "/yank")
             .unwrap();
         assert_eq!(
             url.as_str(),
-            "https://registry.example.com/base/api/v1/packages/fmt/10.2.1/yank"
+            "https://registry.example.com/base/api/v1/packages/fmtlib/fmt/10.2.1/yank"
         );
     }
 }
