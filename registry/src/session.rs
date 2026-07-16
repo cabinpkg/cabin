@@ -25,8 +25,12 @@ pub const STATE_MAX_AGE_SECS: u64 = 600;
 /// Sessions last eight hours; signing in again is cheap.
 pub const SESSION_MAX_AGE_SECS: u64 = 8 * 60 * 60;
 
-/// A verified session: who, and until when. The numeric GitHub id is the
-/// identity; the login name is display-only and lives in D1.
+/// A verified session: who, and until when. The numeric GitHub id names
+/// the external identity, resolved through the `identities` table to
+/// the registry-native user on every request - deliberately not the
+/// `users.id`, which a pre-launch wipe would re-issue: a still-valid
+/// ghost cookie sealed over a row id could then bind to whoever
+/// received that id after the wipe.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Session {
     pub github_id: i64,

@@ -24,6 +24,8 @@ pub enum Scope {
 pub struct AuthContext {
     /// The token row id - safe to log, unlike the token or its hash.
     pub token_id: String,
+    /// The registry-native `users.id` the token belongs to - never a
+    /// provider account id, which lives only in `identities`.
     pub user_id: i64,
     pub scopes: Vec<Scope>,
     /// The user's quota plan (`users.plan`); `crate::quota` maps it to

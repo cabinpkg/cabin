@@ -15,11 +15,10 @@ infrastructure cutover.
 
 - **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
   storage format changes incompatibly - `metadata_json` shape, R2 key
-  layout, reshaped D1 columns - the registry is wiped and recreated
-  (`scripts/wipe.sh`) rather than migrated. Additive schema changes ship
-  as ordinary migrations (e.g. `0002_quotas.sql`); where an additive
-  migration leaves columns to backfill, a one-shot script is provided
-  (see "Backfilling migration 0002") so wiping stays optional.
+  layout, reshaped D1 columns (e.g. `0006_identity.sql`) - the registry
+  is wiped and recreated (`scripts/wipe.sh`) rather than migrated.
+  Additive schema changes ship as ordinary migrations (e.g.
+  `0002_quotas.sql`).
 - **Post-launch (`meta.launched` = `'true'`): permanent.** Published
   archives and index state are never wiped, mutated, or deleted; format
   changes need real migrations. The flag is flipped exactly once, by
@@ -525,25 +524,6 @@ e.g. an `rclone` sync to Backblaze B2's free tier or to local disk,
 pulling with read-only credentials from outside - accepted as a
 follow-up before the registry carries data that cannot be re-published.
 
-## Backfilling migration 0002
-
-Migration `0002_quotas.sql` adds `versions.archive_size`,
-`versions.published_by`, and `packages.created_by` with `0` defaults, and
-seeds `meta.total_stored_bytes` at `'0'`. Pre-existing rows therefore carry no
-usage attribution until either the registry is wiped (pre-launch policy
-above) or the one-shot backfill runs:
-
-```sh
-scripts/backfill-0002.sh
-```
-
-It sizes each distinct archive blob via `wrangler r2 object get`, writes
-`archive_size` per checksum, attributes every unattributed version and
-package (`published_by`, `created_by`) to the sole existing user (it
-refuses to guess when several users exist), and sets
-`meta.total_stored_bytes` to the sum of the distinct blob sizes. Re-running
-it is safe; quotas under-count until it has run.
-
 ## Orphaned R2 blobs
 
 Publish writes the R2 blob before the D1 rows, so a crash between the two
@@ -558,9 +538,22 @@ Orphaned bytes are also invisible to the storage self-accounting - the
 counter tracks referenced blobs only, by design ("never analytics"), and
 the storage budget's headroom below the free limit absorbs the bounded
 drift. If the dashboard's bucket size ever diverges noticeably from
-`meta.total_stored_bytes`, delete the orphans and re-run
-`scripts/backfill-0002.sh`, which recomputes the counter from the
-referenced blobs.
+`meta.total_stored_bytes`, delete the orphans and recompute the counter
+from D1 alone - every version row carries `archive_size`, and the
+counter is one size per distinct live checksum:
+
+```sh
+wrangler d1 execute DB --remote --command "
+  INSERT INTO meta (key, value) SELECT 'total_stored_bytes',
+    CAST(COALESCE(SUM(size), 0) AS TEXT) FROM (
+      SELECT MAX(archive_size) AS size FROM versions
+      WHERE verification != 'rejected' GROUP BY checksum)
+    WHERE true
+  ON CONFLICT (key) DO UPDATE SET value = excluded.value;"
+```
+
+(The `WHERE true` is load-bearing: without it `SQLite` parses the `ON`
+after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
 
 ## Logs
 
