@@ -49,6 +49,32 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
             .iter()
             .map(|&idx| graph.packages[idx].package.name.clone())
             .collect();
+        // `packages/<bare>` doubles as the scope directory of every
+        // `<bare>/<name>` package, and removal is recursive: refuse
+        // to clean a bare package whose name is also a scope in this
+        // workspace, instead of silently deleting scoped outputs
+        // that were never selected.  (Scoped residue from graphs no
+        // longer loaded is out of reach of this check; cleaning the
+        // profile or the whole build dir always works.)
+        for pkg in &packages {
+            if pkg.is_scoped() {
+                continue;
+            }
+            if let Some(scoped) = graph
+                .packages
+                .iter()
+                .find(|p| p.package.name.scope() == Some(pkg.as_str()))
+            {
+                anyhow::bail!(
+                    "cannot clean package `{}`: its build directory `packages/{}` also holds \
+                     the output of scoped package `{}`; clean the scoped package directly, or \
+                     use `--profile` / no selection to clean a whole tree",
+                    pkg.as_str(),
+                    pkg.as_str(),
+                    scoped.package.name.as_str(),
+                );
+            }
+        }
         let profiles = if profile_was_chosen {
             vec![resolved_profile.name]
         } else {

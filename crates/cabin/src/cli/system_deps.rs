@@ -177,8 +177,11 @@ fn probe_dep(
             dep.version,
         ));
     }
+    // pkg-config module names have no `/`: a scoped system-dep name
+    // probes the module named by its base name; the full name stays
+    // the manifest-facing identity in diagnostics above.
     let request = SystemDependencyProbeRequest {
-        name: dep.name.as_str(),
+        name: dep.name.base_name(),
         version_requirement: &dep.version,
         tool,
     };

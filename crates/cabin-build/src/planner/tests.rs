@@ -633,6 +633,201 @@ fn bare_dep_shorthand_requires_same_name_target() {
     );
 }
 
+/// A scoped dependency nests its build outputs one directory per
+/// name component (`packages/<scope>/<name>/...`) - the full
+/// `scope/name` string is never one path component - and the
+/// same-name `deps` shorthand resolves to the target named after the
+/// package's *base* name (target names never contain `/`).  The
+/// dependency compiles a C source so the scoped layout is exercised
+/// for C alongside the C++ consumers elsewhere in this module.
+#[test]
+fn scoped_dependency_nests_build_dirs_and_links_base_named_target() {
+    let fmt_proj = Package::new(
+        pkg_name("fmtlib/fmt"),
+        version(),
+        vec![target_with_includes(
+            "fmt",
+            TargetKind::Library,
+            &["src/fmt.c"],
+            &["include"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["fmtlib/fmt"],
+        )],
+        vec![dep("fmtlib/fmt", "../fmt")],
+    )
+    .unwrap();
+    let fmt_pkg = make_pkg("fmtlib/fmt", "/abs/fmt", fmt_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![fmt_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+
+    let fmt_lib = Utf8PathBuf::from("/abs/build/dev/packages/fmtlib/fmt/libfmt.a");
+    let app_exe = Utf8PathBuf::from("/abs/build/dev/packages/app/app");
+    let link = link_action(&bg);
+    assert!(
+        link.inputs.contains(&fmt_lib),
+        "scoped dep archive expected at {fmt_lib}, link inputs: {:?}",
+        link.inputs
+    );
+    assert_eq!(link.output, app_exe);
+
+    // Every fmt output nests under the scope dir; no path embeds
+    // the literal `fmtlib/fmt` differently than the two-component
+    // form (normalize `\` for Windows object paths).
+    let fmt_compile = compile_actions(&bg)
+        .into_iter()
+        .find(|c| c.object.as_str().replace('\\', "/").contains("/fmt/"))
+        .expect("fmt compile action present");
+    assert!(
+        fmt_compile
+            .object
+            .as_str()
+            .replace('\\', "/")
+            .contains("/packages/fmtlib/fmt/"),
+        "scoped object path must nest per component: {}",
+        fmt_compile.object
+    );
+}
+
+/// A scoped dependency whose targets are all named differently from
+/// its base name fails the shorthand with qualified candidates, just
+/// like a bare one.
+#[test]
+fn scoped_dep_shorthand_requires_base_named_target() {
+    let fmt_proj = Package::new(
+        pkg_name("fmtlib/fmt"),
+        version(),
+        vec![target("core", TargetKind::Library, &["src/core.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["fmtlib/fmt"],
+        )],
+        vec![dep("fmtlib/fmt", "../fmt")],
+    )
+    .unwrap();
+    let fmt_pkg = make_pkg("fmtlib/fmt", "/abs/fmt", fmt_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![fmt_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::NoSameNameTargetInDependency {
+            dep,
+            package,
+            candidates,
+        } => {
+            assert_eq!(dep, "fmtlib/fmt");
+            assert_eq!(package, "fmtlib/fmt");
+            assert_eq!(candidates, &["fmtlib/fmt:core".to_owned()]);
+        }
+        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
+    }
+}
+
+/// An unrelated bare workspace member named like a dependency's
+/// scope does not block a selection that never builds it: the
+/// collision check covers only the packages planned into this build
+/// tree.
+#[test]
+fn unplanned_bare_member_named_like_a_scope_does_not_block_the_plan() {
+    let bare_proj = Package::new(
+        pkg_name("fmtlib"),
+        version(),
+        vec![target("fmt", TargetKind::Library, &["src/fmt.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let scoped_proj = Package::new(
+        pkg_name("fmtlib/fmt"),
+        version(),
+        vec![target("fmt", TargetKind::Library, &["src/fmt.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["fmtlib/fmt"],
+        )],
+        vec![dep("fmtlib/fmt", "../fmt")],
+    )
+    .unwrap();
+    let bare_pkg = make_pkg("fmtlib", "/abs/fmtlib", bare_proj, vec![]);
+    let scoped_pkg = make_pkg("fmtlib/fmt", "/abs/fmt", scoped_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![1]);
+    // Only `app` is primary: the bare `fmtlib` member exists in the
+    // graph but nothing in the selection reaches it.
+    let graph = graph_with(vec![bare_pkg, scoped_pkg, app_pkg], vec![2], Some(2));
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    assert!(
+        bg.default_outputs
+            .contains(&Utf8PathBuf::from("/abs/build/dev/packages/app/app"))
+    );
+    // The plan records exactly the packages it builds, so reverse
+    // path parsers (banners, link diagnostics) can ignore the
+    // unplanned bare member.
+    let planned: Vec<&str> = bg.planned_packages.iter().map(String::as_str).collect();
+    assert_eq!(planned, ["app", "fmtlib/fmt"]);
+}
+
+/// A bare package whose name equals another *planned* package's
+/// scope would share `packages/<name>` with it; the planner rejects
+/// the plan before any path is derived.
+#[test]
+fn bare_package_name_colliding_with_a_scope_is_rejected() {
+    let bare_proj = Package::new(
+        pkg_name("fmtlib"),
+        version(),
+        vec![target("fmt", TargetKind::Library, &["src/fmt.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let scoped_proj = Package::new(
+        pkg_name("fmtlib/fmt"),
+        version(),
+        vec![target("fmt", TargetKind::Library, &["src/fmt.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let bare_pkg = make_pkg("fmtlib", "/abs/fmtlib", bare_proj, vec![]);
+    let scoped_pkg = make_pkg("fmtlib/fmt", "/abs/fmt", scoped_proj, vec![]);
+    let graph = graph_with(vec![bare_pkg, scoped_pkg], vec![0, 1], Some(0));
+    let tc = toolchain();
+    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
+    match &err {
+        BuildError::PackageNameCollidesWithScope { package, scoped } => {
+            assert_eq!(package, "fmtlib");
+            assert_eq!(scoped, "fmtlib/fmt");
+        }
+        other => panic!("expected PackageNameCollidesWithScope, got {other:?}"),
+    }
+}
+
 #[test]
 fn bare_dep_shorthand_ignores_non_linkable_same_name_target() {
     // The dependency declares an *executable* named like the

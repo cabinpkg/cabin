@@ -97,7 +97,10 @@ pub(super) fn resolve_target_dep(
 
     // Otherwise a bare name that matches a visible dependency
     // package is the same-name shorthand: `deps = ["foo"]` means
-    // `foo:foo`.  This is pure name matching - a package never
+    // `foo:foo`, and `deps = ["scope/foo"]` means `scope/foo:foo` -
+    // target names never contain `/`, so a scoped dependency's
+    // same-name target is named after its base name.  This is pure
+    // name matching - a package never
     // exports a *default* target, so a dependency whose targets are
     // all named differently must be spelled `package:target`.  The
     // shorthand only accepts a link/interface-bearing target
@@ -107,13 +110,14 @@ pub(super) fn resolve_target_dep(
     // explicit `package:target` spelling.
     if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
+        let shorthand_target = dep_pkg.package.name.base_name();
         if dep_pkg
             .package
             .targets
             .iter()
-            .any(|t| t.name.as_str() == raw && t.kind.is_library_like())
+            .any(|t| t.name.as_str() == shorthand_target && t.kind.is_library_like())
         {
-            return Ok((dep_idx, raw.to_owned()));
+            return Ok((dep_idx, shorthand_target.to_owned()));
         }
         let candidates: Vec<String> = dep_pkg
             .package

@@ -65,23 +65,29 @@ pub fn diagnose<F>(stderr: &str, lookup_deps: F) -> Option<LinkDiagnostic>
 where
     F: Fn(&str, &str) -> Option<TargetDepInfo>,
 {
-    let failure = parse_link_failure(stderr)?;
-    let info = lookup_deps(&failure.package, &failure.target)?;
+    // The path parse cannot tell a bare package dir from a scope
+    // dir, so each failure line yields up to two readings; the first
+    // one the workspace graph recognizes wins.
+    for failure in parse_link_failure_candidates(stderr) {
+        let Some(info) = lookup_deps(&failure.package, &failure.target) else {
+            continue;
+        };
+        let unlinked: Vec<String> = info
+            .package_deps
+            .difference(&info.target_deps)
+            .cloned()
+            .collect();
 
-    let unlinked: Vec<String> = info
-        .package_deps
-        .difference(&info.target_deps)
-        .cloned()
-        .collect();
-
-    if unlinked.is_empty() {
-        return None;
+        if unlinked.is_empty() {
+            return None;
+        }
+        return Some(LinkDiagnostic::DeclaredButUnlinked {
+            package: failure.package,
+            target: failure.target,
+            unlinked,
+        });
     }
-    Some(LinkDiagnostic::DeclaredButUnlinked {
-        package: failure.package,
-        target: failure.target,
-        unlinked,
-    })
+    None
 }
 
 /// Render a diagnostic as the multi-line text cabin emits to
@@ -128,10 +134,15 @@ pub fn render(diag: &LinkDiagnostic) -> String {
 // -------------------------------------------------------------
 
 /// Parse `stderr` for the first recognizable link failure.
-/// Returns the failing target's identity (package + target name).
-pub fn parse_link_failure(stderr: &str) -> Option<LinkFailure> {
-    let (package, target) = find_failed_target(stderr)?;
-    Some(LinkFailure { package, target })
+/// Returns the failing target's candidate identities (package +
+/// target name): the bare reading first, then - when the path is
+/// deep enough - the scoped `<scope>/<name>` reading.  The caller
+/// resolves the ambiguity against the loaded workspace.
+pub fn parse_link_failure_candidates(stderr: &str) -> Vec<LinkFailure> {
+    find_failed_target(stderr)
+        .into_iter()
+        .map(|(package, target)| LinkFailure { package, target })
+        .collect()
 }
 
 /// Recover the declared target name from a link-action output
@@ -157,16 +168,20 @@ fn extract_target_name(filename: &str) -> &str {
     filename
 }
 
-/// Find the first `FAILED:` line in ninja stderr and pull
-/// `(package, target)` out of the path it points at.
+/// Find the first `FAILED:` line in ninja stderr and pull the
+/// `(package, target)` readings out of the path it points at.
 ///
 /// Cabin's planner emits link-action outputs under
-/// `<build_dir>/<profile>/packages/<package>/<target>`, so the
-/// `/packages/<package>/<target>` segment is the load-bearing
+/// `<build_dir>/<profile>/packages/<package>/<target>` for a bare
+/// package and `.../packages/<scope>/<name>/<target>` for a scoped
+/// one, so the segment after `/packages/` is the load-bearing
 /// signal.  Anything before `/packages/` is platform-dependent
-/// build-root noise; anything after is the target executable
-/// or library file.
-fn find_failed_target(stderr: &str) -> Option<(String, String)> {
+/// build-root noise; anything after is the package dir(s) plus the
+/// target executable or library file.  A two-component tail has one
+/// reading; a deeper tail is ambiguous (bare package with an object
+/// subdir vs scoped package), so both readings are returned, bare
+/// first.
+fn find_failed_target(stderr: &str) -> Vec<(String, String)> {
     for line in stderr.lines() {
         let trimmed = line.trim_start();
         if !trimmed.starts_with("FAILED:") {
@@ -194,18 +209,25 @@ fn find_failed_target(stderr: &str) -> Option<(String, String)> {
             // `rfind` is the load-bearing anchor.
             if let Some(idx) = normalized.rfind("/packages/") {
                 let tail = &normalized[idx + "/packages/".len()..];
-                let mut parts = tail.splitn(3, '/');
-                let pkg = parts.next()?;
-                let target = parts.next()?;
+                let mut parts = tail.splitn(4, '/');
+                let (Some(pkg), Some(target)) = (parts.next(), parts.next()) else {
+                    continue;
+                };
                 if pkg.is_empty() || target.is_empty() {
                     continue;
                 }
-                let target = extract_target_name(target);
-                return Some((pkg.to_owned(), target.to_owned()));
+                let mut candidates = vec![(pkg.to_owned(), extract_target_name(target).to_owned())];
+                if let Some(scoped_target) = parts.next().filter(|s| !s.is_empty()) {
+                    candidates.push((
+                        format!("{pkg}/{target}"),
+                        extract_target_name(scoped_target).to_owned(),
+                    ));
+                }
+                return candidates;
             }
         }
     }
-    None
+    Vec::new()
 }
 
 // -------------------------------------------------------------
@@ -229,7 +251,10 @@ mod tests {
     fn parses_macos_failed_line() {
         let stderr = "FAILED: [code=1] /abs/build/dev/packages/mytest/mytest\n\
                       /usr/bin/c++ ...\n";
-        let failure = parse_link_failure(stderr).unwrap();
+        let failure = parse_link_failure_candidates(stderr)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(failure.package, "mytest");
         assert_eq!(failure.target, "mytest");
     }
@@ -242,7 +267,10 @@ mod tests {
     #[test]
     fn parses_linux_failed_line_with_library_wrapper() {
         let stderr = "FAILED: build/dev/packages/mylib/libmylib.a\n/usr/bin/ar ...\n";
-        let failure = parse_link_failure(stderr).unwrap();
+        let failure = parse_link_failure_candidates(stderr)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(failure.package, "mylib");
         assert_eq!(failure.target, "mylib");
     }
@@ -258,7 +286,10 @@ mod tests {
     fn parses_windows_failed_line_with_backslashes() {
         let stderr = "FAILED: build\\dev\\packages\\mytest\\mytest\n\
                       link.exe ...\n";
-        let failure = parse_link_failure(stderr).unwrap();
+        let failure = parse_link_failure_candidates(stderr)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(failure.package, "mytest");
         assert_eq!(failure.target, "mytest");
     }
@@ -272,7 +303,10 @@ mod tests {
     #[test]
     fn anchors_on_last_packages_segment() {
         let stderr = "FAILED: /tmp/packages/out/dev/packages/realpkg/realtarget\nld: ...\n";
-        let failure = parse_link_failure(stderr).unwrap();
+        let failure = parse_link_failure_candidates(stderr)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(failure.package, "realpkg");
         assert_eq!(failure.target, "realtarget");
     }
@@ -285,7 +319,10 @@ mod tests {
     #[test]
     fn preserves_target_names_with_internal_dots() {
         let stderr = "FAILED: build/dev/packages/mypkg/tool.v2\nld: ...\n";
-        let failure = parse_link_failure(stderr).unwrap();
+        let failure = parse_link_failure_candidates(stderr)
+            .into_iter()
+            .next()
+            .unwrap();
         assert_eq!(failure.package, "mypkg");
         assert_eq!(failure.target, "tool.v2");
     }
@@ -308,7 +345,10 @@ mod tests {
             "shim.lib",
         ] {
             let stderr = format!("FAILED: build/dev/packages/mypkg/{name}\nld: ...\n");
-            let failure = parse_link_failure(&stderr).unwrap();
+            let failure = parse_link_failure_candidates(&stderr)
+                .into_iter()
+                .next()
+                .unwrap();
             assert_eq!(failure.package, "mypkg");
             assert_eq!(failure.target, name);
         }
@@ -316,7 +356,7 @@ mod tests {
 
     #[test]
     fn no_failed_line_returns_none() {
-        assert!(parse_link_failure("ninja: no work to do\n").is_none());
+        assert!(parse_link_failure_candidates("ninja: no work to do\n").is_empty());
     }
 
     // ---- diagnose ------------------------------------------------
@@ -345,6 +385,47 @@ mod tests {
         assert_eq!(package, "mytest");
         assert_eq!(target, "mytest");
         assert_eq!(unlinked, vec!["zlib"]);
+    }
+
+    /// A scoped package's link failure path carries two readings;
+    /// the parser yields the bare one first and the scoped
+    /// `<scope>/<name>` one second.
+    #[test]
+    fn parses_scoped_failed_line_into_both_candidates() {
+        let stderr = "FAILED: build/dev/packages/fmtlib/fmt/demo\nld: ...\n";
+        let candidates = parse_link_failure_candidates(stderr);
+        assert_eq!(
+            candidates,
+            vec![
+                LinkFailure {
+                    package: "fmtlib".to_owned(),
+                    target: "fmt".to_owned(),
+                },
+                LinkFailure {
+                    package: "fmtlib/fmt".to_owned(),
+                    target: "demo".to_owned(),
+                },
+            ]
+        );
+    }
+
+    /// When only the scoped reading names a known package, the
+    /// diagnostic attributes the failure to `<scope>/<name>` and the
+    /// real target - not to a phantom package named after the scope.
+    #[test]
+    fn diagnose_resolves_the_scoped_reading() {
+        let stderr = "FAILED: [code=1] /abs/build/dev/packages/fmtlib/fmt/demo\n\
+             /usr/bin/c++ obj/main.cc.o -o /abs/.../demo\n\
+             ld: symbol(s) not found for architecture arm64\n";
+        let diag = diagnose(stderr, |pkg, target| {
+            (pkg == "fmtlib/fmt" && target == "demo").then(|| deps(&["zlib"], &[]))
+        })
+        .unwrap();
+        let LinkDiagnostic::DeclaredButUnlinked {
+            package, target, ..
+        } = diag;
+        assert_eq!(package, "fmtlib/fmt");
+        assert_eq!(target, "demo");
     }
 
     #[test]

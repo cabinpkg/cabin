@@ -63,6 +63,7 @@ mod tests {
     use super::*;
     use cabin_build::{BuildGraph, CompileCommand, Dialect};
     use camino::Utf8PathBuf;
+    use std::collections::BTreeSet;
 
     fn graph_with_single_compile() -> BuildGraph {
         BuildGraph {
@@ -71,6 +72,7 @@ mod tests {
             default_outputs: Vec::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
             compile_commands: vec![CompileCommand {
                 directory: Utf8PathBuf::from("/abs/build"),
                 file: Utf8PathBuf::from("/abs/src/main.cc"),
@@ -119,6 +121,7 @@ mod tests {
             compile_commands: Vec::new(),
             standard_violations: Vec::new(),
             standard_compat_violations: Vec::new(),
+            planned_packages: BTreeSet::default(),
         };
         let body = render_compile_commands(&graph).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();

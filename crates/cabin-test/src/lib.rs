@@ -183,8 +183,10 @@ fn expected_executable<'a>(
     outputs: &BTreeSet<&'a Path>,
 ) -> Option<&'a Path> {
     // The planner names every `test` executable
-    // `<build_dir>/<profile>/packages/<pkg>/<target>` using the
-    // dialect's executable spelling - bare on GNU/Clang, `<target>.exe`
+    // `<build_dir>/<profile>/packages/<pkg-components>/<target>`
+    // (one directory per `path_components` element, so a scoped
+    // package nests under its scope dir) using the dialect's
+    // executable spelling - bare on GNU/Clang, `<target>.exe`
     // under MSVC.  Build the tail with that same spelling (the dialect is
     // the planner's own, carried on the graph) and scan
     // `default_outputs` for it, rather than re-deriving the full path
@@ -192,8 +194,9 @@ fn expected_executable<'a>(
     // paths - and so Windows `.exe` test binaries are matched, not
     // silently skipped.
     let exe_name = dialect.executable_name(target_name);
-    let needle_tail: PathBuf = ["packages", package.package.name.as_str(), &exe_name]
-        .iter()
+    let needle_tail: PathBuf = std::iter::once("packages")
+        .chain(package.package.name.path_components())
+        .chain(std::iter::once(exe_name.as_str()))
         .collect();
     outputs.iter().copied().find(|p| p.ends_with(&needle_tail))
 }
@@ -736,6 +739,40 @@ mod tests {
         assert_eq!(
             render_summary_line(&summary, 0),
             "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        );
+    }
+
+    /// A scoped package's test executable lives under
+    /// `packages/<scope>/<name>/<target>`; the discovery needle must
+    /// nest per name component, and a bare needle must not match
+    /// across the scope boundary.
+    #[test]
+    fn expected_executable_matches_scoped_package_dirs() {
+        use cabin_core::{Package, PackageName};
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+        let make = |name: &str| WorkspacePackage {
+            package: Package::new(
+                PackageName::new(name).unwrap(),
+                "0.1.0".parse().unwrap(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap(),
+            manifest_path: PathBuf::from("/w/cabin.toml"),
+            manifest_dir: PathBuf::from("/w"),
+            deps: Vec::new(),
+            kind: PackageKind::Local,
+            is_port: false,
+        };
+        let scoped_exe = Path::new("/b/dev/packages/fmtlib/fmt/unit_test");
+        let outputs: BTreeSet<&Path> = [scoped_exe].into_iter().collect();
+        assert_eq!(
+            expected_executable(&make("fmtlib/fmt"), "unit_test", Dialect::GnuLike, &outputs),
+            Some(scoped_exe)
+        );
+        assert_eq!(
+            expected_executable(&make("fmt"), "unit_test", Dialect::GnuLike, &outputs),
+            None
         );
     }
 
