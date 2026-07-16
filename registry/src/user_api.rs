@@ -95,6 +95,93 @@ pub fn packages_json(rows: &[PackageVersionRow]) -> String {
     serde_json::json!({ "packages": packages }).to_string()
 }
 
+/// One member of a scope, as `GET /api/v1/user/scopes/<scope>/members`
+/// serves it: the GitHub numeric id (the identity the management API
+/// speaks), the display login snapshot, and the member role.
+pub struct MemberRow {
+    pub github_id: i64,
+    pub login: String,
+    pub role: String,
+}
+
+/// `GET /api/v1/user/scopes/<scope>/members`. `rows` arrive already
+/// deterministically ordered.
+pub fn members_json(rows: &[MemberRow]) -> String {
+    let members: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "github_id": row.github_id,
+                "login": row.login,
+                "role": row.role,
+            })
+        })
+        .collect();
+    serde_json::json!({ "members": members }).to_string()
+}
+
+/// `POST /api/v1/user/scopes/<scope>/members` success body: the resulting
+/// membership (an already-present member keeps their role) and whether
+/// this request created it.
+pub fn member_added_json(github_id: i64, role: &str, changed: bool) -> String {
+    serde_json::json!({
+        "ok": true,
+        "github_id": github_id,
+        "role": role,
+        "changed": changed,
+    })
+    .to_string()
+}
+
+/// `POST /api/v1/user/scopes/<scope>/members/<github_id>/remove` success
+/// body; removing a non-member is the idempotent `"changed": false`.
+pub fn member_removed_json(github_id: i64, changed: bool) -> String {
+    serde_json::json!({
+        "ok": true,
+        "github_id": github_id,
+        "changed": changed,
+    })
+    .to_string()
+}
+
+pub const INVALID_ADD_MEMBER_BODY: &str =
+    r#"the body must be {"github_id": <number>, "role": "owner" | "member"}"#;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddMemberBody {
+    github_id: i64,
+    role: String,
+}
+
+/// A validated add-member request.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AddMember {
+    pub github_id: i64,
+    pub role: String,
+}
+
+/// Parses and validates an add-member body: a positive GitHub numeric id
+/// and one of the two member roles (`owner` is the admin role;
+/// `docs/architecture.md`, "Scopes").
+///
+/// # Errors
+///
+/// [`INVALID_ADD_MEMBER_BODY`], a fixed string that never echoes request
+/// bytes.
+pub fn parse_add_member(body: &[u8]) -> Result<AddMember, &'static str> {
+    let Ok(parsed) = serde_json::from_slice::<AddMemberBody>(body) else {
+        return Err(INVALID_ADD_MEMBER_BODY);
+    };
+    if parsed.github_id <= 0 || !matches!(parsed.role.as_str(), "owner" | "member") {
+        return Err(INVALID_ADD_MEMBER_BODY);
+    }
+    Ok(AddMember {
+        github_id: parsed.github_id,
+        role: parsed.role,
+    })
+}
+
 /// One token row, as the listing serves it: metadata only, never the
 /// token or its hash (the plaintext exists once, on the create response).
 pub struct TokenRow {
@@ -258,6 +345,77 @@ mod tests {
     #[test]
     fn packages_json_renders_no_packages_as_an_empty_list() {
         assert_eq!(packages_json(&[]), r#"{"packages":[]}"#);
+    }
+
+    #[test]
+    fn members_json_is_the_documented_shape() {
+        let rows = [
+            MemberRow {
+                github_id: 26_405_363,
+                login: "ken-matsui".to_owned(),
+                role: "owner".to_owned(),
+            },
+            MemberRow {
+                github_id: 583_231,
+                login: "octocat".to_owned(),
+                role: "member".to_owned(),
+            },
+        ];
+        assert_eq!(
+            members_json(&rows),
+            r#"{"members":[{"github_id":26405363,"login":"ken-matsui","role":"owner"},{"github_id":583231,"login":"octocat","role":"member"}]}"#
+        );
+        assert_eq!(members_json(&[]), r#"{"members":[]}"#);
+    }
+
+    #[test]
+    fn member_mutation_bodies_are_the_documented_shapes() {
+        assert_eq!(
+            member_added_json(583_231, "member", true),
+            r#"{"ok":true,"github_id":583231,"role":"member","changed":true}"#
+        );
+        assert_eq!(
+            member_removed_json(583_231, false),
+            r#"{"ok":true,"github_id":583231,"changed":false}"#
+        );
+    }
+
+    #[test]
+    fn add_member_bodies_parse_and_validate_strictly() {
+        assert_eq!(
+            parse_add_member(br#"{"github_id":583231,"role":"member"}"#),
+            Ok(AddMember {
+                github_id: 583_231,
+                role: "member".to_owned()
+            })
+        );
+        assert_eq!(
+            parse_add_member(br#"{"role":"owner","github_id":1}"#),
+            Ok(AddMember {
+                github_id: 1,
+                role: "owner".to_owned()
+            })
+        );
+        for body in [
+            &b"not json"[..],
+            b"{}",
+            br#"{"github_id":583231}"#,
+            br#"{"role":"member"}"#,
+            br#"{"github_id":0,"role":"member"}"#,
+            br#"{"github_id":-1,"role":"member"}"#,
+            br#"{"github_id":1.5,"role":"member"}"#,
+            br#"{"github_id":"583231","role":"member"}"#,
+            br#"{"github_id":583231,"role":"admin"}"#,
+            br#"{"github_id":583231,"role":"OWNER"}"#,
+            br#"{"github_id":583231,"role":"member","extra":1}"#,
+        ] {
+            assert_eq!(
+                parse_add_member(body),
+                Err(INVALID_ADD_MEMBER_BODY),
+                "body: {}",
+                String::from_utf8_lossy(body)
+            );
+        }
     }
 
     #[test]

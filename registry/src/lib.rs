@@ -11,6 +11,7 @@ pub mod analytics;
 pub mod auth;
 pub mod backup;
 pub mod breaker;
+pub mod claim;
 pub mod documents;
 pub mod error;
 pub mod publish;

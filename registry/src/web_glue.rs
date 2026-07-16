@@ -1,15 +1,20 @@
 //! Cloudflare glue for the browser plane on the website origin: GitHub
-//! OAuth sign-in (`/login`, `/callback`) and the session-cookie JSON user
-//! API (`/api/v1/user/*`). The bearer-token planes live in
-//! [`crate::glue`]; no plane accepts another's credential. Sessions,
-//! GitHub access tokens, and issued registry tokens are never logged.
+//! OAuth sign-in (`/login`, `/callback`), the scope-claim flow's
+//! dedicated OAuth roundtrip (`/claim/<scope>`, `/callback/claim`), and
+//! the session-cookie JSON user API (`/api/v1/user/*`). The bearer-token
+//! planes live in [`crate::glue`]; no plane accepts another's
+//! credential. Sessions, GitHub access tokens, and issued registry
+//! tokens are never logged.
 
 use serde::Deserialize;
 use worker::{D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response};
 
 use crate::glue::{js_int, non_negative, now_iso8601};
-use crate::routes::{LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, SessionRoute, WebRoute};
-use crate::{allowlist, auth, error, quota, session, sql, user_api};
+use crate::routes::{
+    CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
+    SessionRoute, WebRoute,
+};
+use crate::{allowlist, auth, claim, error, quota, session, sql, user_api};
 
 /// The one identity provider policy admits today; the `identities`
 /// schema stays provider-neutral (docs/architecture.md, "Two credential
@@ -18,11 +23,17 @@ const GITHUB_PROVIDER: &str = "github";
 
 /// Routes one OAuth request; the method check happens here, the path
 /// already matched in [`crate::routes::match_web_route`].
-pub async fn respond_web(req: &Request, env: &Env, route: WebRoute) -> worker::Result<Response> {
+pub async fn respond_web(
+    req: &Request,
+    env: &Env,
+    route: WebRoute<'_>,
+) -> worker::Result<Response> {
     let db = env.d1("DB")?;
     match (route, req.method()) {
         (WebRoute::Login, Method::Get) => login(env),
         (WebRoute::Callback, Method::Get) => callback(req, env, &db).await,
+        (WebRoute::Claim { scope }, Method::Get) => claim_start(env, scope),
+        (WebRoute::ClaimCallback, Method::Get) => claim_callback(req, env, &db).await,
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
 }
@@ -56,7 +67,7 @@ pub async fn respond_session(
     // (the post-wipe scenario): every endpoint - the token routes
     // included - answers the same 401 as no session, never a phantom
     // empty listing or a foreign-key 500.
-    let Some(user) = user_record(&db, &session).await? else {
+    let Some(user) = user_record(&db, session.github_id).await? else {
         return json_error(401, error::AUTH_REQUIRED);
     };
     match (route, req.method()) {
@@ -72,6 +83,18 @@ pub async fn respond_session(
         (SessionRoute::RevokeToken { id }, Method::Post) => {
             let id = id.to_owned();
             revoke_token(req, &db, user.user_id, &id).await
+        }
+        (SessionRoute::ScopeMembers { scope }, Method::Get) => {
+            let scope = scope.to_owned();
+            list_scope_members(&db, user.user_id, &scope).await
+        }
+        (SessionRoute::ScopeMembers { scope }, Method::Post) => {
+            let scope = scope.to_owned();
+            add_scope_member(req, &db, user.user_id, &scope).await
+        }
+        (SessionRoute::RemoveScopeMember { scope, github_id }, Method::Post) => {
+            let scope = scope.to_owned();
+            remove_scope_member(req, &db, user.user_id, &scope, github_id).await
         }
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
@@ -113,18 +136,73 @@ fn login(env: &Env) -> worker::Result<Response> {
     // The explicit redirect_uri (recommended by GitHub, echoed in the
     // token exchange) pins the callback to the website origin.
     let location = format!(
-        "https://github.com/login/oauth/authorize?client_id={client_id}&state={state}\
+        "{oauth_base}/login/oauth/authorize?client_id={client_id}&state={state}\
          &redirect_uri={redirect_uri}",
+        oauth_base = github_oauth_base(env),
         client_id = url_encode(&client_id),
         redirect_uri = url_encode(&callback_url(env)?),
     );
     redirect_response(302, &location, &[cookie])
 }
 
-/// `<WEB_ORIGIN>/callback`, the one OAuth callback URL.
+/// `GET /claim/<scope>`: start a scope claim's dedicated OAuth roundtrip.
+/// Mirrors `/login`, with two deliberate differences: the sealed state
+/// also carries the scope being claimed (so the callback grants exactly
+/// what this route validated), and the authorize request asks for
+/// `read:org` - the org-claim check reads the user's own membership -
+/// while ordinary sign-in keeps its scopeless request.
+fn claim_start(env: &Env, scope: &str) -> worker::Result<Response> {
+    let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
+    let state = auth::hex(&random_bytes::<16>()?);
+    let sealed = session::seal_claim_state(
+        &session_secret(env)?,
+        scope,
+        &state,
+        now_secs() + session::STATE_MAX_AGE_SECS,
+    );
+    let cookie = session::set_cookie(
+        session::CLAIM_STATE_COOKIE,
+        &sealed,
+        session::STATE_MAX_AGE_SECS,
+        session::CLAIM_STATE_COOKIE_PATH,
+    );
+    let location = format!(
+        "{oauth_base}/login/oauth/authorize?client_id={client_id}&state={state}\
+         &redirect_uri={redirect_uri}&scope={oauth_scope}",
+        oauth_base = github_oauth_base(env),
+        client_id = url_encode(&client_id),
+        redirect_uri = url_encode(&claim_callback_url(env)?),
+        oauth_scope = url_encode("read:org"),
+    );
+    redirect_response(302, &location, &[cookie])
+}
+
+/// `<WEB_ORIGIN>/callback`, the OAuth app's registered callback URL.
 fn callback_url(env: &Env) -> worker::Result<String> {
     let origin = env.var("WEB_ORIGIN")?.to_string();
     Ok(format!("{}/callback", origin.trim_end_matches('/')))
+}
+
+/// `<WEB_ORIGIN>/callback/claim`, the claim flow's own callback: a
+/// subdirectory of the registered callback URL, which is as far as a
+/// GitHub OAuth app's `redirect_uri` may deviate from it.
+fn claim_callback_url(env: &Env) -> worker::Result<String> {
+    Ok(format!("{}/claim", callback_url(env)?))
+}
+
+/// GitHub's OAuth and API endpoints, overridable for the local smoke
+/// test only (the `CF_API_BASE` pattern); deployed environments use the
+/// real hosts.
+fn github_oauth_base(env: &Env) -> String {
+    env.var("GITHUB_OAUTH_BASE")
+        .map_or_else(|_| "https://github.com".to_owned(), |var| var.to_string())
+}
+
+fn github_api_base(env: &Env) -> String {
+    env.var("GITHUB_API_BASE").map_or_else(
+        |_| "https://api.github.com".to_owned(),
+        |var| var.to_string(),
+    )
 }
 
 /// `GET /callback`: verify the `state` against the sealed cookie, trade
@@ -164,7 +242,12 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         return denied(&[clear_state]);
     }
 
-    let Some(user) = github_user_for_code(env, &code).await? else {
+    // The access token is transient by design: one `/user` read, then
+    // dropped at the end of this scope.
+    let Some(access_token) = github_access_token(env, &code, &callback_url(env)?).await? else {
+        return denied(&[clear_state]);
+    };
+    let Some(user) = github_user(env, &access_token).await? else {
         return denied(&[clear_state]);
     };
     // The numeric id is the identity; the login name is display-only.
@@ -203,11 +286,171 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
     redirect_response(302, POST_LOGIN_REDIRECT, &[cookie, clear_state])
 }
 
+/// `GET /callback/claim`: the claim flow's OAuth callback. Verifies the
+/// sealed claim state (which names the scope), then - with the transient
+/// access token - proves control of the same-named GitHub account:
+/// self-claim when the scope equals the authenticated user's lowercased
+/// login, org claim when the user is an active admin of the same-named
+/// organization ([`crate::claim`]). A granted claim freezes the scope to
+/// the account's numeric id and seeds the claiming user as the first
+/// `owner`, in one D1 batch; claims are permanent, so an already-claimed
+/// scope refuses whoever asks - the original claimant included. Every
+/// refusal is the same redirect to the denied target with no detail, and
+/// the token is dropped at the end of this scope, never stored -
+/// membership was proved *now*; the registry never holds GitHub
+/// credentials.
+async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
+    let secret = session_secret(env)?;
+    // The claim-state cookie is one-shot: cleared on every outcome.
+    let clear_state = session::set_cookie(
+        session::CLAIM_STATE_COOKIE,
+        "",
+        0,
+        session::CLAIM_STATE_COOKIE_PATH,
+    );
+
+    let url = req.url()?;
+    let mut code = None;
+    let mut state_param = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "code" => code = Some(value.into_owned()),
+            "state" => state_param = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+    let opened = req
+        .headers()
+        .get("cookie")?
+        .as_deref()
+        .and_then(|header| session::cookie_value(header, session::CLAIM_STATE_COOKIE))
+        .and_then(|sealed| session::open_claim_state(&secret, sealed, now_secs()));
+    let (Some(code), Some(state_param), Some((scope, expected_state))) =
+        (code, state_param, opened)
+    else {
+        return claim_denied(&[clear_state]);
+    };
+    if state_param != expected_state {
+        return claim_denied(&[clear_state]);
+    }
+
+    let Some(access_token) = github_access_token(env, &code, &claim_callback_url(env)?).await?
+    else {
+        return claim_denied(&[clear_state]);
+    };
+    let Some(user) = github_user(env, &access_token).await? else {
+        return claim_denied(&[clear_state]);
+    };
+    // Claiming is for signed-up users: the allowlist gate mirrors
+    // sign-in, and the claimant must already have a registry account -
+    // the seeded owner row needs its registry-native user id.
+    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
+    if !allowed.contains(&user.id) {
+        return claim_denied(&[clear_state]);
+    }
+    let Some(claimant) = user_record(db, user.id).await? else {
+        return claim_denied(&[clear_state]);
+    };
+
+    // The numeric account id the scope string freezes to, from
+    // `GET /users/<scope>` - bound before it is trusted: a self-claim
+    // must resolve to the authenticated user themself, and an org claim
+    // to the same organization the membership response proved the
+    // claimant administers. Logins can be renamed and reassigned
+    // between any two of these calls; the id equalities close that gap.
+    let resolved = github_get(env, &access_token, &format!("/users/{scope}"))
+        .await?
+        .and_then(|body| claim::account_id(&body));
+    let Some(proof_account_id) = resolved else {
+        return claim_denied(&[clear_state]);
+    };
+    let bound = if claim::is_self_claim(&scope, &user.login) {
+        proof_account_id == user.id
+    } else {
+        let membership_path = format!(
+            "/orgs/{scope}/memberships/{login}",
+            login = url_encode(&user.login)
+        );
+        github_get(env, &access_token, &membership_path)
+            .await?
+            .and_then(|body| claim::org_membership_grant(&body, user.id))
+            == Some(proof_account_id)
+    };
+    if !bound {
+        return claim_denied(&[clear_state]);
+    }
+
+    // Permanence pre-check: an already-claimed scope refuses before
+    // touching anything, whoever asks.
+    if scope_exists(db, &scope).await? {
+        return claim_denied(&[clear_state]);
+    }
+
+    let account_id = proof_account_id.to_string();
+    let claimed_at = now_iso8601();
+    let batch = db
+        .batch(vec![
+            db.prepare(sql::CLAIM_SCOPE).bind(&[
+                scope.as_str().into(),
+                GITHUB_PROVIDER.into(),
+                account_id.as_str().into(),
+                claimed_at.as_str().into(),
+            ])?,
+            db.prepare(sql::SEED_CLAIM_OWNER)
+                .bind(&[scope.as_str().into(), js_int(claimant.user_id)])?,
+        ])
+        .await;
+    if let Err(err) = batch {
+        // The batch is one transaction: the loser of a claim race fails
+        // the primary-key insert and seeds nothing. When that is what
+        // happened, refuse like any other claim of a taken scope;
+        // anything else is a real error.
+        if scope_exists(db, &scope).await? {
+            return claim_denied(&[clear_state]);
+        }
+        return Err(err);
+    }
+    redirect_response(302, CLAIM_GRANTED_REDIRECT, &[clear_state])
+}
+
+/// The uniform claim refusal: whatever failed, the same redirect with no
+/// detail.
+fn claim_denied(cookies: &[String]) -> worker::Result<Response> {
+    redirect_response(302, CLAIM_DENIED_REDIRECT, cookies)
+}
+
 #[derive(Deserialize)]
 struct UserRecord {
     user_id: i64,
     login_snapshot: String,
     plan: String,
+}
+
+#[derive(Deserialize)]
+struct CountRecord {
+    n: i64,
+}
+
+/// Whether the scope is already claimed: the claim callback's
+/// permanence check.
+async fn scope_exists(db: &D1Database, scope: &str) -> worker::Result<bool> {
+    let record: Option<CountRecord> = db
+        .prepare(sql::SCOPE_EXISTS)
+        .bind(&[scope.into()])?
+        .first(None)
+        .await?;
+    Ok(record.is_some_and(|record| record.n > 0))
+}
+
+/// Whether the user holds the `owner` role in the scope: the gate on
+/// every membership-management endpoint.
+async fn scope_owner(db: &D1Database, scope: &str, user_id: i64) -> worker::Result<bool> {
+    let record: Option<CountRecord> = db
+        .prepare(sql::SCOPE_OWNER_MEMBERSHIP)
+        .bind(&[scope.into(), js_int(user_id)])?
+        .first(None)
+        .await?;
+    Ok(record.is_some_and(|record| record.n > 0))
 }
 
 #[derive(Deserialize)]
@@ -333,9 +576,26 @@ async fn list_tokens(db: &D1Database, user_id: i64) -> worker::Result<Response> 
     json_response(&user_api::tokens_json(&rows))
 }
 
-/// A create-token body cannot legitimately get anywhere near this; the
-/// cap keeps a hostile session from making the Worker buffer megabytes.
+/// A session-plane mutation body cannot legitimately get anywhere near
+/// this; the cap keeps a hostile session from making the Worker buffer
+/// megabytes.
 const MAX_SESSION_BODY_BYTES: usize = 4 * 1024;
+
+/// Buffers a session-plane mutation body. `None` refuses an oversized
+/// upload - before buffering when the client declared a length,
+/// mirroring the publish handler, and re-checked after regardless (a
+/// chunked body has no length).
+async fn session_body(req: &mut Request) -> worker::Result<Option<Vec<u8>>> {
+    if let Some(length) = req.headers().get("content-length")?
+        && length
+            .parse::<u64>()
+            .is_ok_and(|n| n > MAX_SESSION_BODY_BYTES as u64)
+    {
+        return Ok(None);
+    }
+    let body = req.bytes().await?;
+    Ok((body.len() <= MAX_SESSION_BODY_BYTES).then_some(body))
+}
 
 /// `POST /api/v1/user/tokens`: issue a token. The plaintext is rendered
 /// exactly once, on this response; D1 stores only the SHA-256 hex.
@@ -347,20 +607,9 @@ async fn create_token(
     if !csrf_ok(req)? {
         return json_error(403, error::CSRF_REQUIRED);
     }
-    // Reject an oversized upload before buffering when the client
-    // declared a length, mirroring the publish handler; the buffered
-    // size is re-checked regardless (a chunked body has no length).
-    if let Some(length) = req.headers().get("content-length")?
-        && length
-            .parse::<u64>()
-            .is_ok_and(|n| n > MAX_SESSION_BODY_BYTES as u64)
-    {
+    let Some(body) = session_body(req).await? else {
         return json_error(400, user_api::INVALID_CREATE_TOKEN_BODY);
-    }
-    let body = req.bytes().await?;
-    if body.len() > MAX_SESSION_BODY_BYTES {
-        return json_error(400, user_api::INVALID_CREATE_TOKEN_BODY);
-    }
+    };
     let parsed = match user_api::parse_create_token(&body) {
         Ok(parsed) => parsed,
         Err(detail) => return json_error(400, detail),
@@ -402,6 +651,152 @@ async fn revoke_token(
     json_response(r#"{"ok":true}"#)
 }
 
+#[derive(Deserialize)]
+struct MemberRecord {
+    provider_account_id: String,
+    login_snapshot: String,
+    role: String,
+}
+
+/// `GET /api/v1/user/scopes/<scope>/members`: the scope's members with
+/// their GitHub ids and display logins. Owner-gated like every
+/// membership-management endpoint, behind the uniform 403.
+async fn list_scope_members(
+    db: &D1Database,
+    user_id: i64,
+    scope: &str,
+) -> worker::Result<Response> {
+    if !scope_owner(db, scope, user_id).await? {
+        return json_error(403, error::SCOPE_OWNER_REQUIRED);
+    }
+    let records: Vec<MemberRecord> = db
+        .prepare(sql::LIST_SCOPE_MEMBERS)
+        .bind(&[scope.into(), GITHUB_PROVIDER.into()])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::MemberRow> = records
+        .into_iter()
+        .map(|record| user_api::MemberRow {
+            // Written from an i64 on sign-in; 0 would only make a
+            // corrupted row visible, never hide it.
+            github_id: record.provider_account_id.parse().unwrap_or(0),
+            login: record.login_snapshot,
+            role: record.role,
+        })
+        .collect();
+    json_response(&user_api::members_json(&rows))
+}
+
+/// The target member's registry user and current role in the scope, by
+/// GitHub id: members are managed by the external identity the claim
+/// proofs speak, resolved through `identities` like the session itself.
+async fn member_state(
+    db: &D1Database,
+    scope: &str,
+    github_id: i64,
+) -> worker::Result<Option<(i64, Option<String>)>> {
+    let Some(target) = user_record(db, github_id).await? else {
+        return Ok(None);
+    };
+    let role: Option<RoleRecord> = db
+        .prepare(sql::SCOPE_MEMBER_ROLE)
+        .bind(&[scope.into(), js_int(target.user_id)])?
+        .first(None)
+        .await?;
+    Ok(Some((target.user_id, role.map(|record| record.role))))
+}
+
+#[derive(Deserialize)]
+struct RoleRecord {
+    role: String,
+}
+
+/// `POST /api/v1/user/scopes/<scope>/members`: add a member by GitHub
+/// numeric id. The account must already have signed in - membership rows
+/// key on the registry-native user - and an existing member keeps their
+/// role (there is no role-change endpoint).
+async fn add_scope_member(
+    req: &mut Request,
+    db: &D1Database,
+    user_id: i64,
+    scope: &str,
+) -> worker::Result<Response> {
+    if !csrf_ok(req)? {
+        return json_error(403, error::CSRF_REQUIRED);
+    }
+    if !scope_owner(db, scope, user_id).await? {
+        return json_error(403, error::SCOPE_OWNER_REQUIRED);
+    }
+    let Some(body) = session_body(req).await? else {
+        return json_error(400, user_api::INVALID_ADD_MEMBER_BODY);
+    };
+    let parsed = match user_api::parse_add_member(&body) {
+        Ok(parsed) => parsed,
+        Err(detail) => return json_error(400, detail),
+    };
+    let Some((target_user_id, existing_role)) = member_state(db, scope, parsed.github_id).await?
+    else {
+        return json_error(400, error::MEMBER_HAS_NO_ACCOUNT);
+    };
+    db.prepare(sql::ADD_SCOPE_MEMBER)
+        .bind(&[
+            scope.into(),
+            js_int(target_user_id),
+            parsed.role.as_str().into(),
+        ])?
+        .run()
+        .await?;
+    let changed = existing_role.is_none();
+    let role = existing_role.unwrap_or(parsed.role);
+    json_response(&user_api::member_added_json(
+        parsed.github_id,
+        &role,
+        changed,
+    ))
+}
+
+/// `POST /api/v1/user/scopes/<scope>/members/<github_id>/remove`:
+/// idempotent (an unknown account or a non-member is a `changed: false`
+/// no-op), except that removing the last owner is refused - the SQL
+/// guard enforces it under concurrency, and a removal it blocked answers
+/// 409.
+async fn remove_scope_member(
+    req: &Request,
+    db: &D1Database,
+    user_id: i64,
+    scope: &str,
+    github_id: i64,
+) -> worker::Result<Response> {
+    if !csrf_ok(req)? {
+        return json_error(403, error::CSRF_REQUIRED);
+    }
+    if !scope_owner(db, scope, user_id).await? {
+        return json_error(403, error::SCOPE_OWNER_REQUIRED);
+    }
+    let Some((target_user_id, existing_role)) = member_state(db, scope, github_id).await? else {
+        return json_response(&user_api::member_removed_json(github_id, false));
+    };
+    if existing_role.is_none() {
+        return json_response(&user_api::member_removed_json(github_id, false));
+    }
+    db.prepare(sql::REMOVE_SCOPE_MEMBER)
+        .bind(&[scope.into(), js_int(target_user_id)])?
+        .run()
+        .await?;
+    // The membership after the guarded DELETE is the outcome: still
+    // present means the last-owner rule blocked it.
+    let remaining: Option<RoleRecord> = db
+        .prepare(sql::SCOPE_MEMBER_ROLE)
+        .bind(&[scope.into(), js_int(target_user_id)])?
+        .first(None)
+        .await?;
+    if remaining.is_some() {
+        return json_error(409, error::LAST_OWNER);
+    }
+    json_response(&user_api::member_removed_json(github_id, true))
+}
+
 /// GitHub's access-token endpoint answers errors as 200s with an error
 /// body; a missing `access_token` field means the code was refused.
 #[derive(Deserialize)]
@@ -417,10 +812,15 @@ struct GithubUser {
     login: String,
 }
 
-/// Trades the OAuth `code` for the user's numeric id and login. `None` is
-/// the uniform "GitHub said no" answer; only infrastructure errors
-/// surface as `Err`. The access token never leaves this function.
-async fn github_user_for_code(env: &Env, code: &str) -> worker::Result<Option<GithubUser>> {
+/// Trades the OAuth `code` for an access token. `None` is the uniform
+/// "GitHub said no" answer; only infrastructure errors surface as `Err`.
+/// Callers hold the token for their few verification reads and drop it -
+/// it is never stored and never logged.
+async fn github_access_token(
+    env: &Env,
+    code: &str,
+    redirect_uri: &str,
+) -> worker::Result<Option<String>> {
     let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
     let client_secret = env.secret("GITHUB_CLIENT_SECRET")?.to_string();
     // GitHub requires the exchange's redirect_uri to match the one the
@@ -430,7 +830,7 @@ async fn github_user_for_code(env: &Env, code: &str) -> worker::Result<Option<Gi
         url_encode(&client_id),
         url_encode(&client_secret),
         url_encode(code),
-        url_encode(&callback_url(env)?),
+        url_encode(redirect_uri),
     );
     let headers = Headers::new();
     headers.set("accept", "application/json")?;
@@ -439,16 +839,19 @@ async fn github_user_for_code(env: &Env, code: &str) -> worker::Result<Option<Gi
     init.with_method(Method::Post)
         .with_headers(headers)
         .with_body(Some(body.into()));
-    let request = Request::new_with_init("https://github.com/login/oauth/access_token", &init)?;
+    let url = format!("{}/login/oauth/access_token", github_oauth_base(env));
+    let request = Request::new_with_init(&url, &init)?;
     let mut response = Fetch::Request(request).send().await?;
     if response.status_code() != 200 {
         return Ok(None);
     }
     let AccessTokenResponse { access_token } = response.json().await?;
-    let Some(access_token) = access_token else {
-        return Ok(None);
-    };
+    Ok(access_token)
+}
 
+/// One authenticated read against the GitHub API: the body on a 200,
+/// `None` on any refusal.
+async fn github_get(env: &Env, access_token: &str, path: &str) -> worker::Result<Option<Vec<u8>>> {
     let headers = Headers::new();
     headers.set("authorization", &format!("Bearer {access_token}"))?;
     headers.set("accept", "application/vnd.github+json")?;
@@ -456,12 +859,21 @@ async fn github_user_for_code(env: &Env, code: &str) -> worker::Result<Option<Gi
     headers.set("user-agent", "cabin-registry")?;
     let mut init = RequestInit::new();
     init.with_method(Method::Get).with_headers(headers);
-    let request = Request::new_with_init("https://api.github.com/user", &init)?;
+    let url = format!("{}{path}", github_api_base(env));
+    let request = Request::new_with_init(&url, &init)?;
     let mut response = Fetch::Request(request).send().await?;
     if response.status_code() != 200 {
         return Ok(None);
     }
-    Ok(Some(response.json().await?))
+    Ok(Some(response.bytes().await?))
+}
+
+/// The authenticated user's numeric id and login; `None` covers both a
+/// refused read and a body that does not parse.
+async fn github_user(env: &Env, access_token: &str) -> worker::Result<Option<GithubUser>> {
+    Ok(github_get(env, access_token, "/user")
+        .await?
+        .and_then(|body| serde_json::from_slice(&body).ok()))
 }
 
 /// The verified session presented by the request's cookie, if any. The
@@ -483,15 +895,14 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
     Ok(allowed.contains(&current.github_id).then_some(current))
 }
 
-/// The registry-native user the session's external identity resolves
-/// to; `None` (the transient, post-wipe case of a session whose
-/// identity row is gone) answers the same 401 as no session.
-async fn user_record(
-    db: &D1Database,
-    session: &session::Session,
-) -> worker::Result<Option<UserRecord>> {
+/// The registry-native user a GitHub id resolves to through
+/// `identities`; `None` for an account that never signed in - for a
+/// session (the transient, post-wipe ghost case) that answers the same
+/// 401 as no session, and the claim and membership planes refuse the
+/// account.
+async fn user_record(db: &D1Database, github_id: i64) -> worker::Result<Option<UserRecord>> {
     db.prepare(sql::USER_BY_IDENTITY)
-        .bind(&[GITHUB_PROVIDER.into(), session.github_id.to_string().into()])?
+        .bind(&[GITHUB_PROVIDER.into(), github_id.to_string().into()])?
         .first(None)
         .await
 }
