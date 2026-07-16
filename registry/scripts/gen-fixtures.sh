@@ -7,9 +7,10 @@
 #
 #   scripts/gen-fixtures.sh <out-dir>
 #
-# Produces two pairs in <out-dir>:
-#   nodep-0.1.0.tar.gz   / nodep-0.1.0.json    no dependencies
-#   withdep-0.2.0.tar.gz / withdep-0.2.0.json  a dependency + a standards block
+# Produces two pairs in <out-dir> (scoped names, so the filenames carry
+# the flattened `<scope>-<name>` stem):
+#   smoke-nodep-0.1.0.tar.gz   / smoke-nodep-0.1.0.json    no dependencies
+#   smoke-withdep-0.2.0.tar.gz / smoke-withdep-0.2.0.json  a dependency + a standards block
 #
 # The frozen pair under tests/fixtures/ is a checked-in copy of the
 # `withdep` output; regenerate it with this script if the canonical
@@ -35,7 +36,7 @@ mkdir -p "$src/nodep/src" "$src/withdep/src"
 
 cat >"$src/nodep/cabin.toml" <<'EOF'
 [package]
-name = "nodep"
+name = "smoke/nodep"
 version = "0.1.0"
 c-standard = "c11"
 
@@ -47,12 +48,12 @@ printf 'int nodep(void) { return 0; }\n' >"$src/nodep/src/nodep.c"
 
 cat >"$src/withdep/cabin.toml" <<'EOF'
 [package]
-name = "withdep"
+name = "smoke/withdep"
 version = "0.2.0"
 cxx-standard = "c++20"
 
 [dependencies]
-nodep = "^0.1"
+"smoke/nodep" = "^0.1"
 
 [target.withdep]
 type = "library"

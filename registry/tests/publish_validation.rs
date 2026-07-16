@@ -9,7 +9,6 @@
 //!   dedicated `conformance` job in `.github/workflows/registry.yml`.
 
 use std::fmt::Write as _;
-use std::path::Path;
 
 use cabin_registry_worker::publish::{
     CHECKSUM_MISMATCH, IDENTITY_MISMATCH, METADATA_NOT_CANONICAL, decode_frame, validate_metadata,
@@ -17,11 +16,8 @@ use cabin_registry_worker::publish::{
 };
 use sha2::{Digest, Sha256};
 
-const FROZEN_METADATA: &[u8] = include_bytes!("fixtures/withdep-0.2.0.json");
-const FROZEN_ARCHIVE: &[u8] = include_bytes!("fixtures/withdep-0.2.0.tar.gz");
-
-/// The scope the bare client fixtures are published under here.
-const SCOPE: &str = "testscope";
+const FROZEN_METADATA: &[u8] = include_bytes!("fixtures/smoke-withdep-0.2.0.json");
+const FROZEN_ARCHIVE: &[u8] = include_bytes!("fixtures/smoke-withdep-0.2.0.tar.gz");
 
 /// Client-side framing (`cabin_registry_api::encode_publish_body`).
 fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
@@ -31,29 +27,6 @@ fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
     body.extend_from_slice(&u32::try_from(archive.len()).unwrap().to_le_bytes());
     body.extend_from_slice(archive);
     body
-}
-
-/// Rewrites a bare-name client fixture into the scoped shape the
-/// registry accepts: `name` becomes `<scope>/<name>` and `source.path`
-/// the scope-embedding canonical path. Mid-track shim: `cabin package`
-/// still emits bare names until the client-side scoped-names steps land,
-/// after which the fixtures are scoped natively and this rewrite (plus
-/// [`SCOPE`]) goes away.
-fn scoped(metadata: &[u8], scope: &str, name: &str, version: &str) -> Vec<u8> {
-    let mut doc: serde_json::Value = serde_json::from_slice(metadata).unwrap();
-    // Assert the exact pre-scopes shape of both rewritten fields: when
-    // the client starts emitting scoped names, these fail and force the
-    // shim's removal instead of silently double-rewriting.
-    assert_eq!(doc["name"], name, "fixture must carry the bare name");
-    assert_eq!(
-        doc["source"]["path"],
-        format!("../artifacts/{name}/{name}-{version}.tar.gz"),
-        "fixture must carry the bare source path"
-    );
-    doc["name"] = format!("{scope}/{name}").into();
-    doc["source"]["path"] =
-        format!("../../artifacts/{scope}/{name}/{scope}-{name}-{version}.tar.gz").into();
-    serde_json::to_vec(&doc).unwrap()
 }
 
 /// What the wasm glue computes with `SubtleCrypto`, the host computes
@@ -85,41 +58,44 @@ fn validate_pair(
 
 #[test]
 fn frozen_fixture_passes_the_full_validation_path() {
-    let metadata = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
-    validate_pair(SCOPE, "withdep", "0.2.0", &metadata, FROZEN_ARCHIVE).unwrap();
+    validate_pair("smoke", "withdep", "0.2.0", FROZEN_METADATA, FROZEN_ARCHIVE).unwrap();
 }
 
 #[test]
-fn frozen_fixture_with_a_bare_name_is_rejected() {
-    // What the pre-scopes client uploads verbatim: the bare-name
-    // document can never match a scoped URL.
+fn frozen_fixture_under_a_different_scope_is_rejected() {
+    // The document's scoped name binds it to one URL pair; another
+    // scope's URL can never claim it.
     assert_eq!(
-        validate_pair(SCOPE, "withdep", "0.2.0", FROZEN_METADATA, FROZEN_ARCHIVE),
+        validate_pair(
+            "otherscope",
+            "withdep",
+            "0.2.0",
+            FROZEN_METADATA,
+            FROZEN_ARCHIVE
+        ),
         Err(IDENTITY_MISMATCH)
     );
 }
 
 #[test]
 fn frozen_fixture_with_a_flipped_archive_byte_fails_the_checksum() {
-    let metadata = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
     let mut archive = FROZEN_ARCHIVE.to_vec();
     let last = archive.len() - 1;
     archive[last] ^= 0x01;
     assert_eq!(
-        validate_pair(SCOPE, "withdep", "0.2.0", &metadata, &archive),
+        validate_pair("smoke", "withdep", "0.2.0", FROZEN_METADATA, &archive),
         Err(CHECKSUM_MISMATCH)
     );
 }
 
 #[test]
 fn frozen_fixture_with_an_extra_metadata_key_is_rejected() {
-    let scoped = scoped(FROZEN_METADATA, SCOPE, "withdep", "0.2.0");
-    let text = std::str::from_utf8(&scoped).unwrap();
-    let with_extra = text.replace("\"schema\":1,", "\"schema\":1,\"extra-key\":true,");
+    let text = std::str::from_utf8(FROZEN_METADATA).unwrap();
+    let with_extra = text.replace("\"schema\": 1,", "\"schema\": 1,\n  \"extra-key\": true,");
     assert_ne!(text, with_extra, "the mutation must have applied");
     assert_eq!(
         validate_pair(
-            SCOPE,
+            "smoke",
             "withdep",
             "0.2.0",
             with_extra.as_bytes(),
@@ -143,34 +119,39 @@ fn generated_fixtures_pass_the_full_validation_path() {
         if metadata_path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
-        let (name, version) = parse_pair_stem(&metadata_path);
         let archive_path = metadata_path.with_extension("tar.gz");
         let metadata = std::fs::read(&metadata_path).unwrap();
         let archive = std::fs::read(&archive_path)
             .unwrap_or_else(|err| panic!("archive for {metadata_path:?} must exist: {err}"));
-        // The same mid-track scope injection as the frozen tests: the
-        // in-tree client still packages bare names.
-        let metadata = scoped(&metadata, SCOPE, &name, &version);
-        validate_pair(SCOPE, &name, &version, &metadata, &archive)
-            .unwrap_or_else(|detail| panic!("{name}@{version} failed validation: {detail}"));
+        // The publish URL identity comes from the document itself: the
+        // fixtures are scoped natively, exactly as the client uploads
+        // them.
+        let doc: serde_json::Value = serde_json::from_slice(&metadata).unwrap();
+        let full_name = doc["name"]
+            .as_str()
+            .expect("fixture metadata declares a name");
+        let (scope, name) = full_name
+            .split_once('/')
+            .expect("registry fixtures carry scoped names");
+        let version = doc["version"]
+            .as_str()
+            .expect("fixture metadata declares a version");
+        // Independent cross-check: the pair's filename must be the
+        // flattened form of the identity the document declares, so a
+        // fixture whose name drifted from its filename cannot pass by
+        // validating against itself.
+        let stem = metadata_path.file_stem().unwrap().to_str().unwrap();
+        assert_eq!(
+            stem,
+            format!("{scope}-{name}-{version}"),
+            "fixture filename must be the flattened metadata identity"
+        );
+        validate_pair(scope, name, version, &metadata, &archive)
+            .unwrap_or_else(|detail| panic!("{full_name}@{version} failed validation: {detail}"));
         checked += 1;
     }
     assert!(
         checked >= 2,
         "expected at least the two gen-fixtures.sh pairs in {dir}, found {checked}"
     );
-}
-
-/// `<name>-<version>` from a fixture file stem, splitting at the first
-/// hyphen followed by a digit (names may contain hyphens; fixture
-/// versions start with a digit).
-fn parse_pair_stem(path: &Path) -> (String, String) {
-    let stem = path.file_stem().unwrap().to_str().unwrap();
-    let Some((split, _)) = stem
-        .match_indices('-')
-        .find(|(idx, _)| stem.as_bytes().get(idx + 1).is_some_and(u8::is_ascii_digit))
-    else {
-        panic!("fixture stem {stem:?} is not <name>-<version>")
-    };
-    (stem[..split].to_owned(), stem[split + 1..].to_owned())
 }
