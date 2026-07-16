@@ -17,7 +17,7 @@ use crate::error;
 /// `verified` versions are part of the registry (composed into package
 /// documents, downloadable with ordinary tokens, immutable). `rejected`
 /// versions never became part of the registry: their blob is reclaimed,
-/// their quota refunded, and the same `(name, version)` may be
+/// their quota refunded, and the same `(scope, name, version)` may be
 /// republished.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

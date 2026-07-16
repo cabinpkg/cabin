@@ -3,13 +3,22 @@
 //! Validation happens here, before any D1 or R2 lookup: a path that does not
 //! parse is an ordinary 404 and never reaches storage.
 
-/// A matched, validated read route.
+/// A matched, validated read route. Package identity is always the
+/// scoped pair: `scope` is the registry-native namespace entity and
+/// `name` the package part of the canonical `<scope>/<name>` name.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route<'a> {
     Healthz,
     Config,
-    Package { name: &'a str },
-    Artifact { name: &'a str, version: &'a str },
+    Package {
+        scope: &'a str,
+        name: &'a str,
+    },
+    Artifact {
+        scope: &'a str,
+        name: &'a str,
+        version: &'a str,
+    },
 }
 
 /// Matches `path` (percent-encoded, no query string) against the read
@@ -23,74 +32,107 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
         return Some(Route::Config);
     }
     if let Some(rest) = path.strip_prefix("/packages/") {
-        let name = rest.strip_suffix(".json")?;
-        return is_valid_name(name).then_some(Route::Package { name });
+        let (scope, name) = rest.split_once('/')?;
+        let name = name.strip_suffix(".json")?;
+        return (is_valid_scope(scope) && is_valid_name(name))
+            .then_some(Route::Package { scope, name });
     }
     if let Some(rest) = path.strip_prefix("/artifacts/") {
+        let (scope, rest) = rest.split_once('/')?;
         let (name, file) = rest.split_once('/')?;
+        // The filename embeds the scope (a downloaded tarball stays
+        // self-identifying outside the directory tree). Stripping the
+        // literal `<scope>-<name>-` prefix stays unambiguous even though
+        // scopes and names may themselves contain hyphens, because both
+        // strings are already fixed by the directory segments; a filename
+        // disagreeing with them fails parsing here.
         let version = file
+            .strip_prefix(scope)?
+            .strip_prefix('-')?
             .strip_prefix(name)?
             .strip_prefix('-')?
             .strip_suffix(".tar.gz")?;
-        return (is_valid_name(name) && is_valid_version(version))
-            .then_some(Route::Artifact { name, version });
+        return (is_valid_scope(scope) && is_valid_name(name) && is_valid_version(version))
+            .then_some(Route::Artifact {
+                scope,
+                name,
+                version,
+            });
     }
     None
 }
 
-/// A matched write (API) route. Unlike the read routes, the `name` /
-/// `version` segments are only split here, not validated: publish
-/// validates them as part of its documented `400` sequence
+/// A matched write (API) route. Unlike the read routes, the `scope` /
+/// `name` / `version` segments are only split here, not validated:
+/// publish validates them as part of its documented `400` sequence
 /// (`crate::publish`), and yank and the admin verdict answer unknown
-/// pairs with an ordinary authenticated 404 straight from D1. Neither
-/// segment ever becomes a path or storage key by itself.
+/// triples with an ordinary authenticated 404 straight from D1 (behind
+/// the scope-membership gate, for yank). No segment ever becomes a path
+/// or storage key by itself.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ApiRoute<'a> {
     Publish {
+        scope: &'a str,
         name: &'a str,
         version: &'a str,
     },
     Yank {
+        scope: &'a str,
         name: &'a str,
         version: &'a str,
     },
     /// `GET /api/v1/admin/versions?status=...`: the verifier's listing.
     AdminVersions,
-    /// `PATCH /api/v1/admin/versions/<name>/<version>`: a verdict.
+    /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>`: a verdict.
     AdminVerdict {
+        scope: &'a str,
         name: &'a str,
         version: &'a str,
     },
 }
 
 /// Matches `path` against the API routes:
-/// `/api/v1/packages/<name>/<version>`,
-/// `/api/v1/packages/<name>/<version>/yank`, and the admin plane's
-/// `/api/v1/admin/versions[/<name>/<version>]`.
+/// `/api/v1/packages/<scope>/<name>/<version>`,
+/// `/api/v1/packages/<scope>/<name>/<version>/yank`, and the admin
+/// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     if let Some(rest) = path.strip_prefix("/api/v1/admin/versions") {
         if rest.is_empty() {
             return Some(ApiRoute::AdminVersions);
         }
-        let (name, version) = rest.strip_prefix('/')?.split_once('/')?;
-        if name.is_empty() || version.is_empty() || version.contains('/') {
+        let (scope, rest) = rest.strip_prefix('/')?.split_once('/')?;
+        let (name, version) = rest.split_once('/')?;
+        if scope.is_empty() || name.is_empty() || version.is_empty() || version.contains('/') {
             return None;
         }
-        return Some(ApiRoute::AdminVerdict { name, version });
+        return Some(ApiRoute::AdminVerdict {
+            scope,
+            name,
+            version,
+        });
     }
     let rest = path.strip_prefix("/api/v1/packages/")?;
+    let (scope, rest) = rest.split_once('/')?;
     let (name, rest) = rest.split_once('/')?;
     let (version, is_yank) = match rest.strip_suffix("/yank") {
         Some(version) => (version, true),
         None => (rest, false),
     };
-    if name.is_empty() || version.is_empty() || version.contains('/') {
+    if scope.is_empty() || name.is_empty() || version.is_empty() || version.contains('/') {
         return None;
     }
     Some(if is_yank {
-        ApiRoute::Yank { name, version }
+        ApiRoute::Yank {
+            scope,
+            name,
+            version,
+        }
     } else {
-        ApiRoute::Publish { name, version }
+        ApiRoute::Publish {
+            scope,
+            name,
+            version,
+        }
     })
 }
 
@@ -207,10 +249,31 @@ pub fn host_without_port(host: &str) -> &str {
     host.rsplit_once(':').map_or(host, |(name, _)| name)
 }
 
-/// Package names are restricted to `[a-z0-9_-]+` before they become path or
-/// key components.
+/// Scope names are restricted to `[a-z0-9]([a-z0-9-]*[a-z0-9])?`, at most
+/// 39 characters, before they become path or key components. The grammar
+/// is GitHub-login-compatible on purpose: a scope is claimed by proving
+/// control of the same-named GitHub account (logins are lowercased at
+/// claim time), so every claimable login must fit. It is deliberately a
+/// small superset (GitHub also forbids consecutive hyphens):
+/// claimability is proved by the claim flow's account-control check,
+/// not by the charset, and an unclaimable string can never gain members,
+/// so it answers the write plane's uniform 403 forever.
+pub fn is_valid_scope(scope: &str) -> bool {
+    !scope.is_empty()
+        && scope.len() <= 39
+        && scope
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !scope.starts_with('-')
+        && !scope.ends_with('-')
+}
+
+/// Package names are restricted to `^[a-z0-9][a-z0-9_-]*$` - the publish
+/// grammar - before they become path or key components, so the read and
+/// write planes accept exactly the same names.
 pub fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
+        && name.as_bytes()[0].is_ascii_alphanumeric()
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
@@ -241,19 +304,27 @@ mod tests {
         assert_eq!(match_route("/healthz"), Some(Route::Healthz));
         assert_eq!(match_route("/config.json"), Some(Route::Config));
         assert_eq!(
-            match_route("/packages/fmt.json"),
-            Some(Route::Package { name: "fmt" })
+            match_route("/packages/fmtlib/fmt.json"),
+            Some(Route::Package {
+                scope: "fmtlib",
+                name: "fmt"
+            })
         );
         assert_eq!(
-            match_route("/artifacts/fmt/fmt-10.2.1.tar.gz"),
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"),
             Some(Route::Artifact {
+                scope: "fmtlib",
                 name: "fmt",
                 version: "10.2.1"
             })
         );
+        // Hyphens in the scope and the name stay unambiguous: the
+        // filename prefix is matched against the directory segments,
+        // never re-split.
         assert_eq!(
-            match_route("/artifacts/my_pkg-2/my_pkg-2-1.0.0-rc.1+build.5.tar.gz"),
+            match_route("/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1+build.5.tar.gz"),
             Some(Route::Artifact {
+                scope: "my-org",
                 name: "my_pkg-2",
                 version: "1.0.0-rc.1+build.5"
             })
@@ -266,14 +337,17 @@ mod tests {
             "/",
             "",
             "/config.json/",
-            "/packages/fmt",
-            "/packages/fmt.json.json/",
-            "/packages/.json",
-            "/artifacts/fmt",
-            "/artifacts/fmt/",
-            "/artifacts/fmt/fmt-10.2.1.tar",
-            "/artifacts/fmt/other-10.2.1.tar.gz",
-            "/artifacts/fmt/fmt-10.2.1.tar.gz/extra",
+            "/packages/fmt.json",
+            "/packages/fmtlib/fmt",
+            "/packages/fmtlib/fmt.json.json/",
+            "/packages/fmtlib/.json",
+            "/packages/fmtlib/extra/fmt.json",
+            "/artifacts/fmtlib",
+            "/artifacts/fmtlib/fmt",
+            "/artifacts/fmtlib/fmt/",
+            "/artifacts/fmt/fmt-10.2.1.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz/extra",
             "/index.html",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
@@ -281,19 +355,43 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_path_components() {
-        // Uppercase, dots, traversal, and percent-escapes never parse.
+    fn rejects_artifact_filenames_disagreeing_with_the_directory() {
+        // The filename must embed exactly `<scope>-<name>-`; any other
+        // prefix - another scope, another name, or a bare name - fails
+        // parsing before any lookup.
         for path in [
-            "/packages/Fmt.json",
-            "/packages/fmt..json",
-            "/packages/..%2fescape.json",
-            "/packages/fmt%2e.json",
-            "/artifacts/../fmt-1.0.0.tar.gz",
-            "/artifacts/fmt/fmt-1.0.tar.gz",
-            "/artifacts/fmt/fmt-1.0.0.0.tar.gz",
-            "/artifacts/fmt/fmt-v1.0.0.tar.gz",
-            "/artifacts/fmt/fmt-1.0.x.tar.gz",
-            "/artifacts/fmt/fmt-1.0.0%2f.tar.gz",
+            "/artifacts/fmtlib/fmt/fmt-10.2.1.tar.gz",
+            "/artifacts/fmtlib/fmt/other-fmt-10.2.1.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-other-10.2.1.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlibfmt-10.2.1.tar.gz",
+            "/artifacts/my-org/pkg/my-org-2-pkg-1.0.0.tar.gz",
+        ] {
+            assert_eq!(match_route(path), None, "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_path_components() {
+        // Uppercase, dots, traversal, and percent-escapes never parse -
+        // in either segment.
+        for path in [
+            "/packages/fmtlib/Fmt.json",
+            "/packages/Fmtlib/fmt.json",
+            "/packages/fmt.lib/fmt.json",
+            "/packages/fmt_lib/fmt.json",
+            "/packages/-fmtlib/fmt.json",
+            "/packages/fmtlib-/fmt.json",
+            "/packages/fmtlib/fmt..json",
+            "/packages/fmtlib/..%2fescape.json",
+            "/packages/..%2fescape/fmt.json",
+            "/packages/fmtlib/fmt%2e.json",
+            "/artifacts/../fmt/fmt-1.0.0.tar.gz",
+            "/artifacts/fmtlib/../fmtlib-..-1.0.0.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.0.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-v1.0.0.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.x.tar.gz",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0%2f.tar.gz",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
         }
@@ -302,15 +400,17 @@ mod tests {
     #[test]
     fn matches_the_two_api_routes() {
         assert_eq!(
-            match_api_route("/api/v1/packages/fmt/10.2.1"),
+            match_api_route("/api/v1/packages/fmtlib/fmt/10.2.1"),
             Some(ApiRoute::Publish {
+                scope: "fmtlib",
                 name: "fmt",
                 version: "10.2.1"
             })
         );
         assert_eq!(
-            match_api_route("/api/v1/packages/fmt/10.2.1/yank"),
+            match_api_route("/api/v1/packages/fmtlib/fmt/10.2.1/yank"),
             Some(ApiRoute::Yank {
+                scope: "fmtlib",
                 name: "fmt",
                 version: "10.2.1"
             })
@@ -318,8 +418,9 @@ mod tests {
         // Segments are split, not validated: garbage still routes and
         // fails later with the documented status.
         assert_eq!(
-            match_api_route("/api/v1/packages/Fmt/not-semver"),
+            match_api_route("/api/v1/packages/Fmtlib/Fmt/not-semver"),
             Some(ApiRoute::Publish {
+                scope: "Fmtlib",
                 name: "Fmt",
                 version: "not-semver"
             })
@@ -455,8 +556,9 @@ mod tests {
             Some(ApiRoute::AdminVersions)
         );
         assert_eq!(
-            match_api_route("/api/v1/admin/versions/fmt/10.2.1"),
+            match_api_route("/api/v1/admin/versions/fmtlib/fmt/10.2.1"),
             Some(ApiRoute::AdminVerdict {
+                scope: "fmtlib",
                 name: "fmt",
                 version: "10.2.1"
             })
@@ -464,8 +566,9 @@ mod tests {
         // Like publish and yank, segments are split, not validated:
         // garbage routes and 404s from D1.
         assert_eq!(
-            match_api_route("/api/v1/admin/versions/Fmt/not-semver"),
+            match_api_route("/api/v1/admin/versions/Fmtlib/Fmt/not-semver"),
             Some(ApiRoute::AdminVerdict {
+                scope: "Fmtlib",
                 name: "Fmt",
                 version: "not-semver"
             })
@@ -478,17 +581,22 @@ mod tests {
             "/api/v1/packages",
             "/api/v1/packages/",
             "/api/v1/packages/fmt",
-            "/api/v1/packages/fmt/",
-            "/api/v1/packages//10.2.1",
-            "/api/v1/packages/fmt/10.2.1/extra",
-            "/api/v1/packages/fmt/10.2.1/yank/extra",
-            "/api/v1/packages/fmt//yank",
-            "/api/v2/packages/fmt/10.2.1",
+            "/api/v1/packages/fmt/10.2.1",
+            "/api/v1/packages/fmtlib/fmt",
+            "/api/v1/packages/fmtlib/fmt/",
+            "/api/v1/packages//fmt/10.2.1",
+            "/api/v1/packages/fmtlib//10.2.1",
+            "/api/v1/packages/fmtlib/fmt/10.2.1/extra",
+            "/api/v1/packages/fmtlib/fmt/10.2.1/yank/extra",
+            "/api/v1/packages/fmtlib/fmt//yank",
+            "/api/v2/packages/fmtlib/fmt/10.2.1",
             "/api/v1/admin/versions/",
             "/api/v1/admin/versions/fmt",
-            "/api/v1/admin/versions/fmt/",
-            "/api/v1/admin/versions//10.2.1",
-            "/api/v1/admin/versions/fmt/10.2.1/extra",
+            "/api/v1/admin/versions/fmt/10.2.1",
+            "/api/v1/admin/versions/fmtlib/fmt/",
+            "/api/v1/admin/versions//fmt/10.2.1",
+            "/api/v1/admin/versions/fmtlib//10.2.1",
+            "/api/v1/admin/versions/fmtlib/fmt/10.2.1/extra",
             "/api/v1/admin/other",
         ] {
             assert_eq!(match_api_route(path), None, "path: {path:?}");
@@ -500,8 +608,28 @@ mod tests {
         for name in ["fmt", "my_pkg", "pkg-2", "0abc"] {
             assert!(is_valid_name(name), "name: {name:?}");
         }
-        for name in ["", "Fmt", "pkg.json", "a/b", "a b", "naïve"] {
+        for name in ["", "Fmt", "pkg.json", "a/b", "a b", "naïve", "_fmt", "-fmt"] {
             assert!(!is_valid_name(name), "name: {name:?}");
+        }
+    }
+
+    #[test]
+    fn scope_validation_is_github_login_compatible() {
+        for scope in ["fmtlib", "a", "0", "my-org", "a-b-c", &"x".repeat(39)] {
+            assert!(is_valid_scope(scope), "scope: {scope:?}");
+        }
+        for scope in [
+            "",
+            "-fmtlib",
+            "fmtlib-",
+            "fmt_lib",
+            "Fmtlib",
+            "fmt.lib",
+            "a/b",
+            "naïve",
+            &"x".repeat(40),
+        ] {
+            assert!(!is_valid_scope(scope), "scope: {scope:?}");
         }
     }
 

@@ -4,6 +4,13 @@
 > no compatibility promise: any route, field, framing, or status code described here may change or
 > disappear between releases without a migration path.
 
+> **Mid-migration divergence.** The hosted registry has moved to scoped package names
+> (`<scope>/<name>`, e.g. `fmtlib/fmt`): every route below gains a `<scope>` segment, the artifact
+> filename becomes `<scope>-<name>-<version>.tar.gz`, and publish/yank additionally require the
+> token's user to be a member of the target scope (see `registry/docs/architecture.md`, "Scopes").
+> The client in this repository still speaks the bare-name protocol this page describes; the page
+> is rewritten together with the client-side scoped-names steps.
+
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
 itself - accounts, token issuance, hosted storage - is not part of the Cabin crates; its hosted

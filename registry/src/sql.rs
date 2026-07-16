@@ -95,65 +95,68 @@ statements! {
 
     /// The package document's rows: **verified** versions only, so
     /// pending and rejected rows never reach composition.
-    VERIFIED_VERSIONS_BY_NAME =
+    VERIFIED_VERSIONS_BY_PACKAGE =
         "SELECT version, metadata_json, yanked FROM versions \
-         WHERE name = ?1 AND verification = 'verified'";
+         WHERE scope = ?1 AND name = ?2 AND verification = 'verified'";
 
     /// The yank handler's current-state read.
     VERSION_YANK_STATE =
-        "SELECT yanked, verification FROM versions WHERE name = ?1 AND version = ?2";
+        "SELECT yanked, verification FROM versions \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
     /// Applies a yank or un-yank; the `yanked` column is the single home
     /// of yank state.
-    SET_VERSION_YANKED = "UPDATE versions SET yanked = ?1 WHERE name = ?2 AND version = ?3";
+    SET_VERSION_YANKED =
+        "UPDATE versions SET yanked = ?1 WHERE scope = ?2 AND name = ?3 AND version = ?4";
 
     /// The verifier's deterministic work list, filtered by status.
     VERSIONS_BY_VERIFICATION_STATUS =
-        "SELECT name, version, checksum, published_by, published_at, metadata_json \
-         FROM versions WHERE verification = ?1 ORDER BY name, version";
+        "SELECT scope, name, version, checksum, published_by, published_at, metadata_json \
+         FROM versions WHERE verification = ?1 ORDER BY scope, name, version";
 
     /// The verdict handler's read of the row a verdict targets.
     VERDICT_TARGET =
         "SELECT verification, checksum, published_at, archive_size FROM versions \
-         WHERE name = ?1 AND version = ?2";
+         WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
     /// Applies a `verified` verdict, guarded on the row still being the
     /// pending generation the verdict was read against.
     MARK_VERSION_VERIFIED =
         "UPDATE versions SET verification = 'verified', verified_at = ?1 \
-         WHERE name = ?2 AND version = ?3 \
-         AND verification = 'pending' AND checksum = ?4 \
-         AND published_at = ?5";
+         WHERE scope = ?2 AND name = ?3 AND version = ?4 \
+         AND verification = 'pending' AND checksum = ?5 \
+         AND published_at = ?6";
 
     /// Applies a `rejected` verdict under the same generation guards.
     MARK_VERSION_REJECTED =
         "UPDATE versions SET verification = 'rejected', verification_reason = ?1, \
          verified_at = NULL \
-         WHERE name = ?2 AND version = ?3 \
-         AND verification = 'pending' AND checksum = ?4 AND published_at = ?5";
+         WHERE scope = ?2 AND name = ?3 AND version = ?4 \
+         AND verification = 'pending' AND checksum = ?5 AND published_at = ?6";
 
     /// The publish handler's idempotency/immutability read of an
-    /// existing `(name, version)` row.
+    /// existing `(scope, name, version)` row.
     EXISTING_VERSION =
         "SELECT metadata_json, checksum, verification FROM versions \
-         WHERE name = ?1 AND version = ?2";
+         WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
-    /// Creates the package row on its first published version. No scope
-    /// bind yet, so this cannot satisfy the 0006 schema's `NOT NULL`
-    /// scope column at runtime: the scoped-routes step supplies it, and
-    /// the registry is pre-launch - this mid-track state is deliberate
-    /// and never deployed (see `migrations/0006_identity.sql`).
+    /// Whether the token's user is a member (any role) of the scope: the
+    /// write plane's authorization read. A scope that does not exist has
+    /// no members, so nonexistent and foreign scopes answer identically
+    /// by construction (`docs/architecture.md`, "The write path").
+    SCOPE_MEMBERSHIP =
+        "SELECT COUNT(*) AS n FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
+
+    /// Creates the package row on its first published version.
     INSERT_PACKAGE =
-        "INSERT OR IGNORE INTO packages (name, created_at, created_by) \
-         VALUES (?1, ?2, ?3)";
+        "INSERT OR IGNORE INTO packages (scope, name, created_at, created_by) \
+         VALUES (?1, ?2, ?3, ?4)";
 
-    /// Inserts a genuinely new version row, starting `pending`. Same
-    /// mid-track caveat as [`INSERT_PACKAGE`]: the scope bind lands
-    /// with the scoped-routes step.
+    /// Inserts a genuinely new version row, starting `pending`.
     INSERT_VERSION =
-        "INSERT INTO versions (name, version, checksum, metadata_json, yanked, \
+        "INSERT INTO versions (scope, name, version, checksum, metadata_json, yanked, \
          published_at, archive_size, published_by, verification) \
-         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, 'pending')";
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, 'pending')";
 
     /// Replaces a rejected row in place (back to `pending`), guarded on
     /// the row still being the rejected generation this request read.
@@ -161,8 +164,8 @@ statements! {
         "UPDATE versions SET checksum = ?1, metadata_json = ?2, yanked = 0, \
          published_at = ?3, archive_size = ?4, published_by = ?5, \
          verification = 'pending', verification_reason = NULL, verified_at = NULL \
-         WHERE name = ?6 AND version = ?7 \
-         AND verification = 'rejected' AND checksum = ?8";
+         WHERE scope = ?6 AND name = ?7 AND version = ?8 \
+         AND verification = 'rejected' AND checksum = ?9";
 
     /// How many versions have sat `pending` for over an hour (the
     /// stuck-verifier alert).
@@ -173,7 +176,7 @@ statements! {
     /// The session packages listing: every version of every package the
     /// user created, deterministically ordered.
     LIST_USER_PACKAGES =
-        "SELECT v.name, v.version, v.verification, v.yanked, v.published_at \
+        "SELECT v.scope, v.name, v.version, v.verification, v.yanked, v.published_at \
          FROM packages p JOIN versions v ON v.scope = p.scope AND v.name = p.name \
          WHERE p.created_by = ?1 \
          ORDER BY v.scope, v.name, v.published_at DESC, v.version";
@@ -205,10 +208,11 @@ statements! {
     /// Versions published into one package since a cutoff (the daily
     /// per-package quota).
     COUNT_PACKAGE_VERSIONS_SINCE =
-        "SELECT COUNT(*) AS n FROM versions WHERE name = ?1 AND published_at >= ?2";
+        "SELECT COUNT(*) AS n FROM versions \
+         WHERE scope = ?1 AND name = ?2 AND published_at >= ?3";
 
     /// Whether the package row already exists (new-package quotas).
-    PACKAGE_EXISTS = "SELECT COUNT(*) AS n FROM packages WHERE name = ?1";
+    PACKAGE_EXISTS = "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name = ?2";
 
     /// The dashboard usage aggregate over everything the user published.
     USER_USAGE =
@@ -265,12 +269,12 @@ statements! {
          CASE WHEN (SELECT COUNT(*) FROM versions \
                     WHERE checksum = ?1 AND verification != 'rejected') = 1 \
               AND (SELECT verification FROM versions \
-                   WHERE name = ?2 AND version = ?3) = 'pending' \
+                   WHERE scope = ?2 AND name = ?3 AND version = ?4) = 'pending' \
               AND (SELECT checksum FROM versions \
-                   WHERE name = ?2 AND version = ?3) = ?1 \
+                   WHERE scope = ?2 AND name = ?3 AND version = ?4) = ?1 \
               AND (SELECT published_at FROM versions \
-                   WHERE name = ?2 AND version = ?3) = ?5 \
-              THEN CAST(?4 AS INTEGER) ELSE 0 END, 0) \
+                   WHERE scope = ?2 AND name = ?3 AND version = ?4) = ?6 \
+              THEN CAST(?5 AS INTEGER) ELSE 0 END, 0) \
          WHERE key = 'total_stored_bytes'";
 
     /// Counts a rejected-replacement's new bytes exactly when the
@@ -279,12 +283,12 @@ statements! {
     COUNT_STORED_BYTES_ON_REPLACEMENT =
         "UPDATE meta SET value = CAST(value AS INTEGER) + \
          CASE WHEN (SELECT verification FROM versions \
-                    WHERE name = ?1 AND version = ?2) = 'rejected' \
+                    WHERE scope = ?1 AND name = ?2 AND version = ?3) = 'rejected' \
               AND (SELECT checksum FROM versions \
-                   WHERE name = ?1 AND version = ?2) = ?3 \
+                   WHERE scope = ?1 AND name = ?2 AND version = ?3) = ?4 \
               AND (SELECT COUNT(*) FROM versions \
-                   WHERE checksum = ?4 AND verification != 'rejected') = 0 \
-              THEN CAST(?5 AS INTEGER) ELSE 0 END \
+                   WHERE checksum = ?5 AND verification != 'rejected') = 0 \
+              THEN CAST(?6 AS INTEGER) ELSE 0 END \
          WHERE key = 'total_stored_bytes'";
 
     // ------------------------------------------------------------------
@@ -311,8 +315,9 @@ statements! {
     // ------------------------------------------------------------------
 
     /// The artifact route's checksum and read-gate lookup.
-    ARTIFACT_BY_NAME_VERSION =
-        "SELECT checksum, verification FROM versions WHERE name = ?1 AND version = ?2";
+    ARTIFACT_BY_PACKAGE_VERSION =
+        "SELECT checksum, verification FROM versions \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
     /// Live (non-rejected) references to one blob, for reclaim.
     COUNT_LIVE_BLOB_REFERENCES =

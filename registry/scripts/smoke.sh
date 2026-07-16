@@ -11,8 +11,11 @@
 # meta.launched is 'true'), and - given a token - the three
 # authenticated read routes on
 # the registry host plus the full publish / yank write flow on the
-# website origin (first publish, idempotent re-publish, immutability
-# conflict, yank state transitions, artifact checksum), the verification
+# website origin under scoped names (first publish, idempotent
+# re-publish, immutability conflict, yank state transitions, artifact
+# checksum, and the write plane's uniform 403 for unclaimed and foreign
+# scopes - the scope and membership rows are claim-less fixtures seeded
+# straight into D1 until the claim flow lands), the verification
 # lifecycle (pending -> verify -> resolvable with a verify-scoped token,
 # verdict idempotency and conflicts, and the reject -> blob reclaim ->
 # quota refund -> republish flow including the shared-blob refcount
@@ -144,24 +147,38 @@ wrangler d1 migrations apply DB --local
 
 verify_token="${token:+${token}-verify}"
 if [[ -n "$token" ]]; then
-  step "seeding the smoke tokens into the local database"
+  step "seeding the smoke tokens and scopes into the local database"
   hash="$(printf '%s' "$token" | shasum -a 256 | cut -d' ' -f1)"
   verify_hash="$(printf '%s' "$verify_token" | shasum -a 256 | cut -d' ' -f1)"
   # The fixture rows are cleared so re-runs still see a first publish; the
   # content-addressed R2 blob may survive, which the publish path skips.
   # The seeded identity mirrors a first sign-in of GitHub account 0: a
-  # registry-native user (id 1) bound through the identities table.
+  # registry-native user (id 1) bound through the identities table. The
+  # scope rows are claim-less fixtures - inserted directly until the
+  # claim flow lands (the next scoped-names step): user 1 is a member of
+  # 'smoke'; 'foreign' belongs only to user 2, so publishing there must
+  # be exactly as forbidden as the unclaimed 'ghost'.
   wrangler d1 execute DB --local --command "
     INSERT OR IGNORE INTO users (id, created_at)
       VALUES (1, '1970-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO users (id, created_at)
+      VALUES (2, '1970-01-01T00:00:00Z');
     INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
       VALUES ('github', '0', 'smoke', 1);
+    INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+      VALUES ('smoke', 'github', '0', '1970-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
+      VALUES ('smoke', 1, 'owner');
+    INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+      VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
+      VALUES ('foreign', 2, 'owner');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke', 1, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke-verify', 1, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
-    DELETE FROM versions WHERE name = 'withdep';
-    DELETE FROM packages WHERE name = 'withdep';
+    DELETE FROM versions WHERE scope = 'smoke' AND name = 'withdep';
+    DELETE FROM packages WHERE scope = 'smoke' AND name = 'withdep';
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
     DELETE FROM backup_replication_failures;"
 fi
@@ -298,19 +315,19 @@ uniform_401() {
 
 step "the registry host is a uniform 401 with the challenge off the read plane"
 uniform_401 "$base" /config.json
-uniform_401 "$base" /packages/smoke.json
+uniform_401 "$base" /packages/smoke/withdep.json
 # Non-read-plane paths - the whole API and session surface included -
 # are indistinguishable from unknown paths, whatever credential comes
 # along.
-uniform_401 "$base" /api/v1/packages/smoke/0.1.0
+uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0
 uniform_401 "$base" /api/v1/user
 uniform_401 "$base" /unknown/path
 uniform_401 "$base" /me
 uniform_401 "$base" "/api/v1/admin/versions?status=pending" \
   -H "Authorization: Bearer cabin_definitelyNotAToken"
 # Write methods too: the mutation surface simply does not exist here.
-uniform_401 "$base" /api/v1/packages/smoke/0.1.0 -X PUT --data-binary "x"
-uniform_401 "$base" /api/v1/packages/smoke/0.1.0/yank -X PATCH --data-binary "{}"
+uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0 -X PUT --data-binary "x"
+uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0/yank -X PATCH --data-binary "{}"
 
 step "session endpoints answer 401 json without a session (no challenge)"
 wcheck /api/v1/user 401
@@ -393,17 +410,17 @@ grep -q '"auth-required":true' "$body" || fail "config.json missing auth-require
 grep -qF "\"api\":\"${web_origin}\"" "$body" \
   || fail "config.json api is not the website origin: $(cat "$body")"
 # 200 only with previously published local data; 404 proves auth + routing.
-check /packages/smoke.json 200 404
-check /artifacts/smoke/smoke-0.1.0.tar.gz 200 404
+check /packages/smoke/withdep.json 200 404
+check /artifacts/smoke/withdep/smoke-withdep-0.2.0.tar.gz 200 404
 
 step "a valid token changes nothing off the read plane on the registry host"
-uniform_401 "$base" /api/v1/packages/smoke/0.1.0 -H "Authorization: Bearer $token"
+uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0 -H "Authorization: Bearer $token"
 uniform_401 "$base" /api/v1/user -H "Authorization: Bearer $token"
 
 step "the read plane is absent on the website origin"
 wcheck /config.json 404
-wcheck /packages/smoke.json 404
-wcheck /artifacts/smoke/smoke-0.1.0.tar.gz 404
+wcheck /packages/smoke/withdep.json 404
+wcheck /artifacts/smoke/withdep/smoke-withdep-0.2.0.tar.gz 404
 wcheck /healthz 404
 
 # --- The session plane, end to end with a minted session. ---
@@ -508,69 +525,82 @@ grep -qi '^x-cabin-registry-generation:' "$body" \
   || fail "missing x-cabin-registry-generation header"
 
 # The frozen conformance fixture (tests/fixtures/, regenerated by
-# scripts/gen-fixtures.sh) doubles as the smoke publish payload.
+# scripts/gen-fixtures.sh) doubles as the smoke publish payload, rewritten
+# into the scoped shape the registry accepts (the same mid-track shim as
+# tests/publish_validation.rs: `cabin package` still emits bare names
+# until the client-side scoped-names steps land).
+scope="smoke"
 name="withdep"
 version="0.2.0"
-fixture_metadata="tests/fixtures/$name-$version.json"
 fixture_archive="tests/fixtures/$name-$version.tar.gz"
-publish_path="/api/v1/packages/$name/$version"
+publish_path="/api/v1/packages/$scope/$name/$version"
+package_path="/packages/$scope/$name.json"
+artifact_path="/artifacts/$scope/$name/$scope-$name-$version.tar.gz"
 blob_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
 work="$(mktemp -d)"
 trap 'cleanup; rm -rf "$work" "$mock_dir"' EXIT
+fixture_metadata="$work/$name-$version.json"
+sed -e "s|\"name\": \"$name\"|\"name\": \"$scope/$name\"|" \
+  -e "s|\.\./artifacts/$name/$name-$version\.tar\.gz|../../artifacts/$scope/$name/$scope-$name-$version.tar.gz|" \
+  "tests/fixtures/$name-$version.json" >"$fixture_metadata"
+grep -qF "\"$scope/$name\"" "$fixture_metadata" \
+  || fail "the fixture metadata was not rewritten to the scoped shape"
 
 step "first publish creates the version pending verification"
 frame "$fixture_metadata" "$fixture_archive" "$work/publish.bin"
 wrequest PUT "$publish_path" "$work/publish.bin" 201
 expect_body '"ok":true'
+expect_body "\"name\":\"$scope/$name\""
 expect_body '"verification":"pending"'
 
 step "pending versions are invisible to ordinary tokens"
-check "/packages/$name.json" 404
-check "/artifacts/$name/$name-$version.tar.gz" 404
+check "$package_path" 404
+check "$artifact_path" 404
 wcheck "/api/v1/admin/versions?status=pending" 403
 expect_body 'verify scope'
 printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
-wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 403
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-unbound.json" 403
 expect_body 'verify scope'
 
 step "the verify scope lists and downloads pending versions"
 as_verifier
 wcheck "/api/v1/admin/versions?status=pending" 200
-expect_body '"name":"withdep"'
+expect_body "\"name\":\"$scope/$name\""
 expect_body '"version":"0.2.0"'
 expect_body '"published_by":1'
 expect_body '"metadata":{'
 # A verified verdict must echo the listing's checksum and published_at.
 listed_published_at="$(node -e '
   const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const v = doc.versions.find((v) => v.name === "withdep" && v.version === "0.2.0");
+  const v = doc.versions.find((v) => v.name === "smoke/withdep" && v.version === "0.2.0");
   if (!v || !v.published_at) process.exit(1);
   console.log(v.published_at);' "$body")" \
-  || fail "the admin listing is missing withdep@0.2.0 or its published_at"
+  || fail "the admin listing is missing smoke/withdep@0.2.0 or its published_at"
 printf '{"verdict":"verified","checksum":"%s","published_at":"%s"}' \
   "$blob_hash" "$listed_published_at" >"$work/verdict-verified.json"
 wcheck "/api/v1/admin/versions?status=bogus" 400
-check "/artifacts/$name/$name-$version.tar.gz" 200
+check "$artifact_path" 200
 
 step "a verified verdict must name the listing it inspected"
-wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-unbound.json" 400
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-unbound.json" 400
 expect_body 'requires the checksum'
 
 step "a verified verdict makes the version resolvable"
-wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"verification":"verified"'
 expect_body '"changed":true'
 as_publisher
-check "/packages/$name.json" 200
+check "$package_path" 200
+expect_body "\"name\":\"$scope/$name\""
 expect_body '"0.2.0"'
-check "/artifacts/$name/$name-$version.tar.gz" 200
+check "$artifact_path" 200
 
 step "verdicts are idempotent for the same value and conflict otherwise"
 as_verifier
-wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-verified.json" 200
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"changed":false'
 printf '{"verdict":"rejected","reason":"smoke rejection"}' >"$work/verdict-rejected.json"
-wrequest PATCH "/api/v1/admin/versions/$name/$version" "$work/verdict-rejected.json" 409
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-rejected.json" 409
 expect_body 'immutable'
 as_publisher
 
@@ -599,7 +629,7 @@ wrangler r2 object delete "cabin-registry-blobs/blobs/sha256/$blob_hash" --local
 wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
-check "/artifacts/$name/$name-$version.tar.gz" 200
+check "$artifact_path" 200
 await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.tar.gz"
 cmp -s "$work/rehealed.tar.gz" "$fixture_archive" \
   || fail "re-healed blob differs from the published archive"
@@ -624,24 +654,24 @@ printf '{"yanked":true}' >"$work/yank.json"
 wrequest PATCH "$publish_path/yank" "$work/yank.json" 200
 expect_body '"yanked":true'
 expect_body '"changed":true'
-check "/packages/$name.json" 200
+check "$package_path" 200
 expect_body '"yanked":true'
 # The session packages listing mirrors the row: the seeded user created
 # the package, its version is verified by now, and currently yanked.
 session_request GET /api/v1/user/packages 200
-expect_body '"name":"withdep"'
+expect_body "\"name\":\"$scope/$name\""
 expect_body '"verification":"verified"'
 expect_body '"yanked":true'
 printf '{"yanked":false}' >"$work/unyank.json"
 wrequest PATCH "$publish_path/yank" "$work/unyank.json" 200
 expect_body '"yanked":false'
 expect_body '"changed":true'
-check "/packages/$name.json" 200
+check "$package_path" 200
 expect_body '"yanked":false'
 
 step "published artifact downloads with the published checksum"
 curl -sS -o "$work/artifact.tar.gz" ${curl_args[@]+"${curl_args[@]}"} \
-  "$base/artifacts/$name/$name-$version.tar.gz"
+  "$base$artifact_path"
 got_hash="$(shasum -a 256 "$work/artifact.tar.gz" | cut -d' ' -f1)"
 [[ "$got_hash" == "$old_hash" ]] \
   || fail "artifact checksum mismatch: got $got_hash, expected $old_hash"
@@ -658,7 +688,7 @@ wrequest PUT "$publish_path" "$work/publish.bin" 402
 expect_body 'registry_over_budget'
 wrequest PATCH "$publish_path/yank" "$work/unyank.json" 402
 expect_body 'registry_over_budget'
-check "/packages/$name.json" 200
+check "$package_path" 200
 
 step "restoring service_mode reopens writes"
 wrangler d1 execute DB --local --command "
@@ -684,7 +714,9 @@ stored_bytes() {
 
 # 0.2.1 with the exact archive 0.2.0 published: the shared-blob case.
 version2="0.2.1"
-publish2_path="/api/v1/packages/$name/$version2"
+publish2_path="/api/v1/packages/$scope/$name/$version2"
+artifact2_path="/artifacts/$scope/$name/$scope-$name-$version2.tar.gz"
+verdict2_path="/api/v1/admin/versions/$scope/$name/$version2"
 sed 's/0\.2\.0/0.2.1/g' "$fixture_metadata" >"$work/withdep-0.2.1.json"
 frame "$work/withdep-0.2.1.json" "$fixture_archive" "$work/publish2.bin"
 
@@ -699,22 +731,22 @@ step "a verdict bound to a stale listing conflicts"
 as_verifier
 printf '{"verdict":"verified","checksum":"%s","published_at":"1970-01-01T00:00:00.000Z"}' \
   "$(printf 'stale' | shasum -a 256 | cut -d' ' -f1)" >"$work/verdict-stale.json"
-wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-stale.json" 409
+wrequest PATCH "$verdict2_path" "$work/verdict-stale.json" 409
 expect_body 'changed since it was listed'
 
 step "rejecting a version sharing its blob keeps the blob and the accounting"
 # Bound to the listed checksum: the verdict applies only to these bytes.
 printf '{"verdict":"rejected","reason":"smoke rejection","checksum":"%s"}' "$blob_hash" \
   >"$work/verdict-rejected-bound.json"
-wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected-bound.json" 200
+wrequest PATCH "$verdict2_path" "$work/verdict-rejected-bound.json" 200
 expect_body '"verification":"rejected"'
 expect_body '"changed":true'
-check "/artifacts/$name/$name-$version2.tar.gz" 404
+check "$artifact2_path" 404
 as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "rejecting a shared blob changed the accounting: $(stored_bytes) (was $before_bytes)"
-check "/artifacts/$name/$name-$version.tar.gz" 200
-check "/packages/$name.json" 200
+check "$artifact_path" 200
+check "$package_path" 200
 ! grep -qF '"0.2.1"' "$body" \
   || fail "a rejected version leaked into the package document: $(cat "$body")"
 wrequest PATCH "$publish2_path/yank" "$work/yank.json" 404
@@ -736,7 +768,7 @@ expect_body '"version":"0.2.1"'
 expect_body "$replacement_hash"
 
 step "rejecting an unshared blob reclaims it and refunds the bytes"
-wrequest PATCH "/api/v1/admin/versions/$name/$version2" "$work/verdict-rejected.json" 200
+wrequest PATCH "$verdict2_path" "$work/verdict-rejected.json" 200
 as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "the rejection did not refund the replacement bytes: $(stored_bytes)"
@@ -751,8 +783,30 @@ expect_body '"verification":"pending"'
 [[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
   || fail "the re-uploaded blob was not re-counted: $(stored_bytes)"
 as_verifier
-check "/artifacts/$name/$name-$version2.tar.gz" 200
+check "$artifact2_path" 200
 as_publisher
+
+# --- Scope authorization: the write plane's uniform 403. ---
+# These attempts charge the publish bucket like any others (the
+# membership gate sits after the rate limit), so the leg gets its own.
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';"
+
+step "publishing to an unclaimed or foreign scope is one uniform 403"
+# 'ghost' was never claimed; 'foreign' belongs only to the seeded user 2.
+# Both must answer the byte-identical refusal, so an authenticated
+# publisher cannot probe which scopes exist. The gate fires before the
+# body is read, so the well-formed publish body is irrelevant.
+wrequest PUT "/api/v1/packages/ghost/$name/$version" "$work/publish.bin" 403
+cp "$body" "$work/ghost-403.json"
+grep -qF 'not a member' "$work/ghost-403.json" \
+  || fail "the refusal is not the membership detail: $(cat "$work/ghost-403.json")"
+wrequest PUT "/api/v1/packages/foreign/$name/$version" "$work/publish.bin" 403
+cmp -s "$body" "$work/ghost-403.json" \
+  || fail "foreign-scope and unclaimed-scope refusals differ: $(cat "$body")"
+wrequest PATCH "/api/v1/packages/foreign/$name/$version/yank" "$work/yank.json" 403
+cmp -s "$body" "$work/ghost-403.json" \
+  || fail "the yank refusal differs from the publish refusal: $(cat "$body")"
 
 # The /__scheduled test route (wrangler dev --test-scheduled) invokes
 # the cron handler; any non-breaker expression routes to the dump job,

@@ -136,9 +136,10 @@ both targets are fixed relative paths, never derived from request input
   `ALLOWED_GITHUB_IDS`. Adding a user later = adding their numeric id
   there and redeploying; a malformed entry panics at parse time instead
   of guessing. The allowlist is re-checked on every session request, so
-  removing an id locks it out immediately. Per-package ownership is
-  intentionally out of scope for now: every allowlisted user can publish
-  and yank any package.
+  removing an id locks it out immediately. Write authorization is per
+  scope, not per package: publish and yank require membership in the
+  target scope ("Scopes" below), and every member can act on every
+  package under it.
 - The session cookie names the external identity (the numeric GitHub
   id), resolved through `identities` on every request - deliberately
   not the `users.id`, which a pre-launch wipe would re-issue: a
@@ -170,7 +171,8 @@ both targets are fixed relative paths, never derived from request input
 
 ## Scopes
 
-Registry package names are scoped (`<scope>/<name>`, e.g. `fmtlib/fmt`),
+Registry package names are scoped (`<scope>/<name>`, e.g. `fmtlib/fmt`) -
+one canonical name everywhere, with no alias or bare-name mechanism -
 and a scope is a registry-native entity: it is claimed by proving
 control of the same-named GitHub account, and the `scopes` row freezes
 the proof - provider plus numeric account id - at claim time, so a
@@ -180,32 +182,61 @@ alias mechanism). `scope_members` holds per-scope membership, where
 `owner` is the member role with admin rights - "owner" never means the
 name prefix; the prefix entity is always called "scope". Publish/yank
 authorization consults only registry state (`scope_members`), never a
-live GitHub call: cabin tokens carry no GitHub credentials. The claim
-flow, the scope-aware routes, and the membership checks land in the
-scoped-names steps that follow migration `0006`; until the route step
-lands, publish cannot satisfy the schema's `NOT NULL` scope columns (a
-mid-track state that is never deployed).
+live GitHub call: cabin tokens carry no GitHub credentials.
+
+The scope grammar is GitHub-login-compatible on purpose (every
+lowercased login fits): `[a-z0-9]([a-z0-9-]*[a-z0-9])?`, at most 39
+characters. It is deliberately a small superset of GitHub's own login
+rules (which also forbid consecutive hyphens): claimability is proved
+by the claim flow's account-control check, never by the charset, and an
+unclaimable string can never gain members, so it answers the write
+plane's uniform 403 forever. The package part keeps the package grammar
+`^[a-z0-9][a-z0-9_-]*$`, and the full name contains exactly one `/`.
+The claim flow is the next scoped-names step; until it lands, scope and
+membership rows exist only as operator-seeded fixtures
+(`scripts/smoke.sh`, `tests/sql_validation.rs`), so the deployed
+registry accepts no publishes yet - and the external verifier
+(`crates/cabin-registry-verify`) and the client still speak bare names,
+which is fine exactly as long as nothing can create pending scoped
+rows in production.
 
 ## The write path
 
-`PUT /api/v1/packages/<name>/<version>` (publish, `publish` scope) and
-`PATCH /api/v1/packages/<name>/<version>/yank` (yank, `yank` scope) implement
-the mutation half of the protocol contract. Publish validates in a fixed
-order, stopping at the first failure:
+`PUT /api/v1/packages/<scope>/<name>/<version>` (publish, `publish`
+scope) and `PATCH /api/v1/packages/<scope>/<name>/<version>/yank` (yank,
+`yank` scope) implement the mutation half of the protocol contract.
+Publish validates in a fixed order, stopping at the first failure:
 
-1. scope (`403`);
-2. body size (64 MiB cap) and the length-prefixed framing, which must
+1. token scope (`403`);
+2. scope membership: the token's user must be a member of `<scope>`
+   (`403`, uniform - below);
+3. body size (64 MiB cap) and the length-prefixed framing, which must
    account for the body exactly (`400`);
-3. the metadata parses as the canonical `cabin package` document under
+4. the metadata parses as the canonical `cabin package` document under
    `deny_unknown_fields` - client drift is rejected, and the `400` details
    are fixed strings that never echo request bytes;
-4. the URL's `<name>` / `<version>` equal the document's `name` / `version`
-   and the archive path its `source` block implies (`400`);
-5. the name matches `^[a-z0-9][a-z0-9_-]*$` and the version is valid SemVer
-   (`400`);
-6. `yanked` is `false` (`400`);
-7. the metadata's `checksum` equals `sha256:` + the digest the server itself
+5. the URL's segments equal the document's `name` (the full
+   `<scope>/<name>`) and `version`, and the archive path its `source`
+   block implies -
+   `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`, the
+   filename embedding the scope like the artifact route (`400`);
+6. the scope and name match the grammars in "Scopes" and the version is
+   valid SemVer (`400`);
+7. `yanked` is `false` (`400`);
+8. the metadata's `checksum` equals `sha256:` + the digest the server itself
    computes from the uploaded archive bytes via SubtleCrypto (`400`).
+
+Publishing under a scope the user is a member of is all it takes to
+create a package there: the first published version inserts the
+`packages` row. The membership refusal is **one uniform `403`**
+(`the scope does not exist or the token's user is not a member of it`),
+byte-identical for a scope that was never claimed and one the user is
+not a member of, so the authenticated write plane is no scope-existence
+oracle - the read plane already reveals package existence to any valid
+token, but which *scopes* are claimed is nobody's business to probe.
+The check sits after the rate limit (probing is throttled like any
+publish attempt) and consults only `scope_members`, never a live
+provider call.
 
 Only then storage is consulted: an existing pending or verified row answers
 with the idempotent `200` no-op (reporting its verification status) or the
@@ -216,12 +247,15 @@ D1 batch for the `packages` and `versions` rows. New and replaced rows
 start `pending`. A crash between the two writes can only leave an
 unreferenced blob - see [`runbook.md`](runbook.md).
 
-Yank is a single-column `UPDATE` on the `versions` row (`404` when the pair
-is unknown **or not verified** - a version that never became resolvable has
-nothing to retract), idempotent, reporting the resulting state and whether
-the request changed it. The read path overrides the stored entry's `yanked`
-field from the column, so the verbatim `metadata_json` never goes stale on
-the one field that mutates.
+Yank is a single-column `UPDATE` on the `versions` row, behind the same
+uniform membership `403` - answered **before** the version lookup, so a
+non-member cannot probe which versions exist under a foreign scope -
+then `404` when the triple is unknown **or not verified** (a version
+that never became resolvable has nothing to retract), idempotent,
+reporting the resulting state and whether the request changed it. The
+read path overrides the stored entry's `yanked` field from the column,
+so the verbatim `metadata_json` never goes stale on the one field that
+mutates.
 
 ## The verification lifecycle
 
@@ -231,15 +265,19 @@ lives in `versions.verification` with `verification_reason` /
 `verified_at` alongside; the pure transition rules, the artifact read
 gate, and the verdict body live in `src/verify.rs`.
 
-- **Reads are gated on `verified`.** `/packages/<name>.json` composes
+- **Reads are gated on `verified`.** `/packages/<scope>/<name>.json`
+  composes
   verified versions only (the filter sits in the SQL query, so a package
   with none is an ordinary 404), and the artifact route serves verified
   versions to ordinary tokens. The `verify` scope may additionally list
-  pending versions (`GET /api/v1/admin/versions?status=...`) and
+  pending versions (`GET /api/v1/admin/versions?status=...`, each
+  entry's `name` the canonical `<scope>/<name>`) and
   download their artifacts - the verifier has to fetch what it inspects.
   Rejected versions are served to no one.
-- **Verdicts** (`PATCH /api/v1/admin/versions/<name>/<version>`, scope
-  `verify`, budget-gated like every write): `verified` stamps
+- **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>`,
+  scope `verify`, budget-gated like every write - the admin plane is
+  registry infrastructure, so it needs no scope membership): `verified`
+  stamps
   `verified_at`; `rejected` records the reason, refunds the archive's
   bytes from `meta.total_stored_bytes` when the row was the checksum's
   sole live reference (decided inside the same transaction that flips
@@ -303,13 +341,16 @@ budget. `users.plan` (default `'free'`) selects a quota set from the map in
 packages per day, total packages, versions per package per day, and a
 publish token bucket (burst plus per-minute refill, state on the token row
 in `tokens.rl_tokens` / `tokens.rl_updated_at`). Daily windows are UTC
-calendar days. Publish enforces, in order: the budget gate (`402`), scope
-(`403`), the rate limit (`429`, `Retry-After`, charged per attempt),
+calendar days. Publish enforces, in order: the budget gate (`402`), the
+token scope (`403`), the rate limit (`429`, `Retry-After`, charged per
+attempt), scope membership (the uniform `403` - "The write path"),
 framing (`400`), metadata and checksum (`400`), the idempotent no-op /
 immutability wall (`200`/`409`), then - for genuinely new versions only -
 the archive-size cap (`413`) and the storage, package, and version quotas
 (`403` with per-quota envelope codes) - so a byte-identical re-publish,
-including one grandfathered above a later cap, never consumes quota. Attribution rides on
+including one grandfathered above a later cap, never consumes quota. The
+per-package quota counts key on the full `(scope, name)` pair, so equal
+package parts under two scopes never share a bucket. Attribution rides on
 `versions.published_by`, `versions.archive_size`, and `packages.created_by`,
 keyed by the registry-native `users.id` (never a provider account
 id). The bucket take is persisted as a compare-and-swap on the token
@@ -427,9 +468,18 @@ and unit-tests on the host target. The Cloudflare glue
 binding-and-I/O wiring covered by
 `scripts/smoke.sh`. Every SQL statement the glue executes is a named
 const in `src/sql.rs`, schema-validated at test time and guarded in CI
-(see "Why no ORM" below). Path
-components are validated before any lookup: names are `[a-z0-9_-]+`, versions
-must look like SemVer, and anything else 404s without touching storage.
+(see "Why no ORM" below). Read-plane path
+components are validated before any lookup: scopes and names follow the
+grammars in "Scopes", versions must look like SemVer, and anything else
+answers without touching storage - the artifact filename must additionally
+repeat the `<scope>-<name>-` prefix its directory segments fix, so a
+downloaded tarball stays self-identifying and a disagreeing filename
+never parses. The API routes only split their segments
+(`src/routes.rs` documents why): publish validates them inside its `400`
+sequence behind the membership gate, and yank and the admin verdict
+answer unknown triples with an authenticated 404 straight from a
+parameterized D1 query - no segment ever becomes a path or storage key
+by itself.
 
 Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client

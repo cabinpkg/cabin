@@ -60,6 +60,7 @@ pub fn usage_json(usage: &UsageInfo) -> String {
 /// One version row of one of the user's packages, as
 /// `GET /api/v1/user/packages` serves it.
 pub struct PackageVersionRow {
+    /// The package's canonical `<scope>/<name>` name.
     pub name: String,
     pub version: String,
     /// The verification lifecycle state: `pending`, `verified`, or
@@ -240,14 +241,17 @@ mod tests {
             yanked,
             published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         };
+        // `mine/fmt` and `fmtlib/fmt` share a package part; the full
+        // canonical name is the grouping key, so they stay two packages.
         let rows = [
-            row("fmt", "10.2.1", "verified", false),
-            row("fmt", "10.2.0", "rejected", true),
-            row("zlib", "1.3.1", "pending", false),
+            row("fmtlib/fmt", "10.2.1", "verified", false),
+            row("fmtlib/fmt", "10.2.0", "rejected", true),
+            row("madler/zlib", "1.3.1", "pending", false),
+            row("mine/fmt", "0.1.0", "pending", false),
         ];
         assert_eq!(
             packages_json(&rows),
-            r#"{"packages":[{"name":"fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]}]}"#
+            r#"{"packages":[{"name":"fmtlib/fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"madler/zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"mine/fmt","versions":[{"version":"0.1.0","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]}]}"#
         );
     }
 

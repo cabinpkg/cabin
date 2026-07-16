@@ -51,8 +51,9 @@ struct PackageDoc<'a> {
     versions: Map<String, Value>,
 }
 
-/// Composes `packages/<name>.json` from the stored canonical version
-/// entries. The canonical document's `schema` / `name` / `version` envelope
+/// Composes `packages/<scope>/<name>.json` from the stored canonical
+/// version entries; `name` is the package's canonical `<scope>/<name>`
+/// string. The canonical document's `schema` / `name` / `version` envelope
 /// is stripped - those are document-level fields, and the client's index
 /// parser rejects unknown fields in version entries (`package-index.md`) -
 /// and each entry's `yanked` field is overwritten from its row so the
@@ -124,10 +125,10 @@ mod tests {
     #[test]
     fn package_json_overrides_yanked_from_the_row_state() {
         let stored = r#"{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}"#;
-        let body = package_json("fmt", &[row("1.0.0", stored, true)]).unwrap();
+        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, true)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
         );
     }
 
@@ -136,10 +137,10 @@ mod tests {
         // Un-yanking only flips the row column; the stored entry still
         // says `yanked: true` and must lose.
         let stored = r#"{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}"#;
-        let body = package_json("fmt", &[row("1.0.0", stored, false)]).unwrap();
+        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
         );
     }
 
@@ -149,21 +150,24 @@ mod tests {
         // stored entries carry the `schema`/`name`/`version` envelope; the
         // served version entry must not (the client's index parser rejects
         // unknown fields in version entries).
-        let stored = r#"{"schema":1,"name":"fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../artifacts/fmt/fmt-1.0.0.tar.gz","format":"tar.gz"}}"#;
-        let body = package_json("fmt", &[row("1.0.0", stored, false)]).unwrap();
+        let stored = r#"{"schema":1,"name":"fmtlib/fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz","format":"tar.gz"}}"#;
+        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../artifacts/fmt/fmt-1.0.0.tar.gz","format":"tar.gz"}}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz","format":"tar.gz"}}}}"#
         );
     }
 
     #[test]
     fn package_json_adds_yanked_when_the_stored_entry_lacks_it() {
-        let body =
-            package_json("fmt", &[row("1.0.0", r#"{"checksum":"sha256:aa"}"#, false)]).unwrap();
+        let body = package_json(
+            "fmtlib/fmt",
+            &[row("1.0.0", r#"{"checksum":"sha256:aa"}"#, false)],
+        )
+        .unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmt","versions":{"1.0.0":{"checksum":"sha256:aa","yanked":false}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"checksum":"sha256:aa","yanked":false}}}"#
         );
     }
 
@@ -174,7 +178,7 @@ mod tests {
             row("1.0.0", r#"{"a":2}"#, false),
             row("1.0.0-rc.1", r#"{"a":3}"#, false),
         ];
-        let body = package_json("fmt", &rows).unwrap();
+        let body = package_json("fmtlib/fmt", &rows).unwrap();
         let expected_order = ["1.0.0", "1.0.0-rc.1", "2.0.0"];
         let positions: Vec<usize> = expected_order
             .iter()
@@ -185,9 +189,9 @@ mod tests {
 
     #[test]
     fn package_json_rejects_non_object_metadata() {
-        let err = package_json("fmt", &[row("1.0.0", "[1,2]", false)]).unwrap_err();
+        let err = package_json("fmtlib/fmt", &[row("1.0.0", "[1,2]", false)]).unwrap_err();
         assert!(err.contains("fmt@1.0.0"), "err: {err}");
-        let err = package_json("fmt", &[row("1.0.0", "not json", false)]).unwrap_err();
+        let err = package_json("fmtlib/fmt", &[row("1.0.0", "not json", false)]).unwrap_err();
         assert!(err.contains("not valid JSON"), "err: {err}");
     }
 }
