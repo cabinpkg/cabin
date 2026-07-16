@@ -861,8 +861,10 @@ pub fn explain_source(
 }
 
 /// Build a [`FeatureExplanation`] for `package/feature`.  The
-/// query string must contain a single `/` separating the package
-/// name from the feature name.
+/// split is on the *last* `/`: feature names never contain `/`,
+/// while a scoped package name carries one, so
+/// `fmtlib/fmt/json` queries feature `json` of package
+/// `fmtlib/fmt`.
 ///
 /// # Errors
 /// Returns [`ExplainError::InvalidFeatureQuery`] when `query` lacks a `/`
@@ -877,7 +879,7 @@ pub fn explain_feature(
 ) -> Result<FeatureExplanation, ExplainError> {
     let (pkg_name, feature_name) =
         query
-            .split_once('/')
+            .rsplit_once('/')
             .ok_or_else(|| ExplainError::InvalidFeatureQuery {
                 query: query.to_owned(),
             })?;
@@ -1381,5 +1383,18 @@ mod tests {
         let graph = three_pkg_graph();
         let err = explain_feature(&graph, None, "noseparator").unwrap_err();
         assert!(matches!(err, ExplainError::InvalidFeatureQuery { .. }));
+    }
+
+    /// The query splits on the *last* `/`, so a scoped package's
+    /// feature is addressable as `<scope>/<name>/<feature>`.
+    #[test]
+    fn explain_feature_resolves_scoped_package_queries() {
+        let mut graph = three_pkg_graph();
+        let mut scoped = make_pkg("fmtlib/fmt", "1.0.0", &[]);
+        scoped.package.features.features = [("json".to_owned(), Vec::new())].into_iter().collect();
+        graph.packages.push(scoped);
+        let exp = explain_feature(&graph, None, "fmtlib/fmt/json").unwrap();
+        assert_eq!(exp.package, "fmtlib/fmt");
+        assert_eq!(exp.feature, "json");
     }
 }
