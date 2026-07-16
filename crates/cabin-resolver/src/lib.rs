@@ -500,6 +500,37 @@ mod tests {
         assert_eq!(out.packages[1].version, version("10.2.1"));
     }
 
+    /// A scoped name and a bare name sharing the base part are
+    /// simply distinct packages: the resolver keys on the full
+    /// `PackageName` and never splits or normalizes the scope, so
+    /// both resolve side by side with their own versions.
+    #[test]
+    fn scoped_and_bare_names_are_distinct_packages() {
+        let index = build_index(vec![
+            entry("fmtlib/fmt", vec![("10.2.1", vec![], false)]),
+            entry("fmt", vec![("1.0.0", vec![], false)]),
+        ]);
+        let out = resolve(
+            &make_input(vec![("fmtlib/fmt", ">=10.0.0"), ("fmt", ">=1.0.0")]),
+            &index,
+        )
+        .unwrap();
+        let mut resolved: Vec<(&str, String)> = out
+            .packages
+            .iter()
+            .filter(|p| p.source == ResolvedSource::Index)
+            .map(|p| (p.name.as_str(), p.version.to_string()))
+            .collect();
+        resolved.sort();
+        assert_eq!(
+            resolved,
+            vec![
+                ("fmt", "1.0.0".to_owned()),
+                ("fmtlib/fmt", "10.2.1".to_owned()),
+            ]
+        );
+    }
+
     /// Standard-compatibility metadata present on candidate versions
     /// does not change resolution: this step plumbs the table through
     /// but never consults it for version selection, so the output is
