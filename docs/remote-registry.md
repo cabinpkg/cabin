@@ -4,17 +4,13 @@
 > no compatibility promise: any route, field, framing, or status code described here may change or
 > disappear between releases without a migration path.
 
-> **Mid-migration divergence.** The hosted registry has moved to scoped package names
-> (`<scope>/<name>`, e.g. `fmtlib/fmt`): every route below gains a `<scope>` segment, the artifact
-> filename becomes `<scope>-<name>-<version>.tar.gz`, and publish/yank additionally require the
-> token's user to be a member of the target scope (see `registry/docs/architecture.md`, "Scopes").
-> The client's *name model* is scoped (manifests, local file registries, lockfiles, and the
-> resolver all carry `<scope>/<name>` verbatim, and `cabin publish` rejects bare names), but its
-> *wire protocol* is still the bare-name one this page describes.  In the interim every remote
-> publish is blocked before any connection - bare names fail the scoped-name requirement, and
-> scoped names cannot be expressed on these routes - and scoped names are rejected at the remote
-> fetch boundary.  The page is rewritten together with the client-side scoped-routes step, which
-> lifts the block.
+> **Names are scoped.** Registry packages are always `<scope>/<name>` (e.g. `fmtlib/fmt`): every
+> package route carries the `<scope>/<name>` pair, the artifact filename embeds the scope
+> (`<scope>-<name>-<version>.tar.gz`, so a downloaded tarball stays self-identifying outside the
+> directory tree), and publish/yank additionally require the token's user to be a member of the
+> target scope (see `registry/docs/architecture.md`, "Scopes").  Bare names exist only in
+> local-only manifests and local file registries; `cabin publish` rejects them before any
+> connection.
 
 This is the authoritative contract for Cabin's remote registry protocol: exactly what the Cabin
 client (this repository) and a conforming registry server implement.  The registry *service*
@@ -180,8 +176,8 @@ The read routes are the same shapes as the sparse HTTP index in
 | Route | Purpose |
 | --- | --- |
 | `GET /config.json` | Registry configuration (this document's fields included). |
-| `GET /packages/<name>.json` | Per-package index document. |
-| `GET /artifacts/<name>/<name>-<version>.tar.gz` | Source archive download. |
+| `GET /packages/<scope>/<name>.json` | Per-package index document. |
+| `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` | Source archive download. |
 
 On an `auth-required` registry, all three return `401` with the
 [error envelope](#error-envelope) body
@@ -192,14 +188,14 @@ the `401` status, body, and challenge are identical whether or not the requested
 and identical again on every [non-read-plane path](#one-role-per-hostname) of the index host.
 
 On a registry with the [verification lifecycle](#verification-lifecycle), the composed
-`/packages/<name>.json` document contains **verified** versions only, and the artifact route
+`/packages/<scope>/<name>.json` document contains **verified** versions only, and the artifact route
 serves verified versions to ordinary tokens; a package with no verified versions is
 indistinguishable from an unknown one.
 
 ## Publish
 
 ```text
-PUT /api/v1/packages/<name>/<version>
+PUT /api/v1/packages/<scope>/<name>/<version>
 ```
 
 Requires a token with the `publish` scope.  The route lives on the API origin - the
@@ -220,7 +216,7 @@ Server-side behavior is part of the contract:
 - **Validation.**  The server validates the framing, parses the metadata under the index schema
   (`schema` values other than `1` are refused - a document the
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
-  the URL's `<name>` / `<version>` segments to match the metadata, and verifies the archive
+  the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
   `200` and body `{"ok":true,"no_op":true,"verification":"<status>"}`, reporting the row's current
@@ -286,7 +282,7 @@ publish (201) --> pending --verdict: verified--> verified (resolvable, immutable
 ```
 
 - **pending** - accepted and stored, but not part of the registry yet: excluded from composed
-  `/packages/<name>.json` documents and not downloadable with ordinary tokens.  An external
+  `/packages/<scope>/<name>.json` documents and not downloadable with ordinary tokens.  An external
   verifier inspects pending versions and renders a verdict through the
   [admin API](#admin-api-scope-verify).
 - **verified** - part of the registry: composed, resolvable, downloadable, and covered by the
@@ -318,7 +314,7 @@ single JSON object, `{"versions":[...]}`.  Each entry carries `name`, `version`,
 ordered by name, then version.
 
 ```text
-PATCH /api/v1/admin/versions/<name>/<version>
+PATCH /api/v1/admin/versions/<scope>/<name>/<version>
 { "verdict": "verified" | "rejected", "reason": "...", "checksum": "...", "published_at": "..." }
 ```
 
@@ -430,7 +426,7 @@ safety must not depend on the verifier having anticipated every platform.
 ## Yank
 
 ```text
-PATCH /api/v1/packages/<name>/<version>/yank
+PATCH /api/v1/packages/<scope>/<name>/<version>/yank
 ```
 
 Requires a token with the `yank` scope, on the same API origin as publish.  The JSON body sets the
@@ -448,17 +444,17 @@ an authenticated `404`.
 
 ### Yanking from the client
 
-`cabin yank` takes a strict `<name>@<version>` spec - an exact package name and an exact SemVer
+`cabin yank` takes a strict `<scope>/<name>@<version>` spec - an exact scoped package name and an exact SemVer
 version, no ranges - and resolves the registry exactly like remote publish: `--index-url`, else the
 `[registry] index-url` setting in [`config.md`](config.md#registry); a local `index-path` is
 rejected, since yanked state lives in the remote registry's index.  The registry's `config.json`
 must declare the [`api`](#registry-configuration) origin the request is sent to.
 
 ```console
-$ cabin -Z remote-registry yank fmt@10.2.1 --index-url https://registry.cabinpkg.com
-fmt@10.2.1 is now yanked
-$ cabin -Z remote-registry yank --undo fmt@10.2.1 --index-url https://registry.cabinpkg.com
-fmt@10.2.1 is no longer yanked
+$ cabin -Z remote-registry yank fmtlib/fmt@10.2.1 --index-url https://registry.cabinpkg.com
+fmtlib/fmt@10.2.1 is now yanked
+$ cabin -Z remote-registry yank --undo fmtlib/fmt@10.2.1 --index-url https://registry.cabinpkg.com
+fmtlib/fmt@10.2.1 is no longer yanked
 ```
 
 The report states the *resulting* state.  Because the route is idempotent, that wording also

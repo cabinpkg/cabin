@@ -339,11 +339,10 @@ The external verifier is the `registry-verify` GitHub Actions workflow
 workspace, lists pending versions through the admin API, inspects each
 archive, and PATCHes the verdict back. The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
-Mid-track: the verifier still speaks bare names while the registry is
-scoped, so a scoped pending row fails its download or name check and
-sits pending - expect the stale-pending alert, not a resolvable
-version, until the verifier's scoped-names step lands
-(`docs/architecture.md`, "Scopes").
+The verifier addresses scoped names throughout: the artifact download
+nests the directory (`artifacts/<scope>/<name>/`) and flattens the
+filename (`<scope>-<name>-<version>.tar.gz`), and the verdict PATCH
+carries the `<scope>/<name>/<version>` triple.
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. GitHub cron schedules are **best-effort** and

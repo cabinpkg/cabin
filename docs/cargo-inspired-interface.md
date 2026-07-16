@@ -29,7 +29,7 @@ what it intentionally leaves out, and where to look for the rule when in doubt.
 | `cabin explain` | (no direct analogue) | Typed answers about the resolved graph |
 | `cabin vendor` | `cargo vendor` | File-registry materialization |
 | `cabin package` | `cargo package` | Source-archive + canonical metadata |
-| `cabin publish` | `cargo publish` | Local file-registry publish (no remote yet) |
+| `cabin publish` | `cargo publish` | Local file-registry publish; remote publish behind `-Z remote-registry` |
 | `cabin fmt` | `cargo fmt` | Formats workspace C/C++ sources with `clang-format` |
 | `cabin tidy` | `cargo clippy` | Lints workspace C/C++ sources with `run-clang-tidy` via `compile_commands.json`.  See [`tidy.md`](tidy.md). |
 | `cabin port` | (no direct analogue) | Lists or inspects bundled foundation-port recipes.  See [`foundation-ports.md`](foundation-ports.md). |

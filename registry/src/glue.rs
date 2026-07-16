@@ -635,14 +635,7 @@ struct AdminVersionRecord {
 /// verifier's work list. Each entry's `name` is the canonical
 /// `<scope>/<name>` and carries the stored canonical metadata document
 /// (parsed, so the response is one JSON value); the listing is
-/// deterministic: ordered by scope, then name, then version. The
-/// external verifier (`crates/cabin-registry-verify` and its workflow)
-/// still consumes bare names and is updated with the client-side
-/// scoped-names steps; now that the claim flow can mint scoped pending
-/// rows, a real one fails the verifier's artifact download (staying
-/// pending, surfacing the stale-pending alert) or its name check
-/// (rejected) - either way never resolvable, the fail-safe direction
-/// (`docs/architecture.md`, "Scopes").
+/// deterministic: ordered by scope, then name, then version.
 async fn admin_versions_response(
     req: &Request,
     db: &D1Database,

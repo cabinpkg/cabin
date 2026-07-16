@@ -245,18 +245,12 @@ These are deferred.
 `--index-url <url>` consumes the same registry-root layout served as static HTTP files.  The base
 URL may include or omit a trailing slash; the loader normalizes it.
 
-> **Interim limitation.** The sparse HTTP routes still address bare names only: a scoped name is
-> rejected at the fetch boundary before any request.  Because `cabin publish` now requires scoped
-> names, a freshly published registry is *not* consumable over `--index-url` until the scoped read
-> routes land - consume it locally with `--index-path` instead.  Legacy bare-name registries stay
-> HTTP-readable.
-
 Request shape:
 
 | Step | URL | Purpose |
 | --- | --- | --- |
 | 1 | `GET <url>/config.json` | Validates `schema = 1`, `kind = "file-registry"`, and the configured `packages` / `artifacts` subdirectories. |
-| 2 | `GET <url>/<config.packages>/<name>.json` | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
+| 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version)` `cabin fetch` / `cabin build` needs. |
 
 The `config.json` fetched in step 1 is subject to the same experimental-field gating as the local
@@ -268,7 +262,10 @@ Source-path resolution for each version:
 - `source.path` is resolved against the package metadata URL using RFC 3986 rules.  The standard
   `"../artifacts/<name>/<name>-<version>.tar.gz"` therefore resolves to
   `<url>/artifacts/<name>/<name>-<version>.tar.gz` - the literal path components are joined per RFC
-  3986; the `config.artifacts` field is not substituted into the URL.
+  3986; the `config.artifacts` field is not substituted into the URL.  A scoped package's document
+  sits one directory deeper, so its canonical
+  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` climbs one extra level and
+  lands on the same registry root.
 - Absolute or scheme-relative `http://` / `https://` values are accepted only when the final
   artifact URL has the same origin (scheme, host, and effective port) as the package metadata URL.
   Cross-origin artifact URLs and URLs containing `userinfo` credentials are rejected before any
@@ -299,16 +296,15 @@ documented in [`vendoring-offline.md`](vendoring-offline.md).
 
 ### End-to-end example
 
-A *bare-name* registry (one written before scoped names, or assembled by hand) can be served as
-static HTTP and consumed by every read command without conversion.  A registry written by
-`cabin publish --registry-dir` today holds scoped packages, so consume it with `--index-path`
-until the scoped read routes land:
+A registry written by `cabin publish --registry-dir` can be consumed locally with `--index-path`
+or served as static HTTP and consumed with `--index-url` - the reads are the same either way.
+(A *bare-name* registry assembled by hand stays readable over both, too.)
 
 ```sh
 # 1. Publish a package into a local file registry.
 cabin publish --manifest-path fmt/cabin.toml --registry-dir registry
 
-# 2. Consume it locally (scoped packages are not HTTP-readable yet).
+# 2. Consume it locally...
 cabin resolve --manifest-path app/cabin.toml --index-path registry
 cabin fetch \
   --manifest-path app/cabin.toml --index-path registry --cache-dir cache
@@ -316,7 +312,7 @@ cabin build \
   --manifest-path app/cabin.toml --index-path registry --cache-dir cache \
   --build-dir build
 
-# For a bare-name registry, the same reads work over static HTTP:
+# ...or serve the same directory over static HTTP:
 python3 -m http.server --directory registry 8000  # any static server works
 cabin resolve --manifest-path app/cabin.toml --index-url http://localhost:8000
 ```

@@ -6,6 +6,17 @@
 > shapes in the transcripts below have been rewritten to the current
 > final names so no stale reference survives; the observations and
 > conclusions are unchanged.
+>
+> **Historical note (2026-07-16).** Every section below also predates
+> scoped package names.  Package routes in these transcripts appear in
+> the bare-name shapes of the time (`/packages/<name>.json`,
+> `/api/v1/packages/<name>/<version>`); they are left verbatim because
+> the captured checksums bind to those exact archives.  The current
+> registry serves only the scoped shapes
+> (`/packages/<scope>/<name>.json`,
+> `/api/v1/packages/<scope>/<name>/<version>`) documented in
+> `docs/remote-registry.md`; the lifecycle observations and conclusions
+> are unchanged.
 
 # Dev Environment Verification (2026-07-09)
 
