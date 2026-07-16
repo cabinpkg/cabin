@@ -255,6 +255,9 @@ impl HttpIndex {
     }
 
     fn package_url(&self, name: &str) -> Result<url::Url, IndexHttpError> {
+        // A scoped name's `/` nests the document one directory deeper
+        // (`packages/<scope>/<name>.json`), mirroring the file-registry
+        // layout; `ensure_path_safe` has already vetted each segment.
         let relative = format!("{name}.json");
         self.packages_base
             .join(&relative)
@@ -267,12 +270,20 @@ impl HttpIndex {
 
 /// Shared path-safety gate at the sparse-HTTP fetch boundary.
 /// Delegates to the `cabin-core` predicate so this crate cannot
-/// drift on the rule.  Used both when the user supplies a package
+/// drift on the rule; a scoped name is vetted one URL segment at a
+/// time, so its `/` never smuggles an empty or traversal segment
+/// into the URL builder.  Used both when the user supplies a package
 /// name directly (`fetch_package`) and when the walker queues a
 /// transitive dependency name parsed from registry metadata
 /// (`load_package_index`).
 fn ensure_path_safe(name: &str) -> Result<(), IndexHttpError> {
-    if !cabin_core::is_path_safe_package_name(name) {
+    let mut components = name.split('/');
+    let safe = components
+        .by_ref()
+        .take(2)
+        .all(cabin_core::is_path_safe_package_name)
+        && components.next().is_none();
+    if !safe {
         return Err(IndexHttpError::UnsafePackageName {
             name: name.to_owned(),
         });
@@ -592,12 +603,47 @@ mod tests {
         );
     }
 
+    /// A scoped package's metadata document sits one directory deeper
+    /// (`packages/<scope>/<name>.json`), so its canonical source path
+    /// climbs two levels; the RFC 3986 join must land on the same
+    /// registry root as the bare-name form.
+    #[test]
+    fn resolve_source_url_handles_the_scoped_extra_depth() {
+        let pkg = package_url("http://localhost:8080/registry/packages/fmtlib/fmt.json");
+        let resolved =
+            resolve_source_url(&pkg, "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
+                .unwrap();
+        assert_eq!(
+            resolved,
+            "http://localhost:8080/registry/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+        );
+    }
+
     #[test]
     fn resolve_source_url_accepts_same_origin_absolute_url() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
         let absolute = "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.tar.gz";
         let resolved = resolve_source_url(&pkg, absolute).unwrap();
         assert_eq!(resolved, absolute);
+    }
+
+    /// The same-origin and scheme gates hold unchanged from a scoped
+    /// metadata URL: the extra path depth plays no part in origin
+    /// comparison.
+    #[test]
+    fn resolve_source_url_rejects_cross_origin_from_a_scoped_document() {
+        let pkg = package_url("https://registry.example.com/registry/packages/fmtlib/fmt.json");
+        for raw in [
+            "http://127.0.0.1/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
+            "//evil.example.net/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
+        ] {
+            let err = resolve_source_url(&pkg, raw).unwrap_err();
+            let message = err.to_string();
+            assert!(
+                message.contains("same origin"),
+                "{raw}: expected same-origin rejection, got {message:?}"
+            );
+        }
     }
 
     #[test]
@@ -850,12 +896,27 @@ mod tests {
         }
     }
 
+    /// A scoped name is vetted per component: the single `/` is the
+    /// segment separator, but every shape that would smuggle an
+    /// empty, traversal, or third segment into the URL builder is
+    /// rejected.
     #[test]
-    fn ensure_path_safe_rejects_path_separator() {
-        let err = ensure_path_safe("foo/bar").unwrap_err();
-        match err {
-            IndexHttpError::UnsafePackageName { name } => assert_eq!(name, "foo/bar"),
-            other => panic!("expected UnsafePackageName, got {other:?}"),
+    fn ensure_path_safe_rejects_malformed_scoped_shapes() {
+        for raw in [
+            "a//b",
+            "/a",
+            "a/",
+            "a/b/c",
+            "../evil/x",
+            "x/../y",
+            "fmtlib/.hidden",
+            "/",
+        ] {
+            let err = ensure_path_safe(raw).unwrap_err();
+            assert!(
+                matches!(err, IndexHttpError::UnsafePackageName { .. }),
+                "{raw:?} should produce UnsafePackageName, got {err:?}"
+            );
         }
     }
 
@@ -900,6 +961,12 @@ mod tests {
     }
 
     #[test]
+    fn ensure_path_safe_accepts_scoped_names() {
+        ensure_path_safe("fmtlib/fmt").unwrap();
+        ensure_path_safe("acme/rust_core").unwrap();
+    }
+
+    #[test]
     fn package_url_built_for_safe_name() {
         // Build a HttpIndex by hand so the test does not need a
         // running server.
@@ -913,6 +980,13 @@ mod tests {
         };
         let url = idx.package_url("fmt").unwrap();
         assert_eq!(url.as_str(), "http://localhost/registry/packages/fmt.json");
+        // A scoped name nests the document under its scope directory,
+        // mirroring the file-registry layout.
+        let url = idx.package_url("fmtlib/fmt").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://localhost/registry/packages/fmtlib/fmt.json"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1233,29 +1307,49 @@ mod tests {
         }
     }
 
-    /// A scoped name is a valid `PackageName` but not a valid sparse
-    /// URL segment under the current protocol: the fetch boundary
-    /// rejects it before any request until the scoped read routes
-    /// land.
+    /// End-to-end scoped fetch: the metadata document is requested
+    /// from the nested `packages/<scope>/<name>.json` route, and its
+    /// canonical `../../artifacts/...` source path (one extra climb
+    /// for the scope directory) resolves onto the registry root.
     #[test]
-    fn scoped_names_are_rejected_at_the_fetch_boundary() {
+    fn fetch_package_reads_scoped_names_from_nested_routes() {
         const CONFIG: &str = r#"{
             "schema": 1,
             "kind": "file-registry",
             "packages": "packages",
             "artifacts": "artifacts"
         }"#;
-        // The server would answer any package URL with 404; getting
-        // `UnsafePackageName` proves the gate fired before a request
-        // was attempted.
-        let server = StaticRegistry::start(CONFIG, "unused", "{}");
+        const PACKAGE: &str = r#"{
+            "schema": 1,
+            "name": "fmtlib/fmt",
+            "versions": {
+                "10.2.1": {
+                    "dependencies": {},
+                    "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "source": {
+                        "type": "archive",
+                        "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
+                        "format": "tar.gz"
+                    }
+                }
+            }
+        }"#;
+        let server = StaticRegistry::start(CONFIG, "fmtlib/fmt", PACKAGE);
         let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
-        let err = index
+        let entry = index
             .fetch_package(&PackageName::new("fmtlib/fmt").unwrap())
-            .unwrap_err();
-        match err {
-            IndexHttpError::UnsafePackageName { name } => assert_eq!(name, "fmtlib/fmt"),
-            other => panic!("expected UnsafePackageName, got {other:?}"),
-        }
+            .unwrap();
+        let (_, meta) = entry.versions.iter().next().expect("one version");
+        let source = meta.source.as_ref().expect("a source artifact");
+        let cabin_index::SourceLocation::HttpUrl(url) = &source.location else {
+            panic!("expected an HttpUrl source, got {:?}", source.location);
+        };
+        assert_eq!(
+            url,
+            &format!(
+                "{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
+                server.url
+            )
+        );
     }
 }

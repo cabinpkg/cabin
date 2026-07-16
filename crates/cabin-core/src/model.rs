@@ -141,11 +141,12 @@ impl PackageName {
 ///
 /// This predicate is single-component on purpose: it guards bare
 /// package names, the package part of a scoped name, every
-/// [`PackageName::path_components`] element, [`TargetName`], and the
-/// URL boundaries in `cabin-index-http` / `cabin-registry-api`.  A
+/// [`PackageName::path_components`] element, and [`TargetName`].  A
 /// scoped `<scope>/<name>` string fails it (the `/` is outside the
-/// alphabet), which is what keeps scoped names out of the remote
-/// registry protocol until the scoped routes land.
+/// alphabet), which forces every path and URL sink - including the
+/// boundaries in `cabin-index-http` / `cabin-registry-api` - to vet
+/// a scoped name one component at a time instead of embedding the
+/// `/` into a single segment.
 ///
 /// A name is valid iff:
 ///
