@@ -728,9 +728,10 @@ sources = ["src/demo.c"]
         .unwrap();
 }
 
-/// A scoped variant of [`write_publishable_package`]: passes the
-/// bare-name publish gate, so tests can observe what happens *after*
-/// it (the staging dry-run, and the interim remote-publish block).
+/// A scoped variant of [`write_publishable_package`]: the shape a
+/// real registry package takes, since publish requires a scoped
+/// name.  Stages as `acme-demo-0.1.0.*` and publishes on the
+/// `/api/v1/packages/acme/demo/<version>` route.
 fn write_scoped_publishable_package(root: &Path) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
@@ -775,6 +776,29 @@ struct RemoteRegistryServer {
 impl RemoteRegistryServer {
     fn start(include_api: bool, require_auth: bool, put_statuses: &'static [u16]) -> Self {
         Self::start_full(include_api, None, require_auth, put_statuses, None)
+    }
+
+    /// Like [`Self::start`], but every mutation response carries
+    /// `put_body` instead of the per-status default - e.g. a `201`
+    /// with the verification lifecycle's `"verification":"pending"`.
+    fn start_with_put_body(
+        include_api: bool,
+        require_auth: bool,
+        put_statuses: &'static [u16],
+        put_body: Option<&'static str>,
+    ) -> Self {
+        Self::start_full(include_api, None, require_auth, put_statuses, put_body)
+    }
+
+    /// Like [`Self::start`], but `config.json` declares `api_origin` -
+    /// a *different* server - as the mutation origin, the shape of the
+    /// hostname-role split.
+    fn start_with_api_origin(
+        api_origin: String,
+        require_auth: bool,
+        put_statuses: &'static [u16],
+    ) -> Self {
+        Self::start_full(true, Some(api_origin), require_auth, put_statuses, None)
     }
 
     fn start_full(
@@ -885,6 +909,22 @@ impl Drop for RemoteRegistryServer {
     }
 }
 
+/// Decode the crates.io-style publish frame:
+/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
+fn decode_publish_frame(body: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let metadata_len = u32::from_le_bytes(body[0..4].try_into().unwrap()) as usize;
+    let metadata = body[4..4 + metadata_len].to_vec();
+    let rest = &body[4 + metadata_len..];
+    let archive_len = u32::from_le_bytes(rest[0..4].try_into().unwrap()) as usize;
+    let archive = rest[4..4 + archive_len].to_vec();
+    assert_eq!(
+        body.len(),
+        8 + metadata_len + archive_len,
+        "the frame must be exactly consumed"
+    );
+    (metadata, archive)
+}
+
 /// Without `-Z remote-registry`, the `--index-url` flag fails with
 /// the standard experimental-feature error before any network or
 /// staging work - on the real publish path and on the (local)
@@ -964,12 +1004,10 @@ fn publish_dry_run_with_an_http_index_opens_no_connection() {
     }
 }
 
-/// The interim hard gate on remote publishing: bare names fail the
-/// scoped-name requirement, and scoped names cannot be expressed on
-/// the still-bare-name publish route, so every remote publish stops
-/// before any connection until the scoped routes land.
+/// Registry packages are always `<scope>/<name>`: a bare name fails
+/// the publish gate before credentials or any connection.
 #[test]
-fn publish_to_a_remote_registry_is_blocked_until_scoped_routes() {
+fn publish_rejects_bare_names_before_any_connection() {
     let dir = TempDir::new().unwrap();
     // A bound-but-unaccepting listener: any connection attempt would
     // be observable below.
@@ -977,32 +1015,12 @@ fn publish_to_a_remote_registry_is_blocked_until_scoped_routes() {
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
 
-    let scoped = dir.path().join("scoped");
-    write_scoped_publishable_package(&scoped);
+    write_publishable_package(dir.path());
     let assertion = cabin()
         .args(["-Z", "remote-registry", "publish", "--index-url"])
         .arg(&url)
         .args(["--manifest-path"])
-        .arg(scoped.join("cabin.toml"))
-        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
-        .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    assert!(
-        flat_contains(
-            &stderr,
-            "scoped packages cannot be published to a remote registry yet"
-        ),
-        "expected the interim block explanation in: {stderr}"
-    );
-
-    let bare = dir.path().join("bare");
-    write_publishable_package(&bare);
-    let assertion = cabin()
-        .args(["-Z", "remote-registry", "publish", "--index-url"])
-        .arg(&url)
-        .args(["--manifest-path"])
-        .arg(bare.join("cabin.toml"))
+        .arg(dir.path().join("cabin.toml"))
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .failure();
@@ -1014,9 +1032,257 @@ fn publish_to_a_remote_registry_is_blocked_until_scoped_routes() {
 
     match listener.accept() {
         Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-        Ok(_) => panic!("a blocked publish must not open a connection to the registry"),
+        Ok(_) => panic!("a refused publish must not open a connection to the registry"),
         Err(err) => panic!("unexpected listener state: {err}"),
     }
+}
+
+/// The full upload path: the PUT hits the registry's `api` origin on
+/// the scoped route with the bearer token, and the framed metadata +
+/// archive bytes are byte-identical to what `cabin package` produces
+/// for the same source tree.
+#[test]
+fn publish_uploads_bytes_identical_to_cabin_package() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    // What `cabin package` produces for this tree.
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .success();
+    let packaged_archive = fs::read(dist.join("acme-demo-0.1.0.tar.gz")).unwrap();
+    let packaged_metadata = fs::read(dist.join("acme-demo-0.1.0.json")).unwrap();
+
+    let server = RemoteRegistryServer::start(true, true, &[201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains(&format!("Published acme/demo 0.1.0 to {}", server.url)),
+        "expected the created report in: {stdout}"
+    );
+    assert!(
+        stdout.contains("checksum: sha256:"),
+        "expected the checksum in: {stdout}"
+    );
+    // A registry without the verification lifecycle omits the field;
+    // the report must not invent a verification line.
+    assert!(
+        !stdout.contains("verification"),
+        "unexpected verification line in: {stdout}"
+    );
+
+    let puts = server.puts.lock().unwrap();
+    assert_eq!(puts.len(), 1, "exactly one publish request");
+    let put = &puts[0];
+    assert_eq!(put.method, "PUT");
+    assert_eq!(put.path, "/api/v1/packages/acme/demo/0.1.0");
+    assert_eq!(
+        put.authorization.as_deref(),
+        Some(format!("Bearer {TEST_TOKEN}").as_str()),
+        "the publish must carry the bearer credential"
+    );
+    let (metadata, archive) = decode_publish_frame(&put.body);
+    assert_eq!(
+        metadata, packaged_metadata,
+        "uploaded metadata must be the canonical document cabin package writes"
+    );
+    assert_eq!(
+        archive, packaged_archive,
+        "uploaded archive must be byte-identical to the cabin package archive"
+    );
+}
+
+/// The amended credential-destination rule (`docs/remote-registry.md`,
+/// "When the token is sent"): a token stored under the index origin is
+/// sent to that origin's reads *and* to the `api` origin its
+/// authenticated `config.json` declares - here a different server, the
+/// hostname-role split's shape - and the mutation reaches only the api
+/// origin, never the index origin.
+#[test]
+fn publish_sends_the_token_to_the_config_declared_api_origin() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    // The api origin accepts the upload; the index origin serves the
+    // auth-required reads and must see no mutation (a PUT reaching it
+    // would fail the run with its 500).
+    let api_server = RemoteRegistryServer::start(false, false, &[201]);
+    let index_server =
+        RemoteRegistryServer::start_with_api_origin(api_server.url.clone(), true, &[500]);
+
+    // The credential is stored under the *index* origin, exactly as
+    // `cabin login` would leave it.
+    let home = dir.path().join("config-home");
+    fs::create_dir_all(&home).unwrap();
+    let credentials_path = home.join("credentials.toml");
+    fs::write(
+        &credentials_path,
+        format!(
+            "[registries.\"{}\"]\ntoken = \"{TEST_TOKEN}\"\n",
+            index_server.url
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&credentials_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&index_server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .success();
+
+    let api_puts = api_server.puts.lock().unwrap();
+    assert_eq!(api_puts.len(), 1, "exactly one publish, on the api origin");
+    assert_eq!(api_puts[0].path, "/api/v1/packages/acme/demo/0.1.0");
+    assert_eq!(
+        api_puts[0].authorization.as_deref(),
+        Some(format!("Bearer {TEST_TOKEN}").as_str()),
+        "the stored token must reach the config-declared api origin"
+    );
+    assert!(
+        index_server.puts.lock().unwrap().is_empty(),
+        "the index origin must never receive the mutation"
+    );
+}
+
+/// Re-publishing identical bytes is the idempotent `200` no-op, and
+/// a `409` explains that published versions are immutable.
+#[test]
+fn publish_reports_no_op_and_conflict_outcomes() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    let server = RemoteRegistryServer::start(true, false, &[201, 200]);
+    for _ in 0..2 {
+        cabin()
+            .args(["-Z", "remote-registry", "publish", "--index-url"])
+            .arg(&server.url)
+            .args(["--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+            .assert()
+            .success();
+    }
+    drop(server);
+
+    let server = RemoteRegistryServer::start(true, false, &[200]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("acme/demo 0.1.0 is already published to")
+            && stdout.contains("identical bytes; nothing to do"),
+        "expected the no-op report in: {stdout}"
+    );
+    drop(server);
+
+    let server = RemoteRegistryServer::start(true, false, &[409]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "already published with different bytes"),
+        "expected the conflict explanation in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "published versions are immutable"),
+        "expected the immutability explanation in: {stderr}"
+    );
+}
+
+/// A registry with the asynchronous verification lifecycle answers
+/// the publish with `"verification":"pending"`; the report says the
+/// version was accepted and becomes resolvable after verification.
+#[test]
+fn publish_reports_pending_verification() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+    let server = RemoteRegistryServer::start_with_put_body(
+        true,
+        false,
+        &[201],
+        Some(
+            r#"{"ok":true,"name":"acme/demo","version":"0.1.0","checksum":"sha256:aa","verification":"pending"}"#,
+        ),
+    );
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    assert!(
+        stdout.contains(&format!("Published acme/demo 0.1.0 to {}", server.url)),
+        "expected the created report in: {stdout}"
+    );
+    assert!(
+        stdout.contains("verification: pending"),
+        "expected the pending verification line in: {stdout}"
+    );
+    assert!(
+        stdout.contains("accepted") && stdout.contains("typically within a few minutes"),
+        "expected the resolvable-after-verification wording in: {stdout}"
+    );
+}
+
+/// A registry whose `config.json` lacks the `api` field cannot be
+/// published to; the error names the missing field.
+#[test]
+fn publish_requires_the_api_url_in_the_registry_config() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+    let server = RemoteRegistryServer::start(false, false, &[201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "does not declare an `api` URL in its config.json"),
+        "expected the missing-api error in: {stderr}"
+    );
+    assert!(
+        server.puts.lock().unwrap().is_empty(),
+        "no mutation request may be sent without an api origin"
+    );
 }
 
 /// `--output-dir` belongs to the dry-run staging flow, so passing it
