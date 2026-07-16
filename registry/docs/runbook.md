@@ -53,9 +53,13 @@ requests per 10 seconds:
 
 - Name: `registry-api-rate-limit`
 - Expression:
-  `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback")))`
+  `(http.host eq "cabinpkg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path eq "/login" or starts_with(http.request.uri.path, "/callback") or starts_with(http.request.uri.path, "/claim/")))`
 - Same characteristics: IP. Rate: 50 requests per 10 seconds. Action:
   Block, mitigation timeout 10 seconds.
+- The `/claim/` arm was added with the scope-claim flow; it is a
+  dashboard-managed rule, so apply the updated expression by hand when
+  deploying that step (`/callback/claim` was already covered by the
+  `/callback` arm).
 
 The rule keys on `cabinpkg.com` because the hostname-role split put the
 whole write/auth surface on the website origin; it deliberately guards
@@ -83,16 +87,17 @@ Two hostnames, one zone:
 - **`cabinpkg.com`** - the website Worker (`cabin-website`, deployed by
   Workers Builds from `website/` on every push to `main`) serves the
   marketing site, docs, and the account pages; the registry Worker
-  (`cabin-registry`) takes exactly `/api/*`, `/login`, and `/callback*`
-  via the zone routes below. This one origin is the registry's browser
-  plane.
+  (`cabin-registry`) takes exactly `/api/*`, `/login`, `/callback*`,
+  and `/claim/*` via the zone routes below. This one origin is the
+  registry's browser plane.
 - **`registry.cabinpkg.com`** - the registry's machine read plane
   (custom domain of `cabin-registry`), nothing else.
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
-`cabinpkg.com/login`, and `cabinpkg.com/callback*`. Route facts that
-matter operationally:
+`cabinpkg.com/login`, `cabinpkg.com/callback*` (which also covers the
+claim flow's `/callback/claim`), and `cabinpkg.com/claim/*`. Route
+facts that matter operationally:
 
 - Path routes are more specific than the website Worker's own domain,
   so they take precedence on exactly these paths and nothing else
@@ -103,7 +108,7 @@ matter operationally:
   string - GitHub redirects to `/callback?code=...&state=...`, hence
   `cabinpkg.com/callback*`. `/login` deliberately stays exact so the
   website keeps serving `/login/denied`.
-- A route pattern can point at only **one** Worker; all three patterns
+- A route pattern can point at only **one** Worker; all four patterns
   belong to `cabin-registry`.
 - The website's `/dashboard`, `/settings/*`, and `/login/denied` pages
   are live on the origin ("Account pages" in `website/README.md`). For
@@ -116,7 +121,9 @@ matter operationally:
 Prerequisite besides the API token: the GitHub OAuth app (homepage
 `https://cabinpkg.com`, authorization callback
 `https://cabinpkg.com/callback` - the browser plane lives on the website
-origin, see "Integrated topology and route management"). Its client id is
+origin, see "Integrated topology and route management"; the claim
+flow's `/callback/claim` needs no OAuth-app change, because GitHub
+accepts a `redirect_uri` under the registered callback's path). Its client id is
 public and lives in `wrangler.jsonc` (`vars.GITHUB_CLIENT_ID`), next to
 `ALLOWED_GITHUB_IDS` (the numeric GitHub user ids allowed to sign in);
 the wrangler secrets are the client secret, the session secret,
@@ -332,6 +339,11 @@ The external verifier is the `registry-verify` GitHub Actions workflow
 workspace, lists pending versions through the admin API, inspects each
 archive, and PATCHes the verdict back. The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
+Mid-track: the verifier still speaks bare names while the registry is
+scoped, so a scoped pending row fails its download or name check and
+sits pending - expect the stale-pending alert, not a resolvable
+version, until the verifier's scoped-names step lands
+(`docs/architecture.md`, "Scopes").
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. GitHub cron schedules are **best-effort** and
