@@ -4,6 +4,7 @@
 // out) when the session-cookie probe answers signed-in. On error or with
 // the registry unreachable the static default stays.
 import { type FetchLike, sharedAuth, signOut } from "../lib/account.ts";
+import { loadAvatar } from "../lib/avatar.ts";
 
 const doFetch: FetchLike = (input, init) => fetch(input, init);
 
@@ -66,6 +67,8 @@ if (nav instanceof HTMLElement) {
         if (login instanceof HTMLElement) {
             login.textContent = auth.user.login;
         }
+        // 2x the rendered 24px for high-density displays.
+        loadAvatar(nav, auth.user, 48);
         for (const section of nav.querySelectorAll(
             "[data-account-signed-out]",
         )) {

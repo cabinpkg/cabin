@@ -2,6 +2,7 @@
 // shared auth probe's answer, so no further API calls are made.
 import { sharedAuth } from "../lib/account.ts";
 import { accountShell } from "../lib/accountShell";
+import { loadAvatar } from "../lib/avatar.ts";
 
 const shell = accountShell();
 if (shell) {
@@ -28,6 +29,8 @@ if (shell) {
                 target.textContent = text;
             }
         }
+        // 2x the rendered 48px for high-density displays.
+        loadAvatar(shell.root, auth.user, 96);
         shell.show("content");
     });
 }

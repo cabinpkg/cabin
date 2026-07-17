@@ -5,6 +5,7 @@
 import AccountShell from "../../components/account/AccountShell.astro";
 import SettingsNav from "../../components/account/SettingsNav.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
+import Icon from "../../components/Icon.astro";
 import ExternalLink from "../../components/ui/ExternalLink.astro";
 
 const rowClass = "flex flex-wrap items-center justify-between gap-2 px-5 py-4";
@@ -25,6 +26,26 @@ const valueClass = "font-mono text-sm text-ink";
                 GitHub identity
             </h2>
             <div class="divide-y divide-line rounded-md border border-line bg-night-raised">
+                <div class={rowClass}>
+                    <span class={labelClass}>Avatar</span>
+                    {/* Fixed-size wrapper so swapping the fallback icon
+                        for the loaded avatar never shifts the layout. */}
+                    <span class="flex h-12 w-12 items-center justify-center">
+                        <span data-avatar-fallback>
+                            <Icon
+                                name="user"
+                                class="h-6 w-6 text-ink-faint"
+                            />
+                        </span>
+                        <img
+                            data-avatar-image
+                            alt=""
+                            class="h-12 w-12 rounded-full"
+                            referrerpolicy="no-referrer"
+                            hidden
+                        />
+                    </span>
+                </div>
                 <div class={rowClass}>
                     <span class={labelClass}>Login</span>
                     <span class={valueClass} data-profile-login></span>
