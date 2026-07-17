@@ -115,7 +115,20 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                     aria-controls="account-menu"
                     data-account-menu-button
                 >
-                    <Icon name="user" class="h-4 w-4" />
+                    {/* Fixed-size wrapper so swapping the fallback icon
+                        for the loaded avatar never shifts the layout. */}
+                    <span class="flex h-6 w-6 items-center justify-center">
+                        <span data-avatar-fallback>
+                            <Icon name="user" class="h-4 w-4" />
+                        </span>
+                        <img
+                            data-avatar-image
+                            alt=""
+                            class="h-6 w-6 rounded-full"
+                            referrerpolicy="no-referrer"
+                            hidden
+                        />
+                    </span>
                     <span data-account-login></span>
                     <Icon name="chevron-down" class="h-3.5 w-3.5 text-ink-faint" />
                 </Button>
