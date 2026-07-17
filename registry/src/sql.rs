@@ -379,6 +379,17 @@ statements! {
         "SELECT checksum, verification FROM versions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
+    /// Counts one served download. The `verification` guard keeps the
+    /// counter honest inside the statement itself: only verified rows
+    /// ever count, so the verifier's pending fetches (readable with the
+    /// `verify` scope) and any racing lifecycle change can never
+    /// increment. Yanked versions keep counting - they stay
+    /// downloadable on purpose.
+    INCREMENT_VERSION_DOWNLOADS =
+        "UPDATE versions SET downloads = downloads + 1 \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3 \
+         AND verification = 'verified'";
+
     /// Live (non-rejected) references to one blob, for reclaim.
     COUNT_LIVE_BLOB_REFERENCES =
         "SELECT COUNT(*) AS n FROM versions \

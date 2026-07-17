@@ -592,3 +592,61 @@ fn scoped_statements_never_cross_scopes() {
         .expect("stored bytes");
     assert_eq!(stored, "10", "the right-scope refund fires exactly once");
 }
+
+/// The download counter's guard lives inside the statement: `prepare`
+/// cannot check that only verified rows count or that the increment
+/// stays within its scope, so both are executed here.
+#[test]
+fn download_counting_is_verified_only_and_scope_isolated() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    let downloads = |scope: &str| -> i64 {
+        conn.query_row(
+            "SELECT downloads FROM versions WHERE scope = ?1 AND name = 'pkg'",
+            [scope],
+            |row| row.get(0),
+        )
+        .expect("downloads column")
+    };
+
+    // Two verified downloads count; the identical (name, version) under
+    // the other scope - pending there - stays untouched.
+    for _ in 0..2 {
+        let changed = conn
+            .execute(
+                sql::INCREMENT_VERSION_DOWNLOADS,
+                rusqlite::params!["alpha", "pkg", "1.0.0"],
+            )
+            .expect("increment verified download");
+        assert_eq!(changed, 1);
+    }
+    assert_eq!(downloads("alpha"), 2);
+    assert_eq!(downloads("beta"), 0);
+
+    // A pending row never counts (the verifier's fetch), and neither
+    // does an unknown triple.
+    for (scope, name, version) in [("beta", "pkg", "1.0.0"), ("ghost", "pkg", "1.0.0")] {
+        let changed = conn
+            .execute(
+                sql::INCREMENT_VERSION_DOWNLOADS,
+                rusqlite::params![scope, name, version],
+            )
+            .expect("guarded increment");
+        assert_eq!(changed, 0, "scope: {scope}");
+    }
+    assert_eq!(downloads("beta"), 0);
+
+    // Yanked versions stay downloadable and keep counting.
+    conn.execute(
+        sql::SET_VERSION_YANKED,
+        rusqlite::params![1, "alpha", "pkg", "1.0.0"],
+    )
+    .expect("yank alpha");
+    conn.execute(
+        sql::INCREMENT_VERSION_DOWNLOADS,
+        rusqlite::params!["alpha", "pkg", "1.0.0"],
+    )
+    .expect("increment yanked download");
+    assert_eq!(downloads("alpha"), 3);
+}
