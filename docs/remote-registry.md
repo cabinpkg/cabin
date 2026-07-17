@@ -60,7 +60,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 | Hostname | Role |
 | --- | --- |
 | `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
-| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, and the Bearer mutation routes.  `config.json`'s [`api`](#registry-configuration) field names this origin. |
+| `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and the one unauthenticated JSON route - `GET /api/v1/stats`, aggregate download/package totals for the website's own pages (service-local; not part of the client protocol).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
 the same uniform `401` as a missing token, whatever credential comes along: the mutation

@@ -221,6 +221,11 @@ async fn handle_website(
         let response = web_glue::respond_session(req, env, session_route).await?;
         return Ok((response, None));
     }
+    // The public stats subtree: the one unauthenticated JSON plane on
+    // this origin (`docs/architecture.md`, "Download counts").
+    if crate::routes::is_stats_path(path) {
+        return Ok((web_glue::respond_stats(req, env, path).await?, None));
+    }
 
     // Everything else is the Bearer plane: deny by default, the uniform
     // 401 before any route matching or data lookup.

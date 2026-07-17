@@ -33,8 +33,9 @@ the service.
   exception: it never became part of the registry, so any bytes replace
   it and return it to `pending`. There is no unpublish or delete.
 - **No KV.** The data is relational and small; a second store would only add
-  consistency questions. Response caching can come later at the edge if read
-  volume ever warrants it.
+  consistency questions. The read plane itself is uncached; the one edge
+  cache in the service is the public stats summary's fixed-key Cache API
+  entry ("Download counts").
 
 ## Origins and roles
 
@@ -50,6 +51,7 @@ which routes and which credential exist where:
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
 | `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
 | `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/stats` | - | public GET, no credential ("Download counts") |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
 
@@ -74,16 +76,18 @@ pages" in its README).
 
 Authentication is split into two planes that never accept each other's
 credential, separated by route on top of the hostname split: the
-`/api/v1/user` subtree is session-only, everything else under `/api/` is
-Bearer-only.
+`/api/v1/user` subtree is session-only, and everything else under
+`/api/` is Bearer-only except the read-only public `/api/v1/stats`
+subtree ("Download counts"), which takes no credential at all.
 
 **The data plane is Bearer-only and deny-by-default.** Every data route -
 including `/config.json` - requires `Authorization: Bearer cabin_<base62>`.
 The uniform `401 {"errors":[{"detail":"authentication required"}]}` (plus
 the challenge header) is emitted before any route matching or D1/R2 data
 lookup, so unauthenticated callers cannot distinguish existing from
-non-existing packages. `/healthz` is the only route outside both planes.
-Cookies are never read here.
+non-existing packages. `/healthz` (registry host) and the public
+`/api/v1/stats` subtree (website origin; "Download counts") are the only
+routes outside both planes. Cookies are never read here.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
 exists only in the client's hands (it is rendered exactly once, in the
@@ -392,6 +396,45 @@ the in-tree `cabin` binary and packages real fixture pairs, which the
 through the full server-side validation path, so the client's canonical
 output and the server's schema cannot silently drift.
 
+## Download counts
+
+Every served artifact download of a **verified** version increments
+`versions.downloads` (migration `0008`), best-effort, off the response
+path (`ctx.wait_until`), scheduled only once the blob's body was
+actually acquired - a missing-blob 500 never counts, the verifier's
+pending fetches never count (the SQL guard repeats the verified
+check inside the statement, so lifecycle races cannot count either),
+and yanked versions keep counting because they stay downloadable. The
+metric is deliberately approximate: it counts responses issued, not
+fully consumed streams or unique installations; a failed deferred
+write is logged and dropped; and the increment is suppressed while
+the breaker blocks writes - the counter is telemetry, so its whole
+deferred task (the breaker-mode read included; nothing about it
+touches the response path) follows the write plane's fail-closed
+direction, an unreadable mode skipping the write, while the download
+itself was already served, keeping the read plane's fail-open
+promise.
+
+`GET /api/v1/stats` on the website origin is the one unauthenticated
+JSON route: registry-wide totals over verified versions only -
+`{"packages":..,"versions":..,"downloads":..}` - consumed by the
+website's homepage. This deliberately makes aggregate, verified-only
+numbers public; the response names no packages and reveals nothing
+about scopes, pending, or rejected versions, so the write plane's
+uniform 403 and the claim flow's non-oracle posture are untouched.
+The response is served through the Cache API under one fixed,
+query-less key (the canonical stats URL, so `?nonce=` cannot bust the
+edge cache) with `Cache-Control: public, max-age=300`
+(`STATS_CACHE_TTL_SECS` overrides the TTL; 0 - the smoke test -
+disables caching), so displayed numbers may lag by up to the TTL plus
+the deferred write. Method and path discipline mirror the session
+plane: non-GET is 405, unknown paths under `/api/v1/stats` are public
+404s that never fall through to the bearer plane, and on the registry
+hostname the subtree does not exist (uniform 401). A public
+per-package stats route is deliberately deferred until the website
+has registry-package pages to feed: it would be a high-cardinality,
+unauthenticated, per-package existence oracle with no consumer today.
+
 ## Billing model and the budget breaker
 
 The service runs on the Workers **free** plan on purpose. Workers requests
@@ -461,8 +504,10 @@ cache (~60 s TTL, one D1 point read on expiry; the smoke test pins
 `SERVICE_MODE_TTL_SECS` to 0 via `.dev.vars`) and answer
 `402 registry_over_budget` with `Retry-After` while blocked. Writes fail
 closed - an unreadable or unknown mode blocks them - while reads never
-consult the mode at all, so they fail open and yanked-state and downloads
-keep working throughout an outage of the breaker itself.
+gate on the mode, so they fail open and yanked-state and downloads
+keep working throughout an outage of the breaker itself (the deferred
+download-count write is the one mode consumer off the read path, and it
+runs after the response - "Download counts").
 
 ## Backups
 
@@ -521,7 +566,8 @@ hostname roles, route matching, and path-component validation
 (`src/routes.rs`), document composition (`src/documents.rs`), the error
 envelope and the challenge header (`src/error.rs`), cookie signing, the
 cookie shape, and the CSRF header rule (`src/session.rs`), the session
-API's JSON shapes and body validation (`src/user_api.rs`), the
+API's JSON shapes and body validation (`src/user_api.rs`), the public
+stats totals' JSON shape (`src/stats.rs`), the
 scope-claim grant rules and GitHub-response parsing (`src/claim.rs`),
 the sign-in allowlist (`src/allowlist.rs`), the
 quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the

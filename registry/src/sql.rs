@@ -379,6 +379,16 @@ statements! {
         "SELECT checksum, verification FROM versions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";
 
+    /// The public stats totals: verified packages, verified versions,
+    /// and served downloads. `scope || '/' || name` is unambiguous -
+    /// `/` is in neither grammar - and a registry with no verified
+    /// versions answers all zeros.
+    REGISTRY_STATS =
+        "SELECT COUNT(DISTINCT scope || '/' || name) AS packages, \
+         COUNT(*) AS versions, \
+         COALESCE(SUM(downloads), 0) AS downloads \
+         FROM versions WHERE verification = 'verified'";
+
     /// Counts one served download. The `verification` guard keeps the
     /// counter honest inside the statement itself: only verified rows
     /// ever count, so the verifier's pending fetches (readable with the

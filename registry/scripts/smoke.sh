@@ -344,7 +344,9 @@ fi
 # identity row deliberately does not exist (the post-wipe ghost-session
 # case). SERVICE_MODE_TTL_SECS=0 disables the service-mode cache so the
 # breaker leg below observes a flipped mode immediately (the deployed
-# worker uses the in-code 60 s TTL). The GITHUB_* entries point the
+# worker uses the in-code 60 s TTL), and STATS_CACHE_TTL_SECS=0
+# disables the stats edge cache so the download-count leg observes a
+# fresh count (deployed: 300 s). The GITHUB_* entries point the
 # claim flow's server-side calls at the GitHub mock above (the client
 # secret only has to exist for the mock exchange).
 cat >"$dev_vars" <<EOF
@@ -353,6 +355,7 @@ D1_EXPORT_API_TOKEN="smoke-placeholder"
 SESSION_SECRET="smoke-session-secret"
 ALLOWED_GITHUB_IDS="0,1"
 SERVICE_MODE_TTL_SECS="0"
+STATS_CACHE_TTL_SECS="0"
 GITHUB_OAUTH_BASE="http://127.0.0.1:${github_port}"
 GITHUB_API_BASE="http://127.0.0.1:${github_port}"
 GITHUB_CLIENT_SECRET="smoke-client-secret"
@@ -453,6 +456,19 @@ wcheck /api/v1/user/usage 401
 wcheck /api/v1/user/packages 401
 wcheck /api/v1/user/tokens 401
 wcheck /api/v1/user/logout 401 -X POST
+
+step "the public stats endpoint is unauthenticated json on the website origin"
+wcheck /api/v1/stats 200
+expect_body '"packages":'
+expect_body '"versions":'
+expect_body '"downloads":'
+# The subtree is its own plane: unknown paths under it are public 404s,
+# non-GET is 405, and on the registry host the surface does not exist.
+wcheck /api/v1/stats/anything 404
+stats_post_status="$(curl -sS -o "$body" -w '%{http_code}' -X POST "$web_base/api/v1/stats")"
+[[ "$stats_post_status" == "405" ]] \
+  || fail "POST /api/v1/stats returned $stats_post_status, expected 405"
+uniform_401 "$base" /api/v1/stats
 
 step "the oauth plane lives on the website origin with host-only cookies"
 curl -sS -o /dev/null -D "$headers" "$web_base/login"
@@ -859,6 +875,42 @@ printf '{"verdict":"rejected","reason":"smoke rejection"}' >"$work/verdict-rejec
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-rejected.json" 409
 expect_body 'immutable'
 as_publisher
+
+step "verified downloads count; the verifier's pending fetch never did"
+# The counter lands off the response path (waitUntil), so poll the
+# version row itself - per-row, so verified packages left in the local
+# state by other work never skew the expectation. The row was
+# recreated by this run's publish, and exactly one verified download
+# has happened, while the verifier fetched the artifact when it was
+# still pending - so 1 here also proves the pending fetch never
+# counted.
+await_row_downloads() {
+  local expected="$1" row_downloads=""
+  for _ in $(seq 1 20); do
+    row_downloads="$(wrangler d1 execute DB --local --json --command \
+      "SELECT downloads FROM versions
+       WHERE scope = 'smoke' AND name = 'withdep' AND version = '0.2.0'" |
+      node -e '
+        const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        console.log(out[0].results[0].downloads);
+      ')"
+    [[ "$row_downloads" == "$expected" ]] &&
+      { printf '    downloads(smoke/withdep@0.2.0) = %s\n' "$expected"; return 0; }
+    sleep 0.5
+  done
+  fail "smoke/withdep@0.2.0 downloads never reached $expected (last: $row_downloads)"
+}
+await_row_downloads 1
+# The public totals reflect served downloads; >= keeps the assertion
+# meaningful whatever else the local state holds.
+curl -sS -o "$body" "$web_base/api/v1/stats"
+node -e '
+  const stats = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  for (const key of ["packages", "versions", "downloads"]) {
+    if (!Number.isInteger(stats[key]) || stats[key] < 1) process.exit(1);
+  }' "$body" || fail "stats totals do not reflect the verified download: $(cat "$body")"
+check "$artifact_path" 200
+await_row_downloads 2
 
 # await_backup_blob <key> <out-file>: replication runs via waitUntil
 # after the response, so poll the BACKUP bucket briefly.

@@ -19,6 +19,7 @@ pub mod quota;
 pub mod routes;
 pub mod session;
 pub mod sql;
+pub mod stats;
 pub mod user_api;
 pub mod verify;
 

@@ -12,9 +12,9 @@ use worker::{D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Resp
 use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
-    SessionRoute, WebRoute,
+    STATS_PATH, SessionRoute, WebRoute,
 };
-use crate::{allowlist, auth, claim, error, quota, session, sql, user_api};
+use crate::{allowlist, auth, claim, error, quota, session, sql, stats, user_api};
 
 /// The one identity provider policy admits today; the `identities`
 /// schema stays provider-neutral (docs/architecture.md, "Two credential
@@ -98,6 +98,78 @@ pub async fn respond_session(
         }
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
+}
+
+/// The public stats plane (`docs/architecture.md`, "Download counts"):
+/// the one unauthenticated JSON subtree on the website origin. Exactly
+/// `GET /api/v1/stats` exists; unknown paths under the subtree are
+/// public 404s (never the bearer plane's 401), and non-GET is 405.
+pub async fn respond_stats(req: &Request, env: &Env, path: &str) -> worker::Result<Response> {
+    if path != STATS_PATH {
+        return json_error(404, error::NOT_FOUND);
+    }
+    if req.method() != Method::Get {
+        return json_error(405, error::METHOD_NOT_ALLOWED);
+    }
+    stats_summary(env).await
+}
+
+#[derive(Deserialize)]
+struct StatsRecord {
+    packages: i64,
+    versions: i64,
+    downloads: i64,
+}
+
+/// The summary's edge-cache TTL. The `STATS_CACHE_TTL_SECS` env var
+/// overrides it; 0 disables caching entirely (the smoke test pins 0 so
+/// a fresh download's count is immediately observable).
+const STATS_CACHE_TTL_SECS: u64 = 300;
+
+/// `GET /api/v1/stats`: the registry-wide totals, served through the
+/// Cache API under one fixed, query-less key - the canonical stats URL
+/// on the website origin - so a request's own query string can never
+/// bust the edge cache.
+async fn stats_summary(env: &Env) -> worker::Result<Response> {
+    let ttl_secs = env
+        .var("STATS_CACHE_TTL_SECS")
+        .ok()
+        .and_then(|var| var.to_string().parse::<u64>().ok())
+        .unwrap_or(STATS_CACHE_TTL_SECS);
+    let origin = env.var("WEB_ORIGIN")?.to_string();
+    let cache_url = format!("{}{}", origin.trim_end_matches('/'), STATS_PATH);
+    let cache = worker::Cache::default();
+    if ttl_secs > 0
+        && let Some(cached) = cache.get(cache_url.as_str(), false).await?
+    {
+        return Ok(cached);
+    }
+
+    let db = env.d1("DB")?;
+    let record: Option<StatsRecord> = db.prepare(sql::REGISTRY_STATS).first(None).await?;
+    let totals = record.map_or(
+        stats::RegistryTotals {
+            packages: 0,
+            versions: 0,
+            downloads: 0,
+        },
+        |record| stats::RegistryTotals {
+            packages: non_negative(record.packages),
+            versions: non_negative(record.versions),
+            downloads: non_negative(record.downloads),
+        },
+    );
+    let mut response = json_response(&stats::summary_json(&totals))?;
+    if ttl_secs > 0 {
+        // Public and cacheable, overriding the browser plane's blanket
+        // no-store; the Cache API only stores responses that carry a
+        // max-age.
+        response
+            .headers_mut()
+            .set("cache-control", &format!("public, max-age={ttl_secs}"))?;
+        cache.put(cache_url.as_str(), response.cloned()?).await?;
+    }
+    Ok(response)
 }
 
 /// `POST /api/v1/user/logout`: clear the session cookie. Only a
