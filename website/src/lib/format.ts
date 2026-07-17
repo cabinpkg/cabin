@@ -21,6 +21,13 @@ export function formatBytes(bytes: number): string {
     return `${unit === 0 ? String(value) : value.toFixed(1)} ${units[unit]}`;
 }
 
+export function formatCount(value: number): string {
+    if (!Number.isFinite(value) || value < 0) {
+        return "";
+    }
+    return new Intl.NumberFormat("en").format(value);
+}
+
 export function formatRelativeTime(value: unknown): string {
     const time = Date.parse(stringifyValue(value));
     if (!Number.isFinite(time)) {

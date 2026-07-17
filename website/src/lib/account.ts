@@ -40,6 +40,9 @@ export interface PackageVersion {
     verification: "pending" | "verified" | "rejected";
     yanked: boolean;
     published_at: string;
+    // Approximate served-download count; always 0 for pending and
+    // rejected versions.
+    downloads: number;
 }
 
 export interface AccountPackage {

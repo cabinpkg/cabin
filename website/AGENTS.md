@@ -21,6 +21,11 @@ from 22.18).
   top-level only, which structurally skips the git-ignored
   `docs/superpowers/`); `src/pages/docs/[...slug].astro` renders each entry
   (`index.md` -> `/docs/`, `<name>.md` -> `/docs/<name>/`).
+- The homepage's registry stats band (packages/versions/downloads) and
+  the dashboard's download figures are same-origin fetches of the
+  registry's public `/api/v1/stats` endpoint and the session packages
+  API (`registry/docs/architecture.md`, "Download counts"); both are
+  progressive enhancements - the static HTML renders without them.
 - The Hasura GraphQL endpoint is no longer used. Its scaffolding
   (`codegen.ts`, `graphql/`, the `graphql*`/`@graphql-codegen/*` deps,
   `yarn generate`) is intentionally kept dormant - do not assume it is live.
