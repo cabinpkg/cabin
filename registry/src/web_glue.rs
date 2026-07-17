@@ -589,6 +589,7 @@ struct PackageVersionRecord {
     verification: String,
     yanked: i64,
     published_at: String,
+    downloads: i64,
 }
 
 /// `GET /api/v1/user/packages`: the packages the user created, every
@@ -611,6 +612,7 @@ async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response
             verification: record.verification,
             yanked: record.yanked != 0,
             published_at: record.published_at,
+            downloads: non_negative(record.downloads),
         })
         .collect();
     json_response(&user_api::packages_json(&rows))

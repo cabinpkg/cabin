@@ -234,9 +234,11 @@ statements! {
          AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
 
     /// The session packages listing: every version of every package the
-    /// user created, deterministically ordered.
+    /// user created, deterministically ordered, each with its served-
+    /// download count (the dashboard's per-package figures).
     LIST_USER_PACKAGES =
-        "SELECT v.scope, v.name, v.version, v.verification, v.yanked, v.published_at \
+        "SELECT v.scope, v.name, v.version, v.verification, v.yanked, v.published_at, \
+         v.downloads \
          FROM packages p JOIN versions v ON v.scope = p.scope AND v.name = p.name \
          WHERE p.created_by = ?1 \
          ORDER BY v.scope, v.name, v.published_at DESC, v.version";

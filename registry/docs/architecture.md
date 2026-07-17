@@ -110,8 +110,8 @@ website frontend consumes:
   versions excluded - their bytes were refunded), today's publishes,
   per-status version counts, and the plan's quotas;
 - `GET /api/v1/user/packages` -> the packages the user created, each
-  version carrying its verification state and yanked flag (the
-  dashboard's package list);
+  version carrying its verification state, yanked flag, and served-
+  download count ("Download counts"; the dashboard's package list);
 - `GET /api/v1/user/tokens` -> token metadata (never hashes);
 - `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
   repeated scopes refused) -> `201` with the plaintext token, exactly once;
