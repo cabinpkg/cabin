@@ -180,7 +180,7 @@ async fn handle_registry(
                 scope,
                 name,
                 version,
-            } => artifact_response(env, &db, &auth, scope, name, version).await?,
+            } => artifact_response(env, &db, ctx, &auth, scope, name, version).await?,
             // Answered above before the auth gate.
             Route::Healthz => Response::empty()?,
         }
@@ -220,6 +220,11 @@ async fn handle_website(
         };
         let response = web_glue::respond_session(req, env, session_route).await?;
         return Ok((response, None));
+    }
+    // The public stats subtree: the one unauthenticated JSON plane on
+    // this origin (`docs/architecture.md`, "Download counts").
+    if crate::routes::is_stats_path(path) {
+        return Ok((web_glue::respond_stats(req, env, path).await?, None));
     }
 
     // Everything else is the Bearer plane: deny by default, the uniform
@@ -918,6 +923,7 @@ async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
 async fn artifact_response(
     env: &Env,
     db: &D1Database,
+    ctx: &Context,
     auth: &AuthContext,
     scope: &str,
     name: &str,
@@ -935,8 +941,9 @@ async fn artifact_response(
     // only with the `verify` scope (the verifier fetches the bytes it
     // inspects); rejected ones - whose blob is reclaimed - and rows
     // with an unreadable status gate like missing rows.
-    let readable = verify::Status::parse(&record.verification)
-        .is_some_and(|status| verify::artifact_readable(status, has_verify_scope(auth)));
+    let status = verify::Status::parse(&record.verification);
+    let readable =
+        status.is_some_and(|status| verify::artifact_readable(status, has_verify_scope(auth)));
     if !readable {
         return error_response(404, error::NOT_FOUND);
     }
@@ -961,7 +968,55 @@ async fn artifact_response(
     response
         .headers_mut()
         .set("content-length", &size.to_string())?;
+    count_download(env, db, ctx, status, scope, name, version);
     Ok(response)
+}
+
+/// Schedules the download counter's best-effort increment
+/// (`docs/architecture.md`, "Download counts"), called only once the
+/// artifact response is fully constructed - a missing-blob or failed-
+/// stream 500 never counts. Only
+/// verified downloads count (the SQL guard repeats the check). The
+/// counter is telemetry, so the whole task - the breaker-mode read
+/// included - runs off the response path and is suppressed while the
+/// breaker blocks writes, treating an unreadable mode as blocked (the
+/// write plane's fail-closed direction); the download itself was
+/// already served, keeping the read plane's fail-open promise.
+fn count_download(
+    env: &Env,
+    db: &D1Database,
+    ctx: &Context,
+    status: Option<verify::Status>,
+    scope: &str,
+    name: &str,
+    version: &str,
+) {
+    if status != Some(verify::Status::Verified) {
+        return;
+    }
+    let Ok(update) = db.prepare(sql::INCREMENT_VERSION_DOWNLOADS).bind(&[
+        scope.into(),
+        name.into(),
+        version.into(),
+    ]) else {
+        return;
+    };
+    let env = env.clone();
+    let label = format!("{scope}/{name}@{version}");
+    ctx.wait_until(async move {
+        let mode = match env.d1("DB") {
+            Ok(db) => service_mode(&env, &db)
+                .await
+                .unwrap_or(breaker::Mode::WritesBlocked),
+            Err(_) => breaker::Mode::WritesBlocked,
+        };
+        if mode == breaker::Mode::WritesBlocked {
+            return;
+        }
+        if let Err(err) = update.run().await {
+            console_error!("download count for {label} failed: {err}");
+        }
+    });
 }
 
 /// Reads `meta.registry_generation`; best-effort (the header is a debug
@@ -1504,8 +1559,10 @@ const SERVICE_MODE_TTL_SECS: f64 = 60.0;
 /// env var overrides the TTL, and the smoke test pins it to 0 via
 /// `.dev.vars` so it can flip modes without waiting it out). Fail closed: a missing or unknown
 /// `meta.service_mode` is `WritesBlocked`, and a D1 failure propagates
-/// into the caller's 500. Reads never call this - they fail open by
-/// construction.
+/// into the caller's 500. No read-route response path calls this - reads
+/// fail open by construction; the one off-path consumer is
+/// [`count_download`]'s deferred task, where any failure only skips a
+/// telemetry increment, never a response.
 async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mode> {
     let now_ms = now_epoch_ms();
     if let Some((mode, expires_at_ms)) = MODE_CACHE.with(Cell::get)

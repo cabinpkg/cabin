@@ -234,9 +234,11 @@ statements! {
          AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
 
     /// The session packages listing: every version of every package the
-    /// user created, deterministically ordered.
+    /// user created, deterministically ordered, each with its served-
+    /// download count (the dashboard's per-package figures).
     LIST_USER_PACKAGES =
-        "SELECT v.scope, v.name, v.version, v.verification, v.yanked, v.published_at \
+        "SELECT v.scope, v.name, v.version, v.verification, v.yanked, v.published_at, \
+         v.downloads \
          FROM packages p JOIN versions v ON v.scope = p.scope AND v.name = p.name \
          WHERE p.created_by = ?1 \
          ORDER BY v.scope, v.name, v.published_at DESC, v.version";
@@ -378,6 +380,27 @@ statements! {
     ARTIFACT_BY_PACKAGE_VERSION =
         "SELECT checksum, verification FROM versions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3";
+
+    /// The public stats totals: verified packages, verified versions,
+    /// and served downloads. `scope || '/' || name` is unambiguous -
+    /// `/` is in neither grammar - and a registry with no verified
+    /// versions answers all zeros.
+    REGISTRY_STATS =
+        "SELECT COUNT(DISTINCT scope || '/' || name) AS packages, \
+         COUNT(*) AS versions, \
+         COALESCE(SUM(downloads), 0) AS downloads \
+         FROM versions WHERE verification = 'verified'";
+
+    /// Counts one served download. The `verification` guard keeps the
+    /// counter honest inside the statement itself: only verified rows
+    /// ever count, so the verifier's pending fetches (readable with the
+    /// `verify` scope) and any racing lifecycle change can never
+    /// increment. Yanked versions keep counting - they stay
+    /// downloadable on purpose.
+    INCREMENT_VERSION_DOWNLOADS =
+        "UPDATE versions SET downloads = downloads + 1 \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3 \
+         AND verification = 'verified'";
 
     /// Live (non-rejected) references to one blob, for reclaim.
     COUNT_LIVE_BLOB_REFERENCES =

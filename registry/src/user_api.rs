@@ -68,6 +68,9 @@ pub struct PackageVersionRow {
     pub verification: String,
     pub yanked: bool,
     pub published_at: String,
+    /// The approximate served-download count (`docs/architecture.md`,
+    /// "Download counts"); always 0 for pending and rejected versions.
+    pub downloads: u64,
 }
 
 /// `GET /api/v1/user/packages`: the user's packages with every version's
@@ -82,6 +85,7 @@ pub fn packages_json(rows: &[PackageVersionRow]) -> String {
             "verification": row.verification,
             "yanked": row.yanked,
             "published_at": row.published_at,
+            "downloads": row.downloads,
         });
         match groups.last_mut() {
             Some((name, versions)) if *name == row.name => versions.push(version),
@@ -321,24 +325,27 @@ mod tests {
 
     #[test]
     fn packages_json_groups_adjacent_rows_by_name() {
-        let row = |name: &str, version: &str, verification: &str, yanked: bool| PackageVersionRow {
-            name: name.to_owned(),
-            version: version.to_owned(),
-            verification: verification.to_owned(),
-            yanked,
-            published_at: "2026-07-10T00:00:00.000Z".to_owned(),
+        let row = |name: &str, version: &str, verification: &str, yanked: bool, downloads: u64| {
+            PackageVersionRow {
+                name: name.to_owned(),
+                version: version.to_owned(),
+                verification: verification.to_owned(),
+                yanked,
+                published_at: "2026-07-10T00:00:00.000Z".to_owned(),
+                downloads,
+            }
         };
         // `mine/fmt` and `fmtlib/fmt` share a package part; the full
         // canonical name is the grouping key, so they stay two packages.
         let rows = [
-            row("fmtlib/fmt", "10.2.1", "verified", false),
-            row("fmtlib/fmt", "10.2.0", "rejected", true),
-            row("madler/zlib", "1.3.1", "pending", false),
-            row("mine/fmt", "0.1.0", "pending", false),
+            row("fmtlib/fmt", "10.2.1", "verified", false, 42),
+            row("fmtlib/fmt", "10.2.0", "rejected", true, 0),
+            row("madler/zlib", "1.3.1", "pending", false, 0),
+            row("mine/fmt", "0.1.0", "pending", false, 0),
         ];
         assert_eq!(
             packages_json(&rows),
-            r#"{"packages":[{"name":"fmtlib/fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"madler/zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]},{"name":"mine/fmt","versions":[{"version":"0.1.0","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z"}]}]}"#
+            r#"{"packages":[{"name":"fmtlib/fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":42},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]},{"name":"madler/zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]},{"name":"mine/fmt","versions":[{"version":"0.1.0","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]}]}"#
         );
     }
 

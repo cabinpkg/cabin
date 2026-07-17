@@ -257,6 +257,19 @@ pub fn is_session_path(path: &str) -> bool {
     path == "/api/v1/user" || path.starts_with("/api/v1/user/")
 }
 
+/// The public stats plane's one route (`docs/architecture.md`,
+/// "Download counts"): the sole unauthenticated JSON path on the
+/// website origin.
+pub const STATS_PATH: &str = "/api/v1/stats";
+
+/// Whether `path` lies in the public `/api/v1/stats` subtree. Like
+/// [`is_session_path`], the whole subtree answers as its own plane -
+/// unknown paths under it are public 404s - so a stats-looking path
+/// never falls through to the bearer plane's 401.
+pub fn is_stats_path(path: &str) -> bool {
+    path == STATS_PATH || path.starts_with("/api/v1/stats/")
+}
+
 /// The role a hostname serves: one role per hostname, dispatched on the
 /// Host header. Unknown hosts get the registry role - the deny-by-default
 /// plane where everything but the machine read routes is a uniform 401 -
@@ -617,6 +630,27 @@ mod tests {
             "/api/v1/admin/versions",
         ] {
             assert!(!is_session_path(path), "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn the_stats_subtree_never_overlaps_the_other_planes() {
+        // Everything under /api/v1/stats is the public plane and must be
+        // invisible to the session and bearer matchers - and vice versa.
+        for path in [STATS_PATH, "/api/v1/stats/", "/api/v1/stats/anything"] {
+            assert!(is_stats_path(path), "path: {path:?}");
+            assert!(!is_session_path(path), "path: {path:?}");
+            assert_eq!(match_api_route(path), None, "path: {path:?}");
+            assert_eq!(match_session_route(path), None, "path: {path:?}");
+        }
+        for path in [
+            "/api/v1/statsx",
+            "/api/v1/stat",
+            "/api/v1/user",
+            "/api/v1/packages/fmtlib/fmt/10.2.1",
+            "/",
+        ] {
+            assert!(!is_stats_path(path), "path: {path:?}");
         }
     }
 

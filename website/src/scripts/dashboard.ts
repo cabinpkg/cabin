@@ -11,7 +11,7 @@ import {
     type Usage,
 } from "../lib/account.ts";
 import { accountShell } from "../lib/accountShell";
-import { formatBytes, formatRelativeTime } from "../lib/format";
+import { formatBytes, formatCount, formatRelativeTime } from "../lib/format";
 
 const doFetch: FetchLike = (input, init) => fetch(input, init);
 
@@ -77,6 +77,23 @@ function renderUsage(root: HTMLElement, usage: Usage): void {
     setText(root, "[data-usage-rejected]", String(usage.versions.rejected));
 }
 
+function packageDownloads(pkg: AccountPackage): number {
+    return pkg.versions.reduce((sum, version) => sum + version.downloads, 0);
+}
+
+// The usage payload carries no download figure; the packages payload is
+// complete (unpaginated), so the dashboard total is summed client-side.
+// That payload is the created-packages list, so the card is labeled
+// accordingly - unlike the published_by-keyed usage figures, a version
+// a scope-mate published into your package counts here, not there.
+function renderDownloadTotal(
+    root: HTMLElement,
+    packages: AccountPackage[],
+): void {
+    const total = packages.reduce((sum, pkg) => sum + packageDownloads(pkg), 0);
+    setText(root, "[data-usage-downloads]", formatCount(total));
+}
+
 function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
     const list = root.querySelector("[data-packages-list]");
     const empty = root.querySelector("[data-packages-empty]");
@@ -101,6 +118,10 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
         if (name instanceof HTMLElement) {
             name.textContent = pkg.name;
         }
+        const total = item.querySelector('[data-slot="package-downloads"]');
+        if (total instanceof HTMLElement) {
+            total.textContent = `${formatCount(packageDownloads(pkg))} downloads`;
+        }
         const versions = item.querySelector('[data-slot="versions"]');
         if (versions instanceof HTMLElement) {
             for (const version of pkg.versions) {
@@ -120,6 +141,15 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
                 const yanked = row.querySelector('[data-slot="yanked"]');
                 if (yanked instanceof HTMLElement) {
                     yanked.hidden = !version.yanked;
+                }
+                const downloads = row.querySelector('[data-slot="downloads"]');
+                // Pending and rejected versions were never downloadable;
+                // a "0 downloads" there would read as a lifetime figure.
+                if (
+                    downloads instanceof HTMLElement &&
+                    version.verification === "verified"
+                ) {
+                    downloads.textContent = `${formatCount(version.downloads)} downloads`;
                 }
                 const published = row.querySelector('[data-slot="published"]');
                 if (published instanceof HTMLElement) {
@@ -170,6 +200,7 @@ if (shell) {
             return;
         }
         renderUsage(shell.root, usageOutcome.data);
+        renderDownloadTotal(shell.root, packagesOutcome.data.packages);
         renderPackages(shell.root, packagesOutcome.data.packages);
         shell.show("content");
     });

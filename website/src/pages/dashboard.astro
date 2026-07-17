@@ -60,6 +60,11 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
                     <p class={quotaClass}>versions published this UTC day</p>
                 </Card>
                 <Card class="p-5">
+                    <p class="spec-label">Downloads</p>
+                    <p class={statClass} data-usage-downloads></p>
+                    <p class={quotaClass}>across the packages you created</p>
+                </Card>
+                <Card class="p-5">
                     <p class="spec-label">Version status</p>
                     <dl class="mt-2 space-y-1 font-mono text-sm">
                         <div class="flex justify-between">
@@ -90,11 +95,18 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
         <template id="package-template">
             <li>
                 <article class="rounded-md border border-line bg-night-raised p-5">
-                    <h3
-                        class="font-mono text-lg font-semibold text-steel"
-                        data-slot="name"
-                    >
-                    </h3>
+                    <div class="flex flex-wrap items-baseline gap-x-3">
+                        <h3
+                            class="font-mono text-lg font-semibold text-steel"
+                            data-slot="name"
+                        >
+                        </h3>
+                        <p
+                            class="ml-auto text-sm text-ink-muted"
+                            data-slot="package-downloads"
+                        >
+                        </p>
+                    </div>
                     <ul class="mt-2" data-slot="versions"></ul>
                 </article>
             </li>
@@ -110,8 +122,10 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
                 <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
                 <span
                     class="ml-auto text-xs text-ink-faint"
-                    data-slot="published"
+                    data-slot="downloads"
                 >
+                </span>
+                <span class="text-xs text-ink-faint" data-slot="published">
                 </span>
             </li>
         </template>
