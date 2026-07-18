@@ -28,9 +28,9 @@ pub struct AuthContext {
     /// provider account id, which lives only in `identities`.
     pub user_id: i64,
     pub scopes: Vec<Scope>,
-    /// The user's quota plan (`users.plan`); `crate::quota` maps it to
-    /// the enforced limits.
-    pub plan: String,
+    /// The user's quota class (`users.quota_class`); `crate::quota` maps
+    /// it to the enforced limits.
+    pub quota_class: String,
     /// Publish token-bucket state from the token row, `None` for a token
     /// that has never published.
     pub bucket: Option<crate::quota::Bucket>,

@@ -21,7 +21,7 @@ if (shell) {
         const fields: Array<[string, string]> = [
             ["[data-profile-login]", auth.user.login],
             ["[data-profile-id]", String(auth.user.github_id)],
-            ["[data-profile-plan]", auth.user.plan],
+            ["[data-profile-quota-class]", auth.user.quota_class],
         ];
         for (const [selector, text] of fields) {
             const target = shell.root.querySelector(selector);

@@ -506,7 +506,7 @@ What yanking means - matching the resolver behavior in
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Authenticated request for an unknown package or version - including versions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
 | `409` | Publish of an existing (pending or verified) version with different bytes, or a conflicting [verdict](#admin-api-scope-verify). |
-| `413` | The uploaded archive exceeds the publisher plan's per-archive size limit (envelope code `archive_too_large`). |
+| `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
 | `429` | Publish rate limit exceeded (token bucket).  Carries `Retry-After` (seconds) saying when the next publish will be accepted, and the envelope code `rate_limited`. |
 
 ## Error envelope
@@ -520,7 +520,7 @@ Every non-2xx response carries the same JSON envelope:
 Quota, rate-limit, and budget refusals additionally carry a machine-readable `code` field:
 
 ```json
-{ "errors": [ { "detail": "the plan's total package quota is exhausted", "code": "quota_packages_total" } ] }
+{ "errors": [ { "detail": "total package quota exhausted", "code": "quota_packages_total" } ] }
 ```
 
 Clients must ignore unknown fields in the envelope; errors without a `code` stay exactly as
@@ -529,11 +529,11 @@ before.  The defined codes:
 | `code` | Status | Meaning |
 | --- | --- | --- |
 | `rate_limited` | `429` | The publish token bucket is empty; `Retry-After` says when it refills. |
-| `archive_too_large` | `413` | The archive exceeds the plan's per-archive size limit. |
-| `quota_storage` | `403` | The publish would exceed the plan's total stored-bytes quota. |
-| `quota_packages_daily` | `403` | The plan's daily new-package quota is exhausted. |
-| `quota_packages_total` | `403` | The plan's total package quota is exhausted. |
-| `quota_versions_daily` | `403` | The plan's daily per-package version quota is exhausted. |
+| `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |
+| `quota_storage` | `403` | The publish would exceed the total stored-bytes quota. |
+| `quota_packages_daily` | `403` | The daily new-package quota is exhausted. |
+| `quota_packages_total` | `403` | The total package quota is exhausted. |
+| `quota_versions_daily` | `403` | The daily per-package version quota is exhausted. |
 | `registry_over_budget` | `402` | The service-wide budget breaker has writes paused; `Retry-After` covers the next re-evaluation. |
 
 Cabin maps these refusals to actionable messages: the `402` reports the registry as temporarily

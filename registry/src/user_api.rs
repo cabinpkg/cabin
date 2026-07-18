@@ -5,37 +5,37 @@
 
 use serde::Deserialize;
 
-use crate::quota::PlanQuotas;
+use crate::quota::ClassQuotas;
 
 /// `GET /api/v1/user`: who the session belongs to.
-pub fn user_json(github_id: i64, login: &str, plan: &str) -> String {
+pub fn user_json(github_id: i64, login: &str, quota_class: &str) -> String {
     serde_json::json!({
         "github_id": github_id,
         "login": login,
-        "plan": plan,
+        "quota_class": quota_class,
     })
     .to_string()
 }
 
-/// The usage block: the user's plan, current consumption, and the plan's
-/// quota values. `stored_bytes` excludes rejected versions (their bytes
-/// are refunded); the per-status counts cover everything the user ever
-/// published.
+/// The usage block: the user's quota class, current consumption, and the
+/// class's quota values. `stored_bytes` excludes rejected versions
+/// (their bytes are refunded); the per-status counts cover everything
+/// the user ever published.
 pub struct UsageInfo {
-    pub plan: String,
+    pub quota_class: String,
     pub package_count: u64,
     pub stored_bytes: u64,
     pub published_today: u64,
     pub verified_count: u64,
     pub pending_count: u64,
     pub rejected_count: u64,
-    pub quotas: PlanQuotas,
+    pub quotas: ClassQuotas,
 }
 
 /// `GET /api/v1/user/usage`.
 pub fn usage_json(usage: &UsageInfo) -> String {
     serde_json::json!({
-        "plan": usage.plan,
+        "quota_class": usage.quota_class,
         "package_count": usage.package_count,
         "stored_bytes": usage.stored_bytes,
         "published_today": usage.published_today,
@@ -295,31 +295,31 @@ pub fn parse_create_token(body: &[u8]) -> Result<CreateToken, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quota::quotas_for_plan;
+    use crate::quota::quotas_for_class;
 
     #[test]
     fn user_json_is_the_documented_shape() {
         assert_eq!(
-            user_json(26_405_363, "ken-matsui", "free"),
-            r#"{"github_id":26405363,"login":"ken-matsui","plan":"free"}"#
+            user_json(26_405_363, "ken-matsui", "default"),
+            r#"{"github_id":26405363,"login":"ken-matsui","quota_class":"default"}"#
         );
     }
 
     #[test]
     fn usage_json_carries_counts_and_quotas() {
         let usage = UsageInfo {
-            plan: "free".to_owned(),
+            quota_class: "default".to_owned(),
             package_count: 2,
             stored_bytes: 1_048_576,
             published_today: 3,
             verified_count: 4,
             pending_count: 1,
             rejected_count: 0,
-            quotas: quotas_for_plan("free"),
+            quotas: quotas_for_class("default"),
         };
         assert_eq!(
             usage_json(&usage),
-            r#"{"plan":"free","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":50,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
+            r#"{"quota_class":"default","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":50,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
         );
     }
 

@@ -976,7 +976,7 @@ mod tests {
         ] {
             let body: &'static str = Box::leak(
                 format!(
-                    r#"{{"errors":[{{"detail":"the plan's quota is exhausted; see https://cabinpkg.com/dashboard for current usage","code":"{code}"}}]}}"#
+                    r#"{{"errors":[{{"detail":"the quota is exhausted; see https://cabinpkg.com/dashboard for current usage","code":"{code}"}}]}}"#
                 )
                 .into_boxed_str(),
             );
@@ -989,7 +989,7 @@ mod tests {
                 RegistryApiError::QuotaExceeded { detail } => {
                     assert_eq!(
                         detail,
-                        "the plan's quota is exhausted; \
+                        "the quota is exhausted; \
                          see https://cabinpkg.com/dashboard for current usage"
                     );
                 }
@@ -1152,14 +1152,14 @@ mod tests {
         assert!(err.to_string().contains("try again later"), "{err}");
     }
 
-    /// 413: the archive exceeds the plan's per-archive size limit. The
+    /// 413: the archive exceeds the per-archive size limit. The
     /// server detail (which carries the limit when the server states it)
     /// is appended; without an envelope the fixed message stands alone.
     #[test]
     fn publish_maps_413_to_archive_too_large() {
         let mock = MockApi::respond_with(
             413,
-            r#"{"errors":[{"detail":"archive exceeds the plan's per-archive size limit (16777216 bytes)","code":"archive_too_large"}]}"#,
+            r#"{"errors":[{"detail":"archive exceeds the per-archive size limit (16777216 bytes)","code":"archive_too_large"}]}"#,
         );
         let err = mock
             .client(Some(token()))

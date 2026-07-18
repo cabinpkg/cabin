@@ -33,10 +33,10 @@ statements! {
     // auth/tokens: bearer-token verification, token management, users
     // ------------------------------------------------------------------
 
-    /// The bearer-token lookup, joining the owning user's plan; revoked
-    /// tokens never match.
+    /// The bearer-token lookup, joining the owning user's quota class;
+    /// revoked tokens never match.
     AUTH_TOKEN_LOOKUP =
-        "SELECT t.id, t.user_id, t.scopes, u.plan, t.rl_tokens, t.rl_updated_at \
+        "SELECT t.id, t.user_id, t.scopes, u.quota_class, t.rl_tokens, t.rl_updated_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL";
 
@@ -85,7 +85,7 @@ statements! {
     /// external identity, resolved to the registry-native user row on
     /// every request.
     USER_BY_IDENTITY =
-        "SELECT i.user_id, i.login_snapshot, u.plan \
+        "SELECT i.user_id, i.login_snapshot, u.quota_class \
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
 

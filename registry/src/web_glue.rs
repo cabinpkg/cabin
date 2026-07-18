@@ -77,7 +77,7 @@ pub async fn respond_session(
         (SessionRoute::User, Method::Get) => json_response(&user_api::user_json(
             session.github_id,
             &user.login_snapshot,
-            &user.plan,
+            &user.quota_class,
         )),
         (SessionRoute::Usage, Method::Get) => usage(&db, user).await,
         (SessionRoute::Packages, Method::Get) => list_packages(&db, user.user_id).await,
@@ -509,7 +509,7 @@ fn claim_denied(cookies: &[String]) -> worker::Result<Response> {
 struct UserRecord {
     user_id: i64,
     login_snapshot: String,
-    plan: String,
+    quota_class: String,
 }
 
 #[derive(Deserialize)]
@@ -583,8 +583,8 @@ async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
         .first(None)
         .await?;
     let usage = user_api::UsageInfo {
-        quotas: quota::quotas_for_plan(&user.plan),
-        plan: user.plan,
+        quotas: quota::quotas_for_class(&user.quota_class),
+        quota_class: user.quota_class,
         package_count: non_negative(package_record.map_or(0, |record| record.n)),
         stored_bytes: non_negative(usage_record.stored_bytes),
         published_today: non_negative(usage_record.published_today),

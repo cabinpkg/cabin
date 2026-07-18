@@ -26,7 +26,7 @@ struct TokenRecord {
     id: String,
     user_id: i64,
     scopes: String,
-    plan: String,
+    quota_class: String,
     rl_tokens: Option<f64>,
     rl_updated_at: Option<String>,
 }
@@ -329,7 +329,7 @@ async fn authenticate(
         token_id: record.id,
         user_id: record.user_id,
         scopes: auth::parse_scopes(&record.scopes),
-        plan: record.plan,
+        quota_class: record.quota_class,
         bucket,
     }))
 }
@@ -415,7 +415,7 @@ async fn publish_response(
         return error_response(403, error::PUBLISH_SCOPE_REQUIRED);
     }
 
-    let quotas = quota::quotas_for_plan(&auth.plan);
+    let quotas = quota::quotas_for_class(&auth.quota_class);
     if let Some(limited) = publish_rate_limit(env, db, auth, &quotas).await? {
         return Ok(limited);
     }
@@ -1416,11 +1416,11 @@ async fn publish_rate_limit(
     env: &Env,
     db: &D1Database,
     auth: &AuthContext,
-    quotas: &quota::PlanQuotas,
+    quotas: &quota::ClassQuotas,
 ) -> worker::Result<Option<Response>> {
     // Enough attempts to drain a full burst even when every one of them
     // loses a race to a parallel publisher on the same token.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // small plan constant
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // small quota constant
     let attempts = quotas.publish_burst.ceil() as usize + 1;
     let mut bucket = auth.bucket;
     for _ in 0..attempts {

@@ -20,8 +20,8 @@ CREATE INDEX versions_checksum ON versions (checksum);
 ALTER TABLE packages ADD COLUMN created_by INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX packages_created_by ON packages (created_by);
 
--- Quota plan name; the plan -> quota map lives in code (src/quota.rs).
-ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'free';
+-- Quota class name; the class -> quota map lives in code (src/quota.rs).
+ALTER TABLE users ADD COLUMN quota_class TEXT NOT NULL DEFAULT 'default';
 
 -- Publish token-bucket state, NULL until the token's first publish:
 -- rl_tokens is the remaining fractional token count, rl_updated_at the

@@ -13,7 +13,7 @@
 export interface User {
     github_id: number;
     login: string;
-    plan: string;
+    quota_class: string;
 }
 
 export interface Quotas {
@@ -27,7 +27,7 @@ export interface Quotas {
 }
 
 export interface Usage {
-    plan: string;
+    quota_class: string;
     package_count: number;
     stored_bytes: number;
     published_today: number;
