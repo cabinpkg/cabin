@@ -24,7 +24,7 @@ pub struct PlanQuotas {
 
 const FREE: PlanQuotas = PlanQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
-    max_total_bytes_per_user: 256 * 1024 * 1024,
+    max_total_bytes_per_user: 128 * 1024 * 1024,
     max_new_packages_per_day: 5,
     max_packages_total: 50,
     max_versions_per_package_per_day: 30,

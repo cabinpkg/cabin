@@ -319,7 +319,7 @@ mod tests {
         };
         assert_eq!(
             usage_json(&usage),
-            r#"{"plan":"free","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":268435456,"max_new_packages_per_day":5,"max_packages_total":50,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
+            r#"{"plan":"free","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":50,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
         );
     }
 
