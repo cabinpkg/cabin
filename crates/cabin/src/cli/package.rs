@@ -195,9 +195,11 @@ fn publish_to_remote_registry(
         None,
         workspace_dep_requirements,
     )?;
-    // Registry packages are always `<scope>/<name>`: fail a bare name
-    // here, before credentials, index reads, or the API call.
+    // Registry packages are always `<scope>/<name>`, and so are the
+    // keys of their registry dependency maps: fail a bare name here,
+    // before credentials, index reads, or the API call.
     cabin_publish::require_scoped_name(&staged.name, manifest_path)?;
+    cabin_publish::require_scoped_dependency_names(&staged.metadata, manifest_path)?;
 
     // One credential lookup serves the reads and the API call alike.
     let origin = cabin_credentials::normalize_origin(index_url)?;

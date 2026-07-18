@@ -70,10 +70,11 @@ pub fn dry_run(request: DryRunRequest<'_>) -> Result<DryRunReport, PublishError>
         Some(request.output_dir),
         &request.workspace_dep_requirements,
     )?;
-    // A dry-run rehearses a publish, so the bare-name gate fires
+    // A dry-run rehearses a publish, so the bare-name gates fire
     // here too - the point of `--dry-run` is to surface exactly what
     // the real publish would reject.
     crate::registry::require_scoped_name(&staged.name, request.manifest_path)?;
+    crate::registry::require_scoped_dependency_names(&staged.metadata, request.manifest_path)?;
     // Reject on a PL1 error before writing any staging output.
     let warnings = crate::lints::split(crate::lints::manifest_findings(&staged.package))
         .map_err(PublishError::StandardCompatibility)?;
@@ -172,6 +173,36 @@ mod tests {
             message.contains("name = \"fmt\"") && message.contains("name = \"<scope>/fmt\""),
             "diagnostic must show the exact manifest line to change, got: {message}"
         );
+        out.assert(predicates::path::missing());
+    }
+
+    /// The dependency-key gate fires in the staging dry-run too, for
+    /// the same reason as the bare-name gate above.
+    #[test]
+    fn dry_run_rejects_non_canonical_dependency_names_before_writing() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.child("cabin.toml");
+        manifest
+            .write_str(
+                "[package]\nname = \"fmtlib/fmt\"\nversion = \"10.2.1\"\n\
+                 [dependencies]\nzlib = \"^1.3\"\n",
+            )
+            .unwrap();
+        let out = dir.child("dist");
+        let err = dry_run(DryRunRequest {
+            manifest_path: manifest.path(),
+            output_dir: out.path(),
+            resolved_project: None,
+            workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+        })
+        .unwrap_err();
+        match &err {
+            PublishError::InvalidDependencyName { table, name, .. } => {
+                assert_eq!(*table, "dependencies");
+                assert_eq!(name, "zlib");
+            }
+            other => panic!("expected InvalidDependencyName, got {other:?}"),
+        }
         out.assert(predicates::path::missing());
     }
 }

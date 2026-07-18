@@ -15,6 +15,14 @@
 //! the real client cannot produce an archive that violates them, and
 //! several of them (escaping source paths, `[patch]` tables) never
 //! surface in the metadata document at all.
+//!
+//! The registry dependency-key grammar (canonical `<scope>/<name>`
+//! keys in `dependencies` and `dev-dependencies`) needs no
+//! independent check here: the stored document already passed the
+//! hosted publish path's key validation (`registry/src/publish.rs`),
+//! and the equality below forces the manifest-derived maps to match
+//! it, so an archive whose manifest carries a bare dependency key can
+//! only ever reject as `dependency_mismatch`.
 
 use camino::Utf8Path;
 

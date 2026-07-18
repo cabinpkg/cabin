@@ -24,6 +24,24 @@ pub enum PublishError {
     )]
     BarePackageName { name: String, manifest_path: String },
 
+    /// A registry dependency map carries a key outside the canonical
+    /// registry grammar - bare, or spelled with characters only local
+    /// names allow.  The `dependencies` and `dev-dependencies` maps
+    /// key on canonical `<scope>/<name>` registry names -
+    /// dev-dependency keys denote registry packages too, so one
+    /// grammar covers both - while `system-dependencies` is exempt:
+    /// its keys name system packages, not registry packages.  Raised
+    /// beside [`PublishError::BarePackageName`], before any registry
+    /// or network work.
+    #[error(
+        "registry dependencies must use the canonical `<scope>/<name>` grammar (lowercase throughout), but `{name}` in [{table}] does not; in {manifest_path}, change the dependency key to the package's registry name (path dependencies may keep bare names)"
+    )]
+    InvalidDependencyName {
+        table: &'static str,
+        name: String,
+        manifest_path: String,
+    },
+
     /// One or more rejecting standard-compatibility lints (PL1) failed
     /// the publish before any registry artifact or index write.
     #[error("{}", format_lint_errors(.0))]

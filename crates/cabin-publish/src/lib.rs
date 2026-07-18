@@ -36,5 +36,6 @@ pub use error::PublishError;
 pub use lints::{LintFinding, LintSeverity, manifest_findings, patch_release_findings};
 pub use registry::{
     RegistryPublishReport, RegistryPublishWorkflow, dry_run_against_file_registry,
-    publish_to_file_registry, require_scoped_name, staged_lint_warnings,
+    publish_to_file_registry, require_scoped_dependency_names, require_scoped_name,
+    staged_lint_warnings,
 };

@@ -216,7 +216,10 @@ Server-side behavior is part of the contract:
 - **Validation.**  The server validates the framing, parses the metadata under the index schema
   (`schema` values other than `1` are refused - a document the
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
-  the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), and verifies the archive
+  the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
+  metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
+  name (`system-dependencies` is exempt - its keys name system packages, not registry
+  packages), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
   `200` and body `{"ok":true,"no_op":true,"verification":"<status>"}`, reporting the row's current
