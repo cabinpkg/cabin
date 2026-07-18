@@ -168,4 +168,9 @@ jobs:
           # here keeps deploy independent of account inference from the
           # token's resource scope.
           accountId: 7bd7dbea3c4c76cd396153fb0e92178f
+          # Without this the action installs its wrangler 3.90.0
+          # default, which cannot read wrangler.jsonc and dies with
+          # "Missing entry-point". Track wrangler 4 like the runbook's
+          # `npx wrangler` flows.
+          wranglerVersion: "4"
           workingDirectory: registry
