@@ -18,7 +18,7 @@ const APP_MAIN_USING_FMT: &str = "#include \"fmt.h\"\nint main() { say_hello(); 
 /// Selection-aware fixture: `app` (which declares a versioned
 /// dep on `fmt`) plus an unrelated workspace member `b` which
 /// declares a versioned dep on `spdlog` that the index does
-/// *not* cover.  The fixture builds a real `fmt-10.2.1.tar.gz`
+/// *not* cover.  The fixture builds a real `fmt-10.2.1.zip`
 /// archive and writes a matching index entry pointing at it,
 /// so `cabin fetch -p app` and `cabin build -p app` can
 /// succeed end-to-end without ever consulting `spdlog`.
@@ -64,7 +64,7 @@ spdlog = "^1"
 "#,
         )
         .unwrap();
-    let archive_path = root.join("artifacts/fmt-10.2.1.tar.gz");
+    let archive_path = root.join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(
         &archive_path,
         &[
@@ -82,7 +82,7 @@ spdlog = "^1"
       "dependencies": {{}},
       "yanked": false,
       "checksum": "sha256:{hex}",
-      "source": {{ "type": "archive", "path": "../artifacts/fmt-10.2.1.tar.gz", "format": "tar.gz" }}
+      "source": {{ "type": "archive", "path": "../artifacts/fmt-10.2.1.zip", "format": "zip" }}
     }}
   }}
 }}"#
@@ -136,7 +136,7 @@ fn fetch_p_app_extracts_fmt_and_skips_unrelated_dep() {
         .arg(&cache)
         .assert()
         .success();
-    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.tar.gz"));
+    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.zip"));
     assert!(
         archive_in_cache.is_file(),
         "fmt archive must be cached at {archive_in_cache:?}"

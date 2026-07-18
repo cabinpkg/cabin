@@ -284,8 +284,8 @@ mod tests {
             checksum: format!("sha256:{}", "a".repeat(64)),
             source: SourceMetadata {
                 kind: "archive".to_owned(),
-                path: format!("../artifacts/{name}/{name}-{version}.tar.gz"),
-                format: "tar.gz".to_owned(),
+                path: format!("../artifacts/{name}/{name}-{version}.zip"),
+                format: "zip".to_owned(),
             },
         }
     }

@@ -42,7 +42,7 @@ fn publish_creates_registry_layout() {
     assert!(registry.join("packages/fmtlib/fmt.json").is_file());
     assert!(
         registry
-            .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
+            .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
             .is_file()
     );
 }
@@ -70,10 +70,10 @@ fn published_package_index_is_well_formed() {
     assert_eq!(entry["yanked"], false);
     assert!(entry["checksum"].as_str().unwrap().starts_with("sha256:"));
     assert_eq!(entry["source"]["type"], "archive");
-    assert_eq!(entry["source"]["format"], "tar.gz");
+    assert_eq!(entry["source"]["format"], "zip");
     assert_eq!(
         entry["source"]["path"],
-        "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+        "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
     );
 }
 
@@ -261,7 +261,7 @@ fn publish_json_format_emits_machine_readable_summary() {
         value["artifact_path"]
             .as_str()
             .unwrap()
-            .ends_with("fmtlib-fmt-10.2.1.tar.gz")
+            .ends_with("fmtlib-fmt-10.2.1.zip")
     );
     assert!(
         value["package_index_path"]

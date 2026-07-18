@@ -216,7 +216,7 @@ mod tests {
         assert!(report.artifact_path.is_file());
         assert_eq!(
             report.source_path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 

@@ -98,7 +98,7 @@ fmt = "^99""#,
         .assert()
         .success();
 
-    for artifact in ["app-0.1.0.tar.gz", "app-0.1.0.json"] {
+    for artifact in ["app-0.1.0.zip", "app-0.1.0.json"] {
         let inherited = fs::read(inherited_dist.join(artifact)).unwrap();
         let literal = fs::read(literal_dist.join(artifact)).unwrap();
         assert_eq!(

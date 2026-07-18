@@ -1,5 +1,5 @@
 //! End-to-end coverage for `cabin vendor` and `--offline`
-//! mode.  Each test stages a real `.tar.gz` archive plus the
+//! mode.  Each test stages a real `.zip` archive plus the
 //! file-registry index that publishes its checksum, so the
 //! tests exercise the full vendor → offline build pipeline.
 
@@ -16,7 +16,7 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
             .write_str("{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\"artifacts\":\"artifacts\"}\n")
 
             .unwrap();
-    let archive = index.join("artifacts/fmt/fmt-10.2.1.tar.gz");
+    let archive = index.join("artifacts/fmt/fmt-10.2.1.zip");
     let manifest = "[package]\nname = \"fmt\"\nversion = \"10.2.1\"\ncxx-standard = \"c++17\"\n\n[target.fmt]\ntype = \"library\"\nsources = [\"src/fmt.cc\"]\ninclude-dirs = [\"include\"]\n";
     let header = "#pragma once\nint fmt_value();\n";
     let body = "#include \"fmt.h\"\nint fmt_value() { return 42; }\n";
@@ -29,7 +29,7 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
         ],
     );
     let entry = format!(
-        "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"checksum\": \"sha256:{checksum}\",\n      \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.tar.gz\", \"format\": \"tar.gz\"}}\n    }}\n  }}\n}}\n",
+        "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"checksum\": \"sha256:{checksum}\",\n      \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.zip\", \"format\": \"zip\"}}\n    }}\n  }}\n}}\n",
     );
     assert_fs::fixture::ChildPath::new(index.join("packages/fmt.json"))
         .write_str(&entry)
@@ -84,7 +84,7 @@ fn vendor_writes_deterministic_file_registry() {
     // vendor summary.
     assert!(vendor.join("config.json").is_file());
     assert!(vendor.join("packages/fmt.json").is_file());
-    assert!(vendor.join("artifacts/fmt/fmt-10.2.1.tar.gz").is_file());
+    assert!(vendor.join("artifacts/fmt/fmt-10.2.1.zip").is_file());
     assert!(vendor.join("cabin-vendor.json").is_file());
 
     // The vendored per-package index points at the *vendor's*
@@ -95,7 +95,7 @@ fn vendor_writes_deterministic_file_registry() {
     let path = parsed["versions"]["10.2.1"]["source"]["path"]
         .as_str()
         .unwrap();
-    assert_eq!(path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
+    assert_eq!(path, "../artifacts/fmt/fmt-10.2.1.zip");
 
     // Re-running with the same inputs must be byte-identical.
     let summary = fs::read(vendor.join("cabin-vendor.json")).unwrap();

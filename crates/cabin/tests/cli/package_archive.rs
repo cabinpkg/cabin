@@ -1,5 +1,4 @@
 use super::*;
-use flate2::read::GzDecoder;
 use std::collections::BTreeSet;
 
 fn write_simple_package(root: &Path) {
@@ -48,12 +47,10 @@ include-dirs = ["include"]
 
 fn read_archive_entries(archive: &Path) -> BTreeSet<String> {
     let f = fs::File::open(archive).unwrap();
-    let dec = GzDecoder::new(f);
-    let mut tar = tar::Archive::new(dec);
+    let mut zip = zip::ZipArchive::new(f).unwrap();
     let mut out = BTreeSet::new();
-    for entry in tar.entries().unwrap() {
-        let entry = entry.unwrap();
-        out.insert(entry.path().unwrap().to_string_lossy().into_owned());
+    for i in 0..zip.len() {
+        out.insert(zip.by_index(i).unwrap().name().to_owned());
     }
     out
 }
@@ -71,7 +68,7 @@ fn package_creates_archive_and_metadata() {
         .assert()
         .success();
 
-    let archive = dist.join("fmt-10.2.1.tar.gz");
+    let archive = dist.join("fmt-10.2.1.zip");
     let metadata = dist.join("fmt-10.2.1.json");
     assert!(archive.is_file(), "archive missing: {archive:?}");
     assert!(metadata.is_file(), "metadata missing: {metadata:?}");
@@ -84,12 +81,12 @@ fn package_creates_archive_and_metadata() {
     assert_eq!(value["yanked"], false);
     assert!(value["checksum"].as_str().unwrap().starts_with("sha256:"));
     assert_eq!(value["source"]["type"], "archive");
-    assert_eq!(value["source"]["format"], "tar.gz");
+    assert_eq!(value["source"]["format"], "zip");
     assert!(
         value["source"]["path"]
             .as_str()
             .unwrap()
-            .ends_with("fmt-10.2.1.tar.gz")
+            .ends_with("fmt-10.2.1.zip")
     );
 }
 
@@ -144,7 +141,7 @@ fn package_json_format_emits_machine_readable_summary() {
         value["archive_path"]
             .as_str()
             .unwrap()
-            .ends_with("fmt-10.2.1.tar.gz")
+            .ends_with("fmt-10.2.1.zip")
     );
     assert!(
         value["metadata_path"]
@@ -164,7 +161,7 @@ fn package_excludes_generated_and_vcs_files() {
     dir.child("build/build.ninja")
         .write_str("leak-this")
         .unwrap();
-    dir.child("dist/old.tar.gz").write_str("leak-this").unwrap();
+    dir.child("dist/old.zip").write_str("leak-this").unwrap();
     dir.child(".cabin/cache/x").write_str("leak-this").unwrap();
     dir.child("node_modules/foo/x")
         .write_str("leak-this")
@@ -184,14 +181,14 @@ fn package_excludes_generated_and_vcs_files() {
         .assert()
         .success();
 
-    let entries = read_archive_entries(&dist.join("fmt-10.2.1.tar.gz"));
+    let entries = read_archive_entries(&dist.join("fmt-10.2.1.zip"));
     assert!(entries.contains("cabin.toml"));
     assert!(entries.contains("src/fmt.cc"));
     assert!(entries.contains("include/example.h"));
     for forbidden in &[
         ".git/config",
         "build/build.ninja",
-        "dist/old.tar.gz",
+        "dist/old.zip",
         ".cabin/cache/x",
         "node_modules/foo/x",
         "compile_commands.json",
@@ -210,7 +207,7 @@ fn package_excludes_in_tree_custom_output_dir() {
     // A custom --output-dir living inside the package source
     // tree (and not on the hard-coded EXCLUDED_DIR_NAMES list)
     // must be skipped during staging so the next archive does
-    // not embed last run's `.tar.gz` / `.json` and the
+    // not embed last run's `.zip` / `.json` and the
     // idempotent-rewrite check stays meaningful.
     let dir = TempDir::new().unwrap();
     write_simple_package(dir.path());
@@ -234,7 +231,7 @@ fn package_excludes_in_tree_custom_output_dir() {
         .arg(&out)
         .assert()
         .success();
-    let entries = read_archive_entries(&out.join("fmt-10.2.1.tar.gz"));
+    let entries = read_archive_entries(&out.join("fmt-10.2.1.zip"));
     assert!(entries.contains("cabin.toml"));
     assert!(entries.contains("src/fmt.cc"));
     assert!(
@@ -291,8 +288,8 @@ fn package_is_byte_deterministic_across_runs() {
         .assert()
         .success();
 
-    let bytes_a = fs::read(dist_a.join("fmt-10.2.1.tar.gz")).unwrap();
-    let bytes_b = fs::read(dist_b.join("fmt-10.2.1.tar.gz")).unwrap();
+    let bytes_a = fs::read(dist_a.join("fmt-10.2.1.zip")).unwrap();
+    let bytes_b = fs::read(dist_b.join("fmt-10.2.1.zip")).unwrap();
     assert_eq!(bytes_a, bytes_b, "archives must be byte-identical");
 }
 
@@ -313,7 +310,7 @@ fn publish_dry_run_creates_archive_and_reports_no_registry_modified() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Publish dry-run"));
     assert!(stdout.contains("No registry was modified"));
-    assert!(dist.join("acme-fmt-10.2.1.tar.gz").is_file());
+    assert!(dist.join("acme-fmt-10.2.1.zip").is_file());
     assert!(dist.join("acme-fmt-10.2.1.json").is_file());
 }
 
@@ -433,7 +430,7 @@ fn package_overwrite_with_different_bytes_fails() {
         .assert()
         .success();
     // Stomp on the existing archive with junk; a re-run must fail.
-    assert_fs::fixture::ChildPath::new(dist.join("fmt-10.2.1.tar.gz"))
+    assert_fs::fixture::ChildPath::new(dist.join("fmt-10.2.1.zip"))
         .write_binary(b"not the same bytes")
         .unwrap();
     cabin()

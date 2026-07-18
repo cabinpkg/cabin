@@ -215,7 +215,7 @@ fn run_json(cmd: &mut Command) -> serde_json::Value {
     serde_json::from_slice(&out.stdout).expect("command stdout should be valid JSON")
 }
 
-/// Build a gzip-compressed tar archive at `path` from `entries` (each a
+/// Build a zip archive at `path` from `entries` (each a
 /// `(relative-path, file-body)` pair) and return its lower-case SHA-256
 /// hex digest.  Shared by the registry / vendor / artifact-fetch tests
 /// that need a real downloadable archive whose checksum they can assert.
@@ -227,21 +227,14 @@ fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
             .unwrap();
     }
     let f = std::fs::File::create(path).unwrap();
-    let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
-    let mut builder = tar::Builder::new(enc);
+    let mut writer = zip::ZipWriter::new(f);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     for (rel, body) in entries {
-        let bytes = body.as_bytes();
-        let mut header = tar::Header::new_gnu();
-        header.set_size(bytes.len() as u64);
-        header.set_mode(0o644);
-        header.set_entry_type(tar::EntryType::Regular);
-        header.set_cksum();
-        builder
-            .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-            .unwrap();
+        writer.start_file(*rel, options).unwrap();
+        writer.write_all(body.as_bytes()).unwrap();
     }
-    let enc = builder.into_inner().unwrap();
-    enc.finish().unwrap().flush().unwrap();
+    writer.finish().unwrap().flush().unwrap();
     cabin_core::hash::hash_reader(std::fs::File::open(path).unwrap()).unwrap()
 }
 
@@ -267,7 +260,7 @@ fn write_index_entry(
       "dependencies": {deps_json},
       "yanked": false,
       "checksum": "sha256:{checksum}",
-      "source": {{ "type": "archive", "path": "{source_path}", "format": "tar.gz" }}
+      "source": {{ "type": "archive", "path": "{source_path}", "format": "zip" }}
     }}
   }}
 }}"#

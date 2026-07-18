@@ -628,7 +628,7 @@ deps = ["cgreet"]
         .write_str("#include \"cgreet.h\"\nint main(void) { return cgreet() == 7 ? 0 : 1; }\n")
         .unwrap();
 
-    let archive = dir.path().join("artifacts/cgreet-1.0.0.tar.gz");
+    let archive = dir.path().join("artifacts/cgreet-1.0.0.zip");
     let hex = make_archive(
         &archive,
         &[
@@ -649,7 +649,7 @@ deps = ["cgreet"]
         "1.0.0",
         "{}",
         &hex,
-        "../artifacts/cgreet-1.0.0.tar.gz",
+        "../artifacts/cgreet-1.0.0.zip",
     );
 
     let build_dir = dir.path().join("build");

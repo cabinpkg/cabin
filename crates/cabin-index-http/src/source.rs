@@ -596,10 +596,10 @@ mod tests {
     #[test]
     fn resolve_source_url_handles_relative_dot_dot() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
-        let resolved = resolve_source_url(&pkg, "../artifacts/fmt/fmt-10.2.1.tar.gz").unwrap();
+        let resolved = resolve_source_url(&pkg, "../artifacts/fmt/fmt-10.2.1.zip").unwrap();
         assert_eq!(
             resolved,
-            "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.tar.gz"
+            "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip"
         );
     }
 
@@ -611,18 +611,17 @@ mod tests {
     fn resolve_source_url_handles_the_scoped_extra_depth() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmtlib/fmt.json");
         let resolved =
-            resolve_source_url(&pkg, "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
-                .unwrap();
+            resolve_source_url(&pkg, "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip").unwrap();
         assert_eq!(
             resolved,
-            "http://localhost:8080/registry/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+            "http://localhost:8080/registry/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 
     #[test]
     fn resolve_source_url_accepts_same_origin_absolute_url() {
         let pkg = package_url("http://localhost:8080/registry/packages/fmt.json");
-        let absolute = "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.tar.gz";
+        let absolute = "http://localhost:8080/registry/artifacts/fmt/fmt-10.2.1.zip";
         let resolved = resolve_source_url(&pkg, absolute).unwrap();
         assert_eq!(resolved, absolute);
     }
@@ -634,8 +633,8 @@ mod tests {
     fn resolve_source_url_rejects_cross_origin_from_a_scoped_document() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmtlib/fmt.json");
         for raw in [
-            "http://127.0.0.1/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
-            "//evil.example.net/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
+            "http://127.0.0.1/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+            "//evil.example.net/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
         ] {
             let err = resolve_source_url(&pkg, raw).unwrap_err();
             let message = err.to_string();
@@ -649,7 +648,7 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_cross_origin_absolute_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "http://127.0.0.1/artifacts/fmt.tar.gz").unwrap_err();
+        let err = resolve_source_url(&pkg, "http://127.0.0.1/artifacts/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -660,7 +659,7 @@ mod tests {
     #[test]
     fn resolve_source_url_rejects_scheme_relative_cross_origin_url() {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
-        let err = resolve_source_url(&pkg, "//evil.example.net/artifacts/fmt.tar.gz").unwrap_err();
+        let err = resolve_source_url(&pkg, "//evil.example.net/artifacts/fmt.zip").unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("same origin"),
@@ -673,7 +672,7 @@ mod tests {
         let pkg = package_url("https://registry.example.com/registry/packages/fmt.json");
         let err = resolve_source_url(
             &pkg,
-            "https://user:pw@registry.example.com/registry/artifacts/fmt.tar.gz",
+            "https://user:pw@registry.example.com/registry/artifacts/fmt.zip",
         )
         .unwrap_err();
         let message = err.to_string();
@@ -1328,8 +1327,8 @@ mod tests {
                     "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
                     "source": {
                         "type": "archive",
-                        "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
-                        "format": "tar.gz"
+                        "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+                        "format": "zip"
                     }
                 }
             }
@@ -1346,10 +1345,7 @@ mod tests {
         };
         assert_eq!(
             url,
-            &format!(
-                "{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
-                server.url
-            )
+            &format!("{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip", server.url)
         );
     }
 }

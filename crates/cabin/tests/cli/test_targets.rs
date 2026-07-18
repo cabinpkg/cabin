@@ -731,9 +731,9 @@ fn package_archive_includes_test_and_example_sources() {
         .success();
     // The archive must carry every declared source - including
     // dev-only target sources - so the package round-trips.
-    let archive = out.join("demo-0.1.0.tar.gz");
+    let archive = out.join("demo-0.1.0.zip");
     let bytes = fs::read(&archive).expect("archive readable");
-    let listing = list_tar_gz_paths(&bytes);
+    let listing = list_zip_paths(&bytes);
     for expected in ["src/lib.cc", "tests/lib_test.cc", "examples/hello.cc"] {
         assert!(
             listing.iter().any(|p| p.ends_with(expected)),
@@ -742,18 +742,9 @@ fn package_archive_includes_test_and_example_sources() {
     }
 }
 
-fn list_tar_gz_paths(bytes: &[u8]) -> Vec<String> {
-    let decoder = flate2::read::GzDecoder::new(bytes);
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .entries()
-        .expect("entries iterator")
-        .map(|e| {
-            e.expect("entry")
-                .path()
-                .expect("path")
-                .to_string_lossy()
-                .into_owned()
-        })
+fn list_zip_paths(bytes: &[u8]) -> Vec<String> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip archive");
+    (0..archive.len())
+        .map(|i| archive.by_index(i).expect("entry").name().to_owned())
         .collect()
 }
