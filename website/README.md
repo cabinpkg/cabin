@@ -65,8 +65,8 @@ vary by environment.
 
 ### Account pages
 
-`/dashboard`, `/dashboard/source`, `/settings/tokens`,
-`/settings/profile`, and `/login/denied`
+`/dashboard`, `/dashboard/source`, `/dashboard/package`,
+`/settings/tokens`, `/settings/profile`, and `/login/denied`
 are the registry account pages, styled after crates.io. They are static
 pages like everything else: their scripts talk to the registry's session
 user API, which the registry Worker mounts on this site's production
