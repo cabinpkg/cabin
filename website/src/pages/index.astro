@@ -172,8 +172,17 @@ const quickstartOutput = "Hello from Cabin";
 
             <dl class="grid grid-cols-1 gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
                 {
-                    features.map((feature) => (
-                        <div class="border-t border-line pt-5">
+                    features.map((feature, index) => (
+                        <div
+                            class:list={[
+                                // First-row cards (per the dl's 1/2/3-column
+                                // breakpoints) skip the rule so it doesn't
+                                // double the header's border-b.
+                                index > 0 && "border-t border-line pt-5",
+                                index === 1 && "sm:border-t-0 sm:pt-0",
+                                index === 2 && "lg:border-t-0 lg:pt-0",
+                            ]}
+                        >
                             <dt class="flex items-center gap-3">
                                 <Icon
                                     name={feature.icon}
