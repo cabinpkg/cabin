@@ -804,9 +804,10 @@ fn reverse_dependencies_match_exact_scoped_keys_on_verified_rows_only() {
     // rejected dependents never count, the dev-dependencies map is
     // not consulted, and the bare `target` key contributes no edge:
     // reverse dependencies are defined over registry-resolvable
-    // references, and a bare key cannot denote a hosted package
-    // (rejecting them at publish is the pre-launch follow-up,
-    // https://github.com/cabinpkg/cabin/issues/1529).
+    // references, and a bare key cannot denote a hosted package.
+    // Publish rejects bare dependency keys outright
+    // (src/publish.rs), so this row models pre-enforcement data and
+    // pins the query-side contract regardless.
     assert_eq!(
         dependents("alpha/target"),
         ["gabime/spdlog@1.13.0", "gabime/spdlog@1.14.0"]

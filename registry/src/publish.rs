@@ -57,6 +57,8 @@ pub const IDENTITY_MISMATCH: &str =
     "metadata name, version, or source path does not match the request URL";
 pub const INVALID_NAME: &str = "invalid package name";
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
+pub const INVALID_DEPENDENCY_NAME: &str =
+    "dependency keys in dependencies and dev-dependencies must be canonical <scope>/<name> names";
 pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
 pub const CHECKSUM_MISMATCH: &str = "checksum does not match the archive bytes";
 pub const NOT_ZIP: &str = "archive is not a zip container";
@@ -73,10 +75,19 @@ pub struct VersionMetadata {
     pub schema: u32,
     pub name: String,
     pub version: String,
-    /// `name -> requirement string | rich table`; stored verbatim.
+    /// `name -> requirement string | rich table`. Keys must be
+    /// canonical `<scope>/<name>` names ([`validate_metadata`]);
+    /// values are stored verbatim.
     pub dependencies: serde_json::Map<String, serde_json::Value>,
-    #[serde(rename = "dev-dependencies")]
-    pub dev_dependencies: Option<serde_json::Value>,
+    /// Like `dependencies`: dev-dependency keys denote registry
+    /// packages too (they resolve when building the package's own
+    /// tests), so the same key grammar applies. Typed as a map for
+    /// exactly that check; values stay opaque. `default` (not
+    /// `Option`) on purpose: the canonical document omits the empty
+    /// map, but an explicit `null` must stay non-canonical rather
+    /// than alias the omission.
+    #[serde(rename = "dev-dependencies", default)]
+    pub dev_dependencies: serde_json::Map<String, serde_json::Value>,
     #[serde(rename = "system-dependencies")]
     pub system_dependencies: Option<serde_json::Value>,
     pub features: Option<serde_json::Value>,
@@ -114,9 +125,12 @@ pub fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 /// fields rejected), schema, URL identity (the document's `name` is the
 /// full `<scope>/<name>`, and the archive path its `source` block
 /// implies embeds the scope twice - directory and filename), scope and
-/// name charsets, `SemVer`, `yanked`. The checksum is checked separately
-/// by [`verify_checksum`] once the caller has digested the archive
-/// bytes.
+/// name charsets, `SemVer`, dependency keys (the `dependencies` and
+/// `dev-dependencies` maps key on canonical `<scope>/<name>` names -
+/// `system-dependencies` is exempt, its keys name system packages,
+/// not registry packages), `yanked`. The
+/// checksum is checked separately by [`verify_checksum`] once the
+/// caller has digested the archive bytes.
 ///
 /// # Errors
 ///
@@ -154,6 +168,24 @@ pub fn validate_metadata(
     }
     if semver::Version::parse(url_version).is_err() {
         return Err(INVALID_VERSION);
+    }
+    // Registry dependency maps key on canonical scoped names: a bare
+    // key could never resolve against this registry (the read plane
+    // has no bare-name route), and published metadata is immutable,
+    // so one admitted here would be a permanent dark edge in the
+    // reverse-dependency graph. Dev-dependency keys denote registry
+    // packages too (they resolve when building the package's own
+    // tests), so the same grammar applies; `system-dependencies` is
+    // exempt - its keys name system packages, not registry packages.
+    for map in [&parsed.dependencies, &parsed.dev_dependencies] {
+        for key in map.keys() {
+            let scoped = key.split_once('/').is_some_and(|(scope, name)| {
+                crate::routes::is_valid_scope(scope) && crate::routes::is_valid_name(name)
+            });
+            if !scoped {
+                return Err(INVALID_DEPENDENCY_NAME);
+            }
+        }
     }
     if parsed.yanked {
         return Err(YANKED_AT_PUBLISH);
@@ -310,8 +342,8 @@ mod tests {
   "schema": 1,
   "name": "fmtlib/fmt",
   "version": "1.0.0",
-  "dependencies": {"zlib": "^1.3", "rich": {"version": "^2", "optional": true}},
-  "dev-dependencies": {"catch2": "^3"},
+  "dependencies": {"madler/zlib": "^1.3", "acme/rich": {"version": "^2", "optional": true}},
+  "dev-dependencies": {"catchorg/catch2": "^3"},
   "system-dependencies": {"openssl": {"version": ">=3", "dependency_kind": "normal"}},
   "features": {"default": [], "features": {}},
   "profiles": {},
@@ -437,6 +469,65 @@ mod tests {
             validate_metadata("fmtlib", "fmt", "1.0.0", yanked.as_bytes()).unwrap_err(),
             YANKED_AT_PUBLISH,
         );
+    }
+
+    #[test]
+    fn validate_metadata_requires_scoped_dependency_keys() {
+        // Bare and malformed keys fail in both registry dependency
+        // maps; the values never matter (they are stored verbatim).
+        for key in [
+            "fmt",
+            "Fmtlib/fmt",
+            "fmt.lib/fmt",
+            "fmtlib/Fmt",
+            "a//b",
+            "fmtlib/",
+            "/fmt",
+        ] {
+            let with_dep = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+                "\"dependencies\": {}",
+                &format!("\"dependencies\": {{\"{key}\": \"^1\"}}"),
+            );
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", with_dep.as_bytes()).unwrap_err(),
+                INVALID_DEPENDENCY_NAME,
+                "dependencies key: {key:?}"
+            );
+            let with_dev_dep = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+                "\"dependencies\": {}",
+                &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {{\"{key}\": \"^1\"}}"),
+            );
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", with_dev_dep.as_bytes()).unwrap_err(),
+                INVALID_DEPENDENCY_NAME,
+                "dev-dependencies key: {key:?}"
+            );
+        }
+        // Canonical scoped keys pass in both maps (the optional-blocks
+        // test covers the rich-value shapes), and system-dependencies
+        // is exempt - its keys name system packages, not registry
+        // packages.
+        let scoped = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+            "\"dependencies\": {}",
+            "\"dependencies\": {\"madler/zlib\": \"^1\"},\n  \
+             \"dev-dependencies\": {\"catchorg/catch2\": \"^3\"},\n  \
+             \"system-dependencies\": {\"openssl\": {\"version\": \">=3\"}}",
+        );
+        assert!(validate_metadata("fmtlib", "fmt", "1.0.0", scoped.as_bytes()).is_ok());
+        // The dev-dependencies map is typed for the key check, so a
+        // non-object value is not canonical - and an explicit `null`
+        // must not alias the omitted-when-empty form.
+        for value in ["[\"catch2\"]", "null"] {
+            let non_object = metadata_json("fmtlib", "fmt", "1.0.0").replace(
+                "\"dependencies\": {}",
+                &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {value}"),
+            );
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", non_object.as_bytes()).unwrap_err(),
+                METADATA_NOT_CANONICAL,
+                "value: {value}"
+            );
+        }
     }
 
     #[test]
