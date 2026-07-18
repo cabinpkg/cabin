@@ -12,6 +12,10 @@ import Card from "../components/ui/Card.astro";
 const barClass = "mt-3 h-1.5 overflow-hidden rounded-sm bg-night-lifted";
 const statClass = "mt-2 font-mono text-2xl text-ink";
 const quotaClass = "mt-1 text-xs text-ink-faint";
+const searchInputClass =
+    "h-10 w-full rounded-sm border border-line bg-night-raised px-3.5 " +
+    "font-mono text-sm text-ink placeholder:text-ink-faint " +
+    "transition-colors focus:border-steel focus:outline-none";
 ---
 
 <BaseLayout
@@ -84,6 +88,20 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
             </div>
         </section>
 
+        <section class="mb-10" aria-labelledby="search-heading">
+            <h2 id="search-heading" class="spec-label mb-4">Find a package</h2>
+            <input
+                class={searchInputClass}
+                type="search"
+                placeholder="Search every registry package by name"
+                aria-label="Search registry packages by name"
+                maxlength="64"
+                data-search-input
+            />
+            <p class="mt-2 text-sm text-ink-muted" data-search-status hidden></p>
+            <ul class="mt-4 grid gap-2" data-search-results></ul>
+        </section>
+
         <section aria-labelledby="packages-heading">
             <h2 id="packages-heading" class="spec-label mb-4">Your packages</h2>
             <p class="text-ink-muted" data-packages-empty hidden>
@@ -92,6 +110,27 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
             <ul class="grid gap-4" data-packages-list></ul>
         </section>
 
+        <template id="search-hit-template">
+            <li>
+                <a
+                    class="flex flex-wrap items-baseline gap-x-3 rounded-md border border-line bg-night-raised px-4 py-3 transition-colors hover:border-steel"
+                    data-slot="link"
+                >
+                    <span
+                        class="font-mono text-sm font-semibold text-steel"
+                        data-slot="name"
+                    >
+                    </span>
+                    <code class="text-xs text-ink-muted" data-slot="version"></code>
+                    <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
+                    <span
+                        class="ml-auto text-xs text-ink-faint"
+                        data-slot="downloads"
+                    >
+                    </span>
+                </a>
+            </li>
+        </template>
         <template id="package-template">
             <li>
                 <article class="rounded-md border border-line bg-night-raised p-5">

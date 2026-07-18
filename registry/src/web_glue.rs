@@ -81,6 +81,15 @@ pub async fn respond_session(
         )),
         (SessionRoute::Usage, Method::Get) => usage(&db, user).await,
         (SessionRoute::Packages, Method::Get) => list_packages(&db, user.user_id).await,
+        (SessionRoute::Search, Method::Get) => search(req, &db).await,
+        (SessionRoute::PackageDetail { scope, name }, Method::Get) => {
+            let (scope, name) = (scope.to_owned(), name.to_owned());
+            package_detail(&db, &scope, &name).await
+        }
+        (SessionRoute::ReverseDependencies { scope, name }, Method::Get) => {
+            let (scope, name) = (scope.to_owned(), name.to_owned());
+            reverse_dependencies(&db, &scope, &name).await
+        }
         (
             SessionRoute::PackageSource {
                 scope,
@@ -630,6 +639,145 @@ async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response
         })
         .collect();
     json_response(&user_api::packages_json(&rows))
+}
+
+#[derive(Deserialize)]
+struct SearchVersionRecord {
+    scope: String,
+    name: String,
+    version: String,
+    yanked: i64,
+    published_at: String,
+    downloads: i64,
+}
+
+/// `GET /api/v1/user/search?q=<term>`: substring search over the
+/// visible (verified) packages for the dashboard. The query is
+/// validated and the rows are grouped, ranked, and truncated in
+/// [`user_api`]; visibility is the SQL statement's verified filter,
+/// so pending and rejected versions can never influence a hit, its
+/// newest version, or its download total.
+async fn search(req: &Request, db: &D1Database) -> worker::Result<Response> {
+    let url = req.url()?;
+    let q = url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "q").then(|| value.into_owned()));
+    let query = match user_api::parse_search_query(q.as_deref()) {
+        Ok(query) => query,
+        Err(detail) => return json_error(400, detail),
+    };
+    let records: Vec<SearchVersionRecord> = db
+        .prepare(sql::SEARCH_VERIFIED_VERSIONS)
+        .bind(&[query.as_str().into()])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::SearchVersionRow> = records
+        .into_iter()
+        .map(|record| user_api::SearchVersionRow {
+            scope: record.scope,
+            name: record.name,
+            version: record.version,
+            yanked: record.yanked != 0,
+            published_at: record.published_at,
+            downloads: non_negative(record.downloads),
+        })
+        .collect();
+    json_response(&user_api::search_json(&rows, &query))
+}
+
+/// Whether the package is visible on the session plane (at least one
+/// verified version): the gate shared by the package-detail and
+/// reverse-dependencies routes, so their authenticated 404s are
+/// identical by construction.
+async fn package_visible(db: &D1Database, scope: &str, name: &str) -> worker::Result<bool> {
+    let record: Option<CountRecord> = db
+        .prepare(sql::HAS_VERIFIED_VERSION)
+        .bind(&[scope.into(), name.into()])?
+        .first(None)
+        .await?;
+    Ok(record.is_some_and(|record| record.n > 0))
+}
+
+#[derive(Deserialize)]
+struct PackageDetailRecord {
+    version: String,
+    metadata_json: String,
+    yanked: i64,
+    published_at: String,
+    downloads: i64,
+}
+
+/// `GET /api/v1/user/package/<scope>/<name>`: one visible package's
+/// verified versions and its newest version's runtime dependencies
+/// (`docs/architecture.md`, "Search and reverse dependencies").
+async fn package_detail(db: &D1Database, scope: &str, name: &str) -> worker::Result<Response> {
+    if !package_visible(db, scope, name).await? {
+        return json_error(404, error::NOT_FOUND);
+    }
+    let records: Vec<PackageDetailRecord> = db
+        .prepare(sql::VERIFIED_VERSION_DETAILS)
+        .bind(&[scope.into(), name.into()])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::PackageDetailRow> = records
+        .into_iter()
+        .map(|record| user_api::PackageDetailRow {
+            version: record.version,
+            metadata_json: record.metadata_json,
+            yanked: record.yanked != 0,
+            published_at: record.published_at,
+            downloads: non_negative(record.downloads),
+        })
+        .collect();
+    match user_api::package_detail_json(scope, name, &rows) {
+        Ok(body) => json_response(&body),
+        Err(detail) => {
+            console_error!("package detail for {scope}/{name}: {detail}");
+            json_error(500, error::INTERNAL)
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct DependentVersionRecord {
+    scope: String,
+    name: String,
+    version: String,
+    published_at: String,
+}
+
+/// `GET /api/v1/user/package/<scope>/<name>/reverse-dependencies`:
+/// the visible packages with a verified version depending on the
+/// target, grouped and ordered in [`user_api`]. The target gate runs
+/// first, so an invisible target answers 404 without the dependents
+/// scan.
+async fn reverse_dependencies(
+    db: &D1Database,
+    scope: &str,
+    name: &str,
+) -> worker::Result<Response> {
+    if !package_visible(db, scope, name).await? {
+        return json_error(404, error::NOT_FOUND);
+    }
+    let key = format!("{scope}/{name}");
+    let records: Vec<DependentVersionRecord> = db
+        .prepare(sql::REVERSE_DEPENDENCIES)
+        .bind(&[key.as_str().into()])?
+        .all()
+        .await?
+        .results()?;
+    let rows: Vec<user_api::DependentVersionRow> = records
+        .into_iter()
+        .map(|record| user_api::DependentVersionRow {
+            scope: record.scope,
+            name: record.name,
+            version: record.version,
+            published_at: record.published_at,
+        })
+        .collect();
+    json_response(&user_api::reverse_dependencies_json(&rows))
 }
 
 #[derive(Deserialize)]

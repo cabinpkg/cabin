@@ -1,0 +1,98 @@
+---
+// The package detail view: one visible package's verified versions,
+// its newest version's runtime dependencies, and the packages that
+// depend on it, from the session package routes
+// (registry/docs/architecture.md, "Search and reverse dependencies").
+// The static build carries only the skeleton; package.ts picks the
+// package from the ?name= query and does all fetching client-side.
+import AccountShell from "../../components/account/AccountShell.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Badge from "../../components/ui/Badge.astro";
+---
+
+<BaseLayout
+    title="Package"
+    description="A package's verified versions, dependencies, and dependents on the Cabin registry."
+    canonicalPath="/dashboard/package"
+    contentClass="container-shell max-w-4xl py-10"
+>
+    <AccountShell title="Package">
+        <header class="mb-8">
+            <p
+                class="font-mono text-lg font-semibold text-steel"
+                data-package-name
+            >
+            </p>
+            <p class="mt-1 text-xs text-ink-faint">
+                Verified versions only; yanked versions stay listed because
+                they stay resolvable for existing lockfiles.
+            </p>
+        </header>
+
+        <section class="mb-10" aria-labelledby="versions-heading">
+            <h2 id="versions-heading" class="spec-label mb-4">Versions</h2>
+            <ul class="grid" data-package-versions></ul>
+        </section>
+
+        <section class="mb-10" aria-labelledby="dependencies-heading">
+            <h2 id="dependencies-heading" class="spec-label mb-4">
+                Dependencies
+            </h2>
+            <p class="mb-3 text-xs text-ink-faint" data-dependencies-note></p>
+            <p class="text-sm text-ink-muted" data-dependencies-empty hidden>
+                No runtime dependencies.
+            </p>
+            <ul class="grid gap-1" data-package-dependencies></ul>
+        </section>
+
+        <section aria-labelledby="dependents-heading">
+            <h2 id="dependents-heading" class="spec-label mb-4">Dependents</h2>
+            <p class="mb-3 text-xs text-ink-faint">
+                Packages with at least one verified version depending on this
+                one.
+            </p>
+            <p class="text-sm text-ink-muted" data-dependents-empty hidden>
+                No packages depend on this one.
+            </p>
+            <ul class="grid gap-1" data-package-dependents></ul>
+        </section>
+
+        <template id="package-version-template">
+            <li
+                class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5 first:border-t-0 first:pt-1"
+            >
+                <code class="font-mono text-sm" data-slot="version"></code>
+                <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
+                <a
+                    class="ml-auto text-xs text-steel hover:underline"
+                    data-slot="source">source</a
+                >
+                <span class="text-xs text-ink-faint" data-slot="downloads">
+                </span>
+                <span class="text-xs text-ink-faint" data-slot="published">
+                </span>
+            </li>
+        </template>
+        <template id="package-dependency-template">
+            <li class="flex flex-wrap items-baseline gap-x-3">
+                <a
+                    class="font-mono text-sm text-steel hover:underline"
+                    data-slot="link"
+                    hidden></a>
+                <span class="font-mono text-sm" data-slot="name" hidden></span>
+                <code class="text-xs text-ink-faint" data-slot="requirement"
+                ></code>
+            </li>
+        </template>
+        <template id="package-dependent-template">
+            <li class="flex flex-wrap items-baseline gap-x-3">
+                <a
+                    class="font-mono text-sm text-steel hover:underline"
+                    data-slot="link"></a>
+                <span class="text-xs text-ink-faint" data-slot="versions">
+                </span>
+            </li>
+        </template>
+    </AccountShell>
+    <script src="../../scripts/package.ts"></script>
+</BaseLayout>

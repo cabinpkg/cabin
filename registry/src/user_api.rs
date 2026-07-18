@@ -99,6 +99,267 @@ pub fn packages_json(rows: &[PackageVersionRow]) -> String {
     serde_json::json!({ "packages": packages }).to_string()
 }
 
+pub const INVALID_SEARCH_QUERY: &str = "the q query parameter must be 1 to 64 characters";
+
+/// The search result cap: a hard limit, not a page size (there is no
+/// pagination; a query matching more packages simply truncates).
+pub const SEARCH_LIMIT: usize = 20;
+
+/// Validates a search term: 1 to 64 characters after trimming
+/// (counted in chars, like token names). The term is ASCII-lowercased:
+/// the search statement's `instr` compares bytes exactly
+/// ([`crate::sql::SEARCH_VERIFIED_VERSIONS`] explains why it is not a
+/// `LIKE`), and names are lowercase by grammar, so the fold is what
+/// makes search ASCII-case-insensitive - and what keeps the host-side
+/// ranking consistent with what the SQL matched.
+///
+/// # Errors
+///
+/// [`INVALID_SEARCH_QUERY`], a fixed string that never echoes request
+/// bytes.
+pub fn parse_search_query(q: Option<&str>) -> Result<String, &'static str> {
+    let trimmed = q.unwrap_or_default().trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 64 {
+        return Err(INVALID_SEARCH_QUERY);
+    }
+    Ok(trimmed.to_ascii_lowercase())
+}
+
+/// One verified version row feeding the search response, as
+/// [`crate::sql::SEARCH_VERIFIED_VERSIONS`] returns them (any order).
+pub struct SearchVersionRow {
+    pub scope: String,
+    pub name: String,
+    pub version: String,
+    pub yanked: bool,
+    pub published_at: String,
+    pub downloads: u64,
+}
+
+/// `GET /api/v1/user/search?q=<term>`: groups the verified rows by
+/// package and ranks: exact canonical-name match, then prefix, then
+/// substring; ties by total downloads descending, then name
+/// ascending; truncated to [`SEARCH_LIMIT`]. Each hit carries the
+/// newest verified version (latest `published_at`, version string
+/// breaking ties) with its yanked flag, and the package's total
+/// downloads over verified versions (yanked included - they stay
+/// downloadable).
+pub fn search_json(rows: &[SearchVersionRow], query: &str) -> String {
+    struct Hit<'a> {
+        rank: u8,
+        full_name: String,
+        scope: &'a str,
+        name: &'a str,
+        newest: &'a SearchVersionRow,
+        downloads: u64,
+    }
+    let mut hits: Vec<Hit<'_>> = Vec::new();
+    for row in rows {
+        if let Some(hit) = hits
+            .iter_mut()
+            .find(|hit| hit.scope == row.scope && hit.name == row.name)
+        {
+            hit.downloads += row.downloads;
+            if (row.published_at.as_str(), row.version.as_str())
+                > (
+                    hit.newest.published_at.as_str(),
+                    hit.newest.version.as_str(),
+                )
+            {
+                hit.newest = row;
+            }
+        } else {
+            let full_name = format!("{}/{}", row.scope, row.name);
+            let rank = if full_name == query {
+                0
+            } else if full_name.starts_with(query) {
+                1
+            } else {
+                2
+            };
+            hits.push(Hit {
+                rank,
+                full_name,
+                scope: &row.scope,
+                name: &row.name,
+                newest: row,
+                downloads: row.downloads,
+            });
+        }
+    }
+    hits.sort_by(|a, b| {
+        (a.rank, std::cmp::Reverse(a.downloads), &a.full_name).cmp(&(
+            b.rank,
+            std::cmp::Reverse(b.downloads),
+            &b.full_name,
+        ))
+    });
+    hits.truncate(SEARCH_LIMIT);
+    let results: Vec<serde_json::Value> = hits
+        .iter()
+        .map(|hit| {
+            serde_json::json!({
+                "scope": hit.scope,
+                "name": hit.name,
+                "version": hit.newest.version,
+                "yanked": hit.newest.yanked,
+                "downloads": hit.downloads,
+            })
+        })
+        .collect();
+    serde_json::json!({ "results": results }).to_string()
+}
+
+/// One verified version row of a dependent package, as
+/// [`crate::sql::REVERSE_DEPENDENCIES`] returns them (any order).
+pub struct DependentVersionRow {
+    pub scope: String,
+    pub name: String,
+    pub version: String,
+    pub published_at: String,
+}
+
+/// `GET /api/v1/user/package/<scope>/<name>/reverse-dependencies`:
+/// the distinct packages with at least one verified version whose
+/// `dependencies` map contains the target, each with the count of
+/// such versions and the newest matching version string (latest
+/// `published_at`, version string breaking ties). Ordered by scope,
+/// then name.
+pub fn reverse_dependencies_json(rows: &[DependentVersionRow]) -> String {
+    struct Dependent<'a> {
+        scope: &'a str,
+        name: &'a str,
+        matching: u64,
+        newest: &'a DependentVersionRow,
+    }
+    let mut dependents: Vec<Dependent<'_>> = Vec::new();
+    for row in rows {
+        match dependents
+            .iter_mut()
+            .find(|dependent| dependent.scope == row.scope && dependent.name == row.name)
+        {
+            Some(dependent) => {
+                dependent.matching += 1;
+                if (row.published_at.as_str(), row.version.as_str())
+                    > (
+                        dependent.newest.published_at.as_str(),
+                        dependent.newest.version.as_str(),
+                    )
+                {
+                    dependent.newest = row;
+                }
+            }
+            None => dependents.push(Dependent {
+                scope: &row.scope,
+                name: &row.name,
+                matching: 1,
+                newest: row,
+            }),
+        }
+    }
+    dependents.sort_by_key(|dependent| (dependent.scope, dependent.name));
+    let dependents: Vec<serde_json::Value> = dependents
+        .iter()
+        .map(|dependent| {
+            serde_json::json!({
+                "scope": dependent.scope,
+                "name": dependent.name,
+                "matching_versions": dependent.matching,
+                "newest_matching_version": dependent.newest.version,
+            })
+        })
+        .collect();
+    serde_json::json!({ "dependents": dependents }).to_string()
+}
+
+/// One verified version row of the package a detail request targets,
+/// as [`crate::sql::VERIFIED_VERSION_DETAILS`] returns them (any
+/// order).
+pub struct PackageDetailRow {
+    pub version: String,
+    pub metadata_json: String,
+    pub yanked: bool,
+    pub published_at: String,
+    pub downloads: u64,
+}
+
+/// `GET /api/v1/user/package/<scope>/<name>`: the package's verified
+/// versions, newest first (latest `published_at`, version string
+/// breaking ties), plus the newest version's runtime `dependencies`
+/// as a `name -> requirement` map with sorted keys (dev- and
+/// system-dependencies are deliberately absent, matching the
+/// reverse-dependencies contract). A rich stored entry contributes
+/// its `version` field; verified metadata is canonical by the
+/// verifier's equality check, so other shapes only arise from an
+/// invariant break and render as an empty requirement rather than
+/// failing the whole response.
+///
+/// # Errors
+///
+/// When `rows` is empty (the caller answers 404 before composing) or
+/// a stored entry is not a JSON object - an internal invariant break
+/// the caller reports as a 500, never a client error.
+pub fn package_detail_json(
+    scope: &str,
+    name: &str,
+    rows: &[PackageDetailRow],
+) -> Result<String, String> {
+    let mut rows: Vec<&PackageDetailRow> = rows.iter().collect();
+    rows.sort_by(|a, b| {
+        (b.published_at.as_str(), b.version.as_str())
+            .cmp(&(a.published_at.as_str(), a.version.as_str()))
+    });
+    let Some(newest) = rows.first() else {
+        return Err(format!("no verified rows to compose for {scope}/{name}"));
+    };
+    let metadata: serde_json::Value =
+        serde_json::from_str(&newest.metadata_json).map_err(|err| {
+            format!(
+                "stored metadata for {scope}/{name}@{} is not valid JSON: {err}",
+                newest.version
+            )
+        })?;
+    if !metadata.is_object() {
+        return Err(format!(
+            "stored metadata for {scope}/{name}@{} is not a JSON object",
+            newest.version
+        ));
+    }
+    let mut dependencies: Vec<(&String, &serde_json::Value)> = metadata
+        .get("dependencies")
+        .and_then(serde_json::Value::as_object)
+        .map(|map| map.iter().collect())
+        .unwrap_or_default();
+    dependencies.sort_by_key(|(dependency, _)| *dependency);
+    let mut dependency_map = serde_json::Map::new();
+    for (dependency, entry) in dependencies {
+        let requirement = entry
+            .as_str()
+            .or_else(|| entry.get("version").and_then(serde_json::Value::as_str))
+            .unwrap_or_default();
+        dependency_map.insert(dependency.clone(), requirement.into());
+    }
+    let versions: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "version": row.version,
+                "yanked": row.yanked,
+                "published_at": row.published_at,
+                "downloads": row.downloads,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "scope": scope,
+        "name": name,
+        "versions": versions,
+        "newest_version": newest.version,
+        "dependencies": dependency_map,
+    })
+    .to_string())
+}
+
 /// One member of a scope, as `GET /api/v1/user/scopes/<scope>/members`
 /// serves it: the GitHub numeric id (the identity the management API
 /// speaks), the display login snapshot, and the member role.
@@ -352,6 +613,313 @@ mod tests {
     #[test]
     fn packages_json_renders_no_packages_as_an_empty_list() {
         assert_eq!(packages_json(&[]), r#"{"packages":[]}"#);
+    }
+
+    #[test]
+    fn search_queries_are_trimmed_lowercased_and_length_checked() {
+        assert_eq!(parse_search_query(Some("  Fmt ")), Ok("fmt".to_owned()));
+        assert_eq!(
+            parse_search_query(Some(&"x".repeat(64))),
+            Ok("x".repeat(64))
+        );
+        for q in [None, Some(""), Some("   "), Some("x".repeat(65).as_str())] {
+            assert_eq!(parse_search_query(q), Err(INVALID_SEARCH_QUERY), "q: {q:?}");
+        }
+        // Length is counted in chars, not bytes.
+        assert!(parse_search_query(Some(&"ü".repeat(64))).is_ok());
+        assert!(parse_search_query(Some(&"ü".repeat(65))).is_err());
+    }
+
+    fn search_row(
+        scope: &str,
+        name: &str,
+        version: &str,
+        yanked: bool,
+        published_at: &str,
+        downloads: u64,
+    ) -> SearchVersionRow {
+        SearchVersionRow {
+            scope: scope.to_owned(),
+            name: name.to_owned(),
+            version: version.to_owned(),
+            yanked,
+            published_at: published_at.to_owned(),
+            downloads,
+        }
+    }
+
+    #[test]
+    fn search_json_ranks_exact_then_prefix_then_substring() {
+        // All three match the substring "fmt"; prefix matches beat
+        // bare substrings regardless of download counts, which only
+        // break ties within a rank.
+        let rows = [
+            search_row(
+                "lib",
+                "afmt",
+                "1.0.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                999,
+            ),
+            search_row(
+                "fmt",
+                "extra",
+                "1.0.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                500,
+            ),
+            search_row(
+                "fmtlib",
+                "zzz",
+                "9.0.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                700,
+            ),
+        ];
+        assert_eq!(
+            search_json(&rows, "fmt"),
+            r#"{"results":[{"scope":"fmtlib","name":"zzz","version":"9.0.0","yanked":false,"downloads":700},{"scope":"fmt","name":"extra","version":"1.0.0","yanked":false,"downloads":500},{"scope":"lib","name":"afmt","version":"1.0.0","yanked":false,"downloads":999}]}"#
+        );
+    }
+
+    #[test]
+    fn search_json_exact_match_beats_everything() {
+        let rows = [
+            search_row(
+                "fmtlib",
+                "fmt",
+                "10.2.1",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                1,
+            ),
+            search_row(
+                "fmtlib",
+                "fmt-extras",
+                "1.0.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                999,
+            ),
+        ];
+        let body = search_json(&rows, "fmtlib/fmt");
+        assert_eq!(
+            body,
+            r#"{"results":[{"scope":"fmtlib","name":"fmt","version":"10.2.1","yanked":false,"downloads":1},{"scope":"fmtlib","name":"fmt-extras","version":"1.0.0","yanked":false,"downloads":999}]}"#
+        );
+    }
+
+    #[test]
+    fn search_json_sums_downloads_and_reports_the_newest_version() {
+        // Two versions of one package: downloads sum, the hit carries
+        // the newest version (later published_at) and its yanked flag.
+        let rows = [
+            search_row(
+                "fmtlib",
+                "fmt",
+                "10.2.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                30,
+            ),
+            search_row(
+                "fmtlib",
+                "fmt",
+                "10.2.1",
+                true,
+                "2026-07-02T00:00:00.000Z",
+                12,
+            ),
+        ];
+        assert_eq!(
+            search_json(&rows, "fmt"),
+            r#"{"results":[{"scope":"fmtlib","name":"fmt","version":"10.2.1","yanked":true,"downloads":42}]}"#
+        );
+        // Equal published_at: the version string breaks the tie.
+        let rows = [
+            search_row(
+                "fmtlib",
+                "fmt",
+                "10.2.0",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                0,
+            ),
+            search_row(
+                "fmtlib",
+                "fmt",
+                "10.2.1",
+                false,
+                "2026-07-01T00:00:00.000Z",
+                0,
+            ),
+        ];
+        assert!(search_json(&rows, "fmt").contains(r#""version":"10.2.1""#));
+    }
+
+    #[test]
+    fn search_json_breaks_rank_ties_by_downloads_then_name() {
+        let rows = [
+            search_row("b", "pkg", "1.0.0", false, "2026-07-01T00:00:00.000Z", 5),
+            search_row("a", "pkg", "1.0.0", false, "2026-07-01T00:00:00.000Z", 5),
+            search_row("c", "pkg", "1.0.0", false, "2026-07-01T00:00:00.000Z", 9),
+        ];
+        let body = search_json(&rows, "pkg");
+        let order: Vec<usize> = ["c", "a", "b"]
+            .iter()
+            .map(|scope| body.find(&format!(r#""scope":"{scope}""#)).unwrap())
+            .collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "body: {body}");
+    }
+
+    #[test]
+    fn search_json_truncates_to_the_limit() {
+        let rows: Vec<SearchVersionRow> = (0..30)
+            .map(|i| {
+                search_row(
+                    "scope",
+                    &format!("pkg-{i:02}"),
+                    "1.0.0",
+                    false,
+                    "2026-07-01T00:00:00.000Z",
+                    0,
+                )
+            })
+            .collect();
+        let body = search_json(&rows, "pkg");
+        assert_eq!(body.matches(r#""scope":"scope""#).count(), SEARCH_LIMIT);
+        assert!(body.contains("pkg-19") && !body.contains("pkg-20"));
+    }
+
+    #[test]
+    fn search_json_renders_no_hits_as_an_empty_list() {
+        assert_eq!(search_json(&[], "ghost"), r#"{"results":[]}"#);
+    }
+
+    fn dependent_row(
+        scope: &str,
+        name: &str,
+        version: &str,
+        published_at: &str,
+    ) -> DependentVersionRow {
+        DependentVersionRow {
+            scope: scope.to_owned(),
+            name: name.to_owned(),
+            version: version.to_owned(),
+            published_at: published_at.to_owned(),
+        }
+    }
+
+    #[test]
+    fn reverse_dependencies_json_groups_counts_and_orders() {
+        let rows = [
+            dependent_row("gabime", "spdlog", "1.13.0", "2026-07-02T00:00:00.000Z"),
+            dependent_row("acme", "logger", "0.3.0", "2026-07-01T00:00:00.000Z"),
+            dependent_row("gabime", "spdlog", "1.14.0", "2026-07-03T00:00:00.000Z"),
+        ];
+        assert_eq!(
+            reverse_dependencies_json(&rows),
+            r#"{"dependents":[{"scope":"acme","name":"logger","matching_versions":1,"newest_matching_version":"0.3.0"},{"scope":"gabime","name":"spdlog","matching_versions":2,"newest_matching_version":"1.14.0"}]}"#
+        );
+        assert_eq!(reverse_dependencies_json(&[]), r#"{"dependents":[]}"#);
+    }
+
+    fn detail_row(
+        version: &str,
+        metadata_json: &str,
+        yanked: bool,
+        published_at: &str,
+        downloads: u64,
+    ) -> PackageDetailRow {
+        PackageDetailRow {
+            version: version.to_owned(),
+            metadata_json: metadata_json.to_owned(),
+            yanked,
+            published_at: published_at.to_owned(),
+            downloads,
+        }
+    }
+
+    #[test]
+    fn package_detail_json_is_the_documented_shape() {
+        // Versions arrive in arbitrary order; the payload runs newest
+        // first and the dependency map comes from the newest version
+        // only, keys sorted, rich entries contributing their version
+        // requirement.
+        let rows = [
+            detail_row(
+                "10.2.0",
+                r#"{"dependencies":{"old/dep":"^1"}}"#,
+                true,
+                "2026-07-01T00:00:00.000Z",
+                30,
+            ),
+            detail_row(
+                "10.2.1",
+                r#"{"dependencies":{"madler/zlib":{"version":"^1.3","optional":true},"fmtlib/fmt":"^10"}}"#,
+                false,
+                "2026-07-02T00:00:00.000Z",
+                12,
+            ),
+        ];
+        assert_eq!(
+            package_detail_json("gabime", "spdlog", &rows).unwrap(),
+            r#"{"scope":"gabime","name":"spdlog","versions":[{"version":"10.2.1","yanked":false,"published_at":"2026-07-02T00:00:00.000Z","downloads":12},{"version":"10.2.0","yanked":true,"published_at":"2026-07-01T00:00:00.000Z","downloads":30}],"newest_version":"10.2.1","dependencies":{"fmtlib/fmt":"^10","madler/zlib":"^1.3"}}"#
+        );
+    }
+
+    #[test]
+    fn package_detail_json_tolerates_odd_dependency_entries() {
+        // Verified metadata is canonical, so a non-string, non-table
+        // entry only arises from an invariant break; it renders as an
+        // empty requirement instead of failing the response.
+        let rows = [detail_row(
+            "1.0.0",
+            r#"{"dependencies":{"weird/dep":42}}"#,
+            false,
+            "2026-07-01T00:00:00.000Z",
+            0,
+        )];
+        let body = package_detail_json("fmtlib", "fmt", &rows).unwrap();
+        assert!(
+            body.contains(r#""dependencies":{"weird/dep":""}"#),
+            "{body}"
+        );
+        // A missing dependencies field is an empty map.
+        let rows = [detail_row(
+            "1.0.0",
+            "{}",
+            false,
+            "2026-07-01T00:00:00.000Z",
+            0,
+        )];
+        let body = package_detail_json("fmtlib", "fmt", &rows).unwrap();
+        assert!(body.contains(r#""dependencies":{}"#), "{body}");
+    }
+
+    #[test]
+    fn package_detail_json_rejects_invariant_breaks() {
+        assert!(package_detail_json("fmtlib", "fmt", &[]).is_err());
+        let rows = [detail_row(
+            "1.0.0",
+            "not json",
+            false,
+            "2026-07-01T00:00:00.000Z",
+            0,
+        )];
+        let err = package_detail_json("fmtlib", "fmt", &rows).unwrap_err();
+        assert!(err.contains("fmt@1.0.0"), "err: {err}");
+        let rows = [detail_row(
+            "1.0.0",
+            "[]",
+            false,
+            "2026-07-01T00:00:00.000Z",
+            0,
+        )];
+        assert!(package_detail_json("fmtlib", "fmt", &rows).is_err());
     }
 
     #[test]

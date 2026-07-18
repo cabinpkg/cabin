@@ -652,6 +652,198 @@ fn download_counting_is_verified_only_and_scope_isolated() {
     assert_eq!(downloads("alpha"), 3);
 }
 
+/// Seeds one user plus the packages and versions the search and
+/// reverse-dependency statements walk: a target package with two
+/// verified versions, a pending-only lookalike, an underscore/plain
+/// name pair for the literal-match check, and dependents in every
+/// lifecycle state.
+fn seed_search_corpus(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-18T00:00:00.000Z');
+         INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+           VALUES ('alpha', 'github', '1', '2026-07-18T00:00:00.000Z'),
+                  ('beta', 'github', '2', '2026-07-18T00:00:00.000Z'),
+                  ('gabime', 'github', '3', '2026-07-18T00:00:00.000Z'),
+                  ('acme', 'github', '4', '2026-07-18T00:00:00.000Z');
+         INSERT INTO packages (scope, name, created_at, created_by)
+           VALUES ('alpha', 'target', '2026-07-18T00:00:00.000Z', 1),
+                  ('beta', 'target-pending', '2026-07-18T00:00:00.000Z', 1),
+                  ('alpha', 'my_pkg', '2026-07-18T00:00:00.000Z', 1),
+                  ('alpha', 'myxpkg', '2026-07-18T00:00:00.000Z', 1),
+                  ('gabime', 'spdlog', '2026-07-18T00:00:00.000Z', 1),
+                  ('acme', 'pending-dep', '2026-07-18T00:00:00.000Z', 1),
+                  ('acme', 'rejected-dep', '2026-07-18T00:00:00.000Z', 1),
+                  ('acme', 'bare-dep', '2026-07-18T00:00:00.000Z', 1),
+                  ('acme', 'dev-dep', '2026-07-18T00:00:00.000Z', 1);
+         INSERT INTO versions (scope, name, version, checksum, metadata_json, yanked,
+                               published_at, archive_size, published_by, verification, downloads)
+           VALUES
+           ('alpha', 'target', '1.0.0', 'c01', '{\"dependencies\":{}}', 1,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 3),
+           ('alpha', 'target', '1.1.0', 'c02', '{\"dependencies\":{}}', 0,
+            '2026-07-18T01:00:00.000Z', 10, 1, 'verified', 4),
+           ('beta', 'target-pending', '1.0.0', 'c03', '{\"dependencies\":{}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'pending', 100),
+           ('alpha', 'my_pkg', '1.0.0', 'c04', '{\"dependencies\":{}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
+           ('alpha', 'myxpkg', '1.0.0', 'c05', '{\"dependencies\":{}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
+           ('gabime', 'spdlog', '1.13.0', 'c06',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 1,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
+           ('gabime', 'spdlog', '1.14.0', 'c07',
+            '{\"dependencies\":{\"alpha/target\":{\"version\":\"^1\",\"optional\":true}}}', 0,
+            '2026-07-18T01:00:00.000Z', 10, 1, 'verified', 0),
+           ('acme', 'pending-dep', '1.0.0', 'c08',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'pending', 0),
+           ('acme', 'rejected-dep', '1.0.0', 'c09',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'rejected', 0),
+           ('acme', 'bare-dep', '1.0.0', 'c10',
+            '{\"dependencies\":{\"target\":\"^1\"}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
+           ('acme', 'dev-dep', '1.0.0', 'c11',
+            '{\"dependencies\":{},\"dev-dependencies\":{\"alpha/target\":\"^1\"}}', 0,
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0);",
+    )
+    .expect("seed the search corpus");
+}
+
+/// Runs [`sql::SEARCH_VERIFIED_VERSIONS`] with the term the session
+/// plane would bind (validated and ASCII-lowercased by the real
+/// parser), returning the matched canonical names (sorted for the
+/// assertion; the statement itself returns rows in table order and
+/// the host ranks them).
+fn search_names(conn: &rusqlite::Connection, term: &str) -> Vec<String> {
+    let query = cabin_registry_worker::user_api::parse_search_query(Some(term))
+        .expect("a valid search term");
+    let mut statement = conn
+        .prepare(sql::SEARCH_VERIFIED_VERSIONS)
+        .expect("prepare search");
+    let mut names: Vec<String> = statement
+        .query_map([query], |row| {
+            Ok(format!(
+                "{}/{}@{}",
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?
+            ))
+        })
+        .expect("run search")
+        .collect::<Result<_, _>>()
+        .expect("search rows");
+    names.sort();
+    names
+}
+
+/// The search statement's semantics - the verified-only filter and
+/// `instr`'s literal, byte-exact matching (the reason it is not a
+/// `LIKE`; see the statement's doc) - are invisible to `prepare`, so
+/// they are executed here with the real term parser.
+#[test]
+fn search_rows_are_verified_only_and_terms_stay_literal() {
+    let conn = migrated_connection();
+    seed_search_corpus(&conn);
+
+    // Substring match over verified rows only: the pending lookalike
+    // carries 100 downloads and must not exist for search, however
+    // the host would rank it.
+    assert_eq!(
+        search_names(&conn, "target"),
+        ["alpha/target@1.0.0", "alpha/target@1.1.0"]
+    );
+    // Case-insensitive by normalization: `instr` compares bytes, so
+    // the parser's ASCII fold is what makes uppercase input match.
+    assert_eq!(search_names(&conn, "TARGET").len(), 2);
+
+    // Wildcard metacharacters are literals to `instr`: `_` matches
+    // only itself (a `LIKE` would also match `myxpkg`), and `%` / `\`
+    // - impossible in names - match nothing instead of everything.
+    assert_eq!(search_names(&conn, "my_pkg"), ["alpha/my_pkg@1.0.0"]);
+    assert_eq!(search_names(&conn, "my%"), Vec::<String>::new());
+    assert_eq!(search_names(&conn, "my\\pkg"), Vec::<String>::new());
+    // A maximum-length term executes and simply matches nothing -
+    // there is no pattern-length ceiling to trip (D1 caps LIKE
+    // patterns at 50 bytes; instr takes the term as a plain value).
+    assert_eq!(search_names(&conn, &"x".repeat(64)), Vec::<String>::new());
+}
+
+/// The reverse-dependency walk's semantics - the verified-only
+/// filter, the runtime-map-only `json_each` path, and the exact
+/// canonical-key match - are invisible to `prepare`, so they are
+/// executed here.
+#[test]
+fn reverse_dependencies_match_exact_scoped_keys_on_verified_rows_only() {
+    let conn = migrated_connection();
+    seed_search_corpus(&conn);
+
+    let dependents = |key: &str| -> Vec<String> {
+        let mut statement = conn
+            .prepare(sql::REVERSE_DEPENDENCIES)
+            .expect("prepare reverse dependencies");
+        let mut rows: Vec<String> = statement
+            .query_map([key], |row| {
+                Ok(format!(
+                    "{}/{}@{}",
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?
+                ))
+            })
+            .expect("run reverse dependencies")
+            .collect::<Result<_, _>>()
+            .expect("dependent rows");
+        rows.sort();
+        rows
+    };
+
+    // Both verified spdlog versions carry the key - the bare-string
+    // and the rich-table entry shapes alike, and the yanked 1.13.0
+    // still counts (yanked versions stay resolvable). The pending and
+    // rejected dependents never count, the dev-dependencies map is
+    // not consulted, and the bare `target` key contributes no edge:
+    // reverse dependencies are defined over registry-resolvable
+    // references, and a bare key cannot denote a hosted package
+    // (rejecting them at publish is the pre-launch follow-up,
+    // https://github.com/cabinpkg/cabin/issues/1529).
+    assert_eq!(
+        dependents("alpha/target"),
+        ["gabime/spdlog@1.13.0", "gabime/spdlog@1.14.0"]
+    );
+    // No probe can reach a bare key either: the route's key is always
+    // `<scope>/<name>` (both segments grammar-validated), and a bare
+    // stored key never contains the `/`.
+    assert_eq!(dependents("acme/target"), Vec::<String>::new());
+
+    // The visibility gate the session routes share: the pending-only
+    // package is invisible, the verified one is not.
+    let visible = |scope: &str, name: &str| -> i64 {
+        conn.query_row(
+            sql::HAS_VERIFIED_VERSION,
+            rusqlite::params![scope, name],
+            |row| row.get(0),
+        )
+        .expect("visibility count")
+    };
+    assert_eq!(visible("alpha", "target"), 2);
+    assert_eq!(visible("beta", "target-pending"), 0);
+    assert_eq!(visible("ghost", "none"), 0);
+
+    // The detail rows are the verified subset with their stored
+    // metadata; the pending-only package composes nothing.
+    let details = |scope: &str, name: &str| -> i64 {
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM ({})", sql::VERIFIED_VERSION_DETAILS),
+            rusqlite::params![scope, name],
+            |row| row.get(0),
+        )
+        .expect("detail count")
+    };
+    assert_eq!(details("alpha", "target"), 2);
+    assert_eq!(details("beta", "target-pending"), 0);
+}
+
 /// The stats totals' semantics - the verified-only filter and the
 /// distinct-canonical-name package count - are invisible to `prepare`,
 /// so they are executed here.

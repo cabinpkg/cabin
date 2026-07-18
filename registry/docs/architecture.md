@@ -52,6 +52,7 @@ which routes and which credential exist where:
 | `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
 | `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
 | `/api/v1/user/source/<scope>/<name>/<version>` | - | Session cookie **only**, ranged read ("The source viewer's ranged reads" below) |
+| `/api/v1/user/search`, `/api/v1/user/package/<scope>/<name>`, `/api/v1/user/package/<scope>/<name>/reverse-dependencies` | - | Session cookie **only** ("Search and reverse dependencies" below) |
 | `/api/v1/stats` | - | public GET, no credential ("Download counts") |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
@@ -71,8 +72,8 @@ the website origin reaches this Worker through zone routes
 claim flow's `/callback/claim` - and `/claim/*`; see `wrangler.jsonc`
 and [`runbook.md`](runbook.md), "Integrated topology and route
 management"). The frontend consuming
-the session plane - `/dashboard`, `/dashboard/source`, `/settings/*`, and
-`/login/denied`, all
+the session plane - `/dashboard`, `/dashboard/source`,
+`/dashboard/package`, `/settings/*`, and `/login/denied`, all
 static pages - lives in the repository's `website/` project ("Account
 pages" in its README).
 
@@ -107,6 +108,54 @@ like every authenticated response. Like every read, the route never
 consults the service mode ("Billing model and the budget breaker" -
 reads fail open), and a source read is never a download ("Download
 counts").
+
+**Search and reverse dependencies.** The dashboard's package search
+(`GET /api/v1/user/search?q=<term>`) and the package resource
+(`GET /api/v1/user/package/<scope>/<name>`, with
+`/reverse-dependencies` nested under it) are **session-only by the
+same recorded decision**: a public search endpoint would let
+unauthenticated callers enumerate packages, destroying the data
+plane's uniform-401 property - existing and non-existing packages must
+stay indistinguishable without a credential - so `/api/v1/stats`
+remains the only public JSON route. All three live under
+`/api/v1/user` because that is the session cookie's `Path`, nothing
+more; `package` (singular - any one visible package) deliberately does
+not nest under `/api/v1/user/packages`, the created-packages listing,
+for the source viewer's reason. Visibility is the read plane's:
+only packages with at least one **verified** version exist on these
+routes (the gate is one shared helper, so the package and
+reverse-dependencies 404s are identical by construction), pending and
+rejected versions are invisible on these routes as on the whole read
+plane (publishers still see their own lifecycle states in
+`/api/v1/user/packages`, and the admin plane's `verify`-scoped
+listing sees pending), and yanked versions stay listed and counted -
+they stay resolvable for existing lockfiles.
+Search matches the term (1-64 chars, trimmed, ASCII-lowercased -
+names are lowercase by grammar, and the SQL comparison is byte-exact)
+as a literal substring of the canonical `<scope>/<name>` name via
+`instr` - deliberately not a `LIKE` pattern, which D1 caps at 50
+bytes, under the 64-character term contract - ranking exact, then
+prefix, then substring, ties by total downloads then name, truncated
+to a hard 20.
+The reverse-dependency contract is deliberately simple and **defined
+over registry-resolvable references**: the distinct packages with at
+least one verified version whose runtime `dependencies` map contains
+the target's canonical `<scope>/<name>` key - matched exactly; dev-
+and system-dependencies are never consulted, and a bare (unscoped)
+key contributes no edge, because no bare name can denote a hosted
+package (the read plane has no bare-name route; rejecting bare
+dependency keys at publish is the pre-launch follow-up,
+<https://github.com/cabinpkg/cabin/issues/1529>) - each with the count
+of such versions and the newest matching version string. Both search
+and the dependents walk scan the verified corpus per call
+(`json_each` over `metadata_json` for the latter): accepted at
+current scale, and watched rather than pre-optimized - the breaker's
+`d1_rows_read_day` budget is the tripwire, and the upgrade path (a
+publish-maintained dependents table, the crates.io approach) is to be
+taken only if that metric warns. The dependents walk is the one
+expensive query, which is why the package route does not fold it in:
+the package resource stays a cheap two-point read, fit for the source
+viewer to reuse as its version-picker data source.
 
 ## Two credential planes
 
@@ -154,6 +203,17 @@ website frontend consumes:
   ranged read of a verified version's archive bytes for the source
   viewer ("The source viewer's ranged reads" - the one non-JSON
   response on this plane);
+- `GET /api/v1/user/search?q=<term>` -> the dashboard's package
+  search over the visible (verified) packages ("Search and reverse
+  dependencies"; a missing or malformed `q` is a `400`);
+- `GET /api/v1/user/package/<scope>/<name>` -> one visible package's
+  verified versions (newest first, with yanked state and downloads)
+  and its newest version's runtime dependencies;
+- `GET /api/v1/user/package/<scope>/<name>/reverse-dependencies` ->
+  the packages with a verified version depending on the target (the
+  contract lives in "Search and reverse dependencies"); both package
+  routes answer the authenticated 404 for a package with no verified
+  version;
 - `GET /api/v1/user/tokens` -> token metadata (never hashes);
 - `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
   repeated scopes refused) -> `201` with the plaintext token, exactly once;

@@ -50,6 +50,40 @@ export interface AccountPackage {
     versions: PackageVersion[];
 }
 
+export interface SearchHit {
+    scope: string;
+    name: string;
+    // The newest verified version and its yanked flag.
+    version: string;
+    yanked: boolean;
+    // Total downloads over the package's verified versions.
+    downloads: number;
+}
+
+export interface PackageDetailVersion {
+    version: string;
+    yanked: boolean;
+    published_at: string;
+    downloads: number;
+}
+
+// One visible package's verified versions (newest first) plus the
+// newest version's runtime dependencies as a name -> requirement map.
+export interface PackageDetail {
+    scope: string;
+    name: string;
+    versions: PackageDetailVersion[];
+    newest_version: string;
+    dependencies: Record<string, string>;
+}
+
+export interface ReverseDependent {
+    scope: string;
+    name: string;
+    matching_versions: number;
+    newest_matching_version: string;
+}
+
 export interface TokenInfo {
     id: string;
     name: string;
@@ -158,6 +192,38 @@ export function getPackages(
     fetchFn: FetchLike,
 ): Promise<ApiResult<{ packages: AccountPackage[] }>> {
     return request(fetchFn, "/api/v1/user/packages");
+}
+
+export function searchPackages(
+    fetchFn: FetchLike,
+    query: string,
+): Promise<ApiResult<{ results: SearchHit[] }>> {
+    return request(
+        fetchFn,
+        `/api/v1/user/search?q=${encodeURIComponent(query)}`,
+    );
+}
+
+// The scope and name ride the path unencoded: callers validate them
+// against the registry grammars first (percent-escapes would fail the
+// server's charset checks), exactly like the source viewer's route.
+export function getPackageDetail(
+    fetchFn: FetchLike,
+    scope: string,
+    name: string,
+): Promise<ApiResult<PackageDetail>> {
+    return request(fetchFn, `/api/v1/user/package/${scope}/${name}`);
+}
+
+export function getReverseDependencies(
+    fetchFn: FetchLike,
+    scope: string,
+    name: string,
+): Promise<ApiResult<{ dependents: ReverseDependent[] }>> {
+    return request(
+        fetchFn,
+        `/api/v1/user/package/${scope}/${name}/reverse-dependencies`,
+    );
 }
 
 export function getTokens(

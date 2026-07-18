@@ -459,6 +459,8 @@ uniform_401 "$base" /packages/smoke/withdep.json
 # along.
 uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0
 uniform_401 "$base" /api/v1/user
+uniform_401 "$base" "/api/v1/user/search?q=withdep"
+uniform_401 "$base" /api/v1/user/package/smoke/withdep
 uniform_401 "$base" /unknown/path
 uniform_401 "$base" /me
 uniform_401 "$base" "/api/v1/admin/versions?status=pending" \
@@ -475,6 +477,9 @@ curl -sS -o /dev/null -D "$headers" "$web_base/api/v1/user"
   || fail "the session-plane 401 must not carry the bearer challenge"
 wcheck /api/v1/user/usage 401
 wcheck /api/v1/user/packages 401
+wcheck "/api/v1/user/search?q=withdep" 401
+wcheck /api/v1/user/package/smoke/withdep 401
+wcheck /api/v1/user/package/smoke/withdep/reverse-dependencies 401
 wcheck /api/v1/user/tokens 401
 wcheck /api/v1/user/logout 401 -X POST
 
@@ -887,6 +892,12 @@ check "$artifact_path" 404
 # The source viewer gates on verified the same way; a valid range makes
 # sure the 404 is the gate, not the range policy (checked first).
 session_request GET "/api/v1/user/source/$scope/$name/$version" 404 -H "Range: bytes=-22"
+# So do search and the package routes: a pending-only package has no
+# hits, no detail, and no dependents.
+session_request GET "/api/v1/user/search?q=$name" 200
+expect_body '"results":[]'
+session_request GET "/api/v1/user/package/$scope/$name" 404
+session_request GET "/api/v1/user/package/$scope/$name/reverse-dependencies" 404
 wcheck "/api/v1/admin/versions?status=pending" 403
 expect_body 'verify scope'
 printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
@@ -931,6 +942,21 @@ check "$package_path" 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"0.2.0"'
 check "$artifact_path" 200
+
+step "search and the package routes see the verified version"
+session_request GET "/api/v1/user/search?q=$name" 200
+expect_body "\"scope\":\"$scope\",\"name\":\"$name\",\"version\":\"$version\""
+# A whitespace-only query is the fixed 400 detail.
+session_request GET "/api/v1/user/search?q=%20" 400
+expect_body '1 to 64 characters'
+session_request GET "/api/v1/user/package/$scope/$name" 200
+expect_body "\"newest_version\":\"$version\""
+expect_body '"smoke/nodep":"^0.1"'
+session_request GET "/api/v1/user/package/$scope/$name/reverse-dependencies" 200
+expect_body '"dependents":[]'
+# The fixture's dependency itself was never published: an invisible
+# target is the authenticated 404, before any dependents walk.
+session_request GET /api/v1/user/package/smoke/nodep/reverse-dependencies 404
 
 step "verdicts are idempotent for the same value and conflict otherwise"
 as_verifier

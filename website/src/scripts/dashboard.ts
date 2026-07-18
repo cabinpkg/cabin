@@ -7,12 +7,17 @@ import {
     type FetchLike,
     getPackages,
     getUsage,
+    type SearchHit,
+    searchPackages,
     sharedAuth,
     type Usage,
 } from "../lib/account.ts";
 import { accountShell } from "../lib/accountShell";
 import { ACCOUNT_URLS } from "../lib/constants";
+import { debounce } from "../lib/debounce";
 import { formatBytes, formatCount, formatRelativeTime } from "../lib/format";
+
+const SEARCH_DEBOUNCE_MS = 200;
 
 const doFetch: FetchLike = (input, init) => fetch(input, init);
 
@@ -177,6 +182,98 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
     }
 }
 
+function renderSearchHits(list: HTMLElement, hits: SearchHit[]): void {
+    const template = document.getElementById("search-hit-template");
+    if (!(template instanceof HTMLTemplateElement)) {
+        return;
+    }
+    list.replaceChildren();
+    for (const hit of hits) {
+        const item = template.content.cloneNode(true) as DocumentFragment;
+        const full = `${hit.scope}/${hit.name}`;
+        const link = item.querySelector('[data-slot="link"]');
+        if (link instanceof HTMLAnchorElement) {
+            link.href = `${ACCOUNT_URLS.package}?name=${encodeURIComponent(full)}`;
+        }
+        const name = item.querySelector('[data-slot="name"]');
+        if (name instanceof HTMLElement) {
+            name.textContent = full;
+        }
+        const version = item.querySelector('[data-slot="version"]');
+        if (version instanceof HTMLElement) {
+            version.textContent = hit.version;
+        }
+        const yanked = item.querySelector('[data-slot="yanked"]');
+        if (yanked instanceof HTMLElement) {
+            yanked.hidden = !hit.yanked;
+        }
+        const downloads = item.querySelector('[data-slot="downloads"]');
+        if (downloads instanceof HTMLElement) {
+            downloads.textContent = `${formatCount(hit.downloads)} downloads`;
+        }
+        list.append(item);
+    }
+}
+
+// Wires the package search box: debounced, and generation-guarded so a
+// slow response for an older query can never overwrite a newer one's
+// results. A 401 mid-search drops the whole page to signed-out via
+// `onSignedOut`, like every other account call.
+function wireSearch(root: HTMLElement, onSignedOut: () => void): void {
+    const input = root.querySelector("[data-search-input]");
+    const list = root.querySelector("[data-search-results]");
+    const status = root.querySelector("[data-search-status]");
+    if (
+        !(input instanceof HTMLInputElement) ||
+        !(list instanceof HTMLElement) ||
+        !(status instanceof HTMLElement)
+    ) {
+        return;
+    }
+    const showStatus = (text: string) => {
+        status.textContent = text;
+        status.hidden = text === "";
+    };
+    // Bumped on every keystroke - not merely when the debounced run
+    // starts - so a response in flight for an older query can never
+    // render into the debounce window of a newer one.
+    let generation = 0;
+    const run = async () => {
+        const query = input.value.trim();
+        const current = generation;
+        if (query === "") {
+            list.replaceChildren();
+            showStatus("");
+            return;
+        }
+        const result = await searchPackages(doFetch, query);
+        if (current !== generation) {
+            return;
+        }
+        const outcome = asOutcome(result);
+        if (outcome.state === "signed-out") {
+            onSignedOut();
+            return;
+        }
+        if (outcome.state === "failed") {
+            list.replaceChildren();
+            showStatus(outcome.message);
+            return;
+        }
+        renderSearchHits(list, outcome.data.results);
+        showStatus(
+            outcome.data.results.length === 0 ? "No packages matched." : "",
+        );
+    };
+    const debouncedRun = debounce(() => {
+        void run();
+    }, SEARCH_DEBOUNCE_MS);
+    input.addEventListener("input", () => {
+        generation += 1;
+        debouncedRun();
+    });
+}
+
 const shell = accountShell();
 if (shell) {
     sharedAuth().then(async (auth) => {
@@ -215,6 +312,7 @@ if (shell) {
         renderUsage(shell.root, usageOutcome.data);
         renderDownloadTotal(shell.root, packagesOutcome.data.packages);
         renderPackages(shell.root, packagesOutcome.data.packages);
+        wireSearch(shell.root, () => shell.show("signed-out"));
         shell.show("content");
     });
 }
