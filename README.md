@@ -42,6 +42,10 @@ This project was initially funded in 2018 by the
 with additional financial support from
 [Shigeru Urushibara of UL Systems, Inc.](https://www.ulsystems.co.jp/company/management-committee.html).
 
+Additionally, Cabin's development is supported by Anthropic's
+[Claude for Open Source](https://claude.com/contact-sales/claude-for-oss)
+program, which accepted [the project's founder](https://github.com/ken-matsui) in 2026.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
