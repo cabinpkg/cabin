@@ -489,14 +489,13 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-manifest",
  "camino",
- "flate2",
  "predicates",
  "semver",
  "serde",
  "serde_json",
  "sha2",
- "tar",
  "thiserror",
+ "zip",
 ]
 
 [[package]]
@@ -571,13 +570,14 @@ dependencies = [
  "assert_cmd",
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-fs",
  "cabinpkg-manifest",
  "cabinpkg-package",
  "camino",
+ "crc32fast",
  "flate2",
  "serde",
  "serde_json",
- "tar",
  "thiserror",
 ]
 

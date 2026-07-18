@@ -994,7 +994,7 @@ fn publish_dry_run_with_an_http_index_opens_no_connection() {
         ));
 
     assert!(
-        dir.path().join("staging/acme-demo-0.1.0.tar.gz").is_file(),
+        dir.path().join("staging/acme-demo-0.1.0.zip").is_file(),
         "the dry-run must stage locally into --output-dir"
     );
     match listener.accept() {
@@ -1055,7 +1055,7 @@ fn publish_uploads_bytes_identical_to_cabin_package() {
         .arg(&dist)
         .assert()
         .success();
-    let packaged_archive = fs::read(dist.join("acme-demo-0.1.0.tar.gz")).unwrap();
+    let packaged_archive = fs::read(dist.join("acme-demo-0.1.0.zip")).unwrap();
     let packaged_metadata = fs::read(dist.join("acme-demo-0.1.0.json")).unwrap();
 
     let server = RemoteRegistryServer::start(true, true, &[201]);

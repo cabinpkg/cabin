@@ -1,6 +1,4 @@
 use super::*;
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use sha2::Digest;
 use std::fs::File;
 use std::io::Write;
@@ -18,42 +16,24 @@ fn manifest_for(name: &str, version: &str, deps: &[(&str, &str)]) -> String {
     out
 }
 
-/// Build a `.tar.gz` containing a single entry with the given raw
-/// path bytes, entry type, and body.  Returns its `sha256` hex.
-/// Same as [`make_archive`] but the caller chooses the entry type
-/// and writes the path bytes directly so we can construct unsafe
-/// archive entries that the tar crate's safe API would refuse.
-fn make_archive_with_raw_name(
-    path: &Path,
-    raw_name: &str,
-    entry_type: tar::EntryType,
-    body: &[u8],
-) -> String {
+/// Build a `.zip` containing a single entry with the given raw path
+/// name and body.  Returns its `sha256` hex.  Same as [`make_archive`]
+/// but writes the entry name verbatim so we can construct an unsafe
+/// archive entry (path traversal) that a safe reader must refuse - the
+/// zip writer permits `..` in a name, extraction rejects it.
+fn make_archive_with_raw_name(path: &Path, raw_name: &str, body: &[u8]) -> String {
     if let Some(parent) = path.parent() {
         assert_fs::fixture::ChildPath::new(parent)
             .create_dir_all()
             .unwrap();
     }
     let f = File::create(path).unwrap();
-    let enc = GzEncoder::new(f, Compression::default());
-    let mut builder = tar::Builder::new(enc);
-    let mut header = tar::Header::new_old();
-    header.set_size(body.len() as u64);
-    header.set_mode(0o644);
-    header.set_entry_type(entry_type);
-    {
-        let bytes = raw_name.as_bytes();
-        let old = header.as_old_mut();
-        for b in &mut old.name[..] {
-            *b = 0;
-        }
-        let n = bytes.len().min(old.name.len());
-        old.name[..n].copy_from_slice(&bytes[..n]);
-    }
-    header.set_cksum();
-    builder.append(&header, body).unwrap();
-    let enc = builder.into_inner().unwrap();
-    enc.finish().unwrap().flush().unwrap();
+    let mut writer = zip::ZipWriter::new(f);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    writer.start_file(raw_name, options).unwrap();
+    writer.write_all(body).unwrap();
+    writer.finish().unwrap().flush().unwrap();
     sha256_hex(path)
 }
 
@@ -93,7 +73,7 @@ const APP_MAIN: &str = "#include \"fmt.h\"\nint main() { say_hello(); return 0; 
 fn fetch_extracts_registry_package_into_cache() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -101,7 +81,7 @@ fn fetch_extracts_registry_package_into_cache() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -123,7 +103,7 @@ fn fetch_extracts_registry_package_into_cache() {
     assert!(lock_body.contains(&format!("checksum = \"sha256:{hex}\"")));
 
     // Archive present in the checksum-addressed cache.
-    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.tar.gz"));
+    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.zip"));
     assert!(archive_in_cache.is_file(), "archive should be cached");
     // Source extracted with cabin.toml at root.
     let source_in_cache = cache.join("sources/sha256").join(&hex);
@@ -134,7 +114,7 @@ fn fetch_extracts_registry_package_into_cache() {
 fn fetch_emits_json_when_requested() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -142,7 +122,7 @@ fn fetch_emits_json_when_requested() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     let value = run_json(
@@ -167,7 +147,7 @@ fn build_links_against_registry_package() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -175,7 +155,7 @@ fn build_links_against_registry_package() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     let build_dir = dir.path().join("build");
@@ -296,7 +276,7 @@ deps = ["spdlog"]
     dir.child("app/src/main.cc").write_str(app_main).unwrap();
 
     // fmt archive (library).
-    let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let fmt_archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let fmt_hex = make_archive(&fmt_archive, &fmt_archive_entries());
 
     // spdlog archive: library that depends on fmt.
@@ -317,7 +297,7 @@ deps = ["fmt"]
     let spdlog_header = "#pragma once\nvoid log_hello();\n";
     let spdlog_src =
         "#include \"spdlog.h\"\n#include \"fmt.h\"\nvoid log_hello() { say_hello(); }\n";
-    let spdlog_archive = dir.path().join("artifacts/spdlog-1.13.0.tar.gz");
+    let spdlog_archive = dir.path().join("artifacts/spdlog-1.13.0.zip");
     let spdlog_hex = make_archive(
         &spdlog_archive,
         &[
@@ -333,7 +313,7 @@ deps = ["fmt"]
         "10.2.1",
         "{}",
         &fmt_hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
     write_index_entry(
         &dir.path().join("index"),
@@ -341,7 +321,7 @@ deps = ["fmt"]
         "1.13.0",
         r#"{ "fmt": ">=10.0.0 <11.0.0" }"#,
         &spdlog_hex,
-        "../artifacts/spdlog-1.13.0.tar.gz",
+        "../artifacts/spdlog-1.13.0.zip",
     );
 
     let build_dir = dir.path().join("build");
@@ -397,7 +377,7 @@ deps = ["fmt"]
 fn fetch_fails_on_checksum_mismatch() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     make_archive(&archive, &fmt_archive_entries());
     // Index advertises a checksum that doesn't match the archive's
     // actual bytes.
@@ -408,7 +388,7 @@ fn fetch_fails_on_checksum_mismatch() {
         "10.2.1",
         "{}",
         &bogus_hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -428,16 +408,15 @@ fn fetch_fails_on_checksum_mismatch() {
 fn fetch_rejects_unsafe_archive() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
-    let hex =
-        make_archive_with_raw_name(&archive, "../escape.txt", tar::EntryType::Regular, b"evil");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
+    let hex = make_archive_with_raw_name(&archive, "../escape.txt", b"evil");
     write_index_entry(
         &dir.path().join("index"),
         "fmt",
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     cabin()
@@ -458,7 +437,7 @@ fn fetch_rejects_unsafe_archive() {
 fn fetch_fails_when_index_has_no_source() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &hex);
 
@@ -479,7 +458,7 @@ fn fetch_fails_when_index_has_no_source() {
 fn frozen_uses_cache_after_initial_fetch() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -487,7 +466,7 @@ fn frozen_uses_cache_after_initial_fetch() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("cache");
@@ -519,7 +498,7 @@ fn frozen_uses_cache_after_initial_fetch() {
 fn frozen_fails_on_cache_miss() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -527,7 +506,7 @@ fn frozen_fails_on_cache_miss() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
     // Pre-populate a lockfile so --frozen can run resolution.
     cabin()
@@ -556,7 +535,7 @@ fn frozen_fails_on_cache_miss() {
 fn frozen_does_not_write_lockfile_or_cache() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -564,7 +543,7 @@ fn frozen_does_not_write_lockfile_or_cache() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     // No lockfile, no cache pre-populated. --frozen must refuse.
@@ -581,7 +560,7 @@ fn frozen_does_not_write_lockfile_or_cache() {
     // Lockfile must not have been created by the failed run.
     assert!(!dir.path().join("app/cabin.lock").exists());
     // Cache must not have been populated by the failed run.
-    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.tar.gz"));
+    let archive_in_cache = cache.join("archives/sha256").join(format!("{hex}.zip"));
     assert!(!archive_in_cache.exists());
 }
 
@@ -595,7 +574,7 @@ fn fetch_fails_when_archive_manifest_disagrees() {
 name = "fmt"
 version = "10.1.0"
 "#;
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &entries);
     write_index_entry(
         &dir.path().join("index"),
@@ -603,7 +582,7 @@ version = "10.1.0"
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
     let cache = dir.path().join("cache");
     cabin()
@@ -636,7 +615,7 @@ fn fetch_with_no_versioned_deps_succeeds() {
 fn build_uses_separate_cache_dir_when_specified() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.tar.gz");
+    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
     let hex = make_archive(&archive, &fmt_archive_entries());
     write_index_entry(
         &dir.path().join("index"),
@@ -644,7 +623,7 @@ fn build_uses_separate_cache_dir_when_specified() {
         "10.2.1",
         "{}",
         &hex,
-        "../artifacts/fmt-10.2.1.tar.gz",
+        "../artifacts/fmt-10.2.1.zip",
     );
 
     let cache = dir.path().join("alt-cache");
@@ -660,7 +639,7 @@ fn build_uses_separate_cache_dir_when_specified() {
     assert!(
         cache
             .join("archives/sha256")
-            .join(format!("{hex}.tar.gz"))
+            .join(format!("{hex}.zip"))
             .is_file()
     );
     // Default cache must NOT have been populated.

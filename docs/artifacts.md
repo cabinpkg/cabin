@@ -1,6 +1,6 @@
 # Source Artifacts
 
-Cabin source-artifact fetching takes a resolved package set plus an index that points at `.tar.gz`
+Cabin source-artifact fetching takes a resolved package set plus an index that points at source
 archives.  It verifies SHA-256 checksums, copies archives into a checksum-addressed cache, safely
 extracts them, validates the extracted manifests, and feeds the result into the build planner.
 
@@ -10,16 +10,16 @@ Git transports are deferred.
 
 ## Source archive format
 
-Every registry package source archive must be a `.tar.gz` whose root contains the package's
+Every registry package source archive must be a `.zip` whose root contains the package's
 `cabin.toml`.  `cabin package` produces archives in exactly this shape.  See
 [`package-format.md`](package-format.md) for the producer contract, including the determinism rules
 and the include / exclude policy.  `cabin publish --registry-dir` writes those archives into a local
-file registry under `<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` (publish
+file registry under `<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>.zip` (publish
 requires a scoped name), matching what the artifact fetcher reads back; see
 [`registry-design.md`](registry-design.md).
 
 ```
-fmt-10.2.1.tar.gz
+fmt-10.2.1.zip
 |-- cabin.toml
 |-- include/
 |   `-- fmt.h
@@ -46,15 +46,15 @@ alongside its `checksum`:
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt-10.2.1.tar.gz",
-  "format": "tar.gz"
+  "path": "../artifacts/fmt-10.2.1.zip",
+  "format": "zip"
 }
 ```
 
 | Field | Allowed values | Description |
 | --- | --- | --- |
 | `type` | `"archive"` | Local source archive. |
-| `format` | `"tar.gz"` | Gzipped tar. |
+| `format` | `"zip"` | Zip archive. |
 | `path` | non-empty string | Absolute or relative filesystem path.  Relative paths resolve against the directory containing the `<package>.json` index file. |
 
 `checksum` is the `sha256:<hex>` digest of the archive's bytes.  It is required for any version
@@ -69,7 +69,7 @@ system; see the precedence chain below):
 <cache>/
   archives/
     sha256/
-      <hex>.tar.gz
+      <hex>.zip
   sources/
     sha256/
       <hex>/
@@ -134,7 +134,7 @@ differs only in how archive bytes arrive at `cabin-artifact`:
    `(name, version)` that the resolved set requires.
 3. The bytes are handed to `cabin-artifact` as a [`FetchSource::InMemoryArchive`].  From there, the
    existing artifact path verifies SHA-256, atomic-renames the bytes into
-   `<cache>/archives/sha256/<hex>.tar.gz`, and safely extracts into `<cache>/sources/sha256/<hex>/`.
+   `<cache>/archives/sha256/<hex>.zip`, and safely extracts into `<cache>/sources/sha256/<hex>/`.
 
 For local archive sources, cache-hit behavior is unchanged: an archive whose SHA-256 is already
 present in the artifact cache is not read again from the source path.  For HTTP sources, Cabin
@@ -148,7 +148,7 @@ per resolved package in that run.
 
 - on a cache hit, the cached archive is hashed and compared against the expected `sha256` digest
   before being reused;
-- on a cache miss (and not `--frozen`), the source archive is copied into a `<hex>.tar.gz.partial`
+- on a cache miss (and not `--frozen`), the source archive is copied into a `<hex>.zip.partial`
   sibling while being hashed; if the bytes do not match the expected digest, the partial file is
   removed and the run fails with `checksum mismatch for ...: expected ..., got ...`.
 

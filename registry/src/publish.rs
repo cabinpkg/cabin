@@ -59,6 +59,7 @@ pub const INVALID_NAME: &str = "invalid package name";
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
 pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
 pub const CHECKSUM_MISMATCH: &str = "checksum does not match the archive bytes";
+pub const NOT_ZIP: &str = "archive is not a zip container";
 
 /// The canonical per-version metadata document `cabin package` emits
 /// (`cabin_package::metadata::PackageMetadata`), mirrored key for key.
@@ -138,13 +139,12 @@ pub fn validate_metadata(
         return Err(UNSUPPORTED_SCHEMA);
     }
     let canonical_name = format!("{url_scope}/{url_name}");
-    let canonical_source_path = format!(
-        "../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}.tar.gz"
-    );
+    let canonical_source_path =
+        format!("../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}.zip");
     if parsed.name != canonical_name
         || parsed.version != url_version
         || parsed.source.kind != "archive"
-        || parsed.source.format != "tar.gz"
+        || parsed.source.format != "zip"
         || parsed.source.path != canonical_source_path
     {
         return Err(IDENTITY_MISMATCH);
@@ -180,6 +180,53 @@ pub fn verify_checksum(metadata: &VersionMetadata, computed_hex: &str) -> Result
     }
 }
 
+/// Cheap, fixed-offset container fast-fail for the strict zip profile:
+/// the body must open with a local-file-header signature and close with an
+/// End Of Central Directory record sitting at exactly `len - 22` (a single
+/// disk, no EOCD comment, and a central directory that ends where the EOCD
+/// begins). The profile forbids EOCD comments precisely so this stays an
+/// O(1) read instead of a scan back from the tail.
+///
+/// This is only the container gate. The full profile - compression
+/// method, general-purpose bits, extra fields, local-vs-central agreement,
+/// CRCs - lives in the async verifier (`registry/docs/archive-format.md`);
+/// signature-shaped garbage that clears this check enters the pending
+/// queue and burns only bounded verifier work under the existing
+/// size / rate / quota controls.
+///
+/// # Errors
+///
+/// [`NOT_ZIP`] (a `400` detail) for any body that is not a well-formed
+/// single-disk zip container.
+pub fn sanity_check_zip(archive: &[u8]) -> Result<(), &'static str> {
+    if archive.len() < 22 || !archive.starts_with(b"PK\x03\x04") {
+        return Err(NOT_ZIP);
+    }
+    let eocd = archive.len() - 22;
+    let u16_at = |off: usize| u16::from_le_bytes([archive[off], archive[off + 1]]);
+    let u32_at = |off: usize| {
+        u32::from_le_bytes([
+            archive[off],
+            archive[off + 1],
+            archive[off + 2],
+            archive[off + 3],
+        ])
+    };
+    let signature_ok = &archive[eocd..eocd + 4] == b"PK\x05\x06";
+    let disks_zero = u16_at(eocd + 4) == 0 && u16_at(eocd + 6) == 0;
+    let comment_zero = u16_at(eocd + 20) == 0;
+    let cd_size = u32_at(eocd + 12);
+    let cd_offset = u32_at(eocd + 16);
+    // Widen before summing: on wasm32 both fields near `u32::MAX` would
+    // overflow a 32-bit `usize`.
+    let layout_ok = u64::from(cd_offset) + u64::from(cd_size) + 22 == archive.len() as u64;
+    if signature_ok && disks_zero && comment_zero && layout_ok {
+        Ok(())
+    } else {
+        Err(NOT_ZIP)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,8 +251,8 @@ mod tests {
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}.tar.gz",
-    "format": "tar.gz"
+    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}.zip",
+    "format": "zip"
   }}
 }}"#
         )
@@ -275,7 +322,7 @@ mod tests {
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
   "yanked": false,
   "checksum": "sha256:bb",
-  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz", "format": "tar.gz"}
+  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip", "format": "zip"}
 }"#;
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
@@ -344,8 +391,8 @@ mod tests {
         );
         // A source path pointing at some other artifact.
         let moved = body.replace(
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
-            "../elsewhere.tar.gz",
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            "../elsewhere.zip",
         );
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "10.2.1", moved.as_bytes()).unwrap_err(),
@@ -354,8 +401,8 @@ mod tests {
         // The pre-scopes source path shape (bare directory, bare
         // filename) is not the canonical path any more.
         let unscoped = body.replace(
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz",
-            "../artifacts/fmt/fmt-10.2.1.tar.gz",
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            "../artifacts/fmt/fmt-10.2.1.zip",
         );
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "10.2.1", unscoped.as_bytes()).unwrap_err(),
@@ -402,5 +449,101 @@ mod tests {
         let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "0011");
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert_eq!(verify_checksum(&parsed, "0011"), Err(CHECKSUM_MISMATCH));
+    }
+
+    /// A minimal, spec-valid zip: one stored, zero-length entry named
+    /// `a` (CRC and sizes all 0), a matching central-directory header,
+    /// and a comment-less EOCD at `len - 22`.
+    fn minimal_zip() -> Vec<u8> {
+        fn push_u16(zip: &mut Vec<u8>, value: u16) {
+            zip.extend_from_slice(&value.to_le_bytes());
+        }
+        fn push_u32(zip: &mut Vec<u8>, value: u32) {
+            zip.extend_from_slice(&value.to_le_bytes());
+        }
+        let name = b"a";
+        let name_len = u16::try_from(name.len()).unwrap();
+        let mut zip = Vec::new();
+
+        // Local file header.
+        zip.extend_from_slice(b"PK\x03\x04");
+        push_u16(&mut zip, 20); // version needed
+        push_u16(&mut zip, 0); // general-purpose flags
+        push_u16(&mut zip, 0); // method: store
+        push_u16(&mut zip, 0); // mod time
+        push_u16(&mut zip, 0x21); // mod date: 1980-01-01
+        push_u32(&mut zip, 0); // crc32
+        push_u32(&mut zip, 0); // compressed size
+        push_u32(&mut zip, 0); // uncompressed size
+        push_u16(&mut zip, name_len);
+        push_u16(&mut zip, 0); // extra length
+        zip.extend_from_slice(name);
+        let cd_offset = u32::try_from(zip.len()).unwrap();
+
+        // Central directory header mirroring the local one.
+        zip.extend_from_slice(b"PK\x01\x02");
+        push_u16(&mut zip, 20); // version made by
+        push_u16(&mut zip, 20); // version needed
+        push_u16(&mut zip, 0); // general-purpose flags
+        push_u16(&mut zip, 0); // method
+        push_u16(&mut zip, 0); // mod time
+        push_u16(&mut zip, 0x21); // mod date
+        push_u32(&mut zip, 0); // crc32
+        push_u32(&mut zip, 0); // compressed size
+        push_u32(&mut zip, 0); // uncompressed size
+        push_u16(&mut zip, name_len);
+        push_u16(&mut zip, 0); // extra length
+        push_u16(&mut zip, 0); // comment length
+        push_u16(&mut zip, 0); // disk number start
+        push_u16(&mut zip, 0); // internal attrs
+        push_u32(&mut zip, 0); // external attrs
+        push_u32(&mut zip, 0); // local header offset
+        zip.extend_from_slice(name);
+        let cd_size = u32::try_from(zip.len()).unwrap() - cd_offset;
+
+        // End of central directory record.
+        zip.extend_from_slice(b"PK\x05\x06");
+        push_u16(&mut zip, 0); // disk number
+        push_u16(&mut zip, 0); // central-directory start disk
+        push_u16(&mut zip, 1); // entries this disk
+        push_u16(&mut zip, 1); // entries total
+        push_u32(&mut zip, cd_size);
+        push_u32(&mut zip, cd_offset);
+        push_u16(&mut zip, 0); // comment length
+        zip
+    }
+
+    #[test]
+    fn sanity_check_zip_accepts_a_minimal_zip() {
+        assert_eq!(sanity_check_zip(&minimal_zip()), Ok(()));
+    }
+
+    #[test]
+    fn sanity_check_zip_rejects_non_profile_containers() {
+        // Too short to hold an EOCD, with and without the local signature.
+        assert_eq!(sanity_check_zip(b""), Err(NOT_ZIP));
+        assert_eq!(sanity_check_zip(b"PK\x03\x04"), Err(NOT_ZIP));
+
+        // A gzip member never opens with the local-file-header signature.
+        let mut gzip = vec![0u8; 30];
+        gzip[0] = 0x1f;
+        gzip[1] = 0x8b;
+        gzip[2] = 0x08;
+        assert_eq!(sanity_check_zip(&gzip), Err(NOT_ZIP));
+
+        // A genuinely valid zip carrying a one-byte EOCD comment: the
+        // profile forbids comments, and the EOCD no longer sits at
+        // `len - 22`, so the fixed-offset read misses the signature.
+        let mut commented = minimal_zip();
+        let len = commented.len();
+        commented[len - 2] = 1; // EOCD comment length
+        commented.push(b'!');
+        assert_eq!(sanity_check_zip(&commented), Err(NOT_ZIP));
+
+        // A central-directory offset that no longer tiles the file.
+        let mut bad_layout = minimal_zip();
+        let len = bad_layout.len();
+        bad_layout[len - 6] = bad_layout[len - 6].wrapping_add(1);
+        assert_eq!(sanity_check_zip(&bad_layout), Err(NOT_ZIP));
     }
 }

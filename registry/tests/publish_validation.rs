@@ -17,7 +17,7 @@ use cabin_registry_worker::publish::{
 use sha2::{Digest, Sha256};
 
 const FROZEN_METADATA: &[u8] = include_bytes!("fixtures/smoke-withdep-0.2.0.json");
-const FROZEN_ARCHIVE: &[u8] = include_bytes!("fixtures/smoke-withdep-0.2.0.tar.gz");
+const FROZEN_ARCHIVE: &[u8] = include_bytes!("fixtures/smoke-withdep-0.2.0.zip");
 
 /// Client-side framing (`cabin_registry_api::encode_publish_body`).
 fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
@@ -119,7 +119,7 @@ fn generated_fixtures_pass_the_full_validation_path() {
         if metadata_path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
-        let archive_path = metadata_path.with_extension("tar.gz");
+        let archive_path = metadata_path.with_extension("zip");
         let metadata = std::fs::read(&metadata_path).unwrap();
         let archive = std::fs::read(&archive_path)
             .unwrap_or_else(|err| panic!("archive for {metadata_path:?} must exist: {err}"));

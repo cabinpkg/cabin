@@ -341,7 +341,7 @@ archive, and PATCHes the verdict back. The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
 nests the directory (`artifacts/<scope>/<name>/`) and flattens the
-filename (`<scope>-<name>-<version>.tar.gz`), and the verdict PATCH
+filename (`<scope>-<name>-<version>.zip`), and the verdict PATCH
 carries the `<scope>/<name>/<version>` triple.
 
 Fail-safe: a failed or skipped run leaves versions pending, which only

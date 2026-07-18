@@ -56,8 +56,8 @@ impl std::fmt::Debug for SourceContext<'_> {
 ///    index files are read from `path/<config.packages>/`.  Source
 ///    paths recorded in those package files resolve relative to the
 ///    package files' parent directory, so the published
-///    `"../artifacts/<name>/<name>-<version>.tar.gz"` form lands at
-///    `path/artifacts/<name>/<name>-<version>.tar.gz`.
+///    `"../artifacts/<name>/<name>-<version>.zip"` form lands at
+///    `path/artifacts/<name>/<name>-<version>.zip`.
 ///    The `config.artifacts` field is accepted for schema
 ///    compatibility but is not consulted during resolution.
 /// 2. **Flat layout**.  Used by hand-written
@@ -508,7 +508,7 @@ fn reject_compiler_condition(
 
 /// Parse and resolve a `source` block on an index version entry.
 ///
-/// Validates `type` and `format` (`archive` / `tar.gz` only), then
+/// Validates `type` and `format` (`archive` / `zip` only), then
 /// hands the raw `path` value to `context` to decide whether it
 /// becomes a [`SourceLocation::LocalPath`] or a
 /// [`SourceLocation::HttpUrl`].
@@ -530,7 +530,7 @@ fn parse_source_artifact(
         }
     };
     let format = match format.as_str() {
-        "tar.gz" => ArchiveFormat::TarGz,
+        "zip" => ArchiveFormat::Zip,
         other => {
             return Err(IndexError::UnsupportedSourceFormat {
                 package: package.to_owned(),
@@ -784,8 +784,8 @@ mod tests {
                         "checksum": "sha256:x",
                         "source": {
                             "type": "archive",
-                            "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz",
-                            "format": "tar.gz"
+                            "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+                            "format": "zip"
                         }
                     }
                 }
@@ -802,7 +802,7 @@ mod tests {
             SourceLocation::LocalPath(p) => assert_eq!(
                 p,
                 &dir.path()
-                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz")
+                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip")
             ),
             other @ SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {other:?}"),
         }
@@ -1142,8 +1142,8 @@ mod tests {
                         "checksum": "sha256:abc",
                         "source": {
                             "type": "archive",
-                            "path": "../artifacts/fmt-10.2.1.tar.gz",
-                            "format": "tar.gz"
+                            "path": "../artifacts/fmt-10.2.1.zip",
+                            "format": "zip"
                         }
                     }
                 }
@@ -1158,11 +1158,11 @@ mod tests {
             .unwrap();
         let source = meta.source.as_ref().expect("source must be parsed");
         assert_eq!(source.kind, crate::SourceArtifactKind::Archive);
-        assert_eq!(source.format, crate::ArchiveFormat::TarGz);
+        assert_eq!(source.format, crate::ArchiveFormat::Zip);
         // Relative path resolved against the index file's directory.
         match &source.location {
             SourceLocation::LocalPath(p) => {
-                assert_eq!(p, &dir.path().join("../artifacts/fmt-10.2.1.tar.gz"));
+                assert_eq!(p, &dir.path().join("../artifacts/fmt-10.2.1.zip"));
             }
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {:?}", source.location),
         }
@@ -1172,9 +1172,9 @@ mod tests {
     fn loads_source_artifact_with_absolute_path() {
         let dir = TempDir::new().unwrap();
         let abs = if cfg!(windows) {
-            "C:/artifacts/fmt-10.2.1.tar.gz".to_string()
+            "C:/artifacts/fmt-10.2.1.zip".to_string()
         } else {
-            "/var/artifacts/fmt-10.2.1.tar.gz".to_string()
+            "/var/artifacts/fmt-10.2.1.zip".to_string()
         };
         let body = format!(
             r#"{{
@@ -1185,7 +1185,7 @@ mod tests {
                         "dependencies": {{}},
                         "yanked": false,
                         "checksum": "sha256:abc",
-                        "source": {{ "type": "archive", "path": "{abs}", "format": "tar.gz" }}
+                        "source": {{ "type": "archive", "path": "{abs}", "format": "zip" }}
                     }}
                 }}
             }}"#
@@ -1214,7 +1214,7 @@ mod tests {
                 "name": "fmt",
                 "versions": {
                     "10.2.1": {
-                        "source": { "type": "http", "path": "x", "format": "tar.gz" }
+                        "source": { "type": "http", "path": "x", "format": "zip" }
                     }
                 }
             }"#,
@@ -1268,7 +1268,7 @@ mod tests {
                 "name": "fmt",
                 "versions": {
                     "10.2.1": {
-                        "source": { "type": "archive", "path": "", "format": "tar.gz" }
+                        "source": { "type": "archive", "path": "", "format": "zip" }
                     }
                 }
             }"#,
@@ -1307,8 +1307,8 @@ mod tests {
                         "checksum": "sha256:abc",
                         "source": {
                             "type": "archive",
-                            "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
-                            "format": "tar.gz"
+                            "path": "../artifacts/fmt/fmt-10.2.1.zip",
+                            "format": "zip"
                         }
                     }
                 }
@@ -1324,9 +1324,7 @@ mod tests {
         let source = meta.source.as_ref().unwrap();
         // `../artifacts/...` resolves against `packages/` to the
         // registry's artifacts directory.
-        let expected = dir
-            .path()
-            .join("packages/../artifacts/fmt/fmt-10.2.1.tar.gz");
+        let expected = dir.path().join("packages/../artifacts/fmt/fmt-10.2.1.zip");
         match &source.location {
             SourceLocation::LocalPath(p) => assert_eq!(p, &expected),
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {:?}", source.location),

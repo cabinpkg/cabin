@@ -5,7 +5,7 @@
 //! - `cabin package` (and the `cabin publish` dry-run flow):
 //!   a single-package manifest is validated, the source tree is
 //!   enumerated under a fixed include / exclude policy, and a
-//!   deterministic `.tar.gz` plus a canonical per-version metadata
+//!   deterministic `.zip` plus a canonical per-version metadata
 //!   document are written to an output directory.
 //! - `cabin init` and `cabin new`: a minimal `cabin.toml` plus an
 //!   `src/main.cc` are generated at a target directory through the
@@ -18,9 +18,9 @@
 //! - it must not implement networking, server-side functionality, or
 //!   publishing - `cabin-publish` orchestrates the dry-run flow on top
 //!   of this crate;
-//! - the archive format is intentionally narrow: `tar.gz` only,
-//!   regular files and directories only, deterministic byte-for-byte
-//!   for the same logical input.
+//! - the archive format is intentionally narrow: a strict `zip`
+//!   profile, regular files only (directories implied), deterministic
+//!   byte-for-byte for the same logical input.
 
 pub mod archive;
 pub mod error;
@@ -42,7 +42,7 @@ pub struct PackageRequest<'a> {
     /// Path to the package's `cabin.toml`.  Must point at a single
     /// package; pure-workspace roots are rejected.
     pub manifest_path: &'a Path,
-    /// Directory where the archive (`<name>-<version>.tar.gz`) and the
+    /// Directory where the archive (`<name>-<version>.zip`) and the
     /// metadata document (`<name>-<version>.json`) are written.
     pub output_dir: &'a Path,
 }
@@ -66,12 +66,12 @@ pub struct PackagedArtifact {
 ///
 /// The pieces (`archive_bytes`, `checksum`, `metadata`) are
 /// byte-deterministic for the same logical input - see
-/// [`archive::build_tar_gz`].
+/// [`archive::build_zip`].
 #[derive(Debug, Clone)]
 pub struct StagedPackage {
     pub name: PackageName,
     pub version: semver::Version,
-    /// Bytes of the deterministic `.tar.gz` source archive.
+    /// Bytes of the deterministic `.zip` source archive.
     pub archive_bytes: Vec<u8>,
     /// Full `sha256:<hex>` digest of `archive_bytes`.
     pub checksum: String,
@@ -87,7 +87,7 @@ pub struct StagedPackage {
 }
 
 /// Validate the package, walk the source tree under the fixed include
-/// / exclude policy, build the deterministic `.tar.gz`, hash it, and
+/// / exclude policy, build the deterministic `.zip`, hash it, and
 /// generate canonical per-version metadata - all in memory.  No files
 /// are written.
 ///
@@ -124,7 +124,7 @@ pub struct StagedPackage {
 /// ([`validate::load_and_validate_with_project`]), source-tree
 /// enumeration ([`archive::collect_package_files`],
 /// [`archive::ensure_manifest_included`]), and archive construction
-/// ([`archive::build_tar_gz`]).  When the on-disk manifest carries
+/// ([`archive::build_zip`]).  When the on-disk manifest carries
 /// `{ workspace = true }` markers - standard fields or dependency
 /// entries - rewriting them into the resolved literals yields
 /// [`PackageError::Io`] if the manifest cannot be re-read,
@@ -156,7 +156,7 @@ pub fn stage_with_project(
 
     let manifest_substitute = resolve_manifest_substitute(&validated, workspace_dep_requirements)?;
 
-    let archive_bytes = archive::build_tar_gz(&files, manifest_substitute.as_deref())?;
+    let archive_bytes = archive::build_zip(&files, manifest_substitute.as_deref())?;
     let archive_hex = archive::sha256_hex(&archive_bytes);
     let checksum = format!("sha256:{archive_hex}");
 
@@ -268,8 +268,8 @@ fn lexically_normalize(path: &Path) -> PathBuf {
 /// `request.output_dir`.
 ///
 /// The archive is byte-deterministic for the same logical input; the
-/// tar/gzip normalization is described on [`archive::build_tar_gz`],
-/// and the include / exclude policy is fixed.
+/// zip normalization is described on [`archive::build_zip`], and the
+/// include / exclude policy is fixed.
 ///
 /// Rules around overwriting existing files in `output_dir`:
 /// - if the archive at the target path is byte-identical, the run
@@ -350,7 +350,7 @@ pub fn write_staged(
     })
 }
 
-/// Conventional `<stem>-<version>.tar.gz` archive filename, where a
+/// Conventional `<stem>-<version>.zip` archive filename, where a
 /// scoped name flattens to `<scope>-<name>` so the file stays
 /// self-identifying outside any registry directory tree.  Distinct
 /// packages can flatten to the same stem (`a-b/c`, `a/b-c`, and bare
@@ -358,7 +358,7 @@ pub fn write_staged(
 /// one package only; `write_idempotent` fails closed on a byte
 /// mismatch rather than clobbering another package's files.
 pub(crate) fn archive_filename(name: &PackageName, version: &semver::Version) -> String {
-    format!("{}-{version}.tar.gz", name.artifact_stem())
+    format!("{}-{version}.zip", name.artifact_stem())
 }
 
 /// Conventional `<stem>-<version>.json` metadata filename; see
@@ -422,15 +422,11 @@ sources = ["src/lib.cc"]
 
     /// Extract the archived `cabin.toml` text from a staged package.
     fn archived_manifest_text(staged: &StagedPackage) -> String {
-        let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(&staged.archive_bytes));
-        let mut tar = tar::Archive::new(gz);
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&staged.archive_bytes)).unwrap();
         let mut manifest_text = String::new();
-        for entry in tar.entries().unwrap() {
-            let mut entry = entry.unwrap();
-            if entry.path().unwrap().to_str() == Some("cabin.toml") {
-                use std::io::Read;
-                entry.read_to_string(&mut manifest_text).unwrap();
-            }
+        if let Ok(mut entry) = zip.by_name("cabin.toml") {
+            use std::io::Read;
+            entry.read_to_string(&mut manifest_text).unwrap();
         }
         manifest_text
     }
@@ -476,7 +472,7 @@ fmt = { workspace = true, features = ["color"] }
     fn staged_filenames_flatten_the_scope() {
         let name = PackageName::new("fmtlib/fmt").unwrap();
         let version = semver::Version::parse("1.0.0").unwrap();
-        assert_eq!(archive_filename(&name, &version), "fmtlib-fmt-1.0.0.tar.gz");
+        assert_eq!(archive_filename(&name, &version), "fmtlib-fmt-1.0.0.zip");
         assert_eq!(metadata_filename(&name, &version), "fmtlib-fmt-1.0.0.json");
     }
 
@@ -519,13 +515,10 @@ fmt = { workspace = true, features = ["color"] }
         .unwrap();
         // Round-trip the archive to confirm the file list and that
         // nothing under `missing-parent/` snuck in.
-        let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(staged.archive_bytes));
-        let mut tar = tar::Archive::new(dec);
-        let mut seen: Vec<String> = Vec::new();
-        for entry in tar.entries().unwrap() {
-            let entry = entry.unwrap();
-            seen.push(entry.path().unwrap().to_string_lossy().into_owned());
-        }
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(staged.archive_bytes)).unwrap();
+        let seen: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_owned())
+            .collect();
         assert!(seen.contains(&"cabin.toml".to_owned()));
         assert!(seen.contains(&"src/lib.cc".to_owned()));
         assert!(
@@ -801,15 +794,9 @@ sources = ["src/main.cc"]
             &cabin_core::WorkspaceDepRequirements::default(),
         )
         .unwrap();
-        let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(staged.archive_bytes));
-        let mut tar = tar::Archive::new(dec);
-        for entry in tar.entries().unwrap() {
-            let path = entry
-                .unwrap()
-                .path()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(staged.archive_bytes)).unwrap();
+        for i in 0..zip.len() {
+            let path = zip.by_index(i).unwrap().name().to_owned();
             assert!(
                 !path.starts_with("custom-out"),
                 "stale output leaked: {path}"

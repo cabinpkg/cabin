@@ -118,10 +118,10 @@ impl PackageName {
     }
 
     /// Filename fragment identifying this package inside artifact and
-    /// staging filenames (`<stem>-<version>.tar.gz` /
+    /// staging filenames (`<stem>-<version>.zip` /
     /// `<stem>-<version>.json`): `<scope>-<name>` for a scoped name,
     /// the bare name otherwise.  The scope is embedded on purpose so a
-    /// downloaded tarball stays self-identifying outside the registry
+    /// downloaded archive stays self-identifying outside the registry
     /// directory tree.
     pub fn artifact_stem(&self) -> String {
         self.0.replace('/', "-")

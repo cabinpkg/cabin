@@ -74,7 +74,7 @@ impl Drop for TestServer {
 /// registry through the real `cabin publish --registry-dir` flow, so
 /// the fixture served over HTTP has exactly the scoped layout the
 /// hosted registry speaks: `packages/fmtlib/fmt.json` and
-/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz`, linked by the
+/// `artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip`, linked by the
 /// canonical `../../artifacts/...` source path.
 fn publish_scoped_fmt_to_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
@@ -110,7 +110,7 @@ include-dirs = ["include"]
 }
 
 /// Hand-assemble a *bare*-name registry (`packages/fmt.json`,
-/// `artifacts/fmt/fmt-10.2.1.tar.gz`) from ungated `cabin package`
+/// `artifacts/fmt/fmt-10.2.1.zip`) from ungated `cabin package`
 /// staging output.  Bare names stay legal in locally-produced file
 /// registries, and serving one over HTTP must keep working; `cabin
 /// publish` requires scoped names, hence the by-hand assembly.
@@ -152,8 +152,8 @@ include-dirs = ["include"]
         "checksum": staged["checksum"],
         "source": {
             "type": "archive",
-            "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
-            "format": "tar.gz"
+            "path": "../artifacts/fmt/fmt-10.2.1.zip",
+            "format": "zip"
         }
     });
     if let Some(standards) = staged.get("standards") {
@@ -175,8 +175,8 @@ include-dirs = ["include"]
         .unwrap();
     fs::create_dir_all(registry.join("artifacts/fmt")).unwrap();
     fs::copy(
-        dist.join("fmt-10.2.1.tar.gz"),
-        registry.join("artifacts/fmt/fmt-10.2.1.tar.gz"),
+        dist.join("fmt-10.2.1.zip"),
+        registry.join("artifacts/fmt/fmt-10.2.1.zip"),
     )
     .unwrap();
     registry
@@ -385,7 +385,7 @@ fn cross_origin_http_artifact_url_is_rejected() {
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
     value["versions"]["10.2.1"]["source"]["path"] =
-        serde_json::Value::String("http://127.0.0.1/artifacts/fmt.tar.gz".into());
+        serde_json::Value::String("http://127.0.0.1/artifacts/fmt.zip".into());
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
         .unwrap();
@@ -434,7 +434,7 @@ fn http_artifact_checksum_mismatch_fails() {
 #[test]
 fn relative_artifact_path_resolves_correctly() {
     // A successful resolve confirms the HTTP loader resolves the
-    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`
+    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`
     // source path against the nested package metadata URL.
     let dir = TempDir::new().unwrap();
     let registry = publish_scoped_fmt_to_registry(dir.path());

@@ -527,13 +527,11 @@ compiler-wrapper = "ccache"
     assert!(!body.contains("\"build\""), "{body}");
     assert!(!body.contains("\"config\""), "{body}");
     // The archive itself should not include `.cabin/config.toml`.
-    let archive = out.join("demo-0.1.0.tar.gz");
-    let archive_bytes = fs::read(&archive).unwrap();
-    let decoder = flate2::read::GzDecoder::new(archive_bytes.as_slice());
-    let mut tar = tar::Archive::new(decoder);
-    for entry in tar.entries().unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path().unwrap().display().to_string();
+    let archive = out.join("demo-0.1.0.zip");
+    let f = fs::File::open(&archive).unwrap();
+    let mut zip = zip::ZipArchive::new(f).unwrap();
+    for i in 0..zip.len() {
+        let path = zip.by_index(i).unwrap().name().to_owned();
         assert!(
             !path.contains(".cabin"),
             "archive must not contain .cabin entries, found: {path}",

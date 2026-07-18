@@ -6,7 +6,7 @@
 
 > **Names are scoped.** Registry packages are always `<scope>/<name>` (e.g. `fmtlib/fmt`): every
 > package route carries the `<scope>/<name>` pair, the artifact filename embeds the scope
-> (`<scope>-<name>-<version>.tar.gz`, so a downloaded tarball stays self-identifying outside the
+> (`<scope>-<name>-<version>.zip`, so a downloaded archive stays self-identifying outside the
 > directory tree), and publish/yank additionally require the token's user to be a member of the
 > target scope (see `registry/docs/architecture.md`, "Scopes").  Bare names exist only in
 > local-only manifests and local file registries; `cabin publish` rejects them before any
@@ -177,7 +177,7 @@ The read routes are the same shapes as the sparse HTTP index in
 | --- | --- |
 | `GET /config.json` | Registry configuration (this document's fields included). |
 | `GET /packages/<scope>/<name>.json` | Per-package index document. |
-| `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` | Source archive download. |
+| `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>.zip` | Source archive download. |
 
 On an `auth-required` registry, all three return `401` with the
 [error envelope](#error-envelope) body
@@ -205,7 +205,7 @@ The request body is a length-prefixed frame (crates.io-style):
 
 ```text
 [u32 LE metadata_len][canonical per-version metadata JSON]
-[u32 LE archive_len][tar.gz bytes]
+[u32 LE archive_len][zip bytes]
 ```
 
 The metadata JSON is exactly the canonical document `cabin package` emits - the same shape as one
@@ -346,20 +346,32 @@ the recovery path, and a late duplicate verdict must never race the replacement.
 
 The hosted registry's verifier is `cabin-registry-verify`, run every few minutes by a GitHub
 Actions workflow (operations live in the service runbook).  It inspects each pending archive
-against the canonical metadata the listing reported - streaming, never extracting to disk, and
-assuming the archive is hostile.  The checks, in order:
+against the canonical metadata the listing reported - parsing the zip container by hand,
+decompressing each entry through a bounded reader, never extracting to disk, and assuming the
+archive is hostile.  The archive must conform to the strict zip profile whose normative
+definition is `registry/docs/archive-format.md`; this section is the user-facing summary.  The
+checks, in order:
 
-1. **Size discipline** while gunzipping: the running decompressed total is capped at
-   `min(max(ratio x compressed size, floor), absolute cap)` - the floor covers the tar framing
-   the entry cap permits, since framing alone "expands" small archives beyond any sane ratio -
-   the entry count and per-entry path length are capped, and crossing any cap aborts the
-   inspection: a decompression bomb is rejected, never inflated.
-2. **Structure**: the layout must be what `cabin package` emits - regular-file entries
-   (directory entries are tolerated), safe relative paths (no absolute paths, no `..`, no
-   duplicates, no `\` or empty components, and no regular file used as another entry's parent
-   directory), no links, devices, or PAX records, `cabin.toml` at
-   the archive root, and no nonzero content after the tar terminator (trailing garbage and any
-   extra gzip member carrying content are rejected; every gzip member's trailer is validated).
+1. **Size discipline**: the sum of the entries' declared uncompressed sizes is a cheap up-front
+   cap, and the running decompressed total is capped again as each entry is inflated, at
+   `min(max(ratio x compressed size, floor), absolute cap)` - the floor covers the container
+   framing the entry cap permits, since framing alone "expands" small archives beyond any sane
+   ratio.  The entry count and per-entry path length are capped too, and crossing any cap aborts
+   the inspection: a decompression bomb is rejected, never inflated.
+2. **Structure**: the container must be a well-formed zip in the strict profile - the
+   end-of-central-directory record at the fixed `len - 22` offset (single disk, zero comment, no
+   zip64), the local records and the central directory tiling the file contiguously with no gaps,
+   overlaps, or bytes outside the tiled regions, each entry stored or deflated with no data
+   descriptors, extra fields, or comments and every general-purpose flag clear except the UTF-8
+   bit on non-ASCII names, and every local header agreeing with its central header.  Each deflated
+   entry must decompress to a clean stream end that consumes exactly its compressed span and
+   yields exactly its declared uncompressed size, and its declared CRC-32 must match the bytes
+   produced.  Entries are regular files only (directory entries or attributes are rejected;
+   directories are implied), with safe relative paths - no absolute paths, no `..`, no duplicates,
+   no `\`, no empty or `.` component, and none of the Windows-hostile shapes the shared path
+   predicate forbids (`:`, a control character, `< > " | ? *`, a leading or trailing space, a
+   trailing dot, or a reserved device name) - no name colliding with another under case-insensitive folding, no
+   regular file used as another entry's parent directory, and `cabin.toml` at the archive root.
 3. **Consistency**: the embedded manifest is parsed with Cabin's real manifest parser, must
    pass the same publishability rules `cabin package` enforces (no `[patch]` table, no path
    dependencies, no escaping source paths, no standard contradictions), must have every
@@ -378,11 +390,14 @@ A rejection records machine-readable reason codes in the version's `verification
 | `decompressed_too_large` | decompression cap crossed |
 | `too_many_entries` | entry-count cap crossed |
 | `path_too_long` | path-length cap crossed |
-| `forbidden_entry_type` | link, device, fifo, or PAX-decorated entry |
+| `unsupported_zip_feature` | a banned zip feature: a compression method other than store/deflate, a general-purpose flag outside the profile (any bit but the UTF-8 bit, which must be set exactly on non-ASCII names), a nonzero extra field, a comment, zip64, or a data descriptor |
+| `header_mismatch` | a local header disagrees with its central header, or a declared uncompressed size or CRC-32 disagrees with the decompressed bytes |
+| `forbidden_entry_type` | a non-regular entry: a symlink, a directory entry or attribute, or any other non-file type |
 | `absolute_path` | absolute entry path (POSIX or Windows-drive form) |
 | `path_traversal` | `..` path component |
-| `invalid_path` | empty, non-UTF-8, `\`-bearing, or `.`/empty component |
-| `duplicate_path` | the same path twice |
+| `invalid_path` | empty, non-UTF-8, `\`-bearing, or an empty/`.` component; a trailing-slash directory marker; or a Windows-hostile shape (`:`, a control character, `< > " | ? *`, a leading or trailing space, a trailing dot, or a reserved device name) |
+| `duplicate_path` | the same path (byte for byte) twice |
+| `case_conflict` | two paths that fold to the same string under Unicode default lowercasing, including a file used as a case-folded parent directory |
 | `path_conflict` | a regular file used as another entry's parent directory |
 | `missing_source` | the manifest declares a target source absent from the archive |
 | `manifest_missing` | no `cabin.toml` at the archive root |
@@ -393,7 +408,12 @@ A rejection records machine-readable reason codes in the version's `verification
 | `language_standard_mismatch` | manifest standard fields or the derived standards table disagree with metadata |
 | `checksum_mismatch` | archive bytes do not hash to the recorded checksum |
 | `metadata_mismatch` | any other canonical-metadata field disagrees with what the manifest derives |
-| `archive_invalid` | not a readable gzip-compressed tar stream, or content after the terminator |
+| `archive_invalid` | not a well-formed zip container: a bad or misplaced EOCD, a non-contiguous layout, or bytes outside the tiled regions |
+
+A recorded reason is the `code` above, optionally followed by one parenthesized detail that
+narrows the cause - `unsupported_zip_feature (zip64)`, `header_mismatch (crc)`,
+`invalid_path (trailing dot)`.  The machine-readable code is always the first token; the detail is
+fixed text and never echoes archive bytes.
 
 The cap mechanism is public contract; the cap values are configuration (`VERIFY_RATIO_CAP`,
 `VERIFY_ABS_CAP_BYTES`, `VERIFY_MAX_ENTRIES`, `VERIFY_MAX_PATH_LEN`, defaulting to 10x,
@@ -408,20 +428,22 @@ deliberately independent.  **The client's rules are the ones that must hold**: `
 archives from third-party registries and local file registries too, and must stay safe against a
 hosted registry that has itself been compromised.  Nothing on the client trusts this verifier.
 
-The verifier is the stricter of the two on the axes they share: it inspects only archives `cabin
-package` produced, so it can also reject PAX-decorated entries, `\` in paths, and content after the
-tar terminator, and its default caps (10x ratio, 256 MiB, 10000 entries, 256-byte paths) sit at or
-below the client's (32x ratio, 1 GiB, 10000 entries, 256-byte paths).  A version that passes the
-verifier's caps and structure checks therefore clears the client's.  The caps above are
-*configurable*, so a registry operator cannot widen the client's limits by widening their own - only
-the client's constants do that.
+The verifier is at least as strict as the client on every axis they share.  It inspects only
+archives `cabin package` produced, so it enforces the whole strict zip profile - rejecting the
+zip64, extra-field, data-descriptor, and non-contiguous-layout constructions the client's extractor
+merely tolerates.  It shares the client's lexical path-portability predicate through `cabin-fs`, so
+the two reject the same Windows-hostile shapes (`\`, `:`, control characters, `< > " | ? *`,
+leading or trailing spaces, trailing dots, reserved device names) by construction rather than by
+parallel maintenance.
+It additionally rejects case-folded name collisions the client deliberately tolerates (they would
+refuse archives legitimate on case-sensitive Linux).  Its default caps (10x ratio, 256 MiB, 10000
+entries, 256-byte paths) sit at or below the client's (32x ratio, 1 GiB, 10000 entries, 256-byte
+paths).  A version that passes verification therefore clears the client's extraction rules.
 
-The client additionally rejects a few Windows-hostile path shapes the verifier does not model
-(trailing dot/space, `:`, reserved device names; see the
-[extraction safety contract](package-format.md#extraction-safety-contract)).  A Linux-built archive
-carrying such a name can pass verification yet be refused by a Windows client - so "verified" means
-"safe to extract", not "extracts identically on every platform".  This is deliberate: the client's
-safety must not depend on the verifier having anticipated every platform.
+That the verifier is stricter does not fold the two into one.  The caps above are *configurable*,
+so a registry operator cannot widen the client's limits by widening their own - only the client's
+constants do that.  "Verified" therefore means the archive is safe to extract by the client's own
+rules; it is never a promise the client may delegate its safety to a registry.
 
 ## Yank
 

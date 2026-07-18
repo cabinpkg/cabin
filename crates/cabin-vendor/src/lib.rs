@@ -6,7 +6,7 @@
 //! materialized vendor directory is an existing
 //! [`cabin_registry_file::FileRegistry`] layout
 //! (`<vendor>/config.json`, `<vendor>/packages/<name>.json`,
-//! `<vendor>/artifacts/<name>/<name>-<version>.tar.gz`),
+//! `<vendor>/artifacts/<name>/<name>-<version>.zip`),
 //! populated only with the versions the build needs.
 //!
 //! This means an offline workflow needs no new resolver, no new
@@ -73,7 +73,7 @@ pub struct VendorEntry {
     pub checksum: String,
     /// Filesystem path to the archive Cabin already fetched and
     /// verified into the artifact cache.  Must point at a
-    /// `.tar.gz` whose SHA-256 matches `checksum`.
+    /// `.zip` whose SHA-256 matches `checksum`.
     pub archive_source: PathBuf,
     /// Per-version JSON value as it appears in the source
     /// index's `packages/<name>.json`.  The vendor writer copies
@@ -380,7 +380,7 @@ pub struct VendorSummaryEntry {
     pub name: String,
     pub version: String,
     pub checksum: String,
-    /// Vendor-root-relative path to the artifact (`artifacts/<name>/<name>-<version>.tar.gz`).
+    /// Vendor-root-relative path to the artifact (`artifacts/<name>/<name>-<version>.zip`).
     pub source: String,
 }
 
@@ -530,8 +530,7 @@ fn copy_archive_if_changed(
     // Match the `.partial` convention used by `cabin-artifact`
     // and `cabin-registry-file` so orphaned partial writes share
     // a single recognizable suffix.  `Path::with_extension`
-    // would replace the trailing `gz` segment of
-    // `fmt-10.2.1.tar.gz` and produce a doubled `.tar.tar.gz`,
+    // would clobber the trailing `.zip` of `fmt-10.2.1.zip`,
     // so we append the suffix via `OsString` instead.
     let temp = {
         let mut s: OsString = dst.as_os_str().to_owned();
@@ -627,7 +626,7 @@ fn rewrite_source_path(
         serde_json::json!({
             "type": "archive",
             "path": "",
-            "format": "tar.gz",
+            "format": "zip",
         })
     });
     let source = source
@@ -662,7 +661,7 @@ mod tests {
     }
 
     fn write_archive(dir: &TempDir, name: &str, version: &str, body: &[u8]) -> (PathBuf, String) {
-        let file = dir.child(format!("{name}-{version}.tar.gz"));
+        let file = dir.child(format!("{name}-{version}.zip"));
         file.write_binary(body).unwrap();
         let mut hasher = Sha256::new();
         hasher.update(body);
@@ -682,8 +681,8 @@ mod tests {
                 "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 "source": {
                     "type": "archive",
-                    "path": "/abs/host/leak/path.tar.gz",
-                    "format": "tar.gz",
+                    "path": "/abs/host/leak/path.zip",
+                    "format": "zip",
                 },
             }),
         }
@@ -697,7 +696,7 @@ mod tests {
         let mut value = serde_json::json!({"dependencies": {}, "yanked": false});
         rewrite_source_path(
             &mut value,
-            "../artifacts/fmt/fmt-10.2.1.tar.gz",
+            "../artifacts/fmt/fmt-10.2.1.zip",
             &pkg("fmt"),
             &ver("10.2.1"),
         )
@@ -706,8 +705,8 @@ mod tests {
             value["source"],
             serde_json::json!({
                 "type": "archive",
-                "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
-                "format": "tar.gz",
+                "path": "../artifacts/fmt/fmt-10.2.1.zip",
+                "format": "zip",
             })
         );
     }
@@ -715,8 +714,8 @@ mod tests {
     #[test]
     fn rewrite_source_path_rejects_non_object_source() {
         let mut value = serde_json::json!({"source": "not-an-object"});
-        let err = rewrite_source_path(&mut value, "../a.tar.gz", &pkg("fmt"), &ver("10.2.1"))
-            .unwrap_err();
+        let err =
+            rewrite_source_path(&mut value, "../a.zip", &pkg("fmt"), &ver("10.2.1")).unwrap_err();
         match err {
             VendorError::MalformedIndexEntry { name, version, .. } => {
                 assert_eq!(name, "fmt");
@@ -802,23 +801,23 @@ mod tests {
         assert!(
             report
                 .vendor_dir
-                .join("artifacts/fmt/fmt-10.1.0.tar.gz")
+                .join("artifacts/fmt/fmt-10.1.0.zip")
                 .is_file()
         );
         assert!(
             report
                 .vendor_dir
-                .join("artifacts/fmt/fmt-10.2.1.tar.gz")
+                .join("artifacts/fmt/fmt-10.2.1.zip")
                 .is_file()
         );
         assert!(report.vendor_dir.join(VENDOR_SUMMARY_FILENAME).is_file());
 
         // Per-package index rewrites the source path to the
         // vendor-relative form and never leaks the original
-        // `/abs/host/leak/path.tar.gz` value.
+        // `/abs/host/leak/path.zip` value.
         let body = fs::read_to_string(report.vendor_dir.join("packages/fmt.json")).unwrap();
-        assert!(body.contains("../artifacts/fmt/fmt-10.1.0.tar.gz"));
-        assert!(body.contains("../artifacts/fmt/fmt-10.2.1.tar.gz"));
+        assert!(body.contains("../artifacts/fmt/fmt-10.1.0.zip"));
+        assert!(body.contains("../artifacts/fmt/fmt-10.2.1.zip"));
         assert!(!body.contains("/abs/host/leak"));
         // SemVer order: 10.1.0 before 10.2.1 in the rendered
         // JSON, so a future on-disk diff stays scannable.
@@ -870,12 +869,7 @@ mod tests {
             }
             other => panic!("expected ChecksumMismatch, got {other:?}"),
         }
-        assert!(
-            !vendor
-                .path()
-                .join("artifacts/fmt/fmt-10.2.1.tar.gz")
-                .exists()
-        );
+        assert!(!vendor.path().join("artifacts/fmt/fmt-10.2.1.zip").exists());
     }
 
     #[test]
@@ -897,7 +891,7 @@ mod tests {
         // Pre-populate the vendor directory with the *correct*
         // archive byte stream - this is what a re-run after a
         // partial earlier vendor invocation looks like.
-        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.tar.gz");
+        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.zip");
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::copy(&archive, &target).unwrap();
 
@@ -913,7 +907,7 @@ mod tests {
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
         // Pre-seed a stale artifact whose hash differs from
         // what the plan requires.  Vendor must refuse.
-        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.tar.gz");
+        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.zip");
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, b"stale").unwrap();
 
@@ -926,7 +920,7 @@ mod tests {
                 // `/private/var/...`.  The relative tail is what
                 // matters for the diagnostic.
                 assert!(
-                    path.ends_with("artifacts/fmt/fmt-10.2.1.tar.gz"),
+                    path.ends_with("artifacts/fmt/fmt-10.2.1.zip"),
                     "stale-artifact path should point at the destination archive, got: {}",
                     path.display()
                 );

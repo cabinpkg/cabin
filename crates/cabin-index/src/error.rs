@@ -88,7 +88,7 @@ pub enum IndexError {
     },
 
     #[error(
-        "unsupported source format {value:?} for package {package:?} version {version}; only `tar.gz` is currently supported"
+        "unsupported source format {value:?} for package {package:?} version {version}; only `zip` is currently supported"
     )]
     UnsupportedSourceFormat {
         package: String,

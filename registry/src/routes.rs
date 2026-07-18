@@ -40,7 +40,7 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
     if let Some(rest) = path.strip_prefix("/artifacts/") {
         let (scope, rest) = rest.split_once('/')?;
         let (name, file) = rest.split_once('/')?;
-        // The filename embeds the scope (a downloaded tarball stays
+        // The filename embeds the scope (a downloaded archive stays
         // self-identifying outside the directory tree). Stripping the
         // literal `<scope>-<name>-` prefix stays unambiguous even though
         // scopes and names may themselves contain hyphens, because both
@@ -51,7 +51,7 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
             .strip_prefix('-')?
             .strip_prefix(name)?
             .strip_prefix('-')?
-            .strip_suffix(".tar.gz")?;
+            .strip_suffix(".zip")?;
         return (is_valid_scope(scope) && is_valid_name(name) && is_valid_version(version))
             .then_some(Route::Artifact {
                 scope,
@@ -369,7 +369,7 @@ mod tests {
             })
         );
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"),
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
             Some(Route::Artifact {
                 scope: "fmtlib",
                 name: "fmt",
@@ -380,7 +380,7 @@ mod tests {
         // filename prefix is matched against the directory segments,
         // never re-split.
         assert_eq!(
-            match_route("/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1+build.5.tar.gz"),
+            match_route("/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1+build.5.zip"),
             Some(Route::Artifact {
                 scope: "my-org",
                 name: "my_pkg-2",
@@ -403,9 +403,9 @@ mod tests {
             "/artifacts/fmtlib",
             "/artifacts/fmtlib/fmt",
             "/artifacts/fmtlib/fmt/",
-            "/artifacts/fmt/fmt-10.2.1.tar.gz",
+            "/artifacts/fmt/fmt-10.2.1.zip",
             "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz/extra",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip/extra",
             "/index.html",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
@@ -418,11 +418,11 @@ mod tests {
         // prefix - another scope, another name, or a bare name - fails
         // parsing before any lookup.
         for path in [
-            "/artifacts/fmtlib/fmt/fmt-10.2.1.tar.gz",
-            "/artifacts/fmtlib/fmt/other-fmt-10.2.1.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-other-10.2.1.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlibfmt-10.2.1.tar.gz",
-            "/artifacts/my-org/pkg/my-org-2-pkg-1.0.0.tar.gz",
+            "/artifacts/fmtlib/fmt/fmt-10.2.1.zip",
+            "/artifacts/fmtlib/fmt/other-fmt-10.2.1.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-other-10.2.1.zip",
+            "/artifacts/fmtlib/fmt/fmtlibfmt-10.2.1.zip",
+            "/artifacts/my-org/pkg/my-org-2-pkg-1.0.0.zip",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
         }
@@ -443,13 +443,13 @@ mod tests {
             "/packages/fmtlib/..%2fescape.json",
             "/packages/..%2fescape/fmt.json",
             "/packages/fmtlib/fmt%2e.json",
-            "/artifacts/../fmt/fmt-1.0.0.tar.gz",
-            "/artifacts/fmtlib/../fmtlib-..-1.0.0.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.0.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-v1.0.0.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.x.tar.gz",
-            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0%2f.tar.gz",
+            "/artifacts/../fmt/fmt-1.0.0.zip",
+            "/artifacts/fmtlib/../fmtlib-..-1.0.0.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.0.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-v1.0.0.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.x.zip",
+            "/artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0%2f.zip",
         ] {
             assert_eq!(match_route(path), None, "path: {path:?}");
         }

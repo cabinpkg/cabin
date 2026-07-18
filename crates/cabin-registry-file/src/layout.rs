@@ -222,12 +222,12 @@ impl FileRegistry {
 
     /// Absolute path of the artifact for one resolved
     /// (name, version).  The filename flattens a scoped name to
-    /// `<scope>-<name>` so a downloaded tarball stays
+    /// `<scope>-<name>` so a downloaded archive stays
     /// self-identifying outside the registry tree - the same shape
     /// the hosted registry serves.
     pub fn artifact_path(&self, name: &PackageName, version: &semver::Version) -> PathBuf {
         self.artifact_dir_for(name)
-            .join(format!("{}-{version}.tar.gz", name.artifact_stem()))
+            .join(format!("{}-{version}.zip", name.artifact_stem()))
     }
 
     /// `source.path` value to embed in package index metadata, given
@@ -245,8 +245,8 @@ impl FileRegistry {
     /// `packages/`, platform separators) climb and render exactly
     /// where the index document really sits.  For the default config
     /// this yields the same canonical shapes the hosted registry
-    /// validates: `../artifacts/<name>/<name>-<version>.tar.gz` and
-    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`.
+    /// validates: `../artifacts/<name>/<name>-<version>.zip` and
+    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`.
     pub fn relative_source_path(&self, name: &PackageName, version: &semver::Version) -> String {
         let climb =
             subdir_normal_components(&self.config.packages).count() + usize::from(name.is_scoped());
@@ -258,7 +258,7 @@ impl FileRegistry {
             .chain(name.path_components())
             .collect();
         out.push_str(&descent.join("/"));
-        let _ = write!(out, "/{}-{version}.tar.gz", name.artifact_stem());
+        let _ = write!(out, "/{}-{version}.zip", name.artifact_stem());
         out
     }
 }
@@ -404,11 +404,11 @@ mod tests {
         );
         assert_eq!(
             registry.artifact_path(&fmt, &v),
-            dir.path().join("artifacts/fmt/fmt-10.2.1.tar.gz")
+            dir.path().join("artifacts/fmt/fmt-10.2.1.zip")
         );
         assert_eq!(
             registry.relative_source_path(&fmt, &v),
-            "../artifacts/fmt/fmt-10.2.1.tar.gz"
+            "../artifacts/fmt/fmt-10.2.1.zip"
         );
     }
 
@@ -429,12 +429,11 @@ mod tests {
         );
         assert_eq!(
             registry.artifact_path(&name, &v),
-            dir.path()
-                .join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz")
+            dir.path().join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip")
         );
         assert_eq!(
             registry.relative_source_path(&name, &v),
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
         );
     }
 
@@ -454,11 +453,11 @@ mod tests {
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
             registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "../../blobs/fmt/fmt-1.0.0.tar.gz"
+            "../../blobs/fmt/fmt-1.0.0.zip"
         );
         assert_eq!(
             registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
-            "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+            "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
         );
     }
 
@@ -478,7 +477,7 @@ mod tests {
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
             registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "../blobs/fmt/fmt-1.0.0.tar.gz"
+            "../blobs/fmt/fmt-1.0.0.zip"
         );
 
         let dir = TempDir::new().unwrap();
@@ -490,11 +489,11 @@ mod tests {
         // bare name, one level for a scoped one.
         assert_eq!(
             registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "blobs/fmt/fmt-1.0.0.tar.gz"
+            "blobs/fmt/fmt-1.0.0.zip"
         );
         assert_eq!(
             registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
-            "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+            "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
         );
     }
 

@@ -269,7 +269,7 @@ verbatim; `cabin publish` rejects bare names outright; the sparse
 reads, the publish/yank routes, and the external verifier
 (`crates/cabin-registry-verify` and its workflow) all address the
 scoped routes, with the artifact filename flattening the `/` to `-`
-(`<scope>-<name>-<version>.tar.gz`).
+(`<scope>-<name>-<version>.zip`).
 
 ## The write path
 
@@ -289,12 +289,17 @@ Publish validates in a fixed order, stopping at the first failure:
 5. the URL's segments equal the document's `name` (the full
    `<scope>/<name>`) and `version`, and the archive path its `source`
    block implies -
-   `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`, the
+   `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`, the
    filename embedding the scope like the artifact route (`400`);
 6. the scope and name match the grammars in "Scopes" and the version is
    valid SemVer (`400`);
 7. `yanked` is `false` (`400`);
-8. the metadata's `checksum` equals `sha256:` + the digest the server itself
+8. the archive bytes pass a container sanity check - a zip whose EOCD sits
+   at the fixed `len - 22` offset with a zero comment and single-disk
+   fields, and whose central directory abuts the EOCD (all O(1) reads; see
+   [`archive-format.md`](archive-format.md)) - the cheapest rejection, taken
+   before hashing so a non-zip never reaches SubtleCrypto (`400`);
+9. the metadata's `checksum` equals `sha256:` + the digest the server itself
    computes from the uploaded archive bytes via SubtleCrypto (`400`).
 
 Publishing under a scope the user is a member of is all it takes to
@@ -586,7 +591,7 @@ components are validated before any lookup: scopes and names follow the
 grammars in "Scopes", versions must look like SemVer, and anything else
 answers without touching storage - the artifact filename must additionally
 repeat the `<scope>-<name>-` prefix its directory segments fix, so a
-downloaded tarball stays self-identifying and a disagreeing filename
+downloaded archive stays self-identifying and a disagreeing filename
 never parses. The API routes only split their segments
 (`src/routes.rs` documents why): publish validates them inside its `400`
 sequence behind the membership gate, and yank and the admin verdict
@@ -624,6 +629,37 @@ would actually buy is covered without one:
 - Dynamic query construction does not exist today; if it ever
   genuinely grows, the designated escape hatch is `sea-query` (a
   wasm-safe query builder, not an ORM).
+
+## Why a strict zip profile
+
+The canonical package archive is a zip container, not a tar.gz, and it is
+pinned to a single narrow profile. The full normative spec is
+[`archive-format.md`](archive-format.md); the reasoning:
+
+- **Zip over tar.gz.** A planned source-code viewer needs random access into
+  a stored archive. The Worker keeps archives as opaque, content-addressed
+  R2 blobs and has no archive dependency, so a tar.gz would force either a
+  server-side repack job (Workers CPU) or a second derived zip sidecar (R2
+  budget - see "Billing model and the budget breaker"); both were rejected.
+  Zip is directly seekable, and its fixed-offset EOCD lets the publish path
+  reject a non-zip with a few O(1) reads before it hashes anything ("The
+  write path").
+- **A single strict profile.** One producer (`cabin package`) and one
+  consumer (the verifier) means the archive can be byte-reproducible and the
+  container vocabulary can be minimal. Everything a hostile archive hides
+  behind - data descriptors, extra fields, zip64, comments, local/central
+  disagreement - is banned outright, so the format the verifier must reason
+  about is small. Idempotent re-publish rides on content-addressing: same
+  source bytes, same checksum, `200 no_op`. This must land before launch;
+  afterwards a format change would collide with version immutability and the
+  stored checksums.
+- **Hand-rolled container parsing.** The verifier parses the container by
+  hand rather than through a general-purpose zip library. A library's
+  conveniences - last-wins de-duplication of repeated names, transparent
+  zip64, silently tolerated local/central mismatches - are exactly the
+  hostile ambiguities the profile exists to reject. The strict profile makes
+  hand-parsing small: a fixed EOCD offset, contiguous records, and no
+  zip64/descriptors/extra fields.
 
 ## Why a standalone workspace
 

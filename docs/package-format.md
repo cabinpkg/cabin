@@ -4,7 +4,7 @@
 
 1. Validate the package's `cabin.toml`.
 2. Walk the source tree under a fixed include / exclude policy.
-3. Build a deterministic `.tar.gz` archive whose root holds `cabin.toml`.
+3. Build a deterministic `.zip` archive whose root holds `cabin.toml`.
 4. Compute the archive's SHA-256 digest.
 5. Generate canonical per-version JSON metadata in the same shape a Cabin file registry serves to
    consumers.
@@ -18,15 +18,17 @@
 
 ## Source archive format
 
-Archives are gzipped tar files conforming to the extractor contract:
+Archives are zip files in the strict profile `registry/docs/archive-format.md` defines, conforming
+to the extractor contract:
 
 - the archive root contains a file named `cabin.toml`;
-- only regular files and directories are emitted; symlinks, hard links, char/block devices, fifos,
-  and other tar entry types are rejected with a clear error;
-- all entry paths are relative; a path containing `..`, an absolute path, or one that would escape
-  the package root is rejected.
+- only regular files are emitted (directories are implied, never stored); symlinks, hard links, and
+  other non-file entries are rejected with a clear error;
+- all entry paths are relative; a path containing `..`, an absolute path, one that would escape the
+  package root, or a non-portable component (`\`, `:`, a control character, `< > " | ? *`, a
+  trailing dot or space, or a reserved Windows device name) is rejected.
 
-The default `<output-dir>/<stem>-<version>.tar.gz` filename is conventional - the stem flattens a
+The default `<output-dir>/<stem>-<version>.zip` filename is conventional - the stem flattens a
 scoped name (`fmtlib/fmt` -> `fmtlib-fmt`) so the file stays self-identifying; the in-archive path
 layout is what registries and extractors care about.
 
@@ -91,8 +93,9 @@ transiently leave a completion marker beside a directory another process is rebu
 detects the mismatch and re-extracts.  These are liveness edges of a lockless content-addressed
 cache, not safety holes — no hostile archive escapes through them, and they predate this change.
 
-Zip archives (foundation ports only) obey the same rules, including the header-size and duplicate
-checks.  They have no separate whole-stream ratio cap: zip decompresses per entry, so the per-entry
+Zip archives - the registry package format, and some foundation-port upstreams - obey the same
+rules, including the header-size and duplicate checks.  They have no separate whole-stream ratio
+cap: zip decompresses per entry, so the per-entry
 caps already bound every decompressed byte.  Zip metadata is read from bytes the archive really
 contains rather than from a compressed stream that can amplify, so its memory cost is bounded by the
 archive file size — which is itself capped at the aggregate limit, since the central directory
@@ -106,15 +109,20 @@ cap bounds real memory and disk regardless of any trailing bytes.
 
 ## Determinism
 
-The same logical input always produces byte-identical archives:
+The same logical input always produces byte-identical archives.  The archive is a zip in the strict
+profile `registry/docs/archive-format.md` defines; the producer pins the bytes that make it
+reproducible:
 
 - the file enumeration is sorted lexicographically by relative path;
-- each tar header has `mtime`, `uid`, `gid` zeroed and `username` and `groupname` cleared so the
-  archive does not embed who built it;
-- mode is `0o644` for regular files; directories are implied by the extractor and are not emitted as
-  explicit entries;
-- the gzip header carries `mtime = 0` and OS code `0xff` (unknown) so the archive bytes do not
-  depend on when or where the build ran.
+- every entry's last-modified time is pinned to `1980-01-01 00:00:00` (the zip DOS-time epoch), so
+  the archive does not embed when it was built;
+- version-made-by is pinned to the Unix system code, so a build on Windows is byte-identical to one
+  on Unix;
+- files are deflated at a fixed compression level; only regular-file entries are emitted, with a
+  fixed `0o644` permission mode; directories are implied, never stored, and the extractor ignores
+  the stored mode;
+- no zip64, no data descriptors, no extra fields, and no comments, so the container embeds no
+  incidental bytes that depend on where the build ran.
 
 `cabin package` re-running with identical input succeeds silently because the on-disk artifact
 already matches what the current run would produce.  If the on-disk archive or metadata file has
@@ -215,8 +223,8 @@ would not contain cabin.toml`.
   "checksum": "sha256:<archive-sha256>",
   "source": {
     "type": "archive",
-    "path": "../artifacts/fmt/fmt-10.2.1.tar.gz",
-    "format": "tar.gz"
+    "path": "../artifacts/fmt/fmt-10.2.1.zip",
+    "format": "zip"
   }
 }
 ```
@@ -236,8 +244,8 @@ would not contain cabin.toml`.
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |
 | `source.type` | Always `"archive"`. |
-| `source.format` | Always `"tar.gz"`. |
-| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>.tar.gz` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz` for a scoped one (the index document nests one scope directory deeper and the filename embeds the scope).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
+| `source.format` | Always `"zip"`. |
+| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>.zip` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip` for a scoped one (the index document nests one scope directory deeper and the filename embeds the scope).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
 
 The metadata document is rendered with `serde_json::to_string_pretty` in struct-declaration order,
 dependencies sorted by name, and a trailing newline.  Repeated runs over the same input produce the
@@ -272,7 +280,7 @@ setting) publishes the same staged bytes remotely; see
 
 ```
 dist/
-  <stem>-<version>.tar.gz
+  <stem>-<version>.zip
   <stem>-<version>.json
 ```
 

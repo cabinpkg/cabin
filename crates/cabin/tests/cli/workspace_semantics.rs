@@ -447,7 +447,7 @@ fn package_in_workspace_requires_explicit_selection() {
         .arg(&dist)
         .assert()
         .success();
-    assert!(dist.join("beta-0.1.0.tar.gz").is_file());
+    assert!(dist.join("beta-0.1.0.zip").is_file());
 }
 
 #[test]

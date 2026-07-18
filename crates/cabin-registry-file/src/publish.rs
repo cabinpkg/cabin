@@ -311,11 +311,11 @@ mod tests {
                         let climb = if n.is_scoped() { "../../" } else { "../" };
                         let dirs = n.path_components().collect::<Vec<_>>().join("/");
                         format!(
-                            "{climb}artifacts/{dirs}/{}-{version}.tar.gz",
+                            "{climb}artifacts/{dirs}/{}-{version}.zip",
                             n.artifact_stem()
                         )
                     },
-                    format: "tar.gz".to_owned(),
+                    format: "zip".to_owned(),
                 },
             },
         }
@@ -342,7 +342,7 @@ mod tests {
         // Source path is registry-relative.
         assert_eq!(
             outcome.source_path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 
@@ -374,7 +374,7 @@ mod tests {
         let body = fs::read(
             registry_dir
                 .path()
-                .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"),
+                .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
         )
         .unwrap();
         assert_eq!(body, b"first");
@@ -399,10 +399,10 @@ mod tests {
         assert!(body.contains("10.1.0"));
         assert!(body.contains("10.2.1"));
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0.zip")
             .assert(predicate::path::is_file());
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
             .assert(predicate::path::is_file());
     }
 
@@ -452,7 +452,7 @@ mod tests {
         // updating the index - that's the "orphan" state.
         FileRegistry::open_or_initialize(registry_dir.path()).unwrap();
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz")
+            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
             .write_binary(b"orphan")
             .unwrap();
 
@@ -497,10 +497,10 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let source = &value["versions"]["10.2.1"]["source"];
         assert_eq!(source["type"], "archive");
-        assert_eq!(source["format"], "tar.gz");
+        assert_eq!(source["format"], "zip");
         assert_eq!(
             source["path"],
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
         );
     }
 

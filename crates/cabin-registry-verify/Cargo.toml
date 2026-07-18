@@ -16,13 +16,14 @@ path = "src/main.rs"
 
 [dependencies]
 cabin-core = { workspace = true }
+cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-package = { workspace = true }
 camino = { workspace = true }
+crc32fast = { workspace = true }
 flate2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tar = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

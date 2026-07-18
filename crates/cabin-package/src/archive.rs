@@ -1,8 +1,10 @@
 use std::fs;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, DateTime, System, ZipWriter};
 
 use crate::error::PackageError;
 
@@ -73,7 +75,47 @@ pub fn collect_package_files(
     let mut out = Vec::new();
     walk(root, root, exclude_dir, &mut out)?;
     out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    reject_case_conflicts(&out)?;
     Ok(out)
+}
+
+/// Reject a file set that a case-insensitive filesystem (macOS,
+/// Windows) cannot materialize faithfully, mirroring the registry
+/// verifier's `case_conflict` rule so a source tree that packages on a
+/// case-sensitive host does not earn an asynchronous registry
+/// rejection. Two forms collide: two entries whose paths fold to the
+/// same string under Unicode default lowercasing (`README` and
+/// `readme`), and a file whose name folds to a directory component of
+/// another entry (`A` alongside `a/b`). The exact-match forms the
+/// verifier also handles (`duplicate_path`, `path_conflict`) cannot
+/// arise from a real directory tree, so only the case-folded forms are
+/// checked here.
+fn reject_case_conflicts(files: &[PackageFile]) -> Result<(), PackageError> {
+    let mut folded: std::collections::HashMap<String, String> =
+        std::collections::HashMap::with_capacity(files.len());
+    for file in files {
+        if let Some(existing) = folded.insert(file.rel_path.to_lowercase(), file.rel_path.clone()) {
+            return Err(PackageError::CaseConflictingPaths {
+                first: existing,
+                second: file.rel_path.clone(),
+            });
+        }
+    }
+    for file in files {
+        let path = &file.rel_path;
+        let mut boundary = 0;
+        while let Some(slash) = path[boundary..].find('/') {
+            boundary += slash;
+            if let Some(existing) = folded.get(&path[..boundary].to_lowercase()) {
+                return Err(PackageError::CaseConflictingPaths {
+                    first: existing.clone(),
+                    second: path.clone(),
+                });
+            }
+            boundary += 1;
+        }
+    }
+    Ok(())
 }
 
 /// Reject the archive if `cabin.toml` is not at its root.  Practically
@@ -92,7 +134,8 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
     Ok(())
 }
 
-/// Build a deterministic `.tar.gz` for `files`.
+/// Build a deterministic `.zip` for `files`, following the strict
+/// registry archive profile (see `docs/remote-registry.md`).
 ///
 /// `manifest_substitute`, when `Some`, replaces the `cabin.toml`
 /// entry's on-disk contents with the given bytes.  The staging layer
@@ -100,60 +143,57 @@ pub fn ensure_manifest_included(files: &[PackageFile]) -> Result<(), PackageErro
 /// resolved literals so the archived manifest is self-contained.
 ///
 /// Determinism rules baked into this writer:
-/// - tar entries are written in the order their `rel_path` was sorted
-///   into;
-/// - each entry has `mtime`, `uid`, `gid` zeroed and `uname` /
-///   `gname` cleared;
-/// - mode is `0o644` (regular files only - directories are implied
-///   by the extractor);
-/// - the gzip header carries `mtime = 0` and OS code `0xff`
-///   (unknown), so the same logical input produces the same bytes
-///   regardless of when or where the archive is built.
+/// - entries are written in the order their `rel_path` was sorted
+///   into (files only - directories are implied by the extractor);
+/// - the 1980-01-01 default timestamp is pinned in both DOS fields;
+/// - `System::Unix` overrides the writer's platform-dependent
+///   version-made-by (DOS on Windows) so the same logical input
+///   produces the same bytes regardless of host;
+/// - `large_file(false)` keeps the zip64 extra field out, and the
+///   writer emits no extra fields, so the container stays minimal.
+///
+/// Every option pin is load-bearing for byte-reproducibility; a
+/// zip/flate2 version bump that changes the output must be a
+/// deliberate regeneration.
 ///
 /// # Errors
 /// Returns [`PackageError::Io`] when a file's bytes cannot be read,
-/// and [`PackageError::ArchiveWrite`] when appending a tar entry or
-/// finishing the tar / gzip streams fails.
-pub fn build_tar_gz(
+/// and [`PackageError::ArchiveWrite`] when writing an entry or
+/// finishing the zip stream fails.
+pub fn build_zip(
     files: &[PackageFile],
     manifest_substitute: Option<&[u8]>,
 ) -> Result<Vec<u8>, PackageError> {
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        let gz = GzBuilder::new()
-            .mtime(0)
-            .operating_system(0xff)
-            .write(&mut buf, Compression::default());
-        let mut tar_builder = tar::Builder::new(gz);
-        for file in files {
-            let bytes = match manifest_substitute {
-                Some(substitute) if file.rel_path == ROOT_MANIFEST_NAME => substitute.to_vec(),
-                _ => fs::read(&file.abs_path).map_err(|source| PackageError::Io {
-                    path: file.abs_path.clone(),
-                    source,
-                })?,
-            };
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_mtime(0);
-            header.set_uid(0);
-            header.set_gid(0);
-            // Zeroing the username / groupname means the archive does
-            // not embed who built it.
-            let _ = header.set_username("");
-            let _ = header.set_groupname("");
-            header.set_entry_type(tar::EntryType::Regular);
-            tar_builder
-                .append_data(&mut header, &file.rel_path, std::io::Cursor::new(bytes))
-                .map_err(PackageError::ArchiveWrite)?;
-        }
-        let gz_inner = tar_builder
-            .into_inner()
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .compression_level(Some(6))
+        .last_modified_time(DateTime::default())
+        .large_file(false)
+        .system(System::Unix);
+    for file in files {
+        let bytes = match manifest_substitute {
+            Some(substitute) if file.rel_path == ROOT_MANIFEST_NAME => substitute.to_vec(),
+            _ => fs::read(&file.abs_path).map_err(|source| PackageError::Io {
+                path: file.abs_path.clone(),
+                source,
+            })?,
+        };
+        writer
+            .start_file(&file.rel_path, options)
+            .map_err(zip_write_error)?;
+        writer
+            .write_all(&bytes)
             .map_err(PackageError::ArchiveWrite)?;
-        gz_inner.finish().map_err(PackageError::ArchiveWrite)?;
     }
-    Ok(buf)
+    let cursor = writer.finish().map_err(zip_write_error)?;
+    Ok(cursor.into_inner())
+}
+
+/// Map a `zip` writer failure into [`PackageError::ArchiveWrite`],
+/// which wraps `io::Error`; the zip error's message is preserved.
+fn zip_write_error(source: zip::result::ZipError) -> PackageError {
+    PackageError::ArchiveWrite(std::io::Error::other(source))
 }
 
 /// Lower-case hex SHA-256 of a byte slice.
@@ -204,11 +244,13 @@ fn walk(
             if matches!(exclude_dir, Some(excluded) if path == excluded) {
                 continue;
             }
+            reject_non_portable(root, &path, name)?;
             walk(root, &path, exclude_dir, out)?;
         } else if file_type.is_file() {
             if EXCLUDED_FILE_NAMES.contains(&name) {
                 continue;
             }
+            reject_non_portable(root, &path, name)?;
             let rel = rel_str(root, &path);
             out.push(PackageFile {
                 rel_path: rel,
@@ -240,6 +282,22 @@ fn rel_str(root: &Path, path: &Path) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
+}
+
+/// Fail packaging when the path component `name` would name a
+/// different file on another platform (a Win32-reserved device name,
+/// a trailing dot or space, a forbidden character).  Run for every
+/// collected file and directory so authors hit the named rule locally
+/// instead of an asynchronous registry rejection; the walk's existing
+/// symlink / UTF-8 / entry-type gates are separate concerns.
+fn reject_non_portable(root: &Path, path: &Path, name: &str) -> Result<(), PackageError> {
+    if let Some(violation) = cabin_fs::path::component_portability(name) {
+        return Err(PackageError::NonPortablePath {
+            path: rel_str(root, path),
+            detail: violation.detail(),
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -368,6 +426,66 @@ mod tests {
     }
 
     #[test]
+    fn rejects_case_folded_name_collision() {
+        // `README` and `readme` coexist on a case-sensitive host but
+        // alias on macOS / Windows; the verifier rejects the pair, so
+        // packaging must fail locally instead.
+        let files = [
+            PackageFile {
+                rel_path: "README".to_owned(),
+                abs_path: PathBuf::from("/x/README"),
+            },
+            PackageFile {
+                rel_path: "readme".to_owned(),
+                abs_path: PathBuf::from("/x/readme"),
+            },
+        ];
+        let err = reject_case_conflicts(&files).unwrap_err();
+        assert!(
+            matches!(err, PackageError::CaseConflictingPaths { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_case_folded_file_and_directory() {
+        // A file `A` and a directory component `a/` fold together, the
+        // `case_conflict` the verifier flags as a file-used-as-parent.
+        let files = [
+            PackageFile {
+                rel_path: "A".to_owned(),
+                abs_path: PathBuf::from("/x/A"),
+            },
+            PackageFile {
+                rel_path: "a/b".to_owned(),
+                abs_path: PathBuf::from("/x/a/b"),
+            },
+        ];
+        let err = reject_case_conflicts(&files).unwrap_err();
+        assert!(
+            matches!(err, PackageError::CaseConflictingPaths { .. }),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn nested_directories_of_the_same_case_do_not_conflict() {
+        // Distinct nested paths sharing a real (same-case) directory
+        // prefix must not be mistaken for a collision.
+        let files = [
+            PackageFile {
+                rel_path: "src/a.c".to_owned(),
+                abs_path: PathBuf::from("/x/src/a.c"),
+            },
+            PackageFile {
+                rel_path: "src/b.c".to_owned(),
+                abs_path: PathBuf::from("/x/src/b.c"),
+            },
+        ];
+        reject_case_conflicts(&files).unwrap();
+    }
+
+    #[test]
     fn ensure_manifest_included_rejects_archive_without_root_manifest() {
         let files = vec![PackageFile {
             rel_path: "src/main.cc".to_owned(),
@@ -383,16 +501,15 @@ mod tests {
         dir.child("cabin.toml").write_str("x").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
-        let bytes_a = build_tar_gz(&files, None).unwrap();
-        let bytes_b = build_tar_gz(&files, None).unwrap();
+        let bytes_a = build_zip(&files, None).unwrap();
+        let bytes_b = build_zip(&files, None).unwrap();
         assert_eq!(bytes_a, bytes_b, "archives must be byte-identical");
     }
 
     #[test]
     fn archive_can_be_extracted_back() {
-        // Round-trip: archive a small tree, gunzip+untar it manually,
-        // check `cabin.toml` is at the archive root and the bytes
-        // match.
+        // Round-trip: archive a small tree, read the zip directory
+        // back, check `cabin.toml` is at the archive root.
         let dir = TempDir::new().unwrap();
         dir.child("cabin.toml")
             .write_str("[package]\nname = \"x\"\n")
@@ -401,16 +518,68 @@ mod tests {
             .write_str("int main() {}\n")
             .unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
-        let bytes = build_tar_gz(&files, None).unwrap();
+        let bytes = build_zip(&files, None).unwrap();
 
-        let dec = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
-        let mut tar = tar::Archive::new(dec);
-        let mut seen: Vec<String> = Vec::new();
-        for entry in tar.entries().unwrap() {
-            let entry = entry.unwrap();
-            seen.push(entry.path().unwrap().to_string_lossy().into_owned());
-        }
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut seen: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_owned())
+            .collect();
         seen.sort();
         assert_eq!(seen, vec!["cabin.toml", "src/main.cc"]);
+    }
+
+    #[test]
+    fn archive_entries_have_no_extra_fields_and_deflate() {
+        // Pins the strict-profile risk that the zip writer emits an
+        // extra field (zip64, timestamp, unix-extra): every entry
+        // must carry none, deflate, and the 1980-01-01 timestamp.
+        let dir = TempDir::new().unwrap();
+        dir.child("cabin.toml").write_str("x").unwrap();
+        dir.child("src/main.cc").write_str("y").unwrap();
+        let files = collect_package_files(dir.path(), None).unwrap();
+        let bytes = build_zip(&files, None).unwrap();
+
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        assert!(zip.len() >= 2);
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i).unwrap();
+            assert!(
+                entry.extra_data().unwrap_or_default().is_empty(),
+                "entry `{}` carries extra-field bytes",
+                entry.name()
+            );
+            assert_eq!(entry.compression(), CompressionMethod::Deflated);
+            assert_eq!(entry.last_modified(), Some(DateTime::default()));
+        }
+    }
+
+    /// Pack-time portability gate (amendment A1): a source tree with a
+    /// non-portable file name fails packaging locally, naming the
+    /// violated rule, rather than deferring to an async registry
+    /// rejection.  Unix-only because the fixtures create real files
+    /// with names Windows would refuse; the exhaustive per-string
+    /// matrix lives in `cabin-fs`.
+    #[cfg(unix)]
+    #[test]
+    fn collect_rejects_non_portable_path_components() {
+        for (name, detail) in [
+            ("a:b.h", "colon"),
+            ("CON", "windows device name"),
+            ("file.", "trailing dot"),
+            ("file ", "trailing space"),
+            ("ctrl\tname", "control character"),
+        ] {
+            let dir = TempDir::new().unwrap();
+            dir.child("cabin.toml").write_str("x").unwrap();
+            fs::write(dir.path().join(name), b"x").unwrap();
+            let err = collect_package_files(dir.path(), None).unwrap_err();
+            match err {
+                PackageError::NonPortablePath { path, detail: got } => {
+                    assert!(path.contains(name), "unexpected path `{path}` for {name:?}");
+                    assert_eq!(got, detail, "wrong rule for {name:?}");
+                }
+                other => panic!("expected NonPortablePath for {name:?}, got {other:?}"),
+            }
+        }
     }
 }

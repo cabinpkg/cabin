@@ -8,7 +8,7 @@
 //! <registry>/
 //! config.json
 //! packages/<name>.json
-//! artifacts/<name>/<name>-<version>.tar.gz
+//! artifacts/<name>/<name>-<version>.zip
 //! ```
 //!
 //! This crate owns the layout, the package-index file format, the

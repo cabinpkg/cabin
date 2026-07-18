@@ -187,12 +187,12 @@ pub enum SourceLocation {
 /// What kind of source artifact backs a registry package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceArtifactKind {
-    /// A `.tar.gz` source archive (the only currently supported kind).
+    /// A `.zip` source archive (the only currently supported kind).
     Archive,
 }
 
-/// Archive container format.  Only `tar.gz` is currently supported.
+/// Archive container format.  Only `zip` is currently supported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveFormat {
-    TarGz,
+    Zip,
 }

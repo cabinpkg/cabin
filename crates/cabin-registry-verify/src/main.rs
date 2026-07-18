@@ -2,7 +2,7 @@
 //! GitHub Actions workflow.
 //!
 //! ```text
-//! cabin-registry-verify <archive.tar.gz> <listing-entry.json>
+//! cabin-registry-verify <archive.zip> <listing-entry.json>
 //! ```
 //!
 //! `listing-entry.json` is one element of the admin listing's
@@ -31,7 +31,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let mut args = std::env::args_os().skip(1);
     let (Some(archive), Some(entry), None) = (args.next(), args.next(), args.next()) else {
-        return Err("usage: cabin-registry-verify <archive.tar.gz> <listing-entry.json>".into());
+        return Err("usage: cabin-registry-verify <archive.zip> <listing-entry.json>".into());
     };
     let archive = PathBuf::from(archive);
     let entry = PathBuf::from(entry);
@@ -54,7 +54,7 @@ fn run() -> Result<(), String> {
         Verdict::Verified => serde_json::json!({ "verdict": "verified" }),
         Verdict::Rejected(reasons) => serde_json::json!({
             "verdict": "rejected",
-            "reasons": reasons.iter().map(|reason| reason.code()).collect::<Vec<_>>(),
+            "reasons": reasons.iter().map(ToString::to_string).collect::<Vec<_>>(),
         }),
     };
     println!("{rendered}");

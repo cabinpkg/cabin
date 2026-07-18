@@ -240,7 +240,7 @@ pub struct SourceMetadata {
 /// referring to a freshly-archived source tree by `checksum`.
 ///
 /// `source.path` is the file-registry relative reference
-/// (`../artifacts/<name>/<name>-<version>.tar.gz`).  Dry-run staging
+/// (`../artifacts/<name>/<name>-<version>.zip`).  Dry-run staging
 /// records the same shape as a package-index `source` block, without
 /// publishing that path, so registry publish can reuse the
 /// metadata without re-deriving it.
@@ -276,11 +276,11 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
     // publish time.
     let source_path = match package.name.scope() {
         Some(scope) => format!(
-            "../../artifacts/{scope}/{base}/{stem}-{version}.tar.gz",
+            "../../artifacts/{scope}/{base}/{stem}-{version}.zip",
             base = package.name.base_name(),
             stem = package.name.artifact_stem(),
         ),
-        None => format!("../artifacts/{name}/{name}-{version}.tar.gz"),
+        None => format!("../artifacts/{name}/{name}-{version}.zip"),
     };
 
     PackageMetadata {
@@ -302,7 +302,7 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
         source: SourceMetadata {
             kind: "archive".to_owned(),
             path: source_path,
-            format: "tar.gz".to_owned(),
+            format: "zip".to_owned(),
         },
     }
 }
@@ -454,8 +454,8 @@ mod tests {
         let proj = package("fmt", "10.2.1", Vec::new());
         let meta = canonical_metadata(&proj, "sha256:x");
         assert_eq!(meta.source.kind, "archive");
-        assert_eq!(meta.source.format, "tar.gz");
-        assert_eq!(meta.source.path, "../artifacts/fmt/fmt-10.2.1.tar.gz");
+        assert_eq!(meta.source.format, "zip");
+        assert_eq!(meta.source.path, "../artifacts/fmt/fmt-10.2.1.zip");
     }
 
     /// The scoped shape climbs two levels (the index doc lives at
@@ -470,7 +470,7 @@ mod tests {
         assert_eq!(meta.name, "fmtlib/fmt");
         assert_eq!(
             meta.source.path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
         );
     }
 

@@ -4,7 +4,7 @@
 //! on-disk source trees.  The crate owns:
 //!
 //! - cache layout ([`cache`]),
-//! - SHA-256 verification and `.tar.gz` extraction ([`mod@fetch`], [`extract`]),
+//! - SHA-256 verification and archive extraction ([`mod@fetch`], [`extract`]),
 //! - the small typed surface in [`model`].
 //!
 //! Crate boundaries:

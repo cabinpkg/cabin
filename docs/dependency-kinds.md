@@ -147,7 +147,7 @@ The on-disk shape is:
   },
   "yanked":   false,
   "checksum": "sha256:...",
-  "source":   { "type": "archive", "path": "...", "format": "tar.gz" }
+  "source":   { "type": "archive", "path": "...", "format": "zip" }
 }
 ```
 

@@ -9,8 +9,8 @@
 #
 # Produces two pairs in <out-dir> (scoped names, so the filenames carry
 # the flattened `<scope>-<name>` stem):
-#   smoke-nodep-0.1.0.tar.gz   / smoke-nodep-0.1.0.json    no dependencies
-#   smoke-withdep-0.2.0.tar.gz / smoke-withdep-0.2.0.json  a dependency + a standards block
+#   smoke-nodep-0.1.0.zip   / smoke-nodep-0.1.0.json    no dependencies
+#   smoke-withdep-0.2.0.zip / smoke-withdep-0.2.0.json  a dependency + a standards block
 #
 # The frozen pair under tests/fixtures/ is a checked-in copy of the
 # `withdep` output; regenerate it with this script if the canonical

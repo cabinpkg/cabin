@@ -34,23 +34,23 @@ that the resolver can read back through `--index-path <dir>`.
   artifacts/
     fmtlib/
       fmt/
-        fmtlib-fmt-10.2.1.tar.gz
+        fmtlib-fmt-10.2.1.zip
     gabime/
       spdlog/
-        gabime-spdlog-1.13.0.tar.gz
+        gabime-spdlog-1.13.0.zip
 ```
 
 `config.json` identifies the registry layout and the relative `packages`
 and `artifacts` directories.  Registry packages are always scoped
 (`<scope>/<name>`), so each package's index file nests one scope
 directory deep and its artifact filename embeds the scope
-(`<scope>-<name>-<version>.tar.gz`, self-identifying outside the tree).
+(`<scope>-<name>-<version>.zip`, self-identifying outside the tree).
 Each `packages/<scope>/<name>.json` file contains the deterministic
 per-package version list.  Each version points at its source archive by
 a registry-relative path such as
-`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.tar.gz`.  Legacy
+`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip`.  Legacy
 bare-name registries (`packages/<name>.json`,
-`artifacts/<name>/<name>-<version>.tar.gz`) remain readable and
+`artifacts/<name>/<name>-<version>.zip`) remain readable and
 vendorable; only new publication requires a scope.
 
 The file-registry writer:
@@ -92,11 +92,11 @@ The sparse HTTP client reads the same file-registry shape over plain
 
 - `GET <url>/config.json`
 - `GET <url>/packages/<scope>/<name>.json`
-- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz`
+- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`
 
 A bare name (legal only in locally-produced file registries) reads
 from the flat `packages/<name>.json` /
-`artifacts/<name>/<name>-<version>.tar.gz` shape; the hosted registry
+`artifacts/<name>/<name>-<version>.zip` shape; the hosted registry
 serves scoped routes only.
 
 The client is read-only.  It does not publish packages, mutate registry
