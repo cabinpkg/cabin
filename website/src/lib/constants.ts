@@ -6,6 +6,7 @@ export const SITE_DESCRIPTION =
 export const DEFAULT_SEARCH_PAGE = 1;
 export const DEFAULT_SEARCH_PER_PAGE = 20;
 export const SEARCH_PATH = "/search";
+export const POLICIES_PATH = "/policies";
 
 // Documentation full-text search.  The header search box switches to this
 // target (and the docs index) when rendered in `searchMode="docs"`.

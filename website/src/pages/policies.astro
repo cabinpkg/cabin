@@ -1,0 +1,18 @@
+---
+import { Content as UsagePolicy } from "../policies/usage-policy.md";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { POLICIES_PATH } from "../lib/constants";
+---
+
+<BaseLayout
+    title="Usage Policy"
+    description="Acceptable use policies for the Cabin registry."
+    canonicalPath={POLICIES_PATH}
+    contentClass="container-shell max-w-3xl py-10"
+>
+    <article
+        class="prose prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-steel prose-a:no-underline hover:prose-a:underline"
+    >
+        <UsagePolicy />
+    </article>
+</BaseLayout>
