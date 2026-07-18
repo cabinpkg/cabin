@@ -13,17 +13,18 @@ const VERIFY_RATIO_CAP: &str = "VERIFY_RATIO_CAP";
 /// `VERIFY_ABS_CAP_BYTES`: absolute decompressed-total cap in
 /// bytes.
 const VERIFY_ABS_CAP_BYTES: &str = "VERIFY_ABS_CAP_BYTES";
-/// `VERIFY_MAX_ENTRIES`: tar entry count cap.
+/// `VERIFY_MAX_ENTRIES`: zip entry count cap.
 const VERIFY_MAX_ENTRIES: &str = "VERIFY_MAX_ENTRIES";
 /// `VERIFY_MAX_PATH_LEN`: per-entry path length cap in bytes.
 const VERIFY_MAX_PATH_LEN: &str = "VERIFY_MAX_PATH_LEN";
 
 /// Inspection caps.  The decompressed-total cap for one archive is
 /// `min(max(ratio_cap x compressed_size, floor), abs_cap_bytes)`,
-/// where the floor covers the tar framing the entry cap permits
-/// (`crate::scan`): tar framing is mostly zeros and compresses far
-/// better than any sane ratio, so without the floor every small
-/// legitimate archive would trip the ratio cap.
+/// where the floor covers the zip framing the entry cap permits
+/// (`crate::scan`): zip framing (local and central headers, the
+/// EOCD) is fixed overhead that does not compress, so without the
+/// floor a small legitimate archive of many tiny files would trip
+/// the ratio cap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     pub ratio_cap: u64,

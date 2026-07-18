@@ -570,13 +570,14 @@ dependencies = [
  "assert_cmd",
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-fs",
  "cabinpkg-manifest",
  "cabinpkg-package",
  "camino",
+ "crc32fast",
  "flate2",
  "serde",
  "serde_json",
- "tar",
  "thiserror",
 ]
 

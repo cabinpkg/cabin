@@ -104,19 +104,19 @@ jobs:
             # The scoped name `<scope>/<name>` nests the artifact
             # directory (`artifacts/<scope>/<name>/`) while the
             # filename flattens the `/` to `-`
-            # (`<scope>-<name>-<version>.tar.gz`), matching the
+            # (`<scope>-<name>-<version>.zip`), matching the
             # registry's read route.
             stem=${name//\//-}
             if ! curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
-              -o "$workdir/archive.tar.gz" \
-              "$REGISTRY_ORIGIN/artifacts/$name/$stem-$version.tar.gz"; then
+              -o "$workdir/archive.zip" \
+              "$REGISTRY_ORIGIN/artifacts/$name/$stem-$version.zip"; then
               echo "$name@$version: archive download failed; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"
               continue
             fi
 
-            if ! result=$("$verifier" "$workdir/archive.tar.gz" "$workdir/entry.json"); then
+            if ! result=$("$verifier" "$workdir/archive.zip" "$workdir/entry.json"); then
               echo "$name@$version: verifier failed operationally; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"
