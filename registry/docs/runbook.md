@@ -93,6 +93,13 @@ Two hostnames, one zone:
 - **`registry.cabinpkg.com`** - the registry's machine read plane
   (custom domain of `cabin-registry`), nothing else.
 
+Deploy skew: `cabin-website` deploys automatically on every push to
+`main`; `cabin-registry` deploys only by hand. A merge that changes the
+session-plane JSON contract therefore briefly has the account pages
+ahead of the live registry Worker - accepted pre-launch (private
+alpha), with no legacy-field fallbacks in the frontend; deploy the
+registry Worker promptly after such a merge.
+
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
 `cabinpkg.com/login`, `cabinpkg.com/callback*` (which also covers the

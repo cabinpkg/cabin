@@ -20,9 +20,12 @@ DROP TABLE users;
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,
-    -- Quota plan name; the plan -> quota map lives in code
-    -- (src/quota.rs).
-    plan TEXT NOT NULL DEFAULT 'free'
+    -- Quota class name; the class -> quota map lives in code
+    -- (src/quota.rs). Renamed in place from the earlier `plan` column:
+    -- pre-launch there is no forward-migration path for deployed
+    -- databases, the operator wipes and re-migrates from zero (see the
+    -- header above).
+    quota_class TEXT NOT NULL DEFAULT 'default'
 );
 
 -- One row per external account that ever signed in. The numeric

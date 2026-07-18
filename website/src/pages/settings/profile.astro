@@ -1,7 +1,7 @@
 ---
 // Read-only for now: the registry stores nothing editable about the
 // account beyond what GitHub provides, so this page shows the GitHub
-// identity and the plan, and points at GitHub for the rest.
+// identity and the quota class, and points at GitHub for the rest.
 import AccountShell from "../../components/account/AccountShell.astro";
 import SettingsNav from "../../components/account/SettingsNav.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
@@ -55,8 +55,8 @@ const valueClass = "font-mono text-sm text-ink";
                     <span class={valueClass} data-profile-id></span>
                 </div>
                 <div class={rowClass}>
-                    <span class={labelClass}>Plan</span>
-                    <span class={valueClass} data-profile-plan></span>
+                    <span class={labelClass}>Quota class</span>
+                    <span class={valueClass} data-profile-quota-class></span>
                 </div>
             </div>
             <p class="mt-4 text-sm text-ink-muted">

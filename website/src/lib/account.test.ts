@@ -49,7 +49,7 @@ function mockFetch(...responses: Array<Response | Error>): {
 const envelope = (detail: string) => ({ errors: [{ detail }] });
 
 test("resolveAuth settles signed-in on a 200 user payload", async () => {
-    const user = { github_id: 1, login: "octocat", plan: "free" };
+    const user = { github_id: 1, login: "octocat", quota_class: "default" };
     const { fetch, calls } = mockFetch(jsonResponse(200, user));
 
     assert.deepEqual(await resolveAuth(fetch), {

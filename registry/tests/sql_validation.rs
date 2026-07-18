@@ -90,8 +90,8 @@ fn sign_in(conn: &rusqlite::Connection, provider: &str, account_id: &str, login:
     .expect("upsert identity");
 }
 
-/// The `(user_id, login_snapshot, plan)` the session plane resolves for
-/// an identity, if any.
+/// The `(user_id, login_snapshot, quota_class)` the session plane
+/// resolves for an identity, if any.
 fn resolve(
     conn: &rusqlite::Connection,
     provider: &str,
@@ -129,9 +129,10 @@ fn first_sign_in_creates_the_user_and_binds_the_identity() {
     );
     assert_eq!(count(&conn, "users"), 1);
     assert_eq!(count(&conn, "identities"), 1);
-    let (user_id, login, plan) = resolve(&conn, "github", "26405363").expect("identity resolves");
+    let (user_id, login, quota_class) =
+        resolve(&conn, "github", "26405363").expect("identity resolves");
     assert_eq!(login, "ken-matsui");
-    assert_eq!(plan, "free");
+    assert_eq!(quota_class, "default");
     let created_at: String = conn
         .query_row(
             "SELECT created_at FROM users WHERE id = ?1",

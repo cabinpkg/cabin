@@ -48,7 +48,7 @@ function renderUsage(root: HTMLElement, usage: Usage): void {
     setText(
         root,
         "[data-usage-packages-quota]",
-        `of ${usage.quotas.max_packages_total} on the ${usage.plan} plan`,
+        `of ${usage.quotas.max_packages_total} on the ${usage.quota_class} quota class`,
     );
     setBar(
         root,

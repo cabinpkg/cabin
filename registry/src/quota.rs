@@ -1,4 +1,4 @@
-//! Per-user publish quotas: the plan -> quota map, the publish token
+//! Per-user publish quotas: the class -> quota map, the publish token
 //! bucket, and the pure enforcement checks the publish handler runs in
 //! order (`docs/architecture.md`, "Billing model and the budget breaker").
 //!
@@ -7,10 +7,11 @@
 //! calendar days, compared lexicographically on the stored ISO 8601
 //! timestamps via [`utc_day_prefix`].
 
-/// The quotas one plan grants. The map from plan name to quotas lives in
-/// [`quotas_for_plan`]; there is deliberately no plan table in D1.
+/// The quotas one class grants. The map from class name to quotas lives
+/// in [`quotas_for_class`]; there is deliberately no quota-class table
+/// in D1.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PlanQuotas {
+pub struct ClassQuotas {
     pub max_archive_bytes: u64,
     pub max_total_bytes_per_user: u64,
     pub max_new_packages_per_day: u64,
@@ -22,7 +23,7 @@ pub struct PlanQuotas {
     pub publish_refill_per_minute: f64,
 }
 
-const FREE: PlanQuotas = PlanQuotas {
+const DEFAULT: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
     max_total_bytes_per_user: 128 * 1024 * 1024,
     max_new_packages_per_day: 5,
@@ -32,12 +33,12 @@ const FREE: PlanQuotas = PlanQuotas {
     publish_refill_per_minute: 1.0,
 };
 
-/// Quotas for a `users.plan` value. Unknown plan names get the `free`
-/// quotas: deny-by-default, a typo never grants more.
-pub fn quotas_for_plan(_plan: &str) -> PlanQuotas {
-    // 'free' is the only plan today; a second plan adds a match here, not
-    // new columns.
-    FREE
+/// Quotas for a `users.quota_class` value. Unknown class names get the
+/// default class: deny-by-default, a typo never grants more.
+pub fn quotas_for_class(_class: &str) -> ClassQuotas {
+    // 'default' is the only class today; a second class adds a match
+    // here, not new columns.
+    DEFAULT
 }
 
 /// Publish token-bucket state, as stored on the token row (`rl_tokens`,
@@ -61,7 +62,7 @@ pub struct TakeOutcome {
 
 /// Takes one publish token from `prev` (or a full bucket for a token row
 /// that has never published), refilling first from the elapsed time.
-pub fn take_publish_token(prev: Option<Bucket>, now_ms: f64, quotas: &PlanQuotas) -> TakeOutcome {
+pub fn take_publish_token(prev: Option<Bucket>, now_ms: f64, quotas: &ClassQuotas) -> TakeOutcome {
     let tokens = match prev {
         Some(prev) => {
             let elapsed_ms = (now_ms - prev.updated_at_ms).max(0.0);
@@ -164,8 +165,8 @@ pub fn detail_with_usage_url(denial: &Denial, web_origin: &str) -> String {
 ///
 /// # Errors
 ///
-/// [`ARCHIVE_TOO_LARGE`] when the archive exceeds the plan's cap.
-pub fn check_archive_size(archive_bytes: u64, quotas: &PlanQuotas) -> Result<(), Denial> {
+/// [`ARCHIVE_TOO_LARGE`] when the archive exceeds the class's cap.
+pub fn check_archive_size(archive_bytes: u64, quotas: &ClassQuotas) -> Result<(), Denial> {
     if archive_bytes > quotas.max_archive_bytes {
         return Err(ARCHIVE_TOO_LARGE);
     }
@@ -201,7 +202,7 @@ pub struct PublishCounts {
 pub fn check_publish(
     archive_bytes: u64,
     counts: &PublishCounts,
-    quotas: &PlanQuotas,
+    quotas: &ClassQuotas,
 ) -> Result<(), Denial> {
     if counts.user_stored_bytes + archive_bytes > quotas.max_total_bytes_per_user {
         return Err(QUOTA_STORAGE);
@@ -225,15 +226,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unknown_plans_fall_back_to_free() {
-        assert_eq!(quotas_for_plan("free"), FREE);
-        assert_eq!(quotas_for_plan("enterprise"), FREE);
-        assert_eq!(quotas_for_plan(""), FREE);
+    fn unknown_classes_fall_back_to_the_default() {
+        assert_eq!(quotas_for_class("default"), DEFAULT);
+        assert_eq!(quotas_for_class("enterprise"), DEFAULT);
+        assert_eq!(quotas_for_class(""), DEFAULT);
     }
 
     #[test]
     fn fresh_bucket_allows_a_full_burst_then_denies() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let mut bucket = None;
         for take in 0..5 {
             let outcome = take_publish_token(bucket, 1_000.0, &quotas);
@@ -247,8 +248,8 @@ mod tests {
     }
 
     #[test]
-    fn bucket_refills_at_the_plan_rate_and_caps_at_burst() {
-        let quotas = quotas_for_plan("free");
+    fn bucket_refills_at_the_class_rate_and_caps_at_burst() {
+        let quotas = quotas_for_class("default");
         let empty = Bucket {
             tokens: 0.0,
             updated_at_ms: 0.0,
@@ -269,7 +270,7 @@ mod tests {
 
     #[test]
     fn bucket_ignores_a_clock_that_went_backwards() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let prev = Bucket {
             tokens: 2.0,
             updated_at_ms: 100_000.0,
@@ -321,7 +322,7 @@ mod tests {
 
     #[test]
     fn archive_size_is_an_exact_threshold() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         assert_eq!(
             check_archive_size(quotas.max_archive_bytes, &quotas),
             Ok(())
@@ -344,13 +345,13 @@ mod tests {
 
     #[test]
     fn publish_quotas_pass_when_everything_is_under_the_limits() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         assert_eq!(check_publish(1024, &healthy_counts(), &quotas), Ok(()));
     }
 
     #[test]
     fn storage_quota_is_exact_to_the_byte() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let counts = PublishCounts {
             user_stored_bytes: quotas.max_total_bytes_per_user - 100,
             ..healthy_counts()
@@ -362,7 +363,7 @@ mod tests {
 
     #[test]
     fn package_quotas_only_gate_new_packages() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let at_limits = PublishCounts {
             user_new_packages_today: quotas.max_new_packages_per_day,
             user_package_count: quotas.max_packages_total,
@@ -391,7 +392,7 @@ mod tests {
 
     #[test]
     fn versions_per_day_quota_is_an_exact_threshold() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let counts = PublishCounts {
             package_exists: true,
             package_versions_today: quotas.max_versions_per_package_per_day - 1,
@@ -410,7 +411,7 @@ mod tests {
 
     #[test]
     fn storage_denial_wins_over_the_later_checks() {
-        let quotas = quotas_for_plan("free");
+        let quotas = quotas_for_class("default");
         let counts = PublishCounts {
             user_stored_bytes: quotas.max_total_bytes_per_user,
             user_new_packages_today: quotas.max_new_packages_per_day,

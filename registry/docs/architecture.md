@@ -143,10 +143,10 @@ and `/callback/claim` run the scope-claim flow's dedicated roundtrip
 (`read:org`); and the `/api/v1/user` subtree is the JSON user API the
 website frontend consumes:
 
-- `GET /api/v1/user` -> `{"github_id":..,"login":..,"plan":..}`;
-- `GET /api/v1/user/usage` -> plan, package count, stored bytes (rejected
-  versions excluded - their bytes were refunded), today's publishes,
-  per-status version counts, and the plan's quotas;
+- `GET /api/v1/user` -> `{"github_id":..,"login":..,"quota_class":..}`;
+- `GET /api/v1/user/usage` -> quota class, package count, stored bytes
+  (rejected versions excluded - their bytes were refunded), today's
+  publishes, per-status version counts, and the class's quotas;
 - `GET /api/v1/user/packages` -> the packages the user created, each
   version carrying its verification state, yanked flag, and served-
   download count ("Download counts"; the dashboard's package list);
@@ -191,7 +191,7 @@ both targets are fixed relative paths, never derived from request input
 (the open-redirect guard).
 
 - Identity is **registry-native**: a `users` row (registry id, quota
-  plan) plus one `identities` row per external account, keyed by
+  class) plus one `identities` row per external account, keyed by
   `(provider, provider_account_id)` - provider-neutral in schema,
   GitHub-only in policy (`provider = 'github'`). The account id is the
   **numeric** GitHub id as text, never the login name (logins can be
@@ -495,7 +495,10 @@ therefore blocks itself gracefully *before* any Cloudflare limit or R2
 overage is reached, in two layers.
 
 **Per-user quotas** stop any single user from exhausting the shared free
-budget. `users.plan` (default `'free'`) selects a quota set from the map in
+budget. Quota classes are quota tiers granted manually on need (in the
+spirit of crates.io's per-user limit increases); the hosted registry is
+free and has no billing path. `users.quota_class` (default `'default'`)
+selects a quota set from the map in
 `src/quota.rs` - per-archive bytes, total stored bytes per user, new
 packages per day, total packages, versions per package per day, and a
 publish token bucket (burst plus per-minute refill, state on the token row
