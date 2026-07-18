@@ -266,11 +266,12 @@ The crate must:
 ### `cabin-artifact`
 
 Owns the source-archive cache.  Given a checksum-and-path-bearing fetch plan, it copies archives
-into a checksum-addressed cache, verifies SHA-256 along the way, safely extracts `.tar.gz` archives
-into the same cache, and validates that each extracted package's `cabin.toml` matches the resolved
-name and version.  It also owns the safe `.zip` extractor (`safe_extract_zip`), used only by the
-foundation-port layer for upstreams whose sole official release artifact is a zip; registry package
-archives remain `.tar.gz`.  Both extractors enforce the same fail-closed rules (decompression-bomb
+into a checksum-addressed cache, verifies SHA-256 along the way, safely extracts them into the same
+cache, and validates that each extracted package's `cabin.toml` matches the resolved name and
+version.  Registry package archives are `.zip`, extracted through `safe_extract_zip`; the crate also
+owns a safe `.tar.gz` extractor (`safe_extract_tar_gz`) that the foundation-port layer uses for
+upstreams whose release artifact is a tarball (zip upstreams reuse `safe_extract_zip`).  Both
+extractors enforce the same fail-closed rules (decompression-bomb
 caps, path-traversal protection, and symlink rejection - with an opt-in `skip_symlinks` mode that
 skips symlink entries without materializing anything, used by the foundation-port layer for
 upstream tarballs that carry convenience symlinks).  The crate must:
@@ -298,7 +299,7 @@ registry's own verifier, is [`package-format.md`](package-format.md#extraction-s
 
 Owns deterministic source-archive creation and canonical per-version metadata generation.  Given a
 single-package manifest, it validates the source tree, walks it under a fixed include / exclude
-policy, writes a byte-deterministic `.tar.gz`, hashes it with SHA-256, and emits a JSON metadata
+policy, writes a byte-deterministic `.zip`, hashes it with SHA-256, and emits a JSON metadata
 document shaped like a future registry's `<package>.json` version entry.  The crate must:
 
 - not mutate any registry;
@@ -382,8 +383,9 @@ envelope is malformed.  The crate must:
 
 Owns the hosted registry's external verifier: the hostile-archive inspection behind the
 verification lifecycle ([`remote-registry.md`](remote-registry.md), "The verifier's checks").
-Given a downloaded archive and the canonical metadata the admin listing reported, it streams the
-gunzipped tar under decompression caps, checks the structure `cabin package` emits, parses the
+Given a downloaded archive and the canonical metadata the admin listing reported, it hand-parses
+the zip container and decompresses each entry under decompression caps, checks the structure
+`cabin package` emits (the strict zip profile in `registry/docs/archive-format.md`), parses the
 embedded manifest with `cabin-manifest`, and compares it against the metadata - rendering a
 verdict plus machine-readable reason codes.  It lives in the root workspace precisely to reuse
 the real manifest parser and the real `cabin-package` metadata seams, but it is a client of the
@@ -959,9 +961,9 @@ ValidatedPackage
    v
 [PackageFile, ...]
    |
-   |  cabin_package::archive::build_tar_gz
-   |   - tar entries: mtime/uid/gid/uname/gname zeroed, mode 0o644
-   |   - gzip header: mtime = 0, OS = 0xff (unknown)
+   |  cabin_package::archive::build_zip
+   |   - entries sorted by path, deflated at level 6
+   |   - fixed 1980-01-01 timestamp, System::Unix, no zip64
    v
 archive bytes (Vec<u8>) ---> sha256_hex ---> sha256:<hex>
    |
@@ -972,7 +974,7 @@ PackageMetadata { schema, name, version, dependencies,
    |
    |  cabin_package::package writes both files into --output-dir
    v
-dist/<stem>-<version>.tar.gz
+dist/<stem>-<version>.zip
 dist/<stem>-<version>.json
 ```
 
@@ -983,8 +985,8 @@ self-identifying and land flat in the output directory; a bare name is its own s
 `registry_modified` flag is always `false`.  No registry, no network, no server is involved in the
 dry-run flow - though it does require a scoped name, because a dry run rehearses a publish.  The
 canonical metadata's `source` block matches the existing index `source` shape
-(`type = "archive"`, `format = "tar.gz"`, `path = "../artifacts/<name>/<name>-<version>.tar.gz"`
-for a bare name, `path = "../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` for a
+(`type = "archive"`, `format = "zip"`, `path = "../artifacts/<name>/<name>-<version>.zip"`
+for a bare name, `path = "../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` for a
 scoped one - the shape the hosted registry validates verbatim).
 
 ### Local file-registry publish
@@ -1035,11 +1037,11 @@ The registry written by this flow lands at:
 <registry>/
   config.json
   packages/<scope>/<name>.json
-  artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz
+  artifacts/<scope>/<name>/<scope>-<name>-<version>.zip
 ```
 
 Publishing requires scoped names, so new entries always nest one scope directory deep; legacy
-bare-name registries (`packages/<name>.json`, `artifacts/<name>/<name>-<version>.tar.gz`) stay
+bare-name registries (`packages/<name>.json`, `artifacts/<name>/<name>-<version>.zip`) stay
 readable and vendorable.  `cabin-index::load_index` detects `config.json` and reads packages out of
 the configured `packages/` subdirectory - flat `<name>.json` files as bare names, one-level
 `<scope>/<name>.json` nesting as scoped names - so the same path that publish wrote to is consumable
@@ -1080,7 +1082,7 @@ ResolveOutput
 cabin_artifact::fetch
    |  Same checksum + cache + extraction as the local-file path:
    |  bytes are hashed against the index's sha256, written into
-   |  <cache>/archives/sha256/<hex>.tar.gz, and extracted into
+   |  <cache>/archives/sha256/<hex>.zip, and extracted into
    |  <cache>/sources/sha256/<hex>/.
    v
 FetchedPackage { archive_path, source_dir, checksum }
@@ -1169,15 +1171,15 @@ than carved out into ad-hoc places.
 
 A content-addressed cache and source / archive fetcher that turns a locked package set into actual
 on-disk source trees, verifying checksums recorded in `cabin.lock`.  Implemented as `cabin-artifact`
-for local filesystem `.tar.gz` archives.  Future transports (OCI / Git) may be added without
+for local filesystem source archives.  Future transports (OCI / Git) may be added without
 changing the cache shape.
 
 ### Package / archive layer
 
 Source-archive creation for publishable packages.  Pure local operation: take a package directory,
 produce a deterministic archive plus a per-version metadata digest.  Implemented as `cabin-package`.
-The archive contract matches the extractor: a `.tar.gz` whose root contains `cabin.toml`, regular
-files and directories only.
+The archive contract matches the extractor: a `.zip` whose root contains `cabin.toml`, regular
+files only (directories implied).
 
 ### File registry publish layer
 
@@ -1188,7 +1190,7 @@ Local file-registry publish path that drops a freshly created package archive pl
 
 ### Sparse HTTP index / artifact client
 
-Read-path client for fetching `<package>.json` and tarballs over HTTP from a static layout.
+Read-path client for fetching `<package>.json` and archives over HTTP from a static layout.
 Implemented as `cabin-index-http`.  The on-disk index format and the transport stay separate by
 design: local file reading lives in `cabin-index`, HTTP reading in `cabin-index-http`, and they emit
 the same `cabin_index::PackageIndex` / `IndexEntry` shape so the resolver and lockfile layers stay

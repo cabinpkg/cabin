@@ -6,7 +6,7 @@ resolver metadata, checksum data for `cabin.lock`, and a source block so `cabin 
 build` can materialize registry packages.
 
 For `--index-path` local file indexes, HTTP, OCI, Git, and remote source paths are **not**
-supported.  The only source shape recognized there is `type = "archive"` / `format = "tar.gz"` with
+supported.  The only source shape recognized there is `type = "archive"` / `format = "zip"` with
 a local filesystem `path`.  Sparse HTTP indexes are documented below and use the same archive source
 records after URL resolution.
 
@@ -49,20 +49,20 @@ registry/
     spdlog.json
   artifacts/
     fmt/
-      fmt-10.2.1.tar.gz
+      fmt-10.2.1.zip
     spdlog/
-      spdlog-1.13.0.tar.gz
+      spdlog-1.13.0.zip
 ```
 
 When a `config.json` is present at the index root the loader uses the registry-root layout:
 `config.packages` (default `"packages"`) points at the directory holding `<name>.json` files, and
 source paths in those files resolve relative to that directory - i.e.
-`"../artifacts/fmt/fmt-10.2.1.tar.gz"` lands at `registry/artifacts/fmt/fmt-10.2.1.tar.gz`.
+`"../artifacts/fmt/fmt-10.2.1.zip"` lands at `registry/artifacts/fmt/fmt-10.2.1.zip`.
 
 In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper as
 `<scope>/<name>.json` (e.g. `packages/fmtlib/fmt.json`); its declared `name` must be the full
 `<scope>/<name>`, and its source paths resolve relative to the scope directory, matching the
-published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` form.  Anything nested
+published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` form.  Anything nested
 deeper than one scope directory is ignored.
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
@@ -94,8 +94,8 @@ field.  Mismatches produce a clear error.
       "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "source": {
         "type": "archive",
-        "path": "../artifacts/fmt-10.2.1.tar.gz",
-        "format": "tar.gz"
+        "path": "../artifacts/fmt-10.2.1.zip",
+        "format": "zip"
       }
     }
   }
@@ -128,16 +128,16 @@ Each `source` block must take this exact shape:
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt-10.2.1.tar.gz",
-  "format": "tar.gz"
+  "path": "../artifacts/fmt-10.2.1.zip",
+  "format": "zip"
 }
 ```
 
 | Field | Allowed values | Description |
 | --- | --- | --- |
 | `type` | `"archive"` | Local source archives.  Other values (HTTP, OCI, Git, ...) produce a clear error. |
-| `path` | non-empty string | Absolute or relative filesystem path to the `.tar.gz` archive.  Relative paths are resolved against the directory containing the `<package>.json` file at load time. |
-| `format` | `"tar.gz"` | Gzipped tar archives. |
+| `path` | non-empty string | Absolute or relative filesystem path to the `.zip` archive.  Relative paths are resolved against the directory containing the `<package>.json` file at load time. |
+| `format` | `"zip"` | Zip archives. |
 
 `cabin fetch` and `cabin build` copy each archive into the artifact cache, hashing as they go, and
 reject any archive whose bytes do not match the entry's `checksum`.  The cache layout is documented
@@ -218,7 +218,7 @@ Loading rejects an index when:
 - a version key is not a valid SemVer string
 - a dependency requirement is not parseable
 - a `source.type` is anything other than `"archive"`
-- a `source.format` is anything other than `"tar.gz"`
+- a `source.format` is anything other than `"zip"`
 - a `source.path` is empty
 - a `standards` interface cell populates the reserved `max` field, or is a bare standard string
   (`"c++17"`) rather than `"none"` or a `{ "min": "<level>" }` table
@@ -260,11 +260,11 @@ naming the field (see [Registry-root layout](#registry-root-layout)).
 Source-path resolution for each version:
 
 - `source.path` is resolved against the package metadata URL using RFC 3986 rules.  The standard
-  `"../artifacts/<name>/<name>-<version>.tar.gz"` therefore resolves to
-  `<url>/artifacts/<name>/<name>-<version>.tar.gz` - the literal path components are joined per RFC
+  `"../artifacts/<name>/<name>-<version>.zip"` therefore resolves to
+  `<url>/artifacts/<name>/<name>-<version>.zip` - the literal path components are joined per RFC
   3986; the `config.artifacts` field is not substituted into the URL.  A scoped package's document
   sits one directory deeper, so its canonical
-  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.tar.gz"` climbs one extra level and
+  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` climbs one extra level and
   lands on the same registry root.
 - Absolute or scheme-relative `http://` / `https://` values are accepted only when the final
   artifact URL has the same origin (scheme, host, and effective port) as the package metadata URL.
