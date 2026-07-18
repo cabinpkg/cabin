@@ -210,6 +210,23 @@ pub enum SessionRoute<'a> {
         name: &'a str,
         version: &'a str,
     },
+    /// `GET /api/v1/user/search?q=<term>`: substring search over the
+    /// packages with a verified version, for the dashboard
+    /// (`docs/architecture.md`, "Search and reverse dependencies").
+    /// The query string is parsed and validated by the handler, not
+    /// here - route matching sees the bare path only.
+    Search,
+    /// `GET /api/v1/user/package/<scope>/<name>`: one visible
+    /// package's verified versions and its newest version's
+    /// dependencies. `package` (singular - any one visible package)
+    /// deliberately does not nest under `/api/v1/user/packages`, the
+    /// created-packages listing, for the same reason as
+    /// [`SessionRoute::PackageSource`]: it is not ownership-scoped.
+    PackageDetail { scope: &'a str, name: &'a str },
+    /// `GET /api/v1/user/package/<scope>/<name>/reverse-dependencies`:
+    /// the visible packages with a verified version depending on the
+    /// target package.
+    ReverseDependencies { scope: &'a str, name: &'a str },
     /// `GET /api/v1/user/scopes/<scope>/members` lists a scope's
     /// members, `POST` adds one.
     ScopeMembers { scope: &'a str },
@@ -229,9 +246,25 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
         "/api/v1/user" => Some(SessionRoute::User),
         "/api/v1/user/usage" => Some(SessionRoute::Usage),
         "/api/v1/user/packages" => Some(SessionRoute::Packages),
+        "/api/v1/user/search" => Some(SessionRoute::Search),
         "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         "/api/v1/user/logout" => Some(SessionRoute::Logout),
         _ => {
+            if let Some(rest) = path.strip_prefix("/api/v1/user/package/") {
+                let (scope, rest) = rest.split_once('/')?;
+                // A package legitimately named `reverse-dependencies`
+                // stays addressable: the suffix strip requires the
+                // extra `/` segment, so the bare name never strips.
+                let (name, reverse) = match rest.strip_suffix("/reverse-dependencies") {
+                    Some(name) => (name, true),
+                    None => (rest, false),
+                };
+                return (is_valid_scope(scope) && is_valid_name(name)).then_some(if reverse {
+                    SessionRoute::ReverseDependencies { scope, name }
+                } else {
+                    SessionRoute::PackageDetail { scope, name }
+                });
+            }
             if let Some(rest) = path.strip_prefix("/api/v1/user/source/") {
                 let (scope, rest) = rest.split_once('/')?;
                 let (name, version) = rest.split_once('/')?;
@@ -613,6 +646,42 @@ mod tests {
                 version: "1.0.0-rc.1+b.5"
             })
         );
+        assert_eq!(
+            match_session_route("/api/v1/user/search"),
+            Some(SessionRoute::Search)
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/package/fmtlib/fmt"),
+            Some(SessionRoute::PackageDetail {
+                scope: "fmtlib",
+                name: "fmt"
+            })
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/package/fmtlib/fmt/reverse-dependencies"),
+            Some(SessionRoute::ReverseDependencies {
+                scope: "fmtlib",
+                name: "fmt"
+            })
+        );
+        // A package genuinely named `reverse-dependencies` is a detail
+        // route, and its own reverse-dependencies route still parses.
+        assert_eq!(
+            match_session_route("/api/v1/user/package/my-org/reverse-dependencies"),
+            Some(SessionRoute::PackageDetail {
+                scope: "my-org",
+                name: "reverse-dependencies"
+            })
+        );
+        assert_eq!(
+            match_session_route(
+                "/api/v1/user/package/my-org/reverse-dependencies/reverse-dependencies"
+            ),
+            Some(SessionRoute::ReverseDependencies {
+                scope: "my-org",
+                name: "reverse-dependencies"
+            })
+        );
     }
 
     #[test]
@@ -641,6 +710,20 @@ mod tests {
             "/api/v1/user/source/fmtlib/fmt/10.2.1%2f",
             "/api/v1/user/source/fmtlib//10.2.1",
             "/api/v1/user/source//fmt/10.2.1",
+            "/api/v1/user/search/",
+            "/api/v1/user/search/extra",
+            "/api/v1/user/package",
+            "/api/v1/user/package/",
+            "/api/v1/user/package/fmtlib",
+            "/api/v1/user/package/fmtlib/",
+            "/api/v1/user/package/Fmtlib/fmt",
+            "/api/v1/user/package/fmtlib/Fmt",
+            "/api/v1/user/package/fmt.lib/fmt",
+            "/api/v1/user/package//fmt",
+            "/api/v1/user/package/fmtlib/fmt/extra",
+            "/api/v1/user/package/fmtlib/fmt/reverse-dependencies/",
+            "/api/v1/user/package/fmtlib/fmt/reverse-dependencies/extra",
+            "/api/v1/user/package/fmtlib//reverse-dependencies",
             "/api/v1/user/logout/",
             "/api/v1/users",
             "/api/v1/user/scopes",
@@ -676,6 +759,9 @@ mod tests {
             "/api/v1/user/scopes/fmtlib/members",
             "/api/v1/user/scopes/fmtlib/members/1/remove",
             "/api/v1/user/source/fmtlib/fmt/10.2.1",
+            "/api/v1/user/search",
+            "/api/v1/user/package/fmtlib/fmt",
+            "/api/v1/user/package/fmtlib/fmt/reverse-dependencies",
             "/api/v1/user/anything/else",
         ] {
             assert!(is_session_path(path), "path: {path:?}");

@@ -233,6 +233,56 @@ statements! {
         "SELECT COUNT(*) AS n FROM versions WHERE verification = 'pending' \
          AND published_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
 
+    /// The dashboard search's row set: every verified version of every
+    /// package whose canonical `<scope>/<name>` name contains the term
+    /// as a literal substring. `instr`, deliberately not a `LIKE`
+    /// pattern: D1 caps `LIKE`/`GLOB` patterns at 50 bytes, which
+    /// would refuse valid terms under the documented 64-character
+    /// contract, while `instr` takes the term verbatim - nothing to
+    /// escape, no wildcards to smuggle. It compares bytes exactly;
+    /// the caller ASCII-lowercases the term, and names are lowercase
+    /// by grammar, so the match is ASCII-case-insensitive. Grouping,
+    /// ranking, and the result limit happen in host-testable Rust
+    /// (`user_api::search_json`), so the statement stays a plain
+    /// verified-only filter. Like [`REVERSE_DEPENDENCIES`], this scans
+    /// the verified corpus per call - accepted at current scale; the
+    /// breaker's `d1_rows_read_day` budget is the tripwire.
+    SEARCH_VERIFIED_VERSIONS =
+        "SELECT scope, name, version, yanked, published_at, downloads \
+         FROM versions WHERE verification = 'verified' \
+         AND instr(scope || '/' || name, ?1) > 0";
+
+    /// One visible package's verified versions with the stored
+    /// metadata each carries: the session package-detail read.
+    /// Verified-only like [`VERIFIED_VERSIONS_BY_PACKAGE`], so a
+    /// package with none is a missing package by construction.
+    VERIFIED_VERSION_DETAILS =
+        "SELECT version, metadata_json, yanked, published_at, downloads \
+         FROM versions WHERE scope = ?1 AND name = ?2 AND verification = 'verified'";
+
+    /// Whether the package is visible at all (>= 1 verified version):
+    /// the reverse-dependencies target gate.
+    HAS_VERIFIED_VERSION =
+        "SELECT COUNT(*) AS n FROM versions \
+         WHERE scope = ?1 AND name = ?2 AND verification = 'verified'";
+
+    /// The verified versions whose stored `dependencies` map contains
+    /// the canonical `<scope>/<name>` key in `?1`: a `json_each` walk
+    /// over every verified row's `metadata_json` per call. That full
+    /// scan is the recorded decision (`docs/architecture.md`, "Search
+    /// and reverse dependencies"): at current scale it sits well
+    /// inside the D1 budget the breaker watches (`d1_rows_read_day`),
+    /// and the upgrade path - a publish-maintained dependents table,
+    /// the crates.io approach - is to be taken only if that metric
+    /// warns, not preemptively. Dependent packages are visible by
+    /// construction: a verified matching version is itself the
+    /// dependent's visibility.
+    REVERSE_DEPENDENCIES =
+        "SELECT scope, name, version, published_at FROM versions \
+         WHERE verification = 'verified' \
+         AND EXISTS (SELECT 1 FROM json_each(versions.metadata_json, '$.dependencies') \
+                     WHERE json_each.key = ?1)";
+
     /// The session packages listing: every version of every package the
     /// user created, deterministically ordered, each with its served-
     /// download count (the dashboard's per-package figures).
