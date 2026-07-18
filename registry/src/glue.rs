@@ -393,7 +393,11 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 /// rejected row, replaces) the package and version rows and bumps the
 /// storage self-accounting. New rows start `pending` and the `201`
 /// reports it: nothing becomes resolvable before the verifier says so.
-#[allow(clippy::too_many_arguments)] // the route triple plus the request plumbing
+// The route triple plus the request plumbing exceeds the argument lint,
+// and the publish pipeline is one deliberately linear sequence of gate
+// checks in documented order, so it also runs long; splitting either
+// would scatter that structure across helpers rather than clarify it.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn publish_response(
     req: &mut Request,
     env: &Env,
@@ -443,6 +447,11 @@ async fn publish_response(
         Ok(metadata) => metadata,
         Err(detail) => return error_response(400, detail),
     };
+    // Reject a body that cannot be a profile zip before hashing it; the
+    // full profile is checked later by the async verifier.
+    if let Err(detail) = publish::sanity_check_zip(frame.archive) {
+        return error_response(400, detail);
+    }
     let computed_hex = sha256_hex(frame.archive).await?;
     if let Err(detail) = publish::verify_checksum(&metadata, &computed_hex) {
         return error_response(400, detail);
@@ -964,7 +973,7 @@ async fn artifact_response(
     let mut response = Response::from_stream(body.stream()?)?;
     response
         .headers_mut()
-        .set("content-type", "application/gzip")?;
+        .set("content-type", "application/zip")?;
     response
         .headers_mut()
         .set("content-length", &size.to_string())?;

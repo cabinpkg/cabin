@@ -124,11 +124,11 @@ mod tests {
 
     #[test]
     fn package_json_overrides_yanked_from_the_row_state() {
-        let stored = r#"{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}"#;
+        let stored = r#"{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}"#;
         let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, true)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}}}"#
         );
     }
 
@@ -136,11 +136,11 @@ mod tests {
     fn package_json_overrides_a_stale_stored_yanked_after_unyank() {
         // Un-yanking only flips the row column; the stored entry still
         // says `yanked: true` and must lose.
-        let stored = r#"{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}"#;
+        let stored = r#"{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}"#;
         let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.tar.gz"}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}}}"#
         );
     }
 
@@ -150,11 +150,11 @@ mod tests {
         // stored entries carry the `schema`/`name`/`version` envelope; the
         // served version entry must not (the client's index parser rejects
         // unknown fields in version entries).
-        let stored = r#"{"schema":1,"name":"fmtlib/fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz","format":"tar.gz"}}"#;
+        let stored = r#"{"schema":1,"name":"fmtlib/fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip","format":"zip"}}"#;
         let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
         assert_eq!(
             body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.tar.gz","format":"tar.gz"}}}}"#
+            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip","format":"zip"}}}}"#
         );
     }
 
