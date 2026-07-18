@@ -489,14 +489,13 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-manifest",
  "camino",
- "flate2",
  "predicates",
  "semver",
  "serde",
  "serde_json",
  "sha2",
- "tar",
  "thiserror",
+ "zip",
 ]
 
 [[package]]

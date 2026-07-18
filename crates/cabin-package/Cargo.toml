@@ -14,13 +14,12 @@ name = "cabin_package"
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
-flate2 = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-tar = { workspace = true }
 thiserror = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

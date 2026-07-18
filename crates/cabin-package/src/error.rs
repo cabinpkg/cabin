@@ -56,6 +56,25 @@ pub enum PackageError {
     #[error("refusing to package `{0}` because only regular files and directories are supported")]
     UnsupportedFileType(String),
 
+    /// A collected file or directory has a path component that would
+    /// name a different file on another platform Cabin targets (a
+    /// Win32-reserved device name, a trailing dot or space, a
+    /// forbidden character).  Rejecting it at pack time fails the
+    /// author locally with the violated rule instead of deferring to
+    /// an asynchronous registry rejection.
+    #[error(
+        "refusing to package `{path}`: path component is not portable across platforms ({detail})"
+    )]
+    NonPortablePath { path: String, detail: &'static str },
+
+    /// Two archive entries whose paths differ only by letter case.
+    /// A case-insensitive filesystem (macOS, Windows) would materialize
+    /// one over the other; the registry verifier rejects the same
+    /// collision, so failing here fails the author locally instead of
+    /// deferring to an asynchronous registry rejection.
+    #[error("refusing to package `{first}` and `{second}`: paths collide when case is ignored")]
+    CaseConflictingPaths { first: String, second: String },
+
     #[error("path `{}` is not valid UTF-8 and cannot appear in a package archive", path.display())]
     NonUtf8Path { path: PathBuf },
 
