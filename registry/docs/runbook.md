@@ -244,9 +244,9 @@ ones. Launch is a data and policy event, in order:
    lives in `meta`, so a disaster-recovery restore of a pre-launch dump
    would reset it - re-running this `UPDATE` is part of any such
    restore (see "Disaster recovery").
-3. Remove the under-development labels from the website (the `restricted`
-   badge on the sign-in affordance and the private-development copy on
-   `/login/denied` - see `website/`).
+3. Remove the private-alpha labels from the website (the `private α`
+   badges on the sign-in affordance and the account-page shell, and the
+   private-alpha copy on `/login/denied` - see `website/`).
 4. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
    open sign-up, and keep `auth-required` reads or enable whatever
    public-read work package applies by then.

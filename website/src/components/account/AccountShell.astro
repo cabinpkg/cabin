@@ -22,7 +22,12 @@ const { title } = Astro.props;
         <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
             {title}
         </h1>
-        <Badge tone="default">under development</Badge>
+        <Badge tone="default" title="Private alpha">
+            {/* aria-label is prohibited on a generic span, so the spoken
+                name comes from an sr-only twin instead. */}
+            <span aria-hidden="true">private α</span>
+            <span class="sr-only">private alpha</span>
+        </Badge>
     </header>
 
     <div data-shell-loading>

@@ -50,7 +50,7 @@ export const ACCOUNT_URLS = {
 } as const;
 
 // Shown on every sign-in affordance while the registry is in private
-// development - the visitor must see this before being sent to GitHub.
+// alpha - the visitor must see this before being sent to GitHub.
 export const SIGNIN_RESTRICTION =
-    "The registry is in private development; sign-in is restricted to " +
+    "The registry is in private alpha; sign-in is restricted to " +
     "allowlisted maintainer accounts.";
