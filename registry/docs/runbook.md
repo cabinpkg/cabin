@@ -94,11 +94,25 @@ Two hostnames, one zone:
   (custom domain of `cabin-registry`), nothing else.
 
 Deploy skew: `cabin-website` deploys automatically on every push to
-`main`; `cabin-registry` deploys only by hand. A merge that changes the
-session-plane JSON contract therefore briefly has the account pages
-ahead of the live registry Worker - accepted pre-launch (private
-alpha), with no legacy-field fallbacks in the frontend; deploy the
-registry Worker promptly after such a merge.
+`main` (Workers Builds); `cabin-registry` deploys from CI (the
+`deploy-registry` job in `.github/workflows/registry.yml`) on pushes
+to `main` matching that workflow's paths filter, after its build and
+conformance jobs pass. A merge that changes the session-plane JSON
+contract therefore briefly has the account pages ahead of the live
+registry Worker while the gate runs - accepted pre-launch (private
+alpha), with no legacy-field fallbacks in the frontend. A red gate
+leaves the previous Worker serving. A red deploy job may or may not
+have activated the new version (`wrangler deploy` can fail after
+activation), so check `npx wrangler deployments list` and run the
+smoke checks below; `npx wrangler deploy` from this directory stays
+the manual fallback. The CI deploy token is scoped to Workers
+Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
+remain manual steps in this runbook. For exactly that reason the
+auto-deploy stays skipped while `migrations/` content disagrees with
+the `migrations-applied` stamp: after applying changed migrations to
+the live database (or completing a wipe), refresh the stamp from this
+directory and land it like any other change:
+`cat migrations/*.sql | shasum -a 256 | cut -d' ' -f1 | tee migrations-applied`.
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
