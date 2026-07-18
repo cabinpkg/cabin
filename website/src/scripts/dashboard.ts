@@ -11,6 +11,7 @@ import {
     type Usage,
 } from "../lib/account.ts";
 import { accountShell } from "../lib/accountShell";
+import { ACCOUNT_URLS } from "../lib/constants";
 import { formatBytes, formatCount, formatRelativeTime } from "../lib/format";
 
 const doFetch: FetchLike = (input, init) => fetch(input, init);
@@ -150,6 +151,18 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
                     version.verification === "verified"
                 ) {
                     downloads.textContent = `${formatCount(version.downloads)} downloads`;
+                }
+                const source = row.querySelector('[data-slot="source"]');
+                // Only verified versions are browsable (the source route
+                // gates on verified exactly like the artifact route).
+                if (
+                    source instanceof HTMLAnchorElement &&
+                    version.verification === "verified"
+                ) {
+                    source.href =
+                        `${ACCOUNT_URLS.source}?name=${encodeURIComponent(pkg.name)}` +
+                        `&version=${encodeURIComponent(version.version)}`;
+                    source.hidden = false;
                 }
                 const published = row.querySelector('[data-slot="published"]');
                 if (published instanceof HTMLElement) {

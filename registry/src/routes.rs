@@ -197,6 +197,19 @@ pub enum SessionRoute<'a> {
     Tokens,
     /// `POST /api/v1/user/tokens/<id>/revoke`.
     RevokeToken { id: &'a str },
+    /// `GET /api/v1/user/source/<scope>/<name>/<version>`: a ranged
+    /// read of a **verified** version's archive for the website's
+    /// source viewer. Any verified version is readable, so the route
+    /// deliberately does not nest under `/api/v1/user/packages` (the
+    /// created-packages listing), where it would read as
+    /// ownership-scoped; the `/api/v1/user` prefix is where the session
+    /// cookie's `Path` sends it, nothing more
+    /// (`docs/architecture.md`, "Origins and roles").
+    PackageSource {
+        scope: &'a str,
+        name: &'a str,
+        version: &'a str,
+    },
     /// `GET /api/v1/user/scopes/<scope>/members` lists a scope's
     /// members, `POST` adds one.
     ScopeMembers { scope: &'a str },
@@ -207,8 +220,10 @@ pub enum SessionRoute<'a> {
 }
 
 /// Matches `path` against the session routes. Token ids
-/// (`[A-Za-z0-9_-]+`), scopes (the scope grammar), and GitHub ids
-/// (numeric) are validated here before they reach a D1 query.
+/// (`[A-Za-z0-9_-]+`), scopes (the scope grammar), GitHub ids
+/// (numeric), and the source route's package triple (the read-plane
+/// grammars, like [`match_route`] - the components become an R2-backed
+/// read) are validated here before they reach a D1 query.
 pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
     match path {
         "/api/v1/user" => Some(SessionRoute::User),
@@ -217,6 +232,18 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
         "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         "/api/v1/user/logout" => Some(SessionRoute::Logout),
         _ => {
+            if let Some(rest) = path.strip_prefix("/api/v1/user/source/") {
+                let (scope, rest) = rest.split_once('/')?;
+                let (name, version) = rest.split_once('/')?;
+                // An extra segment lands in `version` and fails the
+                // grammar (`/` is outside its charset).
+                return (is_valid_scope(scope) && is_valid_name(name) && is_valid_version(version))
+                    .then_some(SessionRoute::PackageSource {
+                        scope,
+                        name,
+                        version,
+                    });
+            }
             if let Some(rest) = path.strip_prefix("/api/v1/user/scopes/") {
                 let (scope, rest) = rest.split_once('/')?;
                 if !is_valid_scope(scope) {
@@ -570,6 +597,22 @@ mod tests {
                 github_id: 26_405_363
             })
         );
+        assert_eq!(
+            match_session_route("/api/v1/user/source/fmtlib/fmt/10.2.1"),
+            Some(SessionRoute::PackageSource {
+                scope: "fmtlib",
+                name: "fmt",
+                version: "10.2.1"
+            })
+        );
+        assert_eq!(
+            match_session_route("/api/v1/user/source/my-org/my_pkg-2/1.0.0-rc.1+b.5"),
+            Some(SessionRoute::PackageSource {
+                scope: "my-org",
+                name: "my_pkg-2",
+                version: "1.0.0-rc.1+b.5"
+            })
+        );
     }
 
     #[test]
@@ -585,6 +628,19 @@ mod tests {
             "/api/v1/user/tokens/a%2f/revoke",
             "/api/v1/user/packages/",
             "/api/v1/user/packages/fmt",
+            "/api/v1/user/packages/fmtlib/fmt/10.2.1",
+            "/api/v1/user/source",
+            "/api/v1/user/source/",
+            "/api/v1/user/source/fmtlib",
+            "/api/v1/user/source/fmtlib/fmt",
+            "/api/v1/user/source/fmtlib/fmt/",
+            "/api/v1/user/source/fmtlib/fmt/10.2.1/extra",
+            "/api/v1/user/source/Fmtlib/fmt/10.2.1",
+            "/api/v1/user/source/fmtlib/Fmt/10.2.1",
+            "/api/v1/user/source/fmtlib/fmt/v10.2.1",
+            "/api/v1/user/source/fmtlib/fmt/10.2.1%2f",
+            "/api/v1/user/source/fmtlib//10.2.1",
+            "/api/v1/user/source//fmt/10.2.1",
             "/api/v1/user/logout/",
             "/api/v1/users",
             "/api/v1/user/scopes",
@@ -619,6 +675,7 @@ mod tests {
             "/api/v1/user/tokens/abc/revoke",
             "/api/v1/user/scopes/fmtlib/members",
             "/api/v1/user/scopes/fmtlib/members/1/remove",
+            "/api/v1/user/source/fmtlib/fmt/10.2.1",
             "/api/v1/user/anything/else",
         ] {
             assert!(is_session_path(path), "path: {path:?}");

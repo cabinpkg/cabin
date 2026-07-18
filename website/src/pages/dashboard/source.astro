@@ -1,0 +1,75 @@
+---
+// The source viewer: browse the exact files of a published, verified
+// version, read straight from the stored archive via the session source
+// route (registry/docs/architecture.md, "The source viewer's ranged
+// reads"). The static build carries only the skeleton; source.ts picks
+// the package and version from the ?name=&version= query and does all
+// fetching and zip parsing client-side.
+import AccountShell from "../../components/account/AccountShell.astro";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+---
+
+<BaseLayout
+    title="Source"
+    description="Browse the files of a published version on the Cabin registry."
+    canonicalPath="/dashboard/source"
+    contentClass="container-shell max-w-6xl py-10"
+>
+    <AccountShell title="Source">
+        <header class="mb-6">
+            <p class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span
+                    class="font-mono text-lg font-semibold text-steel"
+                    data-source-package></span>
+                <code class="font-mono text-sm text-ink-muted" data-source-version
+                ></code>
+            </p>
+            <p class="mt-1 text-xs text-ink-faint">
+                The published archive's files, exactly as the registry stores
+                them.
+            </p>
+        </header>
+        <div class="grid gap-6 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+            <nav
+                aria-label="Archive files"
+                class="text-sm md:max-h-[70vh] md:overflow-y-auto"
+                data-source-tree
+            >
+            </nav>
+            <section>
+                <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <code class="font-mono text-sm" data-source-file></code>
+                    <span class="text-xs text-ink-faint" data-source-file-size
+                    ></span>
+                </div>
+                <p class="mb-2 text-sm text-ink-muted" data-source-notice hidden>
+                </p>
+                <pre
+                    class="overflow-x-auto rounded-md border border-line bg-night-raised p-4 text-sm leading-relaxed"
+                    data-source-pre
+                    hidden><code data-source-content></code></pre>
+            </section>
+        </div>
+
+        <template id="source-dir-template">
+            <details open>
+                <summary
+                    class="cursor-pointer select-none py-0.5 font-mono text-ink-muted"
+                    data-slot="name"
+                >
+                </summary>
+                <div class="ml-2 border-l border-line pl-2" data-slot="children">
+                </div>
+            </details>
+        </template>
+        <template id="source-file-template">
+            <button
+                type="button"
+                class="block w-full truncate rounded-sm px-1 py-0.5 text-left font-mono text-ink hover:text-steel"
+                data-slot="file"
+            >
+            </button>
+        </template>
+    </AccountShell>
+    <script src="../../scripts/source.ts"></script>
+</BaseLayout>

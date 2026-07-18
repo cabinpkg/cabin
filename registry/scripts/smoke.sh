@@ -23,7 +23,10 @@
 # lifecycle (pending -> verify -> resolvable with a verify-scoped token,
 # verdict idempotency and conflicts, and the reject -> blob reclaim ->
 # quota refund -> republish flow including the shared-blob refcount
-# case), the budget breaker (writes 402 while service_mode =
+# case), the source viewer's session-ranged reads (the range policy's
+# 400/416 matrix, exact bytes and headers, verified-only with yanked
+# browsable, and the counter never moving), the budget breaker (writes
+# 402 while service_mode =
 # writes_blocked, reads unaffected), blob replication into the BACKUP
 # bucket, and the nightly dump job (triggered via the /__scheduled test
 # route against a local mock of the D1 export API serving a real
@@ -881,6 +884,9 @@ expect_body '"verification":"pending"'
 step "pending versions are invisible to ordinary tokens"
 check "$package_path" 404
 check "$artifact_path" 404
+# The source viewer gates on verified the same way; a valid range makes
+# sure the 404 is the gate, not the range policy (checked first).
+session_request GET "/api/v1/user/source/$scope/$name/$version" 404 -H "Range: bytes=-22"
 wcheck "/api/v1/admin/versions?status=pending" 403
 expect_body 'verify scope'
 printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
@@ -1028,6 +1034,8 @@ session_request GET /api/v1/user/packages 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"verification":"verified"'
 expect_body '"yanked":true'
+# Yanked stays browsable in the source viewer, like the artifact route.
+session_request GET "/api/v1/user/source/$scope/$name/$version" 206 -H "Range: bytes=-22"
 printf '{"yanked":false}' >"$work/unyank.json"
 wrequest PATCH "$publish_path/yank" "$work/unyank.json" 200
 expect_body '"yanked":false'
@@ -1044,6 +1052,91 @@ got_hash="$(shasum -a 256 "$work/artifact.zip" | cut -d' ' -f1)"
 grep -qF "sha256:$old_hash" "$fixture_metadata" \
   || fail "fixture metadata does not carry sha256:$old_hash"
 
+# --- The source viewer's session-ranged reads. ---
+step "the source route serves session-ranged reads of the verified archive"
+source_path="/api/v1/user/source/$scope/$name/$version"
+archive_size="$(wc -c <"$fixture_archive" | tr -d ' ')"
+
+# The version row's download counter, for the never-counted assertion.
+row_downloads() {
+  wrangler d1 execute DB --local --json --command \
+    "SELECT downloads FROM versions
+     WHERE scope = 'smoke' AND name = 'withdep' AND version = '0.2.0'" |
+    node -e '
+      const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      console.log(out[0].results[0].downloads);'
+}
+# The two artifact fetches since the counted-downloads step (the heal
+# re-check and the checksum download) land their deferred increments
+# here; awaiting the exact count keeps the flat-counter assertion below
+# race-free. A new artifact fetch above must bump this number.
+await_row_downloads 4
+
+# source_range <range-or-empty> <expected>: a source-route read with the
+# minted session; body in $body, headers in $headers.
+source_range() {
+  local range="$1" expected="$2" got
+  local range_args=()
+  [[ -n "$range" ]] && range_args=(-H "Range: $range")
+  got="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' \
+    -H "Cookie: $session_cookie" ${range_args[@]+"${range_args[@]}"} \
+    "$web_base$source_path")"
+  [[ "$got" == "$expected" ]] ||
+    fail "source ${range:-<no range>} returned $got, expected $expected (body: $(cat "$body"))"
+  printf '    source %s -> %s\n' "${range:-<no range>}" "$got"
+}
+# source_header <pattern>: the last response must carry the header.
+source_header() {
+  tr -d '\r' <"$headers" | grep -qi "$1" \
+    || fail "missing header $1: $(tr -d '\r' <"$headers" | grep -i '^[a-z-]*:' | head -20)"
+}
+
+# No credential and a bearer token both answer the session plane's plain
+# 401: the route never accepts the machine plane's credential.
+got="$(curl -sS -o "$body" -w '%{http_code}' -H "Range: bytes=-22" "$web_base$source_path")"
+[[ "$got" == "401" ]] || fail "a session-less source read answered $got"
+got="$(curl -sS -o "$body" -w '%{http_code}' -H "Range: bytes=-22" \
+  -H "Authorization: Bearer $token" "$web_base$source_path")"
+[[ "$got" == "401" ]] || fail "a bearer token opened the source route: $got"
+
+# The range policy: required (400 when absent), single, bounded, capped
+# at 4 MiB (416 otherwise).
+source_range "" 400
+grep -q 'bounded range' "$body" || fail "the 400 does not name the range policy: $(cat "$body")"
+for bad in "bytes=0-" "bytes=abc-5" "bytes=0-5,10-20" "bytes=-0" "bytes=0-4194304"; do
+  source_range "$bad" 416
+done
+# A start past the end is the size-relative 416 naming the actual size.
+source_range "bytes=$archive_size-$((archive_size + 10))" 416
+source_header "^content-range: bytes \*/$archive_size$"
+
+# A suffix read returns the exact EOCD bytes with the exact headers,
+# no-store and nosniff like every session-plane response.
+source_range "bytes=-22" 206
+tail -c 22 "$fixture_archive" >"$work/eocd.expected"
+cmp -s "$body" "$work/eocd.expected" || fail "the EOCD suffix read differs from the archive tail"
+source_header "^content-range: bytes $((archive_size - 22))-$((archive_size - 1))/$archive_size$"
+source_header "^content-length: 22$"
+source_header "^cache-control: no-store$"
+source_header "^x-content-type-options: nosniff$"
+source_header "^accept-ranges: bytes$"
+# A bounded read slices the archive's first bytes; an end past the last
+# byte is clamped HTTP-style.
+source_range "bytes=0-3" 206
+head -c 4 "$fixture_archive" >"$work/magic.expected"
+cmp -s "$body" "$work/magic.expected" || fail "the bounded read differs from the archive head"
+source_range "bytes=$((archive_size - 10))-$((archive_size + 100))" 206
+source_header "^content-range: bytes $((archive_size - 10))-$((archive_size - 1))/$archive_size$"
+
+# Unknown versions and unparsable triples answer the plain 404.
+session_request GET "/api/v1/user/source/$scope/$name/9.9.9" 404 -H "Range: bytes=-22"
+session_request GET "/api/v1/user/source/$scope/$name/notsemver" 404
+
+# Source reads are never downloads: the counter did not move.
+sleep 1
+[[ "$(row_downloads)" == "4" ]] \
+  || fail "source reads moved the download counter: $(row_downloads) (expected 4)"
+
 # The dev vars pin SERVICE_MODE_TTL_SECS to 0, so the running worker sees
 # the flipped mode immediately instead of after the 60 s cache TTL.
 step "writes answer 402 while writes_blocked; reads stay open"
@@ -1055,6 +1148,8 @@ expect_body 'registry_over_budget'
 wrequest PATCH "$publish_path/yank" "$work/unyank.json" 402
 expect_body 'registry_over_budget'
 check "$package_path" 200
+# Source reads are reads: they never consult the service mode.
+session_request GET "$source_path" 206 -H "Range: bytes=-22"
 
 step "restoring service_mode reopens writes"
 wrangler d1 execute DB --local --command "
@@ -1108,6 +1203,8 @@ wrequest PATCH "$verdict2_path" "$work/verdict-rejected-bound.json" 200
 expect_body '"verification":"rejected"'
 expect_body '"changed":true'
 check "$artifact2_path" 404
+# Rejected versions are invisible to the source viewer too.
+session_request GET "/api/v1/user/source/$scope/$name/$version2" 404 -H "Range: bytes=-22"
 as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "rejecting a shared blob changed the accounting: $(stored_bytes) (was $before_bytes)"

@@ -1,20 +1,23 @@
 //! Cloudflare glue for the browser plane on the website origin: GitHub
 //! OAuth sign-in (`/login`, `/callback`), the scope-claim flow's
 //! dedicated OAuth roundtrip (`/claim/<scope>`, `/callback/claim`), and
-//! the session-cookie JSON user API (`/api/v1/user/*`). The bearer-token
-//! planes live in [`crate::glue`]; no plane accepts another's
-//! credential. Sessions, GitHub access tokens, and issued registry
-//! tokens are never logged.
+//! the session-cookie user API (`/api/v1/user/*`) - JSON except the
+//! source viewer's ranged byte reads ([`package_source`]). The
+//! bearer-token planes live in [`crate::glue`]; no plane accepts
+//! another's credential. Sessions, GitHub access tokens, and issued
+//! registry tokens are never logged.
 
 use serde::Deserialize;
-use worker::{D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response};
+use worker::{
+    D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
+};
 
 use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
     STATS_PATH, SessionRoute, WebRoute,
 };
-use crate::{allowlist, auth, claim, error, quota, session, sql, stats, user_api};
+use crate::{allowlist, auth, claim, error, quota, session, source, sql, stats, user_api};
 
 /// The one identity provider policy admits today; the `identities`
 /// schema stays provider-neutral (docs/architecture.md, "Two credential
@@ -78,6 +81,17 @@ pub async fn respond_session(
         )),
         (SessionRoute::Usage, Method::Get) => usage(&db, user).await,
         (SessionRoute::Packages, Method::Get) => list_packages(&db, user.user_id).await,
+        (
+            SessionRoute::PackageSource {
+                scope,
+                name,
+                version,
+            },
+            Method::Get,
+        ) => {
+            let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
+            package_source(req, env, &db, &scope, &name, &version).await
+        }
         (SessionRoute::Tokens, Method::Get) => list_tokens(&db, user.user_id).await,
         (SessionRoute::Tokens, Method::Post) => create_token(req, &db, user.user_id).await,
         (SessionRoute::RevokeToken { id }, Method::Post) => {
@@ -616,6 +630,104 @@ async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response
         })
         .collect();
     json_response(&user_api::packages_json(&rows))
+}
+
+#[derive(Deserialize)]
+struct SourceVersionRecord {
+    checksum: String,
+    archive_size: i64,
+}
+
+/// `GET /api/v1/user/source/<scope>/<name>/<version>`: a ranged read of
+/// a verified version's archive for the website's source viewer
+/// (`docs/architecture.md`, "Origins and roles"). Any verified version
+/// is readable - not only the session user's own packages, and yanked
+/// stays viewable, both matching the artifact route - while pending,
+/// rejected, corrupt-status, and missing rows are all the same 404 by
+/// construction (the verified filter sits in the query). The `Range`
+/// header is required (`400` without one), capped at
+/// [`source::MAX_RANGE_BYTES`] (`416` otherwise), and resolved against
+/// the row's stored archive size before R2 is consulted, so R2 never
+/// sees an unsatisfiable range. A source read is never counted as a
+/// download and never consults the service mode: it is a read, and
+/// reads fail open (`docs/architecture.md`, "Download counts").
+async fn package_source(
+    req: &Request,
+    env: &Env,
+    db: &D1Database,
+    scope: &str,
+    name: &str,
+    version: &str,
+) -> worker::Result<Response> {
+    let range = match source::parse_range(req.headers().get("range")?.as_deref()) {
+        Ok(range) => range,
+        Err(refusal) => return json_error(refusal.status, refusal.detail),
+    };
+    let record: Option<SourceVersionRecord> = db
+        .prepare(sql::SOURCE_VERSION_LOOKUP)
+        .bind(&[scope.into(), name.into(), version.into()])?
+        .first(None)
+        .await?;
+    let Some(record) = record else {
+        return json_error(404, error::NOT_FOUND);
+    };
+    let size = non_negative(record.archive_size);
+    let Some(resolved) = source::resolve_range(range, size) else {
+        let mut response = json_error(416, source::RANGE_UNSATISFIABLE)?;
+        response
+            .headers_mut()
+            .set("content-range", &source::unsatisfiable_content_range(size))?;
+        return Ok(response);
+    };
+
+    let key = format!("blobs/sha256/{}", record.checksum);
+    let object = env
+        .bucket("BLOBS")?
+        .get(&key)
+        .range(worker::Range::OffsetWithLength {
+            offset: resolved.offset,
+            length: resolved.length,
+        })
+        .execute()
+        .await?;
+    let Some(object) = object else {
+        console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
+        return json_error(500, error::INTERNAL);
+    };
+    // The row's archive_size resolved the range; if the blob disagrees
+    // (a drift the content-addressed store should make impossible), the
+    // headers below would lie about the bytes, so refuse instead.
+    if object.size() != size {
+        console_error!(
+            "blob {key} for {scope}/{name}@{version} is {} bytes but the row says {size}",
+            object.size()
+        );
+        return json_error(500, error::INTERNAL);
+    }
+    let Some(body) = object.body() else {
+        console_error!("blob {key} for {scope}/{name}@{version} has no body");
+        return json_error(500, error::INTERNAL);
+    };
+    // Buffered, not streamed: the cap keeps a slice comfortably in
+    // memory, and only a fixed-length body makes the runtime emit the
+    // exact Content-Length (a generic stream is re-framed as chunked).
+    // The byte count doubles as the integrity check on the R2 read.
+    let bytes = body.bytes().await?;
+    if usize::try_from(resolved.length) != Ok(bytes.len()) {
+        console_error!(
+            "blob {key} for {scope}/{name}@{version} returned {} bytes for a {}-byte range",
+            bytes.len(),
+            resolved.length
+        );
+        return json_error(500, error::INTERNAL);
+    }
+    let mut response = Response::from_bytes(bytes)?.with_status(206);
+    let headers = response.headers_mut();
+    headers.set("content-type", "application/octet-stream")?;
+    headers.set("accept-ranges", "bytes")?;
+    headers.set("content-range", &source::content_range(resolved, size))?;
+    web_headers(headers)?;
+    Ok(response)
 }
 
 #[derive(Deserialize)]

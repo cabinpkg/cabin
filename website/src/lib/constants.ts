@@ -45,6 +45,7 @@ export const NAV_LINKS = {
 export const ACCOUNT_URLS = {
     signIn: "/login",
     dashboard: "/dashboard",
+    source: "/dashboard/source",
     tokens: "/settings/tokens",
     profile: "/settings/profile",
 } as const;
