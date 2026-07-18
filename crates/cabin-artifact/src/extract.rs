@@ -356,6 +356,14 @@ fn safe_extract_zip_with_limits(
             path: archive.to_path_buf(),
             source,
         })?;
+    // Duplicate the handle before the parser consumes it, so the
+    // duplicate-name walk below reads the *same* open file the parser
+    // used (a `dup`, not a re-open): a concurrent replacement of the path
+    // cannot make the two disagree.
+    let scan_handle = f.try_clone().map_err(|source| ArtifactError::Io {
+        path: archive.to_path_buf(),
+        source,
+    })?;
     let extract_err = |source: zip::result::ZipError| ArtifactError::Extract {
         path: archive.to_path_buf(),
         source: io::Error::other(source),
@@ -370,34 +378,24 @@ fn safe_extract_zip_with_limits(
             limit: limits.max_entries,
         });
     }
-    // The `zip` crate keys entries by raw name in an `IndexMap`, so
-    // two records sharing a name collapse to one ("last wins") before
-    // `TargetTree` below could see the duplicate.  A well-formed
-    // archive's parsed length equals its declared entry count, so a
-    // shortfall means names were deduplicated - reject it, since a
-    // duplicate path is exactly the last-wins confusion the tar side
-    // refuses by name.
-    //
-    // Best-effort by nature: it reads the classic end-of-central-
-    // directory count, so a ZIP64 archive (sentinel `u64::MAX`, or a
-    // classic count that disagrees with the ZIP64 count the parser
-    // used) or an archive with bytes appended after the EOCD (which
-    // makes `zip_eocd_entry_count` decline to guess) slips past it.
-    // Registry package archives are `.tar.gz` and take the tar path,
-    // which refuses duplicates unconditionally; zip is reached only
-    // for foundation-port upstreams, whose bytes are pinned by SHA-256
-    // in an in-repo recipe, so this narrow gap is a defense-in-depth
-    // shortfall, not an exposure of the primary surface.
-    if let Some(declared) = declared_entries
-        && declared != u64::MAX
-        && (zip.len() as u64) < declared
-    {
-        return Err(ArtifactError::ArchiveDuplicateNames {
-            declared,
-            distinct: zip.len(),
-        });
-    }
 
+    // Reject duplicate raw names in the central directory, which the
+    // `zip` crate would otherwise collapse "last wins" (see the walk in
+    // `zip_duplicate_central_name`) before `TargetTree` below could see
+    // them.  This is now a primary surface, not port-only defense in
+    // depth: published registry package archives extract through this
+    // path.  Walking from the crate's own `central_directory_start` keeps
+    // the check consistent with the directory the crate actually
+    // extracts, so bytes appended after the EOCD cannot hide a duplicate.
+    if let Some(name) = zip_duplicate_central_name(
+        scan_handle,
+        archive,
+        zip.central_directory_start(),
+        limits.max_entries,
+        limits.max_path_bytes,
+    )? {
+        return Err(ArtifactError::ArchiveDuplicateNames { name });
+    }
     let mut total_bytes: u64 = 0;
     let mut saw_prefix = false;
     let mut tree = TargetTree::default();
@@ -517,15 +515,14 @@ fn write_zip_entry<R: Read>(
 
 /// Best-effort read of the entry count recorded in a zip's
 /// end-of-central-directory record, without materializing any
-/// central-directory metadata.  The EOCD lives within
-/// `22 + 65535` bytes of EOF (fixed record plus maximum comment);
-/// scan that tail backwards for the signature and read the 16-bit
-/// total-entry field.  A `0xFFFF` count is the ZIP64 marker, which
-/// means the archive holds at least 65535 entries - report it as
-/// `u64::MAX` so any real cap rejects it without needing ZIP64
-/// parsing.  Returns `None` when no EOCD is found; the caller falls
-/// through to the full parser, which surfaces the canonical error
-/// for a malformed archive.
+/// central-directory metadata.  The EOCD lives within `22 + 65535`
+/// bytes of EOF (fixed record plus maximum comment); scan that tail
+/// backwards for the signature and read the 16-bit total-entry field.
+/// A `0xFFFF` count is the ZIP64 marker, which means the archive holds
+/// at least 65535 entries - report it as `u64::MAX` so any real cap
+/// rejects it without needing ZIP64 parsing.  Returns `None` when no
+/// EOCD is found; the caller falls through to the full parser, which
+/// surfaces the canonical error for a malformed archive.
 fn zip_eocd_entry_count(f: &mut File) -> Option<u64> {
     const EOCD_SIG: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
     const EOCD_LEN: u64 = 22;
@@ -561,11 +558,85 @@ fn zip_eocd_entry_count(f: &mut File) -> Option<u64> {
     None
 }
 
-/// Safely extract a `.tar.gz` archive into `dest` with the default
-/// production caps and no prefix stripping.  Kept as the
-/// crate-internal entry point used by the source-archive fetcher.
-pub(crate) fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
-    safe_extract_tar_gz_with_limits(
+/// Return the first raw entry name that appears twice in the central
+/// directory, or `None`.  The `zip` crate keys entries by raw name in an
+/// `IndexMap`, so two records sharing a name collapse to one ("last
+/// wins") before [`TargetTree`] could see the duplicate - the classic
+/// zip alias that lets one set of bytes be inspected while another is
+/// extracted.
+///
+/// The walk reads `scan_handle` - a `dup` of the same open file the
+/// parser consumed, so a concurrent replacement of the path cannot make
+/// the check and the extraction disagree - starting at `cd_start`, which
+/// the caller reads from the `zip` crate's own
+/// [`ZipArchive::central_directory_start`].  It therefore inspects
+/// exactly the directory the crate parsed and will extract from, with no
+/// re-derivation of the EOCD location, so bytes appended after the EOCD
+/// cannot point this check at a different directory than the one that is
+/// extracted.  Records are read one at a time (never the whole directory
+/// at once); a name longer than `max_path_bytes` stops the walk (the
+/// per-entry check rejects that archive anyway) so retained names stay
+/// bounded, and the walk stops at the first non-central-header signature
+/// or after `max_records` records.  An archive exceeding `max_records`
+/// distinct entries is rejected separately by the parsed-directory
+/// length check.
+fn zip_duplicate_central_name(
+    scan_handle: File,
+    archive: &Path,
+    cd_start: u64,
+    max_records: usize,
+    max_path_bytes: usize,
+) -> Result<Option<String>, ArtifactError> {
+    const CENTRAL_SIG: [u8; 4] = [0x50, 0x4b, 0x01, 0x02];
+    const HEADER_LEN: usize = 46;
+    let io_err = |source| ArtifactError::Io {
+        path: archive.to_path_buf(),
+        source,
+    };
+    let mut reader = io::BufReader::new(scan_handle);
+    reader.seek(io::SeekFrom::Start(cd_start)).map_err(io_err)?;
+    let mut names: HashSet<Vec<u8>> = HashSet::new();
+    // One extra beyond the cap so that hitting the limit is unambiguous;
+    // an archive with more distinct entries is rejected by the caller's
+    // `zip.len() > max_entries` check regardless.
+    for _ in 0..=max_records {
+        let mut header = [0u8; HEADER_LEN];
+        // A short read at a record boundary means the directory ended
+        // (the EOCD or EOF follows); anything else is a read error.
+        match reader.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(e) => return Err(io_err(e)),
+        }
+        if header[..4] != CENTRAL_SIG {
+            return Ok(None);
+        }
+        let name_len = usize::from(u16::from_le_bytes([header[28], header[29]]));
+        let extra_len = u64::from(u16::from_le_bytes([header[30], header[31]]));
+        let comment_len = u64::from(u16::from_le_bytes([header[32], header[33]]));
+        // An over-long name means this archive fails the per-entry path
+        // cap regardless; stop rather than retain unbounded name bytes.
+        if name_len > max_path_bytes {
+            return Ok(None);
+        }
+        let mut name = vec![0u8; name_len];
+        reader.read_exact(&mut name).map_err(io_err)?;
+        if !names.insert(name.clone()) {
+            return Ok(Some(String::from_utf8_lossy(&name).into_owned()));
+        }
+        reader
+            .seek_relative(i64::try_from(extra_len + comment_len).unwrap_or(i64::MAX))
+            .map_err(io_err)?;
+    }
+    Ok(None)
+}
+
+/// Safely extract a `.zip` archive into `dest` with the default
+/// production caps and no prefix stripping.  The crate-internal entry
+/// point used by the source-archive fetcher: published registry
+/// package archives are zip (see `docs/remote-registry.md`).
+pub(crate) fn extract_zip(archive: &Path, dest: &Path) -> Result<(), ArtifactError> {
+    safe_extract_zip_with_limits(
         archive,
         dest,
         ExtractLimits::default(),
@@ -860,60 +931,20 @@ impl TargetTree {
     }
 }
 
-/// Reserved DOS device names.  Windows resolves any path component
-/// whose stem equals one of these (case-insensitively, with or
-/// without an extension) to a character device rather than a file
-/// under the target, so an entry named `NUL` writes to the null
-/// device instead of materializing a regular file.  The `COM`/`LPT`
-/// entries also reserve their Unicode superscript-digit forms
-/// (`COM¹`, `LPT²`, …), handled separately in the predicate.
-const DOS_DEVICE_NAMES: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
-
-/// Superscript digit stems Windows also reserves for `COM`/`LPT`.
-const SUPERSCRIPT_DEVICE_STEMS: &[&str] = &[
-    "COM\u{b9}",
-    "COM\u{b2}",
-    "COM\u{b3}",
-    "LPT\u{b9}",
-    "LPT\u{b2}",
-    "LPT\u{b3}",
-];
-
 /// Returns true when every component of `path` names the same file on
 /// a Windows filesystem as it does lexically here.
 ///
-/// Rejects the shapes that pass [`is_safe_relative_path`] (they stay
-/// inside the target) yet alias to a different Win32 destination or a
-/// device: a component containing `:` (an NTFS alternate-data-stream
-/// or drive separator) or `\` (a Windows path separator), a component
-/// with a leading or trailing space or a trailing `.` (Win32 strips
-/// all three, so `a`, `a.`, `a `, and ` a` collide), and the reserved
-/// DOS device names.
+/// Thin adapter over [`cabin_fs::path::component_portability`], which
+/// owns the per-component rules (Win32-forbidden characters,
+/// leading/trailing space, trailing dot, reserved DOS device names)
+/// so this crate and the hosted-registry verifier enforce one shared
+/// definition.  A non-UTF-8 component - never something `cabin
+/// package` emits - is refused rather than reasoned about.
 fn is_portable_relative_path(path: &Path) -> bool {
     path.components().all(|component| match component {
-        Component::Normal(name) => {
-            let Some(name) = name.to_str() else {
-                // A non-UTF-8 component is not something `cabin
-                // package` emits; refuse it rather than reason about
-                // its Win32 aliasing.
-                return false;
-            };
-            if name.contains([':', '\\']) {
-                return false;
-            }
-            if name.ends_with('.') || name.ends_with(' ') || name.starts_with(' ') {
-                return false;
-            }
-            // Reserved names match on the stem before the first dot.
-            let stem = name.split('.').next().unwrap_or(name);
-            !DOS_DEVICE_NAMES
-                .iter()
-                .chain(SUPERSCRIPT_DEVICE_STEMS)
-                .any(|reserved| stem.eq_ignore_ascii_case(reserved))
-        }
+        Component::Normal(name) => name
+            .to_str()
+            .is_some_and(|name| cabin_fs::path::component_portability(name).is_none()),
         // `CurDir` is harmless; every other component kind was
         // already refused by `is_safe_relative_path`.
         _ => true,
@@ -1307,7 +1338,7 @@ mod tests {
 
         let dest = dir.child("out");
         dest.create_dir_all().unwrap();
-        extract_tar_gz(archive.path(), dest.path()).unwrap();
+        safe_extract_tar_gz(archive.path(), dest.path(), SafeExtractOptions::default()).unwrap();
         dest.child("cabin.toml").assert(predicate::path::is_file());
         dest.child("src/main.cc").assert(predicate::path::is_file());
     }
@@ -1325,7 +1356,8 @@ mod tests {
         );
         let dest = dir.child("out");
         dest.create_dir_all().unwrap();
-        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
+        let err = safe_extract_tar_gz(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
         match err {
             ArtifactError::UnsafeArchiveEntry(p) => assert!(p.contains("..")),
             other => panic!("expected UnsafeArchiveEntry, got {other:?}"),
@@ -1347,7 +1379,8 @@ mod tests {
         );
         let dest = dir.child("out");
         dest.create_dir_all().unwrap();
-        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
+        let err = safe_extract_tar_gz(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
         assert!(matches!(err, ArtifactError::UnsafeArchiveEntry(_)));
     }
 
@@ -1364,7 +1397,8 @@ mod tests {
         );
         let dest = dir.child("out");
         dest.create_dir_all().unwrap();
-        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
+        let err = safe_extract_tar_gz(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
         assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
     }
 
@@ -1381,7 +1415,8 @@ mod tests {
         );
         let dest = dir.child("out");
         dest.create_dir_all().unwrap();
-        let err = extract_tar_gz(archive.path(), dest.path()).unwrap_err();
+        let err = safe_extract_tar_gz(archive.path(), dest.path(), SafeExtractOptions::default())
+            .unwrap_err();
         assert!(matches!(err, ArtifactError::UnsupportedArchiveEntry(_)));
     }
 
@@ -2296,9 +2331,9 @@ mod tests {
     #[test]
     fn zip_rejects_duplicate_named_records() {
         // The `zip` writer refuses to emit two records with one name,
-        // so hand-build the archive.  The parser deduplicates them
-        // into a single `IndexMap` entry, so the guard catches the
-        // shortfall against the declared count instead.
+        // so hand-build the archive.  The parser deduplicates them into
+        // a single `IndexMap` entry ("last wins"); walking the central
+        // directory ourselves catches the second record it dropped.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("dup.zip");
         let bytes = raw_zip(&[
@@ -2319,16 +2354,30 @@ mod tests {
         let err = safe_extract_zip(archive.path(), dest.path(), SafeExtractOptions::default())
             .unwrap_err();
         assert!(
-            matches!(
-                err,
-                ArtifactError::ArchiveDuplicateNames {
-                    declared: 2,
-                    distinct: 1
-                }
-            ),
+            matches!(&err, ArtifactError::ArchiveDuplicateNames { name } if name == "cabin.toml"),
             "{err:?}"
         );
         dest.child("cabin.toml").assert(predicate::path::missing());
+
+        // The classic bypass: bytes appended after the EOCD defeat a
+        // naive "comment reaches EOF" tail scan, yet the `zip` crate
+        // still finds the record and opens the archive.  Because the
+        // check walks from the crate's own `central_directory_start`, it
+        // inspects the same directory the crate extracts, so the
+        // duplicate is still caught however many bytes trail the EOCD.
+        let mut appended = bytes.clone();
+        appended.extend(std::iter::repeat_n(0u8, 70_000));
+        let archive2 = dir.child("appended.zip");
+        fs::write(archive2.path(), &appended).unwrap();
+        let dest2 = dir.child("out2");
+        dest2.create_dir_all().unwrap();
+        let err = safe_extract_zip(archive2.path(), dest2.path(), SafeExtractOptions::default())
+            .unwrap_err();
+        assert!(
+            matches!(&err, ArtifactError::ArchiveDuplicateNames { name } if name == "cabin.toml"),
+            "appended-byte duplicate slipped through: {err:?}"
+        );
+        dest2.child("cabin.toml").assert(predicate::path::missing());
     }
 
     #[test]

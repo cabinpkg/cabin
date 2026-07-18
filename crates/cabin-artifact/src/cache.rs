@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 ///
 /// ```text
 /// <root>/
-/// archives/sha256/<hex>.tar.gz
+/// archives/sha256/<hex>.zip
 /// sources/sha256/<hex>/cabin.toml
 /// /...
 /// ```
@@ -34,7 +34,7 @@ impl ArtifactCache {
         self.root
             .join("archives")
             .join("sha256")
-            .join(format!("{hex}.tar.gz"))
+            .join(format!("{hex}.zip"))
     }
 
     /// Filesystem path for the extracted source tree of an archive
@@ -47,8 +47,8 @@ impl ArtifactCache {
 /// Sibling `<path>.partial` used while streaming a download (or
 /// extracting a source tree) before the atomic rename into place.
 /// Built by appending `.partial` rather than via
-/// `Path::with_extension`, which would clobber the trailing `.gz`
-/// of `<name>-<version>.tar.gz`.
+/// `Path::with_extension`, which would clobber the trailing `.zip`
+/// of `<name>-<version>.zip`.
 pub fn partial_sibling(archive_path: &Path) -> PathBuf {
     let mut s: OsString = archive_path.as_os_str().to_owned();
     s.push(".partial");
@@ -92,7 +92,7 @@ mod tests {
         let hex = "deadbeef".to_string() + &"a".repeat(56);
         assert_eq!(
             cache.archive_path(&hex),
-            PathBuf::from(format!("/abs/cache/archives/sha256/{hex}.tar.gz"))
+            PathBuf::from(format!("/abs/cache/archives/sha256/{hex}.zip"))
         );
         assert_eq!(
             cache.source_dir(&hex),

@@ -81,7 +81,7 @@ pub struct FetchedPackage {
 /// [`FetchSource::LocalArchive`] path does not exist;
 /// [`ArtifactError::ChecksumMismatch`] when fetched bytes do not hash to
 /// the expected digest; [`ArtifactError::Io`] for filesystem failures;
-/// any extraction error from [`crate::safe_extract_tar_gz`] (such as
+/// any extraction error from [`crate::safe_extract_zip`] (such as
 /// [`ArtifactError::UnsafeArchiveEntry`]); and the validation errors
 /// [`ArtifactError::MissingArchiveManifest`],
 /// [`ArtifactError::ManifestMismatch`], or [`ArtifactError::Manifest`].
@@ -287,7 +287,7 @@ fn ensure_source(
         path: tmp_dir.clone(),
         source,
     })?;
-    let extracted = extract::extract_tar_gz(archive_path, &tmp_dir)
+    let extracted = extract::extract_zip(archive_path, &tmp_dir)
         .and_then(|()| extract::validate_extracted(&tmp_dir, &entry.name, &entry.version));
     if let Err(err) = extracted {
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -335,8 +335,6 @@ mod tests {
     use assert_fs::TempDir;
     use assert_fs::fixture::ChildPath;
     use assert_fs::prelude::*;
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
     use std::io::Write;
 
     fn pkg(name: &str) -> PackageName {
@@ -347,28 +345,21 @@ mod tests {
         semver::Version::parse(s).unwrap()
     }
 
-    /// Assemble a tiny `.tar.gz` at the given destination with the
-    /// given file contents.  Returns the archive's `sha256` hex digest.
+    /// Assemble a tiny `.zip` at the given destination with the given
+    /// file contents.  Returns the archive's `sha256` hex digest.
     fn write_archive(archive: &ChildPath, files: &[(&str, &str)]) -> String {
         if let Some(parent) = archive.path().parent() {
             fs::create_dir_all(parent).unwrap();
         }
         let f = File::create(archive.path()).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         for (rel, body) in files {
-            let bytes = body.as_bytes();
-            let mut header = tar::Header::new_gnu();
-            header.set_size(bytes.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, rel, &mut std::io::Cursor::new(bytes))
-                .unwrap();
+            writer.start_file(*rel, options).unwrap();
+            writer.write_all(body.as_bytes()).unwrap();
         }
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
+        writer.finish().unwrap().flush().unwrap();
         hash_file(archive.path()).unwrap()
     }
 
@@ -539,9 +530,9 @@ mod tests {
     #[test]
     fn re_extracts_when_marker_missing_even_if_manifest_present() {
         // Simulates an interrupted previous run that wrote
-        // `cabin.toml` (tar archives put the manifest at the
-        // head) before crashing without finishing the rest of
-        // the source tree.  The next fetch must re-extract rather
+        // `cabin.toml` (the archive lists the manifest first)
+        // before crashing without finishing the rest of the
+        // source tree.  The next fetch must re-extract rather
         // than treat the directory as a complete cache hit.
         let dir = TempDir::new().unwrap();
         let archive = dir.child("artifacts/fmt.tar.gz");
@@ -577,8 +568,8 @@ mod tests {
     #[test]
     fn marker_sibling_path_resists_tarball_forgery() {
         // The completion marker is a sibling of `source_dir`,
-        // not inside it.  Even if a published tarball were named
-        // to look like the marker, `extract_tar_gz` would only
+        // not inside it.  Even if a published archive were named
+        // to look like the marker, `extract_zip` would only
         // place it under `source_dir` and our check would still
         // miss.  Confirm the marker path does not start with
         // `source_dir` so the invariant is visible to readers.
@@ -622,40 +613,29 @@ mod tests {
 
     #[test]
     fn a_rejected_archive_leaves_no_partial_source_tree() {
-        // A hostile archive whose first entry extracts fine and whose
-        // second is refused.  Extraction happens in a scratch sibling
+        // A hostile archive whose first entries extract fine and whose
+        // last is refused.  Extraction happens in a scratch sibling
         // directory, so the cache is left exactly as it was: no
         // half-populated source tree, no completion marker, no
         // scratch directory.
         let dir = TempDir::new().unwrap();
-        let archive = dir.child("artifacts/evil.tar.gz");
+        let archive = dir.child("artifacts/evil.zip");
         fs::create_dir_all(archive.path().parent().unwrap()).unwrap();
         let f = File::create(archive.path()).unwrap();
-        let enc = GzEncoder::new(f, Compression::default());
-        let mut builder = tar::Builder::new(enc);
+        let mut writer = zip::ZipWriter::new(f);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         for (path, body) in [
             ("cabin.toml", manifest("fmt", "10.2.1")),
             ("src/main.cc", "int main() {}\n".to_owned()),
         ] {
-            let mut header = tar::Header::new_gnu();
-            header.set_size(body.len() as u64);
-            header.set_mode(0o644);
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, path, std::io::Cursor::new(body.as_bytes()))
-                .unwrap();
+            writer.start_file(path, options).unwrap();
+            writer.write_all(body.as_bytes()).unwrap();
         }
-        // A fifo entry: rejected by the entry-type gate, after the
+        // A symlink entry: rejected by the entry-type gate, after the
         // two regular files above have already been written.
-        let mut header = tar::Header::new_gnu();
-        header.set_path("pipe").unwrap();
-        header.set_size(0);
-        header.set_entry_type(tar::EntryType::Fifo);
-        header.set_cksum();
-        builder.append(&header, std::io::empty()).unwrap();
-        let enc = builder.into_inner().unwrap();
-        enc.finish().unwrap().flush().unwrap();
+        writer.add_symlink("link", "cabin.toml", options).unwrap();
+        writer.finish().unwrap().flush().unwrap();
 
         let hex = hash_file(archive.path()).unwrap();
         let cache = cache_root(dir.path());

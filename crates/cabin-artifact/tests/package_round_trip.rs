@@ -12,8 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use assert_fs::TempDir;
-use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz};
-use cabin_package::archive::{PackageFile, build_tar_gz, collect_package_files};
+use cabin_artifact::{SafeExtractOptions, safe_extract_zip};
+use cabin_package::archive::{PackageFile, build_zip, collect_package_files};
 
 /// The production caps `cabin-artifact` enforces, restated here so
 /// the margin assertions read against the real contract.  A change to
@@ -79,7 +79,7 @@ fn every_example_round_trips_with_wide_margin_under_the_caps() {
     for package in example_packages() {
         let name = package.file_name().unwrap().to_string_lossy().into_owned();
         let files = collect_package_files(&package, None).unwrap();
-        let bytes = build_tar_gz(&files, None).unwrap();
+        let bytes = build_zip(&files, None).unwrap();
         let metrics = measure(&files, &bytes);
 
         // Each cap, checked directly against the archive's own
@@ -113,11 +113,11 @@ fn every_example_round_trips_with_wide_margin_under_the_caps() {
         // The proof that matters: the archive the packager wrote
         // extracts under the production caps.
         let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("pkg.tar.gz");
+        let archive = dir.path().join("pkg.zip");
         fs::write(&archive, &bytes).unwrap();
         let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
-        safe_extract_tar_gz(&archive, &dest, SafeExtractOptions::default())
+        safe_extract_zip(&archive, &dest, SafeExtractOptions::default())
             .unwrap_or_else(|err| panic!("{name}: packaged archive failed to extract: {err}"));
 
         assert!(
