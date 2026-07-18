@@ -36,7 +36,7 @@ Use of the hosted registry is governed by the [Usage Policy](https://cabinpkg.co
 
 ## Sponsorship
 
-This project was initially funded by the
+This project was initially funded in 2018 by the
 [MITOU IT Program](https://www.ipa.go.jp/en/it-talents/mitou/index.html)
 ([project page (ja)](https://www.ipa.go.jp/jinzai/mitou/it/2018/gaiyou_t-2.html)),
 with additional financial support from
