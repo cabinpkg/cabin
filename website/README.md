@@ -73,9 +73,9 @@ origin under `/api/*` (plus `/login` and `/callback` for the GitHub
 OAuth flow) - see `registry/docs/architecture.md` in the repository. The
 website itself holds no sessions and no secrets.
 
-- The pages ship labeled as under development, and sign-in is restricted
-  to an allowlist of maintainer accounts while the registry is in private
-  development; every sign-in affordance says so.
+- The pages ship labeled as private alpha, and sign-in is restricted to
+  an allowlist of maintainer accounts while the registry is in private
+  alpha; every sign-in affordance says so.
 - Without the registry routes mounted (or with the registry down), the
   account pages render their signed-out/error states and the rest of the
   site is unaffected; `yarn verify:progressive` enforces at build time

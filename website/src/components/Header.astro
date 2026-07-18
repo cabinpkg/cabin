@@ -102,7 +102,12 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                     data-astro-prefetch="false"
                 >
                     Sign in
-                    <Badge tone="muted">restricted</Badge>
+                    <Badge tone="muted" title="Private alpha">
+                        {/* aria-label is prohibited on a generic span, so the
+                            spoken name comes from an sr-only twin instead. */}
+                        <span aria-hidden="true">private α</span>
+                        <span class="sr-only">private alpha</span>
+                    </Badge>
                 </Button>
             </span>
             {/* Signed-in: a disclosure button opening the account menu
