@@ -46,6 +46,7 @@ export const ACCOUNT_URLS = {
     signIn: "/login",
     dashboard: "/dashboard",
     source: "/dashboard/source",
+    package: "/dashboard/package",
     tokens: "/settings/tokens",
     profile: "/settings/profile",
 } as const;
