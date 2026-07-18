@@ -7,6 +7,7 @@ on:
   push:
     branches: [ main ]
     paths:
+      - ".github/workflows/registry.yml"
       - "registry/**"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -14,6 +15,7 @@ on:
       - "crates/cabin-core/**"
   pull_request:
     paths:
+      - ".github/workflows/registry.yml"
       - "registry/**"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -94,3 +96,76 @@ jobs:
         env:
           CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
           RUSTFLAGS: -D warnings
+
+  # Ships the Worker once the jobs above are green. No build step of
+  # its own: `wrangler deploy` runs wrangler.jsonc's build.command.
+  # This workflow's paths filter is a sound deploy gate because
+  # registry/ is a standalone workspace: every input to the artifact
+  # lives under registry/**. D1 migrations stay manual - the deploy
+  # token cannot apply them (registry/docs/runbook.md, "Deploy skew").
+  deploy-registry:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, conformance]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-registry
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the freshness check below can walk
+          # $GITHUB_SHA..origin/main.
+          fetch-depth: 0
+
+      - run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: registry
+
+      # The concurrency group serializes deploys but does not order
+      # them: an older run whose gate finished late would deploy after
+      # a newer one. Skip instead when main already carries a newer
+      # commit matching this workflow's trigger paths (that commit's
+      # own run deploys, or its gate is red and nothing should).
+      - name: Skip when superseded by a newer registry commit
+        id: freshness
+        run: |
+          git fetch --quiet origin main
+          if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
+              .github/workflows/registry.yml registry/ \
+              crates/cabin-package/ crates/cabin-publish/ \
+              crates/cabin-registry-api/ crates/cabin-core/)" ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Changed D1 migrations must be applied by hand before the Worker
+      # ships (registry/docs/runbook.md): the deploy token cannot apply
+      # them, and activating Worker code built for the new schema first
+      # would break the live database. registry/migrations-applied is
+      # the operator's stamp of what the live database runs; deploys
+      # stay blocked until it matches the migrations' content again.
+      # Content, not filenames: the pre-launch wipe policy edits
+      # migrations in place.
+      - name: Skip until changed D1 migrations are applied by hand
+        id: migrations
+        run: |
+          stamp=$(cat registry/migrations/*.sql | sha256sum | cut -d' ' -f1)
+          if [ "$stamp" != "$(cat registry/migrations-applied)" ]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy
+        if: >-
+          steps.freshness.outputs.superseded != 'true' &&
+          steps.migrations.outputs.pending != 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
+          # Public account tag (also in wrangler.jsonc vars); pinning it
+          # here keeps deploy independent of account inference from the
+          # token's resource scope.
+          accountId: 7bd7dbea3c4c76cd396153fb0e92178f
+          workingDirectory: registry
