@@ -121,27 +121,27 @@ pub const RATE_LIMITED: Denial = Denial {
 pub const ARCHIVE_TOO_LARGE: Denial = Denial {
     status: 413,
     code: "archive_too_large",
-    detail: "archive exceeds the plan's per-archive size limit",
+    detail: "archive exceeds the per-archive size limit",
 };
 pub const QUOTA_STORAGE: Denial = Denial {
     status: 403,
     code: "quota_storage",
-    detail: "publishing this archive would exceed the plan's total storage quota",
+    detail: "publishing this archive would exceed the total storage quota",
 };
 pub const QUOTA_PACKAGES_DAILY: Denial = Denial {
     status: 403,
     code: "quota_packages_daily",
-    detail: "the plan's daily new-package quota is exhausted",
+    detail: "daily new-package quota exhausted",
 };
 pub const QUOTA_PACKAGES_TOTAL: Denial = Denial {
     status: 403,
     code: "quota_packages_total",
-    detail: "the plan's total package quota is exhausted",
+    detail: "total package quota exhausted",
 };
 pub const QUOTA_VERSIONS_DAILY: Denial = Denial {
     status: 403,
     code: "quota_versions_daily",
-    detail: "the plan's daily per-package version quota is exhausted",
+    detail: "daily per-package version quota exhausted",
 };
 
 /// The envelope `detail` for a denial: the per-user quota family
@@ -301,13 +301,13 @@ mod tests {
     fn quota_denials_embed_the_dashboard_url_and_others_do_not() {
         assert_eq!(
             detail_with_usage_url(&QUOTA_STORAGE, "https://cabinpkg.com"),
-            "publishing this archive would exceed the plan's total storage quota; \
+            "publishing this archive would exceed the total storage quota; \
              see https://cabinpkg.com/dashboard for current usage"
         );
         // A trailing slash on the env var never doubles the separator.
         assert_eq!(
             detail_with_usage_url(&QUOTA_PACKAGES_TOTAL, "https://cabinpkg.com/"),
-            "the plan's total package quota is exhausted; \
+            "total package quota exhausted; \
              see https://cabinpkg.com/dashboard for current usage"
         );
         for denial in [&RATE_LIMITED, &ARCHIVE_TOO_LARGE] {

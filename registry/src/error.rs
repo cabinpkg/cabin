@@ -109,10 +109,10 @@ mod tests {
     fn envelope_with_code_appends_the_code_field() {
         assert_eq!(
             envelope_with_code(
-                "archive exceeds the plan's per-archive size limit",
+                "archive exceeds the per-archive size limit",
                 "archive_too_large"
             ),
-            r#"{"errors":[{"detail":"archive exceeds the plan's per-archive size limit","code":"archive_too_large"}]}"#
+            r#"{"errors":[{"detail":"archive exceeds the per-archive size limit","code":"archive_too_large"}]}"#
         );
     }
 
