@@ -120,10 +120,12 @@ const quotaClass = "mt-1 text-xs text-ink-faint";
                 <Badge tone="muted" data-slot="pending" hidden>pending</Badge>
                 <Badge tone="warning" data-slot="rejected" hidden>rejected</Badge>
                 <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
-                <span
-                    class="ml-auto text-xs text-ink-faint"
-                    data-slot="downloads"
+                <a
+                    class="ml-auto text-xs text-steel hover:underline"
+                    data-slot="source"
+                    hidden>source</a
                 >
+                <span class="text-xs text-ink-faint" data-slot="downloads">
                 </span>
                 <span class="text-xs text-ink-faint" data-slot="published">
                 </span>

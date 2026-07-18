@@ -65,7 +65,8 @@ vary by environment.
 
 ### Account pages
 
-`/dashboard`, `/settings/tokens`, `/settings/profile`, and `/login/denied`
+`/dashboard`, `/dashboard/source`, `/settings/tokens`,
+`/settings/profile`, and `/login/denied`
 are the registry account pages, styled after crates.io. They are static
 pages like everything else: their scripts talk to the registry's session
 user API, which the registry Worker mounts on this site's production
@@ -92,6 +93,10 @@ website itself holds no sessions and no secrets.
   sign-in happens on production.
 - The session API client lives in `src/lib/account.ts`; `yarn test` runs
   its `node:test` suite directly on Node (>= 22.18).
+- `/dashboard/source` is the source viewer: it range-reads a published
+  version's zip archive through the registry's session source route and
+  parses the container client-side (`src/lib/sourceArchive.ts`, tested
+  the same way), rendering file contents as escaped text only.
 - Signing out posts to the registry's `/api/v1/user/logout` (the session
   cookie is HttpOnly, so only the server's `Set-Cookie` can clear it),
   reached from the signed-in header menu.
