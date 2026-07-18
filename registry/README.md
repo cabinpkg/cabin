@@ -17,7 +17,9 @@ plane: one role per hostname, dispatched on the Host header. See
 the design and [`docs/runbook.md`](docs/runbook.md) for operations.
 
 Everything here is experimental, matching the client's `-Z remote-registry`
-gate: routes and storage formats may change without migration paths.
+gate: routes and storage formats may change without migration paths. Use of
+the hosted service is governed by the
+[Usage Policy](https://cabinpkg.com/policies).
 
 ## Deployment
 
