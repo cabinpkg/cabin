@@ -9,7 +9,7 @@
     "compatibility_date": "2026-07-09",
     "workers_dev": false,
     "build": {
-        "command": "cargo install -q \"worker-build@^0.8\" && worker-build --release"
+        "command": "cargo install -q \"worker-build@^0.8\" --locked && worker-build --release"
     },
     "observability": {
         "enabled": true,
