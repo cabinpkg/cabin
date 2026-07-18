@@ -879,6 +879,20 @@ fixture_metadata="tests/fixtures/$scope-$name-$version.json"
 grep -qF "\"$scope/$name\"" "$fixture_metadata" \
   || fail "the frozen fixture must carry the scoped name $scope/$name"
 
+step "a bare dependency key is a 400 before any write"
+# The fixture depends on the scoped smoke/nodep; stripping the scope
+# must be refused (the checksum and identity fields are untouched, so
+# the dependency-key check is what fires).
+sed 's|"smoke/nodep"|"nodep"|' "$fixture_metadata" >"$work/bare-dep.json"
+frame "$work/bare-dep.json" "$fixture_archive" "$work/publish-bare.bin"
+wrequest PUT "$publish_path" "$work/publish-bare.bin" 400
+expect_body 'canonical <scope>/<name> names'
+# The refused attempt still charged the publish bucket (the rate limit
+# sits before validation); refund it so the downstream legs keep the
+# budget they were written against.
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+
 step "first publish creates the version pending verification"
 frame "$fixture_metadata" "$fixture_archive" "$work/publish.bin"
 wrequest PUT "$publish_path" "$work/publish.bin" 201

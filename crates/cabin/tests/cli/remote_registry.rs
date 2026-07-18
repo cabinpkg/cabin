@@ -1037,6 +1037,46 @@ fn publish_rejects_bare_names_before_any_connection() {
     }
 }
 
+/// Registry dependency maps key on canonical `<scope>/<name>` names:
+/// a bare dependency key fails the same pre-network gate as a bare
+/// package name.
+#[test]
+fn publish_rejects_bare_dependency_names_before_any_connection() {
+    let dir = TempDir::new().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+
+    write_scoped_publishable_package(dir.path());
+    let manifest = dir.path().join("cabin.toml");
+    let mut body = std::fs::read_to_string(&manifest).unwrap();
+    body.push_str("\n[dependencies]\nzlib = \"^1.3\"\n");
+    std::fs::write(&manifest, body).unwrap();
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&url)
+        .args(["--manifest-path"])
+        .arg(&manifest)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "registry dependencies must use the canonical `<scope>/<name>` grammar"
+        ),
+        "expected the dependency-key gate diagnostic in: {stderr}"
+    );
+
+    match listener.accept() {
+        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+        Ok(_) => panic!("a refused publish must not open a connection to the registry"),
+        Err(err) => panic!("unexpected listener state: {err}"),
+    }
+}
+
 /// The full upload path: the PUT hits the registry's `api` origin on
 /// the scoped route with the bearer token, and the framed metadata +
 /// archive bytes are byte-identical to what `cabin package` produces

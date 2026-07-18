@@ -141,7 +141,13 @@ Both forms are mutually exclusive with `path`, `workspace`, and `system`.  They 
 per edge), but do not support `optional`.
 
 The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above) must equal the depended-on package's
-`[package].name` (path deps, port deps) or the registry package name (version deps).
+`[package].name` (path deps, port deps) or the registry package name (version deps).  Registry
+dependency keys are always the canonical scoped `<scope>/<name>` name (lowercase throughout, the
+registry grammars): `cabin publish` rejects a bare or non-canonical versioned dependency key in
+`[dependencies]` or `[dev-dependencies]` (dev-dependency keys denote registry packages too - they
+resolve when building the package's own tests), and the hosted registry enforces the same rule
+server-side.  System dependencies (`system = true`) are exempt: their keys name system packages,
+not registry packages (see [`system-dependencies.md`](system-dependencies.md)).
 
 ### `ignore-interface-standard`
 

@@ -143,9 +143,9 @@ least one verified version whose runtime `dependencies` map contains
 the target's canonical `<scope>/<name>` key - matched exactly; dev-
 and system-dependencies are never consulted, and a bare (unscoped)
 key contributes no edge, because no bare name can denote a hosted
-package (the read plane has no bare-name route; rejecting bare
-dependency keys at publish is the pre-launch follow-up,
-<https://github.com/cabinpkg/cabin/issues/1529>) - each with the count
+package (the read plane has no bare-name route; publish rejects bare
+dependency keys outright - "The write path" - so the no-edge arm is
+defense in depth, not a live case) - each with the count
 of such versions and the newest matching version string. Both search
 and the dependents walk scan the verified corpus per call
 (`json_each` over `metadata_json` for the latter): accepted at
@@ -371,7 +371,13 @@ verbatim; `cabin publish` rejects bare names outright; the sparse
 reads, the publish/yank routes, and the external verifier
 (`crates/cabin-registry-verify` and its workflow) all address the
 scoped routes, with the artifact filename flattening the `/` to `-`
-(`<scope>-<name>-<version>.zip`).
+(`<scope>-<name>-<version>.zip`). The same grammar covers dependency
+references: the registry dependency maps (`dependencies`,
+`dev-dependencies`) key on canonical `<scope>/<name>` names -
+enforced client-side before any network work and server-side in the
+publish `400` sequence ("The write path") - while
+`system-dependencies` is exempt: its keys name system packages, not
+registry packages.
 
 ## The write path
 
@@ -395,14 +401,26 @@ Publish validates in a fixed order, stopping at the first failure:
    filename embedding the scope like the artifact route (`400`);
 6. the scope and name match the grammars in "Scopes" and the version is
    valid SemVer (`400`);
-7. `yanked` is `false` (`400`);
-8. the archive bytes pass a container sanity check - a zip whose EOCD sits
+7. every key of the metadata's `dependencies` and `dev-dependencies`
+   maps is a canonical `<scope>/<name>` name (`400`) - a bare key
+   could never resolve against this registry (the read plane has no
+   bare-name route), and published metadata is immutable, so one
+   admitted here would be a permanent dark edge in the
+   reverse-dependency graph; dev-dependency keys denote registry
+   packages too, so one grammar covers both maps, while
+   `system-dependencies` is exempt - its keys name system packages,
+   not registry packages. The client enforces the same rule before any
+   network work, and the verifier mirrors it structurally: the stored
+   document passed this check, and its manifest-equality pass forces
+   the archived manifest's maps to match;
+8. `yanked` is `false` (`400`);
+9. the archive bytes pass a container sanity check - a zip whose EOCD sits
    at the fixed `len - 22` offset with a zero comment and single-disk
    fields, and whose central directory abuts the EOCD (all O(1) reads; see
    [`archive-format.md`](archive-format.md)) - the cheapest rejection, taken
    before hashing so a non-zip never reaches SubtleCrypto (`400`);
-9. the metadata's `checksum` equals `sha256:` + the digest the server itself
-   computes from the uploaded archive bytes via SubtleCrypto (`400`).
+10. the metadata's `checksum` equals `sha256:` + the digest the server itself
+    computes from the uploaded archive bytes via SubtleCrypto (`400`).
 
 Publishing under a scope the user is a member of is all it takes to
 create a package there: the first published version inserts the
