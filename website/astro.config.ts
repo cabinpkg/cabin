@@ -54,9 +54,13 @@ export default defineConfig({
                         // the heading text itself stays non-clickable.
                         behavior: "append",
                         content: [],
+                        // The label describes the anchor's built-in behavior
+                        // (fragment navigation); pages that load the docs
+                        // enhancer upgrade it to the copy-link label at
+                        // runtime, alongside the click handler.
                         properties: {
                             className: ["heading-anchor"],
-                            ariaLabel: "Copy link to this section",
+                            ariaLabel: "Link to this section",
                         },
                     },
                 ],

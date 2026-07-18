@@ -14,6 +14,12 @@ function setupHeadingAnchors(): void {
     const anchors =
         document.querySelectorAll<HTMLAnchorElement>("a.heading-anchor");
     for (const anchor of anchors) {
+        // The build labels anchors as plain section links (they also render
+        // on pages without this script); claim the copy affordance only
+        // where the handler below actually provides it.
+        if (navigator.clipboard) {
+            anchor.setAttribute("aria-label", "Copy link to this section");
+        }
         anchor.addEventListener("click", (event) => {
             const href = anchor.getAttribute("href");
             if (!href || !navigator.clipboard) {

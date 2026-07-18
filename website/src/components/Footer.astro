@@ -1,7 +1,7 @@
 ---
 import BrandIcon from "./BrandIcon.astro";
 import Icon from "./Icon.astro";
-import { EXTERNAL_URLS, NAV_LINKS } from "../lib/constants";
+import { EXTERNAL_URLS, NAV_LINKS, POLICIES_PATH } from "../lib/constants";
 import Button from "./ui/Button.astro";
 
 const year = new Date().getFullYear();
@@ -49,6 +49,14 @@ const year = new Date().getFullYear();
             <div class="h-px w-72 bg-line"></div>
 
             <div class="space-y-3">
+                <p class="text-xs text-ink-faint">
+                    <a
+                        href={POLICIES_PATH}
+                        class="font-semibold text-steel transition hover:text-steel-bright"
+                    >
+                        Usage Policy
+                    </a>
+                </p>
                 <p class="text-xs text-ink-faint">
                     © 2018-{year}
                     <a
