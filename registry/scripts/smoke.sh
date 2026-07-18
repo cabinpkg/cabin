@@ -149,6 +149,24 @@ frame() {
   } >"$out"
 }
 
+# tamper_zip <src> <dst> <seed>: copy the zip at <src> to <dst> with one
+# interior byte flipped, so the bytes (and thus the checksum) change while
+# the container stays well formed. The worker's fixed-offset sanity check
+# reads only the four-byte local-header prefix and the trailing EOCD, so
+# touching a byte in the middle keeps the request on the immutability /
+# verification path instead of the container gate (a byte appended past the
+# EOCD would move it off `len - 22` and fail that gate first). A distinct
+# <seed> yields distinct bytes.
+tamper_zip() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+src, dst, seed = sys.argv[1], sys.argv[2], int(sys.argv[3])
+data = bytearray(open(src, "rb").read())
+data[len(data) // 2] ^= (seed & 0xFF) or 1
+open(dst, "wb").write(data)
+PY
+}
+
 step "applying migrations to the local database"
 wrangler d1 migrations apply DB --local
 
@@ -537,6 +555,41 @@ fi
 as_publisher() { curl_args=(-H "Authorization: Bearer $token"); }
 as_verifier() { curl_args=(-H "Authorization: Bearer $verify_token"); }
 
+# The verification legs below run the same binary the GitHub Actions
+# verifier does, so the pending -> verified / rejected transitions exercise
+# the real strict-zip profile parser rather than a hand-written verdict.
+# Debug is enough: the caps make an optimized build irrelevant here.
+step "building the registry verifier (debug)"
+if ! verifier_build="$(cd .. && cargo build -p cabinpkg-registry-verify 2>&1)"; then
+  printf '%s\n' "$verifier_build" >&2
+  fail "failed to build cabinpkg-registry-verify"
+fi
+verifier_bin="../target/debug/cabin-registry-verify"
+
+# listing_entry <pending-listing> <name> <version> <out>: extract the one
+# admin-listing element the verifier binary consumes (the PendingVersion
+# shape: name, version, checksum, published_at, metadata).
+listing_entry() {
+  node -e '
+    const fs = require("fs");
+    const doc = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const v = doc.versions.find((e) => e.name === process.argv[2] && e.version === process.argv[3]);
+    if (!v) process.exit(1);
+    fs.writeFileSync(process.argv[4], JSON.stringify({
+      name: v.name, version: v.version, checksum: v.checksum,
+      published_at: v.published_at, metadata: v.metadata,
+    }));
+  ' "$1" "$2" "$3" "$4" || fail "the pending listing has no $2@$3"
+}
+
+# run_verifier <archive> <listing-entry> <out>: run the built binary,
+# writing its JSON verdict to <out>. Exit 2 is an operational failure with
+# no verdict, which must abort the smoke run rather than pass silently.
+run_verifier() {
+  "$verifier_bin" "$1" "$2" >"$3" \
+    || fail "the verifier binary failed operationally on $1: $(cat "$3")"
+}
+
 as_publisher
 step "authenticated read routes"
 check /config.json 200
@@ -546,7 +599,7 @@ grep -qF "\"api\":\"${web_origin}\"" "$body" \
   || fail "config.json api is not the website origin: $(cat "$body")"
 # 200 only with previously published local data; 404 proves auth + routing.
 check /packages/smoke/withdep.json 200 404
-check /artifacts/smoke/withdep/smoke-withdep-0.2.0.tar.gz 200 404
+check /artifacts/smoke/withdep/smoke-withdep-0.2.0.zip 200 404
 
 step "a valid token changes nothing off the read plane on the registry host"
 uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0 -H "Authorization: Bearer $token"
@@ -555,7 +608,7 @@ uniform_401 "$base" /api/v1/user -H "Authorization: Bearer $token"
 step "the read plane is absent on the website origin"
 wcheck /config.json 404
 wcheck /packages/smoke/withdep.json 404
-wcheck /artifacts/smoke/withdep/smoke-withdep-0.2.0.tar.gz 404
+wcheck /artifacts/smoke/withdep/smoke-withdep-0.2.0.zip 404
 wcheck /healthz 404
 
 # --- The session plane, end to end with a minted session. ---
@@ -807,10 +860,10 @@ grep -qi '^x-cabin-registry-generation:' "$body" \
 scope="smoke"
 name="withdep"
 version="0.2.0"
-fixture_archive="tests/fixtures/$scope-$name-$version.tar.gz"
+fixture_archive="tests/fixtures/$scope-$name-$version.zip"
 publish_path="/api/v1/packages/$scope/$name/$version"
 package_path="/packages/$scope/$name.json"
-artifact_path="/artifacts/$scope/$name/$scope-$name-$version.tar.gz"
+artifact_path="/artifacts/$scope/$name/$scope-$name-$version.zip"
 blob_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
 work="$(mktemp -d)"
 trap 'cleanup; rm -rf "$work" "$mock_dir"' EXIT
@@ -841,23 +894,29 @@ expect_body "\"name\":\"$scope/$name\""
 expect_body '"version":"0.2.0"'
 expect_body '"published_by":1'
 expect_body '"metadata":{'
-# A verified verdict must echo the listing's checksum and published_at.
-listed_published_at="$(node -e '
-  const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-  const v = doc.versions.find((v) => v.name === "smoke/withdep" && v.version === "0.2.0");
-  if (!v || !v.published_at) process.exit(1);
-  console.log(v.published_at);' "$body")" \
-  || fail "the admin listing is missing smoke/withdep@0.2.0 or its published_at"
-printf '{"verdict":"verified","checksum":"%s","published_at":"%s"}' \
-  "$blob_hash" "$listed_published_at" >"$work/verdict-verified.json"
+cp "$body" "$work/pending.json"
 wcheck "/api/v1/admin/versions?status=bogus" 400
-check "$artifact_path" 200
+# The verifier downloads the pending artifact and inspects it out of band.
+curl -sS -o "$work/download.zip" ${curl_args[@]+"${curl_args[@]}"} "$base$artifact_path"
+[[ "$(shasum -a 256 "$work/download.zip" | cut -d' ' -f1)" == "$blob_hash" ]] \
+  || fail "the pending download differs from the published archive"
 
 step "a verified verdict must name the listing it inspected"
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-unbound.json" 400
 expect_body 'requires the checksum'
 
-step "a verified verdict makes the version resolvable"
+step "the real verifier verifies the fixture and the verdict makes it resolvable"
+listing_entry "$work/pending.json" "$scope/$name" "$version" "$work/entry.json"
+run_verifier "$work/download.zip" "$work/entry.json" "$work/verdict-real.json"
+grep -qF '"verdict":"verified"' "$work/verdict-real.json" \
+  || fail "the verifier did not verify the fixture: $(cat "$work/verdict-real.json")"
+# The verdict binds to the checksum and published_at the listing reported.
+node -e '
+  const fs = require("fs");
+  const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  fs.writeFileSync(process.argv[2], JSON.stringify({
+    verdict: "verified", checksum: entry.checksum, published_at: entry.published_at,
+  }));' "$work/entry.json" "$work/verdict-verified.json"
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"verification":"verified"'
 expect_body '"changed":true'
@@ -925,8 +984,8 @@ await_backup_blob() {
 }
 
 step "the published blob replicates to the BACKUP bucket"
-await_backup_blob "blobs/sha256/$blob_hash" "$work/replicated.tar.gz"
-cmp -s "$work/replicated.tar.gz" "$fixture_archive" \
+await_backup_blob "blobs/sha256/$blob_hash" "$work/replicated.zip"
+cmp -s "$work/replicated.zip" "$fixture_archive" \
   || fail "replicated blob differs from the published archive"
 
 # A retry of a publish whose isolate died before replicating takes the
@@ -938,8 +997,8 @@ wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
 check "$artifact_path" 200
-await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.tar.gz"
-cmp -s "$work/rehealed.tar.gz" "$fixture_archive" \
+await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.zip"
+cmp -s "$work/rehealed.zip" "$fixture_archive" \
   || fail "re-healed blob differs from the published archive"
 
 step "byte-identical re-publish is an idempotent no-op reporting the status"
@@ -948,12 +1007,11 @@ expect_body '"no_op":true'
 expect_body '"verification":"verified"'
 
 step "tampered re-publish hits the immutability wall"
-cat "$fixture_archive" >"$work/tampered.tar.gz"
-printf 'x' >>"$work/tampered.tar.gz"
+tamper_zip "$fixture_archive" "$work/tampered.zip" 1
 old_hash="$(shasum -a 256 "$fixture_archive" | cut -d' ' -f1)"
-new_hash="$(shasum -a 256 "$work/tampered.tar.gz" | cut -d' ' -f1)"
+new_hash="$(shasum -a 256 "$work/tampered.zip" | cut -d' ' -f1)"
 sed "s/$old_hash/$new_hash/" "$fixture_metadata" >"$work/tampered.json"
-frame "$work/tampered.json" "$work/tampered.tar.gz" "$work/tampered.bin"
+frame "$work/tampered.json" "$work/tampered.zip" "$work/tampered.bin"
 wrequest PUT "$publish_path" "$work/tampered.bin" 409
 expect_body 'immutable'
 
@@ -978,9 +1036,9 @@ check "$package_path" 200
 expect_body '"yanked":false'
 
 step "published artifact downloads with the published checksum"
-curl -sS -o "$work/artifact.tar.gz" ${curl_args[@]+"${curl_args[@]}"} \
+curl -sS -o "$work/artifact.zip" ${curl_args[@]+"${curl_args[@]}"} \
   "$base$artifact_path"
-got_hash="$(shasum -a 256 "$work/artifact.tar.gz" | cut -d' ' -f1)"
+got_hash="$(shasum -a 256 "$work/artifact.zip" | cut -d' ' -f1)"
 [[ "$got_hash" == "$old_hash" ]] \
   || fail "artifact checksum mismatch: got $got_hash, expected $old_hash"
 grep -qF "sha256:$old_hash" "$fixture_metadata" \
@@ -1023,7 +1081,7 @@ stored_bytes() {
 # 0.2.1 with the exact archive 0.2.0 published: the shared-blob case.
 version2="0.2.1"
 publish2_path="/api/v1/packages/$scope/$name/$version2"
-artifact2_path="/artifacts/$scope/$name/$scope-$name-$version2.tar.gz"
+artifact2_path="/artifacts/$scope/$name/$scope-$name-$version2.zip"
 verdict2_path="/api/v1/admin/versions/$scope/$name/$version2"
 sed 's/0\.2\.0/0.2.1/g' "$fixture_metadata" >"$work/withdep-0.2.1.json"
 frame "$work/withdep-0.2.1.json" "$fixture_archive" "$work/publish2.bin"
@@ -1060,14 +1118,13 @@ check "$package_path" 200
 wrequest PATCH "$publish2_path/yank" "$work/yank.json" 404
 
 step "republishing over a rejected version replaces it as pending"
-cat "$fixture_archive" >"$work/replacement.tar.gz"
-printf 'y' >>"$work/replacement.tar.gz"
-replacement_hash="$(shasum -a 256 "$work/replacement.tar.gz" | cut -d' ' -f1)"
+tamper_zip "$fixture_archive" "$work/replacement.zip" 2
+replacement_hash="$(shasum -a 256 "$work/replacement.zip" | cut -d' ' -f1)"
 sed "s/$blob_hash/$replacement_hash/" "$work/withdep-0.2.1.json" >"$work/replacement.json"
-frame "$work/replacement.json" "$work/replacement.tar.gz" "$work/replacement.bin"
+frame "$work/replacement.json" "$work/replacement.zip" "$work/replacement.bin"
 wrequest PUT "$publish2_path" "$work/replacement.bin" 201
 expect_body '"verification":"pending"'
-replacement_size="$(wc -c <"$work/replacement.tar.gz" | tr -d ' ')"
+replacement_size="$(wc -c <"$work/replacement.zip" | tr -d ' ')"
 [[ "$(stored_bytes)" == "$((before_bytes + replacement_size))" ]] \
   || fail "the replacement archive was not counted: $(stored_bytes)"
 as_verifier
@@ -1081,7 +1138,7 @@ as_publisher
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "the rejection did not refund the replacement bytes: $(stored_bytes)"
 if wrangler r2 object get "cabin-registry-blobs/blobs/sha256/$replacement_hash" \
-  --file "$work/reclaimed.tar.gz" --local >/dev/null 2>&1; then
+  --file "$work/reclaimed.zip" --local >/dev/null 2>&1; then
   fail "the rejected version's unshared blob was not reclaimed"
 fi
 
@@ -1172,5 +1229,80 @@ rerun_at="$(wrangler d1 execute DB --local --json --command \
   ')"
 [[ "$rerun_at" == "$last_backup_at" ]] \
   || fail "same-day re-run rewrote last_backup_at: $rerun_at (was $last_backup_at)"
+
+# --- The strict zip container profile, at publish and at verification. ---
+# These publishes charge the publish bucket like any others, so the leg
+# gets its own burst.
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';"
+
+profile_version="0.3.0"
+profile_publish_path="/api/v1/packages/$scope/$name/$profile_version"
+profile_verdict_path="/api/v1/admin/versions/$scope/$name/$profile_version"
+profile_artifact_path="/artifacts/$scope/$name/$scope-$name-$profile_version.zip"
+
+step "the publish path fast-fails a non-zip body before hashing it"
+# Canonical metadata for a fresh version, but an archive part that is
+# plainly not a zip: the fixed-offset container gate rejects it (400)
+# ahead of the checksum and immutability checks.
+printf 'not a zip archive' >"$work/notzip.bin"
+notzip_hash="$(shasum -a 256 "$work/notzip.bin" | cut -d' ' -f1)"
+sed "s/0\\.2\\.0/$profile_version/g" "$fixture_metadata" |
+  sed "s/$blob_hash/$notzip_hash/" >"$work/notzip.json"
+frame "$work/notzip.json" "$work/notzip.bin" "$work/notzip.publish.bin"
+wrequest PUT "$profile_publish_path" "$work/notzip.publish.bin" 400
+expect_body 'archive is not a zip container'
+
+step "a profile-violating archive publishes pending, then the verifier rejects it"
+# A single stored zero-length entry named '../evil': the EOCD arithmetic
+# is exact, so it clears the worker's container gate, but the strict
+# profile fails it on path traversal. Hand-assembled (the full violation
+# matrix - zip64, wrong method, extra fields, GP bits, local/central
+# disagreement, case collisions, directory entries - lives in the
+# verifier crate's Rust tests).
+python3 - "$work/evil.zip" <<'PY'
+import struct, sys
+name = b"../evil"
+lfh = struct.pack("<IHHHHHIIIHH", 0x04034b50, 20, 0, 0, 0, 0, 0, 0, 0, len(name), 0) + name
+cd = struct.pack("<IHHHHHHIIIHHHHHII",
+                 0x02014b50, 20, 20, 0, 0, 0, 0, 0, 0, 0, len(name), 0, 0, 0, 0, 0, 0) + name
+eocd = struct.pack("<IHHHHIIH", 0x06054b50, 0, 0, 1, 1, len(cd), len(lfh), 0)
+open(sys.argv[1], "wb").write(lfh + cd + eocd)
+PY
+evil_hash="$(shasum -a 256 "$work/evil.zip" | cut -d' ' -f1)"
+sed "s/0\\.2\\.0/$profile_version/g" "$fixture_metadata" |
+  sed "s/$blob_hash/$evil_hash/" >"$work/evil.json"
+frame "$work/evil.json" "$work/evil.zip" "$work/evil.publish.bin"
+wrequest PUT "$profile_publish_path" "$work/evil.publish.bin" 201
+expect_body '"verification":"pending"'
+
+as_verifier
+wcheck "/api/v1/admin/versions?status=pending" 200
+cp "$body" "$work/pending-profile.json"
+curl -sS -o "$work/evil-download.zip" ${curl_args[@]+"${curl_args[@]}"} \
+  "$base$profile_artifact_path"
+cmp -s "$work/evil-download.zip" "$work/evil.zip" \
+  || fail "the pending profile-violation download differs from what was published"
+listing_entry "$work/pending-profile.json" "$scope/$name" "$profile_version" "$work/entry-profile.json"
+run_verifier "$work/evil-download.zip" "$work/entry-profile.json" "$work/verdict-profile.json"
+grep -qF '"verdict":"rejected"' "$work/verdict-profile.json" \
+  || fail "the verifier did not reject the traversal archive: $(cat "$work/verdict-profile.json")"
+grep -qF 'path_traversal' "$work/verdict-profile.json" \
+  || fail "the rejection is not path_traversal: $(cat "$work/verdict-profile.json")"
+# PATCH the actual rejected verdict: reason from the binary, bound to the
+# checksum and published_at the listing reported.
+node -e '
+  const fs = require("fs");
+  const verdict = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const entry = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  fs.writeFileSync(process.argv[3], JSON.stringify({
+    verdict: "rejected", reason: verdict.reasons[0],
+    checksum: entry.checksum, published_at: entry.published_at,
+  }));' "$work/verdict-profile.json" "$work/entry-profile.json" "$work/verdict-profile-patch.json"
+wrequest PATCH "$profile_verdict_path" "$work/verdict-profile-patch.json" 200
+expect_body '"verification":"rejected"'
+expect_body '"changed":true'
+as_publisher
+check "$profile_artifact_path" 404
 
 echo "smoke OK"
