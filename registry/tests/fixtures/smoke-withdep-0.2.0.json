@@ -21,10 +21,10 @@
     }
   },
   "yanked": false,
-  "checksum": "sha256:40759124a45aff62215c98a34c06742f9f342ad6d63fa770db04690f1b4fe9b0",
+  "checksum": "sha256:3b9fa6436e10431a674324a25fed1626400f79c5d0fc5bc968e1fb0ce7ebde54",
   "source": {
     "type": "archive",
-    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0.tar.gz",
-    "format": "tar.gz"
+    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0.zip",
+    "format": "zip"
   }
 }
