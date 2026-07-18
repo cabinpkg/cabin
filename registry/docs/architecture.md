@@ -51,6 +51,7 @@ which routes and which credential exist where:
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
 | `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
 | `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/user/source/<scope>/<name>/<version>` | - | Session cookie **only**, ranged read ("The source viewer's ranged reads" below) |
 | `/api/v1/stats` | - | public GET, no credential ("Download counts") |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
@@ -58,8 +59,10 @@ which routes and which credential exist where:
 A dash means the path does not exist on that hostname: on the registry
 domain every non-read-plane path answers the uniform 401 **without
 consulting the `Authorization` header**, indistinguishable from any unknown
-path; on the website origin nothing ever matches a read route, so package
-data is never served there. Every Bearer-plane 401 carries the
+path; on the website origin nothing ever matches a machine read route, so
+the Bearer read plane does not exist there - the one package-data surface
+on this origin is the source viewer's session-authenticated ranged read
+(below). Every Bearer-plane 401 carries the
 byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/settings/tokens"`
 challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
 401s deliberately do not, keeping the planes distinguishable. In production
@@ -68,9 +71,42 @@ the website origin reaches this Worker through zone routes
 claim flow's `/callback/claim` - and `/claim/*`; see `wrangler.jsonc`
 and [`runbook.md`](runbook.md), "Integrated topology and route
 management"). The frontend consuming
-the session plane - `/dashboard`, `/settings/*`, and `/login/denied`, all
+the session plane - `/dashboard`, `/dashboard/source`, `/settings/*`, and
+`/login/denied`, all
 static pages - lives in the repository's `website/` project ("Account
 pages" in its README).
+
+**The source viewer's ranged reads.** The matrix served no package data
+on the website origin at all until the source viewer (the website's
+`/dashboard/source` page) needed to read published archives from the
+browser. The recorded decision: this origin gets exactly one
+package-data route - `GET /api/v1/user/source/<scope>/<name>/<version>`
+- and it is read-only, session-plane, verified-only, and range-limited.
+It lives inside the `/api/v1/user` subtree because that is the session
+cookie's `Path` - the cookie travels nowhere else - and deliberately
+not under `/api/v1/user/packages`, the created-packages listing, where
+it would read as ownership-scoped: any **verified** version is
+readable, exactly like the artifact route with an ordinary token
+(yanked stays viewable; pending, rejected, and corrupt-status rows are
+the plain 404 by construction - the verified filter sits in the SQL).
+The server stays a byte proxy: authenticate the session, resolve the
+version row, forward one bounded R2 ranged read of the immutable blob -
+no server-side unzipping, listing, or derived artifacts, which is the
+design the strict zip profile exists to enable ("Why a strict zip
+profile"; the browser parses the container itself). The `Range` header
+is **required** (`400` without one) and must be a single
+`bytes=<start>-<end>` or `bytes=-<suffix>` form of at most 4 MiB
+(`src/source.rs`; deliberately stricter than RFC 9110's
+ignore-and-serve-200); anything else - multi-range, open-ended,
+oversized - answers `416`. The cap is a per-request resource bound,
+nothing more: sequential requests can walk the whole archive - the
+viewer needs exactly that, and a signed-in user could mint a token and
+download the artifact anyway - but no single request streams a 16 MiB
+blob. Responses carry the session plane's `Cache-Control: no-store`
+like every authenticated response. Like every read, the route never
+consults the service mode ("Billing model and the budget breaker" -
+reads fail open), and a source read is never a download ("Download
+counts").
 
 ## Two credential planes
 
@@ -97,7 +133,9 @@ the verifier's admin plane.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
-**The session plane is cookie-only JSON.** `/login` and `/callback` run the
+**The session plane is cookie-only.** Every response is JSON except the
+source viewer's ranged byte reads ("Origins and roles"). `/login` and
+`/callback` run the
 GitHub OAuth sign-in (web application flow, no OAuth scopes requested,
 explicit `redirect_uri` of `<WEB_ORIGIN>/callback`); `/claim/<scope>`
 and `/callback/claim` run the scope-claim flow's dedicated roundtrip
@@ -112,6 +150,10 @@ website frontend consumes:
 - `GET /api/v1/user/packages` -> the packages the user created, each
   version carrying its verification state, yanked flag, and served-
   download count ("Download counts"; the dashboard's package list);
+- `GET /api/v1/user/source/<scope>/<name>/<version>` -> a bounded
+  ranged read of a verified version's archive bytes for the source
+  viewer ("The source viewer's ranged reads" - the one non-JSON
+  response on this plane);
 - `GET /api/v1/user/tokens` -> token metadata (never hashes);
 - `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
   repeated scopes refused) -> `201` with the plaintext token, exactly once;
@@ -418,7 +460,10 @@ deferred task (the breaker-mode read included; nothing about it
 touches the response path) follows the write plane's fail-closed
 direction, an unreadable mode skipping the write, while the download
 itself was already served, keeping the read plane's fail-open
-promise.
+promise. The counter tracks the registry artifact route **only**: the
+website origin's source-viewer reads ("The source viewer's ranged
+reads") never increment it - browsing files is not an install, and a
+viewer session would otherwise count one download per file viewed.
 
 `GET /api/v1/stats` on the website origin is the one unauthenticated
 JSON route: registry-wide totals over verified versions only -
@@ -571,7 +616,8 @@ hostname roles, route matching, and path-component validation
 (`src/routes.rs`), document composition (`src/documents.rs`), the error
 envelope and the challenge header (`src/error.rs`), cookie signing, the
 cookie shape, and the CSRF header rule (`src/session.rs`), the session
-API's JSON shapes and body validation (`src/user_api.rs`), the public
+API's JSON shapes and body validation (`src/user_api.rs`), the source
+viewer's ranged-read policy (`src/source.rs`), the public
 stats totals' JSON shape (`src/stats.rs`), the
 scope-claim grant rules and GitHub-response parsing (`src/claim.rs`),
 the sign-in allowlist (`src/allowlist.rs`), the
@@ -636,8 +682,9 @@ The canonical package archive is a zip container, not a tar.gz, and it is
 pinned to a single narrow profile. The full normative spec is
 [`archive-format.md`](archive-format.md); the reasoning:
 
-- **Zip over tar.gz.** A planned source-code viewer needs random access into
-  a stored archive. The Worker keeps archives as opaque, content-addressed
+- **Zip over tar.gz.** The source viewer ("Origins and roles") needs random
+  access into a stored archive. The Worker keeps archives as opaque,
+  content-addressed
   R2 blobs and has no archive dependency, so a tar.gz would force either a
   server-side repack job (Workers CPU) or a second derived zip sidecar (R2
   budget - see "Billing model and the budget breaker"); both were rejected.
