@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use cabin_core::PackageName;
 use cabin_lockfile::Lockfile;
@@ -196,8 +196,7 @@ pub(super) fn fetch(
     let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
-        index_path: inputs.index_path.as_deref(),
-        index_url: inputs.index_url.as_deref(),
+        index_source: &inputs.index_source,
         mode: inputs.mode,
         allow_write: inputs.allow_write,
         frozen: args.frozen,
@@ -283,7 +282,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         resolution_offline,
         resolved_index_source.as_ref(),
     )?;
-    let (config_index_path, config_index_url): (Option<PathBuf>, Option<String>) =
+    let effective_index_source: Option<cabin_core::SourceLocator> =
         match resolved_index_source.as_ref() {
             Some(source) => {
                 let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
@@ -296,13 +295,16 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
                     resolution_offline,
                     &resolved,
                 )?;
-                crate::cli::patch::locator_to_index_inputs(&resolved.resolved)
+                Some(resolved.resolved)
             }
-            None => (None, None),
+            None => None,
         };
-    let effective_index_path = config_index_path.as_deref();
-    let effective_index_url = config_index_url.as_deref();
-    if request.frozen && effective_index_url.is_some() {
+    if request.frozen
+        && matches!(
+            effective_index_source,
+            Some(cabin_core::SourceLocator::IndexUrl { .. })
+        )
+    {
         bail!(crate::cli::FROZEN_INDEX_URL_ERR);
     }
 
@@ -433,19 +435,18 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         );
     }
 
-    let index = match (effective_index_path, effective_index_url) {
-        (None, None) => {
+    let index = match &effective_index_source {
+        None => {
             bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX)
         }
-        (Some(path), None) => load_local_index(path, request.experimental_features)?,
+        Some(cabin_core::SourceLocator::IndexPath { path }) => {
+            load_local_index(path.as_std_path(), request.experimental_features)?
+        }
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
         // dropped here.
-        (None, Some(url)) => {
+        Some(cabin_core::SourceLocator::IndexUrl { url }) => {
             load_http_index(url, &root_deps, request.experimental_features, reporter)?.0
-        }
-        (Some(_), Some(_)) => {
-            unreachable!("cli::config::resolve_index_source guarantees only one variant is set")
         }
     };
 

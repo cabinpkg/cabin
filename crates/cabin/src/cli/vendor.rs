@@ -228,8 +228,7 @@ pub(crate) fn vendor(
     let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
-        index_path: inputs.index_path.as_deref(),
-        index_url: inputs.index_url.as_deref(),
+        index_source: &inputs.index_source,
         mode: inputs.mode,
         allow_write: inputs.allow_write,
         frozen: args.frozen,
@@ -251,9 +250,9 @@ pub(crate) fn vendor(
     // Vendoring copies `packages/<name>.json` files verbatim
     // into the output, so the index source must be a local
     // directory the vendor crate can read off disk.
-    let index_dir = match inputs.index_path.as_deref() {
-        Some(p) => p.to_path_buf(),
-        None => bail!(
+    let index_dir = match &inputs.index_source {
+        cabin_core::SourceLocator::IndexPath { path } => path.as_std_path().to_path_buf(),
+        cabin_core::SourceLocator::IndexUrl { .. } => bail!(
             "`cabin vendor` requires a local `--index-path` source so per-package metadata can be copied verbatim into the vendor directory"
         ),
     };

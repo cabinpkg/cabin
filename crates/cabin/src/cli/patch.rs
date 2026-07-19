@@ -15,7 +15,6 @@
 //! - render a deterministic JSON block for `cabin metadata`.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use cabin_config::EffectiveConfig;
@@ -209,15 +208,3 @@ pub(crate) fn source_replacement_view_json(
     serde_json::Value::Array(entries)
 }
 
-/// Package a typed [`SourceLocator`] back into the
-/// `(index_path, index_url)` shape Cabin's existing artifact
-/// pipeline expects.  The two values are mutually exclusive - at
-/// most one is `Some`.
-pub(crate) fn locator_to_index_inputs(
-    locator: &SourceLocator,
-) -> (Option<PathBuf>, Option<String>) {
-    match locator {
-        SourceLocator::IndexPath { path } => (Some(path.as_std_path().to_path_buf()), None),
-        SourceLocator::IndexUrl { url } => (None, Some(url.clone())),
-    }
-}

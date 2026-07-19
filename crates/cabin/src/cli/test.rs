@@ -284,8 +284,7 @@ pub(crate) fn test(
             let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
                 manifest_path: &manifest_path,
                 initial_graph: &dev_probe_graph,
-                index_path: inputs.index_path.as_deref(),
-                index_url: inputs.index_url.as_deref(),
+                index_source: &inputs.index_source,
                 mode: inputs.mode,
                 allow_write: inputs.allow_write,
                 frozen: args.frozen,
