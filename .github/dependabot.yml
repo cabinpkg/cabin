@@ -22,6 +22,14 @@ updates:
       prefix: "chore"
       include: "scope"
 
+  - package-ecosystem: "cargo"
+    directory: "/registry/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
   - package-ecosystem: "npm"
     directory: "/website/"
     schedule:
