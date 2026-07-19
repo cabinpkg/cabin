@@ -284,7 +284,9 @@ both targets are fixed relative paths, never derived from request input
   token is transient and sign-in reads only `/user`.)
 - Cookies (the short-lived OAuth `state` and the 8-hour session) are
   HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
-  separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`, and
+  separation (`src/session.rs`); the Worker refuses a configured key shorter
+  than 32 bytes, matching the runbook's random-key provisioning command.
+  Cookies are `HttpOnly; Secure; SameSite=Lax`, and
   **host-only** - no `Domain` attribute, so registry subdomains can never
   receive the website origin's cookies. Paths are narrowed to where each
   cookie is read (`Path=/api/v1/user` for the session, `Path=/callback`
@@ -295,7 +297,10 @@ both targets are fixed relative paths, never derived from request input
   read). Neither header can ride on an HTML form or any other request a
   hostile origin can send without a CORS preflight - which the Worker
   never answers - so with `SameSite=Lax` host-only cookies no server-side
-  token state is needed.
+  token state is needed. Mutation JSON is streamed under a 4 KiB cap; the
+  publish frame uses the same bounded reader with its documented 64 MiB cap,
+  so a chunked request cannot bypass the declared-length preflight and force
+  an unbounded buffer.
 - Every session-plane response carries `Content-Security-Policy:
   default-src 'none'; style-src 'unsafe-inline'`,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
@@ -512,7 +517,10 @@ gate, and the verdict body live in `src/verify.rs`.
   token API like `publish` and `yank`: every allowlisted user is
   currently an operator. A dedicated verifier-only issuance path
   is deliberate future work for when sign-up opens beyond the
-  allowlist.
+  allowlist. The external workflow pins the expected API origin
+  independently and requires `config.json` to match it before sending the
+  verify token, so registry-controlled discovery cannot redirect that
+  credential to another host.
 - **Fail-safe direction.** Nothing becomes resolvable unless its status
   is exactly `verified`: a verifier that never runs, an unreadable
   status value, or a broken admin plane can only keep content

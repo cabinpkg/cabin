@@ -399,7 +399,7 @@ The 05:10 UTC fire ran the job end to end against the real D1 export
 API with the operator's `D1_EXPORT_API_TOKEN`:
 
 ```console
-$ npx wrangler d1 execute DB --remote --json --command \
+$ npx --yes wrangler@4.112.0 d1 execute DB --remote --json --command \
     "SELECT key, value FROM meta WHERE key LIKE 'last_backup%'"
 last_backup_at   2026-07-10T05:10:01.588Z
 last_backup_key  d1/2026-07-10.sql
@@ -621,7 +621,7 @@ walkthrough itself.
 - Website: the normal production deployment (Workers Builds on push to
   `main`) was already current - the tip commit's build succeeded at
   05:48 UTC. No manual deploy exists for the website by design.
-- Registry: `npx wrangler deploy` re-run from `registry/`.
+- Registry: `npx --yes wrangler@4.112.0 deploy` re-run from `registry/`.
   The deploy output listed the expected surface: the
   `registry.cabinpkg.com` custom domain, the three `cabinpkg.com`
   zone routes (`/api/*`, `/login`, `/callback*`), both cron schedules,

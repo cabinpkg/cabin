@@ -11,6 +11,8 @@ use crate::error::PackageError;
 /// Conventional package-archive root entry.
 pub const ROOT_MANIFEST_NAME: &str = "cabin.toml";
 
+const CREDENTIALS_FILE_NAME: &str = "credentials.toml";
+
 /// Top-level directory names that are excluded from package archives
 /// by default.  Matched anywhere in the tree, including below the root, so
 /// nested submodules / build trees do not leak in.
@@ -31,6 +33,7 @@ pub const EXCLUDED_FILE_NAMES: &[&str] = &[
     "compile_commands.json",
     "build.ninja",
     "cabin.lock",
+    CREDENTIALS_FILE_NAME,
 ];
 
 /// One file slated for inclusion in a package archive.
@@ -247,7 +250,9 @@ fn walk(
             reject_non_portable(root, &path, name)?;
             walk(root, &path, exclude_dir, out)?;
         } else if file_type.is_file() {
-            if EXCLUDED_FILE_NAMES.contains(&name) {
+            if EXCLUDED_FILE_NAMES.contains(&name)
+                || name.eq_ignore_ascii_case(CREDENTIALS_FILE_NAME)
+            {
                 continue;
             }
             reject_non_portable(root, &path, name)?;
@@ -396,6 +401,13 @@ mod tests {
             .unwrap();
         dir.child("build.ninja").write_str("ignore").unwrap();
         dir.child("cabin.lock").write_str("ignore").unwrap();
+        dir.child("credentials.toml")
+            .write_str("token = \"cabin_secret\"")
+            .unwrap();
+        dir.child("secrets").create_dir_all().unwrap();
+        dir.child("secrets/CREDENTIALS.TOML")
+            .write_str("token = \"cabin_case_alias\"")
+            .unwrap();
         dir.child(".DS_Store").write_str("ignore").unwrap();
         dir.child("src/main.cc").write_str("y").unwrap();
         let files = collect_package_files(dir.path(), None).unwrap();
@@ -406,6 +418,8 @@ mod tests {
             "compile_commands.json",
             "build.ninja",
             "cabin.lock",
+            "credentials.toml",
+            "secrets/CREDENTIALS.TOML",
             ".DS_Store",
         ] {
             assert!(!names.contains(excluded), "leaked: {excluded}");

@@ -26,7 +26,7 @@ backup="cabin-registry-backup"
 step() { printf '==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-wrangler() { npx --yes wrangler "$@"; }
+wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 d1_exec() { wrangler d1 execute DB --remote --command "$1" >/dev/null; }
 

@@ -130,11 +130,11 @@ fn passes_when_not_launched_and_queries_the_flag() {
     let log = shim.log();
     assert_eq!(log.len(), 2, "log: {log:?}");
     assert!(
-        log[0].starts_with("--yes wrangler d1 list --json"),
+        log[0].starts_with("--yes wrangler@4.112.0 d1 list --json"),
         "log: {log:?}"
     );
     assert!(
-        log[1].starts_with("--yes wrangler d1 execute DB --remote --json --command"),
+        log[1].starts_with("--yes wrangler@4.112.0 d1 execute DB --remote --json --command"),
         "log: {log:?}"
     );
     assert!(log[1].contains("key = 'launched'"), "log: {log:?}");
@@ -166,7 +166,7 @@ fn respects_the_local_mode() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     // Local state has no name resolution; the DB binding is the state.
     assert!(
-        shim.log()[0].starts_with("--yes wrangler d1 execute DB --local"),
+        shim.log()[0].starts_with("--yes wrangler@4.112.0 d1 execute DB --local"),
         "log: {:?}",
         shim.log()
     );

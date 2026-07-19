@@ -76,7 +76,7 @@ cleanup() {
   # A failure inside a breaker leg would otherwise leave the pinned mode
   # behind in the local D1 state, blocking unrelated local work until
   # the next run's seeding normalizes it.
-  npx --yes wrangler d1 execute DB --local --command \
+  npx --yes wrangler@4.112.0 d1 execute DB --local --command \
     "UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
      UPDATE meta SET value = '' WHERE key = 'service_mode_reason';" \
     >/dev/null 2>&1 || true
@@ -96,7 +96,7 @@ trap cleanup EXIT
 step() { printf '==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-wrangler() { npx --yes wrangler "$@"; }
+wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 # check_at <base> <path> <expected statuses...>; body lands in $body.
 check_at() {
@@ -401,7 +401,7 @@ fi
 cat >"$dev_vars" <<EOF
 CF_API_BASE="http://127.0.0.1:${mock_port}"
 D1_EXPORT_API_TOKEN="smoke-placeholder"
-SESSION_SECRET="smoke-session-secret"
+SESSION_SECRET="smoke-session-secret-not-for-production"
 ALLOWED_GITHUB_IDS="0,1"
 SERVICE_MODE_TTL_SECS="0"
 STATS_CACHE_TTL_SECS="0"
@@ -654,7 +654,7 @@ wcheck /healthz 404
 # a GitHub round trip.
 session_payload="0:$(($(date +%s) + 3600))"
 session_mac="$(printf 'session:%s' "$session_payload" |
-  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+  openssl dgst -sha256 -hmac "smoke-session-secret-not-for-production" | sed 's/^.* //')"
 session_cookie="cabin_session=${session_payload}.${session_mac}"
 
 # session_request <method> <path> <expected status> [curl args...];
@@ -686,7 +686,7 @@ step "a valid session whose identity row is gone answers 401 everywhere"
 # the same 401 as no session, never an empty listing or a 500.
 ghost_payload="1:$(($(date +%s) + 3600))"
 ghost_mac="$(printf 'session:%s' "$ghost_payload" |
-  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+  openssl dgst -sha256 -hmac "smoke-session-secret-not-for-production" | sed 's/^.* //')"
 real_session_cookie="$session_cookie"
 session_cookie="cabin_session=${ghost_payload}.${ghost_mac}"
 session_request GET /api/v1/user 401
@@ -982,6 +982,20 @@ expect_body 'verify scope'
 
 step "the verify scope lists and downloads pending versions"
 as_verifier
+# Content-Length is only an optimization: a chunked request must hit the
+# same cap while the stream is read and leave the pending row untouched.
+# The body must be a *semantically valid* rejected verdict - padded past
+# the cap with whitespace inside the JSON document - so an uncapped
+# handler would parse and apply it, failing the pending-row checks below.
+printf '{"verdict":"rejected","reason":"oversized"%4097s}' '' \
+  >"$work/oversized-verdict.json"
+oversized_status="$(curl -sS -o "$body" -w '%{http_code}' -X PATCH \
+  -H "Transfer-Encoding: chunked" --data-binary "@$work/oversized-verdict.json" \
+  ${curl_args[@]+"${curl_args[@]}"} \
+  "$web_base/api/v1/admin/versions/$scope/$name/$version")"
+[[ "$oversized_status" == "400" ]] \
+  || fail "oversized chunked verdict returned $oversized_status, expected 400 (body: $(cat "$body"))"
+expect_body 'the verdict body must be'
 wcheck "/api/v1/admin/versions?status=pending" 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"version":"0.2.0"'

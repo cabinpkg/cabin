@@ -939,25 +939,9 @@ async fn list_tokens(db: &D1Database, user_id: i64) -> worker::Result<Response> 
     json_response(&user_api::tokens_json(&rows))
 }
 
-/// A session-plane mutation body cannot legitimately get anywhere near
-/// this; the cap keeps a hostile session from making the Worker buffer
-/// megabytes.
-const MAX_SESSION_BODY_BYTES: usize = 4 * 1024;
-
-/// Buffers a session-plane mutation body. `None` refuses an oversized
-/// upload - before buffering when the client declared a length,
-/// mirroring the publish handler, and re-checked after regardless (a
-/// chunked body has no length).
+/// Reads a session-plane mutation under the shared JSON-body cap.
 async fn session_body(req: &mut Request) -> worker::Result<Option<Vec<u8>>> {
-    if let Some(length) = req.headers().get("content-length")?
-        && length
-            .parse::<u64>()
-            .is_ok_and(|n| n > MAX_SESSION_BODY_BYTES as u64)
-    {
-        return Ok(None);
-    }
-    let body = req.bytes().await?;
-    Ok((body.len() <= MAX_SESSION_BODY_BYTES).then_some(body))
+    crate::glue::bounded_body(req, crate::glue::MAX_MUTATION_BODY_BYTES).await
 }
 
 /// `POST /api/v1/user/tokens`: issue a token. The plaintext is rendered
@@ -1271,7 +1255,14 @@ async fn user_record(db: &D1Database, github_id: i64) -> worker::Result<Option<U
 }
 
 fn session_secret(env: &Env) -> worker::Result<Vec<u8>> {
-    Ok(env.secret("SESSION_SECRET")?.to_string().into_bytes())
+    let secret = env.secret("SESSION_SECRET")?.to_string().into_bytes();
+    if !session::secret_has_minimum_length(&secret) {
+        return Err(worker::Error::RustError(format!(
+            "SESSION_SECRET must contain at least {} bytes",
+            session::MIN_SECRET_BYTES
+        )));
+    }
+    Ok(secret)
 }
 
 /// The JSON API's CSRF discipline ([`session::csrf_headers_ok`]).

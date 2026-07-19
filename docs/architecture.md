@@ -308,6 +308,8 @@ document shaped like a future registry's `<package>.json` version entry.  The cr
 - not invoke C/C++ compilers;
 - not implement networking;
 - reject path dependencies (path deps are not publishable);
+- exclude `credentials.toml` case-insensitively anywhere in the source tree, so overriding
+  `CABIN_CONFIG_HOME` into a package can never publish a registry token;
 - refuse to overwrite an on-disk archive whose bytes differ from what the current run would produce
   - identical bytes succeed silently.
 
@@ -377,7 +379,9 @@ envelope is malformed.  The crate must:
   `cabin-index-http`;
 - not resolve credentials itself - it receives an optional typed token from the orchestration
   layer, refuses cleartext `http` beyond loopback hosts, and never follows redirects;
-- never let token bytes surface through errors or `Debug` output.
+- never let token bytes surface through errors or `Debug` output;
+- cap error-envelope reads and escape control and bidirectional-formatting characters in
+  registry-provided details before they reach terminal diagnostics.
 
 ### `cabin-registry-verify`
 

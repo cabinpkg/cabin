@@ -438,7 +438,34 @@ fn envelope_entry(response: ureq::Response) -> Option<ErrorEntry> {
         .read_to_end(&mut body)
         .ok()?;
     let envelope: ErrorEnvelope = serde_json::from_slice(&body).ok()?;
-    envelope.errors.into_iter().next()
+    let mut entry = envelope.errors.into_iter().next()?;
+    entry.detail = escape_control_chars(&entry.detail);
+    Some(entry)
+}
+
+/// Escape terminal control characters in registry-provided diagnostics.
+/// Error details are useful, but a third-party registry must not be able to
+/// inject terminal commands or forge extra diagnostic lines.
+fn escape_control_chars(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_control() || is_bidi_control(ch) {
+            escaped.extend(ch.escape_default());
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped
+}
+
+/// Unicode's bidirectional controls can reorder otherwise printable text
+/// in terminal diagnostics. Keep ordinary international text intact while
+/// making those invisible formatting characters explicit.
+fn is_bidi_control(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// Append the server's envelope `detail` to a base message when one
@@ -450,8 +477,8 @@ fn with_detail(base: String, detail: Option<&String>) -> String {
     }
 }
 
-/// The token-authenticated 403 message: the server's envelope
-/// `detail` verbatim when present (it distinguishes a missing token
+/// The token-authenticated 403 message: the server's terminal-safe envelope
+/// `detail` when present (it distinguishes a missing token
 /// permission from missing scope membership), else the generic
 /// token-permission wording for registries that answer without an
 /// envelope.
@@ -914,14 +941,14 @@ mod tests {
         );
     }
 
-    /// A token-authenticated, code-less 403 surfaces the server's
-    /// `detail` verbatim: it distinguishes a token permission the
+    /// A token-authenticated, code-less 403 surfaces a printable server
+    /// `detail` unchanged: it distinguishes a token permission the
     /// user did not grant from a scope the token's user is not a
     /// member of, and the client must not collapse the second into
     /// the first.  Without an envelope the message degrades to the
     /// generic token-permission wording.
     #[test]
-    fn publish_maps_403_details_verbatim() {
+    fn publish_maps_printable_403_details_unchanged() {
         for detail in [
             "the token does not have the publish scope",
             "the scope does not exist or the token's user is not a member of it",
@@ -962,10 +989,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn registry_details_cannot_inject_terminal_controls() {
+        let mock = MockApi::respond_with(
+            400,
+            r#"{"errors":[{"detail":"denied\u001b[2J\nforged\u202ereordered"}]}"#,
+        );
+        let err = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+
+        let rendered = err.to_string();
+        assert!(
+            !rendered.contains('\u{1b}'),
+            "escape reached terminal: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains('\n'),
+            "newline reached terminal: {rendered:?}"
+        );
+        assert!(
+            rendered.contains(r"denied\u{1b}[2J\nforged\u{202e}reordered"),
+            "{rendered:?}"
+        );
+    }
+
     /// A 403 whose envelope carries a `quota_*` code is a per-user quota
     /// refusal, not the missing-scope case: the server detail - which
     /// embeds the registry's own usage URL - must reach the user
-    /// verbatim. The client never builds a web URL itself.
+    /// unchanged when printable. The client never builds a web URL itself.
     #[test]
     fn publish_maps_coded_403_quota_refusals_to_the_server_detail() {
         for code in [
