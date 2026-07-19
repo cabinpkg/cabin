@@ -139,21 +139,6 @@ impl fmt::Display for PatchProvenance {
     }
 }
 
-/// One patch entry as declared in a single source file.  Carries
-/// the relative `source` value plus the absolute path of the file
-/// that declared it so the orchestration layer can resolve any
-/// relative paths against the right base directory.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclaredPatch {
-    pub source: PatchSource,
-    /// Absolute path of the file that declared this patch
-    /// (`cabin.toml` for manifest patches, `.cabin/config.toml`
-    /// for config patches).  Used as the base for resolving
-    /// relative `path` values.
-    pub declared_in: Utf8PathBuf,
-    pub provenance: PatchProvenance,
-}
-
 /// Workspace-root manifest's `[patch]` declarations.  Member
 /// manifests cannot declare patches - the workspace loader
 /// rejects them - so reading off the root is sufficient.

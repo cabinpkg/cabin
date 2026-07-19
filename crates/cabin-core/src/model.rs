@@ -1223,12 +1223,6 @@ impl Package {
         }
         Ok(())
     }
-
-    /// Iterator over dependencies of a specific kind.  Order is
-    /// the same as `dependencies` (sorted by `(kind, name)`).
-    pub fn dependencies_of_kind(&self, kind: DependencyKind) -> impl Iterator<Item = &Dependency> {
-        self.dependencies.iter().filter(move |d| d.kind == kind)
-    }
 }
 
 #[cfg(test)]

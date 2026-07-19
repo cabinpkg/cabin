@@ -58,17 +58,6 @@ impl CompilerKind {
         }
     }
 
-    /// Whether this compiler is part of the Clang family. `clang-cl`
-    /// is Clang under the hood, so it shares Clang's diagnostic and
-    /// response-file capabilities even though it speaks the MSVC
-    /// dialect.
-    pub fn is_clang_like(self) -> bool {
-        matches!(
-            self,
-            CompilerKind::Clang | CompilerKind::AppleClang | CompilerKind::ClangCl
-        )
-    }
-
     /// Whether this compiler accepts the GCC-style command line
     /// the current C++ backend emits (`-O<n>`, `-std=c++NN`,
     /// `-MMD -MF`, `-DNAME`, `-Idir`, …).  Note `clang-cl` is
