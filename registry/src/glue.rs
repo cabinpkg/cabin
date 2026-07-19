@@ -592,7 +592,7 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// (`docs/remote-registry.md`, "Yank"): idempotent, and the row's
 /// `yanked` column is the single home of yank state - the read path
 /// overrides the stored metadata's field from it. Gated by the budget
-/// breaker (`402`) like every write; yank has no rate limit or quota.
+/// breaker (`402`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
 /// under a foreign scope. Yank applies to **verified** versions only: a
@@ -739,9 +739,14 @@ struct VerdictTargetRecord {
 /// the archive's bytes from the storage self-accounting when the row
 /// was the blob's sole live reference (decided inside the same
 /// transaction that flips the row, so a duplicate concurrent verdict
-/// cannot refund twice), and then reclaims the blob itself. Gated by
-/// the budget breaker like every write. The response reports the
-/// resulting state plus whether this request changed it.
+/// cannot refund twice), and then reclaims the blob itself.
+/// Deliberately **not** gated by the budget breaker, unlike publish
+/// and yank: a verdict stores no new bytes (a rejection frees them),
+/// so blocking it would only stall the pending queue - verification
+/// must be able to drain it whatever the service mode
+/// (`docs/architecture.md`, "Billing model and the budget breaker").
+/// The response reports the resulting state plus whether this request
+/// changed it.
 async fn verdict_response(
     req: &mut Request,
     env: &Env,
@@ -751,9 +756,6 @@ async fn verdict_response(
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    if let Some(blocked) = write_gate(env, db).await? {
-        return Ok(blocked);
-    }
     if !has_verify_scope(auth) {
         return error_response(403, error::VERIFY_SCOPE_REQUIRED);
     }

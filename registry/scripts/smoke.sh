@@ -1200,6 +1200,14 @@ expect_body 'registry_over_budget'
 check "$package_path" 200
 # Source reads are reads: they never consult the service mode.
 session_request GET "$source_path" 206 -H "Range: bytes=-22"
+# Verdicts are deliberately exempt from the budget gates: the idempotent
+# repeat lands (the queue drains while blocked), and an unknown triple
+# is the authenticated 404, never the 402.
+as_verifier
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-verified.json" 200
+expect_body '"changed":false'
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/9.9.9" "$work/verdict-verified.json" 404
+as_publisher
 
 step "reads answer 402 while reads_blocked; the exempt planes stay open"
 wrangler d1 execute DB --local --command "
