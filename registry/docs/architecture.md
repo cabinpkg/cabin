@@ -295,7 +295,10 @@ both targets are fixed relative paths, never derived from request input
   read). Neither header can ride on an HTML form or any other request a
   hostile origin can send without a CORS preflight - which the Worker
   never answers - so with `SameSite=Lax` host-only cookies no server-side
-  token state is needed.
+  token state is needed. Mutation JSON is streamed under a 4 KiB cap; the
+  publish frame uses the same bounded reader with its documented 64 MiB cap,
+  so a chunked request cannot bypass the declared-length preflight and force
+  an unbounded buffer.
 - Every session-plane response carries `Content-Security-Policy:
   default-src 'none'; style-src 'unsafe-inline'`,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and

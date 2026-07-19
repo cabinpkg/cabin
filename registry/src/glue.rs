@@ -4,6 +4,7 @@
 
 use std::cell::Cell;
 
+use futures_util::StreamExt;
 use serde::Deserialize;
 use worker::{
     Context, D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response,
@@ -19,6 +20,10 @@ use crate::web_glue;
 use crate::{analytics, backup, breaker, quota, sql, verify};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
+
+/// Mutation JSON is tiny. This shared cap covers the bearer and session
+/// planes; publish passes its larger protocol limit to [`bounded_body`].
+pub(crate) const MAX_MUTATION_BODY_BYTES: usize = 4 * 1024;
 
 #[derive(Deserialize)]
 struct TokenRecord {
@@ -112,6 +117,36 @@ async fn handle(
         crate::routes::Role::Registry => handle_registry(req, env, ctx, &path).await,
         crate::routes::Role::Website => handle_website(req, env, ctx, &path).await,
     }
+}
+
+/// Reads at most `limit` request-body bytes without asking the runtime to
+/// materialize the complete body. The declared length is an early refusal;
+/// the streaming count is authoritative for chunked or dishonest requests.
+pub(crate) async fn bounded_body(
+    req: &mut Request,
+    limit: usize,
+) -> worker::Result<Option<Vec<u8>>> {
+    if let Some(length) = req.headers().get("content-length")?
+        && length
+            .parse::<u64>()
+            .is_ok_and(|length| usize::try_from(length).map_or(true, |length| length > limit))
+    {
+        return Ok(None);
+    }
+    if req.inner().body().is_none() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let mut body = Vec::new();
+    let mut stream = req.stream()?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if chunk.len() > limit.saturating_sub(body.len()) {
+            return Ok(None);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(Some(body))
 }
 
 /// The website origin mutations and the browser plane live on
@@ -455,17 +490,9 @@ async fn publish_response(
         return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
 
-    // Reject oversized uploads before buffering when the client declared
-    // a length; `decode_frame` re-checks the buffered size regardless.
-    if let Some(length) = req.headers().get("content-length")?
-        && length
-            .parse::<u64>()
-            .is_ok_and(|n| n > publish::MAX_BODY_BYTES as u64)
-    {
+    let Some(body) = bounded_body(req, publish::MAX_BODY_BYTES).await? else {
         return error_response(400, publish::BODY_TOO_LARGE);
-    }
-
-    let body = req.bytes().await?;
+    };
     let frame = match publish::decode_frame(&body) {
         Ok(frame) => frame,
         Err(detail) => return error_response(400, detail),
@@ -636,7 +663,9 @@ async fn yank_response(
     if !is_scope_member(db, scope, auth.user_id).await? {
         return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
-    let body = req.bytes().await?;
+    let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
+        return error_response(400, error::INVALID_YANK_BODY);
+    };
     let Ok(YankBody { yanked }) = serde_json::from_slice(&body) else {
         return error_response(400, error::INVALID_YANK_BODY);
     };
@@ -808,7 +837,9 @@ async fn verdict_response(
     if !has_verify_scope(auth) {
         return error_response(403, error::VERIFY_SCOPE_REQUIRED);
     }
-    let body = req.bytes().await?;
+    let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
+        return error_response(400, error::INVALID_VERDICT_BODY);
+    };
     let parsed = match verify::parse_verdict(&body) {
         Ok(parsed) => parsed,
         Err(detail) => return error_response(400, detail),

@@ -982,6 +982,20 @@ expect_body 'verify scope'
 
 step "the verify scope lists and downloads pending versions"
 as_verifier
+# Content-Length is only an optimization: a chunked request must hit the
+# same cap while the stream is read and leave the pending row untouched.
+# The body must be a *semantically valid* rejected verdict - padded past
+# the cap with whitespace inside the JSON document - so an uncapped
+# handler would parse and apply it, failing the pending-row checks below.
+printf '{"verdict":"rejected","reason":"oversized"%4097s}' '' \
+  >"$work/oversized-verdict.json"
+oversized_status="$(curl -sS -o "$body" -w '%{http_code}' -X PATCH \
+  -H "Transfer-Encoding: chunked" --data-binary "@$work/oversized-verdict.json" \
+  ${curl_args[@]+"${curl_args[@]}"} \
+  "$web_base/api/v1/admin/versions/$scope/$name/$version")"
+[[ "$oversized_status" == "400" ]] \
+  || fail "oversized chunked verdict returned $oversized_status, expected 400 (body: $(cat "$body"))"
+expect_body 'the verdict body must be'
 wcheck "/api/v1/admin/versions?status=pending" 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"version":"0.2.0"'
