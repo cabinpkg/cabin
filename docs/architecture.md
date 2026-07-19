@@ -379,7 +379,9 @@ envelope is malformed.  The crate must:
   `cabin-index-http`;
 - not resolve credentials itself - it receives an optional typed token from the orchestration
   layer, refuses cleartext `http` beyond loopback hosts, and never follows redirects;
-- never let token bytes surface through errors or `Debug` output.
+- never let token bytes surface through errors or `Debug` output;
+- cap error-envelope reads and escape control and bidirectional-formatting characters in
+  registry-provided details before they reach terminal diagnostics.
 
 ### `cabin-registry-verify`
 
