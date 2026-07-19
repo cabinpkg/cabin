@@ -206,6 +206,35 @@ fn workspace_test_bin(name: &str) -> PathBuf {
     candidate
 }
 
+/// Write a fake tool that, when invoked with any args,
+/// prints `stdout` and `stderr` and exits with `status`.  The
+/// shell wrapper is used because the CLI invokes
+/// `tool --version` directly; staging real compilers would
+/// be flaky on different CI hosts.
+#[cfg(unix)]
+fn fake_tool_with_output(
+    dir: &Path,
+    name: &str,
+    stdout: &str,
+    stderr: &str,
+    status: i32,
+) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join(name);
+    let escaped_stdout = stdout.replace('\'', "'\\''");
+    let escaped_stderr = stderr.replace('\'', "'\\''");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
+    );
+    assert_fs::fixture::ChildPath::new(&path)
+        .write_str(&script)
+        .unwrap();
+    let mut perms = fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&path, perms).unwrap();
+    path
+}
+
 /// Run `cmd`, assert it exits successfully, and parse its stdout as
 /// JSON.  For the common case of a test that only needs the parsed
 /// value; tests that also inspect the raw stdout (for example to embed

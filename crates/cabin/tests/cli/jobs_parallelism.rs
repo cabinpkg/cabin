@@ -12,24 +12,7 @@ sources = ["src/main.cc"]
 "#;
 
 fn fake_ninja_path() -> PathBuf {
-    let test_exe = std::env::current_exe().expect("current_exe");
-    let mut dir = test_exe
-        .parent()
-        .expect("test exe should live in a directory")
-        .to_path_buf();
-    if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        dir.pop();
-    }
-    let candidate = dir.join(format!(
-        "cabin-ninja-fake-ninja{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        candidate.is_file(),
-        "expected fake ninja at {}; build cabin-ninja with `--features test-fake-ninja`",
-        candidate.display()
-    );
-    candidate
+    workspace_test_bin("cabin-ninja-fake-ninja")
 }
 
 /// Configure the returned [`Command`] to use the fake ninja
