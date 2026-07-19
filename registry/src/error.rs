@@ -140,10 +140,15 @@ mod tests {
                 "details are fixed strings that never need escaping"
             );
         }
-        // The 402 budget refusal uses the same envelope shape.
+        // The 402 budget refusals use the same envelope shape, one code
+        // for both planes.
         assert_eq!(
             envelope_with_code(breaker::OVER_BUDGET_DETAIL, breaker::OVER_BUDGET_CODE),
             r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#
+        );
+        assert_eq!(
+            envelope_with_code(breaker::OVER_BUDGET_READS_DETAIL, breaker::OVER_BUDGET_CODE),
+            r#"{"errors":[{"detail":"registry downloads are temporarily disabled: the registry's read budget is exhausted","code":"registry_over_budget"}]}"#
         );
     }
 }
