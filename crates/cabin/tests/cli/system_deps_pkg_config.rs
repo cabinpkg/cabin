@@ -1,30 +1,10 @@
 use super::*;
 use std::path::PathBuf;
 
-/// Locate the bundled fake `pkg-config` binary the same way
-/// `cabin-fmt` and `cabin-tidy` locate their fakes: walk up
-/// from the test executable to the target dir and look for
-/// the named bin.  Build with the `test-fake-pkg-config`
-/// feature on `cabin-system-deps`.
+/// Build with the `test-fake-pkg-config` feature on
+/// `cabin-system-deps`.
 fn fake_pkg_config_path() -> PathBuf {
-    let test_exe = std::env::current_exe().expect("current_exe");
-    let mut dir = test_exe
-        .parent()
-        .expect("test exe should live in a directory")
-        .to_path_buf();
-    if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        dir.pop();
-    }
-    let candidate = dir.join(format!(
-        "cabin-system-deps-fake-pkg-config{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        candidate.is_file(),
-        "expected fake pkg-config at {}; build cabin-system-deps with `--features test-fake-pkg-config`",
-        candidate.display()
-    );
-    candidate
+    workspace_test_bin("cabin-system-deps-fake-pkg-config")
 }
 
 /// Pre-built TempDir holding fixture JSON files for the fake

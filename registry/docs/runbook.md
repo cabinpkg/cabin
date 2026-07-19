@@ -15,10 +15,11 @@ infrastructure cutover.
 
 - **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
   storage format changes incompatibly - `metadata_json` shape, R2 key
-  layout, reshaped D1 columns (e.g. `0006_identity.sql`) - the registry
-  is wiped and recreated (`scripts/wipe.sh`) rather than migrated.
-  Additive schema changes ship as ordinary migrations (e.g.
-  `0002_quotas.sql`).
+  layout, reshaped D1 columns - the registry is wiped and recreated
+  (`scripts/wipe.sh`) rather than migrated. The schema ships as a
+  single from-zero baseline (`migrations/0001_init.sql`) edited in
+  place: while the data is disposable, no ALTER TABLE history
+  accretes.
 - **Post-launch (`meta.launched` = `'true'`): permanent.** Published
   archives and index state are never wiped, mutated, or deleted; format
   changes need real migrations. The flag is flipped exactly once, by

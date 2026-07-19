@@ -8,8 +8,6 @@
 //!   path, so client and server cannot silently drift. CI runs it as the
 //!   dedicated `conformance` job in `.github/workflows/registry.yml`.
 
-use std::fmt::Write as _;
-
 use cabin_registry_worker::publish::{
     CHECKSUM_MISMATCH, IDENTITY_MISMATCH, METADATA_NOT_CANONICAL, decode_frame, validate_metadata,
     verify_checksum,
@@ -32,12 +30,7 @@ fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
 /// What the wasm glue computes with `SubtleCrypto`, the host computes
 /// with `sha2`: the lowercase SHA-256 hex of the archive bytes.
 fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    cabin_registry_worker::auth::hex(&Sha256::digest(bytes))
 }
 
 /// The full server-side validation path for one framed publish body, as

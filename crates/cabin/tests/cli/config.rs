@@ -601,34 +601,6 @@ fmt = ">=10.0.0 <11.0.0"
     );
 }
 
-/// Stage a fake tool that prints fixed `--version` output -
-/// duplicated from `compiler_cache::fake_tool_with_output`
-/// because cross-module visibility would force a much larger
-/// refactor than this helper warrants.
-#[cfg(unix)]
-fn fake_tool_with_output(
-    dir: &Path,
-    name: &str,
-    stdout: &str,
-    stderr: &str,
-    status: i32,
-) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join(name);
-    let escaped_stdout = stdout.replace('\'', "'\\''");
-    let escaped_stderr = stderr.replace('\'', "'\\''");
-    let script = format!(
-        "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
-    );
-    assert_fs::fixture::ChildPath::new(&path)
-        .write_str(&script)
-        .unwrap();
-    let mut perms = fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&path, perms).unwrap();
-    path
-}
-
 #[cfg(unix)]
 #[test]
 fn metadata_reports_config_supplied_toolchain_cxx() {

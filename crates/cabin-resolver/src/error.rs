@@ -8,7 +8,7 @@ use thiserror::Error;
 /// name, locked version, observed constraints, …) the
 /// `cabin-diagnostics` layer renders through `miette`.  The
 /// stable diagnostic code is
-/// [`cabin_diagnostics::code::RESOLVER_ERROR`];
+/// `cabin_diagnostics::code::RESOLVER_ERROR`;
 /// per-variant `help` text complements the message body.
 #[non_exhaustive]
 #[derive(Debug, Error, Diagnostic)]

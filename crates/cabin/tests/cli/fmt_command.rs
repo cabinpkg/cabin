@@ -19,30 +19,7 @@ fn cabin_with_fake_formatter() -> Command {
 }
 
 fn fake_formatter_path() -> PathBuf {
-    // `assert_cmd::cargo_bin!` only resolves binaries
-    // declared in the *current* package, so we walk
-    // alongside the test executable to find the workspace-
-    // built `cabin-fmt-fake-formatter`.  The binary lives
-    // in the workspace target directory at the same depth
-    // as the test binary itself (`target/<profile>/`).
-    let test_exe = std::env::current_exe().expect("current_exe");
-    let mut dir = test_exe
-        .parent()
-        .expect("test exe should live in a directory")
-        .to_path_buf();
-    if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        dir.pop();
-    }
-    let candidate = dir.join(format!(
-        "cabin-fmt-fake-formatter{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        candidate.is_file(),
-        "expected fake formatter at {}; build cabin-fmt with `--features test-fake-formatter`",
-        candidate.display()
-    );
-    candidate
+    workspace_test_bin("cabin-fmt-fake-formatter")
 }
 
 fn read(path: &Path) -> String {

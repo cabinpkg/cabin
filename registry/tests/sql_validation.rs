@@ -350,7 +350,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     .expect("seed users");
     claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z").expect("claim");
 
-    // The role domain is closed in the schema itself (migration 0007):
+    // The role domain is closed in the schema itself:
     // membership disputes are manual SQL, and a typo there must not
     // silently widen access or orphan a scope. (Through the API's
     // INSERT OR IGNORE a bad role is swallowed instead - either way it

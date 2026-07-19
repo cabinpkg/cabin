@@ -61,7 +61,7 @@ crates/
   cabin-test/        test-target plan + sequential runner
   cabin-explain/     typed model for `cabin tree` / `cabin explain`
   cabin-fs/          shared low-level filesystem helpers
-  cabin-diagnostics/ user-facing diagnostic presentation + annotate-snippets boundary
+  cabin-diagnostics/ user-facing diagnostic presentation + miette rendering boundary
   cabin-env/         CABIN_* env-var names + run/test env builder
   cabin-source-discovery/ shared C/C++ source walker for fmt / tidy
   cabin-fmt/         clang-format runner used by `cabin fmt`
@@ -666,13 +666,13 @@ The crate must not own:
 ### `cabin-diagnostics`
 
 User-facing diagnostic presentation for Cabin's typed domain errors.  Owns the deterministic
-formatter, the `annotate-snippets` boundary used to draw source-annotated snippets for parse /
+formatter, the `miette` rendering boundary used to draw source-annotated snippets for parse /
 validation errors, and the stable-code constants the CLI attaches to rendered error-chain messages
 (`cabin::config::load_failed`, `cabin::resolver::error`, ...).  The owning crates'
 `#[diagnostic(code(...))]` attributes are the canonical source of every stable code; a constant
 exists only for the codes the CLI needs as a `&str` value.
 
-Depends only on `miette`, `annotate-snippets`, and `thiserror`.  Domain crates that own source spans
+Depends only on `miette`, `termcolor`, and `thiserror`.  Domain crates that own source spans
 (today: `cabin-manifest`'s `ManifestParseError`) depend on `miette` for the `Diagnostic` derive and
 pass the typed value up; the CLI orchestrator (`cabin`) routes it through
 `cabin_diagnostics::render` so the user sees a stable `error[code]: message` block plus optional
@@ -693,7 +693,7 @@ Adding a new diagnostic-bearing error is a three-step pattern:
    `#[diagnostic(code(cabin::<area>::<symbol>))]` attribute, add `help(...)` when there is an
    actionable next step;
 2. for source-annotated cases, expose `#[source_code]` / `#[label]` so
-   `cabin-diagnostics::render_with_snippet` picks the values up automatically;
+   `cabin_diagnostics::render` picks the values up automatically;
 3. extend `cabin/src/main.rs::downcast_diagnostic` so the typed error participates in the renderer.
 
 ### `cabin`

@@ -1235,13 +1235,6 @@ pub(crate) fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> Strin
 /// `--profile release`. clap's `conflicts_with` already rejects
 /// the both-set combination so this helper only sees one of the
 /// three possible inputs.
-fn profile_selection_for_build(
-    args: &BuildArgs,
-    config: &cabin_config::EffectiveConfig,
-) -> Result<cabin_core::ProfileSelection> {
-    profile_selection_from_flags(args.profile.as_deref(), args.release, config)
-}
-
 /// Shared profile-selection precedence: explicit `--profile NAME`
 /// wins, then the legacy `--release` alias, then any config-
 /// supplied default, then the built-in `dev` profile.  Used by
@@ -1986,8 +1979,7 @@ fn user_cache_default(
 pub(crate) struct ArtifactPipelineRequest<'a> {
     pub(crate) manifest_path: &'a Path,
     pub(crate) initial_graph: &'a PackageGraph,
-    pub(crate) index_path: Option<&'a Path>,
-    pub(crate) index_url: Option<&'a str>,
+    pub(crate) index_source: &'a cabin_core::SourceLocator,
     pub(crate) mode: LockMode,
     pub(crate) allow_write: bool,
     pub(crate) frozen: bool,
@@ -2135,8 +2127,7 @@ pub(crate) fn run_artifact_pipeline(
     };
 
     let (index, access) = load_index_for_pipeline(
-        request.index_path,
-        request.index_url,
+        request.index_source,
         request.frozen,
         &root_deps,
         request.experimental_features,
@@ -2251,23 +2242,18 @@ pub(crate) fn run_artifact_pipeline(
 /// resolver consumes and a tag describing which access mode the
 /// fetch plan should use.
 fn load_index_for_pipeline(
-    index_path: Option<&Path>,
-    index_url: Option<&str>,
+    index_source: &cabin_core::SourceLocator,
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     experimental_features: &cabin_core::ExperimentalFeatures,
     reporter: Reporter,
 ) -> Result<(PackageIndex, IndexAccess)> {
-    match (index_path, index_url) {
-        (Some(_), Some(_)) => bail!("use either --index-path or --index-url, not both"),
-        (None, None) => {
-            bail!("versioned dependencies require --index-path or --index-url")
-        }
-        (Some(path), None) => Ok((
-            load_local_index(path, experimental_features)?,
+    match index_source {
+        cabin_core::SourceLocator::IndexPath { path } => Ok((
+            load_local_index(path.as_std_path(), experimental_features)?,
             IndexAccess::Local,
         )),
-        (None, Some(url)) => {
+        cabin_core::SourceLocator::IndexUrl { url } => {
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }

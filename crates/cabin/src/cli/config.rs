@@ -315,14 +315,13 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
 
 /// The inputs the artifact pipeline consumes once a command has a
 /// concrete index source: the lock mode and write-allowance, the
-/// resolved artifact cache directory, and the (path, url) the index
-/// is reachable through after source-replacement.
+/// resolved artifact cache directory, and the locator the index is
+/// reachable through after source-replacement.
 pub(crate) struct PipelineInputs {
     pub mode: crate::cli::LockMode,
     pub allow_write: bool,
     pub cache_dir: PathBuf,
-    pub index_path: Option<PathBuf>,
-    pub index_url: Option<String>,
+    pub index_source: cabin_core::SourceLocator,
 }
 
 /// Turn a resolved index source into [`PipelineInputs`] - the inner
@@ -330,10 +329,9 @@ pub(crate) struct PipelineInputs {
 /// once they hold a concrete `index_source`: derive the lock mode and
 /// write-allowance, resolve the cache dir (preferring the
 /// config-resolved value), convert the source to a
-/// [`cabin_core::SourceLocator`], apply source-replacement, enforce
-/// the post-replacement offline rule (and, for `vendor`, the
-/// local-index rule), then split into the path / url the pipeline
-/// reads.
+/// [`cabin_core::SourceLocator`], apply source-replacement, and
+/// enforce the post-replacement offline rule (and, for `vendor`,
+/// the local-index rule).
 ///
 /// Callers keep their own `resolve_index_source` /
 /// `enforce_offline_index_source` / `resolve_cache_dir` preamble
@@ -364,14 +362,11 @@ pub(crate) fn resolve_pipeline_inputs(
     if vendor_local_index {
         enforce_vendor_local_index_post_replacement(&resolved_locator)?;
     }
-    let (index_path, index_url) =
-        crate::cli::patch::locator_to_index_inputs(&resolved_locator.resolved);
     Ok(PipelineInputs {
         mode,
         allow_write,
         cache_dir,
-        index_path,
-        index_url,
+        index_source: resolved_locator.resolved,
     })
 }
 

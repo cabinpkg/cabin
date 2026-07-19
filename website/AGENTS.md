@@ -26,11 +26,6 @@ from 22.18).
   registry's public `/api/v1/stats` endpoint and the session packages
   API (`registry/docs/architecture.md`, "Download counts"); both are
   progressive enhancements - the static HTML renders without them.
-- The Hasura GraphQL endpoint is no longer used. Its scaffolding
-  (`codegen.ts`, `graphql/`, the `graphql*`/`@graphql-codegen/*` deps,
-  `yarn generate`) is intentionally kept dormant - do not assume it is live.
-  `yarn generate` is the only thing that touches the network and is not part
-  of `dev`/`build`. `README.md`'s "fetched from Hasura" wording is stale.
 
 ## Commands
 

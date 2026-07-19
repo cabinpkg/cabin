@@ -7,36 +7,6 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use std::path::PathBuf;
-
-/// Re-implementation of `compiler_detection::fake_tool_with_output`.
-/// The detection module is private to its `mod`, so the helper
-/// is duplicated here rather than reaching across module
-/// boundaries.
-#[cfg(unix)]
-fn fake_tool_with_output(
-    dir: &Path,
-    name: &str,
-    stdout: &str,
-    stderr: &str,
-    status: i32,
-) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let path = dir.join(name);
-    let escaped_stdout = stdout.replace('\'', "'\\''");
-    let escaped_stderr = stderr.replace('\'', "'\\''");
-    let script = format!(
-        "#!/bin/sh\nprintf '%s' '{escaped_stdout}'\nprintf '%s' '{escaped_stderr}' >&2\nexit {status}\n"
-    );
-    assert_fs::fixture::ChildPath::new(&path)
-        .write_str(&script)
-        .unwrap();
-    let mut perms = fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&path, perms).unwrap();
-    path
-}
-
 #[cfg(unix)]
 #[test]
 fn metadata_reports_no_wrapper_by_default() {

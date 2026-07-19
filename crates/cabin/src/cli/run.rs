@@ -20,21 +20,13 @@ use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
 use clap::Args;
 
-use cabin_build::{ManifestTargetSelector, PlanRequest, plan};
+use cabin_build::ManifestTargetSelector;
 use cabin_core::{Package, TargetKind};
-use cabin_workspace::{
-    RegistryPackageSource, WorkspaceLoadOptions, collect_patched_versioned_deps,
-    load_workspace_with_options,
-};
 
-use crate::cli::{
-    ArtifactPipelineRequest, ToolchainSelectionArgs, WorkspaceSelectionArgs, absolutise,
-    build_selection_request, build_workspace_selection,
-    closure_has_versioned_deps_excluding_patches, compiler_wrapper_override_from_args,
-    compute_feature_resolution, profile_selection_from_flags, resolve_build_configurations,
-    resolve_invocation_manifest, run_artifact_pipeline, toolchain_selection_from_args,
-    workspace_compiler_wrapper_settings, workspace_profile_definitions,
+use crate::cli::build_prep::{
+    DevActivation, WorkspacePipelineArgs, plan_prepared, prepare_workspace,
 };
+use crate::cli::{ToolchainSelectionArgs, WorkspaceSelectionArgs};
 
 #[derive(Debug, Args)]
 pub(crate) struct RunArgs {
@@ -143,285 +135,63 @@ pub(crate) fn run(
     color: cabin_core::ColorChoice,
     experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<ExitCode> {
-    let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-
-    let offline = crate::cli::config::effective_offline(args.offline)?;
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        args.cache_dir.as_deref(),
-        offline,
-        args.frozen,
-        false,
-        &workspace_selection,
-        args.no_patches,
-    )?;
-    crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(crate::cli::port::workspace_source)
-        .collect();
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
-    let patched_names = active_patches.owned_patched_names();
-
-    let initial_resolved_selection =
-        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
-
-    let initial_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let dev_for: BTreeSet<String> = BTreeSet::new();
-    let initial_features = compute_feature_resolution(
-        &initial_graph,
-        &initial_resolved_selection,
-        &initial_request,
-        &dev_for,
-    )?;
-
-    let resolved_index_source = crate::cli::config::resolve_index_source(
-        args.index_path.as_deref(),
-        args.index_url.as_deref(),
-        &effective_config,
-    )?;
-    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
-    let resolved_cache_dir =
-        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
-
-    let patched_root_deps_preview =
-        collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    let has_versioned = !patched_root_deps_preview.is_empty()
-        || closure_has_versioned_deps_excluding_patches(
-            &initial_graph,
-            &initial_resolved_selection,
-            &initial_features,
-            &patched_names,
-            &dev_for,
-        );
-
-    let (registry, lockfile_pinned): (Vec<RegistryPackageSource>, BTreeSet<(String, String)>) =
-        if has_versioned {
-            let Some(index_source) = resolved_index_source.as_ref() else {
-                bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
-            };
-            let inputs = crate::cli::config::resolve_pipeline_inputs(
-                index_source,
-                &effective_config,
-                args.cache_dir.as_deref(),
-                resolved_cache_dir.as_ref(),
-                offline,
-                args.locked,
-                args.frozen,
-                args.no_patches,
-                false,
-            )?;
-            let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
-                manifest_path: &manifest_path,
-                initial_graph: &initial_graph,
-                index_path: inputs.index_path.as_deref(),
-                index_url: inputs.index_url.as_deref(),
-                mode: inputs.mode,
-                allow_write: inputs.allow_write,
-                frozen: args.frozen,
-                cache_dir: &inputs.cache_dir,
-                reporter,
-                selection: workspace_selection,
-                selection_request: &initial_request,
-                patched_names: &patched_names,
-                active_patches: &active_patches,
-                source_replacements: &effective_config.source_replacements,
-                incompatible_standards: crate::cli::config::resolve_incompatible_standards(
-                    &effective_config,
-                )?,
-                no_patches: args.no_patches,
-                dev_for: &dev_for,
-                experimental_features,
-            })?;
-            (pipeline.registry_sources(), pipeline.lockfile_pinned)
-        } else {
-            (Vec::new(), BTreeSet::new())
-        };
-
-    // Mirror `cabin build`: the strict set is the selection's
-    // closure on `initial_graph` plus every patched name plus
-    // every resolver-fetched registry package.  Registry packages
-    // a patched manifest introduces via a new version dep are not
-    // in `initial_graph` (the initial load runs with `registry:
-    // &[]`), so the closure misses them; without this extension
-    // their missing-registry / missing-port edges silently drop
-    // under the scoped policy and the build fails later with a
-    // less actionable link error.
-    let mut strict_packages: BTreeSet<String> =
-        initial_resolved_selection.closure_package_names(&initial_graph);
-    strict_packages.extend(patched_names.iter().cloned());
-    strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
-    let patched_sources = active_patches.workspace_sources();
-    let graph = load_workspace_with_options(
-        &manifest_path,
-        &WorkspaceLoadOptions {
-            registry: &registry,
-            patches: &patched_sources,
-            ports: &port_sources,
-            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
-            include_dev_for: &dev_for,
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
+    let prepared = prepare_workspace(
+        &WorkspacePipelineArgs {
+            manifest_path: args.manifest_path.as_deref(),
+            offline: args.offline,
+            cache_dir: args.cache_dir.as_deref(),
+            build_dir: args.build_dir.as_deref(),
+            locked: args.locked,
+            frozen: args.frozen,
+            no_patches: args.no_patches,
+            features: &args.features,
+            all_features: args.all_features,
+            no_default_features: args.no_default_features,
+            index_path: args.index_path.as_deref(),
+            index_url: args.index_url.as_deref(),
+            profile: args.profile.as_deref(),
+            release: args.release,
+            workspace_selection: &args.workspace_selection,
+            toolchain: &args.toolchain,
+            dev: DevActivation::Disabled,
         },
+        reporter,
+        experimental_features,
     )?;
-
-    let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
-        args.build_dir.as_deref(),
-        &effective_config,
-    );
-    let build_dir = absolutise(&build_dir_input)
-        .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
-
-    let host_platform = cabin_core::TargetPlatform::current();
-    let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
-    let toolchain = crate::cli::resolve_toolchain_layered(
-        &graph,
-        &toolchain_selection,
-        &effective_config,
-        &host_platform,
-    )?;
-    let detection_report =
-        cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
-    // Resolve the selection up-front so the backend checks below scope to
-    // the selected closure rather than the whole loaded workspace.
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
-    let selected_closure = resolved_selection.closure(&graph);
-    // Package-level approximation used only for the MSVC
-    // `/external:I` fallback decision; the authoritative toolchain
-    // validation runs against the *planned* compiles right after
-    // `plan()` - `cabin run --bin <name>` plans one executable, so
-    // an unbuilt sibling target's standard never gates the run.
-    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
-    let approx_standards = cabin_build::collect_requested_standards(
-        &graph,
-        &selected_closure,
-        &language_standards,
-        &BTreeSet::new(),
-    );
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
-    let ninja = cabin_toolchain::locate_ninja()?;
-
-    let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
-    let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-
-    let profile_selection =
-        profile_selection_from_flags(args.profile.as_deref(), args.release, &effective_config)?;
-    let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
-    // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a run that would need them before probing.  Scoped to the
-    // selected closure.
-    crate::cli::system_deps::ensure_dialect_supports_system_deps(
-        &graph,
-        &host_platform,
-        &dev_for,
-        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
-        &selected_closure,
-    )?;
-    // Resolve features before deriving build flags so
-    // `[target.'cfg(feature = "...")'.profile]` layers are gated on
-    // the selected feature set.
-    let selection_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let feature_resolution = compute_feature_resolution(
-        &graph,
-        &resolved_selection,
-        &selection_request,
-        &BTreeSet::new(),
-    )?;
-    let prep =
-        crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
-            graph: &graph,
-            host_platform: &host_platform,
-            toolchain: &toolchain,
-            detection: Some(&detection_report),
-            cli_compiler_wrapper,
-            manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
-            effective_config: &effective_config,
-            profile: &profile,
-            dev_for: &dev_for,
-            feature_resolution: &feature_resolution,
-            reporter,
-        })?;
 
     // Pick the run target. `--bin` narrows the search to a
     // named `executable`; otherwise we look for a single
     // buildable `executable` in the selected closure
     // (feature-gated executables are skipped, like the default
     // build enumeration).
-    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
     let run_target = pick_run_target(
-        &graph,
-        &resolved_selection.packages,
+        &prepared.graph,
+        &prepared.resolved_selection.packages,
         args.bin.as_deref(),
-        &enabled_features,
+        &prepared.enabled_features,
     )?;
-
-    let configurations = resolve_build_configurations(
-        &graph,
-        &selection_request,
-        &resolved_selection.packages,
-        &profile,
-        &prep.toolchain_summary,
-        &prep.build_flags,
-    )?;
-
-    let root_configuration = graph
-        .root_package
-        .and_then(|i| configurations.get(&i))
-        .cloned();
-    let plan_graph = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &toolchain,
-        build_flags: &prep.build_flags,
-        language_standards: &language_standards,
-        standard_flag_conflicts: &prep.standard_flag_conflicts,
-        build_dir: build_dir.clone(),
-        profile: profile.clone(),
-        selected: Some(vec![ManifestTargetSelector {
+    let plan_graph = plan_prepared(
+        &prepared,
+        Some(vec![ManifestTargetSelector {
             package: Some(run_target.package_name.as_str().to_owned()),
             name: run_target.target_name.clone(),
         }]),
-        configuration: root_configuration.as_ref(),
-        selected_packages: Some(&resolved_selection.packages),
-        compiler_wrapper: prep.compiler_wrapper.as_ref(),
-        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
-        msvc_external_includes: cabin_build::msvc_external_includes_supported(
-            &detection_report,
-            approx_standards.has_c_sources(),
-        ),
-        enabled_features: Some(&enabled_features),
-        standard_compat: true,
-    })?;
-    crate::cli::standard_compat::report(
-        &plan_graph.standard_compat_violations,
+        false,
         color,
-        &lockfile_pinned,
-    )?;
-    cabin_build::validate_planned_standards(&plan_graph)?;
-    cabin_build::validate_toolchain_standards(
-        &toolchain,
-        &detection_report,
-        &cabin_build::requested_standards_of(&plan_graph),
     )?;
 
-    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &effective_config)?;
+    let jobs = crate::cli::config::resolve_build_jobs(args.jobs, &prepared.effective_config)?;
     let elapsed =
         crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-            build_dir: &build_dir,
-            profile: &profile,
+            build_dir: &prepared.build_dir,
+            profile: &prepared.profile,
             plan_graph: &plan_graph,
-            graph: &graph,
-            toolchain: &toolchain,
-            cxx_kind: detection_report.cxx.identity.kind,
-            feature_resolution: &feature_resolution,
-            dev_for: &dev_for,
-            ninja: &ninja,
+            graph: &prepared.graph,
+            toolchain: &prepared.toolchain,
+            cxx_kind: prepared.detection_report.cxx.identity.kind,
+            feature_resolution: &prepared.feature_resolution,
+            dev_for: &prepared.dev_for,
+            ninja: &prepared.ninja,
             jobs,
             reporter,
         })?;
@@ -433,8 +203,8 @@ pub(crate) fn run(
         "Finished",
         format_args!(
             "`{}` profile [{}] target(s) in {:.2}s",
-            profile.name.as_str(),
-            crate::cli::profile_descriptor(&profile),
+            prepared.profile.name.as_str(),
+            crate::cli::profile_descriptor(&prepared.profile),
             elapsed.as_secs_f64(),
         ),
     );
@@ -457,8 +227,8 @@ pub(crate) fn run(
         manifest_path: &run_target.manifest_path,
         package_name: run_target.package_name.as_str(),
         package_version: &run_target.package_version,
-        profile: profile.name.as_str(),
-        build_dir: &build_dir,
+        profile: prepared.profile.name.as_str(),
+        build_dir: &prepared.build_dir,
     });
 
     // Cargo-style `Running` banner: the executable path shown
@@ -469,7 +239,10 @@ pub(crate) fn run(
     // tree.
     reporter.status(
         "Running",
-        format_args!("`{}`", display_run_path(&executable, &manifest_path)),
+        format_args!(
+            "`{}`",
+            display_run_path(&executable, &prepared.manifest_path)
+        ),
     );
 
     // Working directory: mirror Cargo by inheriting the user's

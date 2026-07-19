@@ -60,6 +60,6 @@ value="$(node -e '
 case "$value" in
   false) exit 0 ;;
   true) refuse "the registry is launched (meta.launched = 'true'); its data is permanent and destructive maintenance is forbidden (docs/runbook.md, \"Data policy\")" ;;
-  __MISSING__) refuse "meta.launched is missing (migration 0005 not applied?); refusing (fail-safe)" ;;
+  __MISSING__) refuse "meta.launched is missing (baseline migration not applied?); refusing (fail-safe)" ;;
   *) refuse "meta.launched is '$value' (expected 'false'); refusing (fail-safe)" ;;
 esac

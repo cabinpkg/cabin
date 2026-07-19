@@ -636,30 +636,11 @@ fn cabin_tidy_compile_db_sees_env_flags() {
     );
 }
 
-/// Mirrors the bundled fake-binary lookup the tidy module
-/// uses; we keep it local rather than re-export across mod
-/// boundaries.  Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
+/// Only the Unix-only `cabin_tidy_compile_db_sees_env_flags`
 /// test uses it.
 #[cfg(unix)]
 fn fake_tidy_path() -> std::path::PathBuf {
-    let test_exe = std::env::current_exe().expect("current_exe");
-    let mut dir = test_exe
-        .parent()
-        .expect("test exe should live in a directory")
-        .to_path_buf();
-    if dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        dir.pop();
-    }
-    let candidate = dir.join(format!(
-        "cabin-tidy-fake-tidy{}",
-        std::env::consts::EXE_SUFFIX
-    ));
-    assert!(
-        candidate.is_file(),
-        "expected fake tidy at {}; build cabin-tidy with `--features test-fake-tidy`",
-        candidate.display(),
-    );
-    candidate
+    workspace_test_bin("cabin-tidy-fake-tidy")
 }
 
 /// pkg-config and env-flag layers must coexist deterministically.

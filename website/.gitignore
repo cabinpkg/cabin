@@ -44,6 +44,3 @@ yarn-error.log*
 *.tsbuildinfo
 
 public/sitemap*.xml
-
-graphql.schema.json
-graphql/index.ts

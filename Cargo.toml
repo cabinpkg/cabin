@@ -55,7 +55,6 @@ clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 clap_complete = "4"
 clap_mangen = "0.3"
-annotate-snippets = "0.12"
 crc32fast = "1"
 flate2 = "1"
 miette = { version = "7", default-features = false }
@@ -101,7 +100,6 @@ cabin-port = { package = "cabinpkg-port", path = "crates/cabin-port", version = 
 cabin-publish = { package = "cabinpkg-publish", path = "crates/cabin-publish", version = "0.17.0" }
 cabin-registry-api = { package = "cabinpkg-registry-api", path = "crates/cabin-registry-api", version = "0.17.0" }
 cabin-registry-file = { package = "cabinpkg-registry-file", path = "crates/cabin-registry-file", version = "0.17.0" }
-cabin-registry-verify = { package = "cabinpkg-registry-verify", path = "crates/cabin-registry-verify", version = "0.17.0" }
 cabin-resolver = { package = "cabinpkg-resolver", path = "crates/cabin-resolver", version = "0.17.0" }
 cabin-source-discovery = { package = "cabinpkg-source-discovery", path = "crates/cabin-source-discovery", version = "0.17.0" }
 cabin-system-deps = { package = "cabinpkg-system-deps", path = "crates/cabin-system-deps", version = "0.17.0" }

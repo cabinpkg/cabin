@@ -17,8 +17,7 @@
         "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
         "verify:docs-links": "node scripts/verify-docs-links.mjs",
         "verify:progressive": "node scripts/verify-progressive-independence.mjs",
-        "fmt": "biome format . --write",
-        "generate": "graphql-codegen --config codegen.ts"
+        "fmt": "biome format . --write"
     },
     "dependencies": {
         "@fontsource-variable/cabin": "^5.2.8",
@@ -26,9 +25,6 @@
         "@github/combobox-nav": "^3.0.2",
         "@lucide/astro": "^1.23.0",
         "fuse.js": "^7.4.2",
-        "graphql": "^16.14.2",
-        "graphql-request": "^7.4.0",
-        "graphql-tag": "^2.12.7",
         "katex": "^0.17.0",
         "markdown-it": "^14.2.0",
         "rehype-katex": "^7.0.1",
@@ -40,10 +36,6 @@
         "@astrojs/check": "^0.9.0",
         "@astrojs/sitemap": "^3.7.3",
         "@biomejs/biome": "2.5.2",
-        "@graphql-codegen/cli": "^7.1.3",
-        "@graphql-codegen/introspection": "^6.0.1",
-        "@graphql-codegen/typescript-graphql-request": "^7.1.0",
-        "@graphql-codegen/typescript-operations": "^6.0.5",
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.2",
         "@types/markdown-it": "^14.1.2",

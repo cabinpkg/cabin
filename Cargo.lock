@@ -584,7 +584,6 @@ name = "cabinpkg-resolver"
 version = "0.17.0"
 dependencies = [
  "cabinpkg-core",
- "cabinpkg-diagnostics",
  "cabinpkg-index",
  "miette",
  "pubgrub",
