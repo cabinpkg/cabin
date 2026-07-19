@@ -7,8 +7,6 @@
             "!.next/**/*",
             "!.astro/**/*",
             "!dist/**/*",
-            "!graphql/**/*",
-            "!graphql.schema.json",
             "!node_modules/**/*",
             "!src/**/*.astro",
             "!**/*.svg"

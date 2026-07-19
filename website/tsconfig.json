@@ -19,8 +19,6 @@
     "include": [
         ".astro/types.d.ts",
         "astro.config.ts",
-        "codegen.ts",
-        "graphql/**/*.ts",
         "src/**/*.astro",
         "src/**/*.ts"
     ],

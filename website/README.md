@@ -6,9 +6,10 @@ A package registry website for Cabin, a package manager and build system for C/C
 
 ### Architecture
 
-This site is a fully static Astro build. Package data is fetched from
-`https://cabin.hasura.app/v1/graphql` at build time, package detail pages are
-pre-rendered, and `/packages.json` is generated for client-side search.
+This site is a fully static Astro build. Package data comes from the local
+port definitions under `../crates/cabin-port/ports/` at build time, package
+detail pages are pre-rendered, and `/packages.json` is generated for
+client-side search.
 
 The output in `dist/` can be served by Cloudflare Pages, Cloudflare Workers
 Static Assets, or any static file host. No Next.js, Vercel runtime, SSR adapter,
@@ -28,9 +29,8 @@ Start the local Astro dev server:
 yarn dev
 ```
 
-`yarn dev` regenerates GraphQL types from Hasura before starting Astro, so a
-fresh checkout works without a separate `yarn generate` step. Astro serves the
-site at [`localhost:4321`](http://localhost:4321) by default.
+`yarn dev` starts Astro, which serves the site at
+[`localhost:4321`](http://localhost:4321) by default.
 
 ### Build and preview
 
@@ -41,9 +41,8 @@ yarn build
 yarn preview
 ```
 
-`yarn build` regenerates GraphQL types, runs Astro type checking, fetches package
-data from Hasura, verifies that generated HTML has no inline scripts, and writes
-the static site to `dist/`.
+`yarn build` runs Astro type checking, verifies that generated HTML has no
+inline scripts, and writes the static site to `dist/`.
 
 Biome is used for TypeScript, JavaScript, CSS, and config files. Astro component
 files are excluded from Biome because this setup relies on Astro's own parser and
@@ -105,8 +104,8 @@ website itself holds no sessions and no secrets.
 
 `/search` is a static page. In the browser it reads `q`, `page`, and `perPage`
 from the URL, fetches `/packages.json`, searches the package index with Fuse.js,
-and renders pagination links by updating the query string. The browser does not
-call Hasura.
+and renders pagination links by updating the query string. The browser calls
+no remote package API.
 
 ### Package detail routes
 
@@ -115,7 +114,7 @@ Each package gets two statically generated detail routes:
 - `/packages/<group>/<name>` renders the latest version.
 - `/packages/<group>/<name>/<version>` renders that exact version.
 
-Both are pre-rendered at build time from the same Hasura package data and share
+Both are pre-rendered at build time from the same local port data and share
 their markup through `src/components/package/PackageDetailView.astro`.
 
 README Markdown is rendered with inline HTML disabled. README images must use
