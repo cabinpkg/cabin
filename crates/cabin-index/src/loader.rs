@@ -12,8 +12,8 @@ use serde::Deserialize;
 
 use crate::error::IndexError;
 use crate::model::{
-    ArchiveFormat, IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex,
-    SourceArtifact, SourceArtifactKind, SourceLocation, VersionMetadata,
+    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, SourceLocation,
+    VersionMetadata,
 };
 
 /// How to interpret a `source.path` value when parsing one
@@ -361,7 +361,7 @@ pub fn parse_package_entry(
             parse_system_dependencies(&raw.name, &ver_str, raw_ver.system_dependencies)?;
         let source = match raw_ver.source {
             None => None,
-            Some(raw_source) => Some(parse_source_artifact(
+            Some(raw_source) => Some(parse_source_location(
                 raw_source, &raw.name, &ver_str, context,
             )?),
         };
@@ -512,33 +512,27 @@ fn reject_compiler_condition(
 /// hands the raw `path` value to `context` to decide whether it
 /// becomes a [`SourceLocation::LocalPath`] or a
 /// [`SourceLocation::HttpUrl`].
-fn parse_source_artifact(
+fn parse_source_location(
     raw: RawSourceArtifact,
     package: &str,
     version: &str,
     context: &SourceContext<'_>,
-) -> Result<SourceArtifact, IndexError> {
+) -> Result<SourceLocation, IndexError> {
     let RawSourceArtifact { kind, path, format } = raw;
-    let kind = match kind.as_str() {
-        "archive" => SourceArtifactKind::Archive,
-        other => {
-            return Err(IndexError::UnsupportedSourceType {
-                package: package.to_owned(),
-                version: version.to_owned(),
-                value: other.to_owned(),
-            });
-        }
-    };
-    let format = match format.as_str() {
-        "zip" => ArchiveFormat::Zip,
-        other => {
-            return Err(IndexError::UnsupportedSourceFormat {
-                package: package.to_owned(),
-                version: version.to_owned(),
-                value: other.to_owned(),
-            });
-        }
-    };
+    if kind != "archive" {
+        return Err(IndexError::UnsupportedSourceType {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            value: kind,
+        });
+    }
+    if format != "zip" {
+        return Err(IndexError::UnsupportedSourceFormat {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            value: format,
+        });
+    }
     if path.is_empty() {
         return Err(IndexError::MissingSourcePath {
             package: package.to_owned(),
@@ -546,7 +540,7 @@ fn parse_source_artifact(
         });
     }
 
-    let location = match context {
+    Ok(match context {
         SourceContext::LocalDir(parent_dir) => {
             let raw_path = PathBuf::from(&path);
             let resolved = if raw_path.is_absolute() {
@@ -557,12 +551,6 @@ fn parse_source_artifact(
             SourceLocation::LocalPath(resolved)
         }
         SourceContext::HttpUrl(resolver) => SourceLocation::HttpUrl(resolver(&path)?),
-    };
-
-    Ok(SourceArtifact {
-        kind,
-        format,
-        location,
     })
 }
 
@@ -798,7 +786,7 @@ mod tests {
             .expect("scoped entry");
         let (_, meta) = entry.versions.iter().next().unwrap();
         let source = meta.source.as_ref().expect("source artifact");
-        match &source.location {
+        match source {
             SourceLocation::LocalPath(p) => assert_eq!(
                 p,
                 &dir.path()
@@ -1157,14 +1145,12 @@ mod tests {
             .get(&semver::Version::parse("10.2.1").unwrap())
             .unwrap();
         let source = meta.source.as_ref().expect("source must be parsed");
-        assert_eq!(source.kind, crate::SourceArtifactKind::Archive);
-        assert_eq!(source.format, crate::ArchiveFormat::Zip);
         // Relative path resolved against the index file's directory.
-        match &source.location {
+        match source {
             SourceLocation::LocalPath(p) => {
                 assert_eq!(p, &dir.path().join("../artifacts/fmt-10.2.1.zip"));
             }
-            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {:?}", source.location),
+            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
         }
     }
 
@@ -1198,9 +1184,9 @@ mod tests {
             .get(&semver::Version::parse("10.2.1").unwrap())
             .unwrap();
         let source = meta.source.as_ref().unwrap();
-        match &source.location {
+        match source {
             SourceLocation::LocalPath(p) => assert_eq!(p, &std::path::PathBuf::from(abs)),
-            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {:?}", source.location),
+            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
         }
     }
 
@@ -1325,9 +1311,9 @@ mod tests {
         // `../artifacts/...` resolves against `packages/` to the
         // registry's artifacts directory.
         let expected = dir.path().join("packages/../artifacts/fmt/fmt-10.2.1.zip");
-        match &source.location {
+        match source {
             SourceLocation::LocalPath(p) => assert_eq!(p, &expected),
-            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {:?}", source.location),
+            SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
         }
     }
 

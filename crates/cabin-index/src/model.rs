@@ -49,10 +49,12 @@ pub struct VersionMetadata {
     /// `cabin fetch` and `cabin build` to materialize a registry
     /// package.
     pub checksum: Option<String>,
-    /// Source artifact metadata.  Optional so existing
-    /// resolver-only fixtures keep working; required to fetch the
-    /// version's source tree.
-    pub source: Option<SourceArtifact>,
+    /// Where this version's source archive lives.  Optional so
+    /// existing resolver-only fixtures keep working; required to
+    /// fetch the version's source tree.  Already resolved by the
+    /// loader: callers receive a path or a URL they can act on
+    /// without further resolution.
+    pub source: Option<SourceLocation>,
     /// Declared `[features]`, preserved as-is from the registry.
     /// `None` for older entries that omit the field.  The resolver
     /// does not currently consume features beyond passing them
@@ -154,23 +156,9 @@ impl IndexPackageDependency {
     }
 }
 
-/// A reference to a source archive that materializes one version of a
-/// package.
-///
-/// The location can be either a local path or an HTTP URL via
-/// [`SourceLocation`] so the same `IndexEntry` shape can come from
-/// a directory on disk or from a sparse HTTP registry.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceArtifact {
-    pub kind: SourceArtifactKind,
-    pub format: ArchiveFormat,
-    /// Where the archive lives.  Already resolved by the loader: callers
-    /// receive a path or a URL they can act on without further
-    /// resolution.
-    pub location: SourceLocation,
-}
-
-/// Where a [`SourceArtifact`] lives on disk or on the network.
+/// Where a version's source archive lives on disk or on the network,
+/// so the same `IndexEntry` shape can come from a directory on disk
+/// or from a sparse HTTP registry.
 ///
 /// The local-filesystem variant is what `cabin-index`'s file loader
 /// returns; the HTTP variant is what `cabin-index-http` returns after
@@ -182,17 +170,4 @@ pub enum SourceLocation {
     LocalPath(PathBuf),
     /// Absolute `http://` or `https://` URL.
     HttpUrl(String),
-}
-
-/// What kind of source artifact backs a registry package.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceArtifactKind {
-    /// A `.zip` source archive (the only currently supported kind).
-    Archive,
-}
-
-/// Archive container format.  Only `zip` is currently supported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArchiveFormat {
-    Zip,
 }

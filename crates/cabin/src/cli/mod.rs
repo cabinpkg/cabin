@@ -2369,7 +2369,7 @@ fn build_fetch_plan(
                 resolved.version
             )
         })?;
-        let fetch_source = match (&source.location, access) {
+        let fetch_source = match (source, access) {
             (cabin_index::SourceLocation::LocalPath(p), _) => {
                 cabin_artifact::FetchSource::LocalArchive(p.clone())
             }
