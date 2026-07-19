@@ -26,9 +26,11 @@ futures-util = "0.3"
 worker = { version = "0.8", features = ["d1"] }
 
 # Host-target only: tests/sql_validation.rs prepares every executed
-# statement (src/sql.rs) against the real migrated schema. The wasm
-# build never sees it.
+# statement (src/sql.rs) against the real migrated schema, and the
+# names module's parity test pins its mirrored DOS device stems to
+# cabin-fs's shared predicate. The wasm build never sees either.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+cabinpkg-fs = { path = "../crates/cabin-fs" }
 rusqlite = { version = "0.40", features = ["bundled"] }
 
 [lints.clippy]

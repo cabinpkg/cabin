@@ -258,10 +258,11 @@ async fn handle_website(
     };
 
     let mut response = match req.method() {
-        // The admin listing is the one API route read with GET; anything
-        // else is an authenticated 404.
+        // The admin listings are the only API routes read with GET;
+        // anything else is an authenticated 404.
         Method::Get => match match_api_route(path) {
             Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
+            Some(ApiRoute::AdminPackages) => admin_packages_response(&db, &auth).await?,
             _ => error_response(404, error::NOT_FOUND)?,
         },
         Method::Put => match match_api_route(path) {
@@ -275,7 +276,10 @@ async fn handle_website(
                 publish_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
             }
             Some(
-                ApiRoute::Yank { .. } | ApiRoute::AdminVersions | ApiRoute::AdminVerdict { .. },
+                ApiRoute::Yank { .. }
+                | ApiRoute::AdminVersions
+                | ApiRoute::AdminPackages
+                | ApiRoute::AdminVerdict { .. },
             ) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
@@ -298,7 +302,7 @@ async fn handle_website(
                     (scope.to_owned(), name.to_owned(), version.to_owned());
                 verdict_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
-            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions) => {
+            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions | ApiRoute::AdminPackages) => {
                 error_response(405, error::METHOD_NOT_ALLOWED)?
             }
             None => error_response(404, error::NOT_FOUND)?,
@@ -409,7 +413,9 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 /// membership alone decides, and a scope that does not exist answers
 /// exactly like one the user is not a member of), and followed - for
 /// genuinely new versions and replacements of rejected ones only - by
-/// the archive-size cap (`413`) and the per-user quota checks (`403`);
+/// the archive-size cap (`413`), the `-`/`_` twin-name reject for new
+/// packages (`400`, before the quotas - name validity does not depend
+/// on quota state), and the per-user quota checks (`403`);
 /// on success the archive lands in R2 first (an orphaned blob from a
 /// crash between the two writes is harmless, content-addressed garbage -
 /// see `docs/runbook.md`), then one atomic D1 batch inserts (or, for a
@@ -525,7 +531,14 @@ async fn publish_response(
         console_error!("clock produced a non-ISO timestamp: {now}");
         return error_response(500, error::INTERNAL);
     };
-    let counts = publish_counts(db, auth.user_id, scope, name, &day_prefix).await?;
+    let (counts, twin_exists) = publish_counts(db, auth.user_id, scope, name, &day_prefix).await?;
+    // The deterministic `-`/`_` twin reject (`docs/architecture.md`,
+    // "Name fidelity") gates new packages only, and answers before the
+    // quota 403s: whether a name can exist does not depend on the
+    // publisher's quota state.
+    if !counts.package_exists && twin_exists {
+        return error_response(400, publish::NAME_TWIN_CONFLICT);
+    }
     if let Err(denial) = quota::check_publish(archive_bytes, &counts, &quotas) {
         return denial_response(env, &denial, None);
     }
@@ -559,7 +572,14 @@ async fn publish_response(
                 };
             }
         }
-        None => persist_new_version(env, ctx, db, &new).await?,
+        None => {
+            if !persist_new_version(env, ctx, db, &new).await? {
+                // A twin publish won the race between this request's
+                // preflight and its batch; answer exactly like the
+                // preflight would have.
+                return error_response(400, publish::NAME_TWIN_CONFLICT);
+            }
+        }
     }
 
     json_response_with_status(
@@ -716,6 +736,36 @@ async fn admin_versions_response(
         }));
     }
     json_response(&serde_json::json!({ "versions": versions }).to_string())
+}
+
+#[derive(Deserialize)]
+struct AdminPackageRecord {
+    scope: String,
+    name: String,
+    vetted: i64,
+}
+
+/// `GET /api/v1/admin/packages` (`verify` scope): the corpus for the
+/// verifier's name advisories (`docs/architecture.md`, "Name
+/// fidelity"). Admin infrastructure like the versions listing: no
+/// scope membership, and deliberately not budget-gated - the
+/// verification pipeline must be able to drain the pending queue
+/// whatever the service mode.
+async fn admin_packages_response(db: &D1Database, auth: &AuthContext) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let records: Vec<AdminPackageRecord> =
+        db.prepare(sql::ADMIN_PACKAGES).all().await?.results()?;
+    let packages: Vec<verify::CorpusPackage> = records
+        .into_iter()
+        .map(|record| verify::CorpusPackage {
+            scope: record.scope,
+            name: record.name,
+            vetted: record.vetted != 0,
+        })
+        .collect();
+    json_response(&verify::packages_json(&packages))
 }
 
 #[derive(Deserialize)]
@@ -1111,12 +1161,18 @@ struct NewVersion<'a> {
 /// transaction so exactly one of them counts it. Once the batch commits,
 /// the blob is replicated to the BACKUP bucket off the response path
 /// ([`replicate_blob`]).
+///
+/// `false` means the batch's `-`/`_` twin guard suppressed both
+/// inserts - a twin publish won the race after this request's
+/// preflight - and nothing was persisted (the uploaded blob stays
+/// behind exactly like a crash between the two writes: harmless,
+/// content-addressed garbage); the caller answers the twin `400`.
 async fn persist_new_version(
     env: &Env,
     ctx: &Context,
     db: &D1Database,
     new: &NewVersion<'_>,
-) -> worker::Result<()> {
+) -> worker::Result<bool> {
     let key = format!("blobs/sha256/{}", new.checksum_hex);
     let bucket = env.bucket("BLOBS")?;
     if bucket.head(&key).await?.is_none() {
@@ -1124,31 +1180,45 @@ async fn persist_new_version(
     }
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
-    db.batch(vec![
-        db.prepare(sql::INSERT_PACKAGE).bind(&[
-            new.scope.into(),
-            new.name.into(),
-            new.published_at.into(),
-            js_int(new.user_id),
-        ])?,
-        db.prepare(sql::INSERT_VERSION).bind(&[
-            new.scope.into(),
-            new.name.into(),
-            new.version.into(),
-            new.checksum_hex.into(),
-            new.metadata_text.into(),
-            new.published_at.into(),
-            archive_size.clone(),
-            js_int(new.user_id),
-        ])?,
-        db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
-            new.checksum_hex.into(),
-            archive_size.clone(),
-            new.checksum_hex.into(),
-            archive_size,
-        ])?,
-    ])
-    .await?;
+    let results = db
+        .batch(vec![
+            db.prepare(sql::INSERT_PACKAGE).bind(&[
+                new.scope.into(),
+                new.name.into(),
+                new.published_at.into(),
+                js_int(new.user_id),
+            ])?,
+            db.prepare(sql::INSERT_VERSION).bind(&[
+                new.scope.into(),
+                new.name.into(),
+                new.version.into(),
+                new.checksum_hex.into(),
+                new.metadata_text.into(),
+                new.published_at.into(),
+                archive_size.clone(),
+                js_int(new.user_id),
+            ])?,
+            db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
+                new.checksum_hex.into(),
+                archive_size.clone(),
+                new.checksum_hex.into(),
+                archive_size,
+                new.scope.into(),
+                new.name.into(),
+                new.version.into(),
+            ])?,
+        ])
+        .await?;
+    // The version insert changes zero rows only under the twin guard
+    // (a duplicate `(scope, name, version)` fails the primary key and
+    // rolls the batch back instead); the accounting statement is
+    // gated on this exact row existing, so it added nothing then.
+    let version_insert = results
+        .get(1)
+        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
+    if changed_rows(version_insert.meta()?) == 0 {
+        return Ok(false);
+    }
 
     // Self-heal the head-skip race: a reclaim delete whose refcount was
     // read before this batch committed can land between the head above
@@ -1159,7 +1229,7 @@ async fn persist_new_version(
     }
 
     replicate_blob(env, ctx, &key, new.archive);
-    Ok(())
+    Ok(true)
 }
 
 /// The write phase for a publish over a **rejected** row
@@ -1519,15 +1589,18 @@ async fn cas_bucket(
 }
 
 /// Gathers the [`quota::PublishCounts`] for one prospective publish in a
-/// single D1 batch; every statement is a point lookup or an aggregate
-/// over an indexed column.
+/// single D1 batch - every statement is a point lookup or an aggregate
+/// over an indexed column - plus whether the name has a `-`/`_` twin in
+/// the scope (the deterministic reject the caller renders when the
+/// package would be new; a preflight only - the persistence batch
+/// repeats the guard transactionally).
 async fn publish_counts(
     db: &D1Database,
     user_id: i64,
     scope: &str,
     name: &str,
     day_prefix: &str,
-) -> worker::Result<quota::PublishCounts> {
+) -> worker::Result<(quota::PublishCounts, bool)> {
     let results = db
         .batch(vec![
             // Rejected versions are excluded: their bytes were refunded
@@ -1546,19 +1619,23 @@ async fn publish_counts(
             ])?,
             db.prepare(sql::PACKAGE_EXISTS)
                 .bind(&[scope.into(), name.into()])?,
+            db.prepare(sql::TWIN_PACKAGE_EXISTS)
+                .bind(&[scope.into(), name.into()])?,
         ])
         .await?;
     let user_usage: UserUsageRecord = first_row(&results, 0)?;
     let user_packages: PackageCountsRecord = first_row(&results, 1)?;
     let versions_today: CountRecord = first_row(&results, 2)?;
     let package_rows: CountRecord = first_row(&results, 3)?;
-    Ok(quota::PublishCounts {
+    let twin_rows: CountRecord = first_row(&results, 4)?;
+    let counts = quota::PublishCounts {
         user_stored_bytes: non_negative(user_usage.stored_bytes),
         user_package_count: non_negative(user_packages.package_count),
         user_new_packages_today: non_negative(user_packages.new_today),
         package_versions_today: non_negative(versions_today.n),
         package_exists: package_rows.n > 0,
-    })
+    };
+    Ok((counts, twin_rows.n > 0))
 }
 
 /// The single row of one aggregate statement in a batch result.

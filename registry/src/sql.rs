@@ -111,6 +111,14 @@ statements! {
     SEED_CLAIM_OWNER =
         "INSERT INTO scope_members (scope_name, user_id, role) VALUES (?1, ?2, 'owner')";
 
+    /// Every claimed scope name, for the claim callback's skeleton
+    /// confusability refusal (`docs/architecture.md`, "Name
+    /// fidelity"): the fold runs in Rust (`crate::names::skeleton`),
+    /// so the map lives in one place per crate instead of a second
+    /// SQL spelling. Scopes are few; the breaker's `d1_rows_read_day`
+    /// budget is the tripwire if that stops holding.
+    LIST_SCOPE_NAMES = "SELECT name FROM scopes ORDER BY name";
+
     /// Whether the user holds the `owner` role in the scope: the gate on
     /// every membership-management endpoint. A scope that does not exist
     /// has no owners, so nonexistent and foreign scopes answer
@@ -174,6 +182,21 @@ statements! {
         "SELECT scope, name, version, checksum, published_by, published_at, metadata_json \
          FROM versions WHERE verification = ?1 ORDER BY scope, name, version";
 
+    /// The admin corpus listing (`docs/architecture.md`, "Name
+    /// fidelity"): every package with whether any of its versions is
+    /// **verified** - the verifier's name advisories compare a
+    /// candidate against every existing name, and skip a candidate
+    /// whose name was accepted once. Deliberately verified-only, not
+    /// any-verdict: a rejection must never vet a name, or an operator
+    /// rejecting an abstained squat would exempt that very name's
+    /// next version from the advisories.
+    ADMIN_PACKAGES =
+        "SELECT p.scope, p.name, \
+         EXISTS(SELECT 1 FROM versions v \
+                WHERE v.scope = p.scope AND v.name = p.name \
+                AND v.verification = 'verified') AS vetted \
+         FROM packages p ORDER BY p.scope, p.name";
+
     /// The verdict handler's read of the row a verdict targets.
     VERDICT_TARGET =
         "SELECT verification, checksum, published_at, archive_size FROM versions \
@@ -207,16 +230,30 @@ statements! {
     SCOPE_MEMBERSHIP =
         "SELECT COUNT(*) AS n FROM scope_members WHERE scope_name = ?1 AND user_id = ?2";
 
-    /// Creates the package row on its first published version.
+    /// Creates the package row on its first published version - unless
+    /// that would create a `-`/`_` twin of an existing same-scope
+    /// package ([`TWIN_PACKAGE_EXISTS`] is the preflight that renders
+    /// the `400`; this in-batch guard closes the race between two
+    /// concurrent twin publishes, whose preflights both saw neither).
     INSERT_PACKAGE =
         "INSERT OR IGNORE INTO packages (scope, name, created_at, created_by) \
-         VALUES (?1, ?2, ?3, ?4)";
+         SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS \
+         (SELECT 1 FROM packages WHERE scope = ?1 AND name != ?2 \
+          AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-'))";
 
-    /// Inserts a genuinely new version row, starting `pending`.
+    /// Inserts a genuinely new version row, starting `pending`,
+    /// guarded on its own package row existing. The batch runs
+    /// [`INSERT_PACKAGE`] first, so after it the row is absent exactly
+    /// when the twin guard suppressed a new package - zero changed
+    /// rows here means a twin won the race and nothing was persisted
+    /// (the glue answers the twin `400`) - while an already-existing
+    /// package always passes, twin or not: the twin policy gates
+    /// package creation only, never new versions of what exists.
     INSERT_VERSION =
         "INSERT INTO versions (scope, name, version, checksum, metadata_json, yanked, \
          published_at, archive_size, published_by, verification) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, 'pending')";
+         SELECT ?1, ?2, ?3, ?4, ?5, 0, ?6, ?7, ?8, 'pending' WHERE EXISTS \
+         (SELECT 1 FROM packages WHERE scope = ?1 AND name = ?2)";
 
     /// Replaces a rejected row in place (back to `pending`), guarded on
     /// the row still being the rejected generation this request read.
@@ -326,6 +363,17 @@ statements! {
     /// Whether the package row already exists (new-package quotas).
     PACKAGE_EXISTS = "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name = ?2";
 
+    /// Whether creating `(scope, name)` would collide with an existing
+    /// same-scope package under `-`/`_` folding: the deterministic
+    /// publish reject (`docs/architecture.md`, "Name fidelity").
+    /// `REPLACE` in the query, not a normalized column - the packages
+    /// table is small and this runs once per prospective publish. The
+    /// self-exclusion keeps the predicate identical to the in-batch
+    /// guards on [`INSERT_PACKAGE`] / [`INSERT_VERSION`].
+    TWIN_PACKAGE_EXISTS =
+        "SELECT COUNT(*) AS n FROM packages WHERE scope = ?1 AND name != ?2 \
+         AND REPLACE(name, '_', '-') = REPLACE(?2, '_', '-')";
+
     /// The dashboard usage aggregate over everything the user published.
     USER_USAGE =
         "SELECT COALESCE(SUM(CASE WHEN verification != 'rejected' \
@@ -357,7 +405,11 @@ statements! {
 
     /// Counts a published archive's bytes into `total_stored_bytes`
     /// exactly when the just-inserted row is the checksum's sole live
-    /// reference (see `src/glue.rs`, `persist_new_version`). The CASTs
+    /// reference (see `src/glue.rs`, `persist_new_version`). The
+    /// row-exists conjunct pins "just-inserted" to this batch's own
+    /// [`INSERT_VERSION`]: when its twin guard suppressed the insert,
+    /// the sole live reference is a racing twin's row and must not be
+    /// counted again. The CASTs
     /// here and below keep the TEXT-affinity meta value integer-shaped:
     /// D1 binds numbers as floats, and INTEGER + REAL would otherwise
     /// store "254.0", which the breaker's strict u64 parse rejects.
@@ -365,11 +417,17 @@ statements! {
         "INSERT INTO meta (key, value) VALUES ('total_stored_bytes', \
          CASE WHEN (SELECT COUNT(*) FROM versions \
                     WHERE checksum = ?1 AND verification != 'rejected') = 1 \
+              AND EXISTS (SELECT 1 FROM versions \
+                          WHERE scope = ?5 AND name = ?6 AND version = ?7 \
+                          AND checksum = ?1) \
               THEN CAST(?2 AS INTEGER) ELSE 0 END) \
          ON CONFLICT (key) DO UPDATE SET \
          value = CAST(value AS INTEGER) + \
          CASE WHEN (SELECT COUNT(*) FROM versions \
                     WHERE checksum = ?3 AND verification != 'rejected') = 1 \
+              AND EXISTS (SELECT 1 FROM versions \
+                          WHERE scope = ?5 AND name = ?6 AND version = ?7 \
+                          AND checksum = ?3) \
               THEN CAST(?4 AS INTEGER) ELSE 0 END";
 
     /// Refunds a rejected archive's bytes exactly when the row - still

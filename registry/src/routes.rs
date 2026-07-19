@@ -83,6 +83,9 @@ pub enum ApiRoute<'a> {
     },
     /// `GET /api/v1/admin/versions?status=...`: the verifier's listing.
     AdminVersions,
+    /// `GET /api/v1/admin/packages`: the corpus for the verifier's
+    /// name advisories (`docs/architecture.md`, "Name fidelity").
+    AdminPackages,
     /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>`: a verdict.
     AdminVerdict {
         scope: &'a str,
@@ -94,8 +97,12 @@ pub enum ApiRoute<'a> {
 /// Matches `path` against the API routes:
 /// `/api/v1/packages/<scope>/<name>/<version>`,
 /// `/api/v1/packages/<scope>/<name>/<version>/yank`, and the admin
-/// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`.
+/// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]` and
+/// `/api/v1/admin/packages`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
+    if path == "/api/v1/admin/packages" {
+        return Some(ApiRoute::AdminPackages);
+    }
     if let Some(rest) = path.strip_prefix("/api/v1/admin/versions") {
         if rest.is_empty() {
             return Some(ApiRoute::AdminVersions);
@@ -861,6 +868,10 @@ mod tests {
                 version: "not-semver"
             })
         );
+        assert_eq!(
+            match_api_route("/api/v1/admin/packages"),
+            Some(ApiRoute::AdminPackages)
+        );
     }
 
     #[test]
@@ -885,6 +896,8 @@ mod tests {
             "/api/v1/admin/versions//fmt/10.2.1",
             "/api/v1/admin/versions/fmtlib//10.2.1",
             "/api/v1/admin/versions/fmtlib/fmt/10.2.1/extra",
+            "/api/v1/admin/packages/",
+            "/api/v1/admin/packages/fmtlib",
             "/api/v1/admin/other",
         ] {
             assert_eq!(match_api_route(path), None, "path: {path:?}");

@@ -87,6 +87,15 @@ jobs:
           fi
           echo "$count pending version(s)"
 
+          # The corpus for the name advisories, fetched once per run.
+          # A failed fetch fails the run under `set -e` - without the
+          # corpus no advisory can run, and proceeding without them
+          # could verify a confusable name (fail-safe: everything
+          # stays pending).
+          corpus=$(mktemp)
+          curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+            -o "$corpus" "$api_origin/api/v1/admin/packages"
+
           # One version failing operationally (it stays pending) must
           # not starve the rest of the list; failures are aggregated
           # and fail the run at the end.
@@ -101,6 +110,37 @@ jobs:
 
             workdir=$(mktemp -d)
             printf '%s' "$entry" >"$workdir/entry.json"
+
+            # Name advisories run before the download - they need no
+            # bytes, so an abstained version costs a listing entry per
+            # cron pass, never a re-download. Abstain renders no
+            # verdict and is deliberately NOT a failure: the version
+            # stays pending until the stuck-pending alert summons the
+            # operator (registry/docs/runbook.md, "Verification
+            # pipeline").
+            if ! advice_json=$("$verifier" --name-advisories "$workdir/entry.json" "$corpus"); then
+              echo "$name@$version: name advisories failed operationally; leaving it pending" >&2
+              failures=$((failures + 1))
+              rm -rf "$workdir"
+              continue
+            fi
+            advice=$(jq -r '.advice' <<<"$advice_json")
+            case "$advice" in
+              proceed) ;;
+              abstain)
+                findings=$(jq -r '.findings | join(",")' <<<"$advice_json")
+                echo "$name@$version: abstain ($findings); leaving it pending for operator review"
+                rm -rf "$workdir"
+                continue
+                ;;
+              *)
+                echo "$name@$version: unknown advice '$advice'; leaving it pending" >&2
+                failures=$((failures + 1))
+                rm -rf "$workdir"
+                continue
+                ;;
+            esac
+
             # The scoped name `<scope>/<name>` nests the artifact
             # directory (`artifacts/<scope>/<name>/`) while the
             # filename flattens the `/` to `-`
@@ -124,14 +164,23 @@ jobs:
             fi
             verdict=$(jq -r '.verdict' <<<"$result")
             reason=""
-            if [ "$verdict" = "verified" ]; then
-              body=$(jq -cn --arg checksum "$checksum" --arg published_at "$published_at" \
-                '{verdict: "verified", checksum: $checksum, published_at: $published_at}')
-            else
-              reason=$(jq -r '.reasons | join(",")' <<<"$result")
-              body=$(jq -cn --arg reason "$reason" --arg checksum "$checksum" --arg published_at "$published_at" \
-                '{verdict: "rejected", reason: $reason, checksum: $checksum, published_at: $published_at}')
-            fi
+            case "$verdict" in
+              verified)
+                body=$(jq -cn --arg checksum "$checksum" --arg published_at "$published_at" \
+                  '{verdict: "verified", checksum: $checksum, published_at: $published_at}')
+                ;;
+              rejected)
+                reason=$(jq -r '.reasons | join(",")' <<<"$result")
+                body=$(jq -cn --arg reason "$reason" --arg checksum "$checksum" --arg published_at "$published_at" \
+                  '{verdict: "rejected", reason: $reason, checksum: $checksum, published_at: $published_at}')
+                ;;
+              *)
+                echo "$name@$version: unknown verdict '$verdict'; leaving it pending" >&2
+                failures=$((failures + 1))
+                rm -rf "$workdir"
+                continue
+                ;;
+            esac
 
             # A 409 here means the row changed since the listing (a
             # republish or a competing verdict); the next run sees

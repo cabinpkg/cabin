@@ -174,6 +174,35 @@ pub fn artifact_readable(status: Status, has_verify_scope: bool) -> bool {
     }
 }
 
+/// One row of the admin corpus listing: a package plus whether any of
+/// its versions is verified - the name was accepted once, either by
+/// the advisories proceeding or by an operator's manual verdict.
+/// Deliberately not "has any verdict": a rejection never vets a name.
+pub struct CorpusPackage {
+    pub scope: String,
+    pub name: String,
+    pub vetted: bool,
+}
+
+/// `GET /api/v1/admin/packages` (`docs/remote-registry.md`, "Admin
+/// API"): the corpus the verifier's name advisories compare a
+/// candidate against. Deliberately minimal - the names plus the
+/// vetted-once bit - and deterministic (the query orders by scope,
+/// then name).
+pub fn packages_json(packages: &[CorpusPackage]) -> String {
+    let entries: Vec<serde_json::Value> = packages
+        .iter()
+        .map(|package| {
+            serde_json::json!({
+                "scope": package.scope,
+                "name": package.name,
+                "vetted": package.vetted,
+            })
+        })
+        .collect();
+    serde_json::json!({ "packages": entries }).to_string()
+}
+
 /// The stuck-verifier alert for the breaker cron's webhook payload:
 /// versions pending for over an hour mean the verifier is not keeping
 /// up (or not running), and an unreadable count must alert rather than
@@ -346,6 +375,27 @@ mod tests {
         assert!(artifact_readable(Status::Pending, true));
         assert!(!artifact_readable(Status::Rejected, false));
         assert!(!artifact_readable(Status::Rejected, true));
+    }
+
+    #[test]
+    fn packages_json_matches_the_contract_byte_for_byte() {
+        assert_eq!(packages_json(&[]), r#"{"packages":[]}"#);
+        let corpus = [
+            CorpusPackage {
+                scope: "fmtlib".to_owned(),
+                name: "fmt".to_owned(),
+                vetted: true,
+            },
+            CorpusPackage {
+                scope: "gabime".to_owned(),
+                name: "spdlog".to_owned(),
+                vetted: false,
+            },
+        ];
+        assert_eq!(
+            packages_json(&corpus),
+            r#"{"packages":[{"scope":"fmtlib","name":"fmt","vetted":true},{"scope":"gabime","name":"spdlog","vetted":false}]}"#
+        );
     }
 
     #[test]

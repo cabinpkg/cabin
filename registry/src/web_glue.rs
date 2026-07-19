@@ -17,7 +17,7 @@ use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
     STATS_PATH, SessionRoute, WebRoute,
 };
-use crate::{allowlist, auth, claim, error, quota, session, source, sql, stats, user_api};
+use crate::{allowlist, auth, claim, error, names, quota, session, source, sql, stats, user_api};
 
 /// The one identity provider policy admits today; the `identities`
 /// schema stays provider-neutral (docs/architecture.md, "Two credential
@@ -480,6 +480,22 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     if scope_exists(db, &scope).await? {
         return claim_denied(&[clear_state]);
     }
+    // Name fidelity (`docs/architecture.md`, "Name fidelity"):
+    // reserved vocabulary and skeleton-confusable scopes refuse
+    // exactly like every other claim failure. A preflight read, not
+    // an in-batch guard: two confusable claims racing through the
+    // millisecond window between this read and their inserts could
+    // both land, but each sits behind its own human OAuth roundtrip,
+    // and claim disputes are handled manually anyway ("Scopes") -
+    // not worth mirroring the skeleton fold into SQL.
+    let exempt = names::parse_scope_list(
+        &env.var("CLAIM_SKELETON_EXEMPT_SCOPES")
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+    );
+    if claim::scope_refusal(&scope, &claimed_scope_names(db).await?, &exempt) {
+        return claim_denied(&[clear_state]);
+    }
 
     let account_id = proof_account_id.to_string();
     let claimed_at = now_iso8601();
@@ -524,6 +540,18 @@ struct UserRecord {
 #[derive(Deserialize)]
 struct CountRecord {
     n: i64,
+}
+
+#[derive(Deserialize)]
+struct ScopeNameRecord {
+    name: String,
+}
+
+/// Every claimed scope name, for the claim callback's skeleton
+/// confusability refusal.
+async fn claimed_scope_names(db: &D1Database) -> worker::Result<Vec<String>> {
+    let records: Vec<ScopeNameRecord> = db.prepare(sql::LIST_SCOPE_NAMES).all().await?.results()?;
+    Ok(records.into_iter().map(|record| record.name).collect())
 }
 
 /// Whether the scope is already claimed: the claim callback's

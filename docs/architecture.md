@@ -387,7 +387,10 @@ Given a downloaded archive and the canonical metadata the admin listing reported
 the zip container and decompresses each entry under decompression caps, checks the structure
 `cabin package` emits (the strict zip profile in `registry/docs/archive-format.md`), parses the
 embedded manifest with `cabin-manifest`, and compares it against the metadata - rendering a
-verdict plus machine-readable reason codes.  It lives in the root workspace precisely to reuse
+verdict plus machine-readable reason codes.  It also owns the pure name advisories the
+workflow runs before any download, whose findings make it abstain - render no verdict at
+all - rather than reject (`registry/docs/architecture.md`, "Name fidelity").  It lives in
+the root workspace precisely to reuse
 the real manifest parser and the real `cabin-package` metadata seams, but it is a client of the
 hosted service: the `cabin-registry-verify` binary is invoked by the `registry-verify` GitHub
 Actions workflow, never by users.  The crate must:
