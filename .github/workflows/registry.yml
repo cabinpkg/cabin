@@ -161,7 +161,7 @@ jobs:
         if: >-
           steps.freshness.outputs.superseded != 'true' &&
           steps.migrations.outputs.pending != 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
           # Public account tag (also in wrangler.jsonc vars); pinning it
