@@ -42,6 +42,34 @@ same change and treat the architecture doc as authoritative.
 - Do not edit `typos.toml` or add allowlist entries unless a reviewer
   explicitly asks. Fix the spelling instead.
 
+## Engineering Principles
+
+Apply these pragmatically, not mechanically. When they conflict, prioritize
+correctness, readability, simplicity, and ease of change over theoretical
+purity. Make the smallest coherent change that solves the current problem,
+and do not add speculative flexibility.
+
+- Keep the implementation simple and focused: KISS and YAGNI.
+- Avoid duplicating the same knowledge or business rule: DRY.
+- Do not introduce abstractions prematurely: follow AHA and the Rule of
+  Three.
+- Separate distinct concerns and keep each component responsible for one
+  coherent purpose. Prefer high cohesion and low coupling.
+- Prefer composition over inheritance.
+- Keep APIs and behavior unsurprising: follow the Principle of Least
+  Astonishment.
+- Limit dependencies on internal object structure: follow the Law of
+  Demeter.
+- Validate assumptions early and fail fast with clear errors.
+- Use types and data structures that make invalid states unrepresentable
+  where practical.
+- Prefer explicit behavior, dependencies, and configuration over hidden or
+  implicit mechanisms.
+- Apply SOLID principles where they improve clarity, substitutability, and
+  maintainability, but avoid unnecessary indirection.
+- If an external library can solve the same problem, use it, but weigh the
+  full cost first.
+
 ## Working Rules
 
 - State assumptions before coding when the request is ambiguous. Ask instead
