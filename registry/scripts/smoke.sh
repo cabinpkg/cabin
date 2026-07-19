@@ -16,7 +16,8 @@
 # membership management through the session API (list/add/remove, the
 # uniform owner 403, the last-owner 409), then the full publish / yank
 # write flow on the website origin under the just-claimed scope (first
-# publish, idempotent re-publish, immutability conflict, yank state
+# publish, the reserved-name and -/_ twin 400s,
+# idempotent re-publish, immutability conflict, yank state
 # transitions, artifact checksum, and the write plane's uniform 403 for
 # unclaimed and foreign scopes - 'foreign' stays a seeded fixture
 # because it must belong to somebody else), the verification
@@ -215,9 +216,11 @@ if [[ -n "$token" ]]; then
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     DELETE FROM scope_members WHERE scope_name IN
-      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift');
+      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
+       'core', 'sm0keorg');
     DELETE FROM scopes WHERE name IN
-      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift');
+      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
+       'core', 'sm0keorg');
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
     DELETE FROM backup_replication_failures;
     -- A prior run that failed inside a breaker leg leaves its pinned
@@ -314,6 +317,21 @@ const api = {
     state: "active", role: "admin",
     user: { id: 0, login: "Smoke" },
     organization: { id: 888, login: "statedrift" },
+  },
+  // Fully grantable like statedrift, so their refusals can only be
+  // the name-fidelity checks: 'core' is reserved vocabulary, and
+  // 'sm0keorg' skeleton-folds to the claimed 'smokeorg'.
+  "/users/core": { id: 900, login: "core", type: "Organization" },
+  "/orgs/core/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 900, login: "core" },
+  },
+  "/users/sm0keorg": { id: 901, login: "sm0keorg", type: "Organization" },
+  "/orgs/sm0keorg/memberships/Smoke": {
+    state: "active", role: "admin",
+    user: { id: 0, login: "Smoke" },
+    organization: { id: 901, login: "sm0keorg" },
   },
 };
 // POST /__drift/on makes /users/smoke name a different account than
@@ -809,6 +827,16 @@ claim_scope denyorg denied
 claim_scope imposterorg denied
 claim_scope swaporg denied
 
+step "reserved and skeleton-confusable scopes refuse uniformly"
+# Both are fully grantable in the mock (like statedrift), so nothing
+# but the name-fidelity checks can be what refused them: 'core' is
+# reserved vocabulary, 'sm0keorg' skeleton-folds to the just-claimed
+# 'smokeorg'. The exemption override (CLAIM_SKELETON_EXEMPT_SCOPES)
+# would need a wrangler restart with the var set, so it stays covered
+# by the host tests only.
+claim_scope core denied
+claim_scope sm0keorg denied
+
 step "claims are permanent: a re-claim refuses even the owning account"
 claim_scope smoke denied
 
@@ -910,6 +938,28 @@ expect_body '"ok":true'
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"verification":"pending"'
 
+step "reserved and -/_ twin package names are 400s"
+# The fixture pair renamed to `with-dep` (name and source path; the
+# archive bytes and checksum are untouched, and the shared blob is not
+# re-counted) creates the twinnable package; its `_` twin must then be
+# the deterministic 400 with no second row.
+sed 's|withdep|with-dep|g' "$fixture_metadata" >"$work/twin.json"
+frame "$work/twin.json" "$fixture_archive" "$work/publish-twin.bin"
+wrequest PUT "/api/v1/packages/$scope/with-dep/$version" "$work/publish-twin.bin" 201
+sed 's|withdep|with_dep|g' "$fixture_metadata" >"$work/twin-under.json"
+frame "$work/twin-under.json" "$fixture_archive" "$work/publish-twin-under.bin"
+wrequest PUT "/api/v1/packages/$scope/with_dep/$version" "$work/publish-twin-under.bin" 400
+expect_body "differs only in"
+# A reserved name answers in the same validation 400 family.
+sed 's|withdep|con|g' "$fixture_metadata" >"$work/reserved.json"
+frame "$work/reserved.json" "$fixture_archive" "$work/publish-reserved.bin"
+wrequest PUT "/api/v1/packages/$scope/con/$version" "$work/publish-reserved.bin" 400
+expect_body 'reserved'
+# Like the bare-dep leg: refund the extra publish charges so the
+# downstream legs keep the budget they were written against.
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+
 step "pending versions are invisible to ordinary tokens"
 check "$package_path" 404
 check "$artifact_path" 404
@@ -924,6 +974,8 @@ session_request GET "/api/v1/user/package/$scope/$name" 404
 session_request GET "/api/v1/user/package/$scope/$name/reverse-dependencies" 404
 wcheck "/api/v1/admin/versions?status=pending" 403
 expect_body 'verify scope'
+wcheck "/api/v1/admin/packages" 403
+expect_body 'verify scope'
 printf '{"verdict":"verified"}' >"$work/verdict-unbound.json"
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-unbound.json" 403
 expect_body 'verify scope'
@@ -937,6 +989,13 @@ expect_body '"published_by":1'
 expect_body '"metadata":{'
 cp "$body" "$work/pending.json"
 wcheck "/api/v1/admin/versions?status=bogus" 400
+# The corpus the name advisories read: every package, ordered, with
+# its vetted (any-version-verified) bit - both fixtures still pending.
+wcheck "/api/v1/admin/packages" 200
+expect_body '"packages":['
+expect_body "\"scope\":\"$scope\",\"name\":\"with-dep\",\"vetted\":false"
+expect_body "\"scope\":\"$scope\",\"name\":\"$name\",\"vetted\":false"
+cp "$body" "$work/corpus.json"
 # The verifier downloads the pending artifact and inspects it out of band.
 curl -sS -o "$work/download.zip" ${curl_args[@]+"${curl_args[@]}"} "$base$artifact_path"
 [[ "$(shasum -a 256 "$work/download.zip" | cut -d' ' -f1)" == "$blob_hash" ]] \
@@ -946,8 +1005,20 @@ step "a verified verdict must name the listing it inspected"
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-unbound.json" 400
 expect_body 'requires the checksum'
 
-step "the real verifier verifies the fixture and the verdict makes it resolvable"
+step "the advisory gate abstains on the skeleton-equal fixture pair"
+# `withdep` and `with-dep` fold to the same skeleton, and neither is
+# vetted yet, so the workflow's pre-download gate abstains on the real
+# corpus - exercised through the real binary. The bound verdict below
+# then plays the operator's manual resolution from the runbook.
 listing_entry "$work/pending.json" "$scope/$name" "$version" "$work/entry.json"
+"$verifier_bin" --name-advisories "$work/entry.json" "$work/corpus.json" >"$work/advice.json" \
+  || fail "the advisory mode failed operationally: $(cat "$work/advice.json")"
+grep -qF "\"advice\":\"abstain\"" "$work/advice.json" \
+  || fail "the skeleton-equal pair did not abstain: $(cat "$work/advice.json")"
+grep -qF "confusable_package ($scope/with-dep)" "$work/advice.json" \
+  || fail "the abstain does not name its rule: $(cat "$work/advice.json")"
+
+step "the real verifier verifies the fixture and the verdict makes it resolvable"
 run_verifier "$work/download.zip" "$work/entry.json" "$work/verdict-real.json"
 grep -qF '"verdict":"verified"' "$work/verdict-real.json" \
   || fail "the verifier did not verify the fixture: $(cat "$work/verdict-real.json")"
@@ -966,6 +1037,13 @@ check "$package_path" 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"0.2.0"'
 check "$artifact_path" 200
+
+step "a verified version flips the corpus row to vetted"
+as_verifier
+wcheck "/api/v1/admin/packages" 200
+expect_body "\"scope\":\"$scope\",\"name\":\"$name\",\"vetted\":true"
+expect_body "\"scope\":\"$scope\",\"name\":\"with-dep\",\"vetted\":false"
+as_publisher
 
 step "search and the package routes see the verified version"
 session_request GET "/api/v1/user/search?q=$name" 200
