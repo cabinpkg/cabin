@@ -68,6 +68,29 @@ pub fn account_id(body: &[u8]) -> Option<i64> {
         .map(|account| account.id)
 }
 
+/// Whether the requested scope must be refused on name-fidelity
+/// grounds (`docs/architecture.md`, "Name fidelity"): the reserved
+/// vocabulary is absolute, and skeleton equality with any
+/// already-claimed scope refuses - the homoglyph-style squat - unless
+/// the operator listed this exact scope in the exemption override
+/// (`CLAIM_SKELETON_EXEMPT_SCOPES`, for the rare legitimate
+/// collision). Skeleton equality only, deliberately no edit distance:
+/// a claim refusal is hard and unexplained, and distance-1 collides
+/// with real login patterns (`jsmith` / `jsmith1`). Exact re-claims
+/// are refused by the permanence pre-check either way.
+pub fn scope_refusal(scope: &str, claimed: &[String], exempt: &[String]) -> bool {
+    if crate::names::is_reserved(scope) {
+        return true;
+    }
+    if exempt.iter().any(|exempted| exempted == scope) {
+        return false;
+    }
+    let target = crate::names::skeleton(scope);
+    claimed
+        .iter()
+        .any(|name| crate::names::skeleton(name) == target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +132,39 @@ mod tests {
                 String::from_utf8_lossy(body)
             );
         }
+    }
+
+    #[test]
+    fn scope_refusal_covers_reserved_and_confusable_scopes() {
+        let claimed = vec!["fmtlib".to_owned(), "jsmith".to_owned()];
+        let none: Vec<String> = Vec::new();
+
+        // Reserved vocabulary refuses even with nothing claimed, and
+        // the exemption override never bypasses it.
+        for scope in ["con", "com1", "cabin", "std"] {
+            assert!(scope_refusal(scope, &none, &none), "scope: {scope:?}");
+            assert!(
+                scope_refusal(scope, &none, &[scope.to_owned()]),
+                "scope: {scope:?}"
+            );
+        }
+
+        // Skeleton equality with a claimed scope refuses: the
+        // homoglyph squat, the separator-drop, and the exact name
+        // (which the permanence pre-check refuses anyway).
+        for scope in ["fmtl1b", "fmt-lib", "fmtlib"] {
+            assert!(scope_refusal(scope, &claimed, &none), "scope: {scope:?}");
+        }
+        // Distance-1 login patterns stay claimable: skeleton equality
+        // only, no edit distance.
+        for scope in ["jsmith1", "jsmiths", "fmtlib2"] {
+            assert!(!scope_refusal(scope, &claimed, &none), "scope: {scope:?}");
+        }
+
+        // The operator override admits exactly the listed scope.
+        let exempt = vec!["fmtl1b".to_owned()];
+        assert!(!scope_refusal("fmtl1b", &claimed, &exempt));
+        assert!(scope_refusal("fmt-lib", &claimed, &exempt));
     }
 
     #[test]

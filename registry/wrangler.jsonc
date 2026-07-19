@@ -66,6 +66,11 @@
         // in; empty means nobody. Not a secret.
         // 26405363 = ken-matsui
         "ALLOWED_GITHUB_IDS": "26405363",
+        // Comma-separated exact scope names exempt from the claim
+        // flow's skeleton confusability refusal (docs/runbook.md,
+        // "Name fidelity knobs"); empty means no exemptions. Never
+        // bypasses reserved names or claim permanence.
+        "CLAIM_SKELETON_EXEMPT_SCOPES": "",
         // Client id of the GitHub OAuth app (callback
         // https://cabinpkg.com/callback). Public, not a secret;
         // the matching GITHUB_CLIENT_SECRET is a secret.
