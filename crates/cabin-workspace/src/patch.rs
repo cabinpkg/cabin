@@ -93,13 +93,6 @@ impl ActivePatchSet {
         self.entries.iter().find(|p| &p.name == name)
     }
 
-    /// Set of patched package names.  Useful for callers that
-    /// need to filter the registry list / closure detection by
-    /// name.
-    pub fn patched_names(&self) -> BTreeSet<&str> {
-        self.entries.iter().map(|p| p.name.as_str()).collect()
-    }
-
     /// Patched package names as owned strings.  Convenient for
     /// callers that need to hold the set across the loader /
     /// artifact-pipeline boundary without lifetime juggling.

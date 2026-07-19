@@ -1577,7 +1577,11 @@ fn features_cycle_errors() {
 // -----------------------------------------------------------------
 
 fn deps_of_kind(package: &Package, kind: DependencyKind) -> Vec<&cabin_core::Dependency> {
-    package.dependencies_of_kind(kind).collect()
+    package
+        .dependencies
+        .iter()
+        .filter(|d| d.kind == kind)
+        .collect()
 }
 
 #[test]

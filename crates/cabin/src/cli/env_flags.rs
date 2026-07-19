@@ -217,7 +217,10 @@ mod tests {
     }
 
     fn quiet_reporter() -> Reporter {
-        Reporter::new(cabin_core::Verbosity::Normal)
+        Reporter::with_color(
+            cabin_core::Verbosity::Normal,
+            cabin_core::ColorChoice::Never,
+        )
     }
 
     fn env_from<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {

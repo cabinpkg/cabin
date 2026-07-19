@@ -81,8 +81,7 @@ pub use model::{
     WorkspaceDepRequirements, is_path_safe_package_name, is_valid_package_scope,
 };
 pub use patch::{
-    DeclaredPatch, PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind,
-    PatchValidationError,
+    PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind, PatchValidationError,
 };
 pub use process::{ExitStatusKind, exit_status_kind};
 pub use profile::{

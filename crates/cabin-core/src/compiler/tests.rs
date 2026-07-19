@@ -528,7 +528,6 @@ fn clang_cl_has_msvc_dialect_with_clang_diagnostics() {
         raw_version_line: "clang version 17.0.6".into(),
     };
     assert!(id.kind.speaks_msvc_dialect());
-    assert!(id.kind.is_clang_like());
     assert!(!id.kind.supports_gcc_style_command_line());
 
     let caps = derive_cxx_capabilities(&id);

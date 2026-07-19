@@ -275,7 +275,6 @@ dependencies = [
  "flate2",
  "predicates",
  "semver",
- "sha2",
  "tar",
  "thiserror",
  "zip",
@@ -396,7 +395,6 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "cabinpkg-env",
- "cabinpkg-source-discovery",
  "thiserror",
 ]
 
@@ -661,7 +659,6 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-registry-file",
- "predicates",
  "semver",
  "serde",
  "serde_json",

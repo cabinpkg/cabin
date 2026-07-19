@@ -17,7 +17,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
-cabin-source-discovery = { workspace = true }
 
 # Tiny stand-in for `clang-format` used by the test suite. The
 # real `clang-format` is not guaranteed to be on every developer's

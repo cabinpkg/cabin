@@ -30,23 +30,7 @@ pub struct Lockfile {
     pub source_replacements: Vec<LockedSourceReplacement>,
 }
 
-impl Default for Lockfile {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
 impl Lockfile {
-    /// An empty lockfile at the current schema version.
-    pub fn empty() -> Self {
-        Self {
-            version: LOCKFILE_VERSION,
-            packages: Vec::new(),
-            patches: Vec::new(),
-            source_replacements: Vec::new(),
-        }
-    }
-
     /// Look up a locked package by name.  Linear scan - typical
     /// lockfiles are small enough that this stays cheap.
     pub fn find(&self, name: &PackageName) -> Option<&LockedPackage> {

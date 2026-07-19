@@ -67,21 +67,7 @@ pub struct TestPlan {
     executables: Vec<TestExecutable>,
 }
 
-impl<'a> IntoIterator for &'a TestPlan {
-    type Item = &'a TestExecutable;
-    type IntoIter = std::slice::Iter<'a, TestExecutable>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.executables.iter()
-    }
-}
-
 impl TestPlan {
-    /// Iterate executables in the plan's documented order.
-    pub fn iter(&self) -> std::slice::Iter<'_, TestExecutable> {
-        self.executables.iter()
-    }
-
     /// Number of executables to run.
     pub fn len(&self) -> usize {
         self.executables.len()
@@ -282,8 +268,7 @@ impl TestSummary {
 /// Sink for test executable output.  The runner forwards stdout /
 /// stderr chunks to this sink while each process is still
 /// running, and also keeps a full captured copy in
-/// [`TestRunResult`].  Tests in this crate use [`null_sink`] to
-/// discard output.
+/// [`TestRunResult`].
 pub trait TestOutputSink {
     /// Called zero or more times per executable with stdout bytes.
     ///
@@ -312,19 +297,6 @@ pub trait TestOutputSink {
         Ok(())
     }
 }
-
-impl TestOutputSink for () {
-    fn write_stdout(&mut self, _executable: &TestExecutable, _bytes: &[u8]) -> io::Result<()> {
-        Ok(())
-    }
-    fn write_stderr(&mut self, _executable: &TestExecutable, _bytes: &[u8]) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// A `TestOutputSink` that discards all bytes - useful for unit
-/// tests of the runner itself.
-pub fn null_sink() -> impl TestOutputSink {}
 
 /// A `TestOutputSink` that streams bytes to the supplied
 /// stdout/stderr writers.  Each non-empty write prepends a header

@@ -63,10 +63,12 @@ pub enum PortSource {
     },
 }
 
-/// SHA-256 digest of a port's source archive.  Stored as 32
-/// validated bytes; render with [`PortChecksum::to_hex`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PortChecksum([u8; 32]);
+/// SHA-256 digest of a port's source archive.  Stored as the
+/// validated 64-character lowercase hex string - every consumer
+/// compares digests in hex form, so the byte decode would be
+/// dead weight.  Render with [`PortChecksum::to_hex`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortChecksum(String);
 
 impl PortChecksum {
     /// Parse a 64-character lowercase hex digest.  Anything
@@ -80,27 +82,12 @@ impl PortChecksum {
         {
             return None;
         }
-        let bytes = value.as_bytes();
-        let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let hi = hex_value(bytes[i * 2])?;
-            let lo = hex_value(bytes[i * 2 + 1])?;
-            *byte = (hi << 4) | lo;
-        }
-        Some(Self(out))
+        Some(Self(value.to_owned()))
     }
 
     /// 64-character lowercase hex digest.
-    pub fn to_hex(self) -> String {
-        cabin_core::hash::hex_digest(&self.0)
-    }
-}
-
-const fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(10 + byte - b'a'),
-        _ => None,
+    pub fn to_hex(&self) -> String {
+        self.0.clone()
     }
 }
 

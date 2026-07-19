@@ -73,35 +73,19 @@ pub fn limits_from_env(get: impl Fn(&str) -> Option<String>) -> Result<Limits, L
 }
 
 /// Zero-valued caps reject everything and can only be
-/// misconfiguration, so they fail like garbage does.
-trait PositiveInt: std::str::FromStr + Copy {
-    fn is_zero(self) -> bool;
-}
-
-impl PositiveInt for u64 {
-    fn is_zero(self) -> bool {
-        self == 0
-    }
-}
-
-impl PositiveInt for usize {
-    fn is_zero(self) -> bool {
-        self == 0
-    }
-}
-
-fn parse_var<T: PositiveInt>(
+/// misconfiguration, so they fail like garbage does - as does a
+/// value that overflows the cap's integer type.
+fn parse_var<T: TryFrom<u64>>(
     get: impl Fn(&str) -> Option<String>,
     name: &'static str,
     default: T,
 ) -> Result<T, LimitsError> {
-    match get(name) {
-        None => Ok(default),
-        Some(value) if value.is_empty() => Ok(default),
-        Some(value) => match value.parse::<T>() {
-            Ok(parsed) if !parsed.is_zero() => Ok(parsed),
-            _ => Err(LimitsError { name, value }),
-        },
+    let Some(value) = get(name).filter(|value| !value.is_empty()) else {
+        return Ok(default);
+    };
+    match value.parse::<u64>() {
+        Ok(parsed) if parsed != 0 => T::try_from(parsed).map_err(|_| LimitsError { name, value }),
+        _ => Err(LimitsError { name, value }),
     }
 }
 

@@ -100,20 +100,11 @@ impl fmt::Display for UnknownExperimentalFeature {
         let recognized = ExperimentalFeature::ALL
             .map(ExperimentalFeature::as_str)
             .join(", ");
-        if recognized.is_empty() {
-            write!(
-                f,
-                "unknown experimental feature '{}'; no experimental features are currently \
-                 recognized",
-                self.value,
-            )
-        } else {
-            write!(
-                f,
-                "unknown experimental feature '{}'; expected one of: {recognized}",
-                self.value,
-            )
-        }
+        write!(
+            f,
+            "unknown experimental feature '{}'; expected one of: {recognized}",
+            self.value,
+        )
     }
 }
 

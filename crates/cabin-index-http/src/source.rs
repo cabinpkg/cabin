@@ -1340,8 +1340,8 @@ mod tests {
             .unwrap();
         let (_, meta) = entry.versions.iter().next().expect("one version");
         let source = meta.source.as_ref().expect("a source artifact");
-        let cabin_index::SourceLocation::HttpUrl(url) = &source.location else {
-            panic!("expected an HttpUrl source, got {:?}", source.location);
+        let cabin_index::SourceLocation::HttpUrl(url) = source else {
+            panic!("expected an HttpUrl source, got {source:?}");
         };
         assert_eq!(
             url,
