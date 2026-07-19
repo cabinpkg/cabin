@@ -193,7 +193,7 @@ pub fn resolve_compiler_wrapper(
     };
     Ok(Some(ResolvedCompilerWrapper {
         kind: kind.clone(),
-        path: crate::path_search::into_utf8_tool_path(path)
+        path: camino::Utf8PathBuf::from_path_buf(path)
             .map_err(|path| CompilerWrapperResolutionError::NonUtf8Path { kind, path })?,
         spec: wrapper.display(),
         source,

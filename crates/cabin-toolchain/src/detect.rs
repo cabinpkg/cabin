@@ -96,31 +96,14 @@ pub enum RunError {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ProcessRunner;
 
-/// Production [`ToolRunner`] with an explicit deadline.
-#[derive(Debug, Clone, Copy)]
-pub struct TimedProcessRunner {
-    timeout: Duration,
-}
-
 impl ProcessRunner {
     /// Default deadline for one `tool --version` probe.
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-
-    /// Build a production runner with a caller-supplied deadline.
-    pub fn with_timeout(timeout: Duration) -> TimedProcessRunner {
-        TimedProcessRunner { timeout }
-    }
 }
 
 impl ToolRunner for ProcessRunner {
     fn run(&self, path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
         run_process_with_timeout(path, args, Self::DEFAULT_TIMEOUT)
-    }
-}
-
-impl ToolRunner for TimedProcessRunner {
-    fn run(&self, path: &Path, args: &[&str]) -> Result<RunOutput, RunError> {
-        run_process_with_timeout(path, args, self.timeout)
     }
 }
 
@@ -783,19 +766,18 @@ mod tests {
 
     #[test]
     fn process_runner_times_out_hanging_tool() {
-        let runner = ProcessRunner::with_timeout(Duration::from_millis(25));
         let exe = std::env::current_exe().expect("current test executable");
 
-        let err = runner
-            .run(
-                &exe,
-                &[
-                    "--ignored",
-                    "--exact",
-                    "detect::tests::process_runner_timeout_helper",
-                ],
-            )
-            .expect_err("sleeping helper should exceed runner deadline");
+        let err = run_process_with_timeout(
+            &exe,
+            &[
+                "--ignored",
+                "--exact",
+                "detect::tests::process_runner_timeout_helper",
+            ],
+            Duration::from_millis(25),
+        )
+        .expect_err("sleeping helper should exceed runner deadline");
 
         assert!(
             matches!(err, RunError::Timeout { .. }),
