@@ -665,10 +665,12 @@ The crate must not own:
 
 ### `cabin-diagnostics`
 
-User-facing diagnostic presentation for Cabin's typed domain errors.  Owns the stable
-diagnostic-code registry (`cabin::workspace::manifest_not_found`, `cabin::manifest::parse_error`,
-...), the deterministic formatter, and the `annotate-snippets` boundary used to draw
-source-annotated snippets for parse / validation errors.
+User-facing diagnostic presentation for Cabin's typed domain errors.  Owns the deterministic
+formatter, the `annotate-snippets` boundary used to draw source-annotated snippets for parse /
+validation errors, and the stable-code constants the CLI attaches to rendered error-chain messages
+(`cabin::config::load_failed`, `cabin::resolver::error`, ...).  The owning crates'
+`#[diagnostic(code(...))]` attributes are the canonical source of every stable code; a constant
+exists only for the codes the CLI needs as a `&str` value.
 
 Depends only on `miette`, `annotate-snippets`, and `thiserror`.  Domain crates that own source spans
 (today: `cabin-manifest`'s `ManifestParseError`) depend on `miette` for the `Diagnostic` derive and

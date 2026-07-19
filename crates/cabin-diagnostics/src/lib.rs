@@ -58,33 +58,15 @@ pub use miette;
 ///
 /// Codes look like `cabin::<area>::<symbol>`.  They are
 /// embedded in error reports for users and tooling to match
-/// on.  Adding a new code requires:
-///
-/// 1. extending this module with the new constant;
-/// 2. spelling the same code in the owning crate's
-///    `#[diagnostic(code(...))]` attribute. miette's `code(...)`
-///    takes a bareword path token, not a `&str`, so it cannot
-///    reference the constant here - that attribute is the
-///    canonical source and these constants mirror it by hand;
-/// 3. documenting the code's wording, when it fires, and the
-///    user action in the diagnostics docs.
+/// on.  The owning crate's `#[diagnostic(code(...))]`
+/// attribute is the canonical source - miette's `code(...)`
+/// takes a bareword path token, not a `&str`, so it cannot
+/// reference a constant - and this module hand-mirrors a
+/// constant only for the codes the CLI needs as a `&str`
+/// value (for [`CodedMessage`]).  Every code's wording, when
+/// it fires, and the user action belong in the diagnostics
+/// docs.
 pub mod code {
-    /// `cabin::workspace::manifest_not_found` - Cabin could
-    /// not find a `cabin.toml` at the user's cwd or the
-    /// requested `--manifest-path`.
-    pub const WORKSPACE_MANIFEST_NOT_FOUND: &str = "cabin::workspace::manifest_not_found";
-    /// `cabin::workspace::manifest_unreadable` - the manifest
-    /// exists but Cabin could not read it (permission
-    /// denied, is a directory, …).
-    pub const WORKSPACE_MANIFEST_UNREADABLE: &str = "cabin::workspace::manifest_unreadable";
-    /// `cabin::workspace::load_failed` - fallback for
-    /// workspace-load failures that do not have a more
-    /// specific code.
-    pub const WORKSPACE_LOAD_FAILED: &str = "cabin::workspace::load_failed";
-    /// `cabin::manifest::parse_error` - the manifest exists
-    /// and is readable, but the TOML is syntactically
-    /// invalid.
-    pub const MANIFEST_PARSE_ERROR: &str = "cabin::manifest::parse_error";
     /// `cabin::config::load_failed` - fallback for config
     /// discovery, read, parse, and validation failures.
     pub const CONFIG_LOAD_FAILED: &str = "cabin::config::load_failed";
@@ -108,13 +90,6 @@ pub mod code {
     /// while its manifest-derived `cflags` / `cxxflags` also
     /// pin one via `-std=` / `/std:`.
     pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
-    /// `cabin::language::interface_standard_contradiction` - a
-    /// target's declared interface minimum is newer than the
-    /// implementation standard its own sources compile with, so
-    /// its own translation units could not include its own
-    /// public headers.
-    pub const LANGUAGE_INTERFACE_STANDARD_CONTRADICTION: &str =
-        "cabin::language::interface_standard_contradiction";
     /// `cabin::language::standard_compat_violation` -
     /// post-resolution standard-compatibility check: a resolved
     /// dependency edge violates the standard-compatibility model of
