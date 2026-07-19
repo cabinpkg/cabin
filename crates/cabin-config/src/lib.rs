@@ -37,8 +37,7 @@ mod source;
 mod raw;
 
 pub use discovery::{
-    CABIN_CONFIG_ENV, CABIN_CONFIG_HOME_ENV, CABIN_NO_CONFIG_ENV, ConfigDiscovery,
-    ConfigDiscoveryInputs, EnvLookup, WorkspaceLayout, discover_config_files,
+    ConfigDiscovery, ConfigDiscoveryInputs, EnvLookup, WorkspaceLayout, discover_config_files,
 };
 pub use effective::{
     EffectiveBuild, EffectiveBuildJobs, EffectiveColor, EffectiveCompilerWrapper, EffectiveConfig,

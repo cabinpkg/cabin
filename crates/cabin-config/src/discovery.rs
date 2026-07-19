@@ -27,19 +27,6 @@ use crate::error::ConfigError;
 use crate::parse::parse_config_str;
 use crate::source::{ConfigSource, LoadedConfigFile};
 
-/// Environment variable that overrides the user config directory
-/// for tests and controlled environments.
-pub const CABIN_CONFIG_HOME_ENV: &str = cabin_env::CABIN_CONFIG_HOME;
-
-/// Environment variable that points at one explicit config file.
-/// When set to a non-empty value, normal discovery is skipped and
-/// only this file is loaded.
-pub const CABIN_CONFIG_ENV: &str = cabin_env::CABIN_CONFIG;
-
-/// Environment variable that, when set to `1`, disables every
-/// config file load.
-pub const CABIN_NO_CONFIG_ENV: &str = cabin_env::CABIN_NO_CONFIG;
-
 /// Workspace context discovery needs from the caller.  Cabin's
 /// workspace loader provides the same data via
 /// `cabin_workspace::PackageGraph` so the CLI builds this struct
@@ -141,14 +128,14 @@ pub struct ConfigDiscovery {
 pub fn discover_config_files(
     inputs: &ConfigDiscoveryInputs<'_>,
 ) -> Result<ConfigDiscovery, ConfigError> {
-    if env_flag_is_truthy(&inputs.env, CABIN_NO_CONFIG_ENV)? {
+    if env_flag_is_truthy(&inputs.env, cabin_env::CABIN_NO_CONFIG)? {
         return Ok(ConfigDiscovery {
             loaded_files: Vec::new(),
             disabled_by_env: true,
         });
     }
 
-    if let Some(value) = (inputs.env)(CABIN_CONFIG_ENV)
+    if let Some(value) = (inputs.env)(cabin_env::CABIN_CONFIG)
         && !value.is_empty()
     {
         let path = PathBuf::from(value);
@@ -238,7 +225,7 @@ fn read_optional(
 }
 
 fn locate_user_config(env: &EnvLookup<'_>, xdg_user_config_home: Option<&Path>) -> Option<PathBuf> {
-    if let Some(dir) = env(CABIN_CONFIG_HOME_ENV)
+    if let Some(dir) = env(cabin_env::CABIN_CONFIG_HOME)
         && !dir.is_empty()
     {
         return Some(PathBuf::from(dir).join("config.toml"));
