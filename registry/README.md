@@ -133,7 +133,7 @@ npx --yes wrangler@4.112.0 r2 bucket create cabin-registry-backup
 npx --yes wrangler@4.112.0 d1 migrations apply DB --remote
 npx --yes wrangler@4.112.0 deploy
 npx --yes wrangler@4.112.0 secret put GITHUB_CLIENT_SECRET
-npx --yes wrangler@4.112.0 secret put SESSION_SECRET
+openssl rand -base64 32 | npx --yes wrangler@4.112.0 secret put SESSION_SECRET
 ```
 
 The secrets back the GitHub sign-in flow ("Getting a token" above):

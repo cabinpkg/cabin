@@ -284,7 +284,9 @@ both targets are fixed relative paths, never derived from request input
   token is transient and sign-in reads only `/user`.)
 - Cookies (the short-lived OAuth `state` and the 8-hour session) are
   HMAC-signed values keyed by `SESSION_SECRET` with per-purpose domain
-  separation (`src/session.rs`); `HttpOnly; Secure; SameSite=Lax`, and
+  separation (`src/session.rs`); the Worker refuses a configured key shorter
+  than 32 bytes, matching the runbook's random-key provisioning command.
+  Cookies are `HttpOnly; Secure; SameSite=Lax`, and
   **host-only** - no `Domain` attribute, so registry subdomains can never
   receive the website origin's cookies. Paths are narrowed to where each
   cookie is read (`Path=/api/v1/user` for the session, `Path=/callback`

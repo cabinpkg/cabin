@@ -1255,7 +1255,14 @@ async fn user_record(db: &D1Database, github_id: i64) -> worker::Result<Option<U
 }
 
 fn session_secret(env: &Env) -> worker::Result<Vec<u8>> {
-    Ok(env.secret("SESSION_SECRET")?.to_string().into_bytes())
+    let secret = env.secret("SESSION_SECRET")?.to_string().into_bytes();
+    if !session::secret_has_minimum_length(&secret) {
+        return Err(worker::Error::RustError(format!(
+            "SESSION_SECRET must contain at least {} bytes",
+            session::MIN_SECRET_BYTES
+        )));
+    }
+    Ok(secret)
 }
 
 /// The JSON API's CSRF discipline ([`session::csrf_headers_ok`]).

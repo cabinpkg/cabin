@@ -27,6 +27,15 @@ pub const SESSION_COOKIE: &str = "cabin_session";
 pub const STATE_MAX_AGE_SECS: u64 = 600;
 /// Sessions last eight hours; signing in again is cheap.
 pub const SESSION_MAX_AGE_SECS: u64 = 8 * 60 * 60;
+/// Minimum configured HMAC key length. Provisioning generates 32 random
+/// bytes (base64-encoded); this catches truncated or placeholder secrets.
+pub const MIN_SECRET_BYTES: usize = 32;
+
+/// Whether a configured session secret meets the minimum key length.
+#[must_use]
+pub fn secret_has_minimum_length(secret: &[u8]) -> bool {
+    secret.len() >= MIN_SECRET_BYTES
+}
 
 /// A verified session: who, and until when. The numeric GitHub id names
 /// the external identity, resolved through the `identities` table to
@@ -177,6 +186,12 @@ mod tests {
         assert_eq!(open_state(SECRET, &sealed, 999), Some("a1b2c3".to_owned()));
         assert_eq!(open_state(SECRET, &sealed, 1_000), None);
         assert_eq!(open_state(SECRET, &sealed, 2_000), None);
+    }
+
+    #[test]
+    fn configured_secret_requires_at_least_32_bytes() {
+        assert!(!secret_has_minimum_length(&[0; MIN_SECRET_BYTES - 1]));
+        assert!(secret_has_minimum_length(&[0; MIN_SECRET_BYTES]));
     }
 
     #[test]

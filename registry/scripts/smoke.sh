@@ -401,7 +401,7 @@ fi
 cat >"$dev_vars" <<EOF
 CF_API_BASE="http://127.0.0.1:${mock_port}"
 D1_EXPORT_API_TOKEN="smoke-placeholder"
-SESSION_SECRET="smoke-session-secret"
+SESSION_SECRET="smoke-session-secret-not-for-production"
 ALLOWED_GITHUB_IDS="0,1"
 SERVICE_MODE_TTL_SECS="0"
 STATS_CACHE_TTL_SECS="0"
@@ -654,7 +654,7 @@ wcheck /healthz 404
 # a GitHub round trip.
 session_payload="0:$(($(date +%s) + 3600))"
 session_mac="$(printf 'session:%s' "$session_payload" |
-  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+  openssl dgst -sha256 -hmac "smoke-session-secret-not-for-production" | sed 's/^.* //')"
 session_cookie="cabin_session=${session_payload}.${session_mac}"
 
 # session_request <method> <path> <expected status> [curl args...];
@@ -686,7 +686,7 @@ step "a valid session whose identity row is gone answers 401 everywhere"
 # the same 401 as no session, never an empty listing or a 500.
 ghost_payload="1:$(($(date +%s) + 3600))"
 ghost_mac="$(printf 'session:%s' "$ghost_payload" |
-  openssl dgst -sha256 -hmac "smoke-session-secret" | sed 's/^.* //')"
+  openssl dgst -sha256 -hmac "smoke-session-secret-not-for-production" | sed 's/^.* //')"
 real_session_cookie="$session_cookie"
 session_cookie="cabin_session=${ghost_payload}.${ghost_mac}"
 session_request GET /api/v1/user 401
