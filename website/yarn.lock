@@ -100,6 +100,20 @@
     smol-toml "^1.6.0"
     unified "^11.0.5"
 
+"@astrojs/internal-helpers@0.10.1":
+  version "0.10.1"
+  resolved "https://registry.yarnpkg.com/@astrojs/internal-helpers/-/internal-helpers-0.10.1.tgz#3f96b64cf73d39199b1a70909de488a005c50776"
+  integrity sha512-5phcroT/vmOOrYuuAxtkbPixy5hePtlz9i8K4OeDv3dNK6/UQRuXPOSRTxIOBbUY5Sonw2UaxjbuVc43Mcir6Q==
+  dependencies:
+    "@types/hast" "^3.0.4"
+    "@types/mdast" "^4.0.4"
+    js-yaml "^4.1.1"
+    picomatch "^4.0.4"
+    retext-smartypants "^6.2.0"
+    shiki "^4.0.2"
+    smol-toml "^1.6.0"
+    unified "^11.0.5"
+
 "@astrojs/language-server@^2.16.7":
   version "2.16.7"
   resolved "https://registry.yarnpkg.com/@astrojs/language-server/-/language-server-2.16.7.tgz#4b6e7eb8243610fd578679a457d4e1ab59d5e118"
@@ -134,6 +148,29 @@
     github-slugger "^2.0.0"
     hast-util-from-html "^2.0.3"
     satteri "^0.9.1"
+
+"@astrojs/markdown-remark@^7.2.1":
+  version "7.2.1"
+  resolved "https://registry.yarnpkg.com/@astrojs/markdown-remark/-/markdown-remark-7.2.1.tgz#6aaaf44f0b44ad2fd051837e6ed3142ecd32e4c8"
+  integrity sha512-jPVNIqTvk+yKviikszv/Y1U4jGUSKpp/Nw48QZV4qjWgp70j4Lkq3lhSDRbWwCfgKvEyO9GHuVbV1dM2WYXy1w==
+  dependencies:
+    "@astrojs/internal-helpers" "0.10.1"
+    "@astrojs/prism" "4.0.2"
+    github-slugger "^2.0.0"
+    hast-util-from-html "^2.0.3"
+    hast-util-to-text "^4.0.2"
+    mdast-util-definitions "^6.0.0"
+    rehype-raw "^7.0.0"
+    rehype-stringify "^10.0.1"
+    remark-gfm "^4.0.1"
+    remark-parse "^11.0.0"
+    remark-rehype "^11.1.2"
+    remark-smartypants "^3.0.2"
+    unified "^11.0.5"
+    unist-util-remove-position "^5.0.0"
+    unist-util-visit "^5.1.0"
+    unist-util-visit-parents "^6.0.2"
+    vfile "^6.0.3"
 
 "@astrojs/prism@4.0.2":
   version "4.0.2"
