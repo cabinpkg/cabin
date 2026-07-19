@@ -3,7 +3,6 @@
 //! modules; keep this file thin.
 
 use std::cell::Cell;
-use std::fmt::Write as _;
 
 use serde::Deserialize;
 use worker::{
@@ -995,13 +994,7 @@ async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
         )?
         .dyn_into()?;
     let buffer = JsFuture::from(promise).await?;
-    Ok(Uint8Array::new(&buffer)
-        .to_vec()
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        }))
+    Ok(crate::auth::hex(&Uint8Array::new(&buffer).to_vec()))
 }
 
 async fn artifact_response(

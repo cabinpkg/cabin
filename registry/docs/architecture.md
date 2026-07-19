@@ -22,8 +22,8 @@ the service.
   update, and the artifact route deliberately keeps serving yanked
   versions so locked-in consumers keep building.
 - **Verified versions are immutable.** Every `versions` row carries a
-  verification status (`pending` | `verified` | `rejected`, migration
-  `0004`; see "The verification lifecycle"). Re-publishing
+  verification status (`pending` | `verified` | `rejected`; see "The
+  verification lifecycle"). Re-publishing
   byte-identical metadata (which embeds the archive checksum, so
   identical metadata means an identical archive) over a pending or
   verified row is an idempotent
@@ -351,8 +351,8 @@ refusal is one uniform redirect with no detail. A claim is
 **permanent**: an already-claimed scope refuses whoever asks - even an
 account that now controls the GitHub name - and there are no transfer
 or release endpoints; disputes are handled manually by the operator
-(direct D1 surgery; migration `0007` pins the role domain so a
-hand-run typo cannot orphan a scope). Because a claim only ever binds
+(direct D1 surgery; the schema pins the role domain so a hand-run
+typo cannot orphan a scope). Because a claim only ever binds
 a scope to the account that genuinely controls the same-named GitHub
 account, with that account's user as owner, a forced navigation to
 `/claim/<scope>` can at worst claim the victim's own name for the
@@ -525,9 +525,7 @@ gate, and the verdict body live in `src/verify.rs`.
   publish batch counts the sole-live-reference insert, rejection
   refunds it when the last live reference flips, and a replacement
   re-counts a re-uploaded blob. Per-user storage quotas and the usage
-  endpoint's stored sum exclude rejected rows the same way. Existing rows were
-  backfilled `verified` by migration `0004` (published by the sole
-  operator before the pipeline existed).
+  endpoint's stored sum exclude rejected rows the same way.
 
 Conformance is enforced from the monorepo: `scripts/gen-fixtures.sh` builds
 the in-tree `cabin` binary and packages real fixture pairs, which the
@@ -617,7 +615,7 @@ tests.
 ## Download counts
 
 Every served artifact download of a **verified** version increments
-`versions.downloads` (migration `0008`), best-effort, off the response
+`versions.downloads`, best-effort, off the response
 path (`ctx.wait_until`), scheduled only once the blob's body was
 actually acquired - a missing-blob 500 never counts, the verifier's
 pending fetches never count (the SQL guard repeats the verified
