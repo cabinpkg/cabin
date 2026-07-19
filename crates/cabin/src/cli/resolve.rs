@@ -7,7 +7,7 @@ use cabin_resolver::{LockedVersion, ResolveInput, ResolveOutput, ResolvedPackage
 use super::{
     ArtifactPipelineRequest, BTreeSet, Context, FetchArgs, LockMode, Reporter, ResolveArgs,
     ResolveFormat, Result, UpdateArgs, WorkspaceSelectionArgsForUpdate, absolutise, bail,
-    build_selection_request, build_workspace_selection, cache_dir_for,
+    build_selection_request, build_workspace_selection,
     closure_has_versioned_deps_excluding_patches, collect_closure_versioned_deps_excluding_patches,
     collect_patched_versioned_deps, compute_feature_resolution, emit_fetch_output, load_http_index,
     load_local_index, lock_mode_for_flags, lockfile_from_resolution, lockfile_path_for,
@@ -165,12 +165,7 @@ pub(super) fn fetch(
             &dev_for,
         )
     {
-        emit_fetch_output(
-            &[],
-            args.format,
-            &cache_dir_for(args.cache_dir.as_deref()).unwrap_or_default(),
-            &manifest_path,
-        )?;
+        emit_fetch_output(&[], args.format, &manifest_path)?;
         return Ok(());
     }
 
@@ -221,12 +216,7 @@ pub(super) fn fetch(
         experimental_features,
     })?;
 
-    emit_fetch_output(
-        &pipeline.fetched,
-        args.format,
-        &inputs.cache_dir,
-        &manifest_path,
-    )?;
+    emit_fetch_output(&pipeline.fetched, args.format, &manifest_path)?;
     Ok(())
 }
 

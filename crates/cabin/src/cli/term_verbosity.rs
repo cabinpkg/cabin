@@ -171,18 +171,6 @@ pub(crate) struct Reporter {
 }
 
 impl Reporter {
-    /// Build a reporter for the given verbosity, with styled
-    /// output disabled.  Callers that resolve a [`ColorChoice`]
-    /// should prefer [`Reporter::with_color`] so cargo-style
-    /// banners (`Compiling foo`, `Finished `dev` profile …`)
-    /// render in color when the user asked for it.
-    pub(crate) fn new(verbosity: Verbosity) -> Self {
-        Self {
-            verbosity,
-            styled: false,
-        }
-    }
-
     /// Build a reporter that emits styled status lines when the
     /// resolved [`ColorChoice`] says it should.  `Auto` is
     /// honored by probing whether the current stdout handle is
@@ -367,12 +355,6 @@ impl Reporter {
                 let _ = writeln!(handle, "{args}");
             }
         }
-    }
-}
-
-impl Default for Reporter {
-    fn default() -> Self {
-        Self::new(Verbosity::default())
     }
 }
 
