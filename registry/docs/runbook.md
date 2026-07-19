@@ -288,10 +288,12 @@ existing example of the pattern.
 ## Budget breaker and service mode
 
 The scheduled handler (cron, every 15 minutes) evaluates usage against the
-free-plan budgets and persists the result to `meta.service_mode`
-(`normal` | `warn` | `writes_blocked`) with a human-readable
-`meta.service_mode_reason` (`docs/architecture.md`, "Billing model and the
-budget breaker"). Inspect it:
+budgets and persists the result to `meta.service_mode`
+(`normal` | `warn` | `writes_blocked` | `reads_blocked`) with a
+human-readable `meta.service_mode_reason` (`docs/architecture.md`,
+"Billing model and the budget breaker"; `reads_blocked` is unreachable
+until a read budget is configured - see "Read budgets and paid-plan
+activation" below). Inspect it:
 
 ```sh
 npx wrangler d1 execute DB --remote --command \
@@ -325,6 +327,18 @@ Cloudflare free limit:
 | `BUDGET_R2_CLASS_A_MONTH` | 800,000 | 1,000,000 / month |
 | `BUDGET_WORKERS_REQ_DAY` | 80,000 | 100,000 / day |
 | `BUDGET_D1_ROWS_READ_DAY` | 4,000,000 | 5,000,000 / day |
+| `BUDGET_R2_CLASS_B_MONTH` | 8,000,000 (warn-only while unset) | 10,000,000 / month |
+
+`BUDGET_R2_CLASS_B_MONTH` is deliberately different from the others:
+while the var is **unset**, R2 Class B (read) operations are monitored
+against the built-in default and can raise `warn` but never a block -
+a write block cannot fix read-driven spend. **Setting** the var is the
+act that arms the read-side breaker: the configured value becomes the
+budget, and exhausting it moves the mode to `reads_blocked`, where
+authenticated data-plane reads answer `402` (the session plane, the
+public stats, the admin plane, and the verifier's config/artifact
+fetches keep working - `docs/architecture.md`). Do not set it before
+the activation procedure below.
 
 The storage budget counts primary (BLOBS) bytes only, but every blob is
 stored a second time in the backup bucket and the nightly dumps add
@@ -351,6 +365,47 @@ working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
 a JSON summary POST on every mode change.
+
+## Read budgets and paid-plan activation
+
+The read-side breaker (`reads_blocked`; `docs/architecture.md`, "Billing
+model and the budget breaker") ships as dormant infrastructure: fully
+implemented and tested, unreachable until `BUDGET_R2_CLASS_B_MONTH` is
+set. Arming it is a policy decision tied to leaving the free plan, in
+this order:
+
+1. **Plan acceptance.** The registry is accepted onto a sponsored/paid
+   Cloudflare plan (Project Alexandria) or funded paid usage.
+2. **Confirm the actually granted limits.** Read them off the account,
+   do not assume the application's numbers; budgets are raised only
+   after the grants are confirmed.
+3. **Derive read budgets conservatively** from the granted limits (or
+   from sustainable funding, whichever is smaller), per the sizing
+   rules below.
+4. **Set the `BUDGET_*` vars** in `wrangler.jsonc` and deploy. Setting
+   `BUDGET_R2_CLASS_B_MONTH` is what arms `reads_blocked`.
+5. **Monthly review.** Compare the cron's webhook/usage numbers against
+   the grants and adjust upward as growth justifies. Lowering an
+   established read budget is a community-visible event (CI installs
+   start hitting `402`) - avoid it; size conservatively at activation
+   instead.
+
+Sizing rules - the degrade-before-pay policy:
+
+- **Headroom covers detection latency.** A budget sits far enough below
+  the funded ceiling that the worst-case spend rate cannot cross the
+  remaining gap within the detection window (the 15-minute analytics
+  cron plus the Analytics API's own data lag). The analytics numbers
+  are a conservative usage signal, not billing measurements, which
+  argues for more headroom, not less.
+- **Storage fits the fallback tier.** Storage is a stock, not a flow:
+  the breaker can stop new bytes but cannot un-spend stored ones, so
+  the storage budget must always fit within the capacity of the tier
+  the registry would fall back to if the grant ended.
+- **No stored payment method on free/granted plans.** The breaker
+  closes the variable spend channels; the absent payment method closes
+  everything else. Adding one is part of the same deliberate activation
+  decision, never a convenience.
 
 ## Verification pipeline
 

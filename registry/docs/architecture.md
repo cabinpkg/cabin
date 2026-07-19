@@ -104,10 +104,10 @@ nothing more: sequential requests can walk the whole archive - the
 viewer needs exactly that, and a signed-in user could mint a token and
 download the artifact anyway - but no single request streams a 16 MiB
 blob. Responses carry the session plane's `Cache-Control: no-store`
-like every authenticated response. Like every read, the route never
-consults the service mode ("Billing model and the budget breaker" -
-reads fail open), and a source read is never a download ("Download
-counts").
+like every authenticated response. The route never consults the
+service mode - the session plane is exempt from the read-side budget
+gate ("Billing model and the budget breaker") - and a source read is
+never a download ("Download counts").
 
 **Search and reverse dependencies.** The dashboard's package search
 (`GET /api/v1/user/search?q=<term>`) and the package resource
@@ -471,9 +471,12 @@ gate, and the verdict body live in `src/verify.rs`.
   download their artifacts - the verifier has to fetch what it inspects.
   Rejected versions are served to no one.
 - **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>`,
-  scope `verify`, budget-gated like every write - the admin plane is
-  registry infrastructure, so it needs no scope membership): `verified`
-  stamps
+  scope `verify` - the admin plane is registry infrastructure, so it
+  needs no scope membership, and verdicts are deliberately exempt from
+  the budget breaker: a verdict stores no new bytes, a rejection frees
+  them, and verification must be able to drain the pending queue
+  whatever the service mode - "Billing model and the budget breaker"):
+  `verified` stamps
   `verified_at`; `rejected` records the reason, refunds the archive's
   bytes from `meta.total_stored_bytes` when the row was the checksum's
   sole live reference (decided inside the same transaction that flips
@@ -565,12 +568,17 @@ unauthenticated, per-package existence oracle with no consumer today.
 
 ## Billing model and the budget breaker
 
-The service runs on the Workers **free** plan on purpose. Workers requests
-and D1 fail closed on their own when the free limits are hit - without
-billing attached they cannot produce a bill. The only real billing exposure
-is R2 overage: storage and Class A (write/list) operations. The service
-therefore blocks itself gracefully *before* any Cloudflare limit or R2
-overage is reached, in two layers.
+The service runs on the Workers **free** plan today on purpose. Workers
+requests and D1 fail closed on their own when the free limits are hit -
+without billing attached they cannot produce a bill - so on the free plan
+the only real billing exposure is R2 overage: storage and Class A
+(write/list) operations. The expected move to a sponsored/paid plan
+(Project Alexandria) changes that calculus: a paid plan removes the
+platform's own fail-closed caps, and the read path - index reads and
+archive downloads, driven by CI - becomes an uncapped spend channel. The
+service therefore blocks itself gracefully *before* any Cloudflare limit
+or real spend is reached, in two layers, plus a read-side valve that
+stays dormant until an operator configures a read budget (below).
 
 **Per-user quotas** stop any single user from exhausting the shared free
 budget. Quota classes are quota tiers granted manually on need (in the
@@ -620,25 +628,70 @@ drift, and the counter can be recomputed from D1 alone if drift ever
 needs reconciling - every version row carries `archive_size`, one size
 per distinct live checksum (see [`runbook.md`](runbook.md), "Orphaned
 R2 blobs"). The other metrics (Workers requests/day, R2
-Class A operations/month, D1 rows read/day) come from the Cloudflare
-GraphQL Analytics API, queried by a cron pass every 15 minutes
+Class A operations/month, D1 rows read/day, R2 Class B (read)
+operations/month) come from the Cloudflare GraphQL Analytics API,
+queried by a cron pass every 15 minutes
 (`src/analytics.rs` holds the dataset names; a rejected dataset degrades to
 "metric unavailable", and partial data can escalate the mode but never
-de-escalate it - missing analytics never unblocks writes).
+de-escalate it - missing analytics never unblocks writes). Completeness
+is judged per plane: de-escalation at and below `writes_blocked` needs
+the four write-side metrics, and lifting `reads_blocked` needs the
+Class B metric (which counts only while the read breaker is armed -
+dormant, warn-only monitoring must not keep a stale `writes_blocked`
+pinned over a metric that could never have caused it). The planes are
+independent on purpose: a write-side analytics outage drops a
+`reads_blocked` whose read data proves recovery to `writes_blocked` and
+no further, while a read-side outage never reopens reads. The analytics
+numbers are a conservative usage signal, not billing measurements -
+Cloudflare documents them as approximate - which is one more reason the
+budgets sit well below the limits they guard.
 
-Degradation order: `normal` -> `warn` (any metric at 80% of budget) ->
-`writes_blocked` (any metric at budget). The mode and a human-readable
-reason live in `meta.service_mode` / `meta.service_mode_reason`; mode
-changes are logged and optionally POSTed to `NOTIFY_WEBHOOK_URL`. On the
-request path, publish and yank read the mode through an isolate-memory
-cache (~60 s TTL, one D1 point read on expiry; the smoke test pins
-`SERVICE_MODE_TTL_SECS` to 0 via `.dev.vars`) and answer
-`402 registry_over_budget` with `Retry-After` while blocked. Writes fail
-closed - an unreadable or unknown mode blocks them - while reads never
-gate on the mode, so they fail open and yanked-state and downloads
-keep working throughout an outage of the breaker itself (the deferred
-download-count write is the one mode consumer off the read path, and it
-runs after the response - "Download counts").
+Degradation order: `normal` -> `warn` (any metric at 80% of its budget)
+-> `writes_blocked` (a write-side metric at budget) -> `reads_blocked`
+(the configured read budget exhausted; strictly worse on the ladder, so
+writes stay blocked too). Each metric carries an escalation ceiling
+alongside its budget: the four write-side metrics escalate to
+`writes_blocked`, while R2 Class B - the read path's metric - is
+dormant monitoring by default. With `BUDGET_R2_CLASS_B_MONTH` unset it
+evaluates against a built-in 8,000,000 budget (80% of the 10M free
+limit) whose ceiling is `warn` and no higher: a write block cannot fix
+read-driven spend, so escalating a read-driven metric to
+`writes_blocked` would be incoherent. Setting the env var is the
+deliberate act that makes `reads_blocked` reachable at all
+([`runbook.md`](runbook.md), "Read budgets and paid-plan activation").
+The mode and a human-readable reason live in `meta.service_mode` /
+`meta.service_mode_reason`; mode changes are logged and optionally
+POSTed to `NOTIFY_WEBHOOK_URL`. On the request path publish, yank, and
+the read gate below share one isolate-memory mode cache (~60 s TTL, one
+D1 point read on expiry; the smoke test pins `SERVICE_MODE_TTL_SECS` to
+0 via `.dev.vars`); publish and yank answer `402 registry_over_budget`
+with `Retry-After` at `writes_blocked` and above, and fail closed - an
+unreadable or unknown mode blocks them.
+
+**Reads gate only on an affirmatively read `reads_blocked`** - a
+recorded revision (2026-07-18) of the original principle that reads
+never consult the mode. The paid-plan read path has no platform-level
+spend cap, so the valve has to exist; the fail semantics stay
+asymmetric on purpose. A missing, unreadable, or unknown mode, a failed
+cache fill, or any error on the mode lookup leaves reads serving
+exactly as before, so yanked-state and downloads keep working
+throughout an outage of the breaker itself (the deferred download-count
+write is the one mode consumer off the read path; it follows the write
+plane's fail-closed rule and runs after the response - "Download
+counts"). The gate covers the Bearer data plane only (`/config.json`,
+`/packages/*`, `/artifacts/*`), runs **after** Bearer validation - the
+uniform 401 stays byte-identical, so unauthenticated callers cannot
+observe service state - and answers the same envelope:
+`402 registry_over_budget` with `Retry-After`. Exempt from the gate:
+`/healthz`, the public `/api/v1/stats`, the entire session plane (the
+dashboard is where the operator and users see what is happening while
+blocked), the admin plane, and the verifier's `config.json` and
+artifact fetches (never the package documents, which it does not
+read) - verification must be able to drain the pending queue while
+reads are blocked, and its spend is negligible. For the same reason
+the admin verdict is exempt from the budget gates entirely: a verdict
+stores no new bytes and a rejection frees them ("The verification
+lifecycle").
 
 ## Backups
 
