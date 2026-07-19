@@ -47,6 +47,7 @@ jobs:
           # verifier's caps; unset variables arrive as empty strings,
           # which the verifier treats as "use the default".
           REGISTRY_ORIGIN: ${{ vars.REGISTRY_VERIFY_ORIGIN || 'https://registry.cabinpkg.com' }}
+          EXPECTED_API_ORIGIN: ${{ vars.REGISTRY_VERIFY_API_ORIGIN || 'https://cabinpkg.com' }}
           VERIFY_RATIO_CAP: ${{ vars.VERIFY_RATIO_CAP }}
           VERIFY_ABS_CAP_BYTES: ${{ vars.VERIFY_ABS_CAP_BYTES }}
           VERIFY_MAX_ENTRIES: ${{ vars.VERIFY_MAX_ENTRIES }}
@@ -65,6 +66,10 @@ jobs:
             https://*) ;;
             *) echo "REGISTRY_ORIGIN must be https, got: $REGISTRY_ORIGIN" >&2; exit 1 ;;
           esac
+          case "$EXPECTED_API_ORIGIN" in
+            https://*) ;;
+            *) echo "EXPECTED_API_ORIGIN must be https, got: $EXPECTED_API_ORIGIN" >&2; exit 1 ;;
+          esac
 
           # One hostname, one role: the index origin serves config.json
           # and the artifacts; the admin API lives on the `api` origin
@@ -73,10 +78,10 @@ jobs:
           config=$(curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
             "$REGISTRY_ORIGIN/config.json")
           api_origin=$(jq -er '.api' <<<"$config")
-          case "$api_origin" in
-            https://*) ;;
-            *) echo "config.json api must be https, got: $api_origin" >&2; exit 1 ;;
-          esac
+          if [ "$api_origin" != "$EXPECTED_API_ORIGIN" ]; then
+            echo "config.json api does not match the pinned verifier API origin" >&2
+            exit 1
+          fi
 
           list=$(curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
             "$api_origin/api/v1/admin/versions?status=pending")

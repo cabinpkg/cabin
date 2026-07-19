@@ -509,10 +509,11 @@ tuning:
 
 `REGISTRY_VERIFY_ORIGIN` (also a repository variable) selects the
 registry to verify - the **index** origin, defaulting to
-`https://registry.cabinpkg.com`. The workflow reads that index's
-`config.json` and sends the admin listing and verdicts to the `api`
-origin it declares (the website origin), while artifact downloads stay
-on the index origin.
+`https://registry.cabinpkg.com`. `REGISTRY_VERIFY_API_ORIGIN` selects the
+expected API origin, defaulting to `https://cabinpkg.com`. The workflow
+requires the index's `config.json` to declare that exact API origin before
+it sends the verify token there; artifact downloads stay on the index
+origin. Set both variables together when targeting a different deployment.
 
 ## Disaster recovery
 

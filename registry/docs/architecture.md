@@ -517,7 +517,10 @@ gate, and the verdict body live in `src/verify.rs`.
   token API like `publish` and `yank`: every allowlisted user is
   currently an operator. A dedicated verifier-only issuance path
   is deliberate future work for when sign-up opens beyond the
-  allowlist.
+  allowlist. The external workflow pins the expected API origin
+  independently and requires `config.json` to match it before sending the
+  verify token, so registry-controlled discovery cannot redirect that
+  credential to another host.
 - **Fail-safe direction.** Nothing becomes resolvable unless its status
   is exactly `verified`: a verifier that never runs, an unreadable
   status value, or a broken admin plane can only keep content
