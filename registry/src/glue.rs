@@ -258,10 +258,11 @@ async fn handle_website(
     };
 
     let mut response = match req.method() {
-        // The admin listing is the one API route read with GET; anything
-        // else is an authenticated 404.
+        // The admin listings are the only API routes read with GET;
+        // anything else is an authenticated 404.
         Method::Get => match match_api_route(path) {
             Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
+            Some(ApiRoute::AdminPackages) => admin_packages_response(&db, &auth).await?,
             _ => error_response(404, error::NOT_FOUND)?,
         },
         Method::Put => match match_api_route(path) {
@@ -275,7 +276,10 @@ async fn handle_website(
                 publish_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
             }
             Some(
-                ApiRoute::Yank { .. } | ApiRoute::AdminVersions | ApiRoute::AdminVerdict { .. },
+                ApiRoute::Yank { .. }
+                | ApiRoute::AdminVersions
+                | ApiRoute::AdminPackages
+                | ApiRoute::AdminVerdict { .. },
             ) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
@@ -298,7 +302,7 @@ async fn handle_website(
                     (scope.to_owned(), name.to_owned(), version.to_owned());
                 verdict_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
-            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions) => {
+            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions | ApiRoute::AdminPackages) => {
                 error_response(405, error::METHOD_NOT_ALLOWED)?
             }
             None => error_response(404, error::NOT_FOUND)?,
@@ -732,6 +736,36 @@ async fn admin_versions_response(
         }));
     }
     json_response(&serde_json::json!({ "versions": versions }).to_string())
+}
+
+#[derive(Deserialize)]
+struct AdminPackageRecord {
+    scope: String,
+    name: String,
+    vetted: i64,
+}
+
+/// `GET /api/v1/admin/packages` (`verify` scope): the corpus for the
+/// verifier's name advisories (`docs/architecture.md`, "Name
+/// fidelity"). Admin infrastructure like the versions listing: no
+/// scope membership, and deliberately not budget-gated - the
+/// verification pipeline must be able to drain the pending queue
+/// whatever the service mode.
+async fn admin_packages_response(db: &D1Database, auth: &AuthContext) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let records: Vec<AdminPackageRecord> =
+        db.prepare(sql::ADMIN_PACKAGES).all().await?.results()?;
+    let packages: Vec<verify::CorpusPackage> = records
+        .into_iter()
+        .map(|record| verify::CorpusPackage {
+            scope: record.scope,
+            name: record.name,
+            vetted: record.vetted != 0,
+        })
+        .collect();
+    json_response(&verify::packages_json(&packages))
 }
 
 #[derive(Deserialize)]
