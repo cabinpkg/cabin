@@ -145,6 +145,7 @@ list of generated / dependency / VCS artifacts:
 | `compile_commands.json` | Generated tooling index. |
 | `build.ninja` | Generated Ninja build file. |
 | `cabin.lock` | Generated lockfile. |
+| `credentials.toml` | Cabin registry bearer credentials. This filename is matched case-insensitively and excluded anywhere in the tree, including when `CABIN_CONFIG_HOME` points inside a package root. |
 
 Cabin matches directory names anywhere in the tree.  Nested submodules and build trees stay out of
 the archive.

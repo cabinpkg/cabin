@@ -308,6 +308,8 @@ document shaped like a future registry's `<package>.json` version entry.  The cr
 - not invoke C/C++ compilers;
 - not implement networking;
 - reject path dependencies (path deps are not publishable);
+- exclude `credentials.toml` case-insensitively anywhere in the source tree, so overriding
+  `CABIN_CONFIG_HOME` into a package can never publish a registry token;
 - refuse to overwrite an on-disk archive whose bytes differ from what the current run would produce
   - identical bytes succeed silently.
 
