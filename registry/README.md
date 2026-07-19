@@ -102,7 +102,8 @@ artifact checksum) -
 and the verification lifecycle (pending -> verify -> resolvable with a
 verify-scoped token, plus the reject -> reclaim -> refund -> republish
 flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
-and Node (for `npx wrangler`); `worker-build` installs itself on first build.
+and Node (for the pinned `npx --yes wrangler@4.112.0`); `worker-build`
+installs itself on first build.
 
 `scripts/gen-fixtures.sh <dir>` builds the in-tree `cabin` binary and
 packages real archive + canonical-metadata pairs; the `#[ignore]`d
@@ -126,13 +127,13 @@ id and the database id - both public identifiers, not secrets; fill
 `database_id` after creating the database):
 
 ```sh
-npx wrangler d1 create cabin-registry
-npx wrangler r2 bucket create cabin-registry-blobs
-npx wrangler r2 bucket create cabin-registry-backup
-npx wrangler d1 migrations apply DB --remote
-npx wrangler deploy
-npx wrangler secret put GITHUB_CLIENT_SECRET
-npx wrangler secret put SESSION_SECRET
+npx --yes wrangler@4.112.0 d1 create cabin-registry
+npx --yes wrangler@4.112.0 r2 bucket create cabin-registry-blobs
+npx --yes wrangler@4.112.0 r2 bucket create cabin-registry-backup
+npx --yes wrangler@4.112.0 d1 migrations apply DB --remote
+npx --yes wrangler@4.112.0 deploy
+npx --yes wrangler@4.112.0 secret put GITHUB_CLIENT_SECRET
+npx --yes wrangler@4.112.0 secret put SESSION_SECRET
 ```
 
 The secrets back the GitHub sign-in flow ("Getting a token" above):

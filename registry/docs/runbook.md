@@ -104,8 +104,8 @@ registry Worker while the gate runs - accepted pre-launch (private
 alpha), with no legacy-field fallbacks in the frontend. A red gate
 leaves the previous Worker serving. A red deploy job may or may not
 have activated the new version (`wrangler deploy` can fail after
-activation), so check `npx wrangler deployments list` and run the
-smoke checks below; `npx wrangler deploy` from this directory stays
+activation), so check `npx --yes wrangler@4.112.0 deployments list` and run
+the smoke checks below; `npx --yes wrangler@4.112.0 deploy` from this directory stays
 the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason the
@@ -154,20 +154,20 @@ the nightly dump (plus the optional `NOTIFY_WEBHOOK_URL`; see "Budget
 breaker and service mode" and "Disaster recovery").
 
 ```sh
-npx wrangler d1 create cabin-registry
+npx --yes wrangler@4.112.0 d1 create cabin-registry
 # copy the printed database_id into d1_databases AND vars.D1_DATABASE_ID
 # in wrangler.jsonc
-npx wrangler r2 bucket create cabin-registry-blobs
-npx wrangler r2 bucket create cabin-registry-backup
-npx wrangler d1 migrations apply DB --remote
-npx wrangler deploy
+npx --yes wrangler@4.112.0 r2 bucket create cabin-registry-blobs
+npx --yes wrangler@4.112.0 r2 bucket create cabin-registry-backup
+npx --yes wrangler@4.112.0 d1 migrations apply DB --remote
+npx --yes wrangler@4.112.0 deploy
 # deploy creates the registry.cabinpkg.com custom domain and its DNS
 # record on the cabinpkg.com zone; deploy first so the secret puts below
 # attach to a deployed Worker instead of prompting to create a draft.
-printf '%s' "$GITHUB_CLIENT_SECRET" | npx wrangler secret put GITHUB_CLIENT_SECRET
-openssl rand -base64 32 | npx wrangler secret put SESSION_SECRET
-printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN
-printf '%s' "$D1_EXPORT_API_TOKEN" | npx wrangler secret put D1_EXPORT_API_TOKEN
+printf '%s' "$GITHUB_CLIENT_SECRET" | npx --yes wrangler@4.112.0 secret put GITHUB_CLIENT_SECRET
+openssl rand -base64 32 | npx --yes wrangler@4.112.0 secret put SESSION_SECRET
+printf '%s' "$ANALYTICS_API_TOKEN" | npx --yes wrangler@4.112.0 secret put ANALYTICS_API_TOKEN
+printf '%s' "$D1_EXPORT_API_TOKEN" | npx --yes wrangler@4.112.0 secret put D1_EXPORT_API_TOKEN
 ```
 
 Idempotence: `d1 create` / `r2 bucket create` fail cleanly if the resource
@@ -257,7 +257,7 @@ ones. Launch is a data and policy event, in order:
 2. Flip the launch flag - once, by hand:
 
    ```sh
-   npx wrangler d1 execute DB --remote --command \
+   npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
      "UPDATE meta SET value = 'true' WHERE key = 'launched'"
    ```
 
@@ -297,7 +297,7 @@ until a read budget is configured - see "Read budgets and paid-plan
 activation" below). Inspect it:
 
 ```sh
-npx wrangler d1 execute DB --remote --command \
+npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
   "SELECT key, value FROM meta WHERE key IN
    ('service_mode', 'service_mode_reason', 'total_stored_bytes')"
 ```
@@ -306,7 +306,7 @@ Override it (for example to force-block writes during an incident, or to
 unblock after freeing storage):
 
 ```sh
-npx wrangler d1 execute DB --remote --command \
+npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
   "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
 ```
 
@@ -356,7 +356,7 @@ Tokens -> Create Token -> Custom token). It reads aggregate usage numbers
 and nothing else.
 
 ```sh
-printf '%s' "$ANALYTICS_API_TOKEN" | npx wrangler secret put ANALYTICS_API_TOKEN
+printf '%s' "$ANALYTICS_API_TOKEN" | npx --yes wrangler@4.112.0 secret put ANALYTICS_API_TOKEN
 ```
 
 To rotate it, create the replacement token first, run the `secret put`
@@ -586,8 +586,8 @@ list; each later option covers a case the earlier one cannot.
    planning an incident response). Restore is destructive and in-place:
 
    ```sh
-   npx wrangler d1 time-travel info cabin-registry
-   npx wrangler d1 time-travel restore cabin-registry --timestamp=<unix-ts>
+   npx --yes wrangler@4.112.0 d1 time-travel info cabin-registry
+   npx --yes wrangler@4.112.0 d1 time-travel restore cabin-registry --timestamp=<unix-ts>
    ```
 
    Blobs need nothing - R2 is untouched by a bad deploy, and archives

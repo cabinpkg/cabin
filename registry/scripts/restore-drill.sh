@@ -31,7 +31,7 @@ scratch="cabin-registry-drill"
 step() { printf '==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-wrangler() { npx --yes wrangler "$@"; }
+wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 # column <database-arg...> -- <sql> <column>: one value per line.
 column() {
