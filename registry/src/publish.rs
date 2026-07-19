@@ -56,6 +56,13 @@ pub const UNSUPPORTED_SCHEMA: &str = "unsupported metadata schema";
 pub const IDENTITY_MISMATCH: &str =
     "metadata name, version, or source path does not match the request URL";
 pub const INVALID_NAME: &str = "invalid package name";
+pub const RESERVED_NAME: &str = "package name is reserved";
+/// The deterministic anti-typosquat reject (`docs/architecture.md`,
+/// "Name fidelity"): rendered by the glue when a publish would create
+/// a new package whose name collides with a same-scope package under
+/// `-`/`_` folding.
+pub const NAME_TWIN_CONFLICT: &str =
+    "package name conflicts with an existing package in this scope (differs only in '-' vs '_')";
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
 pub const INVALID_DEPENDENCY_NAME: &str =
     "dependency keys in dependencies and dev-dependencies must be canonical <scope>/<name> names";
@@ -125,7 +132,8 @@ pub fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 /// fields rejected), schema, URL identity (the document's `name` is the
 /// full `<scope>/<name>`, and the archive path its `source` block
 /// implies embeds the scope twice - directory and filename), scope and
-/// name charsets, `SemVer`, dependency keys (the `dependencies` and
+/// name charsets, the reserved-name list (`crate::names`, package
+/// part only), `SemVer`, dependency keys (the `dependencies` and
 /// `dev-dependencies` maps key on canonical `<scope>/<name>` names -
 /// `system-dependencies` is exempt, its keys name system packages,
 /// not registry packages), `yanked`. The
@@ -165,6 +173,12 @@ pub fn validate_metadata(
     }
     if !is_valid_publish_name(url_scope, url_name) {
         return Err(INVALID_NAME);
+    }
+    // Only the package part: a reserved scope can never be claimed
+    // (the claim flow refuses it), so no token ever holds membership
+    // in one and the membership 403 answers first.
+    if crate::names::is_reserved(url_name) {
+        return Err(RESERVED_NAME);
     }
     if semver::Version::parse(url_version).is_err() {
         return Err(INVALID_VERSION);
@@ -469,6 +483,26 @@ mod tests {
             validate_metadata("fmtlib", "fmt", "1.0.0", yanked.as_bytes()).unwrap_err(),
             YANKED_AT_PUBLISH,
         );
+    }
+
+    #[test]
+    fn validate_metadata_rejects_reserved_package_names() {
+        for name in ["con", "nul", "com1", "lpt9", "cabin", "std", "core"] {
+            let body = metadata_json("fmtlib", name, "1.0.0");
+            assert_eq!(
+                validate_metadata("fmtlib", name, "1.0.0", body.as_bytes()).unwrap_err(),
+                RESERVED_NAME,
+                "name: {name:?}"
+            );
+        }
+        // Only the package part: a reserved scope cannot be claimed, so
+        // no membership can exist there and publish never sees it - the
+        // name check must not shadow that refusal path.
+        let body = metadata_json("con", "fmt", "1.0.0");
+        assert!(validate_metadata("con", "fmt", "1.0.0", body.as_bytes()).is_ok());
+        // Reserved stems match whole names, never prefixes.
+        let body = metadata_json("fmtlib", "console", "1.0.0");
+        assert!(validate_metadata("fmtlib", "console", "1.0.0", body.as_bytes()).is_ok());
     }
 
     #[test]

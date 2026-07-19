@@ -14,6 +14,7 @@ pub mod breaker;
 pub mod claim;
 pub mod documents;
 pub mod error;
+pub mod names;
 pub mod publish;
 pub mod quota;
 pub mod routes;

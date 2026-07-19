@@ -883,3 +883,221 @@ fn registry_stats_totals_are_verified_only_and_name_distinct() {
     assert_eq!(versions, 3, "the pending beta/pkg@1.0.0 must not count");
     assert_eq!(downloads, 14, "2 + 5 + 7; the pending row's 100 must not");
 }
+
+/// The `-`/`_` twin fold, its per-scope and self-exclusion rules, and
+/// the matching in-batch guards on the publish inserts are invisible
+/// to `prepare`, so they are executed here.
+#[test]
+fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    let twins = |scope: &str, name: &str| -> i64 {
+        conn.query_row(
+            sql::TWIN_PACKAGE_EXISTS,
+            rusqlite::params![scope, name],
+            |row| row.get(0),
+        )
+        .expect("twin count")
+    };
+    conn.execute(
+        "INSERT INTO packages (scope, name, created_at, created_by)
+           VALUES ('alpha', 'foo-bar', '2026-07-15T00:00:00.000Z', 1)",
+        [],
+    )
+    .expect("seed the twinnable package");
+    assert_eq!(twins("alpha", "foo_bar"), 1, "the fold sees the twin");
+    assert_eq!(twins("alpha", "foo-bar"), 0, "a name is not its own twin");
+    assert_eq!(
+        twins("alpha", "foobar"),
+        0,
+        "folding interchanges, never removes"
+    );
+    assert_eq!(twins("beta", "foo_bar"), 0, "the collision is per scope");
+
+    // The guarded inserts suppress a twin (both statements, zero
+    // changes), pass an unrelated name, and keep accepting the
+    // existing name itself - the self exclusion.
+    let insert_package = |scope: &str, name: &str| -> usize {
+        conn.execute(
+            sql::INSERT_PACKAGE,
+            rusqlite::params![scope, name, "2026-07-15T01:00:00.000Z", 1],
+        )
+        .expect("guarded package insert")
+    };
+    let insert_version = |scope: &str, name: &str, version: &str| -> usize {
+        conn.execute(
+            sql::INSERT_VERSION,
+            rusqlite::params![
+                scope,
+                name,
+                version,
+                "ee",
+                "{}",
+                "2026-07-15T01:00:00.000Z",
+                10,
+                1
+            ],
+        )
+        .expect("guarded version insert")
+    };
+    assert_eq!(insert_package("alpha", "foo_bar"), 0);
+    assert_eq!(insert_version("alpha", "foo_bar", "1.0.0"), 0);
+    assert_eq!(insert_package("alpha", "other"), 1);
+    assert_eq!(insert_version("alpha", "other", "1.0.0"), 1);
+    assert_eq!(
+        insert_package("alpha", "foo-bar"),
+        0,
+        "OR IGNORE on the existing row"
+    );
+    assert_eq!(insert_version("alpha", "foo-bar", "2.0.0"), 1);
+
+    // Legacy twins (possible only through operator surgery or restored
+    // data) keep receiving new versions: the twin policy gates package
+    // creation, and the version guard only requires its own package
+    // row.
+    conn.execute(
+        "INSERT INTO packages (scope, name, created_at, created_by)
+           VALUES ('alpha', 'foo_bar', '2026-07-15T00:00:00.000Z', 1)",
+        [],
+    )
+    .expect("seed the legacy twin directly");
+    assert_eq!(insert_version("alpha", "foo-bar", "3.0.0"), 1);
+    assert_eq!(insert_version("alpha", "foo_bar", "3.0.0"), 1);
+}
+
+/// The accounting statement's row-exists conjunct: a twin publish
+/// whose guarded inserts were suppressed must not re-count the racing
+/// winner's identical archive - invisible to `prepare`, so the losing
+/// batch's statements are executed here in order.
+#[test]
+fn a_suppressed_twin_batch_never_recounts_the_winners_blob() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let stored = |conn: &rusqlite::Connection| -> String {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored bytes")
+    };
+    let account = |scope: &str, name: &str, version: &str, checksum: &str, size: i64| {
+        conn.execute(
+            sql::COUNT_STORED_BYTES_ON_PUBLISH,
+            rusqlite::params![checksum, size, checksum, size, scope, name, version],
+        )
+        .expect("accounting upsert");
+    };
+
+    // The winner's batch: package + version land, the sole live
+    // reference to checksum 'ee' is the row just inserted, and its
+    // bytes are counted.
+    conn.execute(
+        sql::INSERT_PACKAGE,
+        rusqlite::params!["alpha", "foo-bar", "2026-07-15T01:00:00.000Z", 1],
+    )
+    .expect("winner package");
+    assert_eq!(
+        conn.execute(
+            sql::INSERT_VERSION,
+            rusqlite::params![
+                "alpha",
+                "foo-bar",
+                "1.0.0",
+                "ee",
+                "{}",
+                "2026-07-15T01:00:00.000Z",
+                40,
+                1
+            ],
+        )
+        .expect("winner version"),
+        1
+    );
+    account("alpha", "foo-bar", "1.0.0", "ee", 40);
+    assert_eq!(stored(&conn), "70", "30 seeded + the winner's 40");
+
+    // The loser's batch, same archive bytes: both inserts suppressed,
+    // and the accounting statement - which still sees exactly one live
+    // 'ee' reference - must not count the winner's bytes again.
+    assert_eq!(
+        conn.execute(
+            sql::INSERT_PACKAGE,
+            rusqlite::params!["alpha", "foo_bar", "2026-07-15T01:00:01.000Z", 1],
+        )
+        .expect("loser package"),
+        0
+    );
+    assert_eq!(
+        conn.execute(
+            sql::INSERT_VERSION,
+            rusqlite::params![
+                "alpha",
+                "foo_bar",
+                "1.0.0",
+                "ee",
+                "{}",
+                "2026-07-15T01:00:01.000Z",
+                40,
+                1
+            ],
+        )
+        .expect("loser version"),
+        0
+    );
+    account("alpha", "foo_bar", "1.0.0", "ee", 40);
+    assert_eq!(stored(&conn), "70", "the suppressed twin must add nothing");
+}
+
+/// The corpus listing's vetted flag and deterministic order are
+/// invisible to `prepare`, so they are executed here.
+#[test]
+fn admin_packages_reports_names_and_vetted_flags_deterministically() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // Only a verified version vets a name: alpha/pkg is vetted, the
+    // pending-only beta/pkg, the versionless beta/arc, and - the load-
+    // bearing case - the rejected-only alpha/zed are not (a rejection
+    // never vets a name, or rejecting an abstained squat would exempt
+    // that same name's next version from the advisories).
+    conn.execute_batch(
+        "INSERT INTO packages (scope, name, created_at, created_by)
+           VALUES ('alpha', 'zed', '2026-07-15T00:00:00.000Z', 1),
+                  ('beta', 'arc', '2026-07-15T00:00:00.000Z', 1);
+         INSERT INTO versions (scope, name, version, checksum, metadata_json,
+                               published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'zed', '1.0.0', 'ff', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'rejected');",
+    )
+    .expect("seed the rejected-only and versionless packages");
+
+    let mut statement = conn.prepare(sql::ADMIN_PACKAGES).expect("prepare corpus");
+    let rows: Vec<(String, String, i64)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("run corpus")
+        .collect::<Result<_, _>>()
+        .expect("corpus rows");
+    assert_eq!(
+        rows,
+        [
+            ("alpha".to_owned(), "pkg".to_owned(), 1),
+            ("alpha".to_owned(), "zed".to_owned(), 0),
+            ("beta".to_owned(), "arc".to_owned(), 0),
+            ("beta".to_owned(), "pkg".to_owned(), 0),
+        ]
+    );
+}
+
+/// The claim confusability read is a plain ordered name listing.
+#[test]
+fn scope_names_list_in_order() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let mut statement = conn.prepare(sql::LIST_SCOPE_NAMES).expect("prepare scopes");
+    let names: Vec<String> = statement
+        .query_map([], |row| row.get(0))
+        .expect("run scopes")
+        .collect::<Result<_, _>>()
+        .expect("scope names");
+    assert_eq!(names, ["alpha", "beta"]);
+}
