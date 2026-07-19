@@ -50,6 +50,7 @@ use thiserror::Error;
 
 mod consistency;
 mod limits;
+pub mod names;
 mod scan;
 
 pub use limits::{Limits, LimitsError, limits_from_env};
