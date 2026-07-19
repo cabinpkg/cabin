@@ -25,6 +25,10 @@
     // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
     // defaults (src/breaker.rs) and only need `vars` entries to override.
+    // BUDGET_R2_CLASS_B_MONTH is different: unset, Class B is monitored
+    // against a warn-only default; setting it is what arms the read-side
+    // breaker (docs/runbook.md, "Read budgets and the paid-plan
+    // activation procedure") - do not set it before that procedure.
     // One Worker, one role per hostname (docs/architecture.md, "Origins
     // and roles"): the registry custom domain serves only the machine
     // read plane, and the website origin (cabinpkg.com) serves /login,

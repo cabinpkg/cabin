@@ -173,16 +173,39 @@ async fn handle_registry(
     };
 
     let mut response = if req.method() == Method::Get {
-        match route {
-            Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
-            Route::Package { scope, name } => package_response(&db, scope, name).await?,
-            Route::Artifact {
-                scope,
-                name,
-                version,
-            } => artifact_response(env, &db, ctx, &auth, scope, name, version).await?,
-            // Answered above before the auth gate.
-            Route::Healthz => Response::empty()?,
+        // The read-side budget gate (`docs/architecture.md`, "Billing
+        // model and the budget breaker"). After the Bearer gate, so
+        // unauthenticated callers cannot observe service state; inside
+        // the GET arm, so method discipline keeps its 405; and fail-open
+        // on the mode lookup (`.ok()`): only an affirmatively read
+        // `reads_blocked` refuses, so downloads keep working through an
+        // outage of the breaker itself. The verifier's fetches - the
+        // config it discovers the api origin from and the artifacts it
+        // inspects, never the package documents - are exempt: it must
+        // be able to drain the pending queue while reads are blocked,
+        // and its spend is negligible.
+        let verify_exempt =
+            has_verify_scope(&auth) && matches!(route, Route::Config | Route::Artifact { .. });
+        let mode = service_mode(env, &db).await.ok();
+        if breaker::read_gate_refuses(mode, verify_exempt) {
+            error_response_with_code(
+                402,
+                breaker::OVER_BUDGET_READS_DETAIL,
+                breaker::OVER_BUDGET_CODE,
+                Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),
+            )?
+        } else {
+            match route {
+                Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
+                Route::Package { scope, name } => package_response(&db, scope, name).await?,
+                Route::Artifact {
+                    scope,
+                    name,
+                    version,
+                } => artifact_response(env, &db, ctx, &auth, scope, name, version).await?,
+                // Answered above before the auth gate.
+                Route::Healthz => Response::empty()?,
+            }
         }
     } else {
         error_response(405, error::METHOD_NOT_ALLOWED)?
@@ -569,7 +592,7 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// (`docs/remote-registry.md`, "Yank"): idempotent, and the row's
 /// `yanked` column is the single home of yank state - the read path
 /// overrides the stored metadata's field from it. Gated by the budget
-/// breaker (`402`) like every write; yank has no rate limit or quota.
+/// breaker (`402`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
 /// under a foreign scope. Yank applies to **verified** versions only: a
@@ -716,9 +739,14 @@ struct VerdictTargetRecord {
 /// the archive's bytes from the storage self-accounting when the row
 /// was the blob's sole live reference (decided inside the same
 /// transaction that flips the row, so a duplicate concurrent verdict
-/// cannot refund twice), and then reclaims the blob itself. Gated by
-/// the budget breaker like every write. The response reports the
-/// resulting state plus whether this request changed it.
+/// cannot refund twice), and then reclaims the blob itself.
+/// Deliberately **not** gated by the budget breaker, unlike publish
+/// and yank: a verdict stores no new bytes (a rejection frees them),
+/// so blocking it would only stall the pending queue - verification
+/// must be able to drain it whatever the service mode
+/// (`docs/architecture.md`, "Billing model and the budget breaker").
+/// The response reports the resulting state plus whether this request
+/// changed it.
 async fn verdict_response(
     req: &mut Request,
     env: &Env,
@@ -728,9 +756,6 @@ async fn verdict_response(
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    if let Some(blocked) = write_gate(env, db).await? {
-        return Ok(blocked);
-    }
     if !has_verify_scope(auth) {
         return error_response(403, error::VERIFY_SCOPE_REQUIRED);
     }
@@ -1019,7 +1044,7 @@ fn count_download(
                 .unwrap_or(breaker::Mode::WritesBlocked),
             Err(_) => breaker::Mode::WritesBlocked,
         };
-        if mode == breaker::Mode::WritesBlocked {
+        if mode >= breaker::Mode::WritesBlocked {
             return;
         }
         if let Err(err) = update.run().await {
@@ -1563,15 +1588,18 @@ thread_local! {
 
 const SERVICE_MODE_TTL_SECS: f64 = 60.0;
 
-/// The service mode for the write routes, cached in isolate memory for
-/// ~60 s (one cheap D1 point read on expiry; the `SERVICE_MODE_TTL_SECS`
-/// env var overrides the TTL, and the smoke test pins it to 0 via
-/// `.dev.vars` so it can flip modes without waiting it out). Fail closed: a missing or unknown
-/// `meta.service_mode` is `WritesBlocked`, and a D1 failure propagates
-/// into the caller's 500. No read-route response path calls this - reads
-/// fail open by construction; the one off-path consumer is
-/// [`count_download`]'s deferred task, where any failure only skips a
-/// telemetry increment, never a response.
+/// The service mode, cached in isolate memory for ~60 s (one cheap D1
+/// point read on expiry; the `SERVICE_MODE_TTL_SECS` env var overrides
+/// the TTL, and the smoke test pins it to 0 via `.dev.vars` so it can
+/// flip modes without waiting it out). The fail direction is the
+/// caller's: writes fail closed - a missing or unknown
+/// `meta.service_mode` parses to `WritesBlocked` here, and a D1 failure
+/// propagates into [`write_gate`]'s 500 - while the read gate drops the
+/// error with `.ok()` and refuses only on an affirmatively read
+/// `ReadsBlocked` (`breaker::read_gate_refuses`), which the fail-closed
+/// parse can never produce. [`count_download`]'s deferred task follows
+/// the write direction, where any failure only skips a telemetry
+/// increment, never a response.
 async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mode> {
     let now_ms = now_epoch_ms();
     if let Some((mode, expires_at_ms)) = MODE_CACHE.with(Cell::get)
@@ -1594,8 +1622,10 @@ async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mod
 
 /// `Some(402)` when the budget breaker has writes blocked
 /// (`docs/architecture.md`, "Billing model and the budget breaker").
+/// `>=`, not `==`: `reads_blocked` sits above `writes_blocked` on the
+/// ladder and blocks writes too.
 async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
-    if service_mode(env, db).await? == breaker::Mode::WritesBlocked {
+    if service_mode(env, db).await? >= breaker::Mode::WritesBlocked {
         return Ok(Some(error_response_with_code(
             402,
             breaker::OVER_BUDGET_DETAIL,
@@ -1649,6 +1679,7 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
 
 /// One usage snapshot: the exact self-accounted storage plus the
 /// analytics-sourced metrics.
+#[allow(clippy::similar_names)] // r2_class_{a,b}_month mirror the Usage fields
 async fn gather_usage(env: &Env, db: &D1Database, now: &str) -> worker::Result<breaker::Usage> {
     // Storage is the exact self-accounted meta row, never analytics. A
     // missing or non-numeric row is unavailable data - never zero - so a
@@ -1703,12 +1734,25 @@ async fn gather_usage(env: &Env, db: &D1Database, now: &str) -> worker::Result<b
         }
         None => None,
     };
+    let r2_class_b_month = match analytics::utc_month_start(now) {
+        Some(start) => {
+            fetch_metric(
+                env,
+                analytics::r2_class_b_query(&account, &start),
+                analytics::R2_DATASET,
+                "requests",
+            )
+            .await
+        }
+        None => None,
+    };
 
     Ok(breaker::Usage {
         stored_bytes,
         workers_requests_today,
         r2_class_a_month,
         d1_rows_read_today,
+        r2_class_b_month,
     })
 }
 
@@ -1718,6 +1762,25 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
 
     let usage = gather_usage(env, &db, &now).await?;
     let defaults = breaker::Budgets::default();
+    // Presence arms `reads_blocked`: an operator who set
+    // BUDGET_R2_CLASS_B_MONTH meant to cap read spend, so a value that
+    // does not parse still arms the breaker - loudly, at the built-in
+    // default budget - rather than silently reverting to warn-only
+    // monitoring, which on a paid plan would be uncapped spend behind a
+    // typo.
+    let r2_class_b_env: Option<u64> = env
+        .var("BUDGET_R2_CLASS_B_MONTH")
+        .ok()
+        .map(|var| var.to_string())
+        .map(|value| {
+            value.parse().unwrap_or_else(|_| {
+                console_error!(
+                    "BUDGET_R2_CLASS_B_MONTH is not a number ({value}); \
+                     keeping the read breaker armed with the default budget"
+                );
+                defaults.r2_class_b_month
+            })
+        });
     let budgets = breaker::Budgets {
         r2_storage_bytes: env_budget(env, "BUDGET_R2_STORAGE_BYTES", defaults.r2_storage_bytes),
         r2_class_a_month: env_budget(env, "BUDGET_R2_CLASS_A_MONTH", defaults.r2_class_a_month),
@@ -1727,6 +1790,12 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
             defaults.workers_requests_day,
         ),
         d1_rows_read_day: env_budget(env, "BUDGET_D1_ROWS_READ_DAY", defaults.d1_rows_read_day),
+        r2_class_b_month: r2_class_b_env.unwrap_or(defaults.r2_class_b_month),
+        r2_class_b_ceiling: if r2_class_b_env.is_some() {
+            breaker::Mode::ReadsBlocked
+        } else {
+            defaults.r2_class_b_ceiling
+        },
     };
 
     let (candidate, reason) = breaker::evaluate(&usage, &budgets);
@@ -1738,7 +1807,12 @@ async fn evaluate_budgets(env: &Env) -> worker::Result<()> {
         .await?
         .and_then(|value| breaker::Mode::parse(&value))
         .unwrap_or(breaker::Mode::WritesBlocked);
-    let next = breaker::next_mode(current, candidate, usage.complete());
+    let next = breaker::next_mode(
+        current,
+        candidate,
+        usage.write_complete(),
+        usage.read_complete(budgets.r2_class_b_ceiling == breaker::Mode::ReadsBlocked),
+    );
     let reason = if next == candidate {
         reason
     } else {
@@ -1921,6 +1995,7 @@ async fn notify_webhook(
         "workers_requests_today": usage.workers_requests_today,
         "r2_class_a_month": usage.r2_class_a_month,
         "d1_rows_read_today": usage.d1_rows_read_today,
+        "r2_class_b_month": usage.r2_class_b_month,
         "backup": {
             "last_backup_at": health.last_backup_at,
             "freshness": health.freshness.as_str(),

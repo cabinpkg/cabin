@@ -797,8 +797,9 @@ struct SourceVersionRecord {
 /// [`source::MAX_RANGE_BYTES`] (`416` otherwise), and resolved against
 /// the row's stored archive size before R2 is consulted, so R2 never
 /// sees an unsatisfiable range. A source read is never counted as a
-/// download and never consults the service mode: it is a read, and
-/// reads fail open (`docs/architecture.md`, "Download counts").
+/// download and never consults the service mode: the session plane is
+/// exempt from the read-side budget gate (`docs/architecture.md`,
+/// "Billing model and the budget breaker").
 async fn package_source(
     req: &Request,
     env: &Env,

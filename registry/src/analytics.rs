@@ -20,9 +20,7 @@ pub const R2_DATASET: &str = "r2OperationsAdaptiveGroups";
 /// D1 query analytics, summed as `sum.rowsRead`.
 pub const D1_DATASET: &str = "d1AnalyticsAdaptiveGroups";
 
-/// The R2 action types billed as Class A operations - the only R2 ops
-/// with real overage exposure. Class B (reads) is not budgeted: its free
-/// allowance is 10x larger and the read path is D1-gated anyway.
+/// The R2 action types billed as Class A (write/list) operations.
 pub const R2_CLASS_A_ACTIONS: &[&str] = &[
     "ListBuckets",
     "PutBucket",
@@ -35,6 +33,22 @@ pub const R2_CLASS_A_ACTIONS: &[&str] = &[
     "UploadPart",
     "UploadPartCopy",
     "LifecycleStorageTierTransition",
+];
+
+/// The R2 action types billed as Class B (read) operations, per the R2
+/// pricing docs; the artifact route's `GetObject` dominates here. The
+/// free allowance is 10x Class A's, so the matching budget defaults to
+/// warn-only visibility (`src/breaker.rs`,
+/// [`crate::breaker::Budgets::r2_class_b_ceiling`]).
+pub const R2_CLASS_B_ACTIONS: &[&str] = &[
+    "HeadBucket",
+    "HeadObject",
+    "GetObject",
+    "UsageSummary",
+    "GetBucketEncryption",
+    "GetBucketLocation",
+    "GetBucketCors",
+    "GetBucketLifecycleConfiguration",
 ];
 
 /// Guards values interpolated into a GraphQL document: account tags are
@@ -72,8 +86,21 @@ pub fn workers_requests_query(account: &str, day_start_iso: &str) -> Option<Stri
 
 /// POST body for this calendar month's Class A R2 operation count.
 pub fn r2_class_a_query(account: &str, month_start_iso: &str) -> Option<String> {
+    r2_operations_query(account, month_start_iso, R2_CLASS_A_ACTIONS)
+}
+
+/// POST body for this calendar month's Class B R2 operation count.
+pub fn r2_class_b_query(account: &str, month_start_iso: &str) -> Option<String> {
+    r2_operations_query(account, month_start_iso, R2_CLASS_B_ACTIONS)
+}
+
+fn r2_operations_query(
+    account: &str,
+    month_start_iso: &str,
+    action_types: &[&str],
+) -> Option<String> {
     (graphql_safe(account) && graphql_safe(month_start_iso)).then(|| {
-        let actions = R2_CLASS_A_ACTIONS
+        let actions = action_types
             .iter()
             .map(|action| format!("\"{action}\""))
             .collect::<Vec<_>>()
@@ -179,6 +206,11 @@ mod tests {
         assert!(body.contains(r#"\"PutObject\""#), "body: {body}");
         assert!(!body.contains("GetObject"), "body: {body}");
 
+        let body = r2_class_b_query("abc123", "2026-07-01T00:00:00Z").unwrap();
+        assert!(body.contains(R2_DATASET), "body: {body}");
+        assert!(body.contains(r#"\"GetObject\""#), "body: {body}");
+        assert!(!body.contains("PutObject"), "body: {body}");
+
         let body = d1_rows_read_query("abc123", "2026-07-09").unwrap();
         assert!(body.contains(D1_DATASET), "body: {body}");
         assert!(body.contains("rowsRead"), "body: {body}");
@@ -192,6 +224,7 @@ mod tests {
                 None
             );
             assert_eq!(r2_class_a_query("abc", hostile), None);
+            assert_eq!(r2_class_b_query("abc", hostile), None);
             assert_eq!(d1_rows_read_query(hostile, "2026-07-09"), None);
         }
     }
