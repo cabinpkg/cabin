@@ -1,5 +1,16 @@
 use thiserror::Error;
 
+/// Append the registry's `Retry-After` seconds to the over-budget
+/// message when the response carried a usable value, mirroring the
+/// publish-side rendering in `cabin-registry-api`.
+fn with_retry(base: &str, retry_after_secs: Option<u64>) -> String {
+    match retry_after_secs {
+        Some(1) => format!("{base}; try again in 1 second"),
+        Some(secs) => format!("{base}; try again in {secs} seconds"),
+        None => format!("{base}; try again later"),
+    }
+}
+
 /// Errors produced by the sparse HTTP index client.
 #[derive(Debug, Error)]
 pub enum IndexHttpError {
@@ -29,6 +40,13 @@ pub enum IndexHttpError {
          scope"
     )]
     MissingScope { origin: String },
+
+    #[error("{}", with_retry(
+        "the registry has temporarily disabled package downloads and index reads to stay within \
+         its infrastructure budget",
+        *.retry_after_secs,
+    ))]
+    RegistryOverBudget { retry_after_secs: Option<u64> },
 
     #[error("HTTP transport error fetching `{name}`: {message}")]
     Transport { name: String, message: String },

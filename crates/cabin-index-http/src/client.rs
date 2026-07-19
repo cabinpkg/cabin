@@ -134,7 +134,10 @@ impl HttpClient {
     /// token and [`IndexHttpError::TokenRejected`] when it did; a 403
     /// maps to [`IndexHttpError::MissingScope`] only when the request
     /// carried a token (a tokenless 403 stays a
-    /// [`IndexHttpError::ServerError`]).  Returns
+    /// [`IndexHttpError::ServerError`]); a 402 maps to
+    /// [`IndexHttpError::RegistryOverBudget`] carrying the response's
+    /// `Retry-After` seconds when usable (the registry's read-side
+    /// budget breaker).  Returns
     /// [`IndexHttpError::Transport`] when reading the body fails,
     /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
     /// error.
@@ -209,6 +212,18 @@ impl HttpClient {
                     origin: origin_for_error(url),
                 })
             }
+            // The registry's read-side budget breaker
+            // (`registry/docs/architecture.md`, "Billing model and the
+            // budget breaker"): reads are refused service-wide until the
+            // budget window resets. `Retry-After` (delta seconds) rides
+            // on the refusal; a missing or non-numeric value (an HTTP
+            // date, say) degrades to no hint, mirroring the publish-side
+            // mapping in `cabin-registry-api`.
+            Err(ureq::Error::Status(402, response)) => Err(IndexHttpError::RegistryOverBudget {
+                retry_after_secs: response
+                    .header("Retry-After")
+                    .and_then(|value| value.trim().parse::<u64>().ok()),
+            }),
             Err(ureq::Error::Status(status, _)) => Err(IndexHttpError::ServerError {
                 name: package.to_owned(),
                 status,
@@ -711,6 +726,48 @@ mod tests {
             }
             other => panic!("expected MissingScope, got {other:?}"),
         }
+    }
+
+    /// 402 is the registry's read-side budget breaker: the message says
+    /// reads are paused and carries the `Retry-After` seconds when the
+    /// header is usable, degrading to "try again later" otherwise. The
+    /// mapping is shared by metadata reads and artifact downloads
+    /// (`download` remaps only the 404).
+    #[test]
+    fn get_bytes_maps_402_to_registry_over_budget() {
+        let (server, url, thread) = challenge_server(402, &[("Retry-After", "900")]);
+        let err = HttpClient::new()
+            .get_bytes(&format!("{url}/packages/smoke/withdep.json"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::RegistryOverBudget {
+                retry_after_secs: Some(900),
+            } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(message.contains("downloads"), "{message}");
+        assert!(message.contains("budget"), "{message}");
+        assert!(
+            message.contains("try again in 900 seconds"),
+            "expected the Retry-After hint in: {message}"
+        );
+        server.unblock();
+        let _ = thread.join();
+
+        let (server, url, thread) = challenge_server(402, &[]);
+        let err = HttpClient::new()
+            .download(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::RegistryOverBudget {
+                retry_after_secs: None,
+            } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+        assert!(err.to_string().contains("try again later"), "{err}");
+        server.unblock();
+        let _ = thread.join();
     }
 
     /// A 403 on a request that carried no token is not the
