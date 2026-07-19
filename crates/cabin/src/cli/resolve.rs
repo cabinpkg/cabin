@@ -282,23 +282,21 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         resolution_offline,
         resolved_index_source.as_ref(),
     )?;
-    let effective_index_source: Option<cabin_core::SourceLocator> =
-        match resolved_index_source.as_ref() {
-            Some(source) => {
-                let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
-                let resolved = crate::cli::patch::apply_source_replacement(
-                    initial,
-                    &effective_config,
-                    request.no_patches,
-                )?;
-                crate::cli::config::enforce_offline_post_replacement(
-                    resolution_offline,
-                    &resolved,
-                )?;
-                Some(resolved.resolved)
-            }
-            None => None,
-        };
+    let effective_index_source: Option<cabin_core::SourceLocator> = match resolved_index_source
+        .as_ref()
+    {
+        Some(source) => {
+            let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
+            let resolved = crate::cli::patch::apply_source_replacement(
+                initial,
+                &effective_config,
+                request.no_patches,
+            )?;
+            crate::cli::config::enforce_offline_post_replacement(resolution_offline, &resolved)?;
+            Some(resolved.resolved)
+        }
+        None => None,
+    };
     if request.frozen
         && matches!(
             effective_index_source,

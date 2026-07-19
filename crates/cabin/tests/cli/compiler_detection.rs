@@ -7,7 +7,6 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-
 #[cfg(unix)]
 #[test]
 fn metadata_reports_detected_clang_identity() {

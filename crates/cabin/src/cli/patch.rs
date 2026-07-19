@@ -207,4 +207,3 @@ pub(crate) fn source_replacement_view_json(
         .collect();
     serde_json::Value::Array(entries)
 }
-

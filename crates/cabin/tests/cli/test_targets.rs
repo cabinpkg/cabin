@@ -638,6 +638,41 @@ sources = ["src/lib.cc"]
 }
 
 #[test]
+fn cabin_test_allow_no_tests_still_validates_offline_env() {
+    // The no-tests fast path returns before the build pipeline
+    // runs; a malformed CABIN_NET_OFFLINE must still fail the run.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "lib_only"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.lib_only]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/lib.cc")
+        .write_str("int x() { return 1; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .env("CABIN_NET_OFFLINE", "nope")
+        .args(["test", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--allow-no-tests")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("CABIN_NET_OFFLINE") && stderr.contains("nope"),
+        "invalid offline env diagnostic should name the variable and value: {stderr}"
+    );
+}
+
+#[test]
 fn cabin_test_runs_in_deterministic_package_then_target_order() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();

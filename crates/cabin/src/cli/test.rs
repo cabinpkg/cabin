@@ -17,23 +17,18 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::Args;
 
-use cabin_build::{ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind};
+use cabin_build::{ManifestTargetSelector, select_targets_of_kind};
 use cabin_core::TargetKind;
-use cabin_workspace::{
-    RegistryPackageSource, WorkspaceLoadOptions, collect_patched_versioned_deps,
-    load_workspace_with_options,
-};
 
+use crate::cli::build_prep::{
+    DevActivation, WorkspacePipelineArgs, plan_prepared, prepare_workspace,
+};
 use crate::cli::{
-    ArtifactPipelineRequest, ToolchainSelectionArgs, WorkspaceSelectionArgs, absolutise,
-    build_selection_request, build_workspace_selection,
-    closure_has_versioned_deps_excluding_patches, compiler_wrapper_override_from_args,
-    compute_feature_resolution, profile_selection_from_flags, resolve_build_configurations,
-    resolve_invocation_manifest, run_artifact_pipeline, toolchain_selection_from_args,
-    workspace_compiler_wrapper_settings, workspace_profile_definitions,
+    ToolchainSelectionArgs, WorkspaceSelectionArgs, build_workspace_selection,
+    resolve_invocation_manifest,
 };
 use crate::plural;
 
@@ -144,28 +139,23 @@ pub(crate) fn test(
     color: cabin_core::ColorChoice,
     experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
-    let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-
-    // First-pass load with no registry / patches so we can
-    // resolve config + workspace selection before re-loading
-    // with the test-aware policy.
-    let offline = crate::cli::config::effective_offline(args.offline)?;
-    // `cabin test` activates `[dev-dependencies]` for the
-    // selected test runners; ports referenced from any
-    // workspace member's dev-deps must therefore participate in
-    // discovery so the second-pass loader can resolve them.
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-
     // `--allow-no-tests` succeeds without building anything, so an
     // empty test selection must not activate dev deps at all - not
-    // even the dev-aware port discovery below, which would fail on
-    // a missing dev path dep or download dev ports for a run that
-    // builds nothing.  Targets are manifest-level, so a ports-free,
-    // dev-blind skeleton enumerates them exactly like the final
-    // strict graph will.  `--test <NAME>` is excluded: an unknown
-    // name must keep erroring even under `--allow-no-tests`, and
-    // that validation lives on the fully loaded pipeline path.
+    // even the dev-aware port discovery in the shared pipeline,
+    // which would fail on a missing dev path dep or download dev
+    // ports for a run that builds nothing.  Targets are
+    // manifest-level, so a ports-free, dev-blind skeleton
+    // enumerates them exactly like the final strict graph will.
+    // `--test <NAME>` is excluded: an unknown name must keep
+    // erroring even under `--allow-no-tests`, and that validation
+    // lives on the fully loaded pipeline path.
     if args.allow_no_tests && args.test.is_empty() {
+        // The env-driven offline fallback stays validated on this
+        // fast path too: a malformed CABIN_NET_OFFLINE must fail
+        // the run even when there is nothing to build.
+        crate::cli::config::effective_offline(args.offline)?;
+        let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
+        let workspace_selection = build_workspace_selection(&args.workspace_selection);
         let skeleton = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
         let skeleton_selection =
             cabin_workspace::resolve_package_selection(&skeleton, &workspace_selection)?;
@@ -181,262 +171,40 @@ pub(crate) fn test(
         }
     }
 
-    let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        args.cache_dir.as_deref(),
-        offline,
-        args.frozen,
-        true,
-        &workspace_selection,
-        args.no_patches,
-    )?;
-    crate::cli::port::report_downloaded_ports(reporter, &prepared_ports);
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(crate::cli::port::workspace_source)
-        .collect();
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
-    let patched_names = active_patches.owned_patched_names();
-
-    let initial_resolved_selection =
-        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
-
-    let initial_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
-
-    // Activate dev-deps for the *selected* primary packages so
-    // their `[dev-dependencies]` reach the resolver / fetch
-    // pipeline.  Dev-deps never propagate transitively.
-    let dev_for: BTreeSet<String> = initial_resolved_selection
-        .packages
-        .iter()
-        .map(|i| initial_graph.packages[*i].package.name.as_str().to_owned())
-        .collect();
-
-    // `initial_graph` was loaded without dev edges, so a closure
-    // walk over it cannot reach packages that only become
-    // reachable through a dev edge - and their *normal* versioned
-    // deps would silently miss the resolver.  Re-load a
-    // pre-resolution dev-aware skeleton (no registry yet, tolerant
-    // policies) and drive the versioned-dep detection and the
-    // artifact pipeline from it, so e.g. a dev path dep's own
-    // registry dependency resolves and fetches like any other.
-    let patched_sources = active_patches.workspace_sources();
-    let dev_probe_graph = load_workspace_with_options(
-        &manifest_path,
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &patched_sources,
-            ports: &port_sources,
-            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
-            include_dev_for: &dev_for,
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
+    let prepared = prepare_workspace(
+        &WorkspacePipelineArgs {
+            manifest_path: args.manifest_path.as_deref(),
+            offline: args.offline,
+            cache_dir: args.cache_dir.as_deref(),
+            build_dir: args.build_dir.as_deref(),
+            locked: args.locked,
+            frozen: args.frozen,
+            no_patches: args.no_patches,
+            features: &args.features,
+            all_features: args.all_features,
+            no_default_features: args.no_default_features,
+            index_path: args.index_path.as_deref(),
+            index_url: args.index_url.as_deref(),
+            profile: args.profile.as_deref(),
+            release: args.release,
+            workspace_selection: &args.workspace_selection,
+            toolchain: &args.toolchain,
+            dev: DevActivation::SelectedPrimaries,
         },
+        reporter,
+        experimental_features,
     )?;
-    let probe_selection =
-        cabin_workspace::resolve_package_selection(&dev_probe_graph, &workspace_selection)?;
-
-    let initial_features = compute_feature_resolution(
-        &dev_probe_graph,
-        &probe_selection,
-        &initial_request,
-        &dev_for,
-    )?;
-
-    let resolved_index_source = crate::cli::config::resolve_index_source(
-        args.index_path.as_deref(),
-        args.index_url.as_deref(),
-        &effective_config,
-    )?;
-    crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
-    let resolved_cache_dir =
-        crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
-
-    let patched_root_deps_preview =
-        collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    let has_versioned = !patched_root_deps_preview.is_empty()
-        || closure_has_versioned_deps_excluding_patches(
-            &dev_probe_graph,
-            &probe_selection,
-            &initial_features,
-            &patched_names,
-            &dev_for,
-        );
-
-    let (registry, lockfile_pinned): (Vec<RegistryPackageSource>, BTreeSet<(String, String)>) =
-        if has_versioned {
-            let Some(index_source) = resolved_index_source.as_ref() else {
-                bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
-            };
-            let inputs = crate::cli::config::resolve_pipeline_inputs(
-                index_source,
-                &effective_config,
-                args.cache_dir.as_deref(),
-                resolved_cache_dir.as_ref(),
-                offline,
-                args.locked,
-                args.frozen,
-                args.no_patches,
-                false,
-            )?;
-            let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
-                manifest_path: &manifest_path,
-                initial_graph: &dev_probe_graph,
-                index_source: &inputs.index_source,
-                mode: inputs.mode,
-                allow_write: inputs.allow_write,
-                frozen: args.frozen,
-                cache_dir: &inputs.cache_dir,
-                reporter,
-                selection: workspace_selection,
-                selection_request: &initial_request,
-                patched_names: &patched_names,
-                active_patches: &active_patches,
-                source_replacements: &effective_config.source_replacements,
-                incompatible_standards: crate::cli::config::resolve_incompatible_standards(
-                    &effective_config,
-                )?,
-                no_patches: args.no_patches,
-                dev_for: &dev_for,
-                experimental_features,
-            })?;
-            (pipeline.registry_sources(), pipeline.lockfile_pinned)
-        } else {
-            (Vec::new(), BTreeSet::new())
-        };
-
-    // For `cabin test`, the strict set must include every package
-    // reachable from the selected test runners *with their
-    // dev-dependencies activated* - otherwise a transitive
-    // path-dep that only becomes an active graph edge through a
-    // dev edge would be missing from the strict set, and its
-    // broken port edge would silently drop instead of surfacing
-    // the typed `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    // diagnostic.  The pre-resolution `dev_probe_graph` carries
-    // dev edges but not the resolver's registry, so re-load a
-    // permissive dev-aware skeleton with the full registry +
-    // active patches + prepared ports so the closure walk reaches
-    // every active edge the upcoming strict load will validate.
-    let dev_aware_skeleton = load_workspace_with_options(
-        &manifest_path,
-        &WorkspaceLoadOptions {
-            registry: &registry,
-            patches: &patched_sources,
-            ports: &port_sources,
-            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
-            include_dev_for: &dev_for,
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
-        },
-    )?;
-    let dev_aware_selection = cabin_workspace::resolve_package_selection(
-        &dev_aware_skeleton,
-        &build_workspace_selection(&args.workspace_selection),
-    )?;
-    let mut strict_packages: BTreeSet<String> =
-        dev_aware_selection.closure_package_names(&dev_aware_skeleton);
-    strict_packages.extend(patched_names.iter().cloned());
-    strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
-    let graph = load_workspace_with_options(
-        &manifest_path,
-        &WorkspaceLoadOptions {
-            registry: &registry,
-            patches: &patched_sources,
-            ports: &port_sources,
-            registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
-            include_dev_for: &dev_for,
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
-        },
-    )?;
-
-    let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(
-        args.build_dir.as_deref(),
-        &effective_config,
-    );
-    let build_dir = absolutise(&build_dir_input)
-        .with_context(|| format!("failed to resolve build dir {}", build_dir_input.display()))?;
-
-    let host_platform = cabin_core::TargetPlatform::current();
-    let toolchain_selection = toolchain_selection_from_args(&args.toolchain)?;
-    let toolchain = crate::cli::resolve_toolchain_layered(
-        &graph,
-        &toolchain_selection,
-        &effective_config,
-        &host_platform,
-    )?;
-    let detection_report =
-        cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
-    // Resolve the selection up-front so the backend checks below scope to
-    // the selected closure rather than the whole loaded workspace.
-    let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
-    let selected_closure = resolved_selection.closure(&graph);
-    // Package-level approximation used only for the MSVC
-    // `/external:I` fallback decision (dev-only targets included -
-    // `cabin test` builds them); the authoritative toolchain
-    // validation runs against the *planned* compiles right after
-    // `plan()`, so `--test <name>` narrows what gates the toolchain
-    // to the tests built.
-    let language_standards = crate::cli::resolve_per_package_language_standards(&graph);
-    let approx_standards = cabin_build::collect_requested_standards(
-        &graph,
-        &selected_closure,
-        &language_standards,
-        &dev_for,
-    );
-    cabin_build::validate_toolchain_for_backend(&toolchain, &detection_report)?;
-    let ninja = cabin_toolchain::locate_ninja()?;
-
-    let manifest_compiler_wrapper = workspace_compiler_wrapper_settings(&graph);
-    let cli_compiler_wrapper = compiler_wrapper_override_from_args(&args.toolchain)?;
-
-    let profile_selection =
-        profile_selection_from_flags(args.profile.as_deref(), args.release, &effective_config)?;
-    let manifest_profiles = workspace_profile_definitions(&graph);
-    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
-
-    // The MSVC backend cannot consume pkg-config's GNU-style flags;
-    // reject a test build that would need them before probing.  Scoped to
-    // the selected closure.
-    crate::cli::system_deps::ensure_dialect_supports_system_deps(
-        &graph,
-        &host_platform,
-        &dev_for,
-        cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
-        &selected_closure,
-    )?;
-    // Resolve features before deriving build flags so
-    // `[target.'cfg(feature = "...")'.profile]` layers are gated on
-    // the selected feature set.
-    let selection_request =
-        build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let feature_resolution =
-        compute_feature_resolution(&graph, &resolved_selection, &selection_request, &dev_for)?;
-    let prep =
-        crate::cli::build_prep::resolve_build_prep(crate::cli::build_prep::BuildConfigInputs {
-            graph: &graph,
-            host_platform: &host_platform,
-            toolchain: &toolchain,
-            detection: Some(&detection_report),
-            cli_compiler_wrapper,
-            manifest_compiler_wrapper: manifest_compiler_wrapper.as_ref(),
-            effective_config: &effective_config,
-            profile: &profile,
-            dev_for: &dev_for,
-            feature_resolution: &feature_resolution,
-            reporter,
-        })?;
 
     // Build every test target in the selected packages, narrowed
     // to the requested names when `--test` is given (`--target`
     // stays reserved for a platform/toolchain target).  The
     // deselected count feeds the summary's `filtered out` field.
-    let all_test_selectors: Vec<ManifestTargetSelector> =
-        select_targets_of_kind(&graph, Some(&resolved_selection.packages), TargetKind::Test);
+    let all_test_selectors: Vec<ManifestTargetSelector> = select_targets_of_kind(
+        &prepared.graph,
+        Some(&prepared.resolved_selection.packages),
+        TargetKind::Test,
+    );
     let total_test_targets = all_test_selectors.len();
-    let enabled_features = crate::cli::enabled_features_by_package(&feature_resolution);
     let test_selectors: Vec<ManifestTargetSelector> = if args.test.is_empty() {
         // Enumeration skips feature-gated tests (they count as
         // filtered out below).  A test named via `--test` is an
@@ -445,14 +213,18 @@ pub(crate) fn test(
         all_test_selectors
             .iter()
             .filter(|sel| {
-                cabin_build::selector_required_features_met(sel, &graph, &enabled_features)
+                cabin_build::selector_required_features_met(
+                    sel,
+                    &prepared.graph,
+                    &prepared.enabled_features,
+                )
             })
             .cloned()
             .collect()
     } else {
         select_named_test_targets(
-            &graph,
-            &resolved_selection.packages,
+            &prepared.graph,
+            &prepared.resolved_selection.packages,
             &all_test_selectors,
             &args.test,
         )?
@@ -494,65 +266,22 @@ pub(crate) fn test(
         );
     }
 
-    let configurations = resolve_build_configurations(
-        &graph,
-        &selection_request,
-        &resolved_selection.packages,
-        &profile,
-        &prep.toolchain_summary,
-        &prep.build_flags,
-    )?;
-
-    let root_configuration = graph
-        .root_package
-        .and_then(|i| configurations.get(&i))
-        .cloned();
-    let plan_graph = plan(&PlanRequest {
-        graph: &graph,
-        toolchain: &toolchain,
-        build_flags: &prep.build_flags,
-        language_standards: &language_standards,
-        standard_flag_conflicts: &prep.standard_flag_conflicts,
-        build_dir: build_dir.clone(),
-        profile: profile.clone(),
-        selected: Some(test_selectors),
-        configuration: root_configuration.as_ref(),
-        selected_packages: Some(&resolved_selection.packages),
-        compiler_wrapper: prep.compiler_wrapper.as_ref(),
-        dialect: cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
-        msvc_external_includes: cabin_build::msvc_external_includes_supported(
-            &detection_report,
-            approx_standards.has_c_sources(),
-        ),
-        enabled_features: Some(&enabled_features),
-        standard_compat: true,
-    })?;
-    crate::cli::standard_compat::report(
-        &plan_graph.standard_compat_violations,
-        color,
-        &lockfile_pinned,
-    )?;
-    cabin_build::validate_planned_standards(&plan_graph)?;
-    cabin_build::validate_toolchain_standards(
-        &toolchain,
-        &detection_report,
-        &cabin_build::requested_standards_of(&plan_graph),
-    )?;
+    let plan_graph = plan_prepared(&prepared, Some(test_selectors), false, color)?;
 
     // `cabin test` builds with Ninja's default parallelism (no
     // `-j`) and prints no `Finished` banner - the test summary is
     // its completion signal - so the returned build duration is
     // unused here.
     crate::cli::ninja::invoke_ninja_and_report(&crate::cli::ninja::NinjaInvocationRequest {
-        build_dir: &build_dir,
-        profile: &profile,
+        build_dir: &prepared.build_dir,
+        profile: &prepared.profile,
         plan_graph: &plan_graph,
-        graph: &graph,
-        toolchain: &toolchain,
-        cxx_kind: detection_report.cxx.identity.kind,
-        feature_resolution: &feature_resolution,
-        dev_for: &dev_for,
-        ninja: &ninja,
+        graph: &prepared.graph,
+        toolchain: &prepared.toolchain,
+        cxx_kind: prepared.detection_report.cxx.identity.kind,
+        feature_resolution: &prepared.feature_resolution,
+        dev_for: &prepared.dev_for,
+        ninja: &prepared.ninja,
         jobs: None,
         reporter,
     })?;
@@ -562,9 +291,17 @@ pub(crate) fn test(
     // `default_outputs` the planner emitted, so empty
     // `default_outputs` produce a clear error rather than a
     // silent no-op.
-    let mut test_plan =
-        cabin_test::plan_tests(&graph, &plan_graph, Some(&resolved_selection.packages));
-    populate_test_env_overlay(&mut test_plan, &graph, &profile, &build_dir)?;
+    let mut test_plan = cabin_test::plan_tests(
+        &prepared.graph,
+        &plan_graph,
+        Some(&prepared.resolved_selection.packages),
+    );
+    populate_test_env_overlay(
+        &mut test_plan,
+        &prepared.graph,
+        &prepared.profile,
+        &prepared.build_dir,
+    )?;
     if test_plan.is_empty() {
         if args.allow_no_tests {
             println!("cabin test: no test targets found");

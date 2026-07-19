@@ -1235,13 +1235,6 @@ pub(crate) fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> Strin
 /// `--profile release`. clap's `conflicts_with` already rejects
 /// the both-set combination so this helper only sees one of the
 /// three possible inputs.
-fn profile_selection_for_build(
-    args: &BuildArgs,
-    config: &cabin_config::EffectiveConfig,
-) -> Result<cabin_core::ProfileSelection> {
-    profile_selection_from_flags(args.profile.as_deref(), args.release, config)
-}
-
 /// Shared profile-selection precedence: explicit `--profile NAME`
 /// wins, then the legacy `--release` alias, then any config-
 /// supplied default, then the built-in `dev` profile.  Used by
