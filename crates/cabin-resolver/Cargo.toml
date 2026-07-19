@@ -12,7 +12,6 @@ name = "cabin_resolver"
 
 [dependencies]
 cabin-core = { workspace = true }
-cabin-diagnostics = { workspace = true }
 cabin-index = { workspace = true }
 miette = { workspace = true, features = ["derive"] }
 pubgrub = { workspace = true }
