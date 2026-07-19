@@ -32,7 +32,6 @@ you can build and run directly; see [`examples/README.md`](examples/README.md) f
 ## Community
 
 See [GitHub Discussions](https://github.com/orgs/cabinpkg/discussions).
-Use of the hosted registry is governed by the [Usage Policy](https://cabinpkg.com/policies).
 
 ## Sponsorship
 
