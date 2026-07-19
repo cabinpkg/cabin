@@ -442,6 +442,43 @@ verdicts do not fail the run - a rejection is the verifier working as
 designed, visible in the run log as
 `<name>@<version>: rejected (<reason codes>)`.
 
+**Abstained versions.** Before downloading anything, the run checks
+each would-be-new name against the package corpus
+(`docs/architecture.md`, "Name fidelity") and **abstains** on a
+finding: no verdict is rendered, the version stays pending, and the
+log shows
+`<name>@<version>: abstain (<rules>); leaving it pending for operator review`
+with the rules (`confusable_package (fmtlib/fmt)`,
+`confusable_scope (...)`, `near_name (...)`, `profanity`). Abstain
+does not fail the run, and every later cron pass re-logs it - that is
+by design; the stuck-pending alert ("N version(s) have been pending
+verification for over an hour") is the summons. To resolve one:
+
+- Name is fine: the archive must still pass the real checks before
+  anything is exposed - never PATCH `verified` from the name alone.
+  Fetch the pending entry and the archive with the verify token
+  exactly as the workflow does, run
+  `cabin-registry-verify <archive.zip> <entry.json>` locally, and
+  PATCH the verdict it prints **with the listing's `checksum` and
+  `published_at`** (the admin API refuses an unbound `verified`).
+  With a verified version on record the name counts as accepted, and
+  every later version of the package skips the advisories.
+- Name is not fine: PATCH `{"verdict":"rejected","reason":
+  "name_advisory: <rule>"}`. Rejection frees the bytes and the
+  publisher can republish under a better name. A rejection never
+  vets the name: republishing the same name abstains again and
+  re-summons you - by design, not a loop to "fix".
+
+**Name fidelity knobs.** The reserved-name list is an in-code,
+operator-maintained const (`registry/src/names.rs`); extend it when
+the project starts speaking a new name, never shrink it. The claim
+flow's skeleton confusability refusal has one override:
+`CLAIM_SKELETON_EXEMPT_SCOPES` (`wrangler.jsonc` `vars`,
+comma-separated **exact** scope names) admits a listed scope past the
+confusability check only - reserved names and claim permanence always
+hold. Set it just before the legitimate claimant walks the claim
+flow, and empty it after.
+
 `REGISTRY_VERIFY_TOKEN` is a registry token created on the website's
 token page with **only** the `verify` scope (no publish, no yank - the
 verifier never needs them), stored as a GitHub repository secret:

@@ -312,8 +312,9 @@ and a scope is a registry-native entity: it is claimed by proving
 control of the same-named GitHub account, and the `scopes` row freezes
 the proof - provider plus numeric account id - at claim time, so a
 later GitHub account reusing the login can never re-claim the string
-(disputes are handled manually; there is no reservation list and no
-alias mechanism). `scope_members` holds per-scope membership, where
+(disputes are handled manually; there is no alias mechanism, and the
+only unclaimable strings are the short reserved vocabulary in "Name
+fidelity"). `scope_members` holds per-scope membership, where
 `owner` is the member role with admin rights - "owner" never means the
 name prefix; the prefix entity is always called "scope". Publish/yank
 authorization consults only registry state (`scope_members`), never a
@@ -399,8 +400,10 @@ Publish validates in a fixed order, stopping at the first failure:
    block implies -
    `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`, the
    filename embedding the scope like the artifact route (`400`);
-6. the scope and name match the grammars in "Scopes" and the version is
-   valid SemVer (`400`);
+6. the scope and name match the grammars in "Scopes", the name is not
+   on the reserved list ("Name fidelity"; the package part only - a
+   reserved scope can never be claimed, so the membership `403`
+   answers for it), and the version is valid SemVer (`400`);
 7. every key of the metadata's `dependencies` and `dev-dependencies`
    maps is a canonical `<scope>/<name>` name (`400`) - a bare key
    could never resolve against this registry (the read plane has no
@@ -439,7 +442,13 @@ with the idempotent `200` no-op (reporting its verification status) or the
 `409` immutability conflict, a rejected row is replaced in place (any
 bytes; back to `pending`), and a new version writes the R2 blob first
 (skipped when the content-addressed key already exists), then one atomic
-D1 batch for the `packages` and `versions` rows. New and replaced rows
+D1 batch for the `packages` and `versions` rows. A publish that would
+create a **new** package additionally refuses (`400`, after the size cap
+and before the quota `403`s - name validity does not depend on quota
+state) when the name collides with an existing same-scope package under
+`-`/`_` folding; the check is a preflight in the quota-count batch, and
+the persistence batch repeats it as a transactional guard so two racing
+twins cannot both land ("Name fidelity"). New and replaced rows
 start `pending`. A crash between the two writes can only leave an
 unreferenced blob - see [`runbook.md`](runbook.md).
 
@@ -467,7 +476,9 @@ gate, and the verdict body live in `src/verify.rs`.
   with none is an ordinary 404), and the artifact route serves verified
   versions to ordinary tokens. The `verify` scope may additionally list
   pending versions (`GET /api/v1/admin/versions?status=...`, each
-  entry's `name` the canonical `<scope>/<name>`) and
+  entry's `name` the canonical `<scope>/<name>`), fetch the package
+  corpus its name advisories compare against
+  (`GET /api/v1/admin/packages` - "Name fidelity"), and
   download their artifacts - the verifier has to fetch what it inspects.
   Rejected versions are served to no one.
 - **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>`,
@@ -523,6 +534,85 @@ the in-tree `cabin` binary and packages real fixture pairs, which the
 `conformance` CI job (and a frozen pair under `tests/fixtures/`) feeds
 through the full server-side validation path, so the client's canonical
 output and the server's schema cannot silently drift.
+
+## Name fidelity
+
+**Threat model.** Scoped names already remove the classic registry
+typosquat - only members of `fmtlib` can publish `fmtlib/*` - which
+moves the confusability attack to **scope claims**, a fully automatic
+path (GitHub proof in, grant out, no human). Package verification is
+fully automatic too: the CI verifier PATCHes verdicts on a cron, so
+without an extra layer no human would ever see a name before it goes
+live. Cabin also has no reactive security apparatus (no report inbox,
+no takedown rota), so review is front-loaded instead. The design is
+three layers, each calibrated by what a false positive costs:
+
+1. **Deterministic rejects** - zero false positives, so they refuse
+   outright. A publish that would create a new package is a `400` when
+   the name collides with an existing same-scope package under `-`/`_`
+   folding ("The write path" has the ordering and the transactional
+   guard), and a short reserved list refuses both package names
+   (publish `400`) and scope names (the claim flow's uniform denial):
+   the DOS device stems (`con`, `com1`, ... - package and scope names
+   become client-side directory names in the vendor and cache layouts,
+   which the archive-path predicate never sees) plus a small
+   operator-maintained project vocabulary (`cabin`, `cabinpkg`, `std`,
+   `core`). This is exactly the crates.io footprint: its only
+   automated anti-typosquat rule is the `-`/`_` collision, plus
+   reserved std-lib/keyword and Windows device names.
+2. **Verifier name advisories with an abstain outcome** - checks that
+   can false-positive must cost a **delay, never a rejection**. The
+   verifier runs them before downloading any archive (they need no
+   bytes; an abstained version costs a listing entry per cron pass,
+   not a 16 MiB re-download): skeleton-fold confusability against the
+   whole package corpus (`-`/`_` fold away, `{1, i} -> l`, `{0} -> o`;
+   equality with any existing package or with a different existing
+   scope's fold), edit distance 1 on the folded full name against
+   other scopes' packages (the near-scope squat; same-scope siblings
+   like `fmt`/`fmts` are members' own work and exempt), and a short
+   unambiguous-slur list matched as folded substrings. A finding means
+   **abstain**: no PATCH at all, the version stays `pending` (already
+   invisible to readers - the fail-safe state), and the stuck-pending
+   alert summons the operator, who resolves it with a manual verdict
+   ([`runbook.md`](runbook.md), "Verification pipeline"). Abstain is a
+   workflow outcome, not a fourth `versions.verification` state and
+   not a wire state - clients only ever see `pending`. Advisories run
+   only for versions that would introduce a **new** name: once any
+   version of the package is **verified**, the name was accepted -
+   the advisories proceeded, or an operator approved it past an
+   abstain - and every later version skips them (`libass` gets
+   delayed once, ever). A rejection deliberately never vets a name:
+   otherwise rejecting an abstained squat would exempt that very
+   name's next version from the advisories. The corpus comes from
+   `GET /api/v1/admin/packages` (`verify` scope, on the admin plane
+   with the same no-budget-gate rationale as verdicts): every
+   package's `(scope, name)` plus that `vetted` bit.
+3. **Scope-claim confusability refusal** - at claim time, after the
+   grammar and GitHub-proof checks, a scope whose skeleton equals an
+   already-claimed scope's refuses through the same uniform denial as
+   every other claim failure. **Skeleton equality only, no edit
+   distance**: a claim refusal is hard and unexplained, and generic
+   distance-1 collides with real login patterns (`jsmith` /
+   `jsmith1`), while skeleton equality catches the homoglyph squat
+   (`fmtl1b` vs `fmtlib`) with near-zero false positives. The
+   operator escape hatch for a legitimate collision is
+   `CLAIM_SKELETON_EXEMPT_SCOPES` (exact names; never bypasses the
+   reserved list or claim permanence). The check is a preflight read,
+   deliberately not an in-batch guard: closing the milliseconds-wide
+   race between two independent OAuth roundtrips would need the
+   skeleton fold mirrored into SQL, and claim disputes are handled
+   manually anyway ("Scopes").
+
+Two implementation notes, recorded because they diverge from the
+obvious spelling. The worker cannot depend on `cabin-fs` (it is a
+standalone wasm32 workspace - "Why a standalone workspace"), so its
+DOS-stem list is a lowercase mirror pinned to the shared predicate by
+a host-only dev-dependency parity test (brute force over every
+grammar string of at most 4 bytes, the length of the longest ASCII
+stem), the same structural-mirroring pattern as the dependency-key
+grammar. And the skeleton fold exists twice - the worker and the
+verifier - for the same reason, each copy pinned by its crate's
+tests.
 
 ## Download counts
 

@@ -221,6 +221,11 @@ Server-side behavior is part of the contract:
   name (`system-dependencies` is exempt - its keys name system packages, not registry
   packages), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
+  Two name-level rules join the same `400` family (`registry/docs/architecture.md`, "Name
+  fidelity"): a reserved package name (`package name is reserved` - the DOS device stems plus a
+  short project vocabulary), and, for a publish that would create a new package, a name that
+  collides with an existing same-scope package under `-`/`_` folding (`package name conflicts
+  with an existing package in this scope (differs only in '-' vs '_')`).
 - **Idempotency.**  Re-publishing a version with byte-identical metadata and archive succeeds with
   `200` and body `{"ok":true,"no_op":true,"verification":"<status>"}`, reporting the row's current
   [verification status](#verification-lifecycle).  Publishing the same version with *different*
@@ -299,6 +304,11 @@ publish (201) --> pending --verdict: verified--> verified (resolvable, immutable
 Broken verification infrastructure can only keep content unexposed; it must never expose
 unverified content.
 
+The verifier may also **abstain** - render no verdict at all, because an advisory name check
+wants an operator's eyes first (`registry/docs/architecture.md`, "Name fidelity").  Abstain is
+not a wire state: the version simply stays `pending`, and clients see exactly what they would
+see while awaiting any verdict.
+
 ### Admin API (scope `verify`)
 
 The `verify` scope belongs to the verifier: it may list pending versions and download their
@@ -315,6 +325,16 @@ single JSON object, `{"versions":[...]}`.  Each entry carries `name`, `version`,
 (lowercase SHA-256 hex), the publisher's registry-native user id as `published_by`,
 `published_at`, and the stored canonical metadata document as `metadata`.  Deterministic:
 ordered by name, then version.
+
+```text
+GET /api/v1/admin/packages
+```
+
+The package corpus for the verifier's [name advisories](#the-verifiers-checks):
+`{"packages":[{"scope":...,"name":...,"vetted":<bool>}]}`, every package ordered by scope
+then name, `vetted` reporting whether any of its versions is verified - the advisories skip a
+name that was accepted once.  Deliberately not "has any verdict": a rejection never vets a
+name, so rejecting an abstained squat cannot exempt that same name's next version.
 
 ```text
 PATCH /api/v1/admin/versions/<scope>/<name>/<version>
@@ -422,6 +442,17 @@ The cap mechanism is public contract; the cap values are configuration (`VERIFY_
 `VERIFY_ABS_CAP_BYTES`, `VERIFY_MAX_ENTRIES`, `VERIFY_MAX_PATH_LEN`, defaulting to 10x,
 256 MiB, 10000 entries, and 256 bytes).  Verifier failures leave versions pending - fail-safe:
 broken verification infrastructure keeps content unexposed, never exposes it.
+
+**Name advisories.**  Before downloading anything, the workflow checks each version that would
+introduce a new package name against the [package corpus](#admin-api-scope-verify):
+confusability under a skeleton fold (`-`/`_` fold away, `1`/`i` to `l`, `0` to `o`) against
+every existing package and scope, edit distance 1 on the folded full name against other
+scopes' packages, and a short unambiguous-profanity list matched as folded substrings.  A
+finding never rejects - the workflow **abstains** (no verdict; the version stays `pending`)
+and an operator reviews it, so a false positive costs a delay, never a rejection.  Once any
+version of a package is **verified**, later versions skip the advisories; a rejection never
+vets a name.  The rationale and
+rules live in `registry/docs/architecture.md`, "Name fidelity".
 
 ### Server checks versus client extraction
 
