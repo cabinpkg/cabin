@@ -72,6 +72,13 @@ dev_vars_backup=""
 dev_vars_created=""
 
 cleanup() {
+  # A failure inside a breaker leg would otherwise leave the pinned mode
+  # behind in the local D1 state, blocking unrelated local work until
+  # the next run's seeding normalizes it.
+  npx --yes wrangler d1 execute DB --local --command \
+    "UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
+     UPDATE meta SET value = '' WHERE key = 'service_mode_reason';" \
+    >/dev/null 2>&1 || true
   # Kill the whole process group: $dev_pid is the backgrounded function's
   # wrapper subshell, and killing it alone would orphan npx/wrangler/workerd
   # and leave the port bound.
@@ -212,7 +219,10 @@ if [[ -n "$token" ]]; then
     DELETE FROM scopes WHERE name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift');
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
-    DELETE FROM backup_replication_failures;"
+    DELETE FROM backup_replication_failures;
+    -- A prior run that failed inside a breaker leg leaves its pinned
+    -- mode behind; normalize so re-runs never start blocked.
+    UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"
 fi
 
 # The backup-cron leg drives the worker's dump job against a local mock
@@ -1190,6 +1200,45 @@ expect_body 'registry_over_budget'
 check "$package_path" 200
 # Source reads are reads: they never consult the service mode.
 session_request GET "$source_path" 206 -H "Range: bytes=-22"
+
+step "reads answer 402 while reads_blocked; the exempt planes stay open"
+wrangler d1 execute DB --local --command "
+  UPDATE meta SET value = 'reads_blocked' WHERE key = 'service_mode';"
+downloads_before="$(row_downloads)"
+# The data plane refuses with the read-side envelope and the
+# cron-cadence Retry-After; writes stay blocked too (reads_blocked sits
+# above writes_blocked on the ladder).
+got="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' \
+  ${curl_args[@]+"${curl_args[@]}"} "$base$package_path")"
+[[ "$got" == "402" ]] || fail "a read under reads_blocked answered $got"
+expect_body 'registry_over_budget'
+expect_body 'read budget'
+tr -d '\r' <"$headers" | grep -qi '^retry-after: 900$' \
+  || fail "the read 402 must carry Retry-After: 900"
+check "$artifact_path" 402
+check /config.json 402
+wrequest PUT "$publish_path" "$work/publish.bin" 402
+# Unauthenticated callers cannot observe service state: the uniform 401
+# is byte-identical, and /healthz stays up.
+uniform_401 "$base" /config.json
+check /healthz 200
+# The exempt planes: the session plane and the public stats (where
+# operators and users see what is happening), the admin plane, and the
+# verifier's config and artifact fetches - but not package documents,
+# which the verifier never reads.
+session_request GET "$source_path" 206 -H "Range: bytes=-22"
+wcheck /api/v1/stats 200
+as_verifier
+wcheck "/api/v1/admin/versions?status=pending" 200
+check /config.json 200
+check "$artifact_path" 200
+check "$package_path" 402
+as_publisher
+# The exempt fetch was served, but the download counter follows the
+# write plane's fail-closed rule and must not have moved.
+sleep 1
+[[ "$(row_downloads)" == "$downloads_before" ]] \
+  || fail "a reads_blocked download moved the counter: $(row_downloads) (expected $downloads_before)"
 
 step "restoring service_mode reopens writes"
 wrangler d1 execute DB --local --command "
