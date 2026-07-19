@@ -344,14 +344,9 @@ impl ManifestParseError {
 }
 
 fn supported_target_types() -> String {
-    let mut out = String::new();
-    for (i, kind) in TargetKind::all().iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        out.push('"');
-        out.push_str(kind.as_str());
-        out.push('"');
-    }
-    out
+    TargetKind::all()
+        .iter()
+        .map(|kind| format!("\"{}\"", kind.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

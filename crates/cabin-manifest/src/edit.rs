@@ -141,7 +141,7 @@ pub fn upsert_dependency(
 
     // Decide before inserting: a table that is already sorted stays
     // sorted, an unsorted one keeps its order with the entry appended.
-    let was_sorted = is_sorted(tbl);
+    let was_sorted = tbl.iter().is_sorted_by_key(|(key, _)| key);
     tbl.insert(&dep.name, Item::Value(dependency_value(dep)));
     if was_sorted {
         tbl.sort_values();
@@ -426,20 +426,6 @@ fn dependency_value(dep: &NewDependency) -> Value {
         table.insert("default-features", Value::from(false));
     }
     Value::InlineTable(table)
-}
-
-/// Whether the table's keys are in non-decreasing order.
-fn is_sorted(table: &Table) -> bool {
-    let mut prev: Option<&str> = None;
-    for (key, _) in table {
-        if let Some(previous) = prev
-            && key < previous
-        {
-            return false;
-        }
-        prev = Some(key);
-    }
-    true
 }
 
 #[cfg(test)]
