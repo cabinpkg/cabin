@@ -543,7 +543,9 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   uses) with the `D1_EXPORT_API_TOKEN` secret, follows the returned
   signed URL, and streams the official `.sql` dump into the backup
   bucket at `d1/<YYYY-MM-DD>.sql` with a `.sha256` sidecar (hash
-  computed while streaming). Success requires validation: non-empty,
+  computed while streaming). A download without a valid `Content-Length`
+  fails the job rather than falling back to an unbounded Worker buffer.
+  Success requires validation: non-empty,
   every expected `CREATE TABLE` present, and the re-read object matching
   the checksum; only then are `meta.last_backup_at` and
   `meta.last_backup_key` updated. Retention, pruned in the same job: the

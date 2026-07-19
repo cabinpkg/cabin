@@ -131,8 +131,8 @@ async fn export_signed_url(env: &Env) -> worker::Result<String> {
 /// Downloads the signed URL and streams it into the bucket at `key`,
 /// hashing and validating on the way through ([`DumpScanner`]); the
 /// dump never needs to fit in Worker memory. A response without a
-/// declared length cannot ride an R2 streaming put, so that (unseen in
-/// practice) case buffers instead.
+/// declared length is refused because it cannot ride an R2 fixed-length
+/// streaming put safely.
 async fn stream_dump_into(
     bucket: &Bucket,
     key: &str,
@@ -150,28 +150,21 @@ async fn stream_dump_into(
     let length = response
         .headers()
         .get("content-length")?
-        .and_then(|value| value.parse::<u64>().ok());
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| err("the export download omitted a valid content-length".to_owned()))?;
 
     let scanner = Rc::new(RefCell::new(Some(DumpScanner::new())));
-    if let Some(length) = length {
-        let tap = Rc::clone(&scanner);
-        let stream = response.stream()?.map(move |chunk| {
-            if let (Ok(chunk), Some(scanner)) = (&chunk, tap.borrow_mut().as_mut()) {
-                scanner.update(chunk);
-            }
-            chunk
-        });
-        bucket
-            .put(key, Data::Stream(FixedLengthStream::wrap(stream, length)))
-            .execute()
-            .await?;
-    } else {
-        let bytes = response.bytes().await?;
-        if let Some(scanner) = scanner.borrow_mut().as_mut() {
-            scanner.update(&bytes);
+    let tap = Rc::clone(&scanner);
+    let stream = response.stream()?.map(move |chunk| {
+        if let (Ok(chunk), Some(scanner)) = (&chunk, tap.borrow_mut().as_mut()) {
+            scanner.update(chunk);
         }
-        bucket.put(key, bytes).execute().await?;
-    }
+        chunk
+    });
+    bucket
+        .put(key, Data::Stream(FixedLengthStream::wrap(stream, length)))
+        .execute()
+        .await?;
     let taken = scanner.borrow_mut().take();
     taken
         .map(DumpScanner::finish)
