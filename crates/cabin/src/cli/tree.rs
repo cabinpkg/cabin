@@ -83,7 +83,12 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     // workspace whose ports were prepared by an earlier `cabin
     // build` run unchanged.
     let tree_selection = build_workspace_selection(&args.workspace_selection);
-    let (prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
+    let crate::cli::port::WorkspacePrep {
+        port_sources,
+        active_patches,
+        graph: initial_graph,
+        ..
+    } = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         true,
@@ -91,14 +96,8 @@ pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
         false,
         &tree_selection,
         args.no_patches,
+        None,
     )?;
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(crate::cli::port::workspace_source)
-        .collect();
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
     let graph = crate::cli::patch::reload_for_patches(
         &manifest_path,

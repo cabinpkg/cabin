@@ -202,7 +202,15 @@ pub(crate) fn prepare_workspace(
     let offline = super::config::effective_offline(args.offline)?;
     let workspace_selection = super::build_workspace_selection(args.workspace_selection);
     let include_dev = matches!(args.dev, DevActivation::SelectedPrimaries);
-    let (prepared_ports, initial_graph) = super::port::prepare_ports_and_load_initial_graph(
+    let super::port::WorkspacePrep {
+        port_sources,
+        effective_config,
+        // Patched names are excluded from the closure / artifact
+        // pipeline because they ship from a local working copy.
+        active_patches,
+        graph: initial_graph,
+        ..
+    } = super::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir,
         offline,
@@ -210,18 +218,8 @@ pub(crate) fn prepare_workspace(
         include_dev,
         &workspace_selection,
         args.no_patches,
+        Some(reporter),
     )?;
-    super::port::report_downloaded_ports(reporter, &prepared_ports);
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(super::port::workspace_source)
-        .collect();
-    let effective_config = super::config::load_effective_config(&initial_graph)?;
-    // Resolve patch policy before we look at the index.  Patched
-    // names are excluded from the closure / artifact pipeline
-    // because they ship from a local working copy.
-    let active_patches =
-        super::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     let resolved_index_source =
         super::config::resolve_index_source(args.index_path, args.index_url, &effective_config)?;

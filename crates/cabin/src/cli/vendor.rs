@@ -124,7 +124,12 @@ pub(crate) fn vendor(
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
     let vendor_selection = build_workspace_selection(&args.workspace_selection);
-    let (_prepared_ports, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
+    let crate::cli::port::WorkspacePrep {
+        effective_config,
+        active_patches,
+        graph: initial_graph,
+        ..
+    } = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -132,10 +137,8 @@ pub(crate) fn vendor(
         false,
         &vendor_selection,
         args.no_patches,
+        None,
     )?;
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
     // Compute the resolved selection so we can scope the index

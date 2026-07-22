@@ -145,13 +145,32 @@ pub(crate) fn workspace_source(prepared: &PreparedPort) -> PortPackageSource {
 /// call this right after port preparation, before the `Compiling`
 /// banners; machine-output commands (`metadata`, `tree --format
 /// json`, `resolve`) never call it, so stdout stays clean for them.
-pub(crate) fn report_downloaded_ports(reporter: Reporter, prepared: &[PreparedPort]) {
+fn report_downloaded_ports(reporter: Reporter, prepared: &[PreparedPort]) {
     for port in prepared.iter().filter(|p| p.downloaded) {
         reporter.status(
             "Downloaded",
             format_args!("{} v{}", port.name, port.version),
         );
     }
+}
+
+/// Everything [`prepare_ports_and_load_initial_graph`] produces.
+/// Besides the graph itself, the bundle carries the values every
+/// command used to re-derive from the graph right after the call
+/// (effective config, active patches, port sources), so the
+/// repeated config reads and patch resolution live here instead
+/// of at each call site.
+pub(crate) struct WorkspacePrep {
+    pub prepared_ports: Vec<PreparedPort>,
+    /// The prepared ports projected into the loader's view - the
+    /// same list `graph` was linked with.
+    pub port_sources: Vec<PortPackageSource>,
+    pub effective_config: cabin_config::EffectiveConfig,
+    /// Active patches resolved against the final `graph`, so the
+    /// patched-version requirement validation sees the same
+    /// edges (ports included) the command itself operates on.
+    pub active_patches: cabin_workspace::ActivePatchSet,
+    pub graph: PackageGraph,
 }
 
 /// Convenience helper used by every command that loads a workspace:
@@ -166,7 +185,7 @@ pub(crate) fn report_downloaded_ports(reporter: Reporter, prepared: &[PreparedPo
 /// path-dep closure are walked for port discovery, so
 /// `--offline` and uncached HTTP-backed ports declared elsewhere
 /// in the workspace cannot fail the command.
-#[allow(clippy::fn_params_excessive_bools)]
+#[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
 pub(crate) fn prepare_ports_and_load_initial_graph(
     manifest_path: &Path,
     cache_dir_override: Option<&Path>,
@@ -175,7 +194,13 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     include_dev: bool,
     selection: &cabin_workspace::PackageSelection,
     no_patches: bool,
-) -> Result<(Vec<PreparedPort>, PackageGraph)> {
+    // `Some` for the human-facing building commands, which announce
+    // network-fetched port archives with a cargo-style `Downloaded`
+    // status the moment the graph is loaded - before patch
+    // validation can fail the command.  Machine-output commands
+    // pass `None` so their stdout stays clean.
+    download_reporter: Option<Reporter>,
+) -> Result<WorkspacePrep> {
     // Resolve the cache directory consulting the same precedence
     // chain the rest of the pipeline uses: CLI override ▶
     // `CABIN_CACHE_DIR` env ▶ `[paths] cache-dir` from the merged
@@ -197,6 +222,14 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // absent from the skeleton graph; the walker rebuilds
     // them below.
     let light_skeleton = cabin_workspace::load_workspace_skip_ports(manifest_path)?;
+    // Graph-keyed config discovery, distinct from `cfg` above: the
+    // loader canonicalizes the manifest path, so under a symlinked
+    // `--manifest-path` the graph's root dir (and therefore the
+    // discovered workspace config files) can differ from the raw
+    // manifest parent.  The skeleton and the final graph share the
+    // same canonical root, so one load serves the skeleton patch
+    // pass, the final patch resolution, and the returned bundle.
+    let effective_config = crate::cli::config::load_effective_config(&light_skeleton)?;
     // Resolve active patches against the port-less skeleton
     // *before* port discovery so the walker sees any patched
     // manifests that introduce new port deps.  Without this
@@ -205,10 +238,9 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // silently drop the patched port edge under the
     // tolerate-missing policy and the user would see a much
     // later compile/link failure.
-    let skeleton_config = crate::cli::config::load_effective_config(&light_skeleton)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&light_skeleton, &skeleton_config, no_patches)?;
-    let patched_sources = active_patches.workspace_sources();
+    let skeleton_patches =
+        crate::cli::patch::load_active_patches(&light_skeleton, &effective_config, no_patches)?;
+    let patched_sources = skeleton_patches.workspace_sources();
     // Re-load the skeleton with patches applied so the
     // member manifest paths in the graph point at the patched
     // working copies, not the upstream packages.  Tolerate any
@@ -254,7 +286,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // ports into the prep set, defeating the per-package scoping
     // and re-introducing cross-selection coupling.
     seeds.extend(
-        active_patches
+        skeleton_patches
             .iter()
             .filter(|p| strict_port_set.contains(p.name.as_str()))
             .map(|p| p.manifest_path.clone()),
@@ -279,7 +311,21 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
             port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_port_set),
         },
     )?;
-    Ok((prepared, graph))
+    if let Some(reporter) = download_reporter {
+        report_downloaded_ports(reporter, &prepared);
+    }
+    // Re-resolve patches against the final graph: port overlays and
+    // patched manifests contribute version requirements the
+    // pre-discovery skeleton pass could not see.
+    let active_patches =
+        crate::cli::patch::load_active_patches(&graph, &effective_config, no_patches)?;
+    Ok(WorkspacePrep {
+        prepared_ports: prepared,
+        port_sources,
+        effective_config,
+        active_patches,
+        graph,
+    })
 }
 
 /// A discovered foundation-port dependency, keyed for dedup.

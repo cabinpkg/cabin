@@ -677,20 +677,38 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         false,
         &metadata_selection,
         args.no_patches,
+        None,
     );
-    let (prepared_ports, initial_graph) = match port_prep {
+    let prep = match port_prep {
         Ok(result) => result,
-        Err(err) if crate::cli::port::is_metadata_recoverable(&err) => (
-            Vec::new(),
-            cabin_workspace::load_workspace_skip_ports(&manifest_path)?,
-        ),
+        Err(err) if crate::cli::port::is_metadata_recoverable(&err) => {
+            // Port-less fallback: rebuild the same bundle from the
+            // skeleton graph so the rest of the pipeline is agnostic
+            // to which path produced it.
+            let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
+            let effective_config = crate::cli::config::load_effective_config(&graph)?;
+            let active_patches = crate::cli::patch::load_active_patches(
+                &graph,
+                &effective_config,
+                args.no_patches,
+            )?;
+            crate::cli::port::WorkspacePrep {
+                prepared_ports: Vec::new(),
+                port_sources: Vec::new(),
+                effective_config,
+                active_patches,
+                graph,
+            }
+        }
         Err(err) => return Err(err),
     };
-    let port_sources: Vec<cabin_workspace::PortPackageSource> = prepared_ports
-        .iter()
-        .map(crate::cli::port::workspace_source)
-        .collect();
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
+    let crate::cli::port::WorkspacePrep {
+        prepared_ports,
+        port_sources,
+        effective_config,
+        active_patches,
+        graph: initial_graph,
+    } = prep;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
     // metadata view documents the same offline contract the
@@ -702,10 +720,6 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         metadata_offline,
         resolved_index_for_offline_check.as_ref(),
     )?;
-    // Resolve patch policy before the rest of the pipeline.
-    // Validation surfaces invalid / stale patches up-front.
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
     let graph = crate::cli::patch::reload_for_patches(
         &manifest_path,

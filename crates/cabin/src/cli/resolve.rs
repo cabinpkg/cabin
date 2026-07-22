@@ -115,7 +115,12 @@ pub(super) fn fetch(
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let (_port_sources, initial_graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
+    let crate::cli::port::WorkspacePrep {
+        effective_config,
+        active_patches,
+        graph: initial_graph,
+        ..
+    } = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         args.cache_dir.as_deref(),
         offline,
@@ -123,10 +128,8 @@ pub(super) fn fetch(
         false,
         &workspace_selection,
         args.no_patches,
+        None,
     )?;
-    let effective_config = crate::cli::config::load_effective_config(&initial_graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&initial_graph, &effective_config, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     // validate the workspace selection up-front so a typo
     // like `--package missing` fails even when there are no
@@ -255,7 +258,16 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
     let offline = crate::cli::config::effective_offline(request.offline)?;
-    let (_port_sources, graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
+    // CLI flags win; otherwise consult the merged effective
+    // config for a `[registry]` default.  The orchestration layer
+    // owns the final reconciliation; cabin-resolver / cabin-index
+    // see only a concrete index source.
+    let crate::cli::port::WorkspacePrep {
+        effective_config,
+        active_patches,
+        graph,
+        ..
+    } = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         offline,
@@ -263,14 +275,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         false,
         &request.selection,
         request.no_patches,
+        None,
     )?;
-    // CLI flags win; otherwise consult the merged effective
-    // config for a `[registry]` default.  The orchestration layer
-    // owns the final reconciliation; cabin-resolver / cabin-index
-    // see only a concrete index source.
-    let effective_config = crate::cli::config::load_effective_config(&graph)?;
-    let active_patches =
-        crate::cli::patch::load_active_patches(&graph, &effective_config, request.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     let resolved_index_source = crate::cli::config::resolve_index_source(
         request.index_path,
