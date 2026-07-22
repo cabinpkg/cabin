@@ -9,17 +9,12 @@ fn port_toml_schema_for_real_ports_inih_matches_published_values() {
     // Upstream's r62 tag spelled as SemVer.
     let descriptor =
         load_real_port_and_assert_schema("inih", &semver::Version::new(62, 0, 0), "BSD-3-Clause");
-    match &descriptor.source {
-        cabin_port::PortSource::Archive {
-            url, strip_prefix, ..
-        } => {
-            assert!(
-                url.as_str().ends_with("/r62.tar.gz"),
-                "expected the r62 tag tarball, got {url}"
-            );
-            assert_eq!(strip_prefix.as_deref(), Some("inih-r62"));
-        }
-    }
+    let url = &descriptor.source.url;
+    assert!(
+        url.as_str().ends_with("/r62.tar.gz"),
+        "expected the r62 tag tarball, got {url}"
+    );
+    assert_eq!(descriptor.source.strip_prefix.as_deref(), Some("inih-r62"));
 }
 
 #[test]

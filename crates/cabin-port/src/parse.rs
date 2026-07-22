@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::error::PortError;
 use crate::model::{
-    CopyStep, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource,
+    ArchiveSource, CopyStep, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata,
 };
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +168,7 @@ fn safe_copy_path(
     Ok(rel)
 }
 
-fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError> {
+fn source_from_raw(path: &Path, raw: RawSource) -> Result<ArchiveSource, PortError> {
     if raw.kind != "archive" {
         return Err(PortError::UnsupportedSourceType {
             path: path.to_path_buf(),
@@ -214,7 +214,7 @@ fn source_from_raw(path: &Path, raw: RawSource) -> Result<PortSource, PortError>
             Ok(s)
         })
         .transpose()?;
-    Ok(PortSource::Archive {
+    Ok(ArchiveSource {
         url,
         sha256,
         strip_prefix,
@@ -283,23 +283,15 @@ manifest = "cabin.toml"
         let port = parse(ZLIB_PORT).unwrap();
         assert_eq!(port.name.as_str(), "zlib");
         assert_eq!(port.version, Version::new(1, 3, 1));
-        match &port.source {
-            PortSource::Archive {
-                url,
-                sha256,
-                strip_prefix,
-            } => {
-                assert_eq!(
-                    url.as_str(),
-                    "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
-                );
-                assert_eq!(
-                    sha256.to_hex(),
-                    "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
-                );
-                assert_eq!(strip_prefix.as_deref(), Some("zlib-1.3.1"));
-            }
-        }
+        assert_eq!(
+            port.source.url.as_str(),
+            "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+        );
+        assert_eq!(
+            port.source.sha256.to_hex(),
+            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+        );
+        assert_eq!(port.source.strip_prefix.as_deref(), Some("zlib-1.3.1"));
         assert_eq!(port.overlay.relative_path, Utf8PathBuf::from("cabin.toml"));
         assert_eq!(
             port.metadata.description.as_deref(),

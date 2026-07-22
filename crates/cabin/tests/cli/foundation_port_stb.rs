@@ -13,17 +13,14 @@ fn port_toml_schema_for_real_ports_stb_matches_published_values() {
         &semver::Version::new(2026, 4, 15),
         "MIT OR Unlicense",
     );
-    match &descriptor.source {
-        cabin_port::PortSource::Archive { url, .. } => {
-            // The archive is an immutable commit tarball, pinned by
-            // full 40-hex commit id (no floating branch or tag).
-            assert!(
-                url.path()
-                    .ends_with("/31c1ad37456438565541f4919958214b6e762fb4.tar.gz"),
-                "expected a commit-pinned tarball, got {url}"
-            );
-        }
-    }
+    let url = &descriptor.source.url;
+    // The archive is an immutable commit tarball, pinned by
+    // full 40-hex commit id (no floating branch or tag).
+    assert!(
+        url.path()
+            .ends_with("/31c1ad37456438565541f4919958214b6e762fb4.tar.gz"),
+        "expected a commit-pinned tarball, got {url}"
+    );
     assert_tar_gz_source(&descriptor, "stb-31c1ad37456438565541f4919958214b6e762fb4");
 }
 

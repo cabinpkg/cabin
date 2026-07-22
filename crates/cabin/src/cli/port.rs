@@ -699,7 +699,7 @@ fn resolve_fetch_source(
         PortOrigin::PortDir(p) => p.display().to_string(),
         PortOrigin::Builtin(name) => format!("<builtin:{name}>"),
     };
-    let cabin_port::PortSource::Archive { url, sha256, .. } = &descriptor.source;
+    let cabin_port::ArchiveSource { url, sha256, .. } = &descriptor.source;
     // Cache-first: if the archive cache already holds a file
     // whose bytes hash to the declared SHA-256, point cabin-port
     // at the cached path instead of re-downloading. cabin-port's
