@@ -543,7 +543,10 @@ pub(crate) fn plan_prepared(
     check: bool,
     color: cabin_core::ColorChoice,
 ) -> Result<cabin_build::BuildGraph> {
-    let configurations = super::resolve_build_configurations(
+    // Validation only: the planner takes no configuration input, but
+    // an invalid per-package configuration selection must still fail
+    // the command before any Ninja file is written.
+    super::resolve_build_configurations(
         &prepared.graph,
         &prepared.selection_request,
         &prepared.resolved_selection.packages,
@@ -551,11 +554,6 @@ pub(crate) fn plan_prepared(
         &prepared.prep.toolchain_summary,
         &prepared.prep.build_flags,
     )?;
-    let root_configuration = prepared
-        .graph
-        .root_package
-        .and_then(|i| configurations.get(&i))
-        .cloned();
     let plan_graph = super::plan(&super::PlanRequest {
         graph: &prepared.graph,
         toolchain: &prepared.toolchain,
@@ -565,7 +563,6 @@ pub(crate) fn plan_prepared(
         build_dir: prepared.build_dir.clone(),
         profile: prepared.profile.clone(),
         selected,
-        configuration: root_configuration.as_ref(),
         selected_packages: Some(&prepared.resolved_selection.packages),
         compiler_wrapper: prepared.prep.compiler_wrapper.as_ref(),
         dialect: cabin_build::Dialect::from_compiler_kind(

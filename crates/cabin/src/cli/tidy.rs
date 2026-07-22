@@ -273,25 +273,6 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     let build_flags =
         crate::cli::augment_build_flags(&graph, &host_platform, &dev_for, build_flags, reporter)?;
 
-    // Build configurations are required by the planner so the
-    // per-package `BuildConfiguration` exists for every selected
-    // package.  We use empty selection requests (no CLI
-    // features); tidy is workspace-wide analysis, so
-    // per-feature configuration is not the bar.
-    let toolchain_summary = cabin_core::ToolchainSummary::from_resolved_parts(&toolchain, None);
-    let configurations = crate::cli::resolve_build_configurations(
-        &graph,
-        &selection_request,
-        &resolved_selection.packages,
-        &profile,
-        &toolchain_summary,
-        &build_flags,
-    )?;
-    let root_configuration = graph
-        .root_package
-        .and_then(|i| configurations.get(&i))
-        .cloned();
-
     // The planner's default selection only emits compile commands
     // for default-buildable kinds (library, header-only, executable),
     // which silently excludes `*_test` / `*_example` sources.
@@ -341,7 +322,6 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         build_dir: build_dir.clone(),
         profile: profile.clone(),
         selected: Some(tidy_selectors),
-        configuration: root_configuration.as_ref(),
         selected_packages: Some(&resolved_selection.packages),
         compiler_wrapper: None,
         dialect,

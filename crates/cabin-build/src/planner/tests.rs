@@ -233,7 +233,6 @@ fn plan_request<'a>(
         build_dir: PathBuf::from(build_dir),
         profile: dev_profile(),
         selected: None,
-        configuration: None,
         selected_packages: None,
         compiler_wrapper: None,
         dialect: Dialect::GnuLike,
