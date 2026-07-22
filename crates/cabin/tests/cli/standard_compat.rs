@@ -971,3 +971,385 @@ deps = ["acme/libiface"]
         "validation must not modify cabin.lock"
     );
 }
+
+/// A library whose public header uses a feature C++17 **removed**
+/// (the `register` storage-class specifier) declares the honest
+/// bounded interface `{ min = "c++11", max = "c++14" }`.  A
+/// consumer on c++17 is refused with the above-maximum wording and
+/// the lower-the-standard remedy - raising can never help against a
+/// cap - and a consumer capped at c++14 really compiles the header,
+/// proving the fixture (and the bound) genuine.
+#[test]
+fn bounded_range_caps_consumers_above_the_maximum() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "legacy"
+version = "0.1.0"
+
+[target.legacy]
+type = "library"
+sources = ["src/legacy.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = { min = "c++11", max = "c++14" }
+"#,
+        )
+        .unwrap();
+    // `register` was removed in C++17 - the real-world shape the
+    // declared `max = "c++14"` encodes.  Compilers differ in whether
+    // they reject or merely warn about removed features, so the
+    // `#error` guard makes the cap's compile-time meaning
+    // deterministic; the c++14 leg below proves the header genuinely
+    // compiles inside the declared range.
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/include/legacy.h"))
+        .write_str(
+            "#pragma once
+#if defined(__cplusplus) && __cplusplus > 201402L
+#error \"legacy's headers do not support C++17 or newer\"
+#endif
+inline int legacy_value() {
+    register int fast = 7;
+    return fast;
+}
+",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/src/legacy.cc"))
+        .write_str("#include \"legacy.h\"\nint legacy_anchor() { return legacy_value(); }\n")
+        .unwrap();
+    let write_app = |standard: &str| {
+        assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+            .write_str(&format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+legacy = {{ path = "../legacy" }}
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["legacy"]
+cxx-standard = "{standard}"
+"#
+            ))
+            .unwrap();
+    };
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("#include \"legacy.h\"\nint main() { return legacy_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
+
+    // c++17 violates the cap: refused before any compiler runs.
+    write_app("c++17");
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains(VIOLATION_CODE),
+        "expected the violation code in: {stderr}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "requires C++ consumers within `c++11..c++14` (`interface-cxx-standard`,"
+        ),
+        "expected the bounded-range sentence in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        flat_contains(&stderr, "lower `app:app`'s C++ standard to at most `c++14`"),
+        "expected the lower remedy in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        !flat_contains(&stderr, "raise `app:app`"),
+        "an above-maximum violation must not suggest raising: {}",
+        flatten(&stderr)
+    );
+
+    // The per-edge override cannot silence a range violation: the
+    // always-on build-time enforcement rejects it independently.
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+legacy = { path = "../legacy", ignore-interface-standard = true }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["legacy"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "lower `app:app`'s C++ standard to at most `c++14`"),
+        "the build-time layer must still reject the cap violation: {}",
+        flatten(&stderr)
+    );
+
+    // Capped at c++14 the whole graph builds and runs - the
+    // removed-feature header genuinely compiles below the cap.
+    write_app("c++14");
+    cabin()
+        .args(["run", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build2"))
+        .assert()
+        .success();
+}
+
+/// The C twin: a C library whose header hard-errors above C17
+/// declares `{ min = "c99", max = "c17" }`; a c23 consumer is
+/// refused with the range wording, and a c17 consumer compiles.
+#[test]
+fn bounded_range_caps_c_consumers_above_the_maximum() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("clib/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "clib"
+version = "0.1.0"
+
+[target.clib]
+type = "library"
+sources = ["src/clib.c"]
+include-dirs = ["include"]
+c-standard = "c17"
+interface-c-standard = { min = "c99", max = "c17" }
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("clib/include/clib.h"))
+        .write_str(
+            "#pragma once\n#if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L\n#error \"clib's headers do not support standards after C17\"\n#endif\nint clib_value(void);\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("clib/src/clib.c"))
+        .write_str("#include \"clib.h\"\nint clib_value(void) { return 7; }\n")
+        .unwrap();
+    let write_app = |standard: &str| {
+        assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+            .write_str(&format!(
+                r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+clib = {{ path = "../clib" }}
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["clib"]
+c-standard = "{standard}"
+"#
+            ))
+            .unwrap();
+    };
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
+        .write_str("#include \"clib.h\"\nint main(void) { return clib_value() == 7 ? 0 : 1; }\n")
+        .unwrap();
+
+    write_app("c23");
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains(VIOLATION_CODE),
+        "expected the violation code in: {stderr}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "requires C consumers within `c99..c17` (`interface-c-standard`,"
+        ),
+        "expected the bounded-range sentence in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        flat_contains(&stderr, "lower `app:app`'s C standard to at most `c17`"),
+        "expected the lower remedy in: {}",
+        flatten(&stderr)
+    );
+
+    write_app("c17");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build2"))
+        .assert()
+        .success();
+}
+
+/// Two public requirements that cannot overlap - one floor above
+/// the other's cap - forbid the shared consumer outright, and the
+/// diagnostic names both origins with their chains.
+#[test]
+fn empty_intersection_names_both_clashing_origins() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("modern/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "modern"
+version = "0.1.0"
+
+[target.modern]
+type = "library"
+sources = ["src/modern.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++20"
+interface-cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("modern/include/modern.h"))
+        .write_str("#pragma once\nint modern_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("modern/src/modern.cc"))
+        .write_str("#include \"modern.h\"\nint modern_value() { return 1; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "legacy"
+version = "0.1.0"
+
+[target.legacy]
+type = "library"
+sources = ["src/legacy.cc"]
+include-dirs = ["include"]
+cxx-standard = "c++14"
+interface-cxx-standard = { min = "c++11", max = "c++14" }
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/include/legacy.h"))
+        .write_str("#pragma once\nint legacy_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("legacy/src/legacy.cc"))
+        .write_str("#include \"legacy.h\"\nint legacy_value() { return 2; }\n")
+        .unwrap();
+    // The header-only aggregator re-exports both libraries: its
+    // effective requirement intersects a c++20 floor with a c++14
+    // cap - empty, so no consumer standard can satisfy the edge.
+    assert_fs::fixture::ChildPath::new(dir.path().join("mid/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "mid"
+version = "0.1.0"
+
+[dependencies]
+modern = { path = "../modern" }
+legacy = { path = "../legacy" }
+
+[target.mid]
+type = "header-only"
+include-dirs = ["include"]
+interface-cxx-standard = "c++11"
+deps = [
+    { name = "modern", public = true },
+    { name = "legacy", public = true },
+]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("mid/include/mid.h"))
+        .write_str("#pragma once\n#include \"modern.h\"\n#include \"legacy.h\"\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+mid = { path = "../mid" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["mid"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("app/build"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains(VIOLATION_CODE),
+        "expected the violation code in: {stderr}"
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "no C++ standard satisfies its combined interface requirements"
+        ),
+        "expected the empty-intersection sentence in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "`modern:modern` requires at least `c++20` via public dependency `modern:modern`"
+        ),
+        "expected the floor origin and chain in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "while `legacy:legacy` accepts at most `c++14` via public dependency `legacy:legacy`"
+        ),
+        "expected the cap origin and chain in: {}",
+        flatten(&stderr)
+    );
+    assert!(
+        flat_contains(
+            &stderr,
+            "no C++ standard satisfies both `modern:modern` (at least `c++20`) and              `legacy:legacy` (at most `c++14`)"
+        ),
+        "expected the conflicting-requirements help in: {}",
+        flatten(&stderr)
+    );
+}
