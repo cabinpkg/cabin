@@ -5,14 +5,13 @@ use cabin_lockfile::Lockfile;
 use cabin_resolver::{LockedVersion, ResolveInput, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use super::{
-    ArtifactPipelineRequest, BTreeSet, Context, FetchArgs, LockMode, Reporter, ResolveArgs,
+    ArtifactPipelineRequest, BTreeSet, Context, FetchArgs, LockPolicy, Reporter, ResolveArgs,
     ResolveFormat, Result, UpdateArgs, WorkspaceSelectionArgsForUpdate, absolutise, bail,
     build_selection_request, build_workspace_selection,
     closure_has_versioned_deps_excluding_patches, collect_closure_versioned_deps_excluding_patches,
     collect_patched_versioned_deps, compute_feature_resolution, emit_fetch_output, load_http_index,
-    load_local_index, lock_mode_for_flags, lockfile_from_resolution, lockfile_path_for,
-    merge_versioned_deps, resolve_invocation_manifest, run_artifact_pipeline,
-    selected_resolution_packages,
+    load_local_index, lockfile_from_resolution, lockfile_path_for, merge_versioned_deps,
+    resolve_invocation_manifest, run_artifact_pipeline, selected_resolution_packages,
 };
 
 pub(super) fn resolve(
@@ -20,11 +19,7 @@ pub(super) fn resolve(
     reporter: Reporter,
     experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
-    let mode = lock_mode_for_flags(args.locked, args.frozen);
-    // Both --locked and --frozen forbid writing the lockfile.  The
-    // distinction becomes meaningful once a fetcher / cache exists for
-    // `--frozen` to refuse to populate; today they behave the same.
-    let allow_write = !(args.locked || args.frozen);
+    let policy = LockPolicy::from_flags(args.locked, args.frozen);
     if args.frozen && args.index_url.is_some() {
         bail!(crate::cli::FROZEN_INDEX_URL_ERR);
     }
@@ -38,10 +33,7 @@ pub(super) fn resolve(
             index_path: args.index_path.as_deref(),
             index_url: args.index_url.as_deref(),
             format: args.format,
-            mode,
-            allow_write,
-            frozen: args.frozen,
-            update_package: None,
+            policy,
             selection: workspace_selection,
             selection_request,
             no_patches: args.no_patches,
@@ -57,9 +49,12 @@ pub(super) fn update(
     reporter: Reporter,
     experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
-    let mode = match &args.package {
-        Some(name) => LockMode::UpdatePackage(name.clone()),
-        None => LockMode::UpdateAll,
+    let policy = match &args.package {
+        Some(name) => LockPolicy::UpdatePackage(
+            PackageName::new(name.clone())
+                .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
+        ),
+        None => LockPolicy::UpdateAll,
     };
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     // `cabin update` keeps its `--package <name>` flag for the
@@ -72,10 +67,7 @@ pub(super) fn update(
             index_path: args.index_path.as_deref(),
             index_url: args.index_url.as_deref(),
             format: args.format,
-            mode,
-            allow_write: true,
-            frozen: false,
-            update_package: args.package.as_deref(),
+            policy,
             selection: workspace_selection,
             selection_request: cabin_core::SelectionRequest::default(),
             no_patches: args.no_patches,
@@ -200,9 +192,7 @@ pub(super) fn fetch(
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
         index_source: &inputs.index_source,
-        mode: inputs.mode,
-        allow_write: inputs.allow_write,
-        frozen: args.frozen,
+        policy: inputs.policy,
         cache_dir: &inputs.cache_dir,
         reporter,
         selection: workspace_selection,
@@ -227,17 +217,7 @@ struct ResolutionRequest<'a> {
     index_path: Option<&'a Path>,
     index_url: Option<&'a str>,
     format: ResolveFormat,
-    mode: LockMode,
-    allow_write: bool,
-    /// Whether the original invocation was `cabin resolve --frozen`.
-    /// `LockMode::Locked` intentionally covers both `--locked` and
-    /// `--frozen`, so keep this bit to enforce frozen-only network
-    /// restrictions after config and source replacement are applied.
-    frozen: bool,
-    /// Used only by `cabin update --package <name>` to validate that the
-    /// named package exists in the manifest's dependency
-    /// graph.
-    update_package: Option<&'a str>,
+    policy: LockPolicy,
     /// Workspace selection that contributes versioned deps
     /// to the resolution.
     selection: cabin_workspace::PackageSelection,
@@ -271,7 +251,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         &manifest_path,
         None,
         offline,
-        request.frozen,
+        request.policy.frozen(),
         false,
         &request.selection,
         request.no_patches,
@@ -303,7 +283,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         }
         None => None,
     };
-    if request.frozen
+    if request.policy.frozen()
         && matches!(
             effective_index_source,
             Some(cabin_core::SourceLocator::IndexUrl { .. })
@@ -351,11 +331,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // empty resolution.  Otherwise an unknown name like
     // `cabin update --package missing` silently succeeds when
     // the workspace happens to have no versioned deps.
-    if let Some(name) = request.update_package
-        && !root_deps.contains_key(
-            &PackageName::new(name)
-                .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
-        )
+    if let LockPolicy::UpdatePackage(name) = &request.policy
+        && !root_deps.contains_key(name)
     {
         // `cabin update --package <name>` targets a *direct*
         // versioned dependency only.  The matching set is the
@@ -374,6 +351,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         };
         bail!(
             "package {name:?} is not a direct versioned dependency of {scope}; `cabin update --package` only refreshes direct dependencies declared under `[dependencies]`",
+        name = name.as_str(),
         );
     }
 
@@ -402,7 +380,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         &effective_config.source_replacements,
         request.no_patches,
     );
-    if matches!(request.mode, LockMode::Locked)
+    if request.policy.locked()
         && let Some(prev) = &existing_lockfile
         && !prev.matches_patch_state(&active_patch_records, &active_replacement_records)
     {
@@ -432,7 +410,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // Locked mode (with versioned deps) still requires an existing
     // lockfile - the staleness check above is a no-op when one is
     // missing.
-    if existing_lockfile.is_none() && matches!(request.mode, LockMode::Locked) {
+    if existing_lockfile.is_none() && request.policy.locked() {
         bail!(
             "cannot resolve with --locked because {} does not exist",
             lockfile_path.display()
@@ -454,7 +432,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         }
     };
 
-    let resolver_mode = request.mode.resolve_mode()?;
+    let resolver_mode = request.policy.resolve_mode();
 
     let mut input = ResolveInput::new(root_name, root_version, root_deps);
     if let Some(lock) = &existing_lockfile {
@@ -496,7 +474,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
-    if request.allow_write {
+    if request.policy.allow_write() {
         let needs_write = match &existing_lockfile {
             Some(prev) => prev != &new_lockfile,
             None => true,
@@ -511,7 +489,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
                 lockfile_path.display()
             ));
         }
-    } else if matches!(request.mode, LockMode::Locked)
+    } else if request.policy.locked()
         && let Some(prev) = &existing_lockfile
         && prev != &new_lockfile
     {

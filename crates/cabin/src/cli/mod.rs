@@ -1902,11 +1902,63 @@ fn select_single_package_manifest(
     })
 }
 
-pub(crate) fn lock_mode_for_flags(locked: bool, frozen: bool) -> LockMode {
-    if locked || frozen {
-        LockMode::Locked
-    } else {
-        LockMode::PreferLocked
+/// What kind of resolution the CLI is asking for, plus the write /
+/// network permissions that follow from it.  One value replaces the
+/// previously separate lock mode + `frozen` + `allow_write`
+/// threading, so the three can never disagree.
+#[derive(Debug, Clone)]
+pub(crate) enum LockPolicy {
+    /// Default: reuse lockfile pins that still satisfy, refresh the
+    /// rest, and write the result back.
+    PreferLocked,
+    /// `--locked`: selection must come from the lockfile, which is
+    /// never rewritten.
+    Locked,
+    /// `--frozen`: `--locked` plus no network fetches and no cache
+    /// population.
+    Frozen,
+    /// `cabin update`: re-resolve every locked package.
+    UpdateAll,
+    /// `cabin update --package <name>`: refresh one direct dep.
+    UpdatePackage(PackageName),
+}
+
+impl LockPolicy {
+    pub(crate) fn from_flags(locked: bool, frozen: bool) -> Self {
+        if frozen {
+            LockPolicy::Frozen
+        } else if locked {
+            LockPolicy::Locked
+        } else {
+            LockPolicy::PreferLocked
+        }
+    }
+
+    /// Translate into the resolver's [`ResolveMode`].
+    pub(crate) fn resolve_mode(&self) -> ResolveMode {
+        match self {
+            LockPolicy::PreferLocked => ResolveMode::PreferLocked,
+            LockPolicy::Locked | LockPolicy::Frozen => ResolveMode::Locked,
+            LockPolicy::UpdateAll => ResolveMode::UpdateAll,
+            LockPolicy::UpdatePackage(name) => ResolveMode::UpdatePackage(name.clone()),
+        }
+    }
+
+    /// Whether the lockfile may be written.
+    pub(crate) fn allow_write(&self) -> bool {
+        !self.locked()
+    }
+
+    /// Whether the lockfile is authoritative (`--locked` or
+    /// `--frozen`): resolution must not diverge from it.
+    pub(crate) fn locked(&self) -> bool {
+        matches!(self, LockPolicy::Locked | LockPolicy::Frozen)
+    }
+
+    /// Whether `--frozen` additionally forbids network fetches and
+    /// cache population.
+    pub(crate) fn frozen(&self) -> bool {
+        matches!(self, LockPolicy::Frozen)
     }
 }
 
@@ -1980,9 +2032,7 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     pub(crate) manifest_path: &'a Path,
     pub(crate) initial_graph: &'a PackageGraph,
     pub(crate) index_source: &'a cabin_core::SourceLocator,
-    pub(crate) mode: LockMode,
-    pub(crate) allow_write: bool,
-    pub(crate) frozen: bool,
+    pub(crate) policy: LockPolicy,
     pub(crate) cache_dir: &'a Path,
     pub(crate) reporter: Reporter,
     /// Workspace selection that contributes versioned deps
@@ -2117,7 +2167,7 @@ pub(crate) fn run_artifact_pipeline(
                 .with_context(|| format!("failed to read {}", lockfile_path.display()))?,
         )
     } else {
-        if matches!(request.mode, LockMode::Locked) {
+        if request.policy.locked() {
             bail!(
                 "cannot resolve with --locked because {} does not exist",
                 lockfile_path.display()
@@ -2128,13 +2178,13 @@ pub(crate) fn run_artifact_pipeline(
 
     let (index, access) = load_index_for_pipeline(
         request.index_source,
-        request.frozen,
+        request.policy.frozen(),
         &root_deps,
         request.experimental_features,
         request.reporter,
     )?;
 
-    let resolver_mode = request.mode.resolve_mode()?;
+    let resolver_mode = request.policy.resolve_mode();
 
     let mut input = ResolveInput::new(root_name, root_version, root_deps);
     if let Some(lock) = &existing_lockfile {
@@ -2168,7 +2218,7 @@ pub(crate) fn run_artifact_pipeline(
         request.source_replacements,
         request.no_patches,
     );
-    if matches!(request.mode, LockMode::Locked)
+    if request.policy.locked()
         && let Some(prev) = &existing_lockfile
         && !prev.matches_patch_state(&active_patch_records, &active_replacement_records)
     {
@@ -2188,7 +2238,7 @@ pub(crate) fn run_artifact_pipeline(
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
-    if request.allow_write {
+    if request.policy.allow_write() {
         let needs_write = match &existing_lockfile {
             Some(prev) => prev != &new_lockfile,
             None => true,
@@ -2213,7 +2263,7 @@ pub(crate) fn run_artifact_pipeline(
         &plan,
         &cache,
         FetchOptions {
-            frozen: request.frozen,
+            frozen: request.policy.frozen(),
         },
     )?;
     Ok(ArtifactPipeline {
@@ -2224,7 +2274,12 @@ pub(crate) fn run_artifact_pipeline(
         // must not carry the lockfile-staleness note.  Update modes
         // ignore the locked map entirely.
         lockfile_pinned: match &existing_lockfile {
-            Some(lock) if matches!(request.mode, LockMode::PreferLocked | LockMode::Locked) => {
+            Some(lock)
+                if matches!(
+                    request.policy,
+                    LockPolicy::PreferLocked | LockPolicy::Locked | LockPolicy::Frozen
+                ) =>
+            {
                 output
                     .packages
                     .iter()
@@ -2386,32 +2441,6 @@ fn build_fetch_plan(
         });
     }
     Ok(FetchPlan { entries })
-}
-
-/// What kind of resolution the CLI is asking for.
-#[derive(Debug, Clone)]
-pub(crate) enum LockMode {
-    PreferLocked,
-    Locked,
-    UpdateAll,
-    UpdatePackage(String),
-}
-
-impl LockMode {
-    /// Translate the CLI-facing lock mode into the resolver's
-    /// [`ResolveMode`], validating the `--package` name for the
-    /// update-single case.
-    pub(crate) fn resolve_mode(&self) -> Result<ResolveMode> {
-        Ok(match self {
-            LockMode::PreferLocked => ResolveMode::PreferLocked,
-            LockMode::Locked => ResolveMode::Locked,
-            LockMode::UpdateAll => ResolveMode::UpdateAll,
-            LockMode::UpdatePackage(name) => ResolveMode::UpdatePackage(
-                PackageName::new(name.clone())
-                    .map_err(|err| anyhow::anyhow!("invalid --package value {name:?}: {err}"))?,
-            ),
-        })
-    }
 }
 
 pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
