@@ -16,6 +16,19 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// archive, conservative enough to refuse a runaway response.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// Cap on how much of a non-2xx body is read looking for the error
+/// envelope's `code`.  Envelopes are tiny; a body bigger than this is a
+/// proxy error page, not one - and [`MAX_BODY_BYTES`] is three orders of
+/// magnitude too generous to spend on a refusal.  Matches the write
+/// client's cap in `cabin-registry-api`.
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// The envelope `code` the registry's budget breaker sets
+/// (`docs/remote-registry.md`, "Error envelope").  It is what separates
+/// a breaker refusal from every other `503` on the wire - Cloudflare's
+/// edge and the Workers runtime emit bare `503`s of their own.
+const OVER_BUDGET_CODE: &str = "registry_over_budget";
+
 /// A bearer credential the client may attach to registry requests:
 /// the normalized origin the token is scoped to plus the token
 /// itself.  Constructed via [`RegistryAuth::for_index_url`], which
@@ -134,10 +147,12 @@ impl HttpClient {
     /// token and [`IndexHttpError::TokenRejected`] when it did; a 403
     /// maps to [`IndexHttpError::MissingScope`] only when the request
     /// carried a token (a tokenless 403 stays a
-    /// [`IndexHttpError::ServerError`]); a 402 maps to
-    /// [`IndexHttpError::RegistryOverBudget`] carrying the response's
+    /// [`IndexHttpError::ServerError`]); a 503 whose envelope carries
+    /// the `registry_over_budget` code maps to
+    /// [`IndexHttpError::RegistryOverBudget`] with the response's
     /// `Retry-After` seconds when usable (the registry's read-side
-    /// budget breaker).  Returns
+    /// budget breaker), while any other 503 stays a
+    /// [`IndexHttpError::ServerError`].  Returns
     /// [`IndexHttpError::Transport`] when reading the body fails,
     /// when the body exceeds the 64 MiB cap, or on a `ureq` transport
     /// error.
@@ -215,15 +230,32 @@ impl HttpClient {
             // The registry's read-side budget breaker
             // (`registry/docs/architecture.md`, "Billing model and the
             // budget breaker"): reads are refused service-wide until the
-            // budget window resets. `Retry-After` (delta seconds) rides
-            // on the refusal; a missing or non-numeric value (an HTTP
-            // date, say) degrades to no hint, mirroring the publish-side
-            // mapping in `cabin-registry-api`.
-            Err(ureq::Error::Status(402, response)) => Err(IndexHttpError::RegistryOverBudget {
-                retry_after_secs: response
+            // budget window resets.  It answers `503`, not the `402` it
+            // used before ("Why 503, not 402"), and `503` is a status
+            // Cloudflare's own edge and runtime also emit - so the
+            // envelope `code`, not the status, is what identifies the
+            // breaker.  Without it this stays the generic server error
+            // it was before the breaker existed, rather than blaming a
+            // platform outage on the registry's budget.  `Retry-After`
+            // (delta seconds) rides on the refusal and is read before
+            // the body consumes the response; a missing or non-numeric
+            // value (an HTTP date, say) degrades to no hint, mirroring
+            // the publish-side mapping in `cabin-registry-api`.
+            Err(ureq::Error::Status(503, response)) => {
+                let retry_after_secs = response
                     .header("Retry-After")
-                    .and_then(|value| value.trim().parse::<u64>().ok()),
-            }),
+                    .and_then(|value| value.trim().parse::<u64>().ok());
+                Err(
+                    if envelope_code(response).as_deref() == Some(OVER_BUDGET_CODE) {
+                        IndexHttpError::RegistryOverBudget { retry_after_secs }
+                    } else {
+                        IndexHttpError::ServerError {
+                            name: package.to_owned(),
+                            status: 503,
+                        }
+                    },
+                )
+            }
             Err(ureq::Error::Status(status, _)) => Err(IndexHttpError::ServerError {
                 name: package.to_owned(),
                 status,
@@ -257,6 +289,48 @@ impl HttpClient {
             other => other,
         })
     }
+}
+
+/// Serde shape of the registry's error envelope
+/// (`docs/remote-registry.md`, "Error envelope").  Only the
+/// machine-readable `code` is read here - the rendered message is the
+/// client's own, and unknown fields are ignored by contract.
+#[derive(serde::Deserialize)]
+struct ErrorEnvelope {
+    errors: Vec<ErrorEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct ErrorEntry {
+    #[serde(default)]
+    code: Option<String>,
+}
+
+/// The first envelope entry's `code`, read from a capped body.  Missing,
+/// oversized, malformed, and code-less bodies all yield `None`, so an
+/// intermediary that replaced the response with its own error page can
+/// never be mistaken for a coded refusal.
+///
+/// The cap is a rejection, not a truncation: reading one byte past it and
+/// refusing what overflows is what stops an oversized body whose first
+/// 64 KiB happens to parse - a coded envelope followed by padding - from
+/// being accepted as the envelope it is not.
+fn envelope_code(response: ureq::Response) -> Option<String> {
+    let mut body = Vec::new();
+    response
+        .into_reader()
+        .take(MAX_ERROR_BODY_BYTES as u64 + 1)
+        .read_to_end(&mut body)
+        .ok()?;
+    if body.len() > MAX_ERROR_BODY_BYTES {
+        return None;
+    }
+    serde_json::from_slice::<ErrorEnvelope>(&body)
+        .ok()?
+        .errors
+        .into_iter()
+        .next()?
+        .code
 }
 
 /// Origin string used in auth error messages: the normalized origin
@@ -728,14 +802,17 @@ mod tests {
         }
     }
 
-    /// 402 is the registry's read-side budget breaker: the message says
-    /// reads are paused and carries the `Retry-After` seconds when the
-    /// header is usable, degrading to "try again later" otherwise. The
-    /// mapping is shared by metadata reads and artifact downloads
-    /// (`download` remaps only the 404).
+    /// A 503 carrying the `registry_over_budget` code is the registry's
+    /// read-side budget breaker: the message says reads are paused and
+    /// carries the `Retry-After` seconds when the header is usable,
+    /// degrading to "try again later" otherwise. The mapping is shared by
+    /// metadata reads and artifact downloads (`download` remaps only the
+    /// 404).
     #[test]
-    fn get_bytes_maps_402_to_registry_over_budget() {
-        let (server, url, thread) = challenge_server(402, &[("Retry-After", "900")]);
+    fn get_bytes_maps_a_coded_503_to_registry_over_budget() {
+        const ENVELOPE: &str = r#"{"errors":[{"detail":"registry downloads are temporarily disabled: the registry's read budget is exhausted","code":"registry_over_budget"}]}"#;
+
+        let (server, url, thread) = challenge_server(503, ENVELOPE, &[("Retry-After", "900")]);
         let err = HttpClient::new()
             .get_bytes(&format!("{url}/packages/smoke/withdep.json"), "pkg")
             .unwrap_err();
@@ -755,7 +832,7 @@ mod tests {
         server.unblock();
         let _ = thread.join();
 
-        let (server, url, thread) = challenge_server(402, &[]);
+        let (server, url, thread) = challenge_server(503, ENVELOPE, &[]);
         let err = HttpClient::new()
             .download(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
             .unwrap_err();
@@ -768,6 +845,85 @@ mod tests {
         assert!(err.to_string().contains("try again later"), "{err}");
         server.unblock();
         let _ = thread.join();
+
+        // A body exactly at the read cap is still an envelope; the
+        // rejection starts one byte later.
+        let (server, url, thread) =
+            challenge_server(503, padded_envelope(MAX_ERROR_BODY_BYTES), &[]);
+        let err = HttpClient::new()
+            .get_bytes(&format!("{url}/packages/smoke/withdep.json"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::RegistryOverBudget { .. } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+        server.unblock();
+        let _ = thread.join();
+    }
+
+    /// A coded envelope padded out to `len` bytes: valid JSON on its own,
+    /// which is exactly what a truncating cap would let through.
+    fn padded_envelope(len: usize) -> String {
+        let mut body =
+            r#"{"errors":[{"detail":"over budget","code":"registry_over_budget"}]}"#.to_owned();
+        body.extend(std::iter::repeat_n(' ', len - body.len()));
+        body
+    }
+
+    /// The code, not the status, identifies the breaker: Cloudflare's
+    /// edge and the Workers runtime emit bare 503s of their own, and a
+    /// platform outage must not be reported as the registry's budget.
+    /// A different code, a near-miss code, no entry, no code, an
+    /// unparsable body, and a body past the read cap all stay the
+    /// generic server error - as does the breaker's old 402, which has
+    /// no mapping left.
+    #[test]
+    fn get_bytes_keeps_uncoded_503s_and_the_old_402_generic() {
+        for (status, body) in [
+            (
+                503,
+                r#"{"errors":[{"detail":"origin is unreachable"}]}"#.to_owned(),
+            ),
+            (
+                503,
+                r#"{"errors":[{"detail":"nope","code":"something_else"}]}"#.to_owned(),
+            ),
+            // The comparison is exact: a code the real one is a prefix
+            // of must not match.
+            (
+                503,
+                r#"{"errors":[{"detail":"nope","code":"registry_over_budgets"}]}"#.to_owned(),
+            ),
+            (503, r#"{"errors":[]}"#.to_owned()),
+            (
+                503,
+                "<html><body>Service Unavailable</body></html>".to_owned(),
+            ),
+            // One byte past the cap.  The envelope prefix parses on its
+            // own, so only a rejecting (not truncating) cap keeps this
+            // generic.
+            (503, padded_envelope(MAX_ERROR_BODY_BYTES + 1)),
+            (
+                402,
+                r#"{"errors":[{"detail":"over budget","code":"registry_over_budget"}]}"#.to_owned(),
+            ),
+        ] {
+            let label = format!("{status} {}", &body[..body.len().min(72)]);
+            let (server, url, thread) = challenge_server(status, body, &[("Retry-After", "900")]);
+            let err = HttpClient::new()
+                .get_bytes(&format!("{url}/packages/smoke/withdep.json"), "pkg")
+                .unwrap_err();
+            match &err {
+                IndexHttpError::ServerError { name, status: got } => {
+                    assert_eq!(name, "pkg");
+                    assert_eq!(*got, status, "case: {label}");
+                }
+                other => panic!("expected ServerError({status}), got {other:?}"),
+            }
+            assert!(!err.to_string().contains("infrastructure budget"), "{err}");
+            server.unblock();
+            let _ = thread.join();
+        }
     }
 
     /// A 403 on a request that carried no token is not the
@@ -878,12 +1034,15 @@ mod tests {
         }
     }
 
-    /// Server answering `/config.json` with a fixed status and headers,
-    /// recording whether the request carried an `Authorization` header.
+    /// Server answering `/config.json` with a fixed status, body, and
+    /// headers, recording whether the request carried an
+    /// `Authorization` header.
     fn challenge_server(
         status: u16,
+        body: impl Into<String>,
         headers: &'static [(&'static str, &'static str)],
     ) -> (Arc<tiny_http::Server>, String, JoinHandle<bool>) {
+        let body = body.into();
         let server =
             Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
         let addr = server.server_addr().to_ip().expect("loopback addr");
@@ -893,7 +1052,8 @@ mod tests {
             let mut saw_authorization = false;
             while let Ok(req) = server_for_thread.recv() {
                 saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
-                let mut response = tiny_http::Response::from_string("{}").with_status_code(status);
+                let mut response =
+                    tiny_http::Response::from_string(body.clone()).with_status_code(status);
                 for (name, value) in headers {
                     response.add_header(
                         tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes())
@@ -913,6 +1073,7 @@ mod tests {
     fn fetch_login_url_reads_the_challenge_from_a_401() {
         let (server, url, thread) = challenge_server(
             401,
+            "{}",
             &[(
                 "WWW-Authenticate",
                 r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#,
@@ -940,7 +1101,7 @@ mod tests {
             (200, &[][..]),
             (500, &[][..]),
         ] {
-            let (server, url, thread) = challenge_server(status, headers);
+            let (server, url, thread) = challenge_server(status, "{}", headers);
             assert_eq!(fetch_login_url(&url), None, "status: {status}");
             server.unblock();
             let _ = thread.join();

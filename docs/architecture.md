@@ -319,7 +319,7 @@ Owns the read-only sparse HTTP index client.  Wraps `ureq::Agent` for blocking `
 public surface is intentionally small:
 
 - [`cabin_index_http::HttpClient`] - `get_bytes` and `download` helpers that map HTTP statuses
-  (`404`, `401`/`403` for the experimental authenticated path, `402` for the hosted registry's
+  (`404`, `401`/`403` for the experimental authenticated path, `503` for the hosted registry's
   read-side budget breaker, `5xx`) and transport errors to `IndexHttpError` variants;
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
   exposes `fetch_package(name) -> IndexEntry` and a transitive walker `load_package_index(roots) ->
