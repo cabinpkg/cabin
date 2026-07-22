@@ -1114,7 +1114,7 @@ pub(crate) fn run(
     // names) appears whenever `--color` says it should.
     if cli.list {
         let mut stdout =
-            termcolor::StandardStream::stdout(cabin_diagnostics::termcolor_choice(color));
+            termcolor::StandardStream::stdout(crate::term_setup::termcolor_choice(color));
         crate::command_list::print_list(&mut stdout)?;
         return Ok(ExitCode::SUCCESS);
     }

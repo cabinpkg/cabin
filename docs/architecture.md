@@ -112,8 +112,8 @@ docs/
 
 ## Crate responsibilities and rules
 
-The split is by **responsibility**, not by feature.  Each crate has a narrow public surface; future
-work adds new crates rather than widening existing ones.
+The split is by **responsibility**, not by feature.  Each crate has a narrow public surface; add a
+new crate only when an established responsibility or dependency boundary justifies one.
 
 ### `cabin-core`
 
@@ -1540,7 +1540,10 @@ boundary.
 ## Scope and limitations
 
 Cabin is pre-1.0 and intentionally focused on the local OSS package-manager-and-build-system core.
-The following are *not* part of this repository today:
+The following are *not* part of the Cabin client and its local core today - the hosted registry
+service under `registry/` (with its `cabin-registry-verify` companion crate in the root workspace)
+owns its own account, ownership, publish / yank, verification, and administration surfaces,
+documented in `registry/docs/architecture.md`:
 
 - **No Git dependencies.** A Git-backed registry index is intentionally never planned; see
   [`registry-design.md`](registry-design.md).  Source registries are local file directories or
@@ -1591,7 +1594,6 @@ The following are *not* part of this repository today:
   fingerprints.
 - **No C++ modules, no generated-source bindings.** Header-generation tools (`cxx`, `autocxx`,
   `bindgen`) and the C++ modules build flow are out of scope.
-- **No cross-compilation.** `--target <triple>` is reserved for the future cross-compilation flow.
 
 Per-feature limitations live with each feature page (for example [`targets.md`](targets.md),
 [`profiles.md`](profiles.md)).

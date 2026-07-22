@@ -94,12 +94,6 @@ pub struct PlanRequest<'a> {
     /// deps.  `None` means "every C/C++ target in every primary
     /// package".
     pub selected: Option<Vec<ManifestTargetSelector>>,
-    /// Resolved root-package configuration.  Carried through
-    /// the planner so future cache logic and any planner-level
-    /// fingerprint comparisons see the same selection the build
-    /// script and metadata observed.  The planner does not yet
-    /// change C++ flags based on this value.
-    pub configuration: Option<&'a cabin_core::BuildConfiguration>,
     /// Indices of `graph.packages` that the user picked
     /// through workspace package-selection flags.  `None` means
     /// "use the graph's primary set" (the documented default).

@@ -864,7 +864,7 @@ binding-and-I/O wiring covered by
 const in `src/sql.rs`, schema-validated at test time and guarded in CI
 (see "Why no ORM" below). Read-plane path
 components are validated before any lookup: scopes and names follow the
-grammars in "Scopes", versions must look like SemVer, and anything else
+grammars in "Scopes", versions must parse as SemVer, and anything else
 answers without touching storage - the artifact filename must additionally
 repeat the `<scope>-<name>-` prefix its directory segments fix, so a
 downloaded archive stays self-identifying and a disagreeing filename

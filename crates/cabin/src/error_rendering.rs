@@ -36,9 +36,9 @@ pub(crate) fn render_error(error: &anyhow::Error, color: ColorChoice) {
         }
         current = err.source();
     }
-    let mut stderr = StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
+    let mut stderr = StandardStream::stderr(crate::term_setup::termcolor_choice(color));
     if let Some(candidate) = deepest {
-        let _ = candidate.render(error, &mut stderr, color);
+        let _ = candidate.render(error, &mut stderr);
         return;
     }
     let _ = write_plain_error(&mut stderr, &format!("{error:#}"));

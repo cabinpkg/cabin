@@ -82,12 +82,6 @@ impl FakePortBuilder {
         self
     }
 
-    pub fn empty_files(mut self, paths: &[&str]) -> Self {
-        self.files
-            .extend(paths.iter().map(|path| ((*path).to_owned(), String::new())));
-        self
-    }
-
     pub fn stub_declared_sources_except(
         mut self,
         manifest: &str,
