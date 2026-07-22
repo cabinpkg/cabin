@@ -476,7 +476,7 @@ impl<'a> MetadataView<'a> {
                 .map(|p| LockedPackageView {
                     name: p.name.as_str(),
                     version: p.version.to_string(),
-                    source: p.source.as_str(),
+                    source: cabin_lockfile::PACKAGE_SOURCE_INDEX,
                     checksum: p.checksum.as_deref(),
                     dependencies: p
                         .dependencies

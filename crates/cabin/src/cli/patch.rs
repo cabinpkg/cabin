@@ -22,9 +22,7 @@ use cabin_core::{
     PackageName, PatchProvenance, SourceLocator, SourceReplacementResolution,
     SourceReplacementSettings,
 };
-use cabin_lockfile::{
-    LockedPatch, LockedPatchKind, LockedSourceLocatorKind, LockedSourceReplacement,
-};
+use cabin_lockfile::{LockedPatch, LockedSourceLocatorKind, LockedSourceReplacement};
 use cabin_workspace::{
     ActivePatchSet, ConfigPatchInput, PackageGraph, PatchResolutionInputs, resolve_active_patches,
 };
@@ -123,7 +121,6 @@ pub(crate) fn lockfile_patches(set: &ActivePatchSet) -> Vec<LockedPatch> {
         .map(|entry| LockedPatch {
             package: entry.name.clone(),
             version: entry.package.version.clone(),
-            kind: LockedPatchKind::Path,
             provenance: entry.provenance.as_key(),
             path: entry.declared_path.clone(),
         })

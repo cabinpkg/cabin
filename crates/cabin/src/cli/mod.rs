@@ -8,7 +8,7 @@ use cabin_artifact::{ArtifactCache, FetchEntry, FetchOptions, FetchPlan, Fetched
 use cabin_build::{PlanRequest, plan};
 use cabin_core::PackageName;
 use cabin_index::PackageIndex;
-use cabin_lockfile::{LockedPackage, LockedSource, Lockfile};
+use cabin_lockfile::{LockedPackage, Lockfile};
 use cabin_package::scaffold;
 use cabin_resolver::{LockedVersion, ResolveInput, ResolveMode, ResolveOutput, ResolvedSource};
 use cabin_workspace::{PackageGraph, RegistryPackageSource, collect_patched_versioned_deps};
@@ -2472,7 +2472,6 @@ fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::Package
         packages.push(LockedPackage {
             name: pkg.name.clone(),
             version: pkg.version.clone(),
-            source: LockedSource::Index,
             checksum: meta.checksum.clone(),
             dependencies: deps,
         });

@@ -55,12 +55,20 @@ impl Lockfile {
     }
 }
 
+/// The only `source` value a locked package supports today.  The
+/// parser rejects anything else, so the typed model carries no
+/// source field; the renderer emits this constant verbatim.
+pub const PACKAGE_SOURCE_INDEX: &str = "index";
+
+/// The only patch `kind` value supported today (local path
+/// patches).  Same contract as [`PACKAGE_SOURCE_INDEX`].
+pub const PATCH_KIND_PATH: &str = "path";
+
 /// One resolved package recorded in the lockfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedPackage {
     pub name: PackageName,
     pub version: semver::Version,
-    pub source: LockedSource,
     /// Optional content hash copied from the index.  Used by the
     /// fetch / artifact-verification path; absent for index entries
     /// that predate checksum support.
@@ -69,50 +77,19 @@ pub struct LockedPackage {
     pub dependencies: Vec<PackageName>,
 }
 
-/// Where a locked package was sourced from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LockedSource {
-    /// Resolved from the local JSON package index.
-    Index,
-}
-
-impl LockedSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LockedSource::Index => "index",
-        }
-    }
-}
-
 /// One active patch entry recorded for stale-detection under
 /// `--locked`.  Carries enough information to reproduce the
-/// patch decision: package name, patched version, source kind,
-/// and the path *as written* in the declaring file (resolved
-/// relative to the declaring file's directory at apply time).
+/// patch decision: package name, patched version, and the path
+/// *as written* in the declaring file (resolved relative to the
+/// declaring file's directory at apply time).  The serialized
+/// `kind` field is always [`PATCH_KIND_PATH`] today, so it is
+/// validated at the parse boundary instead of being modeled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedPatch {
     pub package: PackageName,
     pub version: semver::Version,
-    pub kind: LockedPatchKind,
     pub provenance: String,
     pub path: Utf8PathBuf,
-}
-
-/// Source kind of a locked patch entry.  Mirrors
-/// [`cabin_core::PatchSourceKind`] but stays in this crate so the
-/// lockfile model is self-contained.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LockedPatchKind {
-    /// Local path patch.
-    Path,
-}
-
-impl LockedPatchKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LockedPatchKind::Path => "path",
-        }
-    }
 }
 
 /// One active source-replacement entry recorded for the same
@@ -158,7 +135,6 @@ mod tests {
         LockedPatch {
             package: pkg(name),
             version: ver(version),
-            kind: LockedPatchKind::Path,
             provenance: "manifest".into(),
             path: Utf8PathBuf::from("../").join(name),
         }

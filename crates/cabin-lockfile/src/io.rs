@@ -8,8 +8,8 @@ use serde::Deserialize;
 
 use crate::error::LockfileError;
 use crate::model::{
-    LockedPackage, LockedPatch, LockedPatchKind, LockedSource, LockedSourceLocatorKind,
-    LockedSourceReplacement, Lockfile,
+    LockedPackage, LockedPatch, LockedSourceLocatorKind, LockedSourceReplacement, Lockfile,
+    PACKAGE_SOURCE_INDEX, PATCH_KIND_PATH,
 };
 use crate::validate::validate;
 
@@ -100,7 +100,7 @@ fn render_packages(out: &mut String, packages: &[LockedPackage]) -> Result<(), L
         out.push_str("[[package]]\n");
         writeln!(out, "name = {}", quote_string(pkg.name.as_str()))?;
         writeln!(out, "version = {}", quote_string(&pkg.version.to_string()))?;
-        writeln!(out, "source = {}", quote_string(pkg.source.as_str()))?;
+        writeln!(out, "source = {}", quote_string(PACKAGE_SOURCE_INDEX))?;
         if let Some(checksum) = &pkg.checksum {
             writeln!(out, "checksum = {}", quote_string(checksum))?;
         }
@@ -138,7 +138,7 @@ fn render_patches(out: &mut String, patches: &[LockedPatch]) -> Result<(), Lockf
             "version = {}",
             quote_string(&patch.version.to_string())
         )?;
-        writeln!(out, "kind = {}", quote_string(patch.kind.as_str()))?;
+        writeln!(out, "kind = {}", quote_string(PATCH_KIND_PATH))?;
         writeln!(out, "provenance = {}", quote_string(&patch.provenance))?;
         writeln!(out, "path = {}", quote_string(patch.path.as_str()))?;
         out.push('\n');
@@ -254,19 +254,15 @@ fn patch_from_raw(raw: RawPatch) -> Result<LockedPatch, LockfileError> {
             value: version,
             source,
         })?;
-    let kind_value = match kind.as_str() {
-        "path" => LockedPatchKind::Path,
-        other => {
-            return Err(LockfileError::UnknownPatchKind {
-                package,
-                value: other.to_owned(),
-            });
-        }
-    };
+    if kind != PATCH_KIND_PATH {
+        return Err(LockfileError::UnknownPatchKind {
+            package,
+            value: kind,
+        });
+    }
     Ok(LockedPatch {
         package: package_name,
         version: parsed_version,
-        kind: kind_value,
         provenance,
         path: Utf8PathBuf::from(path),
     })
@@ -323,15 +319,12 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
             value: version,
             source,
         })?;
-    let source_kind = match source.as_str() {
-        "index" => LockedSource::Index,
-        other => {
-            return Err(LockfileError::UnknownSource {
-                name,
-                value: other.to_owned(),
-            });
-        }
-    };
+    if source != PACKAGE_SOURCE_INDEX {
+        return Err(LockfileError::UnknownSource {
+            name,
+            value: source,
+        });
+    }
     let mut deps: Vec<PackageName> = Vec::with_capacity(dependencies.len());
     for d in dependencies {
         deps.push(
@@ -343,7 +336,6 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
     Ok(LockedPackage {
         name: package_name,
         version: parsed_version,
-        source: source_kind,
         checksum,
         dependencies: deps,
     })
@@ -433,7 +425,6 @@ mod tests {
         let p = &lock.packages[0];
         assert_eq!(p.name.as_str(), "fmt");
         assert_eq!(p.version, ver("10.2.1"));
-        assert_eq!(p.source, LockedSource::Index);
         assert_eq!(
             p.checksum.as_deref(),
             Some("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
@@ -564,14 +555,12 @@ mod tests {
                 LockedPackage {
                     name: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    source: LockedSource::Index,
                     checksum: Some("sha256:zzz".into()),
                     dependencies: vec![pkg("fmt")],
                 },
                 LockedPackage {
                     name: pkg("fmt"),
                     version: ver("10.2.1"),
-                    source: LockedSource::Index,
                     checksum: Some("sha256:xxx".into()),
                     dependencies: Vec::new(),
                 },
@@ -629,14 +618,12 @@ mod tests {
                 LockedPackage {
                     name: pkg("fmtlib/fmt"),
                     version: ver("10.2.1"),
-                    source: LockedSource::Index,
                     checksum: Some("sha256:aa".into()),
                     dependencies: vec![pkg("gabime/spdlog"), pkg("bare")],
                 },
                 LockedPackage {
                     name: pkg("bare"),
                     version: ver("1.0.0"),
-                    source: LockedSource::Index,
                     checksum: None,
                     dependencies: Vec::new(),
                 },
@@ -687,14 +674,12 @@ mod tests {
                 LockedPatch {
                     package: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    kind: LockedPatchKind::Path,
                     provenance: "manifest".into(),
                     path: Utf8PathBuf::from("../spdlog"),
                 },
                 LockedPatch {
                     package: pkg("fmt"),
                     version: ver("10.2.1"),
-                    kind: LockedPatchKind::Path,
                     provenance: "workspace-config".into(),
                     path: Utf8PathBuf::from("../fmt"),
                 },
@@ -736,14 +721,12 @@ mod tests {
                 LockedPackage {
                     name: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    source: LockedSource::Index,
                     checksum: Some("sha256:zzz".into()),
                     dependencies: vec![pkg("fmt")],
                 },
                 LockedPackage {
                     name: pkg("fmt"),
                     version: ver("10.2.1"),
-                    source: LockedSource::Index,
                     checksum: Some("sha256:xxx".into()),
                     dependencies: Vec::new(),
                 },
@@ -752,14 +735,12 @@ mod tests {
                 LockedPatch {
                     package: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    kind: LockedPatchKind::Path,
                     provenance: "manifest".into(),
                     path: Utf8PathBuf::from("../spdlog"),
                 },
                 LockedPatch {
                     package: pkg("fmt"),
                     version: ver("10.2.1"),
-                    kind: LockedPatchKind::Path,
                     provenance: "workspace-config".into(),
                     path: Utf8PathBuf::from("../fmt"),
                 },
@@ -874,14 +855,12 @@ provenance = \"user-config\"\n\
             packages: vec![LockedPackage {
                 name: pkg("spdlog"),
                 version: ver("1.13.0"),
-                source: LockedSource::Index,
                 checksum: Some("sha256:zzz".into()),
                 dependencies: vec![pkg("fmt")],
             }],
             patches: vec![LockedPatch {
                 package: pkg("fmt"),
                 version: ver("10.2.1"),
-                kind: LockedPatchKind::Path,
                 provenance: "manifest".into(),
                 path: Utf8PathBuf::from("../fmt"),
             }],
@@ -953,7 +932,6 @@ provenance = \"user-config\"\n\
             packages: vec![LockedPackage {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                source: LockedSource::Index,
                 checksum: Some("sha256:xxx".into()),
                 dependencies: Vec::new(),
             }],
