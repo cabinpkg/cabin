@@ -223,7 +223,7 @@ async fn handle_registry(
         let mode = service_mode(env, &db).await.ok();
         if breaker::read_gate_refuses(mode, verify_exempt) {
             error_response_with_code(
-                402,
+                breaker::OVER_BUDGET_STATUS,
                 breaker::OVER_BUDGET_READS_DETAIL,
                 breaker::OVER_BUDGET_CODE,
                 Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),
@@ -441,7 +441,7 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 
 /// `PUT /api/v1/packages/<scope>/<name>/<version>`: the publish route
 /// (`docs/remote-registry.md`, "Publish"). Validation order and status
-/// mapping follow `crate::publish`, preceded by the budget gate (`402`),
+/// mapping follow `crate::publish`, preceded by the budget gate (`503`),
 /// the publish rate limit (`429`), and the scope-membership gate (the
 /// uniform `403` - publishing under a scope creates the package row, so
 /// membership alone decides, and a scope that does not exist answers
@@ -638,7 +638,7 @@ async fn is_scope_member(db: &D1Database, scope: &str, user_id: i64) -> worker::
 /// (`docs/remote-registry.md`, "Yank"): idempotent, and the row's
 /// `yanked` column is the single home of yank state - the read path
 /// overrides the stored metadata's field from it. Gated by the budget
-/// breaker (`402`) like publish; yank has no rate limit or quota.
+/// breaker (`503`) like publish; yank has no rate limit or quota.
 /// The scope-membership gate (the uniform `403`) answers before the
 /// version lookup, so a non-member can never probe which versions exist
 /// under a foreign scope. Yank applies to **verified** versions only: a
@@ -1721,14 +1721,14 @@ async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mod
     Ok(mode)
 }
 
-/// `Some(402)` when the budget breaker has writes blocked
+/// `Some(503)` when the budget breaker has writes blocked
 /// (`docs/architecture.md`, "Billing model and the budget breaker").
 /// `>=`, not `==`: `reads_blocked` sits above `writes_blocked` on the
 /// ladder and blocks writes too.
 async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
     if service_mode(env, db).await? >= breaker::Mode::WritesBlocked {
         return Ok(Some(error_response_with_code(
-            402,
+            breaker::OVER_BUDGET_STATUS,
             breaker::OVER_BUDGET_DETAIL,
             breaker::OVER_BUDGET_CODE,
             Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),

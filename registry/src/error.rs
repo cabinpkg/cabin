@@ -140,8 +140,9 @@ mod tests {
                 "details are fixed strings that never need escaping"
             );
         }
-        // The 402 budget refusals use the same envelope shape, one code
-        // for both planes.
+        // The budget refusals use the same envelope shape, one code and
+        // one status for both planes.
+        assert_eq!(breaker::OVER_BUDGET_STATUS, 503);
         assert_eq!(
             envelope_with_code(breaker::OVER_BUDGET_DETAIL, breaker::OVER_BUDGET_CODE),
             r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#

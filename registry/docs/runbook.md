@@ -183,6 +183,11 @@ curl -sS -D - https://registry.cabinpkg.com/config.json   # uniform 401 envelope
 curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
 ```
 
+`/healthz` is a liveness check: it stays `200` in every service mode,
+including the blocked ones, so availability monitoring that must notice a
+tripped breaker has to probe an authenticated data-plane route instead
+and treat a `503` carrying `registry_over_budget` as the signal.
+
 Propagation caveat: for up to ~a minute after `deploy`, requests can still
 reach the previous Worker version. Right after a wipe that skew can even
 surface as a `500` `internal error` (old version, deleted database). Retry
@@ -336,7 +341,7 @@ against the built-in default and can raise `warn` but never a block -
 a write block cannot fix read-driven spend. **Setting** the var is the
 act that arms the read-side breaker: the configured value becomes the
 budget, and exhausting it moves the mode to `reads_blocked`, where
-authenticated data-plane reads answer `402` (the session plane, the
+authenticated data-plane reads answer `503` (the session plane, the
 public stats, the admin plane, and the verifier's config/artifact
 fetches keep working - `docs/architecture.md`). Do not set it before
 the activation procedure below.
@@ -388,7 +393,7 @@ this order:
 5. **Monthly review.** Compare the cron's webhook/usage numbers against
    the grants and adjust upward as growth justifies. Lowering an
    established read budget is a community-visible event (CI installs
-   start hitting `402`) - avoid it; size conservatively at activation
+   start hitting `503`) - avoid it; size conservatively at activation
    instead.
 
 Sizing rules - the degrade-before-pay policy:

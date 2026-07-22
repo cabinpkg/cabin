@@ -27,7 +27,7 @@
 # case), the source viewer's session-ranged reads (the range policy's
 # 400/416 matrix, exact bytes and headers, verified-only with yanked
 # browsable, and the counter never moving), the budget breaker (writes
-# 402 while service_mode =
+# 503 while service_mode =
 # writes_blocked, reads unaffected), blob replication into the BACKUP
 # bucket, and the nightly dump job (triggered via the /__scheduled test
 # route against a local mock of the D1 export API serving a real
@@ -1281,27 +1281,27 @@ sleep 1
 
 # The dev vars pin SERVICE_MODE_TTL_SECS to 0, so the running worker sees
 # the flipped mode immediately instead of after the 60 s cache TTL.
-step "writes answer 402 while writes_blocked; reads stay open"
+step "writes answer 503 while writes_blocked; reads stay open"
 wrangler d1 execute DB --local --command "
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
   UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';"
-wrequest PUT "$publish_path" "$work/publish.bin" 402
+wrequest PUT "$publish_path" "$work/publish.bin" 503
 expect_body 'registry_over_budget'
-wrequest PATCH "$publish_path/yank" "$work/unyank.json" 402
+wrequest PATCH "$publish_path/yank" "$work/unyank.json" 503
 expect_body 'registry_over_budget'
 check "$package_path" 200
 # Source reads are reads: they never consult the service mode.
 session_request GET "$source_path" 206 -H "Range: bytes=-22"
 # Verdicts are deliberately exempt from the budget gates: the idempotent
 # repeat lands (the queue drains while blocked), and an unknown triple
-# is the authenticated 404, never the 402.
+# is the authenticated 404, never the 503.
 as_verifier
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/$version" "$work/verdict-verified.json" 200
 expect_body '"changed":false'
 wrequest PATCH "/api/v1/admin/versions/$scope/$name/9.9.9" "$work/verdict-verified.json" 404
 as_publisher
 
-step "reads answer 402 while reads_blocked; the exempt planes stay open"
+step "reads answer 503 while reads_blocked; the exempt planes stay open"
 wrangler d1 execute DB --local --command "
   UPDATE meta SET value = 'reads_blocked' WHERE key = 'service_mode';"
 downloads_before="$(row_downloads)"
@@ -1310,14 +1310,14 @@ downloads_before="$(row_downloads)"
 # above writes_blocked on the ladder).
 got="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' \
   ${curl_args[@]+"${curl_args[@]}"} "$base$package_path")"
-[[ "$got" == "402" ]] || fail "a read under reads_blocked answered $got"
+[[ "$got" == "503" ]] || fail "a read under reads_blocked answered $got"
 expect_body 'registry_over_budget'
 expect_body 'read budget'
 tr -d '\r' <"$headers" | grep -qi '^retry-after: 900$' \
-  || fail "the read 402 must carry Retry-After: 900"
-check "$artifact_path" 402
-check /config.json 402
-wrequest PUT "$publish_path" "$work/publish.bin" 402
+  || fail "the read 503 must carry Retry-After: 900"
+check "$artifact_path" 503
+check /config.json 503
+wrequest PUT "$publish_path" "$work/publish.bin" 503
 # Unauthenticated callers cannot observe service state: the uniform 401
 # is byte-identical, and /healthz stays up.
 uniform_401 "$base" /config.json
@@ -1332,7 +1332,7 @@ as_verifier
 wcheck "/api/v1/admin/versions?status=pending" 200
 check /config.json 200
 check "$artifact_path" 200
-check "$package_path" 402
+check "$package_path" 503
 as_publisher
 # The exempt fetch was served, but the download counter follows the
 # write plane's fail-closed rule and must not have moved.

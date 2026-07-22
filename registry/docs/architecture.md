@@ -685,7 +685,7 @@ selects a quota set from the map in
 packages per day, total packages, versions per package per day, and a
 publish token bucket (burst plus per-minute refill, state on the token row
 in `tokens.rl_tokens` / `tokens.rl_updated_at`). Daily windows are UTC
-calendar days. Publish enforces, in order: the budget gate (`402`), the
+calendar days. Publish enforces, in order: the budget gate (`503`), the
 token scope (`403`), the rate limit (`429`, `Retry-After`, charged per
 attempt), scope membership (the uniform `403` - "The write path"),
 framing (`400`), metadata and checksum (`400`), the idempotent no-op /
@@ -760,9 +760,9 @@ The mode and a human-readable reason live in `meta.service_mode` /
 POSTed to `NOTIFY_WEBHOOK_URL`. On the request path publish, yank, and
 the read gate below share one isolate-memory mode cache (~60 s TTL, one
 D1 point read on expiry; the smoke test pins `SERVICE_MODE_TTL_SECS` to
-0 via `.dev.vars`); publish and yank answer `402 registry_over_budget`
+0 via `.dev.vars`); publish and yank answer `503 registry_over_budget`
 with `Retry-After` at `writes_blocked` and above, and fail closed - an
-unreadable or unknown mode blocks them.
+unreadable or unknown mode blocks them ("Why 503, not 402").
 
 **Reads gate only on an affirmatively read `reads_blocked`** - a
 recorded revision (2026-07-18) of the original principle that reads
@@ -778,7 +778,7 @@ counts"). The gate covers the Bearer data plane only (`/config.json`,
 `/packages/*`, `/artifacts/*`), runs **after** Bearer validation - the
 uniform 401 stays byte-identical, so unauthenticated callers cannot
 observe service state - and answers the same envelope:
-`402 registry_over_budget` with `Retry-After`. Exempt from the gate:
+`503 registry_over_budget` with `Retry-After`. Exempt from the gate:
 `/healthz`, the public `/api/v1/stats`, the entire session plane (the
 dashboard is where the operator and users see what is happening while
 blocked), the admin plane, and the verifier's `config.json` and
@@ -879,6 +879,46 @@ Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client
 talking to a freshly wiped (pre-launch) registry is immediately visible
 (see [`runbook.md`](runbook.md)).
+
+## Why 503, not 402
+
+Breaker refusals answered `402 Payment Required` until 2026-07-22. They
+answer `503 Service Unavailable` now; the envelope, the
+`registry_over_budget` code, both details, and `Retry-After` are
+unchanged.
+
+RFC 9110 leaves `402` "reserved for future use", and its de facto
+meaning is *the requesting account must pay*. Nothing the caller can pay
+clears a tripped breaker - the constraint is entirely operator-side, and
+the account that gets blocked is the registry's own. `503` plus
+`Retry-After` is the standard "temporarily unavailable, retry later"
+signal: `503` has explicit `Retry-After` semantics and `402` has none,
+so the one header that makes the refusal actionable was landing on a
+status no client can be relied on to read it off of.
+
+The status also has to agree with the schema. The quota vocabulary was
+deliberately scrubbed of billing language (`plan` -> `quota_class`,
+`'free'` -> `'default'`) because the quota mechanism is an
+exception-handling seam, not a commercialization signal; emitting
+Payment Required on the wire contradicted that. And the registry is
+consumed from CI, where HTTP tooling classifies `503` as transient and
+retryable - `curl --retry`, for one, treats `503` as a transient error
+worth retrying - which is the correct reading here.
+Retrying is safe on these routes: the gates run before any mutation,
+publish is byte-idempotent, and yank sets a state rather than toggling
+one.
+
+`429` was considered and rejected. It asserts per-client fault, but the
+breaker is deliberately aggregate and never keyed on client or token
+("Billing model and the budget breaker"); WAF rate limiting already
+emits `429`, and conflating the two would cost diagnostics.
+
+The cost of the move is that `503`, unlike `402`, is a status the
+hosting platform emits on its own - Cloudflare documents `503` for edge
+failures and for Workers exceeding CPU or memory. So the clients key on
+the `registry_over_budget` code, not the status: an uncoded `503` stays
+the generic server error it was before the breaker existed, and a
+platform outage is never reported as a budget refusal.
 
 ## Why no ORM
 

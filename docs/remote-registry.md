@@ -536,12 +536,12 @@ What yanking means - matching the resolver behavior in
 | `201` | Publish of a version that did not exist before. |
 | `400` | Malformed request: bad framing, invalid metadata, or an invalid JSON body. |
 | `401` | No token or an invalid token (never reveals whether the package exists).  Carries the [login-URL challenge](#the-login-url-challenge). |
-| `402` | The registry's own budget breaker tripped (the hosted service blocks itself before provider limits or real spend are reached).  Writes are disabled service-wide; reads stay unaffected unless the registry's operator has configured a read budget and it is exhausted too, in which case authenticated reads (index and archive requests) answer `402` as well.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`. |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Authenticated request for an unknown package or version - including versions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
 | `409` | Publish of an existing (pending or verified) version with different bytes, or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
 | `429` | Publish rate limit exceeded (token bucket).  Carries `Retry-After` (seconds) saying when the next publish will be accepted, and the envelope code `rate_limited`. |
+| `503` | The registry's own budget breaker tripped (the hosted service blocks itself before provider limits or real spend are reached).  Writes are disabled service-wide; reads stay unaffected unless the registry's operator has configured a read budget and it is exhausted too, in which case authenticated reads (index and archive requests) answer `503` as well.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
 
 ## Error envelope
 
@@ -568,10 +568,13 @@ before.  The defined codes:
 | `quota_packages_daily` | `403` | The daily new-package quota is exhausted. |
 | `quota_packages_total` | `403` | The total package quota is exhausted. |
 | `quota_versions_daily` | `403` | The daily per-package version quota is exhausted. |
-| `registry_over_budget` | `402` | The service-wide budget breaker has writes - and, when a read budget is configured and exhausted, reads - paused; `Retry-After` covers the next re-evaluation. |
+| `registry_over_budget` | `503` | The service-wide budget breaker has writes - and, when a read budget is configured and exhausted, reads - paused; `Retry-After` covers the next re-evaluation. |
 
-Cabin maps these refusals to actionable messages: a `402` on the mutation routes reports the
-registry as temporarily not accepting publishes (over its free budget), a `402` on the read
+Cabin maps these refusals to actionable messages.  For the breaker it keys on the
+`registry_over_budget` code, not on the `503` alone - a `503` can also come from the hosting
+platform, and an outage must not be reported as a budget refusal; a `503` without the code stays
+a plain server error.  A coded `503` on the mutation routes reports the registry as temporarily
+not accepting publishes (over its free budget), a coded `503` on the read
 routes reports package downloads and index reads as temporarily disabled to stay within the
 registry's infrastructure budget, and the `429` reports the rate limit - each echoing
 `Retry-After` as a "try again in N seconds" hint when the header is usable; the `413` reports the

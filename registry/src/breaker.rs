@@ -63,6 +63,12 @@ pub fn read_gate_refuses(mode: Option<Mode>, verify_exempt: bool) -> bool {
 /// plus the `Retry-After` matching the cron cadence (the next evaluation
 /// that could unblock is at most ~15 minutes away). One code for both
 /// planes; only the detail names which surface is paused.
+///
+/// The status is `503`, not `402` (`docs/architecture.md`, "Why 503, not
+/// 402"): a tripped breaker is operator-side, nothing the caller can pay
+/// clears it, and `503` has explicit `Retry-After` semantics where
+/// `402` has none.
+pub const OVER_BUDGET_STATUS: u16 = 503;
 pub const OVER_BUDGET_CODE: &str = "registry_over_budget";
 pub const OVER_BUDGET_DETAIL: &str =
     "registry writes are temporarily disabled: the free-plan budget is exhausted";

@@ -44,7 +44,12 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Cap on how much of a non-2xx response body is read while looking
 /// for the error envelope.  Envelopes are tiny; anything bigger is
 /// not one.
-const MAX_ERROR_BODY_BYTES: u64 = 64 * 1024;
+const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
+
+/// The envelope `code` the registry's budget breaker sets
+/// (`docs/remote-registry.md`, "Error envelope").  It is what separates
+/// a breaker refusal from every other `503` on the wire.
+const OVER_BUDGET_CODE: &str = "registry_over_budget";
 
 /// Client for one registry's API origin.  Construction validates the
 /// URL (http(s), no userinfo) and enforces the same cleartext rule as
@@ -141,9 +146,9 @@ impl RegistryApi {
     /// (unless a `quota_*` code marks it as
     /// [`RegistryApiError::QuotaExceeded`]),
     /// the quota and budget refusals map to
-    /// [`RegistryApiError::RegistryOverBudget`] (`402`),
-    /// [`RegistryApiError::ArchiveTooLarge`] (`413`), and
-    /// [`RegistryApiError::RateLimited`] (`429`) - the first and last
+    /// [`RegistryApiError::ArchiveTooLarge`] (`413`),
+    /// [`RegistryApiError::RateLimited`] (`429`), and
+    /// [`RegistryApiError::RegistryOverBudget`] (`503`) - the last two
     /// carrying the response's `Retry-After` seconds when usable - and
     /// any other non-success status surfaces as
     /// [`RegistryApiError::ServerError`] with the error envelope's
@@ -271,7 +276,7 @@ impl RegistryApi {
                 Ok((status, response))
             }
             Err(ureq::Error::Status(status, response)) => {
-                // `Retry-After` (delta seconds) rides on the 402 and 429
+                // `Retry-After` (delta seconds) rides on the 429 and 503
                 // refusals; an absent or non-numeric value (an HTTP date,
                 // say) degrades to no hint rather than failing the
                 // mapping.  Read before the body consumes the response.
@@ -290,7 +295,6 @@ impl RegistryApi {
                     401 => RegistryApiError::AuthRequired {
                         origin: self.origin.clone(),
                     },
-                    402 => RegistryApiError::RegistryOverBudget { retry_after_secs },
                     // A 403 whose envelope carries a `quota_*` code is a
                     // per-user quota refusal (`docs/remote-registry.md`,
                     // "Error envelope"), not a scope problem: the server
@@ -332,6 +336,21 @@ impl RegistryApi {
                     },
                     413 => RegistryApiError::ArchiveTooLarge { detail },
                     429 => RegistryApiError::RateLimited { retry_after_secs },
+                    // The service-wide budget breaker
+                    // (`registry/docs/architecture.md`, "Why 503, not
+                    // 402"): an operator-side, temporary refusal, so the
+                    // registry answers `503` rather than the `402` it
+                    // used before - `503` has explicit `Retry-After`
+                    // semantics where `402` has none, and nothing the
+                    // caller can pay clears the breaker.  Unlike the `402` it
+                    // replaces, `503` is a status Cloudflare's own edge
+                    // and runtime emit too, so the code identifies the
+                    // breaker; an uncoded `503` stays the generic server
+                    // error it was before, rather than blaming a
+                    // platform outage on the registry's budget.
+                    503 if code.as_deref() == Some(OVER_BUDGET_CODE) => {
+                        RegistryApiError::RegistryOverBudget { retry_after_secs }
+                    }
                     _ => RegistryApiError::ServerError { status, detail },
                 })
             }
@@ -419,7 +438,7 @@ fn verification_field(response: ureq::Response) -> Option<String> {
     let mut body = Vec::new();
     response
         .into_reader()
-        .take(MAX_ERROR_BODY_BYTES)
+        .take(MAX_ERROR_BODY_BYTES as u64)
         .read_to_end(&mut body)
         .ok()?;
     serde_json::from_slice::<PublishSuccessBody>(&body)
@@ -430,13 +449,23 @@ fn verification_field(response: ureq::Response) -> Option<String> {
 /// Read a non-2xx response body (capped) and extract the first error
 /// envelope entry.  A malformed or missing envelope yields `None`, so
 /// the caller's message degrades to the raw status.
+///
+/// The cap is a rejection, not a truncation: reading one byte past it and
+/// refusing what overflows is what stops an oversized body whose first
+/// 64 KiB happens to parse - a coded envelope followed by padding - from
+/// being accepted as the envelope it is not.  The `code` this returns
+/// decides the `503` mapping, so a near-miss here is a wrong diagnosis,
+/// not just a wrong message.
 fn envelope_entry(response: ureq::Response) -> Option<ErrorEntry> {
     let mut body = Vec::new();
     response
         .into_reader()
-        .take(MAX_ERROR_BODY_BYTES)
+        .take(MAX_ERROR_BODY_BYTES as u64 + 1)
         .read_to_end(&mut body)
         .ok()?;
+    if body.len() > MAX_ERROR_BODY_BYTES {
+        return None;
+    }
     let envelope: ErrorEnvelope = serde_json::from_slice(&body).ok()?;
     let mut entry = envelope.errors.into_iter().next()?;
     entry.detail = escape_control_chars(&entry.detail);
@@ -740,11 +769,16 @@ mod tests {
     }
 
     impl MockApi {
-        fn respond_with(status: u16, body: &'static str) -> Self {
+        fn respond_with(status: u16, body: impl Into<String>) -> Self {
             Self::respond_with_headers(status, body, &[])
         }
 
-        fn respond_with_headers(status: u16, body: &'static str, headers: &[(&str, &str)]) -> Self {
+        fn respond_with_headers(
+            status: u16,
+            body: impl Into<String>,
+            headers: &[(&str, &str)],
+        ) -> Self {
+            let body = body.into();
             let server = Arc::new(
                 tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
             );
@@ -774,7 +808,7 @@ mod tests {
                         body: body_bytes,
                     });
                     let mut response =
-                        tiny_http::Response::from_string(body).with_status_code(status);
+                        tiny_http::Response::from_string(body.clone()).with_status_code(status);
                     for header in &response_headers {
                         response.add_header(header.clone());
                     }
@@ -1100,12 +1134,13 @@ mod tests {
         assert!(err.to_string().contains("metadata name mismatch"), "{err}");
     }
 
-    /// 402: the service-wide budget breaker has writes paused. The message
-    /// says so and carries the `Retry-After` seconds when present.
+    /// A 503 carrying `registry_over_budget`: the service-wide budget
+    /// breaker has writes paused. The message says so and carries the
+    /// `Retry-After` seconds when present.
     #[test]
-    fn publish_maps_402_to_registry_over_budget() {
+    fn publish_maps_a_coded_503_to_registry_over_budget() {
         let mock = MockApi::respond_with_headers(
-            402,
+            503,
             r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#,
             &[("Retry-After", "900")],
         );
@@ -1126,9 +1161,12 @@ mod tests {
             "expected Retry-After in: {message}"
         );
 
-        // Without a Retry-After header - or even without an envelope at
-        // all - the mapping still holds and degrades to "try again later".
-        let mock = MockApi::respond_with(402, "no envelope here");
+        // Without a usable Retry-After header the mapping still holds and
+        // degrades to "try again later".
+        let mock = MockApi::respond_with(
+            503,
+            r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#,
+        );
         let err = mock
             .client(Some(token()))
             .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
@@ -1140,13 +1178,93 @@ mod tests {
             other => panic!("expected RegistryOverBudget, got {other:?}"),
         }
         assert!(err.to_string().contains("try again later"), "{err}");
+
+        // A body exactly at the read cap is still an envelope; the
+        // rejection starts one byte later.
+        let mock = MockApi::respond_with(503, padded_envelope(MAX_ERROR_BODY_BYTES));
+        let err = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .unwrap_err();
+        match &err {
+            RegistryApiError::RegistryOverBudget { .. } => {}
+            other => panic!("expected RegistryOverBudget, got {other:?}"),
+        }
+    }
+
+    /// A coded envelope padded out to `len` bytes: valid JSON on its own,
+    /// but only within the cap does the padding stay harmless.
+    fn padded_envelope(len: usize) -> String {
+        let mut body =
+            r#"{"errors":[{"detail":"over budget","code":"registry_over_budget"}]}"#.to_owned();
+        // Trailing whitespace keeps the JSON parseable, which is exactly
+        // what a truncating cap would let through.
+        body.extend(std::iter::repeat_n(' ', len - body.len()));
+        body
+    }
+
+    /// The code, not the status, identifies the breaker: Cloudflare's
+    /// edge and the Workers runtime emit bare 503s of their own, and a
+    /// platform outage must not be reported as the registry being over
+    /// budget. A different code, a near-miss code, no entry, no code, an
+    /// envelope-less body, and a body past the read cap all stay the
+    /// generic server error - as does the breaker's old 402, which has
+    /// no mapping left (the registry is pre-launch, so there is no
+    /// legacy arm to keep).
+    #[test]
+    fn publish_keeps_uncoded_503s_and_the_old_402_generic() {
+        for (status, body) in [
+            (
+                503,
+                r#"{"errors":[{"detail":"origin is unreachable"}]}"#.to_owned(),
+            ),
+            (
+                503,
+                r#"{"errors":[{"detail":"nope","code":"something_else"}]}"#.to_owned(),
+            ),
+            // The comparison is exact: a code the real one is a prefix
+            // of must not match.
+            (
+                503,
+                r#"{"errors":[{"detail":"nope","code":"registry_over_budgets"}]}"#.to_owned(),
+            ),
+            (503, r#"{"errors":[]}"#.to_owned()),
+            (503, "no envelope here".to_owned()),
+            // One byte past the cap.  The envelope prefix parses on its
+            // own, so only a rejecting (not truncating) cap keeps this
+            // generic.
+            (503, padded_envelope(MAX_ERROR_BODY_BYTES + 1)),
+            (
+                402,
+                r#"{"errors":[{"detail":"over budget","code":"registry_over_budget"}]}"#.to_owned(),
+            ),
+        ] {
+            let label = format!("{status} {}", &body[..body.len().min(72)]);
+            let mock = MockApi::respond_with(status, body);
+            let err = mock
+                .client(Some(token()))
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+                .unwrap_err();
+            match &err {
+                RegistryApiError::ServerError { status: got, .. } => {
+                    assert_eq!(*got, status, "case: {label}");
+                }
+                other => panic!("expected ServerError({status}), got {other:?}"),
+            }
+            // The generic mapping echoes the server's own `detail`, so
+            // the check is that the *breaker's* wording never appears.
+            assert!(
+                !err.to_string().contains("not accepting publishes"),
+                "{err}"
+            );
+        }
     }
 
     /// The breaker blocks yanks too: the shared mapping covers PATCH.
     #[test]
-    fn set_yanked_maps_402_to_registry_over_budget() {
+    fn set_yanked_maps_503_to_registry_over_budget() {
         let mock = MockApi::respond_with_headers(
-            402,
+            503,
             r#"{"errors":[{"detail":"registry writes are temporarily disabled: the free-plan budget is exhausted","code":"registry_over_budget"}]}"#,
             &[("Retry-After", "900")],
         );
