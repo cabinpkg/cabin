@@ -13,7 +13,7 @@ pub struct PortDescriptor {
     pub name: PackageName,
     pub version: Version,
     pub metadata: PortMetadata,
-    pub source: PortSource,
+    pub source: ArchiveSource,
     pub overlay: OverlayManifest,
     /// In-tree file placements applied to the extracted source
     /// after `strip_prefix`.  Each step copies an upstream file to
@@ -51,16 +51,14 @@ pub struct PortMetadata {
 /// (git, tag-only, branch, `latest`) is rejected by the
 /// parser.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PortSource {
-    Archive {
-        url: Url,
-        sha256: PortChecksum,
-        /// Single directory component to strip from every
-        /// archive entry before joining into the destination.
-        /// `None` means the archive root is the destination
-        /// root.
-        strip_prefix: Option<String>,
-    },
+pub struct ArchiveSource {
+    pub url: Url,
+    pub sha256: PortChecksum,
+    /// Single directory component to strip from every
+    /// archive entry before joining into the destination.
+    /// `None` means the archive root is the destination
+    /// root.
+    pub strip_prefix: Option<String>,
 }
 
 /// SHA-256 digest of a port's source archive.  Stored as the

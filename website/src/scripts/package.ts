@@ -9,9 +9,8 @@ import {
     getReverseDependencies,
     type PackageDetail,
     type ReverseDependent,
-    sharedAuth,
 } from "../lib/account.ts";
-import { accountShell } from "../lib/accountShell";
+import { bootAccountShell } from "../lib/accountShell";
 import { ACCOUNT_URLS } from "../lib/constants";
 import { formatCount, formatRelativeTime } from "../lib/format";
 
@@ -154,59 +153,45 @@ function renderDependents(
     }
 }
 
-const shell = accountShell();
-if (shell) {
-    sharedAuth().then(async (auth) => {
-        if (auth.state === "signed-out") {
-            shell.show("signed-out");
-            return;
-        }
-        if (auth.state === "error") {
-            shell.show("error", auth.message);
-            return;
-        }
-        if (auth.state !== "signed-in") {
-            return;
-        }
-        if (!NAME_PATTERN.test(packageName)) {
-            shell.show("error", "missing or malformed package name");
-            return;
-        }
-        setText(shell.root, "[data-package-name]", packageName);
-        const slash = packageName.indexOf("/");
-        const scope = packageName.slice(0, slash);
-        const name = packageName.slice(slash + 1);
-        const [detail, dependents] = await Promise.all([
-            getPackageDetail(doFetch, scope, name),
-            getReverseDependencies(doFetch, scope, name),
-        ]);
-        const detailOutcome = asOutcome(detail);
-        const dependentsOutcome = asOutcome(dependents);
-        if (
-            detailOutcome.state === "signed-out" ||
-            dependentsOutcome.state === "signed-out"
-        ) {
-            shell.show("signed-out");
-            return;
-        }
-        // Both routes share the same visibility gate, so a 404 means
-        // the package has no verified versions (or does not exist) -
-        // the two are indistinguishable by design.
-        if (!detail.ok && detail.status === 404) {
-            shell.show("error", "this package has no verified versions");
-            return;
-        }
-        if (detailOutcome.state === "failed") {
-            shell.show("error", detailOutcome.message);
-            return;
-        }
-        if (dependentsOutcome.state === "failed") {
-            shell.show("error", dependentsOutcome.message);
-            return;
-        }
-        renderVersions(shell.root, detailOutcome.data);
-        renderDependencies(shell.root, detailOutcome.data);
-        renderDependents(shell.root, dependentsOutcome.data.dependents);
-        shell.show("content");
-    });
-}
+bootAccountShell(async (shell) => {
+    if (!NAME_PATTERN.test(packageName)) {
+        shell.show("error", "missing or malformed package name");
+        return;
+    }
+    setText(shell.root, "[data-package-name]", packageName);
+    const slash = packageName.indexOf("/");
+    const scope = packageName.slice(0, slash);
+    const name = packageName.slice(slash + 1);
+    const [detail, dependents] = await Promise.all([
+        getPackageDetail(doFetch, scope, name),
+        getReverseDependencies(doFetch, scope, name),
+    ]);
+    const detailOutcome = asOutcome(detail);
+    const dependentsOutcome = asOutcome(dependents);
+    if (
+        detailOutcome.state === "signed-out" ||
+        dependentsOutcome.state === "signed-out"
+    ) {
+        shell.show("signed-out");
+        return;
+    }
+    // Both routes share the same visibility gate, so a 404 means
+    // the package has no verified versions (or does not exist) -
+    // the two are indistinguishable by design.
+    if (!detail.ok && detail.status === 404) {
+        shell.show("error", "this package has no verified versions");
+        return;
+    }
+    if (detailOutcome.state === "failed") {
+        shell.show("error", detailOutcome.message);
+        return;
+    }
+    if (dependentsOutcome.state === "failed") {
+        shell.show("error", dependentsOutcome.message);
+        return;
+    }
+    renderVersions(shell.root, detailOutcome.data);
+    renderDependencies(shell.root, detailOutcome.data);
+    renderDependents(shell.root, dependentsOutcome.data.dependents);
+    shell.show("content");
+});

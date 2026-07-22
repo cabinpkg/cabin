@@ -314,24 +314,22 @@ pub(crate) fn enforce_vendor_local_index_post_replacement(
 }
 
 /// The inputs the artifact pipeline consumes once a command has a
-/// concrete index source: the lock mode and write-allowance, the
-/// resolved artifact cache directory, and the locator the index is
-/// reachable through after source-replacement.
+/// concrete index source: the lock policy, the resolved artifact
+/// cache directory, and the locator the index is reachable through
+/// after source-replacement.
 pub(crate) struct PipelineInputs {
-    pub mode: crate::cli::LockMode,
-    pub allow_write: bool,
+    pub policy: crate::cli::LockPolicy,
     pub cache_dir: PathBuf,
     pub index_source: cabin_core::SourceLocator,
 }
 
 /// Turn a resolved index source into [`PipelineInputs`] - the inner
 /// band that `build` / `run` / `test` / `fetch` / `vendor` all run
-/// once they hold a concrete `index_source`: derive the lock mode and
-/// write-allowance, resolve the cache dir (preferring the
-/// config-resolved value), convert the source to a
-/// [`cabin_core::SourceLocator`], apply source-replacement, and
-/// enforce the post-replacement offline rule (and, for `vendor`,
-/// the local-index rule).
+/// once they hold a concrete `index_source`: derive the lock policy,
+/// resolve the cache dir (preferring the config-resolved value),
+/// convert the source to a [`cabin_core::SourceLocator`], apply
+/// source-replacement, and enforce the post-replacement offline rule
+/// (and, for `vendor`, the local-index rule).
 ///
 /// Callers keep their own `resolve_index_source` /
 /// `enforce_offline_index_source` / `resolve_cache_dir` preamble
@@ -349,8 +347,7 @@ pub(crate) fn resolve_pipeline_inputs(
     no_patches: bool,
     vendor_local_index: bool,
 ) -> Result<PipelineInputs> {
-    let mode = crate::cli::lock_mode_for_flags(locked, frozen);
-    let allow_write = !(locked || frozen);
+    let policy = crate::cli::LockPolicy::from_flags(locked, frozen);
     let cache_dir = match resolved_cache_dir {
         Some((path, _)) => path.clone(),
         None => crate::cli::cache_dir_for(cache_dir_arg)?,
@@ -363,8 +360,7 @@ pub(crate) fn resolve_pipeline_inputs(
         enforce_vendor_local_index_post_replacement(&resolved_locator)?;
     }
     Ok(PipelineInputs {
-        mode,
-        allow_write,
+        policy,
         cache_dir,
         index_source: resolved_locator.resolved,
     })

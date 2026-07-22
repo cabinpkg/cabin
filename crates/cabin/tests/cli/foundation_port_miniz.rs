@@ -11,25 +11,20 @@ use super::*;
 fn port_toml_schema_for_real_ports_miniz_matches_published_values() {
     let descriptor =
         load_real_port_and_assert_schema("miniz", &semver::Version::new(3, 1, 2), "MIT");
-    match &descriptor.source {
-        cabin_port::PortSource::Archive {
-            url, strip_prefix, ..
-        } => {
-            // Upstream's only official release artifact is the
-            // amalgamated zip; the URL extension is what opts the
-            // port into the zip extraction path.
-            assert!(
-                url.as_str().to_ascii_lowercase().ends_with(".zip"),
-                "expected a .zip URL, got {url}"
-            );
-            assert_eq!(
-                cabin_port::ArchiveKind::from_url(url),
-                cabin_port::ArchiveKind::Zip
-            );
-            // The amalgamated zip has no root directory.
-            assert_eq!(strip_prefix.as_deref(), None);
-        }
-    }
+    let url = &descriptor.source.url;
+    // Upstream's only official release artifact is the
+    // amalgamated zip; the URL extension is what opts the
+    // port into the zip extraction path.
+    assert!(
+        url.as_str().to_ascii_lowercase().ends_with(".zip"),
+        "expected a .zip URL, got {url}"
+    );
+    assert_eq!(
+        cabin_port::ArchiveKind::from_url(url),
+        cabin_port::ArchiveKind::Zip
+    );
+    // The amalgamated zip has no root directory.
+    assert_eq!(descriptor.source.strip_prefix.as_deref(), None);
 }
 
 #[test]

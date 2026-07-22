@@ -1,8 +1,12 @@
 // DOM glue for the account pages' shared shell (AccountShell.astro):
-// finds the shell's state sections and switches between them. The page
-// scripts drive it - resolve the shared auth probe, render into the
-// hidden content section, then reveal it; and fall back to the
-// signed-out state whenever a later call answers 401.
+// finds the shell's state sections and switches between them. Pages
+// enter through bootAccountShell() - it settles the shared auth probe
+// and maps signed-out / error onto the shell states, then hands a
+// signed-in user to the page's render callback, which renders into
+// the hidden content section and reveals it (falling back to the
+// signed-out state whenever a later call answers 401).
+
+import { sharedAuth, type User } from "./account.ts";
 
 export type ShellState = "loading" | "signed-out" | "error" | "content";
 
@@ -18,7 +22,7 @@ const SECTIONS: Record<ShellState, string> = {
     content: "[data-shell-content]",
 };
 
-export function accountShell(): Shell | null {
+function accountShell(): Shell | null {
     const root = document.querySelector("[data-account-shell]");
     if (!(root instanceof HTMLElement)) {
         return null;
@@ -50,4 +54,27 @@ export function accountShell(): Shell | null {
             }
         },
     };
+}
+
+export function bootAccountShell(
+    render: (shell: Shell, user: User) => void | Promise<void>,
+): void {
+    const shell = accountShell();
+    if (!shell) {
+        return;
+    }
+    sharedAuth().then((auth) => {
+        if (auth.state === "signed-out") {
+            shell.show("signed-out");
+            return;
+        }
+        if (auth.state === "error") {
+            shell.show("error", auth.message);
+            return;
+        }
+        if (auth.state !== "signed-in") {
+            return;
+        }
+        return render(shell, auth.user);
+    });
 }

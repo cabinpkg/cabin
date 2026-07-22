@@ -13,17 +13,14 @@ fn port_toml_schema_for_real_ports_picohttpparser_matches_published_values() {
         &semver::Version::new(2026, 4, 6),
         "MIT OR Artistic-1.0-Perl",
     );
-    match &descriptor.source {
-        cabin_port::PortSource::Archive { url, .. } => {
-            // The archive is an immutable commit tarball, pinned by
-            // full 40-hex commit id (no floating branch or tag).
-            assert!(
-                url.path()
-                    .ends_with("/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz"),
-                "expected a commit-pinned tarball, got {url}"
-            );
-        }
-    }
+    let url = &descriptor.source.url;
+    // The archive is an immutable commit tarball, pinned by
+    // full 40-hex commit id (no floating branch or tag).
+    assert!(
+        url.path()
+            .ends_with("/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz"),
+        "expected a commit-pinned tarball, got {url}"
+    );
     assert_tar_gz_source(
         &descriptor,
         "picohttpparser-f4d94b48b31e0abae029ebeafcfd9ca0680ede58",

@@ -6,7 +6,7 @@
 //! Cabin C/C++ target.  This crate owns:
 //!
 //! - the `port.toml` schema and parser ([`mod@parse`]),
-//! - the typed [`PortDescriptor`] / [`PortSource`] model ([`model`]),
+//! - the typed [`PortDescriptor`] / [`ArchiveSource`] model ([`model`]),
 //! - the source-preparation pipeline ([`mod@prepare`]).
 //!
 //! Crate boundaries:
@@ -31,7 +31,7 @@ pub mod prepare;
 
 pub use cache::{ArchiveKind, PortCache};
 pub use error::PortError;
-pub use model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
+pub use model::{ArchiveSource, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata};
 pub use parse::{load_port, parse_port_str};
 pub use prepare::{
     PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions, PortPrepareResult,

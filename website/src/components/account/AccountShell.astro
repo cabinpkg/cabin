@@ -1,7 +1,7 @@
 ---
 // The shared frame of the authenticated pages (/dashboard, /settings/*).
 // The static default is the "loading" section; the page's script settles
-// it into signed-out, error, or the page content via `accountShell()`
+// it into signed-out, error, or the page content via `bootAccountShell()`
 // (src/lib/accountShell.ts). The website holds no session knowledge, so
 // an unauthenticated visit renders the signed-out state right here -
 // never a server-side redirect.

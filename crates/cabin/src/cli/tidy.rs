@@ -110,7 +110,11 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
     // short-circuit serves an already-prepared workspace.
     let workspace_selection =
         package_selection_from_flags(args.workspace, &args.package, args.default_members);
-    let (_port_sources, graph) = crate::cli::port::prepare_ports_and_load_initial_graph(
+    let crate::cli::port::WorkspacePrep {
+        effective_config,
+        graph,
+        ..
+    } = crate::cli::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
         None,
         true,
@@ -118,8 +122,8 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         false,
         &workspace_selection,
         false,
+        None,
     )?;
-    let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let resolved_selection =
         cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;

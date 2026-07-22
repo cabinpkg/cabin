@@ -42,7 +42,7 @@ use url::Url;
 
 use crate::cache::{ArchiveKind, PortCache};
 use crate::error::{FsResultExt, PortError};
-use crate::model::{CopyStep, PortChecksum, PortDescriptor, PortSource};
+use crate::model::{ArchiveSource, CopyStep, PortChecksum, PortDescriptor};
 
 /// Where to read archive bytes from. `cabin-port` stays HTTP-free:
 /// callers handle any download themselves and pass the resulting
@@ -184,7 +184,7 @@ fn prepare_one(
     cache: &PortCache,
     options: PortPrepareOptions,
 ) -> Result<PreparedPort, PortError> {
-    let PortSource::Archive {
+    let ArchiveSource {
         url,
         sha256,
         strip_prefix,
@@ -590,7 +590,9 @@ fn hash_file(path: &Path) -> Result<String, PortError> {
 mod tests {
     use super::*;
     use crate::cache::{ArchiveKind, PortCache};
-    use crate::model::{OverlayManifest, PortChecksum, PortDescriptor, PortMetadata, PortSource};
+    use crate::model::{
+        ArchiveSource, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata,
+    };
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
     use cabin_core::PackageName;
@@ -648,7 +650,7 @@ mod tests {
             name: pkg("zlib"),
             version: Version::new(1, 3, 1),
             metadata: PortMetadata::default(),
-            source: PortSource::Archive {
+            source: ArchiveSource {
                 url,
                 sha256: PortChecksum::parse_hex(sha256_hex).unwrap(),
                 strip_prefix: Some("zlib-1.3.1".to_owned()),
@@ -1317,7 +1319,7 @@ mod tests {
             name: pkg(name_lit),
             version: Version::new(1, 0, 0),
             metadata: PortMetadata::default(),
-            source: PortSource::Archive {
+            source: ArchiveSource {
                 url: Url::from_file_path(&archive).unwrap(),
                 sha256: PortChecksum::parse_hex(&hex).unwrap(),
                 strip_prefix: Some("upstream".to_owned()),

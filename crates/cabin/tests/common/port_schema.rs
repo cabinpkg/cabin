@@ -33,12 +33,8 @@ pub fn load_real_port_and_assert_schema(
         .unwrap_or_else(|err| panic!("ports/{name}/{version}/port.toml should parse: {err:?}"));
     assert_eq!(descriptor.name.as_str(), name);
     assert_eq!(&descriptor.version, version);
-    match &descriptor.source {
-        cabin_port::PortSource::Archive { url, sha256, .. } => {
-            assert_eq!(url.scheme(), "https");
-            assert_eq!(sha256.to_hex().len(), 64);
-        }
-    }
+    assert_eq!(descriptor.source.url.scheme(), "https");
+    assert_eq!(descriptor.source.sha256.to_hex().len(), 64);
     assert_eq!(
         descriptor.overlay.relative_path,
         PathBuf::from("cabin.toml")
@@ -53,17 +49,15 @@ pub fn load_real_port_and_assert_schema(
 /// (miniz's zip, inih's tag tarball) assert their source inline
 /// instead.
 pub fn assert_tar_gz_source(descriptor: &cabin_port::PortDescriptor, expected_strip_prefix: &str) {
-    match &descriptor.source {
-        cabin_port::PortSource::Archive {
-            url, strip_prefix, ..
-        } => {
-            assert!(
-                url.as_str().ends_with(".tar.gz"),
-                "expected a .tar.gz URL, got {url}"
-            );
-            assert_eq!(strip_prefix.as_deref(), Some(expected_strip_prefix));
-        }
-    }
+    let url = &descriptor.source.url;
+    assert!(
+        url.as_str().ends_with(".tar.gz"),
+        "expected a .tar.gz URL, got {url}"
+    );
+    assert_eq!(
+        descriptor.source.strip_prefix.as_deref(),
+        Some(expected_strip_prefix)
+    );
 }
 
 /// Assert `name` is bundled in the builtin port registry at
