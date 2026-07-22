@@ -45,7 +45,7 @@ pub(crate) fn report(
     if violations.is_empty() {
         return Ok(());
     }
-    let mut stderr = termcolor::StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
+    let mut stderr = termcolor::StandardStream::stderr(crate::term_setup::termcolor_choice(color));
     let mut unchecked_edges: BTreeSet<(&str, &str)> = BTreeSet::new();
     let mut gating = 0usize;
     for violation in violations {
@@ -54,7 +54,7 @@ pub(crate) fn report(
             // both languages on one overridden edge yields two
             // records but the edge goes unchecked exactly once.
             if unchecked_edges.insert((&violation.consumer, &violation.dependency)) {
-                cabin_diagnostics::render(&unchecked_note(violation), &mut stderr, color)?;
+                cabin_diagnostics::render(&unchecked_note(violation), &mut stderr)?;
             }
             continue;
         }
@@ -64,7 +64,7 @@ pub(crate) fn report(
             violation.dependency_version.clone(),
         ));
         let diagnostic = violation_diagnostic(violation, from_lockfile);
-        cabin_diagnostics::render(&diagnostic, &mut stderr, color)?;
+        cabin_diagnostics::render(&diagnostic, &mut stderr)?;
     }
     if gating > 0 {
         anyhow::bail!(

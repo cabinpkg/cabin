@@ -20,7 +20,6 @@
 //! ([`crate::error_rendering`]) then asks each candidate to
 //! render itself through [`cabin_diagnostics`].
 
-use cabin_core::ColorChoice;
 use termcolor::StandardStream;
 
 /// A diagnostic recovered from one item in the anyhow source
@@ -40,18 +39,21 @@ impl DiagnosticCandidate<'_> {
         &self,
         root: &anyhow::Error,
         stderr: &mut StandardStream,
-        color: ColorChoice,
     ) -> std::io::Result<()> {
         match self {
-            Self::Rich(diag) => cabin_diagnostics::render(*diag, stderr, color),
+            Self::Rich(diag) => cabin_diagnostics::render(*diag, stderr),
             Self::Coded { code } => {
                 let message = format!("{root:#}");
                 let diagnostic = cabin_diagnostics::CodedMessage::new(&message, code);
-                cabin_diagnostics::render(&diagnostic, stderr, color)
+                cabin_diagnostics::render(&diagnostic, stderr)
             }
         }
     }
 }
+
+/// Concrete-type probe for one entry of the area-coded table in
+/// [`downcast_diagnostic`].
+type Probe = fn(&(dyn std::error::Error + 'static)) -> bool;
 
 /// Walk the known typed-error roots and yield a diagnostic
 /// candidate when one matches.
@@ -87,134 +89,89 @@ pub(crate) fn downcast_diagnostic<'a>(
     if let Some(e) = err.downcast_ref::<cabin_system_deps::PkgConfigError>() {
         return Some(DiagnosticCandidate::Rich(e));
     }
+    if let Some(e) = err.downcast_ref::<cabin_resolver::ResolveError>() {
+        return Some(DiagnosticCandidate::Rich(e));
+    }
     if let Some(e) = err.downcast_ref::<cabin_config::ConfigError>() {
         return Some(DiagnosticCandidate::Coded {
             code: config_error_code(e),
         });
     }
-    if err
-        .downcast_ref::<cabin_lockfile::LockfileError>()
-        .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::LOCKFILE_ERROR,
-        });
-    }
-    if let Some(e) = err.downcast_ref::<cabin_resolver::ResolveError>() {
-        return Some(DiagnosticCandidate::Rich(e));
-    }
-    if err
-        .downcast_ref::<cabin_artifact::ArtifactError>()
-        .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::ARTIFACT_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_build::BuildError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::BUILD_ERROR,
-        });
-    }
+
+    // Everything below only needs an area-level code.
     // `BuildError::StandardFlagConflict` boxes the typed conflict
-    // (keeping the enum small), so the chain element is the `Box` -
-    // match both shapes, like the boxed `ManifestError` above.
-    if err
-        .downcast_ref::<cabin_core::StandardFlagConflict>()
-        .is_some()
-        || err
-            .downcast_ref::<Box<cabin_core::StandardFlagConflict>>()
-            .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::LANGUAGE_STANDARD_FLAG_CONFLICT,
-        });
-    }
-    if err.downcast_ref::<cabin_package::PackageError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::PACKAGE_ERROR,
-        });
-    }
-    if err
-        .downcast_ref::<cabin_toolchain::ToolchainError>()
-        .is_some()
-        || err
-            .downcast_ref::<cabin_toolchain::ToolchainDetectionFailure>()
-            .is_some()
-        || err.downcast_ref::<cabin_toolchain::RunError>().is_some()
-        || err
-            .downcast_ref::<cabin_toolchain::CompilerWrapperResolutionError>()
-            .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::TOOLCHAIN_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_vendor::VendorError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::VENDOR_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_index::IndexError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::INDEX_ERROR,
-        });
-    }
-    if err
-        .downcast_ref::<cabin_index_http::IndexHttpError>()
-        .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::INDEX_HTTP_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_publish::PublishError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::PUBLISH_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_fmt::FormatError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::FMT_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_tidy::TidyError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::TIDY_ERROR,
-        });
-    }
-    if err
-        .downcast_ref::<cabin_source_discovery::SourceDiscoveryError>()
-        .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::SOURCE_DISCOVERY_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_test::TestRunError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::TEST_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_explain::ExplainError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::EXPLAIN_ERROR,
-        });
-    }
-    if err.downcast_ref::<cabin_ninja::NinjaError>().is_some() {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::NINJA_ERROR,
-        });
-    }
-    if err
-        .downcast_ref::<cabin_feature::FeatureResolverError>()
-        .is_some()
-    {
-        return Some(DiagnosticCandidate::Coded {
-            code: code::FEATURE_ERROR,
-        });
-    }
-    None
+    // (keeping the enum small), so its chain element can be the
+    // `Box` - both shapes are listed, like the boxed
+    // `ManifestError` above.
+    let coded: &[(Probe, &'static str)] = &[
+        (
+            |e| e.is::<cabin_lockfile::LockfileError>(),
+            code::LOCKFILE_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_artifact::ArtifactError>(),
+            code::ARTIFACT_ERROR,
+        ),
+        (|e| e.is::<cabin_build::BuildError>(), code::BUILD_ERROR),
+        (
+            |e| e.is::<cabin_core::StandardFlagConflict>(),
+            code::LANGUAGE_STANDARD_FLAG_CONFLICT,
+        ),
+        (
+            |e| e.is::<Box<cabin_core::StandardFlagConflict>>(),
+            code::LANGUAGE_STANDARD_FLAG_CONFLICT,
+        ),
+        (
+            |e| e.is::<cabin_package::PackageError>(),
+            code::PACKAGE_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_toolchain::ToolchainError>(),
+            code::TOOLCHAIN_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_toolchain::ToolchainDetectionFailure>(),
+            code::TOOLCHAIN_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_toolchain::RunError>(),
+            code::TOOLCHAIN_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_toolchain::CompilerWrapperResolutionError>(),
+            code::TOOLCHAIN_ERROR,
+        ),
+        (|e| e.is::<cabin_vendor::VendorError>(), code::VENDOR_ERROR),
+        (|e| e.is::<cabin_index::IndexError>(), code::INDEX_ERROR),
+        (
+            |e| e.is::<cabin_index_http::IndexHttpError>(),
+            code::INDEX_HTTP_ERROR,
+        ),
+        (
+            |e| e.is::<cabin_publish::PublishError>(),
+            code::PUBLISH_ERROR,
+        ),
+        (|e| e.is::<cabin_fmt::FormatError>(), code::FMT_ERROR),
+        (|e| e.is::<cabin_tidy::TidyError>(), code::TIDY_ERROR),
+        (
+            |e| e.is::<cabin_source_discovery::SourceDiscoveryError>(),
+            code::SOURCE_DISCOVERY_ERROR,
+        ),
+        (|e| e.is::<cabin_test::TestRunError>(), code::TEST_ERROR),
+        (
+            |e| e.is::<cabin_explain::ExplainError>(),
+            code::EXPLAIN_ERROR,
+        ),
+        (|e| e.is::<cabin_ninja::NinjaError>(), code::NINJA_ERROR),
+        (
+            |e| e.is::<cabin_feature::FeatureResolverError>(),
+            code::FEATURE_ERROR,
+        ),
+    ];
+    coded
+        .iter()
+        .find(|(is_match, _)| is_match(err))
+        .map(|&(_, code)| DiagnosticCandidate::Coded { code })
 }
 
 fn config_error_code(error: &cabin_config::ConfigError) -> &'static str {

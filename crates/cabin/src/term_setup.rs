@@ -32,6 +32,21 @@ pub(crate) struct EarlyTerminalState {
     pub(crate) reporter: Reporter,
 }
 
+/// Map a [`ColorChoice`] to a [`termcolor::ColorChoice`].
+///
+/// `Always` maps to `AlwaysAnsi` so test output stays
+/// platform-stable: on Windows, plain `Always` would attempt to
+/// drive the console API instead of emitting ANSI escape
+/// sequences, which would defeat the integration tests that
+/// look for `\x1b[`.
+pub(crate) fn termcolor_choice(choice: ColorChoice) -> termcolor::ColorChoice {
+    match choice {
+        ColorChoice::Auto => termcolor::ColorChoice::Auto,
+        ColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
+        ColorChoice::Never => termcolor::ColorChoice::Never,
+    }
+}
+
 /// Resolve the color choice and reporter the dispatcher hands
 /// to subcommands.
 ///
@@ -62,8 +77,7 @@ pub(crate) fn resolve_early_terminal_state(
         Err(env_err) => {
             // Use `Auto` for the styling of the error itself -
             // we cannot trust the value the user gave us.
-            let mut stderr =
-                StandardStream::stderr(cabin_diagnostics::termcolor_choice(ColorChoice::Auto));
+            let mut stderr = StandardStream::stderr(termcolor_choice(ColorChoice::Auto));
             let _ = write_plain_error(&mut stderr, &env_err.to_string());
             return Err(ExitCode::FAILURE);
         }
@@ -81,7 +95,7 @@ pub(crate) fn resolve_early_terminal_state(
     ) {
         Ok(level) => level,
         Err(env_err) => {
-            let mut stderr = StandardStream::stderr(cabin_diagnostics::termcolor_choice(color));
+            let mut stderr = StandardStream::stderr(termcolor_choice(color));
             let _ = write_plain_error(&mut stderr, &env_err.to_string());
             return Err(ExitCode::FAILURE);
         }
@@ -89,4 +103,25 @@ pub(crate) fn resolve_early_terminal_state(
     let reporter = Reporter::with_color(verbosity, color);
 
     Ok(EarlyTerminalState { color, reporter })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn termcolor_choice_maps_always_to_always_ansi() {
+        assert!(matches!(
+            termcolor_choice(ColorChoice::Always),
+            termcolor::ColorChoice::AlwaysAnsi
+        ));
+        assert!(matches!(
+            termcolor_choice(ColorChoice::Never),
+            termcolor::ColorChoice::Never
+        ));
+        assert!(matches!(
+            termcolor_choice(ColorChoice::Auto),
+            termcolor::ColorChoice::Auto
+        ));
+    }
 }

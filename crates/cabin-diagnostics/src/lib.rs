@@ -43,12 +43,11 @@
 //! - rendering routes through one of two entry points:
 //!   `render_to_string` always emits the no-color theme (used
 //!   by tests so output stays byte-stable across terminals);
-//!   [`render`] takes a [`cabin_core::ColorChoice`] and picks
-//!   the colored or no-color theme accordingly.
+//!   [`render`] picks the colored or no-color theme from the
+//!   writer's own [`WriteColor::supports_color`] report.
 
 use std::io;
 
-use cabin_core::ColorChoice;
 use miette::{GraphicalReportHandler, GraphicalTheme};
 use termcolor::WriteColor;
 
@@ -202,34 +201,26 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
     out
 }
 
-/// Render a [`miette::Diagnostic`] onto `writer`, optionally
-/// emitting ANSI color according to `color`.
+/// Render a [`miette::Diagnostic`] onto `writer`, emitting ANSI
+/// color exactly when the writer reports it supports color.
 ///
-/// Routing:
-/// - `Never`, or `Auto` against a writer that does not support
-///   color, uses miette's no-color Unicode theme so the
-///   layout still has the box-drawing glyphs but no ANSI;
-/// - `Always`, or `Auto` against a color-capable writer, uses
-///   miette's full Unicode + ANSI theme.
+/// The caller encodes the user's color choice in the writer it
+/// constructs (a `termcolor::StandardStream` built with
+/// `ColorChoice::Never` reports `supports_color() == false`), so
+/// the writer capability is the single routing input: a `NoColor`
+/// sink stays plain even under `--color always`, matching how the
+/// pre-miette renderer behaved.
 ///
 /// The body bytes from `GraphicalReportHandler` already carry
-/// the ANSI escapes when color is requested; the writer's
-/// `WriteColor` API is unused.
+/// the ANSI escapes when color is selected; the writer's
+/// `WriteColor` API is otherwise unused.
 ///
 /// # Errors
 /// Returns an [`io::Error`] if `GraphicalReportHandler::render_report`
 /// fails (wrapped via [`io::Error::other`]), or if writing the
 /// rendered bytes to `writer` or flushing it fails.
-pub fn render(
-    diagnostic: &dyn miette::Diagnostic,
-    writer: &mut dyn WriteColor,
-    color: ColorChoice,
-) -> io::Result<()> {
-    // Writer capability always wins: a `NoColor` sink stays
-    // plain even under `--color always`, matching how the
-    // pre-miette renderer behaved.
-    let colored = !matches!(color, ColorChoice::Never) && writer.supports_color();
-    let theme = if colored {
+pub fn render(diagnostic: &dyn miette::Diagnostic, writer: &mut dyn WriteColor) -> io::Result<()> {
+    let theme = if writer.supports_color() {
         GraphicalTheme::unicode()
     } else {
         GraphicalTheme::unicode_nocolor()
@@ -253,22 +244,6 @@ pub fn render(
 /// from the cause chain.
 fn build_handler(theme: GraphicalTheme) -> GraphicalReportHandler {
     GraphicalReportHandler::new_themed(theme).without_cause_chain()
-}
-
-/// Map a [`cabin_core::ColorChoice`] to a
-/// [`termcolor::ColorChoice`].
-///
-/// `Always` maps to `AlwaysAnsi` so test output stays
-/// platform-stable: on Windows, plain `Always` would attempt to
-/// drive the console API instead of emitting ANSI escape
-/// sequences, which would defeat the integration tests that
-/// look for `\x1b[`.
-pub fn termcolor_choice(choice: ColorChoice) -> termcolor::ColorChoice {
-    match choice {
-        ColorChoice::Auto => termcolor::ColorChoice::Auto,
-        ColorChoice::Always => termcolor::ColorChoice::AlwaysAnsi,
-        ColorChoice::Never => termcolor::ColorChoice::Never,
-    }
 }
 
 #[cfg(test)]
@@ -316,76 +291,31 @@ mod tests {
         assert!(rendered.contains("plain message"), "got: {rendered:?}");
     }
 
-    /// Test helper: render `diagnostic` into a `Vec<u8>` whose
-    /// `WriteColor` impl is a `termcolor::Ansi` writer with the
-    /// supplied color choice.  Returns the captured bytes so
-    /// tests can assert on ANSI escape presence.
-    fn render_to_ansi_buffer(diagnostic: &dyn miette::Diagnostic, choice: ColorChoice) -> Vec<u8> {
+    #[test]
+    fn render_emits_ansi_when_writer_supports_color() {
+        // `Ansi` always reports `supports_color() == true`.
         let mut sink: termcolor::Ansi<Vec<u8>> = termcolor::Ansi::new(Vec::new());
-        render(diagnostic, &mut sink, choice).expect("render should not fail");
-        sink.into_inner()
-    }
-
-    /// Same as [`render_to_ansi_buffer`] but the underlying
-    /// writer is `NoColor`, which always reports
-    /// `supports_color() == false`.  Used to verify the renderer
-    /// picks the no-color theme when the writer cannot accept
-    /// ANSI.
-    fn render_to_nocolor_buffer(
-        diagnostic: &dyn miette::Diagnostic,
-        choice: ColorChoice,
-    ) -> Vec<u8> {
-        let mut sink: termcolor::NoColor<Vec<u8>> = termcolor::NoColor::new(Vec::new());
-        render(diagnostic, &mut sink, choice).expect("render should not fail");
-        sink.into_inner()
-    }
-
-    #[test]
-    fn render_with_never_emits_no_ansi_escape() {
-        let bytes = render_to_ansi_buffer(&NotFound, ColorChoice::Never);
-        let s = std::str::from_utf8(&bytes).unwrap();
-        assert!(
-            !s.contains('\x1b'),
-            "expected no ANSI escape with --color never, got: {s:?}"
-        );
-    }
-
-    #[test]
-    fn render_with_always_emits_ansi() {
-        let bytes = render_to_ansi_buffer(&NotFound, ColorChoice::Always);
+        render(&NotFound, &mut sink).expect("render should not fail");
+        let bytes = sink.into_inner();
         let s = std::str::from_utf8(&bytes).unwrap();
         assert!(
             s.contains('\x1b'),
-            "expected ANSI escape with --color always, got: {s:?}"
+            "expected ANSI escape for a color-capable writer, got: {s:?}"
         );
     }
 
     #[test]
     fn render_skips_color_when_writer_does_not_support_it() {
-        // `NoColor` reports `supports_color() == false`.  Even
-        // with `ColorChoice::Always`, the renderer must respect
-        // the writer capability and emit no escape sequences.
-        let bytes = render_to_nocolor_buffer(&NotFound, ColorChoice::Always);
+        // `NoColor` reports `supports_color() == false`; the
+        // renderer must pick the no-color theme and emit no
+        // escape sequences.
+        let mut sink: termcolor::NoColor<Vec<u8>> = termcolor::NoColor::new(Vec::new());
+        render(&NotFound, &mut sink).expect("render should not fail");
+        let bytes = sink.into_inner();
         let s = std::str::from_utf8(&bytes).unwrap();
         assert!(
             !s.contains('\x1b'),
             "writer reports no color support, expected plain bytes: {s:?}"
         );
-    }
-
-    #[test]
-    fn termcolor_choice_maps_always_to_always_ansi() {
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Always),
-            termcolor::ColorChoice::AlwaysAnsi
-        ));
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Never),
-            termcolor::ColorChoice::Never
-        ));
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Auto),
-            termcolor::ColorChoice::Auto
-        ));
     }
 }
