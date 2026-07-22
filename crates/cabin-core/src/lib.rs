@@ -70,10 +70,11 @@ pub use language_standard::{
     InterfaceStandardContradiction, InterfaceStandardSource, LanguageStandard,
     LanguageStandardParseError, LanguageStandardSettings, LanguageStandardSource,
     LanguageStandardsSummary, ResolvedLanguageStandards, ResolvedStandard, STANDARD_FLAG_PREFIXES,
-    StandardDeclaration, StandardFlagConflict, StandardRequirement, TargetStandardsSummary,
-    WorkspaceStandardDefaults, effective_c, effective_cxx, effective_gnu_extensions,
-    find_interface_standard_contradictions, find_standard_flag_conflicts, imposes_requirement,
-    interface_c, interface_cxx, parse_interface_c, parse_interface_cxx, resolve_language_standards,
+    StandardDeclaration, StandardFlagConflict, StandardLevel, StandardRequirement,
+    TargetStandardsSummary, WorkspaceStandardDefaults, effective_c, effective_cxx,
+    effective_gnu_extensions, find_interface_standard_contradictions, find_standard_flag_conflicts,
+    imposes_requirement, interface_c, interface_cxx, parse_interface_c, parse_interface_cxx,
+    resolve_language_standards,
 };
 pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
@@ -95,7 +96,7 @@ pub use source_replacement::{
     SourceReplacementSettings,
 };
 pub use standard_compatibility::{
-    IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
+    BoundedRange, IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
 };
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};

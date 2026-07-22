@@ -340,7 +340,7 @@ fn blocking_requirements(
     {
         blocked.push(BlockedRequirement {
             language: SourceLanguage::C,
-            minimum: minimum_display(advertised.c),
+            accepted: accepted_display(advertised.c),
         });
     }
     if let Some(level) = consumer.cxx
@@ -348,19 +348,20 @@ fn blocking_requirements(
     {
         blocked.push(BlockedRequirement {
             language: SourceLanguage::Cxx,
-            minimum: minimum_display(advertised.cxx),
+            accepted: accepted_display(advertised.cxx),
         });
     }
     blocked
 }
 
-/// The declared minimum (e.g. `c++20`) of a blocking requirement for
-/// the message, or `None` for a `"none"` declaration (which has no
-/// minimum to name).  `Unconstrained` never reaches here - it is
-/// satisfied at every consumer level.
-fn minimum_display<S: std::fmt::Display>(requirement: Requirement<S>) -> Option<String> {
+/// The accepted consumer range of a blocking requirement for the
+/// message, or `None` for a forbidden requirement (a declared
+/// `"none"` or an empty intersection - nothing to name).
+/// `Unconstrained` never reaches here - it is satisfied at every
+/// consumer level.
+fn accepted_display<S: cabin_core::StandardLevel>(requirement: Requirement<S>) -> Option<String> {
     match requirement {
-        Requirement::Min(min) => Some(min.to_string()),
+        Requirement::Min(_) | Requirement::Bounded(_) => Some(requirement.to_string()),
         Requirement::Forbidden | Requirement::Unconstrained => None,
     }
 }
@@ -1548,7 +1549,7 @@ mod tests {
         assert_eq!(out.held_back.len(), 1);
         assert_eq!(
             out.held_back[0].message(),
-            "fmt v1.4.0 (available: v2.0.0, requires interface c++20)"
+            "fmt v1.4.0 (available: v2.0.0, requires interface c++20 or newer)"
         );
     }
 
@@ -1682,7 +1683,7 @@ mod tests {
         // The newest (3.0.0) is declared-incompatible, so it is named.
         assert_eq!(
             out.held_back[0].message(),
-            "fmt v1.0.0 (available: v3.0.0, requires interface c++20)"
+            "fmt v1.0.0 (available: v3.0.0, requires interface c++20 or newer)"
         );
     }
 
@@ -1721,7 +1722,7 @@ mod tests {
         assert_eq!(out.held_back[0].newest, None);
         assert_eq!(
             out.held_back[0].message(),
-            "fmt v2.0.0 (requires interface c++20; no compatible version in range)"
+            "fmt v2.0.0 (requires interface c++20 or newer; no compatible version in range)"
         );
     }
 
@@ -1936,7 +1937,7 @@ mod tests {
         assert_eq!(clib.version, version("1.4.0"));
         assert_eq!(
             out.held_back[0].message(),
-            "clib v1.4.0 (available: v2.0.0, requires interface c17)"
+            "clib v1.4.0 (available: v2.0.0, requires interface c17 or newer)"
         );
     }
 
@@ -2083,7 +2084,7 @@ mod tests {
         assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
         assert_eq!(
             out.held_back[0].message(),
-            "foo v1.0.0 (available: v2.0.0, requires interface c++20)"
+            "foo v1.0.0 (available: v2.0.0, requires interface c++20 or newer)"
         );
     }
 
@@ -2186,7 +2187,41 @@ mod tests {
         assert_eq!(fmt_version(&out), version("1.0.0"));
         assert_eq!(
             out.held_back[0].message(),
-            "fmt v1.0.0 (available: v2.0.0, declares interface c++ = \"none\")"
+            "fmt v1.0.0 (available: v2.0.0, not consumable from c++)"
+        );
+    }
+
+    /// A bounded interface on the newer version holds it back for a
+    /// consumer above the cap, and the message renders the full
+    /// accepted range - preference mode understands that raising the
+    /// consumer cannot fix a capped candidate.
+    #[test]
+    fn holdback_message_for_bounded_interface_above_the_cap() {
+        let mut index = build_index(vec![entry(
+            "fmt",
+            vec![("2.0.0", vec![], false), ("1.0.0", vec![], false)],
+        )]);
+        set_standards(
+            &mut index,
+            "fmt",
+            "2.0.0",
+            cxx_table(Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx14).unwrap()),
+        );
+        set_standards(
+            &mut index,
+            "fmt",
+            "1.0.0",
+            cxx_table(Requirement::Min(CxxStandard::Cxx11)),
+        );
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.0.0"));
+        assert_eq!(
+            out.held_back[0].message(),
+            "fmt v1.0.0 (available: v2.0.0, requires interface c++11..c++14)"
         );
     }
 }

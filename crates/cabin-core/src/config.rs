@@ -1138,10 +1138,9 @@ mod tests {
                     c: base.c,
                     cxx: base.cxx,
                     interface_cxx: Some(InterfaceStandard {
-                        requirement: InterfaceRequirement::Requirement(StandardRequirement {
-                            min,
-                            max: None,
-                        }),
+                        requirement: InterfaceRequirement::Requirement(
+                            StandardRequirement::at_least(min),
+                        ),
                         source: InterfaceStandardSource::Target,
                     }),
                     ..Default::default()
@@ -1152,6 +1151,37 @@ mod tests {
         assert_ne!(
             resolve_with_language(summary_with_interface(CxxStandard::Cxx17)).fingerprint,
             resolve_with_language(summary_with_interface(CxxStandard::Cxx14)).fingerprint
+        );
+    }
+
+    #[test]
+    fn fingerprint_differs_when_interface_maximum_changes() {
+        use crate::language_standard::{
+            CxxStandard, InterfaceRequirement, InterfaceStandard, InterfaceStandardSource,
+            StandardRequirement, TargetStandardsSummary,
+        };
+        let base = LanguageStandardsSummary::default();
+        let summary_with_range = |max: CxxStandard| {
+            let mut s = base.clone();
+            s.targets.insert(
+                "core".to_owned(),
+                TargetStandardsSummary {
+                    c: base.c,
+                    cxx: base.cxx,
+                    interface_cxx: Some(InterfaceStandard {
+                        requirement: InterfaceRequirement::Requirement(
+                            StandardRequirement::bounded(CxxStandard::Cxx11, Some(max)).unwrap(),
+                        ),
+                        source: InterfaceStandardSource::Target,
+                    }),
+                    ..Default::default()
+                },
+            );
+            s
+        };
+        assert_ne!(
+            resolve_with_language(summary_with_range(CxxStandard::Cxx14)).fingerprint,
+            resolve_with_language(summary_with_range(CxxStandard::Cxx20)).fingerprint
         );
     }
 

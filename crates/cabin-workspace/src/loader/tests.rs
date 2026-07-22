@@ -1265,8 +1265,17 @@ sources = ["src/core.cc"]
     let err = load_workspace(dir.path().join("cabin.toml")).unwrap_err();
     match err {
         WorkspaceError::InterfaceStandardContradiction { source, .. } => {
-            assert_eq!(source.target, "core");
-            assert_eq!(source.field, "interface-cxx-standard");
+            assert!(
+                matches!(
+                    &source,
+                    cabin_core::InterfaceStandardContradiction::MinAboveImplementation {
+                        target,
+                        field: "interface-cxx-standard",
+                        ..
+                    } if target == "core"
+                ),
+                "unexpected contradiction: {source:?}"
+            );
             assert!(
                 source
                     .to_string()

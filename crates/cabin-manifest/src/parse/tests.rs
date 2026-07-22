@@ -16,10 +16,7 @@ fn parse_project_err(input: &str) -> ManifestError {
 }
 
 fn requirement<S>(min: S) -> cabin_core::InterfaceRequirement<S> {
-    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement {
-        min,
-        max: None,
-    })
+    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement::at_least(min))
 }
 
 const MINIMAL: &str = r#"
@@ -407,12 +404,13 @@ fn none_is_accepted_only_on_interface_fields() {
 }
 
 #[test]
-fn range_like_standard_values_get_the_reserved_diagnostic() {
+fn range_like_standard_strings_point_at_the_table_syntax() {
     for (field, value) in [
         ("c-standard", ">=c11"),
         ("cxx-standard", "c++17,c++20"),
         ("interface-c-standard", "<=c17"),
         ("interface-cxx-standard", ">=c++17"),
+        ("interface-cxx-standard", "c++17..c++20"),
     ] {
         let manifest = format!(
             r#"
@@ -424,10 +422,161 @@ fn range_like_standard_values_get_the_reserved_diagnostic() {
         );
         let err = parse_project_err(&manifest);
         assert!(
-            err.to_string().contains("reserved for a future version"),
+            err.to_string().contains(r#"{ min = "...", max = "..." }"#),
             "unexpected error for {field}: {err}"
         );
     }
+}
+
+#[test]
+fn interface_range_tables_parse_and_validate() {
+    // A bounded C++ interface requirement parses into typed bounds;
+    // the C twin keeps parity.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            c-standard = "c11"
+            interface-cxx-standard = { min = "c++14", max = "c++20" }
+            interface-c-standard = { min = "c99", max = "c17" }
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::InterfaceRequirement::Requirement(
+                cabin_core::StandardRequirement::bounded(
+                    cabin_core::CxxStandard::Cxx14,
+                    Some(cabin_core::CxxStandard::Cxx20)
+                )
+                .unwrap()
+            )
+        ))
+    );
+    assert_eq!(
+        package.language.interface_c_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::InterfaceRequirement::Requirement(
+                cabin_core::StandardRequirement::bounded(
+                    cabin_core::CStandard::C99,
+                    Some(cabin_core::CStandard::C17)
+                )
+                .unwrap()
+            )
+        ))
+    );
+
+    // A min-only table is the same as the string form.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-cxx-standard = { min = "c++14" }
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(
+        package.language.interface_cxx_standard,
+        Some(cabin_core::StandardDeclaration::Declared(
+            cabin_core::InterfaceRequirement::Requirement(
+                cabin_core::StandardRequirement::at_least(cabin_core::CxxStandard::Cxx14)
+            )
+        ))
+    );
+}
+
+#[test]
+fn interface_range_tables_reject_invalid_shapes() {
+    // Empty range: min newer than max.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-cxx-standard = { min = "c++20", max = "c++14" }
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string().contains("empty C++ interface requirement"),
+        "unexpected error: {err}"
+    );
+
+    // Missing min.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-cxx-standard = { max = "c++20" }
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string().contains("missing `min`"),
+        "unexpected error: {err}"
+    );
+
+    // Range tables are interface-only.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = { min = "c++17", max = "c++20" }
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string()
+            .contains("only valid on `interface-c-standard` / `interface-cxx-standard`"),
+        "unexpected error: {err}"
+    );
+
+    // The marker and the bounds cannot be combined.
+    let manifest = r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+            interface-cxx-standard = { workspace = true, min = "c++14" }
+        "#;
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string()
+            .contains("cannot be combined with `min` / `max`"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn workspace_interface_defaults_accept_range_tables() {
+    let manifest = r#"
+            [workspace]
+            members = []
+            interface-cxx-standard = { min = "c++14", max = "c++20" }
+        "#;
+    let parsed = parse_manifest_str(manifest).expect("manifest should parse");
+    let workspace = parsed.workspace.expect("workspace");
+    assert_eq!(
+        workspace.standards.interface_cxx_standard,
+        Some(cabin_core::InterfaceRequirement::Requirement(
+            cabin_core::StandardRequirement::bounded(
+                cabin_core::CxxStandard::Cxx14,
+                Some(cabin_core::CxxStandard::Cxx20)
+            )
+            .unwrap()
+        ))
+    );
+
+    let manifest = "
+            [workspace]
+            members = []
+            interface-cxx-standard = { workspace = true }
+        ";
+    let err = parse_project_err(manifest);
+    assert!(
+        err.to_string()
+            .contains("not valid on the `[workspace]` table"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]

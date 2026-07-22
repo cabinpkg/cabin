@@ -1,5 +1,5 @@
 use crate::error::BuildError;
-use crate::graph::{BuildGraph, CompileCommand, StandardViolation};
+use crate::graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 use cabin_core::{
     InterfaceStandardSource, LanguageStandard, Package, ResolvedCompilerWrapper,
     ResolvedLanguageStandards, ResolvedProfile, ResolvedProfileFlags, ResolvedToolchain,
@@ -785,11 +785,11 @@ pub(crate) fn format_target_id(tid: &TargetId, graph: &PackageGraph) -> String {
 // ---------------------------------------------------------------------------
 
 /// Pre-build interface-standard compatibility: a consuming target's
-/// effective implementation standard must be at least every reachable
-/// library-like dependency's interface requirement, per language the
-/// consumer compiles.  The chronological `>=` comparison is a
-/// compatibility policy, not a proof of header validity - see
-/// `docs/language-standards.md`.
+/// effective implementation standard must fall inside every reachable
+/// library-like dependency's declared interface range, per language
+/// the consumer compiles.  Range membership on the chronological
+/// chain is a compatibility policy, not a proof of header validity -
+/// see `docs/language-standards.md`.
 /// Reject a plan where one planned package's bare name equals
 /// another planned package's scope.  Both would claim
 /// `packages/<name>` in this build tree: the bare package writes its
@@ -872,58 +872,85 @@ fn enforce_interface_standards(
         // standard manifest loading guarantees) backs the language,
         // and the consumer compiles the language, so its own
         // standard was already demanded at its compile site.
-        // An explicit `none` requirement carries no minimum to
-        // compare against; rejecting consumers of not-consumable
-        // headers is deferred alongside the rest of the range work.
+        // Both range bounds are enforced (below the minimum and
+        // above the maximum); a declared `"none"` is deliberately
+        // left to the post-resolution pass and its per-edge
+        // override (see `interface_violation`).
         if let Some(object) = object_of(SourceLanguage::C)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::C)
             && let Some(required) =
                 cabin_core::interface_c(&dep_standards, &dep_pkg.language, dep_target)
-            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_c(&pkg_standards, target)
-            && consumer.standard < required_min
-        {
-            violations.push(interface_violation(
+            && let Some(violation) = interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::C,
-                consumer.standard.as_str(),
-                required_min.as_str(),
+                consumer.standard,
+                required.requirement,
                 required.source,
                 object,
-            ));
+            )
+        {
+            violations.push(violation);
         }
         if let Some(object) = object_of(SourceLanguage::Cxx)
             && cabin_core::imposes_requirement(dep_target, &dep_pkg.language, SourceLanguage::Cxx)
             && let Some(required) =
                 cabin_core::interface_cxx(&dep_standards, &dep_pkg.language, dep_target)
-            && let Some(required_min) = required.requirement.min()
             && let Some(consumer) = cabin_core::effective_cxx(&pkg_standards, target)
-            && consumer.standard < required_min
-        {
-            violations.push(interface_violation(
+            && let Some(violation) = interface_violation(
                 format_target_id(tid, req.graph),
                 format_target_id(dep_tid, req.graph),
                 SourceLanguage::Cxx,
-                consumer.standard.as_str(),
-                required_min.as_str(),
+                consumer.standard,
+                required.requirement,
                 required.source,
                 object,
-            ));
+            )
+        {
+            violations.push(violation);
         }
     }
     Ok(())
 }
 
-fn interface_violation(
+/// The consumer's violation of one direct interface requirement,
+/// or `None` when the consumer's level satisfies it.
+///
+/// A declared `"none"` is deliberately not enforced here: the
+/// post-resolution compatibility pass owns it (spec D9 row 1)
+/// together with the per-edge `ignore-interface-standard`
+/// override, which must be able to unblock exactly that class -
+/// this always-on layer enforces the range bounds, which the
+/// override never silences.
+fn interface_violation<S: cabin_core::StandardLevel>(
     consumer: String,
     dependency: String,
     language: SourceLanguage,
-    consumer_standard: &'static str,
-    required: &'static str,
+    consumer_standard: S,
+    required: cabin_core::InterfaceRequirement<S>,
     source: InterfaceStandardSource,
     object: Utf8PathBuf,
-) -> StandardViolation {
+) -> Option<StandardViolation> {
+    let cabin_core::InterfaceRequirement::Requirement(declared) = required else {
+        return None;
+    };
+    let requirement = cabin_core::standard_compatibility::Requirement::from_declared(declared);
+    if requirement.satisfied_by(consumer_standard) {
+        return None;
+    }
+    let kind = if consumer_standard < declared.min() {
+        InterfaceViolationKind::BelowMinimum {
+            min: declared.min().level_str(),
+        }
+    } else {
+        InterfaceViolationKind::AboveMaximum {
+            max: declared
+                .max()
+                .expect("a violated non-forbidden requirement fails one of its bounds")
+                .level_str(),
+        }
+    };
     let requirement_source = match source {
         InterfaceStandardSource::Target => "its target-level interface standard",
         InterfaceStandardSource::Package => "its package-level interface standard",
@@ -932,15 +959,16 @@ fn interface_violation(
             "its effective implementation standard (no interface standard declared)"
         }
     };
-    StandardViolation::InterfaceIncompatibility {
+    Some(StandardViolation::InterfaceIncompatibility {
         consumer,
         dependency,
         language: language.human_label(),
-        consumer_standard,
-        required,
+        consumer_standard: consumer_standard.level_str(),
+        required: requirement.to_string(),
+        kind,
         requirement_source,
         object,
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------

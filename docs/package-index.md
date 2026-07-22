@@ -165,13 +165,14 @@ downloading the source archive:
   kinds); executables, tests, and examples never constrain consumers and are omitted.
 - `interface` maps a language key (`"c"`, `"c++"`) to a requirement cell.  A **missing** key is
   unconstrained; `"none"` marks the target's headers as not consumable from that language; a
-  `{ "min": "<level>" }` table is a minimum standard the consuming code must meet.  A missing
-  `standards` block, or a missing target, is unconstrained everywhere - so every pre-`standards`
-  entry stays valid unchanged.
+  `{ "min": "<level>" }` table is a minimum-only requirement, and
+  `{ "min": "<level>", "max": "<level>" }` a bounded inclusive range the consuming code must sit
+  inside (`min <= max`, validated on read).  A missing `standards` block, or a missing target, is
+  unconstrained everywhere - so every pre-`standards` entry stays valid unchanged.
 - `header-only` and `gnu-extensions` are per-target booleans, each omitted when `false`.
 
 The stored value is each target's **own** declared requirement, not a transitively composed one;
-the reserved `max` of a minimum cell is never written.  The full design, including how consumers
+`max` is written exactly when the requirement is bounded.  The full design, including how consumers
 compose requirements across dependency edges, is in
 [`design/standard-compatibility/registry-index.md`](design/standard-compatibility/registry-index.md).
 
@@ -220,8 +221,9 @@ Loading rejects an index when:
 - a `source.type` is anything other than `"archive"`
 - a `source.format` is anything other than `"zip"`
 - a `source.path` is empty
-- a `standards` interface cell populates the reserved `max` field, or is a bare standard string
-  (`"c++17"`) rather than `"none"` or a `{ "min": "<level>" }` table
+- a `standards` interface cell carries an empty range (`max` older than `min`), or is a bare
+  standard string (`"c++17"`) rather than `"none"` or a `{ "min": "<level>", "max": "<level>" }`
+  table
 
 ## Not supported yet
 

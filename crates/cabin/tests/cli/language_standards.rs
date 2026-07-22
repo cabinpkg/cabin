@@ -379,13 +379,71 @@ include-dirs = ["include"]
     let body = fs::read_to_string(registry.join("packages/acme/fmt.json")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&body).unwrap();
     let entry = &value["versions"]["10.2.1"];
-    // Interface requirements carry the reserved `max` slot in every
-    // serialized form.
+    // Interface requirements carry exactly the declared bounds: an
+    // absent `max` is omitted from the serialized form.
     assert_eq!(
         entry["language"],
         serde_json::json!({
             "cxx_standard": "c++20",
-            "interface_cxx_standard": { "min": "c++17", "max": null },
+            "interface_cxx_standard": { "min": "c++17" },
+        })
+    );
+}
+
+/// A bounded interface declaration round-trips through publish into
+/// both the canonical `language` block and the per-target
+/// `standards` table, `min` and `max` intact.
+#[test]
+fn published_index_preserves_bounded_interface_requirements() {
+    let dir = TempDir::new().unwrap();
+    let pkg_root = dir.path().join("pkg");
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/legacy"
+version = "1.0.0"
+cxx-standard = "c++14"
+interface-cxx-standard = { min = "c++11", max = "c++14" }
+
+[target.legacy]
+type = "library"
+sources = ["src/legacy.cc"]
+include-dirs = ["include"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("include/legacy.h"))
+        .write_str("#pragma once\nint legacy_value();\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(pkg_root.join("src/legacy.cc"))
+        .write_str("#include \"legacy.h\"\nint legacy_value() { return 1; }\n")
+        .unwrap();
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let body = fs::read_to_string(registry.join("packages/acme/legacy.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let entry = &value["versions"]["1.0.0"];
+    assert_eq!(
+        entry["language"],
+        serde_json::json!({
+            "cxx_standard": "c++14",
+            "interface_cxx_standard": { "min": "c++11", "max": "c++14" },
+        })
+    );
+    assert_eq!(
+        entry["standards"],
+        serde_json::json!({
+            "targets": {
+                "legacy": {
+                    "interface": { "c": "none", "c++": { "min": "c++11", "max": "c++14" } }
+                }
+            }
         })
     );
 }
@@ -490,10 +548,9 @@ fn metadata_language_block_is_deterministic_and_reports_sources() {
     assert_eq!(core["cxx"]["standard"], "c++20");
     assert_eq!(core["cxx"]["source"], "package");
     assert_eq!(core["interface_cxx"]["requirement"]["min"], "c++17");
-    assert_eq!(
-        core["interface_cxx"]["requirement"]["max"],
-        serde_json::Value::Null,
-        "the reserved max slot stays in the serialized form"
+    assert!(
+        core["interface_cxx"]["requirement"].get("max").is_none(),
+        "an absent max is omitted from the serialized form"
     );
     assert_eq!(core["interface_cxx"]["source"], "target");
     assert!(

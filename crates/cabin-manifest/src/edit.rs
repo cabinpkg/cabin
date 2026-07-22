@@ -228,30 +228,30 @@ fn substitute_standard_markers_in(
     let Some(package) = doc.get_mut("package").and_then(Item::as_table_like_mut) else {
         return Ok(false);
     };
-    let fields: [(&'static str, Option<&'static str>); 4] = [
+    let fields: [(&'static str, Option<toml_edit::Value>); 4] = [
         (
             "c-standard",
             resolved
                 .c_standard_value()
-                .map(cabin_core::CStandard::as_str),
+                .map(|standard| toml_edit::Value::from(standard.as_str())),
         ),
         (
             "cxx-standard",
             resolved
                 .cxx_standard_value()
-                .map(cabin_core::CxxStandard::as_str),
+                .map(|standard| toml_edit::Value::from(standard.as_str())),
         ),
         (
             "interface-c-standard",
             resolved
                 .interface_c_standard_value()
-                .map(|req| interface_literal(req, cabin_core::CStandard::as_str)),
+                .map(|req| interface_value(req, cabin_core::CStandard::as_str)),
         ),
         (
             "interface-cxx-standard",
             resolved
                 .interface_cxx_standard_value()
-                .map(|req| interface_literal(req, cabin_core::CxxStandard::as_str)),
+                .map(|req| interface_value(req, cabin_core::CxxStandard::as_str)),
         ),
     ];
     let mut changed = false;
@@ -283,23 +283,24 @@ fn substitute_standard_markers_in(
     Ok(changed)
 }
 
-/// The manifest string literal for a resolved interface
-/// requirement: `"none"` or the minimum standard.  `max` is
-/// reserved for future range support and never populated, so there
-/// is no range literal to render.
-fn interface_literal<S: Copy>(
+/// The manifest value for a resolved interface requirement:
+/// `"none"`, the minimum-only string, or the bounded
+/// `{ min = "...", max = "..." }` inline table.
+fn interface_value<S: Copy>(
     requirement: cabin_core::InterfaceRequirement<S>,
     as_str: fn(S) -> &'static str,
-) -> &'static str {
+) -> toml_edit::Value {
     match requirement {
-        cabin_core::InterfaceRequirement::None => "none",
-        cabin_core::InterfaceRequirement::Requirement(requirement) => {
-            debug_assert!(
-                requirement.max.is_none(),
-                "range requirements are reserved and never populated"
-            );
-            as_str(requirement.min)
-        }
+        cabin_core::InterfaceRequirement::None => toml_edit::Value::from("none"),
+        cabin_core::InterfaceRequirement::Requirement(requirement) => match requirement.max() {
+            None => toml_edit::Value::from(as_str(requirement.min())),
+            Some(max) => {
+                let mut table = toml_edit::InlineTable::new();
+                table.insert("min", as_str(requirement.min()).into());
+                table.insert("max", as_str(max).into());
+                toml_edit::Value::InlineTable(table)
+            }
+        },
     }
 }
 
@@ -690,6 +691,49 @@ sources = ["src/core.cc"]
             )
             .unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn substitute_standard_markers_bakes_bounded_interface_ranges() {
+        let text = "[package]\nname = \"core\"\nversion = \"0.1.0\"\ncxx-standard = \"c++14\"\ninterface-cxx-standard = { workspace = true }\n\n[target.core]\ntype = \"library\"\nsources = [\"src/core.cc\"]\n";
+        let resolved = cabin_core::LanguageStandardSettings {
+            cxx_standard: Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::CxxStandard::Cxx14,
+            )),
+            interface_cxx_standard: Some(cabin_core::StandardDeclaration::Inherited(
+                cabin_core::InterfaceRequirement::Requirement(
+                    cabin_core::StandardRequirement::bounded(
+                        cabin_core::CxxStandard::Cxx11,
+                        Some(cabin_core::CxxStandard::Cxx14),
+                    )
+                    .unwrap(),
+                ),
+            )),
+            ..Default::default()
+        };
+        let out = normalize_workspace_markers(
+            text,
+            &resolved,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!out.contains("workspace = true"), "got: {out}");
+        // The rewritten text parses back to the same bounded
+        // requirement - the round-trip drops nothing.
+        let parsed = crate::parse_manifest_str(&out).unwrap();
+        assert_eq!(
+            parsed.package.unwrap().language.interface_cxx_standard,
+            Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::InterfaceRequirement::Requirement(
+                    cabin_core::StandardRequirement::bounded(
+                        cabin_core::CxxStandard::Cxx11,
+                        Some(cabin_core::CxxStandard::Cxx14)
+                    )
+                    .unwrap()
+                )
+            ))
         );
     }
 

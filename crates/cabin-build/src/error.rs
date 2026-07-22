@@ -171,24 +171,16 @@ pub enum BuildError {
         field: &'static str,
     },
 
-    /// A consuming target's effective implementation standard is
-    /// below a reachable library-like dependency's interface
+    /// A consuming target's effective implementation standard falls
+    /// outside a reachable library-like dependency's interface
     /// requirement for the same language.  The planner records the
     /// incompatibility on the consumer's compile;
     /// `validate_planned_standards` surfaces the first survivor
     /// after the `cabin check` rewrite has pruned dependency
-    /// compiles.
-    #[error(
-        "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` requires `{required}` for consumers of its public interface (from {requirement_source}); raise `{consumer}`'s {language} standard to at least `{required}`, or lower the dependency's interface standard if its public headers permit"
-    )]
-    IncompatibleLanguageStandard {
-        consumer: String,
-        dependency: String,
-        language: &'static str,
-        consumer_standard: &'static str,
-        required: &'static str,
-        requirement_source: &'static str,
-    },
+    /// compiles.  Boxed: the payload dwarfs the other variants
+    /// (`clippy::result_large_err`).
+    #[error(transparent)]
+    IncompatibleLanguageStandard(Box<IncompatibleLanguageStandardError>),
 
     /// A compile that survived into the final build graph requests a
     /// standard `cl.exe` has no stable `/std:` flag for.  The planner
@@ -298,5 +290,36 @@ fn format_target_suggestions(package: &str, candidates: &[String]) -> String {
         format!(" (package {package:?} declares no library or header-only targets)")
     } else {
         format!(", e.g. `{}`", candidates.join("` or `"))
+    }
+}
+
+/// Payload of [`BuildError::IncompatibleLanguageStandard`].
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error(
+    "target `{consumer}` compiles {language} as `{consumer_standard}`, but its dependency `{dependency}` accepts {language} consumers at `{required}` for its public interface (from {requirement_source}); {}",
+    interface_remedy(.consumer, .language, *.kind)
+)]
+pub struct IncompatibleLanguageStandardError {
+    pub consumer: String,
+    pub dependency: String,
+    pub language: &'static str,
+    pub consumer_standard: &'static str,
+    /// Rendered accepted range (`c++17 or newer`, `c++11..c++20`).
+    pub required: String,
+    pub kind: crate::InterfaceViolationKind,
+    pub requirement_source: &'static str,
+}
+
+/// The per-direction remedy of an interface incompatibility: raising
+/// helps only below a minimum, lowering only above a maximum, and a
+/// declared `"none"` has no standard-level remedy at all.
+fn interface_remedy(consumer: &str, language: &str, kind: crate::InterfaceViolationKind) -> String {
+    match kind {
+        crate::InterfaceViolationKind::BelowMinimum { min } => format!(
+            "raise `{consumer}`'s {language} standard to at least `{min}`, or lower the dependency's interface minimum if its public headers permit"
+        ),
+        crate::InterfaceViolationKind::AboveMaximum { max } => format!(
+            "lower `{consumer}`'s {language} standard to at most `{max}`, or raise the dependency's interface maximum once its public headers support newer standards"
+        ),
     }
 }

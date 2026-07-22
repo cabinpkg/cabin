@@ -365,7 +365,7 @@ mod tests {
     /// A populated `standards` table is projected into the version
     /// document in the documented wire shape: sorted targets, fixed
     /// `c` / `c++` order, `"none"` for forbidden, `{min}` for minima
-    /// (reserved `max` omitted), unconstrained language keys omitted,
+    /// (an absent `max` omitted), unconstrained language keys omitted,
     /// and the two per-target flags emitted only when set.
     #[test]
     fn render_projects_standards_table() {

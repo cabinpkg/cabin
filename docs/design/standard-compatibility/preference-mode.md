@@ -56,7 +56,11 @@ rejects:
   join checked against the workspace's minimum effective levels.  **The v1 consumer standard is,
   per language, the minimum effective implementation standard declared across the workspace's
   member targets** (a language no member compiles imposes nothing) - the Cargo-style
-  workspace-level approximation, used uniformly for every edge.  Exactness is not required
+  workspace-level approximation, used uniformly for every edge.  With bounded requirements the
+  minimum-level proxy has a further blind spot: a candidate capped at `max` is checked against
+  the workspace *minimum* level, so a *higher*-level member sitting above the cap is not seen
+  here - the post-resolution enforcement catches it, exactly as for the other optimistic
+  cases below.  Exactness is not required
   because the post-resolution enforcement remains the correctness authority.  This fallback errs
   in **both**
   directions, and only one of them is conservative.  The version-wide join can only
@@ -113,8 +117,10 @@ fmt: selected 10.2.1 (newest 11.0.0 held back: requires c++20 via target `fmt`;
      workspace compiles C++ at c++17)
 ```
 
-Naming all three keeps the remedy visible: the user can raise the workspace level, pin the older
-version deliberately, or ask the dependency author to relax the interface.  A report that omits
+Naming all three keeps the remedy visible: the user can move the workspace level into the
+candidate's accepted range (raise it toward a minimum; only lowering helps against a maximum -
+spec L6's remedy remark), pin the older version deliberately, or ask the dependency author to
+relax the interface.  A report that omits
 the newest version hides that anything was held back at all; one that omits the requirement makes
 the hold-back look like a resolver bug.  When rule 2 of section 1 fires instead (nothing in range
 satisfies), the report names the selected version and the requirement it fails to satisfy.

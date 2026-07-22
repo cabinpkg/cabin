@@ -39,13 +39,19 @@ gnu-extensions = true             # GNU-extension dialect for this target
   sources are compiled.  `.c` sources use the effective C standard; `.cc` / `.cpp` / `.cxx` / `.c++`
   / `.C` sources use the effective C++ standard.  A mixed-language target compiles each source with
   its language's standard.
-- `interface-c-standard` / `interface-cxx-standard` - the **interface requirement**: the minimum
-  standard consumers of the target's public headers need.  Only meaningful on `library` /
-  `header-only` targets; a target-level interface field on an `executable` / `test` / `example`
-  target is a manifest error.  Package-level interface fields are defaults consumed only by
-  library-like targets (they are allowed, and inert, in packages without any).  The special value
-  `"none"` declares that the target's headers are not consumable from that language at all; it is
-  valid only on these two fields.
+- `interface-c-standard` / `interface-cxx-standard` - the **interface requirement**: the
+  inclusive range of standards consumers of the target's public headers may compile with.  A
+  string value (`"c++17"`) declares a **minimum-only** requirement - that standard or anything
+  newer.  The table form `{ min = "c++11", max = "c++14" }` declares a **bounded** requirement:
+  consumers must sit inside the inclusive range - the way to publish headers that use a
+  construct a later standard *removed* (dynamic exception specifications, `register`, ...).
+  `min` is required in the table form (omit `max` for minimum-only); an empty range
+  (`max` older than `min`) is a manifest error.  Only meaningful on `library` / `header-only`
+  targets; a target-level interface field on an `executable` / `test` / `example` target is a
+  manifest error.  Package-level interface fields are defaults consumed only by library-like
+  targets (they are allowed, and inert, in packages without any).  The special value `"none"`
+  declares that the target's headers are not consumable from that language at all; it is valid
+  only on these two fields.
 - `gnu-extensions` - whether the target's sources rely on GNU language extensions.  A plain boolean
   (no `{ workspace = true }` form), defaulting to `false`; a target-level value overrides the
   package-level one.  It affects only which compiler flag spelling the standard lowers to
@@ -54,11 +60,14 @@ gnu-extensions = true             # GNU-extension dialect for this target
   time - `cl.exe` has no GNU dialect mode - never silently ignored.
 
 Mental model: `c-standard` / `cxx-standard` set how the target is compiled **and** double as its
-interface requirement unless `interface-*` overrides them.  Declare `interface-*` only when the
-public interface requires an *older* standard than the implementation - for example a library
-compiled as C++20 whose public headers only use C++17.  An interface minimum *newer* than the
-implementation standard is rejected as a contradiction (see
-[Precedence](#precedence)).
+interface requirement unless `interface-*` overrides them.  Declare `interface-*` when the
+public interface accepts a *different* range than the implementation standard implies - an
+older minimum (a library compiled as C++20 whose public headers only use C++17), or a maximum
+(headers that stop compiling once a standard removes a feature they use).  The target's own
+implementation standard must sit inside its declared interface range: a minimum newer than the
+implementation, or a maximum older than it, is rejected as a contradiction (see
+[Precedence](#precedence)) - the target's own translation units include its own public
+headers.
 
 ### Workspace defaults
 
@@ -79,9 +88,9 @@ version = "0.1.0"
 cxx-standard = { workspace = true }   # inherits c++20
 ```
 
-- The `[workspace]` fields take **literal values only** - the same typed value sets as the
-  `[package]` fields, with the same unknown-value error.  The opt-in marker is not a legal value
-  there.
+- The `[workspace]` fields take **literal values only** - the same typed value sets (including
+  the interface fields' `{ min, max }` table form) as the `[package]` fields, with the same
+  errors.  The opt-in marker is not a legal value there.
 - A member opts in **per field** with `<field> = { workspace = true }`, at `[package]` level only -
   a marker on a `[target.<name>]` field is rejected.  The workspace root's own `[package]` may opt
   into its own `[workspace]` values.
@@ -112,11 +121,13 @@ per-target `gnu-extensions` boolean - so they are rejected as ordinary unknown v
 
 Two further shapes get dedicated diagnostics instead of the generic unknown-value error:
 
-- Range-like inputs (anything containing `>=`, `<=`, `>`, `<`, or `,`) are rejected with an error
-  saying range requirements are reserved for a future version.  Internally each interface
-  requirement is already a `{ min, max }` pair whose `max` slot is reserved for that future range
-  support and never populated today, but the slot stays in every serialized form so the wire shape
-  will not change when ranges land.
+- Range-like **strings** (anything containing `>=`, `<=`, `>`, `<`, `,`, or `..`) are rejected
+  with an error pointing at the table syntax: a bounded interface requirement is declared as
+  `{ min = "...", max = "..." }`, never as a string.  The table form is valid only on the
+  interface fields - `c-standard` / `cxx-standard` select the single standard the sources
+  compile with, so a range table there is rejected with an error naming the interface fields.
+  An empty range (`max` older than `min`) is rejected everywhere it could appear: the manifest
+  parser, the canonical package metadata, and the index loaders all validate `min <= max`.
 - `"none"` is valid only on `interface-c-standard` / `interface-cxx-standard`; on `c-standard` /
   `cxx-standard` it is rejected with an error naming the interface fields, because compiled sources
   always need a concrete standard.
@@ -143,11 +154,13 @@ There is **no built-in default**.  Standards are required where they matter:
   the (explicitly declared) effective implementation standard.  A declared `"none"` occupies the
   same slot in the chain, so it also suppresses that fallback.
 
-One combination is rejected outright, after workspace markers resolve: for the same language, an
-effective interface minimum **newer** than the target's effective implementation standard is a
-contradiction - the target's own translation units could not include its own public headers.  The
-load fails with `cabin::language::interface_standard_contradiction` naming the target, both values,
-and that reason.  The check applies per library-like target and only to languages the target
+One combination is rejected outright, after workspace markers resolve: for the same language,
+the target's effective implementation standard must sit **inside** its effective interface
+range.  An interface minimum newer than the implementation standard - or an interface maximum
+older than it - is a contradiction: the target's own translation units could not include (or
+already exceed) its own public headers' declared range.  The load fails with
+`cabin::language::interface_standard_contradiction` naming the target, both values, and the
+violated bound.  The check applies per library-like target and only to languages the target
 actually compiles (a header-only target has no translation units, so it is exempt).
 
 A workspace-inherited value (see "Workspace defaults" above) occupies the `[package]` slot of the
@@ -215,16 +228,26 @@ dependency compile `cabin check` drops never gates the check, while `cabin build
 A library-like target imposes its effective interface standard on every target that transitively
 depends on it, per language, checked after planning and before any Ninja file is written:
 
-- The consumer's effective implementation standard must be **at least** the dependency's interface
-  minimum (chronological comparison).  This is a pragmatic compatibility policy, not a proof - it
-  assumes headers valid under standard *N* stay valid under newer modes; Cabin does not verify
-  header validity per standard.  `gnu-extensions` never participates in this comparison.
-- An explicit `"none"` requirement carries no minimum, so it imposes nothing on consumers today;
-  rejecting consumers of not-consumable headers is deferred alongside range support.
+- The consumer's effective implementation standard must sit **inside** the dependency's
+  interface range: at least its minimum, and - when the dependency declares a `max` - at most
+  its maximum.  Below the minimum the remedy is raising the consumer's standard; **above the
+  maximum only lowering it (or a newer dependency) can help** - accepted ranges are not open
+  above once capped.  The minimum side is a pragmatic compatibility policy, not a proof - it
+  assumes headers valid under standard *N* stay valid under newer modes unless the author caps
+  them; Cabin does not verify header validity per standard.  `gnu-extensions` never
+  participates in this comparison.
+- An explicit `"none"` requirement is deliberately **not** enforced by this build-time layer:
+  the post-resolution compatibility check owns it (see
+  [Post-resolution compatibility errors](#post-resolution-compatibility-errors) and
+  [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md)), together
+  with the per-edge
+  `ignore-interface-standard = true` override that can unblock exactly that class.  Range
+  violations are enforced at both layers and cannot be overridden.
 - A language is relevant to a dependency only if the dependency has sources of that language,
-  declares a target-level field for it, or is `header-only` while its package declares a
+  declares a target-level field for it, or is library-like while its package declares a
   package-level *interface* standard for it.  A package-level *implementation* default alone never
-  creates relevance - a pure-C library imposes no C++ requirement on C++ consumers.
+  creates relevance - a pure-C library whose package declares no C++ interface standard imposes
+  no C++ requirement on C++ consumers.
 - The check applies only to languages the consumer compiles.
 
 Because an omitted interface standard defaults to the effective implementation standard, a library
@@ -275,8 +298,8 @@ line only when `true`, so the default moves nothing.
     "core": {
       "c":   { "standard": "c11",   "source": "package" },
       "cxx": { "standard": "c++20", "source": "target" },
-      "interface_c":   { "requirement": { "min": "c11",   "max": null }, "source": "compile-standard" },
-      "interface_cxx": { "requirement": { "min": "c++17", "max": null }, "source": "target" },
+      "interface_c":   { "requirement": { "min": "c11" },                    "source": "compile-standard" },
+      "interface_cxx": { "requirement": { "min": "c++11", "max": "c++14" }, "source": "target" },
       "gnu_extensions": true
     }
   }
@@ -289,15 +312,16 @@ reports no entry at all - there is no built-in default.  A workspace-inherited v
 `"source": "workspace"` - for implementation standards and for package-level inherited interface
 standards alike.  `interface_*` keys appear only on `library` / `header-only` targets; their
 `requirement` is the `{ min, max }` pair (an explicit `"none"` reports as the string `"none"`),
-with `max` present-but-null while range support stays reserved.  `gnu_extensions` is the target's
+with `max` present exactly when the requirement is bounded.  `gnu_extensions` is the target's
 effective value and appears only when `true`.  The block is deterministic and additive to the
 stable metadata contract.
 
 `cabin package` / `cabin publish` preserve manifest-declared standard fields in the canonical
 per-version metadata, and the index loaders round-trip them opaquely (older index entries without
 the field keep loading).  Implementation standards serialize as bare strings; interface fields
-serialize as their `{ min, max }` requirement (or `"none"`), keeping the reserved `max` slot on the
-wire.  A workspace-inherited value is baked in as a literal, and the archived
+serialize as their `{ min, max }` requirement (or `"none"`), `max` present exactly when
+declared - the wire carries the declared bounds and nothing else, and every loader validates
+`min <= max` on read.  A workspace-inherited value is baked in as a literal, and the archived
 `cabin.toml` is normalized: a targeted, format-preserving rewrite replaces the marker-bearing
 standard fields with their resolved literals (the dependency-marker rewrite shares the same pass -
 see [`package-format.md`](package-format.md)), so packaging an inherited member produces an archive
@@ -325,12 +349,29 @@ or newer via public dependency `baz:baz` (`interface-cxx-standard`, baz/cabin.to
 naming the consuming target and its effective standard (with the declaring manifest and line), the
 dependency and its effective requirement - marked as inferred for header-only inference, or noting
 that consumption was disabled by an interface `"none"` - and the origin declaration, hop by hop
-when the requirement arrives over more than one public edge.  The remedies, in order: raise the
-consumer's standard; pin an older version of a registry dependency; and, as a last resort, exempt
-the edge with `ignore-interface-standard = true` (below).  The exemption is only offered for the
-forbidden classes (an interface `"none"`, the strict cross-language default) - exactly the ones the
-always-on build-time enforcement deliberately accepts; a minimum violation is independently
-rejected by that enforcement, so exempting it here could not unblock the command.  A registry
+when the requirement arrives over more than one public edge.  Composed requirements intersect
+their accepted ranges, so a bounded violation renders the full range (`` requires C++
+consumers within `c++11..c++14` ``) and cites the failing bound's own chain: the minimum's for
+a too-old consumer, the maximum's for a too-new one.  When two requirements intersect to the
+**empty** range, no consumer standard can satisfy the edge, and the error names *both*
+clashing origins with their chains:
+
+```text
+`app:app` (c++17, app/cabin.toml:12) -> `mid:mid` cannot be consumed from C++: no C++
+standard satisfies its combined interface requirements - `modern:modern` requires at
+least `c++20` via public dependency `modern:modern` (`interface-cxx-standard`,
+modern/cabin.toml:9) while `legacy:legacy` accepts at most `c++14` via public dependency
+`legacy:legacy` (`interface-cxx-standard`, legacy/cabin.toml:9)
+```
+
+The remedies match the failing direction: raise the consumer's standard below a minimum,
+**lower** it above a maximum (raising cannot help against a cap), make the requirements
+overlap for an empty intersection; pin an older version of a registry dependency; and, as a
+last resort, exempt the edge with `ignore-interface-standard = true` (below).  The exemption
+is only offered for the forbidden classes (an interface `"none"`, the strict cross-language
+default) - exactly the ones the always-on build-time enforcement deliberately accepts; a range
+violation (either bound, including an empty intersection) is independently rejected by that
+enforcement, so exempting it here could not unblock the command.  A registry
 dependency whose resolved
 version came out of an existing `cabin.lock` additionally notes that the lockfile records version
 pins only - so the likely cause is a standard declaration that changed in a manifest after the
@@ -383,8 +424,6 @@ dependency unsatisfiable from that language instead of imposing nothing.
   section 4); only the soft preference above and the post-resolution checks refuse a resolution.
 - `cfg(...)`-conditional or per-profile standards; per-command CLI overrides of the preference
   mode.
-- Range interface requirements (populating the reserved `max`), and enforcement of `"none"`
-  against consumers that compile the language.
 - Duplicate build variants (one library compiled once per consumer standard).
 
 ## Not supported

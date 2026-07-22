@@ -10,15 +10,19 @@
 //! `docs/design/standard-compatibility/spec.md`.
 //!
 //! Three lints:
-//! - **PL1** (error): a target's declared interface minimum is newer
-//!   than the same language's implementation standard.  Duplicates the
+//! - **PL1** (error): a target's declared implementation standard
+//!   falls outside its own interface range - below the declared
+//!   minimum or above the declared maximum.  Duplicates the
 //!   load-time `cabin::language::interface_standard_contradiction` by
 //!   design - defense in depth at the publish boundary - and also
 //!   covers the header-only direct pair the load-time check never sees.
 //! - **PL2** (warning): a header-only target leaves an implemented
 //!   language's interface requirement to inference (spec D9 row 3).
-//! - **PL3** (warning): a patch release raises a declared requirement
-//!   (spec's `⊑` order) versus the immediately previous version.
+//! - **PL3** (warning): a patch release narrows a declared
+//!   requirement's accepted set (spec D12) versus the immediately
+//!   previous version - a raised minimum, an added or lowered
+//!   maximum, a sideways shift, or a flip to `none`; the check is
+//!   semantic, not an order comparison, because `⊑` is only partial.
 
 use cabin_core::standard_compatibility::{DependencyKind, dependency_attributes};
 use cabin_core::{
@@ -158,25 +162,40 @@ fn cell_findings<S: Copy + Ord + std::fmt::Display>(
     implementation: Option<S>,
     findings: &mut Vec<LintFinding>,
 ) {
-    // PL1 (error): an explicit interface minimum newer than the
-    // implementation standard - the target's own translation units
-    // (or, header-only, its own headers) could not include the very
-    // headers the row advertises.  `"none"` (forbidden) and absence
-    // are outside PL1; only a declared minimum is checked.
+    // PL1 (error): the implementation standard falls outside the
+    // explicitly declared interface range - the target's own
+    // translation units (or, header-only, its own headers) could not
+    // include the very headers the row advertises.  `"none"`
+    // (forbidden) and absence are outside PL1; only a declared range
+    // is checked.
     if let (Some(InterfaceRequirement::Requirement(requirement)), Some(implementation)) =
         (declaration, implementation)
-        && requirement.min > implementation
     {
-        findings.push(LintFinding::error(
-            "PL1",
-            format!(
-                "target `{target}`: `{field} = \"{min}\"` is newer than its {key} implementation standard `{implementation}`; a published interface minimum must not exceed the standard the target compiles with - lower `{field}` or raise `{impl_field}`",
-                field = language.interface_field,
-                min = requirement.min,
-                key = language.key,
-                impl_field = language.impl_field,
-            ),
-        ));
+        if requirement.min() > implementation {
+            findings.push(LintFinding::error(
+                "PL1",
+                format!(
+                    "target `{target}`: `{field}` min `{min}` is newer than its {key} implementation standard `{implementation}`; a published interface minimum must not exceed the standard the target compiles with - lower `{field}` or raise `{impl_field}`",
+                    field = language.interface_field,
+                    min = requirement.min(),
+                    key = language.key,
+                    impl_field = language.impl_field,
+                ),
+            ));
+        }
+        if let Some(max) = requirement.max()
+            && max < implementation
+        {
+            findings.push(LintFinding::error(
+                "PL1",
+                format!(
+                    "target `{target}`: `{field}` max `{max}` is older than its {key} implementation standard `{implementation}`; the target's own translation units already exceed the published interface maximum - raise the max or lower `{impl_field}`",
+                    field = language.interface_field,
+                    key = language.key,
+                    impl_field = language.impl_field,
+                ),
+            ));
+        }
     }
 
     // PL2 (warning): a header-only target that implements the language
@@ -202,11 +221,14 @@ fn cell_findings<S: Copy + Ord + std::fmt::Display>(
 /// versions read from the index.
 ///
 /// Warns when this is a patch release whose declared requirement for
-/// some `(target, language)` present in both versions is strictly
-/// above the baseline's in the spec's `⊑` order (spec D3) - including
-/// a newly declared requirement on a previously unconstrained cell and
-/// a flip to `"none"` (forbidden), both strict `⊑`-increases.  A
-/// target present only in the new version is an addition, not a raise.
+/// some `(target, language)` present in both versions accepts fewer
+/// consumer standards than the baseline's - its satisfaction set
+/// (spec D12) drops a level the baseline accepted: a raised minimum,
+/// an added or lowered maximum, a sideways shift, or a flip to
+/// `"none"` (forbidden).  The check is semantic rather than a `⊑`
+/// comparison because `⊑` is only partial (spec L1): incomparable
+/// shifts still lose consumers.  A target present only in the new
+/// version is an addition, not a narrowing.
 ///
 /// The baseline is the greatest already-published, non-pre-release
 /// version strictly below `new_version` that shares its `major.minor`
@@ -287,22 +309,26 @@ fn patch_baseline<'a>(
 }
 
 /// PL3 for one `(target, language)` cell shared by both versions.
-fn raise_finding<S: Copy + Ord + std::fmt::Display>(
+fn raise_finding<S: cabin_core::StandardLevel + std::fmt::Display>(
     target: &str,
     language: &Language,
     old: Requirement<S>,
     new: Requirement<S>,
     findings: &mut Vec<LintFinding>,
 ) {
-    // The derived `Ord` on `Requirement` is exactly the strictness
-    // order `⊑` (spec D3 / L1), so `new > old` is a strict `⊑`-raise:
-    // unconstrained -> [m], [m] -> [m'] with m < m', or anything ->
-    // forbidden.  A lowering (relaxation) is never linted.
-    if new > old {
+    // The strictness order is partial (ranges can shift sideways),
+    // so the lint checks the semantics directly: the new
+    // requirement narrows the accepted set when some consumer level
+    // the baseline accepted is no longer accepted - a raised min, a
+    // lowered max, a shifted range, or a flip to forbidden.  A pure
+    // widening is never linted.
+    let old_sat = old.sat(S::levels());
+    let new_sat = new.sat(S::levels());
+    if old_sat.iter().any(|level| !new_sat.contains(level)) {
         findings.push(LintFinding::warning(
             "PL3",
             format!(
-                "target `{target}`: {key} interface requirement raised from {old} to {new} in a patch release; requirement raises are treated as minor incompatibilities - allowed in minor releases, discouraged in patches",
+                "target `{target}`: {key} interface requirement narrowed from {old} to {new} in a patch release; the new requirement excludes consumer standards the baseline accepted - treated as a minor incompatibility, allowed in minor releases, discouraged in patches",
                 key = language.key,
                 old = describe(old),
                 new = describe(new),
@@ -312,11 +338,11 @@ fn raise_finding<S: Copy + Ord + std::fmt::Display>(
 }
 
 /// Render a requirement for a PL3 message.
-fn describe<S: std::fmt::Display>(requirement: Requirement<S>) -> String {
+fn describe<S: cabin_core::StandardLevel>(requirement: Requirement<S>) -> String {
     match requirement {
         Requirement::Unconstrained => "unconstrained".to_owned(),
-        Requirement::Min(min) => format!("`{min}`"),
         Requirement::Forbidden => "forbidden (`none`)".to_owned(),
+        Requirement::Min(_) | Requirement::Bounded(_) => format!("`{requirement}`"),
     }
 }
 
@@ -331,7 +357,7 @@ mod tests {
     use camino::Utf8PathBuf;
 
     fn interface_min<S>(min: S) -> InterfaceRequirement<S> {
-        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+        InterfaceRequirement::Requirement(StandardRequirement::at_least(min))
     }
 
     fn target(
@@ -743,5 +769,134 @@ mod tests {
             patch_release_findings(&ver("1.0.1"), &new, &[(ver("1.0.1-rc.1"), previous)])
                 .is_empty()
         );
+    }
+
+    /// PL1 also fires on the max side: an implementation standard
+    /// above the declared interface maximum is an error, for both
+    /// languages.
+    #[test]
+    fn pl1_errors_when_implementation_exceeds_declared_max() {
+        let lib = target(
+            "lib",
+            TargetKind::Library,
+            &["src/lib.cc"],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx23)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::Requirement(
+                        StandardRequirement::bounded(CxxStandard::Cxx14, Some(CxxStandard::Cxx20))
+                            .unwrap(),
+                    ),
+                )),
+                ..Default::default()
+            },
+        );
+        let findings = manifest_findings(&package(vec![lib]));
+        let error = findings.iter().find(|f| f.code == "PL1").expect("PL1");
+        assert!(error.is_error());
+        assert!(
+            error.message.contains("max `c++20` is older than"),
+            "unexpected message: {}",
+            error.message
+        );
+
+        let clib = target(
+            "clib",
+            TargetKind::Library,
+            &["src/lib.c"],
+            LanguageStandardSettings {
+                c_standard: Some(StandardDeclaration::Declared(CStandard::C23)),
+                interface_c_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::Requirement(
+                        StandardRequirement::bounded(CStandard::C99, Some(CStandard::C17)).unwrap(),
+                    ),
+                )),
+                ..Default::default()
+            },
+        );
+        let findings = manifest_findings(&package(vec![clib]));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "PL1" && f.message.contains("max `c17`")),
+            "expected the C max PL1: {findings:?}"
+        );
+
+        // An implementation inside the declared range is clean.
+        let ok = target(
+            "ok",
+            TargetKind::Library,
+            &["src/ok.cc"],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::Requirement(
+                        StandardRequirement::bounded(CxxStandard::Cxx14, Some(CxxStandard::Cxx20))
+                            .unwrap(),
+                    ),
+                )),
+                ..Default::default()
+            },
+        );
+        assert!(
+            manifest_findings(&package(vec![ok]))
+                .iter()
+                .all(|f| f.code != "PL1")
+        );
+    }
+
+    /// PL3 checks the accepted set, not a total order: adding a cap,
+    /// shifting a range sideways, and flipping to `"none"` all
+    /// narrow it; a pure widening does not lint, and neither does
+    /// the sat-equal unconstrained -> lowest-minimum change.
+    #[test]
+    fn pl3_narrowing_is_semantic_over_the_accepted_set() {
+        fn table(requirement: Requirement<CxxStandard>) -> StandardsMetadata {
+            let mut table = StandardsMetadata::default();
+            table.targets.insert(
+                "lib".to_owned(),
+                TargetStandards {
+                    interface_cxx: requirement,
+                    ..Default::default()
+                },
+            );
+            table
+        }
+        let version = semver::Version::parse("1.2.1").unwrap();
+        let published =
+            |requirement| vec![(semver::Version::parse("1.2.0").unwrap(), table(requirement))];
+        let narrowed = |old, new| {
+            patch_release_findings(&version, &table(new), &published(old))
+                .iter()
+                .any(|f| f.code == "PL3")
+        };
+
+        // Adding a cap narrows.
+        assert!(narrowed(
+            Requirement::Min(CxxStandard::Cxx14),
+            Requirement::bounded(CxxStandard::Cxx14, CxxStandard::Cxx20).unwrap(),
+        ));
+        // A sideways shift narrows (it drops c++11 consumers) even
+        // though the two ranges are order-incomparable.
+        assert!(narrowed(
+            Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx17).unwrap(),
+            Requirement::bounded(CxxStandard::Cxx14, CxxStandard::Cxx20).unwrap(),
+        ));
+        // Flipping to forbidden narrows.
+        assert!(narrowed(
+            Requirement::Min(CxxStandard::Cxx14),
+            Requirement::Forbidden,
+        ));
+        // Pure widening does not lint.
+        assert!(!narrowed(
+            Requirement::bounded(CxxStandard::Cxx14, CxxStandard::Cxx17).unwrap(),
+            Requirement::Min(CxxStandard::Cxx11),
+        ));
+        // Sat-equal reshaping does not lint: unconstrained and the
+        // lowest minimum accept the same set.
+        assert!(!narrowed(
+            Requirement::Unconstrained,
+            Requirement::Min(CxxStandard::Cxx98),
+        ));
     }
 }

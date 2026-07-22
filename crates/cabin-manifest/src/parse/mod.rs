@@ -580,7 +580,61 @@ fn standard_field_from_raw<S>(
         Some(RawStandardField::Marker(_)) => {
             Err(ManifestError::WorkspaceStandardExplicitlyDisabled { field })
         }
+        Some(RawStandardField::Range(_)) => {
+            Err(ManifestError::RangeOnImplementationStandard { field })
+        }
     }
+}
+
+/// Like [`standard_field_from_raw`], for the interface fields: the
+/// `{ min, max }` range table is additionally accepted and
+/// validated (`min` required, `min <= max`).
+fn interface_field_from_raw<S: cabin_core::StandardLevel>(
+    raw: Option<&RawStandardField>,
+    field: &'static str,
+    parse_level: impl Fn(&str) -> Result<S, ManifestError>,
+    parse_value: impl Fn(&str) -> Result<cabin_core::InterfaceRequirement<S>, ManifestError>,
+) -> Result<
+    Option<cabin_core::StandardDeclaration<cabin_core::InterfaceRequirement<S>>>,
+    ManifestError,
+> {
+    match raw {
+        None => Ok(None),
+        Some(RawStandardField::Value(value)) => Ok(Some(
+            cabin_core::StandardDeclaration::Declared(parse_value(value)?),
+        )),
+        Some(RawStandardField::Marker(marker)) if marker.workspace => {
+            Ok(Some(cabin_core::StandardDeclaration::Workspace))
+        }
+        Some(RawStandardField::Marker(_)) => {
+            Err(ManifestError::WorkspaceStandardExplicitlyDisabled { field })
+        }
+        Some(RawStandardField::Range(range)) => {
+            Ok(Some(cabin_core::StandardDeclaration::Declared(
+                cabin_core::InterfaceRequirement::Requirement(interface_range_from_raw(
+                    range,
+                    field,
+                    parse_level,
+                )?),
+            )))
+        }
+    }
+}
+
+/// Validate one `{ min, max }` range table into a typed
+/// requirement.
+fn interface_range_from_raw<S: cabin_core::StandardLevel>(
+    range: &crate::raw::RawStandardRange,
+    field: &'static str,
+    parse_level: impl Fn(&str) -> Result<S, ManifestError>,
+) -> Result<cabin_core::StandardRequirement<S>, ManifestError> {
+    let Some(min) = range.min.as_deref() else {
+        return Err(ManifestError::RangeMissingMin { field });
+    };
+    let min = parse_level(min)?;
+    let max = range.max.as_deref().map(&parse_level).transpose()?;
+    cabin_core::StandardRequirement::bounded(min, max)
+        .map_err(ManifestError::InvalidLanguageStandard)
 }
 
 /// Parse a literal C-standard value into the typed enum.
@@ -622,14 +676,16 @@ pub(crate) fn language_settings_from_raw(
     Ok(cabin_core::LanguageStandardSettings {
         c_standard: standard_field_from_raw(c_standard, "c-standard", parse_c_standard)?,
         cxx_standard: standard_field_from_raw(cxx_standard, "cxx-standard", parse_cxx_standard)?,
-        interface_c_standard: standard_field_from_raw(
+        interface_c_standard: interface_field_from_raw(
             interface_c_standard,
             "interface-c-standard",
+            parse_c_standard,
             parse_interface_c,
         )?,
-        interface_cxx_standard: standard_field_from_raw(
+        interface_cxx_standard: interface_field_from_raw(
             interface_cxx_standard,
             "interface-cxx-standard",
+            parse_cxx_standard,
             parse_interface_cxx,
         )?,
         gnu_extensions,
@@ -653,10 +709,33 @@ fn workspace_table_from_raw(
 }
 
 /// Validate the optional `[workspace]`-level standard fields into
-/// typed literal defaults.
+/// typed literal defaults.  Interface fields accept the same string
+/// and `{ min, max }` forms as their `[package]` counterparts; the
+/// `{ workspace = true }` marker is rejected (this table declares
+/// the defaults members opt into).
 fn workspace_standards_from_raw(
     raw: &crate::raw::RawWorkspace,
 ) -> Result<cabin_core::WorkspaceStandardDefaults, ManifestError> {
+    fn workspace_interface<S: cabin_core::StandardLevel>(
+        raw: Option<&RawStandardField>,
+        field: &'static str,
+        parse_level: impl Fn(&str) -> Result<S, ManifestError>,
+        parse_value: impl Fn(&str) -> Result<cabin_core::InterfaceRequirement<S>, ManifestError>,
+    ) -> Result<Option<cabin_core::InterfaceRequirement<S>>, ManifestError> {
+        match raw {
+            None => Ok(None),
+            Some(RawStandardField::Value(value)) => Ok(Some(parse_value(value)?)),
+            Some(RawStandardField::Marker(_)) => {
+                Err(ManifestError::WorkspaceMarkerOnWorkspaceTable { field })
+            }
+            Some(RawStandardField::Range(range)) => {
+                Ok(Some(cabin_core::InterfaceRequirement::Requirement(
+                    interface_range_from_raw(range, field, parse_level)?,
+                )))
+            }
+        }
+    }
+
     Ok(cabin_core::WorkspaceStandardDefaults {
         c_standard: raw
             .c_standard
@@ -668,16 +747,18 @@ fn workspace_standards_from_raw(
             .as_deref()
             .map(parse_cxx_standard)
             .transpose()?,
-        interface_c_standard: raw
-            .interface_c_standard
-            .as_deref()
-            .map(parse_interface_c)
-            .transpose()?,
-        interface_cxx_standard: raw
-            .interface_cxx_standard
-            .as_deref()
-            .map(parse_interface_cxx)
-            .transpose()?,
+        interface_c_standard: workspace_interface(
+            raw.interface_c_standard.as_ref(),
+            "interface-c-standard",
+            parse_c_standard,
+            parse_interface_c,
+        )?,
+        interface_cxx_standard: workspace_interface(
+            raw.interface_cxx_standard.as_ref(),
+            "interface-cxx-standard",
+            parse_cxx_standard,
+            parse_interface_cxx,
+        )?,
     })
 }
 

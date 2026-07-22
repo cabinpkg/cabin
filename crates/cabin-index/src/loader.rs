@@ -617,7 +617,7 @@ struct RawVersion {
     /// absence (all pre-`standards` entries) is an empty table, i.e.
     /// unconstrained.  Parsed into the typed
     /// [`cabin_core::StandardsMetadata`], which rejects a populated
-    /// reserved `max` and a bare-string cell.
+    /// range-validated `max` and a bare-string cell.
     #[serde(default)]
     standards: cabin_core::StandardsMetadata,
 }
@@ -1690,10 +1690,10 @@ mod tests {
         assert!(meta.standards.is_empty());
     }
 
-    /// A populated reserved `max` is rejected (range requirements are
-    /// a future version); the loader surfaces it as a JSON error.
+    /// A populated `max` loads as a bounded requirement; an empty
+    /// range (`max < min`) is rejected as a JSON error.
     #[test]
-    fn rejects_populated_max_in_standards() {
+    fn bounded_max_loads_and_empty_ranges_are_rejected() {
         let dir = TempDir::new().unwrap();
         dir.child("fmt.json")
             .write_str(
@@ -1713,11 +1713,44 @@ mod tests {
             }"#,
             )
             .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        assert_eq!(
+            meta.standards.targets["lib"].interface_cxx,
+            cabin_core::Requirement::bounded(
+                cabin_core::CxxStandard::Cxx17,
+                cabin_core::CxxStandard::Cxx20
+            )
+            .unwrap()
+        );
+
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {
+                    "1.0.0": {
+                        "dependencies": {},
+                        "standards": {
+                            "targets": {
+                                "lib": { "interface": { "c++": { "min": "c++20", "max": "c++11" } } }
+                            }
+                        }
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
             IndexError::Json { source, .. } => {
                 assert!(
-                    source.to_string().contains("reserved for a future version"),
+                    source
+                        .to_string()
+                        .contains("empty C++ interface requirement"),
                     "unexpected error: {source}"
                 );
             }

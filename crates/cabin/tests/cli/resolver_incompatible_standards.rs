@@ -105,7 +105,7 @@ fn fallback_default_holds_back_incompatible_newer_version() {
     assert_eq!(dep_version(&value), "1.0.0");
     assert_eq!(
         value["held_back"][0]["message"],
-        "dep v1.0.0 (available: v2.0.0, requires interface c++20)"
+        "dep v1.0.0 (available: v2.0.0, requires interface c++20 or newer)"
     );
 }
 
@@ -132,7 +132,7 @@ fn fallback_human_output_renders_held_back_section() {
         "missing held-back heading in: {stdout}"
     );
     assert!(
-        stdout.contains("dep v1.0.0 (available: v2.0.0, requires interface c++20)"),
+        stdout.contains("dep v1.0.0 (available: v2.0.0, requires interface c++20 or newer)"),
         "missing held-back line in: {stdout}"
     );
 }

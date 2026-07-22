@@ -140,16 +140,9 @@ fn violation_diagnostic(
     // "via public dependency `origin`" whenever the requirement was
     // not declared by the direct dependency itself; longer
     // provenance chains name every hop.
-    let via = match violation.chain.len() {
-        0 | 1 => String::new(),
-        2 => format!(" via public dependency `{}`", violation.origin_target),
-        _ => format!(
-            " via public dependency chain `{}`",
-            violation.chain.join("` -> `"),
-        ),
-    };
+    let via = via_clause(&violation.chain, &violation.origin_target);
 
-    let message = match (violation.requirement, &violation.origin) {
+    let message = match (&violation.requirement, &violation.origin) {
         (EdgeRequirement::Min(min), RequirementOrigin::Declared { site }) => format!(
             "{consumer} -> `{}` requires {lang} consumers at `{min}` or newer{via} (`{}`, {})",
             violation.dependency,
@@ -162,6 +155,18 @@ fn violation_diagnostic(
             violation.dependency,
             site.field,
             site_ref(site),
+        ),
+        // A bounded requirement cites the failing bound's origin:
+        // the minimum's for a too-old consumer, the maximum's for a
+        // too-new one.
+        (
+            EdgeRequirement::BelowRange { min, max } | EdgeRequirement::AboveRange { min, max },
+            origin @ (RequirementOrigin::Declared { .. }
+            | RequirementOrigin::HeaderOnlyInference { .. }),
+        ) => format!(
+            "{consumer} -> `{}` requires {lang} consumers within `{min}..{max}`{via} {}",
+            violation.dependency,
+            origin_cite(origin),
         ),
         (EdgeRequirement::Forbidden, RequirementOrigin::DeclaredNone { site }) => format!(
             "{consumer} -> `{}` cannot be consumed from {lang}: {lang} consumption was \
@@ -176,12 +181,29 @@ fn violation_diagnostic(
             violation.dependency,
             interface_field(violation.language),
         ),
-        // The pass only ever pairs `Min` with a declaration or
-        // inference origin and `Forbidden` with `none` or the
-        // cross-language default (spec D9 rows 1-3, 6).
-        (EdgeRequirement::Min(_) | EdgeRequirement::Forbidden, _) => {
-            unreachable!("requirement/origin combination violates spec D9: {violation:?}")
-        }
+        // No single standard satisfies the composed requirements:
+        // name both clashing origins, each with its own chain.
+        (
+            EdgeRequirement::EmptyIntersection { min, max },
+            origin @ (RequirementOrigin::Declared { .. }
+            | RequirementOrigin::HeaderOnlyInference { .. }),
+        ) => format!(
+            "{consumer} -> `{}` cannot be consumed from {lang}: no {lang} standard satisfies \
+             its combined interface requirements - `{}` requires at least `{min}`{via} {} \
+             while `{}` accepts at most `{}`{} {}",
+            violation.dependency,
+            violation.origin_target,
+            origin_cite(origin),
+            max.origin_target,
+            max.value,
+            via_clause(&max.chain, &max.origin_target),
+            origin_cite(&max.origin),
+        ),
+        // The pass pairs `Min` and the range shapes with a
+        // declaration or inference origin, and `Forbidden` with
+        // `none` or the cross-language default (spec D9 rows 1-3,
+        // 6); bounds never originate at a cross-language default.
+        _ => unreachable!("requirement/origin combination violates spec D9: {violation:?}"),
     };
 
     let pin = if violation.dependency_is_registry {
@@ -215,7 +237,7 @@ fn violation_diagnostic(
     // interface `"none"`, the strict cross-language default) are
     // exactly the ones that layer deliberately accepts - there
     // the override genuinely unblocks the command.
-    let last_resort = match (violation.requirement, &violation.override_section) {
+    let last_resort = match (&violation.requirement, &violation.override_section) {
         (EdgeRequirement::Forbidden, Some(section)) => format!(
             "; as a last resort, `{} = {{ ..., ignore-interface-standard = true }}` in the \
              `{section}` table of {} leaves exactly this edge unchecked",
@@ -224,15 +246,32 @@ fn violation_diagnostic(
         ),
         _ => String::new(),
     };
-    let help = match violation.requirement {
+    let help = match &violation.requirement {
         EdgeRequirement::Min(min) => format!(
             "raise `{}`'s {lang} standard to at least `{min}`{pin}{lockfile_note}{last_resort}",
+            violation.consumer,
+        ),
+        EdgeRequirement::BelowRange { min, max } => format!(
+            "raise `{}`'s {lang} standard to at least `{min}` (the dependency accepts up to \
+             `{max}`){pin}{lockfile_note}{last_resort}",
+            violation.consumer,
+        ),
+        // Raising cannot help above a maximum - the accepted set is
+        // not upward closed once a range is capped.
+        EdgeRequirement::AboveRange { max, .. } => format!(
+            "lower `{}`'s {lang} standard to at most `{max}`{pin}{lockfile_note}{last_resort}",
             violation.consumer,
         ),
         EdgeRequirement::Forbidden => format!(
             "`{}` cannot be consumed from {lang} at any standard level{pin}{lockfile_note}\
              {last_resort}",
             violation.origin_target,
+        ),
+        EdgeRequirement::EmptyIntersection { min, max } => format!(
+            "no {lang} standard satisfies both `{}` (at least `{min}`) and `{}` (at most \
+             `{}`); make the two requirements overlap, or drop one of the conflicting \
+             dependencies{pin}{lockfile_note}{last_resort}",
+            violation.origin_target, max.origin_target, max.value,
         ),
     };
 
@@ -300,6 +339,36 @@ fn unchecked_note(violation: &StandardCompatViolation) -> StandardCompatDiagnost
     }
 }
 
+/// The provenance suffix naming the public-edge chain behind a
+/// requirement, empty when the direct dependency itself declares
+/// it.
+fn via_clause(chain: &[String], origin_target: &str) -> String {
+    match chain.len() {
+        0 | 1 => String::new(),
+        2 => format!(" via public dependency `{origin_target}`"),
+        _ => format!(" via public dependency chain `{}`", chain.join("` -> `")),
+    }
+}
+
+/// The parenthesized citation of one bound's origin declaration.
+/// Bounds only originate at declarations or header-only inference
+/// (a cross-language default never contributes a bound).
+fn origin_cite(origin: &RequirementOrigin) -> String {
+    match origin {
+        RequirementOrigin::Declared { site } => {
+            format!("(`{}`, {})", site.field, site_ref(site))
+        }
+        RequirementOrigin::HeaderOnlyInference { site } => format!(
+            "(inferred from implementation standard `{}`, {})",
+            site.field,
+            site_ref(site),
+        ),
+        RequirementOrigin::DeclaredNone { .. } | RequirementOrigin::CrossLanguageDefault => {
+            unreachable!("a bound origin is a declaration or inference, never a forbidden row")
+        }
+    }
+}
+
 /// The interface field the strict cross-language default points
 /// the user at.
 fn interface_field(language: cabin_core::SourceLanguage) -> &'static str {
@@ -350,6 +419,7 @@ fn consumer_snippet(site: &DeclSite) -> (miette::NamedSource<String>, Option<mie
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cabin_build::ClashingBound;
     use std::path::PathBuf;
 
     /// Pasting the override remedy must always yield the intended
@@ -710,6 +780,110 @@ mod tests {
         assert!(
             !rendered.contains("cabin.lock") && !rendered.contains("cabin update"),
             "a path dependency's violation must not mention the lockfile: {rendered}"
+        );
+    }
+
+    /// A below-range violation renders the full accepted range,
+    /// cites the minimum's origin, and keeps the raise remedy with
+    /// the cap noted.
+    #[test]
+    fn renders_below_range_with_the_cap_noted() {
+        let mut violation = min_violation();
+        violation.requirement = EdgeRequirement::BelowRange {
+            min: "c++20",
+            max: "c++23",
+        };
+        let rendered = render_error(&violation, false);
+        assert!(
+            rendered.contains("requires C++ consumers within `c++20..c++23`"),
+            "expected the range sentence in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "raise `app:app`'s C++ standard to at least `c++20` (the dependency accepts \
+                 up to `c++23`)"
+            ),
+            "expected the capped raise remedy in: {rendered}"
+        );
+    }
+
+    /// An above-range violation must tell the user to lower, never
+    /// to raise: accepted sets are not upward closed once capped.
+    #[test]
+    fn renders_above_range_with_the_lower_remedy() {
+        let mut violation = min_violation();
+        violation.consumer_standard = "c++26";
+        violation.requirement = EdgeRequirement::AboveRange {
+            min: "c++11",
+            max: "c++14",
+        };
+        let rendered = render_error(&violation, false);
+        assert!(
+            rendered.contains("requires C++ consumers within `c++11..c++14`"),
+            "expected the range sentence in: {rendered}"
+        );
+        assert!(
+            rendered.contains("lower `app:app`'s C++ standard to at most `c++14`"),
+            "expected the lower remedy in: {rendered}"
+        );
+        assert!(
+            !rendered.contains("raise `app:app`"),
+            "an above-maximum violation must not suggest raising: {rendered}"
+        );
+        // Range violations are independently rejected by the
+        // build-time enforcement, so the override remedy stays
+        // withheld.
+        assert!(
+            !rendered.contains("ignore-interface-standard"),
+            "a range violation must not offer the override: {rendered}"
+        );
+    }
+
+    /// An empty intersection names both clashing origins, renders
+    /// both chains, and helps with the overlap remedy.
+    #[test]
+    fn renders_empty_intersection_with_both_chains() {
+        let mut violation = min_violation();
+        violation.requirement = EdgeRequirement::EmptyIntersection {
+            min: "c++20",
+            max: Box::new(ClashingBound {
+                value: "c++14",
+                origin_target: "libc:libc".to_owned(),
+                origin: RequirementOrigin::Declared {
+                    site: DeclSite {
+                        manifest_path: PathBuf::from("/nonexistent/libc/cabin.toml"),
+                        scope: DeclScope::Target("libc".to_owned()),
+                        field: "interface-cxx-standard",
+                    },
+                },
+                chain: vec!["liba:liba".to_owned(), "libc:libc".to_owned()],
+            }),
+        };
+        let rendered = render_error(&violation, false);
+        assert!(
+            rendered.contains("no C++ standard satisfies its combined interface requirements"),
+            "expected the empty-intersection sentence in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "`libb:libb` requires at least `c++20` via public dependency `libb:libb` \
+                 (`interface-cxx-standard`, /nonexistent/libb/cabin.toml)"
+            ),
+            "expected the floor origin in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "while `libc:libc` accepts at most `c++14` via public dependency `libc:libc` \
+                 (`interface-cxx-standard`, /nonexistent/libc/cabin.toml)"
+            ),
+            "expected the cap origin in: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "no C++ standard satisfies both `libb:libb` (at least `c++20`) and \
+                 `libc:libc` (at most `c++14`)"
+            ),
+            "expected the overlap help in: {rendered}"
         );
     }
 

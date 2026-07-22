@@ -86,18 +86,21 @@ impl HeldBack {
 pub struct BlockedRequirement {
     /// The consumer language whose requirement is unmet.
     pub language: SourceLanguage,
-    /// The declared minimum standard (e.g. `c++20`), or `None` when
-    /// the interface is declared `"none"` (unconsumable at any level).
-    pub minimum: Option<String>,
+    /// The accepted consumer range, rendered (`c++20 or newer`,
+    /// `c++11..c++17`), or `None` when the version accepts no
+    /// consumer of the language at all - a declared `"none"`, the
+    /// strict cross-language default, or an empty intersection of
+    /// its rows' ranges.
+    pub accepted: Option<String>,
 }
 
 impl BlockedRequirement {
     /// The requirement clause used inside [`HeldBack::message`].
     #[must_use]
     fn clause(&self) -> String {
-        match &self.minimum {
-            Some(level) => format!("requires interface {level}"),
-            None => format!("declares interface {} = \"none\"", self.language_str()),
+        match &self.accepted {
+            Some(range) => format!("requires interface {range}"),
+            None => format!("not consumable from {}", self.language_str()),
         }
     }
 

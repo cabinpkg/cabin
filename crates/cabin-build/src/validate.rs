@@ -280,16 +280,20 @@ pub fn validate_planned_standards(graph: &crate::BuildGraph) -> Result<(), Build
             language,
             consumer_standard,
             required,
+            kind,
             requirement_source,
             ..
-        }) => Err(BuildError::IncompatibleLanguageStandard {
-            consumer: consumer.clone(),
-            dependency: dependency.clone(),
-            language,
-            consumer_standard,
-            required,
-            requirement_source,
-        }),
+        }) => Err(BuildError::IncompatibleLanguageStandard(Box::new(
+            crate::error::IncompatibleLanguageStandardError {
+                consumer: consumer.clone(),
+                dependency: dependency.clone(),
+                language,
+                consumer_standard,
+                required: required.clone(),
+                kind: *kind,
+                requirement_source,
+            },
+        ))),
         None => Ok(()),
     }
 }

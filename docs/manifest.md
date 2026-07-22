@@ -58,8 +58,8 @@ deps = ["greet", "fmt"]
 | `version` | string | yes | Valid [SemVer](https://semver.org/) string. |
 | `c-standard` | string | no | Package-wide C implementation standard (`c89`, `c99`, `c11`, `c17`, `c23`; `c90` is an alias of `c89`).  There is no built-in default: every target that compiles C sources needs an effective value from this field or its own `[target.<name>]` override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | Package-wide C++ implementation standard (`c++98` … `c++26`; `c++03` is an alias of `c++98`).  There is no built-in default: every target that compiles C++ sources needs an effective value from this field or its own `[target.<name>]` override. |
-| `interface-c-standard` | string | no | Package-wide default C interface requirement for `library` / `header-only` targets.  Also accepts `"none"` (headers not consumable from C). |
-| `interface-cxx-standard` | string | no | Package-wide default C++ interface requirement for `library` / `header-only` targets.  Also accepts `"none"`. |
+| `interface-c-standard` | string or `{ min, max }` table | no | Package-wide default C interface requirement for `library` / `header-only` targets: a string minimum (`"c11"`), a bounded inclusive range (`{ min = "c99", max = "c17" }`, `max` optional), or `"none"` (headers not consumable from C). |
+| `interface-cxx-standard` | string or `{ min, max }` table | no | Package-wide default C++ interface requirement for `library` / `header-only` targets; same forms as the C field. |
 | `gnu-extensions` | boolean | no | Package-wide default for the per-target GNU-extensions dialect knob (default `false`).  See [Language standards](language-standards.md). |
 
 Inside a workspace, each of the four standard fields also accepts the `{ workspace = true }` opt-in
@@ -86,8 +86,8 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
 | `c-standard` | string | no | package value | Per-target C implementation standard override.  See [Language standards](language-standards.md). |
 | `cxx-standard` | string | no | package value | Per-target C++ implementation standard override. |
-| `interface-c-standard` | string | no | effective `c-standard` | C interface requirement (or `"none"`); `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
-| `interface-cxx-standard` | string | no | effective `cxx-standard` | C++ interface requirement (or `"none"`); `library` / `header-only` only. |
+| `interface-c-standard` | string or `{ min, max }` table | no | effective `c-standard` | C interface requirement: a string minimum, a bounded `{ min, max }` range, or `"none"`; `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
+| `interface-cxx-standard` | string or `{ min, max }` table | no | effective `cxx-standard` | C++ interface requirement; same forms as the C field; `library` / `header-only` only. |
 | `gnu-extensions` | boolean | no | package value, else `false` | Per-target GNU-extensions dialect override. |
 
 `include-dirs` of a `library` or `header-only` target are visible (transitively) to any target that
@@ -157,8 +157,8 @@ post-resolution standard-compatibility check (see
 The check still evaluates the edge and prints a downgraded note that the edge is unchecked, so the
 override cannot silently rot.  The exemption covers this check only: the always-on build-time
 interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
-violation classes but not interface-minimum violations (which that enforcement independently
-rejects).  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced
+violation classes but not interface-range violations - below the declared minimum or above the
+declared maximum - which that enforcement independently rejects.  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced
 form (path, version, port, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
 alongside `system = true` (system dependencies never enter the check).
 

@@ -25,7 +25,7 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::language_standard::{
-    CStandard, CxxStandard, effective_gnu_extensions, resolve_language_standards,
+    CStandard, CxxStandard, StandardLevel, effective_gnu_extensions, resolve_language_standards,
 };
 use crate::model::Package;
 use crate::standard_compatibility::{
@@ -140,9 +140,9 @@ impl Default for TargetStandards {
 
 // ---------------------------------------------------------------------------
 // Wire format.  A dedicated shape (rather than reusing the manifest's
-// `InterfaceRequirement` serde) because the index cell omits the
-// reserved `max` on write and rejects a populated `max` on read, and
-// because absence of a cell means unconstrained.
+// `InterfaceRequirement` serde) because absence of a cell means
+// unconstrained, and because the cell enforces the `min <= max`
+// range invariant on read like every other wire format.
 // ---------------------------------------------------------------------------
 
 impl Serialize for StandardsMetadata {
@@ -239,29 +239,39 @@ impl From<RawTarget> for TargetStandards {
 }
 
 /// One serialized `(target, language)` cell: the literal string
-/// `"none"` for `Requirement::Forbidden`, or a `{ "min": "<level>" }`
-/// table for `Requirement::Min`.  `Requirement::Unconstrained` is
+/// `"none"` for `Requirement::Forbidden`, or a
+/// `{ "min": "<level>" }` / `{ "min": "<level>", "max": "<level>" }`
+/// table for the two range shapes.  `Requirement::Unconstrained` is
 /// never a cell - the language key is omitted instead - so this type
-/// only encodes the two constrained shapes, which are deliberately
+/// only encodes the constrained shapes, which are deliberately
 /// distinct wire forms (never the same requirement).
 #[derive(Debug, Clone, Copy)]
 enum Cell<S> {
     Forbidden,
-    Min(S),
+    Range { min: S, max: Option<S> },
 }
 
-fn cell_of<S>(requirement: Requirement<S>) -> Option<Cell<S>> {
+fn cell_of<S: Copy + Ord>(requirement: Requirement<S>) -> Option<Cell<S>> {
     match requirement {
         Requirement::Unconstrained => None,
-        Requirement::Min(min) => Some(Cell::Min(min)),
+        Requirement::Min(min) => Some(Cell::Range { min, max: None }),
+        Requirement::Bounded(range) => Some(Cell::Range {
+            min: range.min(),
+            max: Some(range.max()),
+        }),
         Requirement::Forbidden => Some(Cell::Forbidden),
     }
 }
 
-fn requirement_of<S>(cell: Option<Cell<S>>) -> Requirement<S> {
+fn requirement_of<S: Copy + Ord>(cell: Option<Cell<S>>) -> Requirement<S> {
     match cell {
         None => Requirement::Unconstrained,
-        Some(Cell::Min(min)) => Requirement::Min(min),
+        Some(Cell::Range { min, max: None }) => Requirement::Min(min),
+        Some(Cell::Range {
+            min,
+            max: Some(max),
+        }) => Requirement::bounded(min, max)
+            .expect("index cells validate `min <= max` when deserialized"),
         Some(Cell::Forbidden) => Requirement::Forbidden,
     }
 }
@@ -269,31 +279,36 @@ fn requirement_of<S>(cell: Option<Cell<S>>) -> Requirement<S> {
 impl<S: Serialize> Serialize for Cell<S> {
     fn serialize<Ser: Serializer>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error> {
         match self {
-            // `max` is reserved and never written in v1 (spec D4
-            // remark), so a minimum serializes as a single-key table.
             Cell::Forbidden => serializer.serialize_str("none"),
-            Cell::Min(min) => {
-                let mut map = serializer.serialize_map(Some(1))?;
+            // The table carries exactly the declared bounds: `max`
+            // appears only when the requirement is bounded.
+            Cell::Range { min, max } => {
+                let mut map = serializer.serialize_map(Some(1 + usize::from(max.is_some())))?;
                 map.serialize_entry("min", min)?;
+                if let Some(max) = max {
+                    map.serialize_entry("max", max)?;
+                }
                 map.end()
             }
         }
     }
 }
 
-impl<'de, S: Deserialize<'de>> Deserialize<'de> for Cell<S> {
+impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for Cell<S> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct CellVisitor<S>(PhantomData<S>);
 
-        impl<'de, S: Deserialize<'de>> Visitor<'de> for CellVisitor<S> {
+        impl<'de, S: Deserialize<'de> + StandardLevel> Visitor<'de> for CellVisitor<S> {
             type Value = Cell<S>;
 
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str(r#"`"none"` or a `{ "min": "<level>" }` requirement table"#)
+                f.write_str(
+                    r#"`"none"` or a `{ "min": "<level>", "max": "<level>" }` requirement table"#,
+                )
             }
 
             // A bare level string (`"c++17"`) is not a valid cell:
-            // writers must use the object form for minima.
+            // writers must use the object form for ranges.
             fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
                 if value == "none" {
                     Ok(Cell::Forbidden)
@@ -307,6 +322,11 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for Cell<S> {
 
             fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
                 let mut min: Option<S> = None;
+                let mut max: Option<S> = None;
+                // Tracked separately from the parsed value: an
+                // explicit `"max": null` reads as unbounded but must
+                // still trip the duplicate check.
+                let mut saw_max = false;
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "min" => {
@@ -315,28 +335,30 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for Cell<S> {
                             }
                             min = Some(map.next_value()?);
                         }
-                        // `max` is reserved for a future version (spec
-                        // D4 remark).  A populated `max` is rejected
-                        // with the same "range reserved" diagnostic the
-                        // manifest parser gives range-like inputs; an
-                        // explicit `null` is accepted as unpopulated.
+                        // An explicit `null` reads as unbounded.
                         "max" => {
-                            let max: Option<S> = map.next_value()?;
-                            if max.is_some() {
-                                return Err(de::Error::custom(
-                                    "range requirements are reserved for a future version of Cabin; the `max` field of an interface requirement must not be set",
-                                ));
+                            if saw_max {
+                                return Err(de::Error::duplicate_field("max"));
                             }
+                            saw_max = true;
+                            max = map.next_value()?;
                         }
                         other => {
                             return Err(de::Error::unknown_field(other, &["min", "max"]));
                         }
                     }
                 }
-                match min {
-                    Some(min) => Ok(Cell::Min(min)),
-                    None => Err(de::Error::missing_field("min")),
-                }
+                let Some(min) = min else {
+                    return Err(de::Error::missing_field("min"));
+                };
+                // The same `min <= max` invariant every wire format
+                // enforces (`StandardRequirement::bounded`).
+                let validated = crate::language_standard::StandardRequirement::bounded(min, max)
+                    .map_err(de::Error::custom)?;
+                Ok(Cell::Range {
+                    min: validated.min(),
+                    max: validated.max(),
+                })
             }
         }
 
@@ -347,13 +369,17 @@ impl<'de, S: Deserialize<'de>> Deserialize<'de> for Cell<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::language_standard::{InterfaceRequirement, StandardRequirement};
+    use crate::language_standard::{InterfaceRequirement, StandardLevel, StandardRequirement};
     use crate::model::{Package, PackageName, Target, TargetKind, TargetName};
     use crate::{LanguageStandardSettings, StandardDeclaration};
     use camino::Utf8PathBuf;
 
     fn interface_min<S>(min: S) -> InterfaceRequirement<S> {
-        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+        InterfaceRequirement::Requirement(StandardRequirement::at_least(min))
+    }
+
+    fn interface_range<S: StandardLevel>(min: S, max: S) -> InterfaceRequirement<S> {
+        InterfaceRequirement::Requirement(StandardRequirement::bounded(min, Some(max)).unwrap())
     }
 
     fn target(
@@ -621,17 +647,26 @@ mod tests {
         assert_eq!(parsed, metadata);
     }
 
-    /// A populated `max` is rejected with the reserved-range
-    /// diagnostic; an explicit `max: null` is accepted as unpopulated.
+    /// A populated `max` round-trips as a bounded requirement; an
+    /// explicit `max: null` reads as unbounded; an empty range is
+    /// rejected on read.
     #[test]
-    fn populated_max_is_rejected() {
-        let err = serde_json::from_value::<StandardsMetadata>(serde_json::json!({
+    fn populated_max_round_trips_and_empty_ranges_are_rejected() {
+        let parsed: StandardsMetadata = serde_json::from_value(serde_json::json!({
             "targets": { "lib": { "interface": { "c++": { "min": "c++17", "max": "c++20" } } } }
         }))
-        .unwrap_err();
-        assert!(
-            err.to_string().contains("reserved for a future version"),
-            "unexpected error: {err}"
+        .unwrap();
+        assert_eq!(
+            parsed.targets["lib"].interface_cxx,
+            Requirement::bounded(CxxStandard::Cxx17, CxxStandard::Cxx20).unwrap()
+        );
+        assert_eq!(
+            to_json(&parsed),
+            serde_json::json!({
+                "targets": {
+                    "lib": { "interface": { "c++": { "min": "c++17", "max": "c++20" } } }
+                }
+            })
         );
 
         let parsed: StandardsMetadata = serde_json::from_value(serde_json::json!({
@@ -641,6 +676,68 @@ mod tests {
         assert_eq!(
             parsed.targets["lib"].interface_cxx,
             Requirement::Min(CxxStandard::Cxx17)
+        );
+
+        let err = serde_json::from_value::<StandardsMetadata>(serde_json::json!({
+            "targets": { "lib": { "interface": { "c++": { "min": "c++20", "max": "c++11" } } } }
+        }))
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("empty C++ interface requirement"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// A bounded declaration in the manifest lands in the derived
+    /// table as a bounded cell, and the version-wide join intersects
+    /// ranges across rows (an empty intersection is forbidden).
+    #[test]
+    fn bounded_declarations_derive_and_join_by_intersection() {
+        let lib = target(
+            "capped",
+            TargetKind::Library,
+            &["src/capped.cc"],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                interface_cxx_standard: Some(StandardDeclaration::Declared(interface_range(
+                    CxxStandard::Cxx11,
+                    CxxStandard::Cxx17,
+                ))),
+                ..Default::default()
+            },
+        );
+        let metadata = StandardsMetadata::from_package(&package(
+            vec![lib],
+            LanguageStandardSettings::default(),
+        ));
+        assert_eq!(
+            metadata.targets["capped"].interface_cxx,
+            Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx17).unwrap()
+        );
+
+        let mut disjoint = metadata.clone();
+        disjoint.targets.insert(
+            "modern".to_owned(),
+            TargetStandards {
+                interface_cxx: Requirement::Min(CxxStandard::Cxx20),
+                ..Default::default()
+            },
+        );
+        // c++11..c++17 ∩ [c++20, ∞) is empty: the version-wide join
+        // is forbidden for C++.
+        assert_eq!(disjoint.version_wide_join().cxx, Requirement::Forbidden);
+
+        let mut narrowed = metadata;
+        narrowed.targets.insert(
+            "floor".to_owned(),
+            TargetStandards {
+                interface_cxx: Requirement::Min(CxxStandard::Cxx14),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            narrowed.version_wide_join().cxx,
+            Requirement::bounded(CxxStandard::Cxx14, CxxStandard::Cxx17).unwrap()
         );
     }
 

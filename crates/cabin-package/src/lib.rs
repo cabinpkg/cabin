@@ -680,10 +680,7 @@ sources = ["src/main.cc"]
             package.language.interface_cxx_standard =
                 Some(cabin_core::StandardDeclaration::Inherited(
                     cabin_core::InterfaceRequirement::Requirement(
-                        cabin_core::StandardRequirement {
-                            min: cabin_core::CxxStandard::Cxx17,
-                            max: None,
-                        },
+                        cabin_core::StandardRequirement::at_least(cabin_core::CxxStandard::Cxx17),
                     ),
                 ));
             package

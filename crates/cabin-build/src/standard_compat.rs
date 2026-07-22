@@ -26,15 +26,17 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use cabin_core::standard_compatibility::{DependencyAttributes, ReqOfSource, Requirement};
+use cabin_core::standard_compatibility::{
+    DependencyAttributes, ReqOfSource, Requirement, req_of_c, req_of_cxx,
+};
 use cabin_core::{
     LanguageStandardSettings, LanguageStandardSource, ResolvedLanguageStandards, SourceLanguage,
-    StandardDeclaration, Target, classify_source, effective_c, effective_cxx,
+    StandardDeclaration, StandardLevel, Target, classify_source, effective_c, effective_cxx,
 };
 use cabin_workspace::PackageKind;
 use cabin_workspace::standards::{
-    DeclarationSite, DeclarationSites, Provenance, TargetEdge, TargetNode, effective_requirements,
-    provenance_c, provenance_cxx,
+    DeclarationSite, DeclarationSites, Provenance, RequirementProvenance, TargetEdge, TargetNode,
+    effective_requirements, provenance_c, provenance_cxx,
 };
 
 use crate::error::BuildError;
@@ -84,14 +86,56 @@ pub enum RequirementOrigin {
     CrossLanguageDefault,
 }
 
-/// The violated effective requirement `R_L(d)` of spec D13.
+/// The violated effective requirement `R_L(d)` of spec D13,
+/// together with which side of it the consumer's level fails.
 /// `Unconstrained` cannot be violated, so it has no variant here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The violation's `origin` / `chain` fields cite the failing
+/// bound's provenance (the lower bound for `Min` / `BelowRange`,
+/// the upper for `AboveRange`, the single forbidden origin for
+/// `Forbidden`, and the lower-bound side for `EmptyIntersection`,
+/// whose upper side travels in the variant).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EdgeRequirement {
-    /// A minimum consumer level (`[m]` of spec D3).
+    /// `[m, ∞)` - the consumer is below the minimum.
     Min(&'static str),
-    /// Unsatisfiable at every consumer level.
+    /// `[min, max]` - the consumer is below the minimum.
+    BelowRange {
+        min: &'static str,
+        max: &'static str,
+    },
+    /// `[min, max]` - the consumer is above the maximum.
+    AboveRange {
+        min: &'static str,
+        max: &'static str,
+    },
+    /// Unsatisfiable at every consumer level: a declared `"none"`
+    /// or the strict cross-language default.
     Forbidden,
+    /// Unsatisfiable at every consumer level because two composed
+    /// requirements intersect to the empty range: some reachable
+    /// target requires at least `min` while another accepts at most
+    /// `max < min`.
+    EmptyIntersection {
+        min: &'static str,
+        max: Box<ClashingBound>,
+    },
+}
+
+/// The upper-bound side of an empty-intersection violation: its
+/// value and its own provenance chain, mirroring the violation's
+/// flat `origin_target` / `origin` / `chain` fields (which cite the
+/// lower-bound side).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClashingBound {
+    pub value: &'static str,
+    /// `package:target` whose own `ReqOf` originates the upper
+    /// bound.
+    pub origin_target: String,
+    /// The declaration behind it.
+    pub origin: RequirementOrigin,
+    /// Public-edge chain from the direct dependency down to
+    /// `origin_target`.
+    pub chain: Vec<String>,
 }
 
 /// One resolved dependency edge that violates spec D13 for one
@@ -290,23 +334,26 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                let provenance = provenance_c(&effective, dep_index);
-                if !interface_less_default_origin(&provenance, topo, req)? {
-                    violations.push(violation(
-                        SourceLanguage::C,
-                        consumer.standard.as_str(),
-                        consumer_site(consumer.source, "c-standard", consumer_index, &nodes, req),
-                        requirement_of(effective[dep_index].c.requirement),
-                        &provenance,
-                        tid,
+                violations.extend(classified_violation(
+                    &ViolationContext {
+                        language: SourceLanguage::C,
+                        consumer_field: "c-standard",
+                        consumer_index,
+                        consumer_tid: tid,
                         edge,
-                        edge_ignored,
-                        override_section.clone(),
-                        &nodes,
-                        &sites,
+                        ignored: edge_ignored,
+                        override_section: override_section.clone(),
+                        nodes: &nodes,
+                        sites: &sites,
+                        topo,
                         req,
-                    ));
-                }
+                    },
+                    consumer.standard,
+                    consumer.source,
+                    effective[dep_index].c.requirement,
+                    &provenance_c(&effective, dep_index),
+                    req_of_c,
+                )?);
             }
             if compiles_cxx
                 && let Some(consumer) = effective_cxx(&pkg_standards, consumer_target)
@@ -315,23 +362,26 @@ pub(crate) fn edge_violations(
                     .requirement
                     .satisfied_by(consumer.standard)
             {
-                let provenance = provenance_cxx(&effective, dep_index);
-                if !interface_less_default_origin(&provenance, topo, req)? {
-                    violations.push(violation(
-                        SourceLanguage::Cxx,
-                        consumer.standard.as_str(),
-                        consumer_site(consumer.source, "cxx-standard", consumer_index, &nodes, req),
-                        requirement_of(effective[dep_index].cxx.requirement),
-                        &provenance,
-                        tid,
+                violations.extend(classified_violation(
+                    &ViolationContext {
+                        language: SourceLanguage::Cxx,
+                        consumer_field: "cxx-standard",
+                        consumer_index,
+                        consumer_tid: tid,
                         edge,
-                        edge_ignored,
-                        override_section.clone(),
-                        &nodes,
-                        &sites,
+                        ignored: edge_ignored,
+                        override_section: override_section.clone(),
+                        nodes: &nodes,
+                        sites: &sites,
+                        topo,
                         req,
-                    ));
-                }
+                    },
+                    consumer.standard,
+                    consumer.source,
+                    effective[dep_index].cxx.requirement,
+                    &provenance_cxx(&effective, dep_index),
+                    req_of_cxx,
+                )?);
             }
         }
     }
@@ -565,80 +615,132 @@ fn target_name_of(display: &str) -> String {
         .to_owned()
 }
 
-fn requirement_of<S: Copy + Ord + AsStandardStr>(requirement: Requirement<S>) -> EdgeRequirement {
-    match requirement {
-        Requirement::Min(min) => EdgeRequirement::Min(min.standard_str()),
-        Requirement::Forbidden => EdgeRequirement::Forbidden,
-        // A satisfied requirement never reaches violation
-        // construction: `unconstrained` is satisfied at every level
-        // (spec D11).
-        Requirement::Unconstrained => {
-            unreachable!("an unconstrained requirement cannot be violated (spec D11)")
-        }
-    }
-}
-
-/// `as_str` unification for the two level chains, local to this
-/// module so `requirement_of` can stay generic like the spec's `L`.
-trait AsStandardStr {
-    fn standard_str(self) -> &'static str;
-}
-impl AsStandardStr for cabin_core::CStandard {
-    fn standard_str(self) -> &'static str {
-        self.as_str()
-    }
-}
-impl AsStandardStr for cabin_core::CxxStandard {
-    fn standard_str(self) -> &'static str {
-        self.as_str()
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn violation(
+/// The shared, per-edge context of one violation record.
+struct ViolationContext<'a, 'b> {
     language: SourceLanguage,
-    consumer_standard: &'static str,
-    consumer_site: DeclSite,
-    requirement: EdgeRequirement,
-    provenance: &Provenance<'_>,
-    consumer_tid: &TargetId,
-    edge: &TargetDepEdge,
+    /// The consumer-side implementation field (`c-standard` /
+    /// `cxx-standard`).
+    consumer_field: &'static str,
+    consumer_index: usize,
+    consumer_tid: &'a TargetId,
+    edge: &'a TargetDepEdge,
     ignored: bool,
     override_section: Option<String>,
-    nodes: &[TargetNode],
-    sites: &[NodeSites],
-    req: &PlanRequest<'_>,
-) -> StandardCompatViolation {
-    let origin_index = *provenance
+    nodes: &'a [TargetNode],
+    sites: &'a [NodeSites],
+    topo: &'a [TargetId],
+    req: &'a PlanRequest<'b>,
+}
+
+/// Classify one violated `(edge, language)` pair into its
+/// [`StandardCompatViolation`], citing the failing bound's
+/// provenance chain - and both chains for an empty intersection.
+/// Returns `None` for the suppressed interface-less
+/// cross-language-default case.
+fn classified_violation<S: StandardLevel>(
+    context: &ViolationContext<'_, '_>,
+    consumer_level: S,
+    consumer_source: LanguageStandardSource,
+    requirement: Requirement<S>,
+    provenance: &RequirementProvenance<'_>,
+    req_of: impl Fn(&DependencyAttributes) -> Requirement<S>,
+) -> Result<Option<StandardCompatViolation>, BuildError> {
+    let (edge_requirement, primary) = match (requirement, provenance) {
+        (Requirement::Min(min), RequirementProvenance::Single(chain)) => {
+            (EdgeRequirement::Min(min.level_str()), chain)
+        }
+        (
+            Requirement::Bounded(range),
+            RequirementProvenance::Bounds {
+                min: min_chain,
+                max: max_chain,
+            },
+        ) => {
+            let (min, max) = (range.min(), range.max());
+            if consumer_level < min {
+                (
+                    EdgeRequirement::BelowRange {
+                        min: min.level_str(),
+                        max: max.level_str(),
+                    },
+                    min_chain,
+                )
+            } else {
+                (
+                    EdgeRequirement::AboveRange {
+                        min: min.level_str(),
+                        max: max.level_str(),
+                    },
+                    max_chain,
+                )
+            }
+        }
+        (Requirement::Forbidden, RequirementProvenance::Single(chain)) => {
+            if interface_less_default_origin(chain, context.topo, context.req)? {
+                return Ok(None);
+            }
+            (EdgeRequirement::Forbidden, chain)
+        }
+        (
+            Requirement::Forbidden,
+            RequirementProvenance::EmptyIntersection {
+                min: min_chain,
+                max: max_chain,
+            },
+        ) => {
+            // The bound values are the clashing origins' own
+            // declared `ReqOf` endpoints: the winning bound
+            // propagates unchanged along its chain.
+            let min_origin = *min_chain
+                .path
+                .last()
+                .expect("a provenance chain is never empty");
+            let max_origin = *max_chain
+                .path
+                .last()
+                .expect("a provenance chain is never empty");
+            let min_value = req_of(&context.nodes[min_origin].attributes)
+                .lower_bound()
+                .expect("the lower-bound chain ends at a contribution with a minimum");
+            let max_value = req_of(&context.nodes[max_origin].attributes)
+                .upper_bound()
+                .expect("the upper-bound chain ends at a contribution with a maximum");
+            let max_side = ClashingBound {
+                value: max_value.level_str(),
+                origin_target: context.nodes[max_origin].name.clone(),
+                origin: requirement_origin(max_chain, context.language, &context.sites[max_origin]),
+                chain: chain_names(max_chain, context.nodes),
+            };
+            (
+                EdgeRequirement::EmptyIntersection {
+                    min: min_value.level_str(),
+                    max: Box::new(max_side),
+                },
+                min_chain,
+            )
+        }
+        (requirement, provenance) => unreachable!(
+            "requirement and provenance shapes disagree: {requirement:?} vs {provenance:?}"
+        ),
+    };
+
+    let origin_index = *primary
         .path
         .last()
         .expect("a provenance chain is never empty");
-    let origin_sites = &sites[origin_index];
-    let origin = match provenance.origin.source {
-        ReqOfSource::Declared => RequirementOrigin::Declared {
-            site: decl_site_for(origin_sites, language),
-        },
-        ReqOfSource::DeclaredNone => RequirementOrigin::DeclaredNone {
-            site: decl_site_for(origin_sites, language),
-        },
-        ReqOfSource::HeaderOnlyInference => RequirementOrigin::HeaderOnlyInference {
-            site: impl_site_for(origin_sites, language),
-        },
-        ReqOfSource::CrossLanguageDefault => RequirementOrigin::CrossLanguageDefault,
-        // Row 4 yields `unconstrained`, which satisfies every
-        // consumer (spec D11): it can never originate a violated
-        // join.
-        ReqOfSource::CompiledNoDeclaration => unreachable!(
-            "a compiled target without a declaration imposes no constraint (spec D9 row 4)"
+    let dep_pkg = &context.req.graph.packages[context.edge.to.0];
+    Ok(Some(StandardCompatViolation {
+        consumer: format_target_id(context.consumer_tid, context.req.graph),
+        language: context.language,
+        consumer_standard: consumer_level.level_str(),
+        consumer_site: consumer_site(
+            consumer_source,
+            context.consumer_field,
+            context.consumer_index,
+            context.nodes,
+            context.req,
         ),
-    };
-    let dep_pkg = &req.graph.packages[edge.to.0];
-    StandardCompatViolation {
-        consumer: format_target_id(consumer_tid, req.graph),
-        language,
-        consumer_standard,
-        consumer_site,
-        dependency: nodes[*provenance
+        dependency: context.nodes[*primary
             .path
             .first()
             .expect("a provenance chain is never empty")]
@@ -647,18 +749,16 @@ fn violation(
         dependency_package: dep_pkg.package.name.as_str().to_owned(),
         dependency_version: dep_pkg.package.version.to_string(),
         dependency_is_registry: matches!(dep_pkg.kind, PackageKind::Registry),
-        requirement,
-        origin_target: nodes[origin_index].name.clone(),
-        origin,
-        chain: provenance
-            .path
-            .iter()
-            .map(|&index| nodes[index].name.clone())
-            .collect(),
-        consumer_manifest_path: req.graph.packages[consumer_tid.0].manifest_path.clone(),
-        ignored,
-        override_section,
-    }
+        requirement: edge_requirement,
+        origin_target: context.nodes[origin_index].name.clone(),
+        origin: requirement_origin(primary, context.language, &context.sites[origin_index]),
+        chain: chain_names(primary, context.nodes),
+        consumer_manifest_path: context.req.graph.packages[context.consumer_tid.0]
+            .manifest_path
+            .clone(),
+        ignored: context.ignored,
+        override_section: context.override_section.clone(),
+    }))
 }
 
 /// The interface-declaration site of the origin target for
@@ -680,6 +780,42 @@ fn impl_site_for(sites: &NodeSites, language: SourceLanguage) -> DeclSite {
         SourceLanguage::Cxx => sites.impl_cxx.clone(),
     }
     .expect("header-only inference records its implementation site")
+}
+
+/// The `package:target` names along one bound's chain.
+fn chain_names(provenance: &Provenance<'_>, nodes: &[TargetNode]) -> Vec<String> {
+    provenance
+        .path
+        .iter()
+        .map(|&index| nodes[index].name.clone())
+        .collect()
+}
+
+/// Map one chain's origin row onto the [`RequirementOrigin`] a
+/// violation cites, with the declaration site behind it.
+fn requirement_origin(
+    provenance: &Provenance<'_>,
+    language: SourceLanguage,
+    origin_sites: &NodeSites,
+) -> RequirementOrigin {
+    match provenance.origin.source {
+        ReqOfSource::Declared => RequirementOrigin::Declared {
+            site: decl_site_for(origin_sites, language),
+        },
+        ReqOfSource::DeclaredNone => RequirementOrigin::DeclaredNone {
+            site: decl_site_for(origin_sites, language),
+        },
+        ReqOfSource::HeaderOnlyInference => RequirementOrigin::HeaderOnlyInference {
+            site: impl_site_for(origin_sites, language),
+        },
+        ReqOfSource::CrossLanguageDefault => RequirementOrigin::CrossLanguageDefault,
+        // Row 4 yields `unconstrained`, which satisfies every
+        // consumer (spec D11): it can never originate a violated
+        // join.
+        ReqOfSource::CompiledNoDeclaration => unreachable!(
+            "a compiled target without a declaration imposes no constraint (spec D9 row 4)"
+        ),
+    }
 }
 
 fn has_sources_of(target: &Target, language: SourceLanguage) -> bool {

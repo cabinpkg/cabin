@@ -254,6 +254,27 @@ pub enum ManifestError {
     )]
     WorkspaceStandardExplicitlyDisabled { field: &'static str },
 
+    /// A `{ min, max }` range table on an implementation-standard
+    /// field.  Sources compile at exactly one standard; only the
+    /// interface fields describe a range of acceptable consumers.
+    #[error(
+        "`{field}` selects the single standard the sources compile with; `min` / `max` range tables are only valid on `interface-c-standard` / `interface-cxx-standard`"
+    )]
+    RangeOnImplementationStandard { field: &'static str },
+
+    /// An interface range table without the required `min` key.
+    #[error(
+        "`{field}` range table is missing `min`; declare the inclusive bounds as `{field} = {{ min = \"...\", max = \"...\" }}` (omit `max` for a minimum-only requirement)"
+    )]
+    RangeMissingMin { field: &'static str },
+
+    /// `{ workspace = true }` on a `[workspace]`-level standard
+    /// field, which declares the defaults members opt into.
+    #[error(
+        "`{field} = {{ workspace = true }}` is not valid on the `[workspace]` table; declare the literal default value members opt into"
+    )]
+    WorkspaceMarkerOnWorkspaceTable { field: &'static str },
+
     /// `{ workspace = true }` on a `[target.<name>]` standard
     /// field.  Workspace standard inheritance is a `[package]`-level
     /// feature.
