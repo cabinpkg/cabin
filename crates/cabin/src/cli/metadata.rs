@@ -687,11 +687,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
             // to which path produced it.
             let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
             let effective_config = crate::cli::config::load_effective_config(&graph)?;
-            let active_patches = crate::cli::patch::load_active_patches(
-                &graph,
-                &effective_config,
-                args.no_patches,
-            )?;
+            let active_patches =
+                crate::cli::patch::load_active_patches(&graph, &effective_config, args.no_patches)?;
             crate::cli::port::WorkspacePrep {
                 prepared_ports: Vec::new(),
                 port_sources: Vec::new(),

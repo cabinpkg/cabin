@@ -24,10 +24,12 @@
 //! intentionally not a caller: it uses the fail-*soft* wrapper path
 //! (`resolve_compiler_wrapper`) and must keep it.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+
+use cabin_workspace::PackageGraph;
 
 use crate::cli::term_verbosity::Reporter;
 
@@ -84,21 +86,21 @@ pub(crate) struct BuildPrep {
 /// failure (a misbehaving wrapper never silently bypasses caching).
 #[allow(clippy::needless_pass_by_value)] // consumed: `cli_compiler_wrapper` is moved into the wrapper resolver
 pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep> {
-    let (build_flags, standard_flag_conflicts) = crate::cli::resolve_per_package_build_flags(
+    let (build_flags, standard_flag_conflicts) = resolve_per_package_build_flags(
         inputs.graph,
         inputs.profile,
         inputs.host_platform,
         inputs.feature_resolution,
         inputs.detection,
     );
-    let build_flags = crate::cli::augment_build_flags(
+    let build_flags = augment_build_flags(
         inputs.graph,
         inputs.host_platform,
         inputs.dev_for,
         build_flags,
         inputs.reporter,
     )?;
-    let compiler_wrapper = crate::cli::resolve_compiler_wrapper_layered(
+    let compiler_wrapper = resolve_compiler_wrapper_layered(
         inputs.cli_compiler_wrapper,
         inputs.manifest_compiler_wrapper,
         inputs.effective_config,
@@ -616,4 +618,433 @@ pub(crate) fn plan_prepared(
         &cabin_build::requested_standards_of(&plan_graph),
     )?;
     Ok(plan_graph)
+}
+
+/// Render the optimization / debuginfo descriptor that follows
+/// the profile name in the `Finished` status line, matching
+/// cargo's own banner:
+///
+/// - `unoptimized + debuginfo` for `dev` and any other `O0` +
+///   debug build,
+/// - `optimized` for `release` and other non-zero opt levels,
+/// - `optimized + debuginfo` when both flags are on.
+pub(crate) fn profile_descriptor(profile: &cabin_core::ResolvedProfile) -> String {
+    let opt = if matches!(profile.opt_level, cabin_core::OptLevel::O0) {
+        "unoptimized"
+    } else {
+        "optimized"
+    };
+    if profile.debug {
+        format!("{opt} + debuginfo")
+    } else {
+        opt.to_owned()
+    }
+}
+
+/// Translate `cabin build`'s `--profile` / `--release` flags into
+/// a typed [`cabin_core::ProfileSelection`].
+///
+/// `--release` is preserved as a compatibility alias for
+/// `--profile release`. clap's `conflicts_with` already rejects
+/// the both-set combination so this helper only sees one of the
+/// three possible inputs.
+/// Shared profile-selection precedence: explicit `--profile NAME`
+/// wins, then the legacy `--release` alias, then any config-
+/// supplied default, then the built-in `dev` profile.  Used by
+/// `cabin build` and `cabin test`.
+pub(crate) fn profile_selection_from_flags(
+    profile: Option<&str>,
+    release: bool,
+    config: &cabin_config::EffectiveConfig,
+) -> Result<cabin_core::ProfileSelection> {
+    if let Some(name) = profile {
+        let pname = cabin_core::ProfileName::new(name.to_owned())?;
+        return Ok(cabin_core::ProfileSelection::from_name(pname));
+    }
+    if release {
+        return Ok(cabin_core::ProfileSelection::release_alias());
+    }
+    if let Some((selection, _source)) = crate::cli::config::config_profile_selection(config)? {
+        return Ok(selection);
+    }
+    Ok(cabin_core::ProfileSelection::default_dev())
+}
+
+/// `cabin metadata` accepts a `--profile` flag but no `--release`
+/// alias (metadata is read-only and doesn't need the legacy spelling).
+/// Falls back to a config-supplied default when the user did not
+/// pass `--profile`; otherwise the built-in `dev` profile applies.
+pub(crate) fn profile_selection_for_metadata(
+    name: Option<&str>,
+    config: &cabin_config::EffectiveConfig,
+) -> Result<cabin_core::ProfileSelection> {
+    profile_selection_from_flags(name, false, config)
+}
+
+/// Look up the profile-definition table that should drive
+/// resolution.  Profiles are workspace-wide: only the entry-point
+/// manifest's `[profile.*]` tables count, so we read them off the
+/// graph's root package (workspace root or single-package root).
+pub(crate) fn workspace_profile_definitions(
+    graph: &PackageGraph,
+) -> BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition> {
+    graph.root_settings.profiles.clone()
+}
+
+/// Workspace-root manifest's `[toolchain]` plus any
+/// `[target.'cfg(...)'.toolchain]` overrides.  Workspace member
+/// manifests cannot declare a `[toolchain]` table - the workspace
+/// loader rejects them - so reading off the root is sufficient.
+pub(crate) fn workspace_toolchain_settings(graph: &PackageGraph) -> cabin_core::ToolchainSettings {
+    graph.root_settings.toolchain.clone()
+}
+
+/// Translate `cabin build`'s / `cabin metadata`'s tool-selection
+/// CLI flags into a typed [`cabin_core::ToolchainSelection`].
+pub(crate) fn toolchain_selection_from_args(
+    args: &super::ToolchainSelectionArgs,
+) -> Result<cabin_core::ToolchainSelection> {
+    let mut sel = cabin_core::ToolchainSelection::default();
+    if let Some(raw) = &args.cc {
+        sel = sel.with_cli(cabin_core::ToolKind::CCompiler, parse_cli_tool(raw)?);
+    }
+    if let Some(raw) = &args.cxx {
+        sel = sel.with_cli(cabin_core::ToolKind::CxxCompiler, parse_cli_tool(raw)?);
+    }
+    if let Some(raw) = &args.ar {
+        sel = sel.with_cli(cabin_core::ToolKind::Archiver, parse_cli_tool(raw)?);
+    }
+    Ok(sel)
+}
+
+fn parse_cli_tool(raw: &str) -> Result<cabin_core::ToolSpec> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        bail!("tool argument must be a non-empty path or command name");
+    }
+    Ok(cabin_core::ToolSpec::parse(trimmed.to_owned()))
+}
+
+/// Resolve a toolchain by layering manifest settings, the
+/// optional `[toolchain]` config layer, and process-discovered
+/// defaults on top of `selection` (already-parsed CLI overrides
+/// or `ToolchainSelection::default()`).
+pub(crate) fn resolve_toolchain_layered(
+    graph: &PackageGraph,
+    selection: &cabin_core::ToolchainSelection,
+    effective_config: &cabin_config::EffectiveConfig,
+    host_platform: &cabin_core::TargetPlatform,
+) -> Result<cabin_core::ResolvedToolchain> {
+    let manifest_toolchain_settings = workspace_toolchain_settings(graph);
+    let config_toolchain_layer = crate::cli::config::toolchain_layer(effective_config);
+    let mut toolchain_inputs = cabin_toolchain::ResolveInputs::from_process(
+        selection,
+        &manifest_toolchain_settings,
+        host_platform,
+    );
+    if let Some(layer) = config_toolchain_layer.as_ref() {
+        toolchain_inputs = toolchain_inputs.with_config(layer);
+    }
+    Ok(cabin_toolchain::resolve_toolchain(&toolchain_inputs)?)
+}
+
+/// Translate the `--compiler-wrapper` / `--no-compiler-wrapper`
+/// CLI flag pair into a typed
+/// [`cabin_core::CompilerWrapperRequest`] override.  Clap already
+/// rejects passing both flags simultaneously; this helper only
+/// validates the value passed to `--compiler-wrapper`.
+pub(crate) fn compiler_wrapper_override_from_args(
+    args: &super::ToolchainSelectionArgs,
+) -> Result<Option<cabin_core::CompilerWrapperRequest>> {
+    if args.no_compiler_wrapper {
+        return Ok(Some(cabin_core::CompilerWrapperRequest::Disabled));
+    }
+    let Some(raw) = args.compiler_wrapper.as_deref() else {
+        return Ok(None);
+    };
+    let parsed = cabin_core::CompilerWrapperRequest::parse(raw)
+        .with_context(|| format!("invalid --compiler-wrapper value `{raw}`"))?;
+    Ok(Some(parsed))
+}
+
+/// Resolve the compiler wrapper by layering the CLI
+/// override (`--compiler-wrapper` / `--no-compiler-wrapper`), the
+/// manifest's `[build]` setting, the optional config
+/// `[build] compiler-wrapper` layer, and process-detected
+/// version metadata.  Returns the typed resolution on success;
+/// callers that want fail-soft behavior (e.g. `cabin metadata`)
+/// call `resolve_compiler_wrapper` directly.
+pub(crate) fn resolve_compiler_wrapper_layered(
+    cli_override: Option<cabin_core::CompilerWrapperRequest>,
+    manifest_request: Option<&cabin_core::CompilerWrapperRequest>,
+    effective_config: &cabin_config::EffectiveConfig,
+) -> Result<Option<cabin_core::ResolvedCompilerWrapper>> {
+    let mut wrapper_inputs =
+        cabin_toolchain::WrapperInputs::from_process(cli_override, manifest_request);
+    if let Some(layer) = crate::cli::config::wrapper_layer(effective_config) {
+        wrapper_inputs = wrapper_inputs.with_config(layer);
+    }
+    cabin_toolchain::resolve_compiler_wrapper(
+        &wrapper_inputs,
+        Some(&cabin_toolchain::ProcessRunner),
+    )
+    .map_err(|err| anyhow::anyhow!(err.to_string()))
+}
+
+/// Workspace-root manifest's compiler-wrapper settings.  Mirrors
+/// [`workspace_toolchain_settings`] - the workspace loader rejects
+/// non-empty declarations on member manifests so reading the root
+/// is sufficient.
+pub(crate) fn workspace_compiler_wrapper_settings(
+    graph: &PackageGraph,
+) -> Option<cabin_core::CompilerWrapperRequest> {
+    graph.root_settings.compiler_wrapper.clone()
+}
+
+/// Compute per-package effective language standards for every
+/// package in the graph (pure manifest data; no toolchain input).
+/// Keyed by package index, mirroring `resolve_per_package_build_flags`.
+pub(crate) fn resolve_per_package_language_standards(
+    graph: &PackageGraph,
+) -> HashMap<usize, cabin_core::ResolvedLanguageStandards> {
+    graph
+        .packages
+        .iter()
+        .enumerate()
+        .map(|(idx, pkg)| {
+            (
+                idx,
+                cabin_core::resolve_language_standards(&pkg.package.language),
+            )
+        })
+        .collect()
+}
+
+/// Compute per-package `ResolvedProfileFlags` for every package in
+/// the graph.  The result is keyed by package index so callers
+/// (planner, metadata view) can read them without rerunning the
+/// merge per package.
+pub(crate) fn resolve_per_package_build_flags(
+    graph: &PackageGraph,
+    profile: &cabin_core::ResolvedProfile,
+    host_platform: &cabin_core::TargetPlatform,
+    feature_resolution: &cabin_feature::FeatureResolution,
+    detection: Option<&cabin_core::ToolchainDetectionReport>,
+) -> (
+    HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    HashMap<usize, Vec<cabin_core::StandardFlagConflict>>,
+) {
+    // Detected compiler identities gate `[target.'cfg(cc/cxx = ...)'.profile]`
+    // layers.  `None` (fail-soft commands where detection failed) evaluates
+    // those layers as family `unknown` with no version.
+    let (cc_identity, cxx_identity) = match detection {
+        Some(report) => (
+            report.cc.as_ref().map(|tool| &tool.identity),
+            Some(&report.cxx.identity),
+        ),
+        None => (None, None),
+    };
+    let mut out = HashMap::with_capacity(graph.packages.len());
+    let mut conflicts: HashMap<usize, Vec<cabin_core::StandardFlagConflict>> = HashMap::new();
+    for (idx, pkg) in graph.packages.iter().enumerate() {
+        // A registry/downloaded dependency's own `[profile]` build flags are
+        // untrusted: only local packages (the workspace root, its members, and
+        // `path` dependencies) may contribute raw compiler/linker flags.
+        // `resolve_build_flags` drops the dependency's cflags/cxxflags/ldflags
+        // when this is false, so a malicious dependency cannot smuggle a
+        // code-executing compiler flag (e.g. `-fplugin=`) onto its build line.
+        let package_trusted = matches!(pkg.kind, cabin_workspace::PackageKind::Local);
+        // The package's resolved enabled features gate its
+        // `[target.'cfg(feature = "...")'.profile]` flag layers. cabin-core
+        // stays feature-vocabulary-only (it must not depend on cabin-feature),
+        // so the cli pulls the name set out of the resolution and hands core
+        // a bare `&BTreeSet<String>`.
+        let package_features = feature_resolution.for_package(idx);
+        let ctx = cabin_core::ConditionContext::with_features(
+            host_platform,
+            &package_features.enabled_features,
+        )
+        .with_compilers(cc_identity, cxx_identity);
+        let resolved = cabin_core::resolve_build_flags(
+            &pkg.package.build,
+            Some(profile),
+            &graph.root_settings.profiles,
+            &ctx,
+            package_trusted,
+        );
+        // The documented escape-hatch conflict *candidates*: a
+        // first-class standard declaration plus an explicit
+        // `-std=` / `/std:` in the same package's manifest-derived
+        // flags.  Detected before the system-dep / env augmentation
+        // layers so CFLAGS / CXXFLAGS and pkg-config output stay
+        // exempt; the build planner surfaces a candidate only when
+        // a compile its scope covers is planned.
+        let pkg_conflicts = cabin_core::find_standard_flag_conflicts(
+            pkg.package.name.as_str(),
+            &pkg.package.language,
+            &pkg.package.targets,
+            &resolved,
+        );
+        if !pkg_conflicts.is_empty() {
+            conflicts.insert(idx, pkg_conflicts);
+        }
+        out.insert(idx, resolved);
+    }
+    (out, conflicts)
+}
+
+/// Apply the documented post-profile build-flag layers - `pkg-config`
+/// probes for active system dependencies, then `CPPFLAGS` / `CFLAGS`
+/// / `CXXFLAGS` / `LDFLAGS` from the process environment - in the
+/// order both layers must run for the resulting
+/// `BuildConfiguration::fingerprint` to stay stable across commands.
+/// Reports from both layers are intentionally discarded; callers that
+/// need them invoke the individual `crate::cli::system_deps` /
+/// `crate::cli::env_flags` helpers directly.
+pub(crate) fn augment_build_flags(
+    graph: &PackageGraph,
+    host_platform: &cabin_core::TargetPlatform,
+    dev_for: &BTreeSet<String>,
+    build_flags: HashMap<usize, cabin_core::ResolvedProfileFlags>,
+    reporter: Reporter,
+) -> Result<HashMap<usize, cabin_core::ResolvedProfileFlags>> {
+    let (build_flags, _system_dep_reports) =
+        crate::cli::system_deps::augment_build_flags_with_system_deps(
+            graph,
+            host_platform,
+            dev_for,
+            build_flags,
+            reporter,
+        )?;
+    let (build_flags, _env_build_flags) = crate::cli::env_flags::augment_build_flags_with_env(
+        graph,
+        build_flags,
+        |k| std::env::var_os(k),
+        reporter,
+    )?;
+    Ok(build_flags)
+}
+
+/// Resolve a `BuildConfiguration` for every package in the graph.
+/// CLI feature selection requests apply to primary packages only -
+/// non-primary packages (transitive path / registry deps) fall back
+/// to their declared defaults until per-dependency feature requests
+/// land.
+pub(crate) fn resolve_build_configurations(
+    graph: &PackageGraph,
+    request: &cabin_core::SelectionRequest,
+    selected: &[usize],
+    profile: &cabin_core::ResolvedProfile,
+    toolchain: &cabin_core::ToolchainSummary,
+    build_flags: &HashMap<usize, cabin_core::ResolvedProfileFlags>,
+) -> Result<HashMap<usize, cabin_core::BuildConfiguration>> {
+    let selected_set: HashSet<usize> = selected.iter().copied().collect();
+    let mut out: HashMap<usize, cabin_core::BuildConfiguration> = HashMap::new();
+    for (idx, pkg) in graph.packages.iter().enumerate() {
+        // CLI feature requests apply only to *selected* packages.
+        // Non-selected packages - including workspace siblings the
+        // user did not pick - fall back to their declared defaults
+        // so an unrelated package's missing feature does not fail
+        // an unrelated build.
+        let pkg_request = if selected_set.contains(&idx) {
+            request.clone()
+        } else {
+            cabin_core::SelectionRequest::default()
+        };
+        let pkg_flags = build_flags.get(&idx).cloned().unwrap_or_default();
+        let cfg = cabin_core::BuildConfiguration::resolve(cabin_core::BuildConfigurationInput {
+            package: pkg.package.name.as_str(),
+            features: &pkg.package.features,
+            request: &pkg_request,
+            profile: profile.clone(),
+            toolchain: toolchain.clone(),
+            build_flags: pkg_flags,
+            language: cabin_core::LanguageStandardsSummary::from_package(&pkg.package),
+        })
+        .with_context(|| {
+            format!(
+                "invalid configuration selection for package `{}`",
+                pkg.package.name.as_str()
+            )
+        })?;
+        out.insert(idx, cfg);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cabin_core::PackageName;
+
+    #[test]
+    fn registry_dependency_build_flags_are_dropped_but_local_kept() {
+        use cabin_core::{Package, Target};
+        use cabin_workspace::{PackageKind, WorkspacePackage};
+        use std::path::PathBuf;
+
+        fn dep_with_command_flags(name: &str, kind: PackageKind) -> WorkspacePackage {
+            let mut package = Package::new(
+                PackageName::new(name).unwrap(),
+                semver::Version::parse("0.1.0").unwrap(),
+                Vec::<Target>::new(),
+                Vec::new(),
+            )
+            .unwrap();
+            package.build.general.cflags = vec!["-fplugin=evil.so".into()];
+            package.build.general.cxxflags = vec!["-B.".into()];
+            package.build.general.ldflags = vec!["-fuse-ld=/tmp/evil".into()];
+            WorkspacePackage {
+                package,
+                manifest_dir: PathBuf::from("/tmp"),
+                manifest_path: PathBuf::from("/tmp/cabin.toml"),
+                kind,
+                deps: Vec::new(),
+                is_port: false,
+            }
+        }
+
+        let graph = PackageGraph {
+            root_manifest_path: PathBuf::from("/tmp/cabin.toml"),
+            root_dir: PathBuf::from("/tmp"),
+            is_workspace_root: false,
+            root_package: Some(0),
+            root_settings: Default::default(),
+            primary_packages: vec![0],
+            default_members: vec![0],
+            excluded_members: Vec::new(),
+            packages: vec![
+                dep_with_command_flags("local_dep", PackageKind::Local),
+                dep_with_command_flags("registry_dep", PackageKind::Registry),
+            ],
+        };
+
+        let host = cabin_core::TargetPlatform::current();
+        let profile = cabin_core::resolve_profile(
+            &cabin_core::ProfileSelection::default_dev(),
+            &graph.root_settings.profiles,
+        )
+        .unwrap();
+        let (resolved, _conflicts) = resolve_per_package_build_flags(
+            &graph,
+            &profile,
+            &host,
+            &cabin_feature::FeatureResolution::default(),
+            None,
+        );
+
+        // A local package (workspace member / path dependency) is trusted:
+        // its declared compiler and linker flags are preserved.
+        let local = resolved.get(&0).expect("local package flags");
+        assert_eq!(local.cflags, vec!["-fplugin=evil.so".to_owned()]);
+        assert_eq!(local.cxxflags, vec!["-B.".to_owned()]);
+        assert_eq!(local.ldflags, vec!["-fuse-ld=/tmp/evil".to_owned()]);
+
+        // A registry dependency is untrusted: its compiler and linker flags
+        // are dropped so it cannot execute code at build time.
+        let registry = resolved.get(&1).expect("registry package flags");
+        assert!(registry.cflags.is_empty());
+        assert!(registry.cxxflags.is_empty());
+        assert!(registry.ldflags.is_empty());
+    }
 }

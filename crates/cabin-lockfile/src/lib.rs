@@ -13,7 +13,7 @@ pub mod validate;
 pub use error::LockfileError;
 pub use io::{read_lockfile, write_lockfile};
 pub use model::{
-    LOCKFILE_VERSION, LockedPackage, LockedPatch, LockedSourceLocatorKind,
-    LockedSourceReplacement, Lockfile, PACKAGE_SOURCE_INDEX, PATCH_KIND_PATH,
+    LOCKFILE_VERSION, LockedPackage, LockedPatch, LockedSourceLocatorKind, LockedSourceReplacement,
+    Lockfile, PACKAGE_SOURCE_INDEX, PATCH_KIND_PATH,
 };
 pub use validate::validate;

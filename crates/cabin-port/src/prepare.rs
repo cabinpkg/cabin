@@ -590,7 +590,9 @@ fn hash_file(path: &Path) -> Result<String, PortError> {
 mod tests {
     use super::*;
     use crate::cache::{ArchiveKind, PortCache};
-    use crate::model::{ArchiveSource, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata};
+    use crate::model::{
+        ArchiveSource, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata,
+    };
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
     use cabin_core::PackageName;
