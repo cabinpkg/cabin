@@ -9,10 +9,9 @@ import {
     getUsage,
     type SearchHit,
     searchPackages,
-    sharedAuth,
     type Usage,
 } from "../lib/account.ts";
-import { accountShell } from "../lib/accountShell";
+import { bootAccountShell } from "../lib/accountShell";
 import { ACCOUNT_URLS } from "../lib/constants";
 import { debounce } from "../lib/debounce";
 import { formatBytes, formatCount, formatRelativeTime } from "../lib/format";
@@ -274,45 +273,31 @@ function wireSearch(root: HTMLElement, onSignedOut: () => void): void {
     });
 }
 
-const shell = accountShell();
-if (shell) {
-    sharedAuth().then(async (auth) => {
-        if (auth.state === "signed-out") {
-            shell.show("signed-out");
-            return;
-        }
-        if (auth.state === "error") {
-            shell.show("error", auth.message);
-            return;
-        }
-        if (auth.state !== "signed-in") {
-            return;
-        }
-        const [usage, packages] = await Promise.all([
-            getUsage(doFetch),
-            getPackages(doFetch),
-        ]);
-        const usageOutcome = asOutcome(usage);
-        const packagesOutcome = asOutcome(packages);
-        if (
-            usageOutcome.state === "signed-out" ||
-            packagesOutcome.state === "signed-out"
-        ) {
-            shell.show("signed-out");
-            return;
-        }
-        if (usageOutcome.state === "failed") {
-            shell.show("error", usageOutcome.message);
-            return;
-        }
-        if (packagesOutcome.state === "failed") {
-            shell.show("error", packagesOutcome.message);
-            return;
-        }
-        renderUsage(shell.root, usageOutcome.data);
-        renderDownloadTotal(shell.root, packagesOutcome.data.packages);
-        renderPackages(shell.root, packagesOutcome.data.packages);
-        wireSearch(shell.root, () => shell.show("signed-out"));
-        shell.show("content");
-    });
-}
+bootAccountShell(async (shell) => {
+    const [usage, packages] = await Promise.all([
+        getUsage(doFetch),
+        getPackages(doFetch),
+    ]);
+    const usageOutcome = asOutcome(usage);
+    const packagesOutcome = asOutcome(packages);
+    if (
+        usageOutcome.state === "signed-out" ||
+        packagesOutcome.state === "signed-out"
+    ) {
+        shell.show("signed-out");
+        return;
+    }
+    if (usageOutcome.state === "failed") {
+        shell.show("error", usageOutcome.message);
+        return;
+    }
+    if (packagesOutcome.state === "failed") {
+        shell.show("error", packagesOutcome.message);
+        return;
+    }
+    renderUsage(shell.root, usageOutcome.data);
+    renderDownloadTotal(shell.root, packagesOutcome.data.packages);
+    renderPackages(shell.root, packagesOutcome.data.packages);
+    wireSearch(shell.root, () => shell.show("signed-out"));
+    shell.show("content");
+});

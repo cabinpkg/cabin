@@ -7,8 +7,7 @@
 // with DecompressionStream. Content renders as text only, always via
 // textContent - never markup - with binary and oversized files replaced
 // by a notice.
-import { sharedAuth } from "../lib/account.ts";
-import { accountShell } from "../lib/accountShell";
+import { bootAccountShell } from "../lib/accountShell";
 import { formatBytes } from "../lib/format";
 import {
     type ArchiveEntry,
@@ -313,108 +312,89 @@ async function centralDirectory(
     return result.ok ? result.slice.bytes : null;
 }
 
-const shell = accountShell();
-if (shell) {
-    sharedAuth().then(async (auth) => {
-        if (auth.state === "signed-out") {
+bootAccountShell(async (shell) => {
+    if (!NAME_PATTERN.test(packageName) || !VERSION_PATTERN.test(version)) {
+        shell.show(
+            "error",
+            "the source viewer needs a published package and version, " +
+                "reached from a package's version list on the dashboard",
+        );
+        return;
+    }
+    setText(shell.root, "[data-source-package]", packageName);
+    setText(shell.root, "[data-source-version]", version);
+
+    const tail = await fetchRange(`bytes=-${TAIL_BYTES}`);
+    if (!tail.ok) {
+        if (tail.status === 401) {
             shell.show("signed-out");
-            return;
-        }
-        if (auth.state === "error") {
-            shell.show("error", auth.message);
-            return;
-        }
-        if (auth.state !== "signed-in") {
-            return;
-        }
-        if (!NAME_PATTERN.test(packageName) || !VERSION_PATTERN.test(version)) {
+        } else if (tail.status === 404) {
             shell.show(
                 "error",
-                "the source viewer needs a published package and version, " +
-                    "reached from a package's version list on the dashboard",
+                "this version is not browsable: only verified versions are",
+            );
+        } else {
+            shell.show(
+                "error",
+                "the archive could not be read from the registry",
+            );
+        }
+        return;
+    }
+    const tree = shell.root.querySelector("[data-source-tree]");
+    const directoryTemplate = document.getElementById("source-dir-template");
+    const fileTemplate = document.getElementById("source-file-template");
+    if (
+        !(tree instanceof HTMLElement) ||
+        !(directoryTemplate instanceof HTMLTemplateElement) ||
+        !(fileTemplate instanceof HTMLTemplateElement)
+    ) {
+        return;
+    }
+
+    let entries: ArchiveEntry[];
+    try {
+        const layout = parseEocd(tail.slice.bytes, tail.slice.size);
+        const cd = await centralDirectory(tail.slice, layout);
+        if (cd === null) {
+            shell.show(
+                "error",
+                "the archive could not be read from the registry",
             );
             return;
         }
-        setText(shell.root, "[data-source-package]", packageName);
-        setText(shell.root, "[data-source-version]", version);
+        entries = parseCentralDirectory(cd, layout);
+    } catch {
+        shell.show("error", "the archive does not parse as a package archive");
+        return;
+    }
 
-        const tail = await fetchRange(`bytes=-${TAIL_BYTES}`);
-        if (!tail.ok) {
-            if (tail.status === 401) {
-                shell.show("signed-out");
-            } else if (tail.status === 404) {
-                shell.show(
-                    "error",
-                    "this version is not browsable: only verified versions are",
-                );
-            } else {
-                shell.show(
-                    "error",
-                    "the archive could not be read from the registry",
-                );
-            }
-            return;
-        }
-        const tree = shell.root.querySelector("[data-source-tree]");
-        const directoryTemplate = document.getElementById(
-            "source-dir-template",
-        );
-        const fileTemplate = document.getElementById("source-file-template");
-        if (
-            !(tree instanceof HTMLElement) ||
-            !(directoryTemplate instanceof HTMLTemplateElement) ||
-            !(fileTemplate instanceof HTMLTemplateElement)
-        ) {
-            return;
-        }
-
-        let entries: ArchiveEntry[];
-        try {
-            const layout = parseEocd(tail.slice.bytes, tail.slice.size);
-            const cd = await centralDirectory(tail.slice, layout);
-            if (cd === null) {
-                shell.show(
-                    "error",
-                    "the archive could not be read from the registry",
-                );
-                return;
-            }
-            entries = parseCentralDirectory(cd, layout);
-        } catch {
-            shell.show(
-                "error",
-                "the archive does not parse as a package archive",
-            );
-            return;
-        }
-
-        let selected: HTMLButtonElement | null = null;
-        const select = (entry: ArchiveEntry, button: HTMLButtonElement) => {
-            selected?.removeAttribute("aria-current");
-            selected?.classList.remove("text-steel");
-            button.setAttribute("aria-current", "true");
-            button.classList.add("text-steel");
-            selected = button;
-            void viewFile(shell.root, entry);
-        };
-        const fileButtons = new Map<
-            string,
-            { entry: ArchiveEntry; button: HTMLButtonElement }
-        >();
-        tree.replaceChildren(
-            renderDirectory(
-                buildTree(entries),
-                { directory: directoryTemplate, file: fileTemplate },
-                select,
-                fileButtons,
-            ),
-        );
-        shell.show("content");
-        // The profile guarantees a root manifest; opening it beats an
-        // empty pane.
-        const manifest = fileButtons.get("cabin.toml");
-        if (manifest) {
-            select(manifest.entry, manifest.button);
-        }
-    });
-}
+    let selected: HTMLButtonElement | null = null;
+    const select = (entry: ArchiveEntry, button: HTMLButtonElement) => {
+        selected?.removeAttribute("aria-current");
+        selected?.classList.remove("text-steel");
+        button.setAttribute("aria-current", "true");
+        button.classList.add("text-steel");
+        selected = button;
+        void viewFile(shell.root, entry);
+    };
+    const fileButtons = new Map<
+        string,
+        { entry: ArchiveEntry; button: HTMLButtonElement }
+    >();
+    tree.replaceChildren(
+        renderDirectory(
+            buildTree(entries),
+            { directory: directoryTemplate, file: fileTemplate },
+            select,
+            fileButtons,
+        ),
+    );
+    shell.show("content");
+    // The profile guarantees a root manifest; opening it beats an
+    // empty pane.
+    const manifest = fileButtons.get("cabin.toml");
+    if (manifest) {
+        select(manifest.entry, manifest.button);
+    }
+});

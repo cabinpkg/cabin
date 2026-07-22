@@ -9,10 +9,9 @@ import {
     type FetchLike,
     getTokens,
     revokeToken,
-    sharedAuth,
     type TokenInfo,
 } from "../lib/account.ts";
-import { accountShell, type Shell } from "../lib/accountShell";
+import { bootAccountShell, type Shell } from "../lib/accountShell";
 import { formatRelativeTime } from "../lib/format";
 
 const doFetch: FetchLike = (input, init) => fetch(input, init);
@@ -211,31 +210,17 @@ function wireControls(shell: Shell): void {
     window.addEventListener("pagehide", wipePlaintext);
 }
 
-const shell = accountShell();
-if (shell) {
-    sharedAuth().then(async (auth) => {
-        if (auth.state === "signed-out") {
-            shell.show("signed-out");
-            return;
-        }
-        if (auth.state === "error") {
-            shell.show("error", auth.message);
-            return;
-        }
-        if (auth.state !== "signed-in") {
-            return;
-        }
-        const outcome = asOutcome(await getTokens(doFetch));
-        if (outcome.state === "signed-out") {
-            shell.show("signed-out");
-            return;
-        }
-        if (outcome.state === "failed") {
-            shell.show("error", outcome.message);
-            return;
-        }
-        renderRows(shell, outcome.data.tokens);
-        wireControls(shell);
-        shell.show("content");
-    });
-}
+bootAccountShell(async (shell) => {
+    const outcome = asOutcome(await getTokens(doFetch));
+    if (outcome.state === "signed-out") {
+        shell.show("signed-out");
+        return;
+    }
+    if (outcome.state === "failed") {
+        shell.show("error", outcome.message);
+        return;
+    }
+    renderRows(shell, outcome.data.tokens);
+    wireControls(shell);
+    shell.show("content");
+});
