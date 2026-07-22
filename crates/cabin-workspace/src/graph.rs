@@ -73,13 +73,6 @@ pub struct PackageGraph {
 }
 
 impl PackageGraph {
-    /// Find a package by name.  Linear scan; package counts are small.
-    pub fn package_by_name(&self, name: &str) -> Option<&WorkspacePackage> {
-        self.packages
-            .iter()
-            .find(|p| p.package.name.as_str() == name)
-    }
-
     /// Index of a package by name.  Returned together with the reference
     /// for callers that need to record edges by index.
     pub fn index_of(&self, name: &str) -> Option<usize> {
@@ -256,13 +249,6 @@ impl WorkspacePackage {
             .iter()
             .filter(move |edge| edge.kind == kind)
             .map(|edge| edge.index)
-    }
-
-    /// Iterate all dependency edges as bare indices, in
-    /// declaration order.  Used by closure walks (resolve / fetch /
-    /// metadata) that include every package-graph-resident kind.
-    pub fn all_dep_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.deps.iter().map(|edge| edge.index)
     }
 }
 
