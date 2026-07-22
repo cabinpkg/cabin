@@ -404,20 +404,12 @@ pub fn is_valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
-/// A valid-looking version: three dot-separated numeric components with an
-/// optional `-pre` / `+build` suffix limited to `[A-Za-z0-9.+-]`. Path and
-/// key safety is the point, not full `SemVer` pedantry.
+/// A valid version is full `SemVer`, the grammar publish enforces
+/// (`crate::publish::validate_metadata`), so the read plane accepts
+/// exactly the versions the write plane can create. `SemVer`'s charset
+/// (`[0-9A-Za-z.+-]`) keeps every accepted version path- and key-safe.
 pub fn is_valid_version(version: &str) -> bool {
-    let core_len = version.find(['-', '+']).unwrap_or(version.len());
-    let (core, suffix) = version.split_at(core_len);
-    let parts: Vec<&str> = core.split('.').collect();
-    parts.len() == 3
-        && parts
-            .iter()
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        && suffix
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'+' | b'-'))
+    semver::Version::parse(version).is_ok()
 }
 
 #[cfg(test)]
@@ -947,6 +939,10 @@ mod tests {
         }
         for version in [
             "", "1", "1.0", "1.0.0.0", "v1.0.0", "1..0", "1.0.a", "1.0.0/x", "1.0.0-ü",
+            // Full SemVer, not just charset safety: leading zeros,
+            // empty pre-release / build suffixes, and zero-padded
+            // numeric pre-release identifiers are all invalid.
+            "01.2.3", "1.2.3-", "1.0.0+", "1.0.0-01",
         ] {
             assert!(!is_valid_version(version), "version: {version:?}");
         }
