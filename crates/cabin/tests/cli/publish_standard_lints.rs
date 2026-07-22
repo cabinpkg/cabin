@@ -286,7 +286,7 @@ fn pl3_warns_on_patch_raise_cxx() {
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
         stderr.contains("warning:")
-            && stderr.contains("raised from")
+            && stderr.contains("narrowed from")
             && stderr.contains("c++17")
             && stderr.contains("c++20")
             && stderr.contains("discouraged in patches"),
@@ -310,7 +310,7 @@ fn pl3_warns_on_patch_raise_c() {
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
         stderr.contains("warning:")
-            && stderr.contains("raised from")
+            && stderr.contains("narrowed from")
             && stderr.contains("c11")
             && stderr.contains("c17"),
         "expected the PL3 C warning in: {stderr}"

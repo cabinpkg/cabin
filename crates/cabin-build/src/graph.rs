@@ -92,24 +92,45 @@ pub enum StandardViolation {
         object: Utf8PathBuf,
     },
     /// A consuming compile whose effective implementation standard
-    /// is below a reachable library-like dependency's interface
-    /// requirement for the same language.  Recorded against the
-    /// *consumer's* compile so the `cabin check` rewrite prunes the
-    /// incompatibility together with the compiles it protects - a
-    /// dependency-internal incompatibility never gates a check that
-    /// only compiles the selected packages' own translation units.
+    /// falls outside a reachable library-like dependency's interface
+    /// requirement for the same language - below its minimum or
+    /// above its maximum.  (A declared `"none"` never reaches this
+    /// layer; the post-resolution pass owns it together with the
+    /// per-edge override.)  Recorded against the *consumer's*
+    /// compile so the
+    /// `cabin check` rewrite prunes the incompatibility together
+    /// with the compiles it protects - a dependency-internal
+    /// incompatibility never gates a check that only compiles the
+    /// selected packages' own translation units.
     InterfaceIncompatibility {
         consumer: String,
         dependency: String,
         language: &'static str,
         consumer_standard: &'static str,
-        required: &'static str,
+        /// The accepted consumer range, rendered (`c++17 or newer`,
+        /// `c++11..c++20`, `none`).
+        required: String,
+        /// Which side of the requirement the consumer's level
+        /// fails.
+        kind: InterfaceViolationKind,
         requirement_source: &'static str,
         /// Object path of one of the consumer's compiles of the
         /// language (every object of a target shares the same
         /// per-package prefix the check filter tests).
         object: Utf8PathBuf,
     },
+}
+
+/// Which side of an interface requirement a consuming compile
+/// fails.  A declared `"none"` never reaches this layer - the
+/// post-resolution compatibility pass owns it, together with the
+/// per-edge `ignore-interface-standard` override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceViolationKind {
+    /// The consumer's level is below the requirement's minimum.
+    BelowMinimum { min: &'static str },
+    /// The consumer's level is above the requirement's maximum.
+    AboveMaximum { max: &'static str },
 }
 
 impl StandardViolation {

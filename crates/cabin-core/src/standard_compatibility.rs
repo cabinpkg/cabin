@@ -6,6 +6,13 @@
 //! implements, and the tests cite the lemma they verify.  Pure data
 //! and logic only: no I/O, no logging, no globals.
 //!
+//! The requirement domain is the interval domain of spec D3/D4:
+//! joins intersect accepted ranges, an empty intersection is
+//! `forbidden`, and the strictness order is a partial order - no
+//! code here or downstream may assume two requirements are
+//! comparable, or that one source alone determines a composed
+//! value (a range's bounds may come from different targets).
+//!
 //! The effective-requirement recursion `R_L` (spec D10/T1 -
 //! transitive composition over the dependency graph) is deliberately
 //! not implemented here: it is a graph algorithm, and graph
@@ -30,32 +37,145 @@ use crate::language_standard::{
 };
 use crate::{SourceLanguage, Target, classify_source};
 
-/// Spec D3: the per-language requirement domain `Req_L`, a finite
-/// chain under the strictness order `⊑` (spec L1).  The derived
-/// `Ord` follows declaration order, which is exactly that chain:
-/// `unconstrained ⊑ [⊥_L] ⊑ ... ⊑ [max Level_L] ⊑ forbidden` (the
-/// tests verify the derived order against D3's case-by-case
-/// definition by exhaustive enumeration).  Populating the reserved
-/// interface `max` later is a domain swap to the interval domain of
-/// D4's remark, not a signature change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Spec D3: the per-language requirement domain `Req_L` - the
+/// interval domain over the level chain.  Each value denotes the
+/// set of consumer levels it accepts: everything, an up-set
+/// `[min, ∞)`, an inclusive interval `[min, max]`, or nothing.
+/// The strictness order `⊑` is reverse inclusion of the denoted
+/// sets; it is a **partial** order (two disjoint or overlapping
+/// intervals are incomparable), so there is no `Ord` here and no
+/// code may assume one requirement of a pair is the stricter.
+/// `Min(m)` and a `Bounded` range `[m, top]` denote the same
+/// set but stay distinct shapes: a minimum-only requirement keeps
+/// accepting levels a future Cabin adds above today's chain, and
+/// diagnostics report exactly the declared bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Requirement<S> {
     /// Spec D3: imposes nothing on consumers.
     Unconstrained,
-    /// Spec D3: `[m]` - requires a consumer level of at least the
-    /// carried minimum.
+    /// Spec D3: `[m, ∞)` - requires a consumer level of at least
+    /// the carried minimum, unbounded above.
     Min(S),
+    /// Spec D3: `[min, max]` - requires a consumer level inside the
+    /// inclusive range.  The payload is a validated
+    /// [`BoundedRange`], so an inverted range is unrepresentable
+    /// even through this public variant; the join collapses an
+    /// empty intersection to [`Self::Forbidden`] instead of
+    /// building one.
+    Bounded(BoundedRange<S>),
     /// Spec D3: unsatisfiable.
     Forbidden,
 }
 
+/// A validated inclusive range `[min, max]`: `min <= max` holds by
+/// construction (the fields are private), so every
+/// [`Requirement::Bounded`] denotes a non-empty interval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BoundedRange<S> {
+    min: S,
+    max: S,
+}
+
+impl<S: Copy + Ord> BoundedRange<S> {
+    /// `None` when the range would be empty (`max < min`).
+    #[must_use]
+    pub fn new(min: S, max: S) -> Option<Self> {
+        (min <= max).then_some(Self { min, max })
+    }
+
+    /// The inclusive lower endpoint.
+    #[must_use]
+    pub fn min(self) -> S {
+        self.min
+    }
+
+    /// The inclusive upper endpoint.
+    #[must_use]
+    pub fn max(self) -> S {
+        self.max
+    }
+}
+
 impl<S: Copy + Ord> Requirement<S> {
-    /// Spec D4: the join `r1 ⊔ r2` is the `⊑`-maximum of the two
-    /// requirements (well-defined because the chain is total, spec
-    /// L1; a bounded join-semilattice by spec L2).
+    /// The declared-requirement embedding (spec D9 row 2): a
+    /// minimum-only declaration is `[m, ∞)`, a bounded one the
+    /// inclusive interval.
+    #[must_use]
+    pub fn from_declared(declared: crate::language_standard::StandardRequirement<S>) -> Self {
+        match declared.max() {
+            None => Self::Min(declared.min()),
+            // Non-empty by `StandardRequirement`'s own invariant.
+            Some(max) => Self::Bounded(BoundedRange {
+                min: declared.min(),
+                max,
+            }),
+        }
+    }
+
+    /// A validated bounded requirement; `None` when the range would
+    /// be empty.
+    #[must_use]
+    pub fn bounded(min: S, max: S) -> Option<Self> {
+        BoundedRange::new(min, max).map(Self::Bounded)
+    }
+
+    /// The lower endpoint of the denoted set, when one exists.
+    #[must_use]
+    pub fn lower_bound(self) -> Option<S> {
+        match self {
+            Self::Unconstrained | Self::Forbidden => None,
+            Self::Min(min) => Some(min),
+            Self::Bounded(range) => Some(range.min),
+        }
+    }
+
+    /// The upper endpoint of the denoted set, when one exists.
+    #[must_use]
+    pub fn upper_bound(self) -> Option<S> {
+        match self {
+            Self::Unconstrained | Self::Min(_) | Self::Forbidden => None,
+            Self::Bounded(range) => Some(range.max),
+        }
+    }
+
+    /// Spec D4: the join `r1 ⊔ r2` is the **intersection** of the
+    /// denoted sets - the least upper bound in the strictness order
+    /// (spec L2).  An empty intersection is [`Self::Forbidden`]:
+    /// composing two requirements no consumer level satisfies
+    /// simultaneously forbids the edge outright.
     #[must_use]
     pub fn join(self, other: Self) -> Self {
-        self.max(other)
+        let (min1, max1) = match self {
+            Self::Forbidden => return Self::Forbidden,
+            Self::Unconstrained => (None, None),
+            Self::Min(min) => (Some(min), None),
+            Self::Bounded(range) => (Some(range.min), Some(range.max)),
+        };
+        let (min2, max2) = match other {
+            Self::Forbidden => return Self::Forbidden,
+            Self::Unconstrained => (None, None),
+            Self::Min(min) => (Some(min), None),
+            Self::Bounded(range) => (Some(range.min), Some(range.max)),
+        };
+        let min = match (min1, min2) {
+            (None, bound) | (bound, None) => bound,
+            (Some(a), Some(b)) => Some(a.max(b)),
+        };
+        let max = match (max1, max2) {
+            (None, bound) | (bound, None) => bound,
+            (Some(a), Some(b)) => Some(a.min(b)),
+        };
+        match (min, max) {
+            (None, None) => Self::Unconstrained,
+            (Some(min), None) => Self::Min(min),
+            (Some(min), Some(max)) if min <= max => Self::Bounded(BoundedRange { min, max }),
+            (Some(_), Some(_)) => Self::Forbidden,
+            // Every shape carrying an upper bound also carries a
+            // lower bound, and bounds only come from the inputs.
+            (None, Some(_)) => {
+                unreachable!("an upper bound only exists on Bounded, which carries a lower bound")
+            }
+        }
     }
 
     /// Spec D4: the set join `⨆ S` over a finite (multi)set, with
@@ -68,12 +188,14 @@ impl<S: Copy + Ord> Requirement<S> {
     }
 
     /// Spec D11: `satisfies(c, L, r)` for a consumer whose effective
-    /// compile level in `L` is `level`.
+    /// compile level in `L` is `level` - membership in the denoted
+    /// set.
     #[must_use]
     pub fn satisfied_by(self, level: S) -> bool {
         match self {
             Self::Unconstrained => true,
             Self::Min(min) => level >= min,
+            Self::Bounded(range) => range.min <= level && level <= range.max,
             Self::Forbidden => false,
         }
     }
@@ -89,6 +211,19 @@ impl<S: Copy + Ord> Requirement<S> {
             .copied()
             .filter(|&level| self.satisfied_by(level))
             .collect()
+    }
+}
+
+impl<S: crate::language_standard::StandardLevel> std::fmt::Display for Requirement<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unconstrained => f.write_str("unconstrained"),
+            Self::Min(min) => write!(f, "{} or newer", min.level_str()),
+            Self::Bounded(range) => {
+                write!(f, "{}..{}", range.min.level_str(), range.max.level_str())
+            }
+            Self::Forbidden => f.write_str("none"),
+        }
     }
 }
 
@@ -206,11 +341,13 @@ fn req_of<S: Copy + Ord>(
             (Requirement::Forbidden, ReqOfSource::DeclaredNone)
         }
         // Row 2: an explicit declaration always wins, over inference
-        // and over both cross-language defaults.  `max` is reserved
-        // and always absent in v1 (spec D4 remark).
-        (Some(InterfaceRequirement::Requirement(requirement)), _) => {
-            (Requirement::Min(requirement.min), ReqOfSource::Declared)
-        }
+        // and over both cross-language defaults.  A bounded
+        // declaration carries its inclusive `[min, max]` range into
+        // the requirement.
+        (Some(InterfaceRequirement::Requirement(requirement)), _) => (
+            Requirement::from_declared(requirement),
+            ReqOfSource::Declared,
+        ),
         // Row 3: header-only inference from the implementation
         // standard.  Row 4: a compiled target without an interface
         // declaration imposes no constraint.
@@ -435,32 +572,44 @@ pub fn version_viable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::language_standard::StandardRequirement;
+    use crate::language_standard::{StandardLevel, StandardRequirement};
 
     const KINDS: [DependencyKind; 2] = [DependencyKind::Compiled, DependencyKind::HeaderOnly];
 
-    /// The full `Req_L` chain (spec D3) for the given `Level_L`.
-    fn all_requirements<S: Copy>(levels: &[S]) -> Vec<Requirement<S>> {
+    /// Every element of `Req_L` (spec D3) for the given `Level_L`:
+    /// unconstrained, every minimum, every valid inclusive range,
+    /// and forbidden.
+    fn all_requirements<S: Copy + Ord>(levels: &[S]) -> Vec<Requirement<S>> {
         let mut requirements = vec![Requirement::Unconstrained];
         requirements.extend(levels.iter().copied().map(Requirement::Min));
+        for (index, &min) in levels.iter().enumerate() {
+            for &max in &levels[index..] {
+                requirements.push(Requirement::bounded(min, max).unwrap());
+            }
+        }
         requirements.push(Requirement::Forbidden);
         requirements
     }
 
-    /// Spec D3's order definition transcribed case by case: the
-    /// oracle every lemma test uses, and the definition the derived
-    /// `Ord` must match (verified exhaustively in the L1 test).
-    fn spec_le<S: Copy + Ord>(r: Requirement<S>, s: Requirement<S>) -> bool {
-        match (r, s) {
-            (Requirement::Unconstrained, _) | (_, Requirement::Forbidden) => true,
-            (Requirement::Min(a), Requirement::Min(b)) => a <= b,
-            // No other pairs are related; `⊑` is reflexive.
-            _ => r == s,
-        }
+    /// The semantic oracle: `Sat` as a set of levels.
+    fn sat_set<S: Copy + Ord>(requirement: Requirement<S>, levels: &[S]) -> Vec<S> {
+        requirement.sat(levels)
+    }
+
+    /// Spec D3's strictness order: reverse inclusion of the denoted
+    /// sets.  `spec_le(r, s)` means `r ⊑ s` - `s` is at least as
+    /// strict, i.e. `Sat(s) ⊆ Sat(r)`.
+    fn spec_le<S: Copy + Ord>(r: Requirement<S>, s: Requirement<S>, levels: &[S]) -> bool {
+        let sat_r = sat_set(r, levels);
+        sat_set(s, levels).iter().all(|level| sat_r.contains(level))
     }
 
     fn interface_min<S>(min: S) -> InterfaceRequirement<S> {
-        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+        InterfaceRequirement::Requirement(StandardRequirement::at_least(min))
+    }
+
+    fn interface_range<S: StandardLevel>(min: S, max: S) -> InterfaceRequirement<S> {
+        InterfaceRequirement::Requirement(StandardRequirement::bounded(min, Some(max)).unwrap())
     }
 
     /// `⊥` plus every level: the domain of `impl_L(t)` (spec D6).
@@ -470,225 +619,127 @@ mod tests {
         options
     }
 
-    fn check_l1_finite_chain<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        let requirements = all_requirements(levels);
-        for &r in &requirements {
-            // Reflexivity, and the chain's bounds: unconstrained is
-            // least, forbidden greatest.
-            assert!(spec_le(r, r));
-            assert!(spec_le(Requirement::Unconstrained, r));
-            assert!(spec_le(r, Requirement::Forbidden));
-            for &s in &requirements {
-                // The derived order is exactly D3's definition.
-                assert_eq!(r <= s, spec_le(r, s), "derived Ord vs D3 at {r:?} ⊑ {s:?}");
-                // Totality and antisymmetry.
-                assert!(spec_le(r, s) || spec_le(s, r), "totality at {r:?}, {s:?}");
-                if spec_le(r, s) && spec_le(s, r) {
-                    assert_eq!(r, s, "antisymmetry at {r:?}, {s:?}");
-                }
-                // Transitivity.
-                for &t in &requirements {
-                    if spec_le(r, s) && spec_le(s, t) {
-                        assert!(spec_le(r, t), "transitivity at {r:?}, {s:?}, {t:?}");
-                    }
-                }
-            }
-        }
+    fn intersect<S: Copy + PartialEq>(a: &[S], b: &[S]) -> Vec<S> {
+        a.iter()
+            .copied()
+            .filter(|level| b.contains(level))
+            .collect()
     }
 
-    /// L1: `(Req_L, ⊑)` is a finite total order with least element
-    /// `unconstrained` and greatest element `forbidden`, and the
-    /// derived `Ord` coincides with D3's case-by-case definition.
+    /// L4 (now the definition of D4): `Sat(r1 ⊔ r2) = Sat(r1) ∩
+    /// Sat(r2)` - exhaustively over every requirement pair and
+    /// triple of both languages, with the empty join denoting all
+    /// of `Level_L`.
     #[test]
-    fn l1_requirement_domain_is_a_finite_chain() {
-        check_l1_finite_chain(&CStandard::ALL);
-        check_l1_finite_chain(&CxxStandard::ALL);
-    }
-
-    fn check_l2_bounded_semilattice<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        let requirements = all_requirements(levels);
-        for &r in &requirements {
-            // Idempotence, identity, absorption.
-            assert_eq!(r.join(r), r);
-            assert_eq!(Requirement::Unconstrained.join(r), r);
-            assert_eq!(Requirement::Forbidden.join(r), Requirement::Forbidden);
-            for &s in &requirements {
-                let join = r.join(s);
-                // Commutativity.
-                assert_eq!(join, s.join(r));
-                // `⊔` is the least upper bound.
-                assert!(
-                    spec_le(r, join) && spec_le(s, join),
-                    "upper bound at {r:?}, {s:?}"
-                );
-                for &upper in &requirements {
-                    if spec_le(r, upper) && spec_le(s, upper) {
-                        assert!(spec_le(join, upper), "leastness at {r:?}, {s:?}, {upper:?}");
-                    }
-                }
-                // `⨆` is order- and multiplicity-independent.
-                assert_eq!(Requirement::join_all([r, s]), join);
-                assert_eq!(Requirement::join_all([s, r]), join);
-                assert_eq!(Requirement::join_all([r, r, s]), join);
-                // Associativity.
-                for &t in &requirements {
-                    assert_eq!(r.join(s).join(t), r.join(s.join(t)));
-                    assert_eq!(Requirement::join_all([r, s, t]), r.join(s).join(t));
-                }
-            }
-        }
-        // The empty-join convention and the flattening law
-        // `⨆(S ∪ S') = ⨆S ⊔ ⨆S'`, over every pair of subsets.
-        assert_eq!(
-            Requirement::join_all(std::iter::empty::<Requirement<S>>()),
-            Requirement::Unconstrained
-        );
-        for union_of in 0u32..(1 << requirements.len()) {
-            for other in 0u32..(1 << requirements.len()) {
-                assert_eq!(
-                    mask_join(&requirements, union_of | other),
-                    mask_join(&requirements, union_of).join(mask_join(&requirements, other))
-                );
-            }
-        }
-    }
-
-    /// The join of the sub-multiset of `requirements` selected by
-    /// `mask`.
-    fn mask_join<S: Copy + Ord>(requirements: &[Requirement<S>], mask: u32) -> Requirement<S> {
-        Requirement::join_all(
-            requirements
-                .iter()
-                .enumerate()
-                .filter(|&(index, _)| mask & (1 << index) != 0)
-                .map(|(_, &requirement)| requirement),
-        )
-    }
-
-    /// L2: `(Req_L, ⊑, ⊔)` is a bounded join-semilattice - `⊔` is the
-    /// least upper bound; associative, commutative, idempotent, with
-    /// `unconstrained` as identity and `forbidden` absorbing - and
-    /// `⨆` is well-defined on finite multisets with `⨆∅ =
-    /// unconstrained` and `⨆(S ∪ S') = ⨆S ⊔ ⨆S'`.
-    #[test]
-    fn l2_join_is_a_bounded_semilattice() {
-        check_l2_bounded_semilattice(&CStandard::ALL);
-        check_l2_bounded_semilattice(&CxxStandard::ALL);
-    }
-
-    fn check_l3_sat_characterization<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        let bottom = levels[0];
-        let degenerate = (Requirement::Min(bottom), Requirement::Unconstrained);
-        for &r1 in &all_requirements(levels) {
-            for &r2 in &all_requirements(levels) {
-                let sat1 = r1.sat(levels);
-                let sat2 = r2.sat(levels);
-                let included = sat2.iter().all(|level| sat1.contains(level));
-                // (1) Soundness.
-                if spec_le(r1, r2) {
-                    assert!(included, "L3(1) at {r1:?}, {r2:?}");
-                }
-                // (2) Completeness, except the one degenerate pair.
-                if included && (r1, r2) != degenerate {
-                    assert!(spec_le(r1, r2), "L3(2) at {r1:?}, {r2:?}");
-                }
-                // (3) Induced equivalence.  `sat` filters the same
-                // ordered slice, so `Vec` equality is set equality.
-                let equivalent = r1 == r2 || (r1, r2) == degenerate || (r2, r1) == degenerate;
-                assert_eq!(sat1 == sat2, equivalent, "L3(3) at {r1:?}, {r2:?}");
-            }
-        }
-        // The exception is genuine: `Sat` agrees on the pair while
-        // the order does not relate it.
-        assert_eq!(
-            Requirement::Min(bottom).sat(levels),
-            Requirement::<S>::Unconstrained.sat(levels)
-        );
-        assert!(!spec_le(
-            Requirement::Min(bottom),
-            Requirement::Unconstrained
-        ));
-    }
-
-    /// L3: `⊑` coincides with reverse `Sat`-inclusion - soundness,
-    /// completeness up to the single degenerate pair
-    /// `([⊥_L], unconstrained)`, and the induced equivalence.
-    #[test]
-    fn l3_sat_inclusion_characterizes_strictness() {
-        check_l3_sat_characterization(&CStandard::ALL);
-        check_l3_sat_characterization(&CxxStandard::ALL);
-    }
-
-    fn check_l4_join_is_intersection<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        let requirements = all_requirements(levels);
-        let intersect = |a: &[S], b: &[S]| -> Vec<S> {
-            a.iter()
-                .copied()
-                .filter(|level| b.contains(level))
-                .collect()
-        };
-        for &r1 in &requirements {
-            for &r2 in &requirements {
-                let expected = intersect(&r1.sat(levels), &r2.sat(levels));
-                assert_eq!(r1.join(r2).sat(levels), expected, "L4 at {r1:?}, {r2:?}");
-                // The finite generalization, on triples.
-                for &r3 in &requirements {
+    fn join_is_intersection_of_satisfaction_sets() {
+        fn check<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
+            let requirements = all_requirements(levels);
+            for &r1 in &requirements {
+                for &r2 in &requirements {
+                    let expected = intersect(&sat_set(r1, levels), &sat_set(r2, levels));
                     assert_eq!(
-                        Requirement::join_all([r1, r2, r3]).sat(levels),
-                        intersect(&expected, &r3.sat(levels))
+                        sat_set(r1.join(r2), levels),
+                        expected,
+                        "D4 at {r1:?}, {r2:?}"
+                    );
+                    // An empty intersection is forbidden, and only
+                    // an empty intersection is.
+                    assert_eq!(
+                        r1.join(r2) == Requirement::Forbidden,
+                        expected.is_empty(),
+                        "empty-intersection collapse at {r1:?}, {r2:?}"
                     );
                 }
             }
+            assert_eq!(
+                Requirement::join_all(std::iter::empty::<Requirement<S>>()).sat(levels),
+                levels
+            );
         }
-        // The empty intersection convention is `Level_L` itself.
-        assert_eq!(
-            Requirement::join_all(std::iter::empty::<Requirement<S>>()).sat(levels),
-            levels
-        );
+        check(&CStandard::ALL);
+        check(&CxxStandard::ALL);
     }
 
-    /// L4: `Sat(r1 ⊔ r2) = Sat(r1) ∩ Sat(r2)`, and the finite
-    /// generalization with the empty join denoting all of `Level_L`.
+    /// Triple joins agree with iterated binary intersection, so the
+    /// fold in `join_all` is order-independent (checked over every
+    /// triple of the C chain, which already exercises all shape
+    /// combinations).
     #[test]
-    fn l4_sat_of_join_is_intersection() {
-        check_l4_join_is_intersection(&CStandard::ALL);
-        check_l4_join_is_intersection(&CxxStandard::ALL);
-    }
-
-    fn check_l5_antitonicity<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        for &r1 in &all_requirements(levels) {
-            for &r2 in &all_requirements(levels) {
-                if !spec_le(r1, r2) {
-                    continue;
-                }
-                for &level in levels {
-                    if r2.satisfied_by(level) {
-                        assert!(r1.satisfied_by(level), "L5 at {r1:?} ⊑ {r2:?}, {level:?}");
-                    }
+    fn triple_joins_intersect_and_commute() {
+        let levels = &CStandard::ALL;
+        let requirements = all_requirements(levels);
+        for &r1 in &requirements {
+            for &r2 in &requirements {
+                for &r3 in &requirements {
+                    let expected = intersect(
+                        &intersect(&sat_set(r1, levels), &sat_set(r2, levels)),
+                        &sat_set(r3, levels),
+                    );
+                    let joined = Requirement::join_all([r1, r2, r3]);
+                    assert_eq!(sat_set(joined, levels), expected);
+                    assert_eq!(Requirement::join_all([r3, r1, r2]), joined);
                 }
             }
         }
     }
 
-    /// L5: `satisfies` is antitone in the requirement - satisfying a
-    /// stricter requirement satisfies every laxer one.
+    /// L2: `(Req_L, ⊑, ⊔)` is a bounded join-semilattice on the
+    /// quotient by `Sat`-equality: `⊔` is associative, commutative,
+    /// idempotent, `unconstrained` is the identity and `forbidden`
+    /// absorbing - all literal shape equalities here, because the
+    /// structural join is deterministic.
     #[test]
-    fn l5_satisfies_is_antitone() {
-        check_l5_antitonicity(&CStandard::ALL);
-        check_l5_antitonicity(&CxxStandard::ALL);
+    fn join_is_a_bounded_semilattice() {
+        fn check<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
+            let requirements = all_requirements(levels);
+            for &r in &requirements {
+                assert_eq!(r.join(r), r);
+                assert_eq!(Requirement::Unconstrained.join(r), r);
+                assert_eq!(r.join(Requirement::Unconstrained), r);
+                assert_eq!(Requirement::Forbidden.join(r), Requirement::Forbidden);
+                assert_eq!(r.join(Requirement::Forbidden), Requirement::Forbidden);
+                for &q in &requirements {
+                    assert_eq!(r.join(q), q.join(r), "commutativity at {r:?}, {q:?}");
+                    for &t in &requirements {
+                        assert_eq!(
+                            r.join(q).join(t),
+                            r.join(q.join(t)),
+                            "associativity at {r:?}, {q:?}, {t:?}"
+                        );
+                    }
+                }
+            }
+        }
+        check(&CStandard::ALL);
+        // Pairwise laws also hold on the longer C++ chain; the
+        // associativity triple is O(n^6) there, so the C chain
+        // carries the exhaustive triple.
+        let requirements = all_requirements(&CxxStandard::ALL);
+        for &r in &requirements {
+            assert_eq!(r.join(r), r);
+            for &q in &requirements {
+                assert_eq!(r.join(q), q.join(r));
+            }
+        }
     }
 
-    fn check_l6_upward_closure<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        for &requirement in &all_requirements(levels) {
-            for &level in levels {
-                if !requirement.satisfied_by(level) {
-                    continue;
-                }
-                for &higher in levels {
-                    if higher >= level {
+    /// The join is the least upper bound in the strictness order
+    /// (up to `Sat`-equality): an upper bound of both operands, and
+    /// below every other upper bound.
+    #[test]
+    fn join_is_the_least_upper_bound() {
+        let levels = &CStandard::ALL;
+        let requirements = all_requirements(levels);
+        for &r1 in &requirements {
+            for &r2 in &requirements {
+                let join = r1.join(r2);
+                assert!(spec_le(r1, join, levels), "upper bound at {r1:?}, {r2:?}");
+                assert!(spec_le(r2, join, levels), "upper bound at {r1:?}, {r2:?}");
+                for &upper in &requirements {
+                    if spec_le(r1, upper, levels) && spec_le(r2, upper, levels) {
                         assert!(
-                            requirement.satisfied_by(higher),
-                            "L6 at {requirement:?}, {level:?} ≤ {higher:?}"
+                            spec_le(join, upper, levels),
+                            "leastness at {r1:?}, {r2:?}, {upper:?}"
                         );
                     }
                 }
@@ -696,53 +747,163 @@ mod tests {
         }
     }
 
-    /// L6: every satisfaction set is upward closed - raising a
-    /// consumer's effective level never breaks satisfaction.
+    /// The strictness order is genuinely partial now: disjoint (and
+    /// merely overlapping) ranges are incomparable, so no code may
+    /// pick "the stricter" of two requirements.
     #[test]
-    fn l6_satisfaction_sets_are_upward_closed() {
-        check_l6_upward_closure(&CStandard::ALL);
-        check_l6_upward_closure(&CxxStandard::ALL);
+    fn strictness_is_a_partial_order_with_incomparable_ranges() {
+        let levels = &CxxStandard::ALL;
+        let low = Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx14).unwrap();
+        let high = Requirement::bounded(CxxStandard::Cxx20, CxxStandard::Cxx23).unwrap();
+        assert!(!spec_le(low, high, levels));
+        assert!(!spec_le(high, low, levels));
+        // Their join is the empty intersection.
+        assert_eq!(low.join(high), Requirement::Forbidden);
+
+        let overlapping = Requirement::bounded(CxxStandard::Cxx14, CxxStandard::Cxx20).unwrap();
+        let shifted = Requirement::bounded(CxxStandard::Cxx17, CxxStandard::Cxx26).unwrap();
+        assert!(!spec_le(overlapping, shifted, levels));
+        assert!(!spec_le(shifted, overlapping, levels));
+        assert_eq!(
+            overlapping.join(shifted),
+            Requirement::bounded(CxxStandard::Cxx17, CxxStandard::Cxx20).unwrap()
+        );
     }
 
-    fn check_l7_monotone_joins<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
-        let requirements = all_requirements(levels);
-        // Subset claim: `S ⊆ S' ⟹ ⨆S ⊑ ⨆S'`, over every subset pair.
-        for superset in 0u32..(1 << requirements.len()) {
-            let mut subset = superset;
-            loop {
-                assert!(spec_le(
-                    mask_join(&requirements, subset),
-                    mask_join(&requirements, superset)
-                ));
-                if subset == 0 {
-                    break;
-                }
-                subset = (subset - 1) & superset;
-            }
-        }
-        // Pointwise claim, exhaustively for k = 2.
-        for &r1 in &requirements {
-            for &s1 in &requirements {
-                if !spec_le(r1, s1) {
-                    continue;
-                }
+    /// L5 (antitonicity, restated on `Sat`): if `Sat(r2) ⊆ Sat(r1)`
+    /// then satisfying `r2` satisfies `r1` - exhaustive.
+    #[test]
+    fn satisfying_a_stricter_requirement_satisfies_a_laxer_one() {
+        fn check<S: Copy + Ord + std::fmt::Debug>(levels: &[S]) {
+            let requirements = all_requirements(levels);
+            for &r1 in &requirements {
                 for &r2 in &requirements {
-                    for &s2 in &requirements {
-                        if spec_le(r2, s2) {
-                            assert!(spec_le(r1.join(r2), s1.join(s2)));
+                    if !spec_le(r1, r2, levels) {
+                        continue;
+                    }
+                    for &level in levels {
+                        if r2.satisfied_by(level) {
+                            assert!(r1.satisfied_by(level), "L5 at {r1:?} ⊑ {r2:?}, {level:?}");
                         }
                     }
                 }
             }
         }
+        check(&CStandard::ALL);
+        check(&CxxStandard::ALL);
     }
 
-    /// L7: set joins are monotone, both in the subset sense and
-    /// pointwise.
+    /// Satisfaction sets are convex, and upward closure fails
+    /// exactly for bounded shapes capped below the top of the chain
+    /// (spec L6).  This is the deliberate reversal of the old
+    /// minimum-only lemma - remedies must not unconditionally say
+    /// "raise your standard".
     #[test]
-    fn l7_set_joins_are_monotone() {
-        check_l7_monotone_joins(&CStandard::ALL);
-        check_l7_monotone_joins(&CxxStandard::ALL);
+    fn satisfaction_is_convex_and_upward_closure_fails_only_below_the_top() {
+        fn convex<S: Copy + Ord>(requirement: Requirement<S>, levels: &[S]) -> bool {
+            levels.iter().all(|&lo| {
+                levels.iter().all(|&hi| {
+                    !requirement.satisfied_by(lo)
+                        || !requirement.satisfied_by(hi)
+                        || levels
+                            .iter()
+                            .filter(|&&x| lo <= x && x <= hi)
+                            .all(|&x| requirement.satisfied_by(x))
+                })
+            })
+        }
+
+        fn upward_closed<S: Copy + Ord>(requirement: Requirement<S>, levels: &[S]) -> bool {
+            levels.iter().all(|&level| {
+                !requirement.satisfied_by(level)
+                    || levels
+                        .iter()
+                        .filter(|&&higher| higher >= level)
+                        .all(|&higher| requirement.satisfied_by(higher))
+            })
+        }
+
+        let capped = Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx14).unwrap();
+        assert!(capped.satisfied_by(CxxStandard::Cxx14));
+        assert!(!capped.satisfied_by(CxxStandard::Cxx17));
+        assert!(!capped.satisfied_by(CxxStandard::Cxx98));
+        assert_eq!(
+            capped.sat(&CxxStandard::ALL),
+            [CxxStandard::Cxx11, CxxStandard::Cxx14]
+        );
+        assert!(!upward_closed(capped, &CxxStandard::ALL));
+
+        // Every non-bounded shape stays upward closed - including
+        // forbidden (vacuously) - and so does a range reaching the
+        // top of today's chain.
+        assert!(upward_closed(
+            Requirement::<CxxStandard>::Unconstrained,
+            &CxxStandard::ALL
+        ));
+        assert!(upward_closed(
+            Requirement::Min(CxxStandard::Cxx23),
+            &CxxStandard::ALL
+        ));
+        assert!(upward_closed(
+            Requirement::<CxxStandard>::Forbidden,
+            &CxxStandard::ALL
+        ));
+        assert!(upward_closed(
+            Requirement::bounded(CxxStandard::Cxx17, CxxStandard::Cxx26).unwrap(),
+            &CxxStandard::ALL
+        ));
+
+        // Exhaustive convexity, both languages: anything between two
+        // accepted levels is accepted.
+        for requirement in all_requirements(&CStandard::ALL) {
+            assert!(convex(requirement, &CStandard::ALL), "{requirement:?}");
+        }
+        for requirement in all_requirements(&CxxStandard::ALL) {
+            assert!(convex(requirement, &CxxStandard::ALL), "{requirement:?}");
+        }
+    }
+
+    /// The declared-requirement embedding (D9 row 2): minimum-only
+    /// declarations become `Min`, bounded ones `Bounded`, and the
+    /// bounds surface through the accessors.
+    #[test]
+    fn from_declared_embeds_both_shapes() {
+        let min_only = Requirement::from_declared(StandardRequirement::at_least(CStandard::C11));
+        assert_eq!(min_only, Requirement::Min(CStandard::C11));
+        assert_eq!(min_only.lower_bound(), Some(CStandard::C11));
+        assert_eq!(min_only.upper_bound(), None);
+
+        let bounded = Requirement::from_declared(
+            StandardRequirement::bounded(CStandard::C99, Some(CStandard::C17)).unwrap(),
+        );
+        assert_eq!(
+            bounded,
+            Requirement::bounded(CStandard::C99, CStandard::C17).unwrap()
+        );
+        assert_eq!(bounded.lower_bound(), Some(CStandard::C99));
+        assert_eq!(bounded.upper_bound(), Some(CStandard::C17));
+        assert_eq!(Requirement::<CStandard>::Unconstrained.lower_bound(), None);
+        assert_eq!(Requirement::<CStandard>::Forbidden.upper_bound(), None);
+    }
+
+    /// The human rendering the diagnostics embed.
+    #[test]
+    fn requirement_display_names_the_accepted_range() {
+        assert_eq!(
+            Requirement::<CxxStandard>::Unconstrained.to_string(),
+            "unconstrained"
+        );
+        assert_eq!(
+            Requirement::Min(CxxStandard::Cxx17).to_string(),
+            "c++17 or newer"
+        );
+        assert_eq!(
+            Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx20)
+                .unwrap()
+                .to_string(),
+            "c++11..c++20"
+        );
+        assert_eq!(Requirement::<CStandard>::Forbidden.to_string(), "none");
     }
 
     fn c_attrs(
@@ -798,6 +959,36 @@ mod tests {
                     (Requirement::Forbidden, ReqOfSource::DeclaredNone)
                 );
             }
+        }
+    }
+
+    /// D9 row 2: a bounded declaration carries its inclusive range
+    /// into the requirement, for both kinds and languages.
+    #[test]
+    fn d9_row_2_bounded_declaration_becomes_a_bounded_requirement() {
+        for kind in KINDS {
+            assert_eq!(
+                req_of_c_with_source(&c_attrs(
+                    kind,
+                    Some(interface_range(CStandard::C99, CStandard::C17)),
+                    Some(CStandard::C11),
+                )),
+                (
+                    Requirement::bounded(CStandard::C99, CStandard::C17).unwrap(),
+                    ReqOfSource::Declared
+                )
+            );
+            assert_eq!(
+                req_of_cxx_with_source(&cxx_attrs(
+                    kind,
+                    Some(interface_range(CxxStandard::Cxx11, CxxStandard::Cxx20)),
+                    None,
+                )),
+                (
+                    Requirement::bounded(CxxStandard::Cxx11, CxxStandard::Cxx20).unwrap(),
+                    ReqOfSource::Declared
+                )
+            );
         }
     }
 
@@ -1191,8 +1382,12 @@ mod tests {
             cxx: req_of_cxx(&h_declared),
         };
         assert!(edge_compatible(x, declared_requirements));
-        // The relaxation moved down the chain (the first deliberate
-        // exception in the remark after C3).
-        assert!(req_of_cxx(&h_declared) <= req_of_cxx(&h));
+        // The relaxation widened the accepted set (the first
+        // deliberate exception in the remark after C3).
+        assert!(spec_le(
+            req_of_cxx(&h_declared),
+            req_of_cxx(&h),
+            &CxxStandard::ALL
+        ));
     }
 }

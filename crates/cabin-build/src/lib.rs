@@ -37,13 +37,13 @@ pub use cabin_driver::{
 };
 pub use check::into_check_graph;
 pub use error::{BuildError, FeatureGateFix};
-pub use graph::{BuildGraph, CompileCommand, StandardViolation};
+pub use graph::{BuildGraph, CompileCommand, InterfaceViolationKind, StandardViolation};
 pub use planner::{
     ManifestTargetSelector, PlanRequest, plan, select_targets_of_kind,
     selector_required_features_met,
 };
 pub use standard_compat::{
-    DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
+    ClashingBound, DeclScope, DeclSite, EdgeRequirement, RequirementOrigin, StandardCompatViolation,
 };
 pub use validate::{
     RequestedStandards, collect_requested_standards, msvc_external_includes_supported,

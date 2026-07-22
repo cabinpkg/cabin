@@ -11,15 +11,18 @@
 //! one solution on the finite DAG and that every topological order
 //! computes it (confluence); the tests exercise that lemma directly.
 //!
-//! Alongside each value the pass records *provenance*: which
-//! declaration (or header-only inference, or cross-language default)
-//! attains the join, and through which chain of public edges it is
-//! reached, carrying manifest paths and optional `miette` spans so a
-//! later diagnostic can render, e.g., "requires c++20 via public
-//! dependency baz:baz (path/to/manifest, line N)".  Only a parent
-//! pointer is stored per target and language, keeping the pass
-//! linear; [`provenance_c`] / [`provenance_cxx`] materialize a full
-//! chain on demand.
+//! Alongside each value the pass records *provenance* per bound:
+//! which declaration (or header-only inference, or cross-language
+//! default) attains the composed lower bound, and which the upper
+//! bound - the two may come from different targets, because the
+//! join intersects ranges (spec D4) and no single source has to
+//! determine a composed requirement.  Each bound stores only a
+//! parent pointer, keeping the pass linear;
+//! [`provenance_c`] / [`provenance_cxx`] materialize full chains on
+//! demand, carrying manifest paths and optional `miette` spans so a
+//! later diagnostic can render, e.g., "requires c++20 or newer via
+//! public dependency baz:baz (path/to/manifest, line N)" - or, for
+//! an empty intersection, both clashing chains.
 //!
 //! The node slice is the caller's index space: resolving raw
 //! manifest `deps` references to concrete targets stays in
@@ -114,29 +117,45 @@ impl EffectiveTarget {
     }
 }
 
-/// `R_L(t)` for one language, with the parent pointer anchoring its
-/// provenance chain.
+/// `R_L(t)` for one language, with per-bound parent pointers
+/// anchoring its provenance chains.
+///
+/// Pointer population, by requirement shape:
+/// - `Unconstrained`: both pointers `None`.
+/// - `Min`: `min_attained` only.
+/// - `Bounded`: both pointers - the two bounds may be attained by
+///   different contributions.
+/// - `Forbidden` from a single contribution (a declared `"none"`,
+///   the strict cross-language default, or a propagated forbidden):
+///   `min_attained` only.
+/// - `Forbidden` from an **empty intersection** at this target:
+///   both pointers, naming the clashing lower- and upper-bound
+///   contributions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effective<S> {
     /// Spec D10: the effective requirement `R_L(t)`.
     pub requirement: Requirement<S>,
-    /// How the join is attained at this target.
-    pub attained: Attained,
+    /// How the composed lower bound (or the forbidden verdict) is
+    /// attained at this target.
+    pub min_attained: Option<Attained>,
+    /// How the composed upper bound is attained at this target.
+    pub max_attained: Option<Attained>,
 }
 
-/// Parent pointer of a provenance chain.  Spec T1 makes the *value*
-/// of `R_L` unique, but several sources may attain the same join;
-/// keeping any one chain is acceptable.  For deterministic
-/// diagnostics the pass keeps the target's own `ReqOf` when it
-/// attains the join, and otherwise the first attaining public
-/// dependency in declaration order.
+/// Parent pointer of one bound's provenance chain.  Spec T1 makes
+/// the *value* of `R_L` unique, but several sources may attain the
+/// same bound; keeping any one chain is acceptable.  For
+/// deterministic diagnostics the pass keeps the target's own
+/// `ReqOf` when it attains the bound, and otherwise the first
+/// attaining public dependency in declaration order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Attained {
-    /// The target's own `ReqOf` (spec D9) attains the join; the
+    /// The target's own `ReqOf` (spec D9) attains the bound; the
     /// chain ends here.
     Own(Origin),
-    /// `R_L` of the public dependency at this node index attains the
-    /// join; follow that target's pointer to reach the origin.
+    /// The bound of the public dependency at this node index
+    /// attains it; follow that target's matching bound pointer to
+    /// reach the origin.
     Via(usize),
 }
 
@@ -199,41 +218,122 @@ pub fn effective_requirements(targets: &[TargetNode]) -> Vec<EffectiveTarget> {
         .collect()
 }
 
-/// Materialize the C-side provenance chain for `target` from the
-/// results of [`effective_requirements`].  Walks the stored parent
+/// Materialize the C-side provenance for `target` from the results
+/// of [`effective_requirements`].  Walks the stored parent
 /// pointers, so the cost is the chain length, not the graph size.
 #[must_use]
-pub fn provenance_c(results: &[EffectiveTarget], target: usize) -> Provenance<'_> {
-    provenance(results, target, |dep| &dep.c.attained)
+pub fn provenance_c(results: &[EffectiveTarget], target: usize) -> RequirementProvenance<'_> {
+    provenance(results, target, |dep| &dep.c)
 }
 
-/// Materialize the C++-side provenance chain for `target`.
+/// Materialize the C++-side provenance for `target`.
 #[must_use]
-pub fn provenance_cxx(results: &[EffectiveTarget], target: usize) -> Provenance<'_> {
-    provenance(results, target, |dep| &dep.cxx.attained)
+pub fn provenance_cxx(results: &[EffectiveTarget], target: usize) -> RequirementProvenance<'_> {
+    provenance(results, target, |dep| &dep.cxx)
 }
 
-/// A materialized provenance chain for one target and language.
+/// A materialized provenance chain for one bound of one target and
+/// language.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provenance<'a> {
     /// Node indices from the queried target down to the origin
     /// target, inclusive on both ends; each consecutive pair is a
     /// public edge.  A single entry means the target's own `ReqOf`
-    /// attains its `R_L`.
+    /// attains the bound.
     pub path: Vec<usize>,
     /// The declaration (or inference, or default) the chain ends at.
     pub origin: &'a Origin,
 }
 
-fn provenance(
-    results: &[EffectiveTarget],
+/// The materialized provenance of one composed requirement.  A
+/// composed value has up to two independently attributed bounds, so
+/// no single chain can always explain it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequirementProvenance<'a> {
+    /// `Unconstrained`: nothing to attribute.
+    Unconstrained,
+    /// A single chain explains the value: a minimum-only
+    /// requirement, or a forbidden that originates at one
+    /// declaration (`"none"`), inference, or cross-language
+    /// default.
+    Single(Provenance<'a>),
+    /// A bounded requirement: the lower and upper bound chains,
+    /// possibly ending at different targets.
+    Bounds {
+        min: Provenance<'a>,
+        max: Provenance<'a>,
+    },
+    /// Forbidden because two contributions intersect to the empty
+    /// range: the clashing lower- and upper-bound chains.  The
+    /// chains share their prefix down to the target where the
+    /// intersection collapsed.
+    EmptyIntersection {
+        min: Provenance<'a>,
+        max: Provenance<'a>,
+    },
+}
+
+impl<'a> RequirementProvenance<'a> {
+    /// The chain explaining the lower bound (or single forbidden
+    /// origin), when one exists.
+    #[must_use]
+    pub fn min(&self) -> Option<&Provenance<'a>> {
+        match self {
+            Self::Unconstrained => None,
+            Self::Single(min) | Self::Bounds { min, .. } | Self::EmptyIntersection { min, .. } => {
+                Some(min)
+            }
+        }
+    }
+}
+
+fn provenance<'a, S: Copy + 'a>(
+    results: &'a [EffectiveTarget],
     target: usize,
-    attained: impl Fn(&EffectiveTarget) -> &Attained,
-) -> Provenance<'_> {
-    let mut path = vec![target];
-    let mut current = target;
+    of: impl Fn(&'a EffectiveTarget) -> &'a Effective<S> + Copy,
+) -> RequirementProvenance<'a> {
+    let start = of(&results[target]);
+    match (&start.min_attained, &start.max_attained) {
+        (None, None) => RequirementProvenance::Unconstrained,
+        (Some(_), Some(_)) => {
+            let min = walk_bound(results, vec![target], of, |e| &e.min_attained);
+            let max = walk_bound(results, vec![target], of, |e| &e.max_attained);
+            if matches!(start.requirement, Requirement::Forbidden) {
+                RequirementProvenance::EmptyIntersection { min, max }
+            } else {
+                RequirementProvenance::Bounds { min, max }
+            }
+        }
+        (Some(_), None) => {
+            if matches!(start.requirement, Requirement::Forbidden) {
+                walk_forbidden(results, target, of)
+            } else {
+                RequirementProvenance::Single(walk_bound(results, vec![target], of, |e| {
+                    &e.min_attained
+                }))
+            }
+        }
+        (None, Some(_)) => unreachable!(
+            "an upper-bound pointer only exists alongside a lower-bound pointer (Bounded or empty intersection)"
+        ),
+    }
+}
+
+/// Follow one bound's parent pointers from the last node of `path`
+/// to its `Own` origin.  Every node on a bound chain stores a
+/// pointer for that bound (the bound propagated through it).
+fn walk_bound<'a, S: 'a>(
+    results: &'a [EffectiveTarget],
+    mut path: Vec<usize>,
+    of: impl Fn(&'a EffectiveTarget) -> &'a Effective<S>,
+    pick: impl Fn(&'a Effective<S>) -> &'a Option<Attained>,
+) -> Provenance<'a> {
+    let mut current = *path.last().expect("bound walks start non-empty");
     loop {
-        match attained(&results[current]) {
+        match pick(of(&results[current]))
+            .as_ref()
+            .expect("every node on a bound chain stores that bound's pointer")
+        {
             Attained::Own(origin) => return Provenance { path, origin },
             Attained::Via(next) => {
                 current = *next;
@@ -243,12 +343,57 @@ fn provenance(
     }
 }
 
+/// Follow a single-pointer forbidden chain.  It either ends at an
+/// `Own` origin (a declared `"none"` or the strict cross-language
+/// default) or reaches a node whose forbidden arose from an empty
+/// intersection - the walk then forks into that node's two bound
+/// chains, keeping the shared prefix.
+fn walk_forbidden<'a, S: Copy + 'a>(
+    results: &'a [EffectiveTarget],
+    target: usize,
+    of: impl Fn(&'a EffectiveTarget) -> &'a Effective<S> + Copy,
+) -> RequirementProvenance<'a> {
+    let mut path = vec![target];
+    let mut current = target;
+    loop {
+        let node = of(&results[current]);
+        if path.len() > 1 && node.max_attained.is_some() {
+            // A forbidden node with both pointers is an
+            // empty-intersection site (reached via propagation).
+            let min = walk_bound(results, path.clone(), of, |e| &e.min_attained);
+            let max = walk_bound(results, path, of, |e| &e.max_attained);
+            return RequirementProvenance::EmptyIntersection { min, max };
+        }
+        match node
+            .min_attained
+            .as_ref()
+            .expect("a forbidden requirement stores its origin pointer")
+        {
+            Attained::Own(origin) => {
+                return RequirementProvenance::Single(Provenance { path, origin });
+            }
+            Attained::Via(next) => {
+                current = *next;
+                path.push(current);
+            }
+        }
+    }
+}
+
+/// One contribution to a target's join: its own `ReqOf` or a public
+/// dependency's `R_L`.
+struct Contribution<S> {
+    requirement: Requirement<S>,
+    attained: Attained,
+}
+
 /// Fold one target's own `ReqOf` with `R_L` of its public
-/// dependencies (the join of spec D10), recording the parent
-/// pointer.  The strictly-greater comparison keeps the target's own
-/// declaration on ties and the first attaining public dependency in
-/// declaration order otherwise (see [`Attained`]); the derived `Ord`
-/// on `Requirement` is D3's chain, so `max` is D4's join.
+/// dependencies (the join of spec D10), recording a parent pointer
+/// per bound.  The join intersects ranges, so the lower and upper
+/// bound may be attained by different contributions; a
+/// strictly-better comparison keeps the target's own declaration on
+/// ties and the first attaining public dependency in declaration
+/// order otherwise (see [`Attained`]).
 fn compose<S: Copy + Ord>(
     node: &TargetNode,
     own: Requirement<S>,
@@ -258,27 +403,77 @@ fn compose<S: Copy + Ord>(
     results: &[Option<EffectiveTarget>],
     of: impl Fn(&EffectiveTarget) -> &Effective<S>,
 ) -> Effective<S> {
-    let mut requirement = own;
-    let mut via: Option<usize> = None;
-    for edge in &node.deps {
-        if !edge.public {
-            continue;
-        }
+    let contributions = std::iter::once(Contribution {
+        requirement: own,
+        attained: Attained::Own(origin(node, own_source, decl_site, impl_site)),
+    })
+    .chain(node.deps.iter().filter(|edge| edge.public).map(|edge| {
         let dep = of(results[edge.to]
             .as_ref()
             .expect("topological order visits dependencies first"));
-        if dep.requirement > requirement {
-            requirement = dep.requirement;
-            via = Some(edge.to);
+        Contribution {
+            requirement: dep.requirement,
+            attained: Attained::Via(edge.to),
+        }
+    }));
+
+    let mut forbidden: Option<Attained> = None;
+    let mut lower: Option<(S, Attained)> = None;
+    let mut upper: Option<(S, Attained)> = None;
+    for contribution in contributions {
+        let (min, max) = match contribution.requirement {
+            Requirement::Forbidden => {
+                if forbidden.is_none() {
+                    forbidden = Some(contribution.attained);
+                }
+                continue;
+            }
+            Requirement::Unconstrained => continue,
+            Requirement::Min(min) => (min, None),
+            Requirement::Bounded(range) => (range.min(), Some(range.max())),
+        };
+        if lower.as_ref().is_none_or(|(current, _)| min > *current) {
+            lower = Some((min, contribution.attained.clone()));
+        }
+        if let Some(max) = max
+            && upper.as_ref().is_none_or(|(current, _)| max < *current)
+        {
+            upper = Some((max, contribution.attained));
         }
     }
-    let attained = match via {
-        Some(to) => Attained::Via(to),
-        None => Attained::Own(origin(node, own_source, decl_site, impl_site)),
-    };
-    Effective {
-        requirement,
-        attained,
+
+    // A forbidden contribution absorbs (spec L2): its single origin
+    // chain explains the result regardless of any accumulated
+    // bounds.
+    if let Some(attained) = forbidden {
+        return Effective {
+            requirement: Requirement::Forbidden,
+            min_attained: Some(attained),
+            max_attained: None,
+        };
+    }
+    match (lower, upper) {
+        (None, None) => Effective {
+            requirement: Requirement::Unconstrained,
+            min_attained: None,
+            max_attained: None,
+        },
+        (Some((min, attained)), None) => Effective {
+            requirement: Requirement::Min(min),
+            min_attained: Some(attained),
+            max_attained: None,
+        },
+        (Some((min, min_attained)), Some((max, max_attained))) => Effective {
+            // An empty intersection collapses to forbidden; both
+            // pointers survive so diagnostics can name the two
+            // clashing origins.
+            requirement: Requirement::bounded(min, max).unwrap_or(Requirement::Forbidden),
+            min_attained: Some(min_attained),
+            max_attained: Some(max_attained),
+        },
+        (None, Some(_)) => unreachable!(
+            "an upper bound only exists on Bounded contributions, which also carry a lower bound"
+        ),
     }
 }
 
@@ -353,10 +548,22 @@ fn topo_order(targets: &[TargetNode]) -> Vec<usize> {
 mod tests {
     use super::*;
     use cabin_core::standard_compatibility::DependencyKind;
-    use cabin_core::{InterfaceRequirement, StandardRequirement};
+    use cabin_core::{InterfaceRequirement, StandardLevel, StandardRequirement};
 
     fn interface_min<S>(min: S) -> InterfaceRequirement<S> {
-        InterfaceRequirement::Requirement(StandardRequirement { min, max: None })
+        InterfaceRequirement::Requirement(StandardRequirement::at_least(min))
+    }
+
+    fn interface_range<S: StandardLevel>(min: S, max: S) -> InterfaceRequirement<S> {
+        InterfaceRequirement::Requirement(StandardRequirement::bounded(min, Some(max)).unwrap())
+    }
+
+    /// Unwrap a provenance expected to be a single chain.
+    fn single(provenance: RequirementProvenance<'_>) -> Provenance<'_> {
+        match provenance {
+            RequirementProvenance::Single(chain) => chain,
+            other => panic!("expected a single provenance chain, got {other:?}"),
+        }
     }
 
     /// A compiled target with no declarations - D9 row 4 for
@@ -435,12 +642,12 @@ mod tests {
             Requirement::Min(CxxStandard::Cxx20)
         );
 
-        let cxx = provenance_cxx(&results, 0);
+        let cxx = single(provenance_cxx(&results, 0));
         assert_eq!(cxx.path, [0, 1, 2]);
         assert_eq!(cxx.origin.source, ReqOfSource::Declared);
         assert_eq!(cxx.origin.site, site("b/cabin.toml", 200));
 
-        let c = provenance_c(&results, 0);
+        let c = single(provenance_c(&results, 0));
         assert_eq!(c.path, [0, 1, 2]);
         assert_eq!(c.origin.source, ReqOfSource::Declared);
         assert_eq!(c.origin.site, site("b/cabin.toml", 100));
@@ -498,15 +705,15 @@ mod tests {
 
         // Both root → a → z and root → b → z attain the join; the
         // first declared edge (a) is kept, deterministically.
-        assert_eq!(provenance_cxx(&results, 0).path, [0, 1, 3]);
-        assert_eq!(provenance_c(&results, 0).path, [0, 1, 3]);
+        assert_eq!(single(provenance_cxx(&results, 0)).path, [0, 1, 3]);
+        assert_eq!(single(provenance_c(&results, 0)).path, [0, 1, 3]);
 
         // a's own c++17 declaration is exceeded by z's c++20.
         assert_eq!(
             results[1].cxx.requirement,
             Requirement::Min(CxxStandard::Cxx20)
         );
-        assert_eq!(provenance_cxx(&results, 1).path, [1, 3]);
+        assert_eq!(single(provenance_cxx(&results, 1)).path, [1, 3]);
     }
 
     /// When the target's own declaration attains the join, the chain
@@ -526,7 +733,7 @@ mod tests {
         let targets = vec![root, dep];
         let results = effective_requirements(&targets);
 
-        let cxx = provenance_cxx(&results, 0);
+        let cxx = single(provenance_cxx(&results, 0));
         assert_eq!(
             results[0].cxx.requirement,
             Requirement::Min(CxxStandard::Cxx20)
@@ -570,11 +777,18 @@ mod tests {
         assert_eq!(results[1].cxx.requirement, Requirement::Unconstrained);
         assert_eq!(results[0].cxx.requirement, Requirement::Unconstrained);
         assert_eq!(results[1].c.requirement, Requirement::Forbidden);
-        assert_eq!(provenance_cxx(&results, 1).path, [1]);
+        // Unconstrained composed values have nothing to attribute.
         assert_eq!(
-            provenance_cxx(&results, 0).origin.source,
-            ReqOfSource::CompiledNoDeclaration
+            provenance_cxx(&results, 1),
+            RequirementProvenance::Unconstrained
         );
+        assert_eq!(
+            provenance_cxx(&results, 0),
+            RequirementProvenance::Unconstrained
+        );
+        // The forbidden C side of `a` (D9 row 6) keeps its single
+        // origin chain.
+        assert_eq!(single(provenance_c(&results, 1)).path, [1]);
     }
 
     /// Example 3: a declared `"none"` on a transitive public
@@ -606,7 +820,7 @@ mod tests {
         assert_eq!(results[0].cxx.requirement, Requirement::Forbidden);
         assert_eq!(results[1].cxx.requirement, Requirement::Forbidden);
 
-        let cxx = provenance_cxx(&results, 0);
+        let cxx = single(provenance_cxx(&results, 0));
         assert_eq!(cxx.path, [0, 1, 2]);
         assert_eq!(cxx.origin.source, ReqOfSource::DeclaredNone);
         assert_eq!(cxx.origin.site, site("b/cabin.toml", 64));
@@ -639,7 +853,7 @@ mod tests {
         let results = effective_requirements(&targets);
 
         assert_eq!(results[0].c.requirement, Requirement::Forbidden);
-        let c = provenance_c(&results, 0);
+        let c = single(provenance_c(&results, 0));
         assert_eq!(c.path, [0, 1, 2]);
         assert_eq!(c.origin.source, ReqOfSource::CrossLanguageDefault);
         assert_eq!(
@@ -697,14 +911,160 @@ mod tests {
         );
         assert_eq!(results[0].c.requirement, Requirement::Min(CStandard::C17));
 
-        let cxx = provenance_cxx(&results, 0);
+        let cxx = single(provenance_cxx(&results, 0));
         assert_eq!(cxx.path, [0, 1, 2]);
         assert_eq!(cxx.origin.source, ReqOfSource::HeaderOnlyInference);
         assert_eq!(cxx.origin.site, site("h/cabin.toml", 20));
         assert_eq!(
-            provenance_c(&results, 0).origin.site,
+            single(provenance_c(&results, 0)).origin.site,
             site("h/cabin.toml", 10)
         );
+    }
+
+    /// The two bounds of a composed range may come from different
+    /// targets: no single source determines the requirement, and
+    /// each bound carries its own chain.
+    #[test]
+    fn bounds_attributed_to_different_dependencies() {
+        let mut floor = node("floor:floor", compiled(None, Some(CxxStandard::Cxx23)), &[]);
+        floor.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx17));
+        floor.sites.decl_cxx = Some(site("floor/cabin.toml", 10));
+        let mut cap = node("cap:cap", compiled(None, Some(CxxStandard::Cxx17)), &[]);
+        cap.attributes.decl_cxx = Some(interface_range(CxxStandard::Cxx11, CxxStandard::Cxx20));
+        cap.sites.decl_cxx = Some(site("cap/cabin.toml", 20));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(1, true), (2, true)],
+            ),
+            floor,
+            cap,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(
+            results[0].cxx.requirement,
+            Requirement::bounded(CxxStandard::Cxx17, CxxStandard::Cxx20).unwrap()
+        );
+        let RequirementProvenance::Bounds { min, max } = provenance_cxx(&results, 0) else {
+            panic!("expected per-bound provenance");
+        };
+        assert_eq!(min.path, [0, 1]);
+        assert_eq!(min.origin.site, site("floor/cabin.toml", 10));
+        assert_eq!(max.path, [0, 2]);
+        assert_eq!(max.origin.site, site("cap/cabin.toml", 20));
+    }
+
+    /// Two public dependencies whose accepted ranges do not overlap
+    /// forbid the consumer outright, and the provenance names both
+    /// clashing chains.
+    #[test]
+    fn empty_intersection_forbids_with_both_chains() {
+        let mut modern = node(
+            "modern:modern",
+            compiled(None, Some(CxxStandard::Cxx23)),
+            &[],
+        );
+        modern.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx23));
+        modern.sites.decl_cxx = Some(site("modern/cabin.toml", 30));
+        let mut legacy = node(
+            "legacy:legacy",
+            compiled(None, Some(CxxStandard::Cxx14)),
+            &[],
+        );
+        legacy.attributes.decl_cxx = Some(interface_range(CxxStandard::Cxx11, CxxStandard::Cxx17));
+        legacy.sites.decl_cxx = Some(site("legacy/cabin.toml", 40));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(1, true), (2, true)],
+            ),
+            modern,
+            legacy,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(results[0].cxx.requirement, Requirement::Forbidden);
+        let RequirementProvenance::EmptyIntersection { min, max } = provenance_cxx(&results, 0)
+        else {
+            panic!("expected empty-intersection provenance");
+        };
+        assert_eq!(min.path, [0, 1]);
+        assert_eq!(min.origin.site, site("modern/cabin.toml", 30));
+        assert_eq!(max.path, [0, 2]);
+        assert_eq!(max.origin.site, site("legacy/cabin.toml", 40));
+    }
+
+    /// A forbidden born from an empty intersection propagates like
+    /// any forbidden; querying an ancestor keeps the shared prefix
+    /// and forks at the target where the ranges collapsed.
+    #[test]
+    fn propagated_empty_intersection_keeps_the_fork() {
+        let mut modern = node(
+            "modern:modern",
+            compiled(None, Some(CxxStandard::Cxx23)),
+            &[],
+        );
+        modern.attributes.decl_cxx = Some(interface_min(CxxStandard::Cxx23));
+        let mut legacy = node(
+            "legacy:legacy",
+            compiled(None, Some(CxxStandard::Cxx14)),
+            &[],
+        );
+        legacy.attributes.decl_cxx = Some(interface_range(CxxStandard::Cxx11, CxxStandard::Cxx17));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx26)),
+                &[(1, true)],
+            ),
+            node(
+                "mid:mid",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(2, true), (3, true)],
+            ),
+            modern,
+            legacy,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(results[0].cxx.requirement, Requirement::Forbidden);
+        assert_eq!(results[1].cxx.requirement, Requirement::Forbidden);
+        let RequirementProvenance::EmptyIntersection { min, max } = provenance_cxx(&results, 0)
+        else {
+            panic!("expected empty-intersection provenance");
+        };
+        assert_eq!(min.path, [0, 1, 2]);
+        assert_eq!(max.path, [0, 1, 3]);
+    }
+
+    /// A declared `"none"` absorbs even when bounded contributions
+    /// are present: the single forbidden chain explains the result.
+    #[test]
+    fn declared_none_absorbs_over_bounds() {
+        let mut none = node("none:none", compiled(None, Some(CxxStandard::Cxx17)), &[]);
+        none.attributes.decl_cxx = Some(InterfaceRequirement::None);
+        none.sites.decl_cxx = Some(site("none/cabin.toml", 50));
+        let mut cap = node("cap:cap", compiled(None, Some(CxxStandard::Cxx17)), &[]);
+        cap.attributes.decl_cxx = Some(interface_range(CxxStandard::Cxx11, CxxStandard::Cxx20));
+        let targets = vec![
+            node(
+                "root:root",
+                compiled(None, Some(CxxStandard::Cxx17)),
+                &[(1, true), (2, true)],
+            ),
+            none,
+            cap,
+        ];
+        let results = effective_requirements(&targets);
+
+        assert_eq!(results[0].cxx.requirement, Requirement::Forbidden);
+        let chain = single(provenance_cxx(&results, 0));
+        assert_eq!(chain.path, [0, 1]);
+        assert_eq!(chain.origin.source, ReqOfSource::DeclaredNone);
+        assert_eq!(chain.origin.site, site("none/cabin.toml", 50));
     }
 
     /// T1 (confluence): computing `R_L` along two different
@@ -787,9 +1147,12 @@ mod tests {
                 .map(|&index| mapping.iter().position(|&m| m == index).unwrap())
                 .collect()
         };
-        let fwd_chain = map_back(&provenance_cxx(&forward_results, forward[0]).path, forward);
+        let fwd_chain = map_back(
+            &single(provenance_cxx(&forward_results, forward[0])).path,
+            forward,
+        );
         let bwd_chain = map_back(
-            &provenance_cxx(&backward_results, backward[0]).path,
+            &single(provenance_cxx(&backward_results, backward[0])).path,
             backward,
         );
         assert_eq!(fwd_chain, bwd_chain);

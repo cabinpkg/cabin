@@ -178,9 +178,10 @@ fn reject_non_identifier(
     language: SourceLanguage,
     value: &str,
 ) -> Result<(), LanguageStandardParseError> {
-    // `>=` / `<=` are covered by their first character.
-    if value.contains(['>', '<', ',']) {
-        return Err(LanguageStandardParseError::RangeReserved {
+    // `>=` / `<=` are covered by their first character; `..` covers
+    // the display form of a bounded requirement pasted back in.
+    if value.contains(['>', '<', ',']) || value.contains("..") {
+        return Err(LanguageStandardParseError::RangeSyntax {
             language,
             value: value.to_owned(),
         });
@@ -191,10 +192,10 @@ fn reject_non_identifier(
     Ok(())
 }
 
-/// An invalid manifest standard value.  Range-like inputs and the
-/// misplaced interface-only `none` get dedicated variants; anything
-/// else is the invalid-value error listing the accepted
-/// identifiers.
+/// An invalid manifest standard value.  Range-like inputs, empty
+/// ranges, and the misplaced interface-only `none` get dedicated
+/// variants; anything else is the invalid-value error listing the
+/// accepted identifiers.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum LanguageStandardParseError {
     #[error(
@@ -207,12 +208,21 @@ pub enum LanguageStandardParseError {
         value: String,
     },
     #[error(
-        "range requirement `{value}` is reserved for a future version of Cabin; declare a single {} standard",
+        "`{value}` is not a {} standard identifier; a bounded interface requirement is declared as a `{{ min = \"...\", max = \"...\" }}` table",
         .language.human_label()
     )]
-    RangeReserved {
+    RangeSyntax {
         language: SourceLanguage,
         value: String,
+    },
+    #[error(
+        "empty {} interface requirement: min `{min}` is newer than max `{max}`; an inclusive range needs min <= max",
+        .language.human_label()
+    )]
+    EmptyRange {
+        language: SourceLanguage,
+        min: String,
+        max: String,
     },
     #[error(
         "`none` is only valid on `interface-c-standard` / `interface-cxx-standard`, where it marks the target's headers as not consumable from that language; compiled {} sources need a concrete standard",
@@ -286,29 +296,119 @@ impl std::fmt::Display for LanguageStandard {
     }
 }
 
-/// One interface standard requirement: the minimum standard the
-/// target's public headers require from consumers.  `max` is
-/// reserved for future range requirements and is never populated
-/// today, but it stays in the type and every serialized form so the
-/// wire shape does not change when ranges land.  This is the
-/// `{ min, max }` pair of spec D4's remark
-/// (`docs/design/standard-compatibility/spec.md`): with `max`
-/// always absent in v1, a requirement denotes the declared minimum
-/// `decl_L(t) = m` of spec D6, which D9 row 2 maps to the
-/// compatibility requirement `[m]`
-/// ([`crate::standard_compatibility::Requirement::Min`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StandardRequirement<S> {
-    pub min: S,
-    #[serde(default = "none")]
-    pub max: Option<S>,
+/// The two level chains, unified for generic code that needs the
+/// language tag or the canonical spelling of a level.
+pub trait StandardLevel: Copy + Ord + std::fmt::Debug + 'static {
+    const LANGUAGE: SourceLanguage;
+    fn level_str(self) -> &'static str;
+    /// The full level chain `Level_L` of spec D2, oldest to newest.
+    fn levels() -> &'static [Self];
 }
 
-// `#[serde(default)]` needs a fn item; `Option::default` would also
-// work but reads as a value default rather than "absent max".
-fn none<S>() -> Option<S> {
-    None
+impl StandardLevel for CStandard {
+    const LANGUAGE: SourceLanguage = SourceLanguage::C;
+    fn level_str(self) -> &'static str {
+        self.as_str()
+    }
+    fn levels() -> &'static [Self] {
+        &Self::ALL
+    }
+}
+
+impl StandardLevel for CxxStandard {
+    const LANGUAGE: SourceLanguage = SourceLanguage::Cxx;
+    fn level_str(self) -> &'static str {
+        self.as_str()
+    }
+    fn levels() -> &'static [Self] {
+        &Self::ALL
+    }
+}
+
+/// One interface standard requirement: the inclusive range of
+/// consumer standards the target's public headers accept.  `min` is
+/// always present; `max = None` leaves the range unbounded above
+/// (the minimum-only form).  This is the `{ min, max }` interval of
+/// spec D4 (`docs/design/standard-compatibility/spec.md`): D9 row 2
+/// maps a declaration to the compatibility requirement
+/// [`crate::standard_compatibility::Requirement::Min`] /
+/// [`crate::standard_compatibility::Requirement::Bounded`].
+/// The fields are private so the `min <= max` invariant holds by
+/// construction: bounded values only exist through [`Self::bounded`],
+/// and deserialization routes through it on every wire format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct StandardRequirement<S> {
+    min: S,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max: Option<S>,
+}
+
+impl<S> StandardRequirement<S> {
+    /// A minimum-only requirement: consumers at `min` or newer.
+    pub fn at_least(min: S) -> Self {
+        Self { min, max: None }
+    }
+}
+
+impl<S: Copy> StandardRequirement<S> {
+    /// The inclusive lower bound of the accepted range.
+    #[must_use]
+    pub fn min(self) -> S {
+        self.min
+    }
+
+    /// The inclusive upper bound, absent for the minimum-only form.
+    #[must_use]
+    pub fn max(self) -> Option<S> {
+        self.max
+    }
+}
+
+impl<S: StandardLevel> StandardRequirement<S> {
+    /// A validated requirement: inclusive `[min, max]` when `max` is
+    /// given, minimum-only otherwise.
+    ///
+    /// # Errors
+    /// Returns [`LanguageStandardParseError::EmptyRange`] when
+    /// `max < min` (the range would accept no standard at all).
+    pub fn bounded(min: S, max: Option<S>) -> Result<Self, LanguageStandardParseError> {
+        if let Some(max) = max
+            && max < min
+        {
+            return Err(LanguageStandardParseError::EmptyRange {
+                language: S::LANGUAGE,
+                min: min.level_str().to_owned(),
+                max: max.level_str().to_owned(),
+            });
+        }
+        Ok(Self { min, max })
+    }
+}
+
+// Hand-rolled so every wire format (manifest-independent JSON:
+// canonical metadata, index entries, summaries) enforces the
+// `min <= max` invariant on read.
+impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for StandardRequirement<S> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Raw<S> {
+            min: S,
+            #[serde(default = "none")]
+            max: Option<S>,
+        }
+        // `#[serde(default)]` needs a fn item; `Option::default`
+        // would also work but reads as a value default rather than
+        // "absent max".
+        fn none<S>() -> Option<S> {
+            None
+        }
+        let raw = Raw::<S>::deserialize(deserializer)?;
+        StandardRequirement::bounded(raw.min, raw.max).map_err(serde::de::Error::custom)
+    }
 }
 
 /// One declared interface-standard value: either a requirement or
@@ -339,8 +439,10 @@ impl<S> InterfaceRequirement<S> {
     }
 }
 
-/// Parse one `interface-c-standard` value: `none` or a single C
-/// standard (ranges are reserved; see [`CStandard::parse`]).
+/// Parse one `interface-c-standard` string value: `none` or a
+/// single C standard (the minimum-only form).  Bounded ranges use
+/// the `{ min, max }` table form, which the manifest layer routes
+/// through [`StandardRequirement::bounded`] instead.
 ///
 /// # Errors
 /// Propagates [`CStandard::parse`] errors for anything but `none`.
@@ -351,11 +453,11 @@ pub fn parse_interface_c(
         return Ok(InterfaceRequirement::None);
     }
     CStandard::parse(value)
-        .map(|min| InterfaceRequirement::Requirement(StandardRequirement { min, max: None }))
+        .map(|min| InterfaceRequirement::Requirement(StandardRequirement::at_least(min)))
 }
 
-/// Parse one `interface-cxx-standard` value: `none` or a single C++
-/// standard.
+/// Parse one `interface-cxx-standard` string value: `none` or a
+/// single C++ standard (the minimum-only form).
 ///
 /// # Errors
 /// Propagates [`CxxStandard::parse`] errors for anything but `none`.
@@ -366,7 +468,7 @@ pub fn parse_interface_cxx(
         return Ok(InterfaceRequirement::None);
     }
     CxxStandard::parse(value)
-        .map(|min| InterfaceRequirement::Requirement(StandardRequirement { min, max: None }))
+        .map(|min| InterfaceRequirement::Requirement(StandardRequirement::at_least(min)))
 }
 
 impl<S: std::fmt::Display> std::fmt::Display for InterfaceRequirement<S> {
@@ -383,9 +485,9 @@ impl<S: std::fmt::Display> std::fmt::Display for InterfaceRequirement<S> {
 }
 
 // `none` serializes as the bare string; a requirement serializes as
-// its `{ min, max }` table (with `max` present even while reserved)
-// so the canonical-metadata / index wire format is stable when
-// range support lands.
+// its `{ min, max }` table, `max` omitted for the minimum-only
+// form, so the canonical-metadata / index wire format carries
+// exactly the declared bounds.
 impl<S: Serialize> Serialize for InterfaceRequirement<S> {
     fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
@@ -398,14 +500,14 @@ impl<S: Serialize> Serialize for InterfaceRequirement<S> {
     }
 }
 
-impl<'de, S: Deserialize<'de>> Deserialize<'de> for InterfaceRequirement<S> {
+impl<'de, S: Deserialize<'de> + StandardLevel> Deserialize<'de> for InterfaceRequirement<S> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct InterfaceRequirementVisitor<S>(PhantomData<S>);
 
-        impl<'de, S: Deserialize<'de>> Visitor<'de> for InterfaceRequirementVisitor<S> {
+        impl<'de, S: Deserialize<'de> + StandardLevel> Visitor<'de> for InterfaceRequirementVisitor<S> {
             type Value = InterfaceRequirement<S>;
 
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -687,6 +789,7 @@ pub struct ResolvedStandard<S> {
 
 /// A resolved interface requirement plus where it came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "S: Deserialize<'de> + StandardLevel"))]
 pub struct InterfaceStandard<S> {
     pub requirement: InterfaceRequirement<S>,
     pub source: InterfaceStandardSource,
@@ -822,10 +925,9 @@ pub fn interface_c(
         return Some(interface);
     }
     effective_c(package, target).map(|resolved| InterfaceStandard {
-        requirement: InterfaceRequirement::Requirement(StandardRequirement {
-            min: resolved.standard,
-            max: None,
-        }),
+        requirement: InterfaceRequirement::Requirement(StandardRequirement::at_least(
+            resolved.standard,
+        )),
         source: InterfaceStandardSource::CompileStandard,
     })
 }
@@ -847,10 +949,9 @@ pub fn interface_cxx(
         return Some(interface);
     }
     effective_cxx(package, target).map(|resolved| InterfaceStandard {
-        requirement: InterfaceRequirement::Requirement(StandardRequirement {
-            min: resolved.standard,
-            max: None,
-        }),
+        requirement: InterfaceRequirement::Requirement(StandardRequirement::at_least(
+            resolved.standard,
+        )),
         source: InterfaceStandardSource::CompileStandard,
     })
 }
@@ -858,10 +959,13 @@ pub fn interface_cxx(
 /// Whether a dependency target imposes an interface requirement for
 /// `language` on its consumers.  A language is relevant when the
 /// target has sources of that language, declares a target-level
-/// field for it (implementation or interface), or is header-only
+/// field for it (implementation or interface), or is library-like
 /// while the package declares a package-level *interface* standard
-/// for it.  Package-level implementation defaults never create
-/// relevance by themselves.
+/// for it - mirroring the spec-D6 declaration mapping
+/// (`dependency_attributes`), so the always-on build-time layer
+/// covers every range the post-resolution pass would compose.
+/// Package-level implementation defaults never create relevance by
+/// themselves.
 #[must_use]
 pub fn imposes_requirement(
     target: &Target,
@@ -881,12 +985,12 @@ pub fn imposes_requirement(
                 || target.language.interface_cxx_standard.is_some()
         }
     };
-    let header_only_package_interface = target.kind.is_header_only()
+    let library_package_interface = target.kind.is_library_like()
         && match language {
             SourceLanguage::C => package_settings.interface_c_standard.is_some(),
             SourceLanguage::Cxx => package_settings.interface_cxx_standard.is_some(),
         };
-    has_sources || target_declares || header_only_package_interface
+    has_sources || target_declares || library_package_interface
 }
 
 /// Token prefixes that select a language standard inside an
@@ -994,38 +1098,99 @@ pub fn find_standard_flag_conflicts(
     out
 }
 
-/// A target whose declared interface minimum is newer than the
-/// implementation standard its own sources compile with - a
-/// manifest contradiction, rejected at load.
+/// A target whose declared interface requirement its own sources
+/// violate - a manifest contradiction, rejected at load.  The
+/// target's own translation units include its own public headers,
+/// so the effective implementation standard must lie inside the
+/// declared consumable range.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error(
-    "target `{target}` in package `{package}` sets `{field} = \"{interface_min}\"` but compiles its {} sources as `{implementation}`; the target's own translation units could not include its own public headers - raise `{}` or lower the interface minimum",
-    .language.human_label(),
-    implementation_field(*.language)
-)]
-pub struct InterfaceStandardContradiction {
-    pub package: String,
-    pub target: String,
-    pub language: SourceLanguage,
-    /// The interface field family that was declared
-    /// (`interface-c-standard` or `interface-cxx-standard`).
-    pub field: &'static str,
-    pub implementation: LanguageStandard,
-    pub interface_min: LanguageStandard,
+pub enum InterfaceStandardContradiction {
+    /// The declared (or inferred) minimum is newer than the
+    /// implementation standard.
+    #[error(
+        "target `{target}` in package `{package}` requires at least `{interface_min}` from consumers (`{field}`) but compiles its {} sources as `{implementation}`; the target's own translation units could not include its own public headers - raise `{}` or lower the interface minimum",
+        .language.human_label(),
+        implementation_field(*.language)
+    )]
+    MinAboveImplementation {
+        package: String,
+        target: String,
+        language: SourceLanguage,
+        /// The interface field family that was declared
+        /// (`interface-c-standard` or `interface-cxx-standard`).
+        field: &'static str,
+        implementation: LanguageStandard,
+        interface_min: LanguageStandard,
+    },
+    /// The declared maximum is older than the implementation
+    /// standard.
+    #[error(
+        "target `{target}` in package `{package}` accepts consumers only up to `{interface_max}` (`{field}`) but compiles its {} sources as `{implementation}`; the target's own translation units already exceed the declared interface maximum - raise the max or lower `{}`",
+        .language.human_label(),
+        implementation_field(*.language)
+    )]
+    MaxBelowImplementation {
+        package: String,
+        target: String,
+        language: SourceLanguage,
+        /// The interface field family that was declared.
+        field: &'static str,
+        implementation: LanguageStandard,
+        interface_max: LanguageStandard,
+    },
 }
 
 /// Detect interface/implementation contradictions: for each
 /// library-like target and language it compiles, the effective
-/// interface minimum must not be newer than the effective
-/// implementation standard (the target's own translation units
-/// include its own public headers).  Runs on resolved declarations,
-/// after workspace-marker resolution.  The compile-standard
-/// interface fallback equals the implementation standard, so it can
-/// never contradict.
+/// implementation standard must lie inside the effective interface
+/// range - not below its minimum, not above its maximum (the
+/// target's own translation units include its own public headers).
+/// Runs on resolved declarations, after workspace-marker
+/// resolution.  The compile-standard interface fallback equals the
+/// implementation standard, so it can never contradict.
 #[must_use]
 pub fn find_interface_standard_contradictions(
     package: &crate::Package,
 ) -> Vec<InterfaceStandardContradiction> {
+    fn check<S: StandardLevel>(
+        package: &crate::Package,
+        target: &Target,
+        field: &'static str,
+        implementation: Option<ResolvedStandard<S>>,
+        interface: Option<InterfaceStandard<S>>,
+        lift: impl Fn(S) -> LanguageStandard,
+        out: &mut Vec<InterfaceStandardContradiction>,
+    ) {
+        let (Some(implementation), Some(interface)) = (implementation, interface) else {
+            return;
+        };
+        let InterfaceRequirement::Requirement(requirement) = interface.requirement else {
+            return;
+        };
+        if requirement.min > implementation.standard {
+            out.push(InterfaceStandardContradiction::MinAboveImplementation {
+                package: package.name.as_str().to_owned(),
+                target: target.name.as_str().to_owned(),
+                language: S::LANGUAGE,
+                field,
+                implementation: lift(implementation.standard),
+                interface_min: lift(requirement.min),
+            });
+        }
+        if let Some(max) = requirement.max
+            && max < implementation.standard
+        {
+            out.push(InterfaceStandardContradiction::MaxBelowImplementation {
+                package: package.name.as_str().to_owned(),
+                target: target.name.as_str().to_owned(),
+                language: S::LANGUAGE,
+                field,
+                implementation: lift(implementation.standard),
+                interface_max: lift(max),
+            });
+        }
+    }
+
     let resolved = resolve_language_standards(&package.language);
     let mut out = Vec::new();
     for target in &package.targets {
@@ -1039,39 +1204,27 @@ pub fn find_interface_standard_contradictions(
                 .iter()
                 .any(|s| classify_source(s) == Some(language))
         };
-        if compiles(SourceLanguage::C)
-            && let (Some(implementation), Some(interface)) = (
+        if compiles(SourceLanguage::C) {
+            check(
+                package,
+                target,
+                "interface-c-standard",
                 effective_c(&resolved, target),
                 interface_c(&resolved, &package.language, target),
-            )
-            && let Some(min) = interface.requirement.min()
-            && min > implementation.standard
-        {
-            out.push(InterfaceStandardContradiction {
-                package: package.name.as_str().to_owned(),
-                target: target.name.as_str().to_owned(),
-                language: SourceLanguage::C,
-                field: "interface-c-standard",
-                implementation: LanguageStandard::C(implementation.standard),
-                interface_min: LanguageStandard::C(min),
-            });
+                LanguageStandard::C,
+                &mut out,
+            );
         }
-        if compiles(SourceLanguage::Cxx)
-            && let (Some(implementation), Some(interface)) = (
+        if compiles(SourceLanguage::Cxx) {
+            check(
+                package,
+                target,
+                "interface-cxx-standard",
                 effective_cxx(&resolved, target),
                 interface_cxx(&resolved, &package.language, target),
-            )
-            && let Some(min) = interface.requirement.min()
-            && min > implementation.standard
-        {
-            out.push(InterfaceStandardContradiction {
-                package: package.name.as_str().to_owned(),
-                target: target.name.as_str().to_owned(),
-                language: SourceLanguage::Cxx,
-                field: "interface-cxx-standard",
-                implementation: LanguageStandard::Cxx(implementation.standard),
-                interface_min: LanguageStandard::Cxx(min),
-            });
+                LanguageStandard::Cxx,
+                &mut out,
+            );
         }
     }
     out
@@ -1258,31 +1411,69 @@ mod tests {
     }
 
     #[test]
-    fn range_like_values_get_the_reserved_diagnostic() {
-        for value in [">=c11", "<=c17", ">c99", "<c23", "c11,c17", "c11, c17"] {
+    fn range_like_strings_point_at_the_table_syntax() {
+        for value in [
+            ">=c11", "<=c17", ">c99", "<c23", "c11,c17", "c11, c17", "c11..c17",
+        ] {
             let err = CStandard::parse(value).unwrap_err();
             assert!(
-                matches!(err, LanguageStandardParseError::RangeReserved { .. }),
-                "expected reserved-range error for {value}, got: {err}"
+                matches!(err, LanguageStandardParseError::RangeSyntax { .. }),
+                "expected range-syntax error for {value}, got: {err}"
             );
-            assert!(err.to_string().contains("reserved for a future version"));
+            assert!(err.to_string().contains(r#"{ min = "...", max = "..." }"#));
         }
-        for value in [">=c++17", "<=c++20", ">c++11", "<c++23", "c++17,c++20"] {
+        for value in [
+            ">=c++17",
+            "<=c++20",
+            ">c++11",
+            "<c++23",
+            "c++17,c++20",
+            "c++17..c++20",
+        ] {
             let err = CxxStandard::parse(value).unwrap_err();
             assert!(
-                matches!(err, LanguageStandardParseError::RangeReserved { .. }),
-                "expected reserved-range error for {value}, got: {err}"
+                matches!(err, LanguageStandardParseError::RangeSyntax { .. }),
+                "expected range-syntax error for {value}, got: {err}"
             );
         }
-        // The interface parsers share the same rejection.
+        // The interface parsers share the same rejection: the string
+        // form stays minimum-only, and the diagnostic names the
+        // table form that declares a bounded range.
         assert!(matches!(
             parse_interface_c(">=c11").unwrap_err(),
-            LanguageStandardParseError::RangeReserved { .. }
+            LanguageStandardParseError::RangeSyntax { .. }
         ));
         assert!(matches!(
-            parse_interface_cxx(">=c++17").unwrap_err(),
-            LanguageStandardParseError::RangeReserved { .. }
+            parse_interface_cxx("c++17..c++20").unwrap_err(),
+            LanguageStandardParseError::RangeSyntax { .. }
         ));
+    }
+
+    #[test]
+    fn bounded_validates_the_range() {
+        assert_eq!(
+            StandardRequirement::bounded(CxxStandard::Cxx17, Some(CxxStandard::Cxx23)).unwrap(),
+            StandardRequirement {
+                min: CxxStandard::Cxx17,
+                max: Some(CxxStandard::Cxx23),
+            }
+        );
+        // A single-standard range is valid (min == max).
+        assert!(StandardRequirement::bounded(CStandard::C17, Some(CStandard::C17)).is_ok());
+        assert_eq!(
+            StandardRequirement::bounded(CStandard::C17, None).unwrap(),
+            StandardRequirement::at_least(CStandard::C17)
+        );
+        let err =
+            StandardRequirement::bounded(CxxStandard::Cxx20, Some(CxxStandard::Cxx14)).unwrap_err();
+        assert!(
+            matches!(err, LanguageStandardParseError::EmptyRange { .. }),
+            "expected empty-range error, got: {err}"
+        );
+        assert_eq!(
+            err.to_string(),
+            "empty C++ interface requirement: min `c++20` is newer than max `c++14`; an inclusive range needs min <= max"
+        );
     }
 
     #[test]
@@ -1366,15 +1557,17 @@ mod tests {
     }
 
     #[test]
-    fn standard_requirement_serde_round_trips_preserving_max() {
-        let min_only = StandardRequirement {
-            min: CxxStandard::Cxx17,
-            max: None,
-        };
+    fn standard_requirement_serde_round_trips_bounds() {
+        let min_only = StandardRequirement::at_least(CxxStandard::Cxx17);
         let json = serde_json::to_string(&min_only).unwrap();
-        // `max` stays in the serialized form even while reserved.
-        assert_eq!(json, r#"{"min":"c++17","max":null}"#);
+        // An absent `max` is omitted: the wire form carries exactly
+        // the declared bounds.
+        assert_eq!(json, r#"{"min":"c++17"}"#);
         let parsed: StandardRequirement<CxxStandard> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, min_only);
+        // An explicit `max: null` also reads as unbounded.
+        let parsed: StandardRequirement<CxxStandard> =
+            serde_json::from_str(r#"{"min":"c++17","max":null}"#).unwrap();
         assert_eq!(parsed, min_only);
 
         let with_max = StandardRequirement {
@@ -1386,12 +1579,16 @@ mod tests {
         let parsed: StandardRequirement<CStandard> = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, with_max);
 
-        // A missing `max` still deserializes (as unpopulated).
-        let parsed: StandardRequirement<CStandard> =
-            serde_json::from_str(r#"{"min":"c11"}"#).unwrap();
-        assert_eq!(parsed.max, None);
-        // Unknown future range syntax falls through
-        // `deny_unknown_fields`.
+        // An empty range is rejected on read - every wire format
+        // enforces the `min <= max` invariant.
+        let err =
+            serde_json::from_str::<StandardRequirement<CStandard>>(r#"{"min":"c17","max":"c99"}"#)
+                .unwrap_err();
+        assert!(
+            err.to_string().contains("empty C interface requirement"),
+            "unexpected error: {err}"
+        );
+        // Unknown fields fall through `deny_unknown_fields`.
         assert!(
             serde_json::from_str::<StandardRequirement<CStandard>>(
                 r#"{"min":"c11","exact":"c17"}"#
@@ -1410,7 +1607,7 @@ mod tests {
 
         let req = requirement(CxxStandard::Cxx20);
         let json = serde_json::to_string(&req).unwrap();
-        assert_eq!(json, r#"{"min":"c++20","max":null}"#);
+        assert_eq!(json, r#"{"min":"c++20"}"#);
         let parsed: InterfaceRequirement<CxxStandard> = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, req);
 
@@ -1747,15 +1944,16 @@ mod tests {
         let contradictions = find_interface_standard_contradictions(&package);
         assert_eq!(contradictions.len(), 1);
         let contradiction = &contradictions[0];
-        assert_eq!(contradiction.target, "t");
-        assert_eq!(contradiction.field, "interface-cxx-standard");
         assert_eq!(
-            contradiction.implementation,
-            LanguageStandard::Cxx(CxxStandard::Cxx17)
-        );
-        assert_eq!(
-            contradiction.interface_min,
-            LanguageStandard::Cxx(CxxStandard::Cxx20)
+            *contradiction,
+            InterfaceStandardContradiction::MinAboveImplementation {
+                package: "demo".to_owned(),
+                target: "t".to_owned(),
+                language: SourceLanguage::Cxx,
+                field: "interface-cxx-standard",
+                implementation: LanguageStandard::Cxx(CxxStandard::Cxx17),
+                interface_min: LanguageStandard::Cxx(CxxStandard::Cxx20),
+            }
         );
         let message = contradiction.to_string();
         assert!(
@@ -1781,7 +1979,83 @@ mod tests {
         );
         let contradictions = find_interface_standard_contradictions(&package);
         assert_eq!(contradictions.len(), 1);
-        assert_eq!(contradictions[0].field, "interface-c-standard");
+        assert!(matches!(
+            contradictions[0],
+            InterfaceStandardContradiction::MinAboveImplementation {
+                field: "interface-c-standard",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn contradiction_fires_when_implementation_exceeds_interface_maximum() {
+        // The target compiles as c++26 but caps consumers at c++23:
+        // its own translation units exceed the declared maximum.
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::Requirement(StandardRequirement {
+                        min: CxxStandard::Cxx17,
+                        max: Some(CxxStandard::Cxx23),
+                    }),
+                )),
+                ..Default::default()
+            },
+        );
+        let package = package_with(
+            vec![lib],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx26)),
+                ..Default::default()
+            },
+        );
+        let contradictions = find_interface_standard_contradictions(&package);
+        assert_eq!(contradictions.len(), 1);
+        assert_eq!(
+            contradictions[0],
+            InterfaceStandardContradiction::MaxBelowImplementation {
+                package: "demo".to_owned(),
+                target: "t".to_owned(),
+                language: SourceLanguage::Cxx,
+                field: "interface-cxx-standard",
+                implementation: LanguageStandard::Cxx(CxxStandard::Cxx26),
+                interface_max: LanguageStandard::Cxx(CxxStandard::Cxx23),
+            }
+        );
+        let message = contradictions[0].to_string();
+        assert!(
+            message.contains("exceed the declared interface maximum"),
+            "message must state the reason plainly: {message}"
+        );
+
+        // An implementation inside the declared range is fine, and
+        // one below the min plus above the max double-reports only
+        // through the two distinct variants (impossible for a single
+        // language: min <= max is validated, so impl cannot be both).
+        let lib = target(
+            TargetKind::Library,
+            &["a.cc"],
+            LanguageStandardSettings {
+                interface_cxx_standard: Some(StandardDeclaration::Declared(
+                    InterfaceRequirement::Requirement(StandardRequirement {
+                        min: CxxStandard::Cxx17,
+                        max: Some(CxxStandard::Cxx23),
+                    }),
+                )),
+                ..Default::default()
+            },
+        );
+        let package = package_with(
+            vec![lib],
+            LanguageStandardSettings {
+                cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
+                ..Default::default()
+            },
+        );
+        assert!(find_interface_standard_contradictions(&package).is_empty());
     }
 
     #[test]
@@ -2053,7 +2327,7 @@ mod tests {
         let declared_interface: StandardDeclaration<InterfaceRequirement<CxxStandard>> =
             StandardDeclaration::Declared(requirement(CxxStandard::Cxx20));
         let json = serde_json::to_string(&declared_interface).unwrap();
-        assert_eq!(json, r#"{"min":"c++20","max":null}"#);
+        assert_eq!(json, r#"{"min":"c++20"}"#);
         let parsed: StandardDeclaration<InterfaceRequirement<CxxStandard>> =
             serde_json::from_str(&json).unwrap();
         assert_eq!(

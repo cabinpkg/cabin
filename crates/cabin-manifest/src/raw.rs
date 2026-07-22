@@ -379,19 +379,34 @@ pub(crate) struct RawDependencyTable {
 pub(crate) enum RawStandardField {
     Value(String),
     Marker(RawStandardMarker),
+    /// The `{ min = "...", max = "..." }` bounded-requirement table,
+    /// valid on interface fields only (the parse layer rejects it on
+    /// implementation fields).
+    Range(RawStandardRange),
 }
 
-/// The `{ workspace = <bool> }` marker table.  Any other key is
-/// rejected by `deny_unknown_fields`.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// The `{ workspace = <bool> }` marker table.
+#[derive(Debug, Clone)]
 pub(crate) struct RawStandardMarker {
     pub(crate) workspace: bool,
+}
+
+/// The bounded-requirement table: `min` is required (validated at
+/// the parse layer for a field-specific diagnostic), `max`
+/// optional.
+#[derive(Debug, Clone)]
+pub(crate) struct RawStandardRange {
+    pub(crate) min: Option<String>,
+    pub(crate) max: Option<String>,
 }
 
 // Hand-rolled Deserialize so a table-shaped value reports the
 // table's own typed error (the `#[serde(untagged)]` derive would
 // collapse every failure to "data did not match any variant").
+// One table shape carries all recognized keys: `workspace` selects
+// the opt-in marker, `min` / `max` a bounded requirement, and
+// mixing the two families is rejected here where the key names are
+// still on hand.
 impl<'de> Deserialize<'de> for RawStandardField {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -399,11 +414,21 @@ impl<'de> Deserialize<'de> for RawStandardField {
     {
         struct RawStandardFieldVisitor;
 
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct RawStandardTable {
+            workspace: Option<bool>,
+            min: Option<String>,
+            max: Option<String>,
+        }
+
         impl<'de> Visitor<'de> for RawStandardFieldVisitor {
             type Value = RawStandardField;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("a language standard string or `{ workspace = true }`")
+                f.write_str(
+                    "a language standard string, `{ workspace = true }`, or `{ min = \"...\", max = \"...\" }`",
+                )
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -424,8 +449,19 @@ impl<'de> Deserialize<'de> for RawStandardField {
             where
                 M: MapAccess<'de>,
             {
-                RawStandardMarker::deserialize(MapAccessDeserializer::new(map))
-                    .map(RawStandardField::Marker)
+                let table = RawStandardTable::deserialize(MapAccessDeserializer::new(map))?;
+                match (table.workspace, &table.min, &table.max) {
+                    (Some(_), None, None) => Ok(RawStandardField::Marker(RawStandardMarker {
+                        workspace: table.workspace.unwrap_or(false),
+                    })),
+                    (None, _, _) => Ok(RawStandardField::Range(RawStandardRange {
+                        min: table.min,
+                        max: table.max,
+                    })),
+                    (Some(_), _, _) => Err(serde::de::Error::custom(
+                        "`workspace = true` cannot be combined with `min` / `max`; opt into the workspace default or declare the bounds, not both",
+                    )),
+                }
             }
         }
 
@@ -457,14 +493,17 @@ pub(crate) struct RawWorkspace {
     #[serde(default, rename = "dev-dependencies")]
     pub(crate) dev_dependencies: BTreeMap<String, String>,
     /// `[workspace]`-level language-standard defaults members opt
-    /// into per field with `<field> = { workspace = true }`.  Plain
-    /// strings - the marker form is not accepted here.
+    /// into per field with `<field> = { workspace = true }`.  The
+    /// marker form is not accepted here; the implementation fields
+    /// are plain strings, and the interface fields take the same
+    /// remaining shapes as their `[package]` counterparts (`"none"`,
+    /// a minimum string, or a `{ min, max }` table).
     #[serde(default, rename = "c-standard")]
     pub(crate) c_standard: Option<String>,
     #[serde(default, rename = "cxx-standard")]
     pub(crate) cxx_standard: Option<String>,
     #[serde(default, rename = "interface-c-standard")]
-    pub(crate) interface_c_standard: Option<String>,
+    pub(crate) interface_c_standard: Option<RawStandardField>,
     #[serde(default, rename = "interface-cxx-standard")]
-    pub(crate) interface_cxx_standard: Option<String>,
+    pub(crate) interface_cxx_standard: Option<RawStandardField>,
 }

@@ -19,10 +19,7 @@ use cabin_driver::{LoweredAction, LoweredActionKind, lower};
 /// Wrap a single standard as the `{ min, max }` interface
 /// requirement shape the interface fields carry.
 fn interface_req<S>(min: S) -> cabin_core::InterfaceRequirement<S> {
-    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement {
-        min,
-        max: None,
-    })
+    cabin_core::InterfaceRequirement::Requirement(cabin_core::StandardRequirement::at_least(min))
 }
 
 /// Lower a semantic action to inspect the concrete argv / backend
@@ -2724,22 +2721,185 @@ fn interface_requirement_blocks_lower_consumer() {
     assert_eq!(bg.standard_violations.len(), 1);
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::IncompatibleLanguageStandard {
-            consumer,
-            dependency,
-            required,
-            requirement_source,
-            ..
-        } => {
-            assert_eq!(consumer, "demo:app");
-            assert_eq!(dependency, "demo:core");
-            assert_eq!(required, "c++20");
+        BuildError::IncompatibleLanguageStandard(payload) => {
+            assert_eq!(payload.consumer, "demo:app");
+            assert_eq!(payload.dependency, "demo:core");
+            assert_eq!(payload.required, "c++20 or newer");
             assert!(
-                requirement_source.contains("effective implementation standard"),
-                "unexpected source: {requirement_source}"
+                payload
+                    .requirement_source
+                    .contains("effective implementation standard"),
+                "unexpected source: {}",
+                payload.requirement_source
             );
         }
         other => panic!("expected IncompatibleLanguageStandard, got {other}"),
+    }
+}
+
+#[test]
+fn interface_maximum_blocks_newer_consumer() {
+    use cabin_core::{
+        CxxStandard, InterfaceRequirement, LanguageStandardSettings, StandardDeclaration,
+        StandardRequirement,
+    };
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target_with_language(
+                "legacy",
+                TargetKind::Library,
+                &["src/legacy.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(
+                        InterfaceRequirement::Requirement(
+                            StandardRequirement::bounded(
+                                CxxStandard::Cxx11,
+                                Some(CxxStandard::Cxx14),
+                            )
+                            .unwrap(),
+                        ),
+                    )),
+                    ..Default::default()
+                },
+            ),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["legacy"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    match &bg.standard_violations[0] {
+        crate::StandardViolation::InterfaceIncompatibility { kind, .. } => {
+            assert_eq!(
+                *kind,
+                crate::InterfaceViolationKind::AboveMaximum { max: "c++14" }
+            );
+        }
+        other => panic!("expected InterfaceIncompatibility, got {other:?}"),
+    }
+    let err = crate::validate_planned_standards(&bg).unwrap_err();
+    match err {
+        BuildError::IncompatibleLanguageStandard(payload) => {
+            assert_eq!(payload.required, "c++11..c++14");
+            let message = payload.to_string();
+            assert!(
+                message.contains("lower `demo:app`'s C++ standard to at most `c++14`"),
+                "expected the lower remedy in: {message}"
+            );
+            assert!(
+                !message.contains("raise `demo:app`"),
+                "an above-maximum violation must not suggest raising: {message}"
+            );
+        }
+        other => panic!("expected IncompatibleLanguageStandard, got {other}"),
+    }
+
+    // A consumer inside the range plans cleanly.
+    let package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target_with_language(
+                "legacy",
+                TargetKind::Library,
+                &["src/legacy.cc"],
+                &[],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                    interface_cxx_standard: Some(StandardDeclaration::Declared(
+                        InterfaceRequirement::Requirement(
+                            StandardRequirement::bounded(
+                                CxxStandard::Cxx11,
+                                Some(CxxStandard::Cxx14),
+                            )
+                            .unwrap(),
+                        ),
+                    )),
+                    ..Default::default()
+                },
+            ),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["legacy"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx14)),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert!(bg.standard_violations.is_empty());
+    crate::validate_planned_standards(&bg).unwrap();
+}
+
+#[test]
+fn package_level_interface_range_binds_compiled_targets_without_that_language() {
+    use cabin_core::{
+        CxxStandard, InterfaceRequirement, LanguageStandardSettings, StandardDeclaration,
+        StandardRequirement,
+    };
+    // The library compiles only C and declares nothing itself; the
+    // package-level interface default is what caps C++ consumers
+    // (the spec-D6 mapping applies it to every library-like
+    // target), so the always-on layer must enforce it here too -
+    // otherwise the per-edge override could silence a range
+    // violation, which it must never be able to do.
+    let mut package = Package::new(
+        pkg_name("demo"),
+        version(),
+        vec![
+            target("clib", TargetKind::Library, &["src/clib.c"], &[]),
+            target_with_language(
+                "app",
+                TargetKind::Executable,
+                &["src/main.cc"],
+                &["clib"],
+                LanguageStandardSettings {
+                    cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
+                    ..Default::default()
+                },
+            ),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    package.language.interface_cxx_standard = Some(StandardDeclaration::Declared(
+        InterfaceRequirement::Requirement(
+            StandardRequirement::bounded(CxxStandard::Cxx11, Some(CxxStandard::Cxx14)).unwrap(),
+        ),
+    ));
+    let graph = single_package_graph(package, "/abs/proj");
+    let bg = plan_with_standards(&graph, Dialect::GnuLike).unwrap();
+    assert_eq!(bg.standard_violations.len(), 1);
+    match &bg.standard_violations[0] {
+        crate::StandardViolation::InterfaceIncompatibility { kind, .. } => {
+            assert_eq!(
+                *kind,
+                crate::InterfaceViolationKind::AboveMaximum { max: "c++14" }
+            );
+        }
+        other => panic!("expected InterfaceIncompatibility, got {other:?}"),
     }
 }
 
@@ -2895,17 +3055,15 @@ fn header_only_package_interface_standard_binds_consumers() {
     assert_eq!(bg.standard_violations.len(), 1);
     let err = crate::validate_planned_standards(&bg).unwrap_err();
     match err {
-        BuildError::IncompatibleLanguageStandard {
-            dependency,
-            required,
-            requirement_source,
-            ..
-        } => {
-            assert_eq!(dependency, "hdrs:hdrs");
-            assert_eq!(required, "c++20");
+        BuildError::IncompatibleLanguageStandard(payload) => {
+            assert_eq!(payload.dependency, "hdrs:hdrs");
+            assert_eq!(payload.required, "c++20 or newer");
             assert!(
-                requirement_source.contains("package-level interface standard"),
-                "unexpected source: {requirement_source}"
+                payload
+                    .requirement_source
+                    .contains("package-level interface standard"),
+                "unexpected source: {}",
+                payload.requirement_source
             );
         }
         other => panic!("expected IncompatibleLanguageStandard, got {other}"),
