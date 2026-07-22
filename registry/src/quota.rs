@@ -27,7 +27,7 @@ const DEFAULT: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
     max_total_bytes_per_user: 128 * 1024 * 1024,
     max_new_packages_per_day: 5,
-    max_packages_total: 50,
+    max_packages_total: 20,
     max_versions_per_package_per_day: 30,
     publish_burst: 5.0,
     publish_refill_per_minute: 1.0,
@@ -388,6 +388,34 @@ mod tests {
             ..at_limits
         };
         assert_eq!(check_publish(1, &existing, &quotas), Ok(()));
+    }
+
+    #[test]
+    fn total_package_quota_is_an_exact_threshold() {
+        let quotas = quotas_for_class("default");
+        // One below the limit: creating the package that lands exactly
+        // on the limit is allowed, the next one is not.
+        let one_below = PublishCounts {
+            user_package_count: quotas.max_packages_total - 1,
+            ..healthy_counts()
+        };
+        assert_eq!(check_publish(1, &one_below, &quotas), Ok(()));
+        let at_limit = PublishCounts {
+            user_package_count: quotas.max_packages_total,
+            ..healthy_counts()
+        };
+        assert_eq!(
+            check_publish(1, &at_limit, &quotas),
+            Err(QUOTA_PACKAGES_TOTAL)
+        );
+        // A user already over the limit (e.g. after a quota reduction)
+        // still publishes new versions of existing packages.
+        let over_limit_existing = PublishCounts {
+            user_package_count: quotas.max_packages_total + 5,
+            package_exists: true,
+            ..healthy_counts()
+        };
+        assert_eq!(check_publish(1, &over_limit_existing, &quotas), Ok(()));
     }
 
     #[test]
