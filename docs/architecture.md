@@ -1572,7 +1572,9 @@ documented in `registry/docs/architecture.md`:
   [`design/standard-compatibility/preference-mode.md`](design/standard-compatibility/preference-mode.md)) -
   but they are **never** encoded as `PubGrub` constraints and never filter a version out of the
   solution, so preference never introduces a resolution failure `allow` would not also produce.
-  Range interface requirements (the reserved `max` slot) belong to a future version.  The
+  Interface requirements accept bounded inclusive ranges (`{ min, max }`); composition
+  intersects accepted ranges and an empty intersection is forbidden (see
+  [`design/standard-compatibility/spec.md`](design/standard-compatibility/spec.md)).  The
   post-resolution standard-compatibility check (`cabin_build::standard_compat`) evaluates the spec's
   edge-compatibility model over the *resolved* graph and fails the command on violated edges (see
   [`language-standards.md`](language-standards.md)); it is the post-resolution correctness

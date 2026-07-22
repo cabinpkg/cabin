@@ -178,6 +178,28 @@ theorem T2_growth (deps deps' : T → List T)
   exact S.le_trans (ih d (hdeps x d hd))
     (S.le_joinList (List.mem_map.mpr ⟨d, hdeps x d hd, rfl⟩))
 
+/-- Spec T2 (growth) against any join-compatible preorder: the form
+that instantiates to the spec's **denotational** strictness order
+(`T2_growth_denotational_*` in Spec.lean), whose pointwise hypothesis
+is weaker than the structural one of `T2_growth`. -/
+theorem T2_growth_of {le' : R → R → Prop} (H : JoinLub S le')
+    (deps deps' : T → List T)
+    (wf : WellFounded (DepRel deps)) (wf' : WellFounded (DepRel deps'))
+    (reqOf reqOf' : T → R)
+    (hdeps : ∀ t, ∀ d ∈ deps t, d ∈ deps' t)
+    (hreq : ∀ t, le' (reqOf t) (reqOf' t)) (t : T) :
+    le' (Rfun S deps wf reqOf t) (Rfun S deps' wf' reqOf' t) := by
+  refine wf'.induction
+    (C := fun x => le' (Rfun S deps wf reqOf x) (Rfun S deps' wf' reqOf' x))
+    t fun x ih => ?_
+  rw [T1_exists S deps wf reqOf x, T1_exists S deps' wf' reqOf' x]
+  refine H.join_le (H.trans (hreq x) (H.le_join_left _ _)) ?_
+  refine H.trans ?_ (H.le_join_right _ _)
+  refine H.joinList_le fun a ha => ?_
+  obtain ⟨d, hd, rfl⟩ := List.mem_map.mp ha
+  exact H.trans (ih d (hdeps x d hd))
+    (H.le_joinList (List.mem_map.mpr ⟨d, hdeps x d hd, rfl⟩))
+
 /-- Spec C1: adding a public dependency edge never lowers `R_L`. -/
 theorem C1_add_edge (deps deps' : T → List T)
     (wf : WellFounded (DepRel deps)) (wf' : WellFounded (DepRel deps'))

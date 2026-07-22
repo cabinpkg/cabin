@@ -1,5 +1,5 @@
 /-
-The spec's appendix, mechanized: the five worked examples, checked by
+The spec's appendix, mechanized: the six worked examples, checked by
 kernel computation (`decide` / `rfl`), plus Example 3 run end-to-end
 through the DAG fold `Rfun`.
 -/
@@ -67,15 +67,17 @@ theorem ex3sub : ∀ d t : Ex3T, d ∈ ex3deps t → ex3rank d < ex3rank t := by
 theorem ex3wf : WellFounded (DepRel ex3deps) :=
   Subrelation.wf (fun {d t} h => ex3sub d t h) (measure ex3rank).wf
 
+/-- The lifted `ReqOf` feeding the subtype fold. -/
+def ex3vreq (u : Ex3T) : VReqCxx := ⟨reqOfCxx (ex3attrs u), reqOfCxx_valid (ex3attrs u)⟩
+
 /-- `B`'s opt-out is `forbidden` (D9 row 1) and propagates through the
 public chain to `A`: the absorbing element of L2 in action. -/
 theorem ex3_a_forbidden : effectiveReqCxx ex3deps ex3wf ex3attrs .a = .forbidden := by
-  have hb : effectiveReqCxx ex3deps ex3wf ex3attrs .b = .forbidden := by
-    rw [effectiveReqCxx, T1_exists]; rfl
-  rw [effectiveReqCxx, T1_exists]
-  simp only [ex3deps, List.map_cons, List.map_nil, JSL.joinList_cons, JSL.joinList_nil]
-  rw [show Rfun SCxx ex3deps ex3wf (fun t => reqOfCxx (ex3attrs t)) .b
-      = effectiveReqCxx ex3deps ex3wf ex3attrs .b from rfl, hb]
+  have hb : Rfun SCxx ex3deps ex3wf ex3vreq .b = ⟨.forbidden, rfl⟩ := by
+    rw [T1_exists]; rfl
+  show (Rfun SCxx ex3deps ex3wf ex3vreq .a).val = .forbidden
+  rw [T1_exists]
+  simp only [ex3deps, List.map_cons, List.map_nil, JSL.joinList_cons, JSL.joinList_nil, hb]
   rfl
 
 /-- Even at `c++26`, the newest level there is, the root's edge onto `A` is
@@ -97,9 +99,12 @@ theorem ex3subPriv : ∀ d t : Ex3T, d ∈ ex3depsPriv t → ex3rank d < ex3rank
 theorem ex3wfPriv : WellFounded (DepRel ex3depsPriv) :=
   Subrelation.wf (fun {d t} h => ex3subPriv d t h) (measure ex3rank).wf
 
+def ex3vreqPriv (u : Ex3T) : VReqCxx := ⟨reqOfCxx (ex3attrs u), reqOfCxx_valid (ex3attrs u)⟩
+
 theorem ex3_private_unaffected :
     effectiveReqCxx ex3depsPriv ex3wfPriv ex3attrs .a = .unconstrained := by
-  rw [effectiveReqCxx, T1_exists]; rfl
+  show (Rfun SCxx ex3depsPriv ex3wfPriv ex3vreqPriv .a).val = .unconstrained
+  rw [T1_exists]; rfl
 
 /-! ## Header-only consumers (D7/D13)
 
@@ -145,10 +150,37 @@ example : reqOfCxx ex5H = .atLeast .cxx20 := rfl
 example : satCxx .cxx17 (reqOfCxx ex5H) = false := by decide
 
 /-- The explicit declaration wins over inference (D9 row 2 preempts row 3),
-and the move is a relaxation down the chain. -/
+and the move is a relaxation - it widens the accepted set. -/
 def ex5H' : Attrs := { ex5H with declCxx := .declaredMin .cxx17 }
 example : reqOfCxx ex5H' = .atLeast .cxx17 := rfl
 example : satCxx .cxx17 (reqOfCxx ex5H') = true := by decide
 example : leCxx (reqOfCxx ex5H') (reqOfCxx ex5H) = true := by decide
+
+/-! ## Example 6: a bounded interface and the empty intersection -/
+
+/-- A library whose public headers use a construct C++17 removed: the
+author declares the honest bounded range `{ min = "c++11", max = "c++14" }`
+(D9 row 2, bounded shape). -/
+def ex6G : Attrs :=
+  { kind := .compiled, implCxx := some .cxx14, declCxx := .declaredRange .cxx11 .cxx14 }
+
+example : reqOfCxx ex6G = .bounded .cxx11 .cxx14 := rfl
+
+/-- A c++17 consumer sits above the cap - and raising cannot help, the
+reversal L6 records; a consumer inside the range passes. -/
+example : satCxx .cxx17 (reqOfCxx ex6G) = false := by decide
+example : satCxx .cxx26 (reqOfCxx ex6G) = false := by decide
+example : satCxx .cxx14 (reqOfCxx ex6G) = true := by decide
+
+/-- An aggregator joining a c++20 floor with the c++11..c++14 cap hits the
+empty intersection: `forbidden`, unsatisfiable at every level (D4). -/
+example : joinCxx (.atLeast .cxx20) (reqOfCxx ex6G) = .forbidden := by decide
+example : ∀ lvl : CxxLevel,
+    satCxx lvl (joinCxx (.atLeast .cxx20) (reqOfCxx ex6G)) = false := by decide
+
+/-- Defensive normalization: an (unrepresentable-in-manifests) empty
+declared range lands as `forbidden`, keeping `ReqOf` total and valid. -/
+example : reqOfCxx { kind := .compiled, declCxx := .declaredRange .cxx20 .cxx11 }
+    = .forbidden := rfl
 
 end StdCompat

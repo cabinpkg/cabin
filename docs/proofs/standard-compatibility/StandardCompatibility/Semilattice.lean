@@ -147,4 +147,75 @@ theorem joinList_congr_mem {l l' : List R} (h : ∀ a, a ∈ l ↔ a ∈ l') :
 
 end JSL
 
+/-- A preorder for which a JSL's join is still a least upper bound.
+`JSL.le` itself qualifies (`JSL.joinLub`); so do the concrete
+requirement domains under the spec's **denotational** strictness
+order, which is weaker than the structural order on shapes
+(`denotJoinLub_c` / `denotJoinLub_cxx` in Spec.lean).  The growth
+theorems are proved against this interface so they hold for the
+spec's `⊑`, not merely the structural order. -/
+structure JoinLub {R : Type} (S : JSL R) (le' : R → R → Prop) : Prop where
+  trans : ∀ {a b c : R}, le' a b → le' b c → le' a c
+  bot_le : ∀ a : R, le' S.bot a
+  le_join_left : ∀ a b : R, le' a (S.join a b)
+  le_join_right : ∀ a b : R, le' b (S.join a b)
+  join_le : ∀ {a b c : R}, le' a c → le' b c → le' (S.join a b) c
+
+/-- The structural order is join-compatible, so the generalized
+growth theorems specialize back to the `JSL.le` forms. -/
+theorem JSL.joinLub {R : Type} (S : JSL R) : JoinLub S S.le where
+  trans := S.le_trans
+  bot_le := S.bot_le
+  le_join_left := S.le_join_left
+  le_join_right := S.le_join_right
+  join_le := S.join_le
+
+namespace JoinLub
+
+variable {R : Type} {S : JSL R} {le' : R → R → Prop} (H : JoinLub S le')
+
+include H
+
+theorem le_joinList : ∀ {l : List R} {a : R}, a ∈ l → le' a (S.joinList l) := by
+  intro l
+  induction l with
+  | nil => intro a h; cases h
+  | cons b l ih =>
+    intro a h
+    cases h with
+    | head => exact H.le_join_left _ _
+    | tail _ h => exact H.trans (ih h) (H.le_join_right _ _)
+
+theorem joinList_le {b : R} : ∀ {l : List R}, (∀ a ∈ l, le' a b) → le' (S.joinList l) b := by
+  intro l
+  induction l with
+  | nil => intro _; exact H.bot_le b
+  | cons a l ih =>
+    intro h
+    exact H.join_le (h a (List.mem_cons_self ..)) (ih fun x hx => h x (List.mem_cons_of_mem a hx))
+
+theorem join_le_join {a a' b b' : R} (ha : le' a a') (hb : le' b b') :
+    le' (S.join a b) (S.join a' b') :=
+  H.join_le (H.trans ha (H.le_join_left a' b')) (H.trans hb (H.le_join_right a' b'))
+
+/-- Spec L7, first claim, for any join-compatible preorder. -/
+theorem L7_subset {l l' : List R} (h : ∀ a ∈ l, a ∈ l') :
+    le' (S.joinList l) (S.joinList l') :=
+  H.joinList_le fun a ha => H.le_joinList (h a ha)
+
+/-- Spec L7, second claim (pointwise), for any join-compatible
+preorder. -/
+theorem L7_pointwise : ∀ (ps : List (R × R)),
+    (∀ p ∈ ps, le' p.1 p.2) →
+    le' (S.joinList (ps.map Prod.fst)) (S.joinList (ps.map Prod.snd)) := by
+  intro ps
+  induction ps with
+  | nil => intro _; exact H.bot_le _
+  | cons p ps ih =>
+    intro h
+    exact H.join_le_join (h p (List.mem_cons_self ..))
+      (ih fun q hq => h q (List.mem_cons_of_mem p hq))
+
+end JoinLub
+
 end StdCompat

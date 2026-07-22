@@ -15,17 +15,18 @@ Three lints, one impossibility:
 
 | Lint | Severity | Condition |
 | --- | --- | --- |
-| PL1 | error | interface minimum newer than the same language's implementation standard |
+| PL1 | error | implementation standard outside the same language's declared interface range |
 | PL2 | warning | header-only target's interface left to inference for an implemented language |
-| PL3 | warning | declared interface requirement raised in a patch release |
+| PL3 | warning | declared interface requirement narrowed in a patch release |
 | - | none, by construction | GNU-extension interface requirement (unrepresentable, section 5) |
 
-## 2. PL1 (error): interface minimum newer than the implementation standard
+## 2. PL1 (error): implementation standard outside the declared interface range
 
 For every published library-like target $t$ and language $L$, PL1 checks the **direct declared
-pair**: if $t$'s explicit interface declaration $\mathrm{decl}_L(t)$ is a minimum $[m]$ (a
-declared level, not `"none"`) and its own implementation standard $\mathrm{impl}_L(t)$ is
-present with $m > \mathrm{impl}_L(t)$, **reject the publish**.  The stored `standards` table of
+pair**: if $t$'s explicit interface declaration $\mathrm{decl}_L(t)$ is a range $(m, M)$ (a
+declared range, not `"none"`) and its own implementation standard $\mathrm{impl}_L(t)$ is
+present but falls outside it - $m > \mathrm{impl}_L(t)$, or $M < \mathrm{impl}_L(t)$ for a
+bounded declaration - **reject the publish**.  The stored `standards` table of
 `registry-index.md` records each target's own declared $\mathrm{ReqOf}$ uncomposed and does not
 carry $\mathrm{impl}_L(t)$, so PL1 evaluates the pair from the resolved manifest attributes
 (spec D6) it is already linting - the declaration exactly as it would be serialized, checked
@@ -36,7 +37,8 @@ against the implementation standard the same manifest resolves.
   "Precedence"), re-asserted at the publish boundary - defense in depth - so no registry entry
   can carry the contradiction regardless of how the manifest reached `cabin publish`.  A
   compiled target's own translation units include its own public headers, so a declared minimum
-  newer than the standard those units compile at describes a target that cannot build itself.
+  newer than the standard those units compile at - or a declared maximum older than it -
+  describes a target that cannot build itself under its own published contract.
 - **Header-only targets.**  Exempt from the load-time check (no translation units of their own
   to contradict), so PL1 is the only layer that catches their direct pair: a header-only target
   populates $\mathrm{impl}_L$ only through a target-level implementation declaration (D6
@@ -53,8 +55,8 @@ resolves.  A target compiling at its own implementation standard while publicly 
 stricter sibling is therefore not a PL1 case here - that sibling's requirement reaches consumers
 through the ordinary effective-requirement recursion (spec D10) at resolution time, not through a
 folded publish-time cell.  $\textsf{forbidden}$ cells are outside PL1: `"none"` is a deliberate
-consumer opt-out, not a contradiction (`"none"` enforcement is deferred wholesale - spec section
-1; `docs/language-standards.md`).
+consumer opt-out, not a contradiction (the post-resolution compatibility check enforces it,
+with the per-edge override - spec section 1; `docs/language-standards.md`).
 
 ## 3. PL2 (warning): header-only interface left to inference
 
@@ -78,7 +80,7 @@ table does not distinguish an inferred minimum from a declared one (`registry-in
 identifies the inference from the manifest attributes it is already reading (D6/D9), not from the
 index.  It warns once, at the origin target, because that is where the audit and the fix live.
 
-## 4. PL3 (warning): interface requirement raised in a patch release
+## 4. PL3 (warning): interface requirement narrowed in a patch release
 
 **Baseline.**  The greatest already-published version strictly below the new version that shares
 its `major.minor` - the release the new version patches.  If none exists (an `x.y.0`, or the
@@ -86,53 +88,56 @@ first publish of a line), the new version is not a patch release and PL3 does no
 Pre-release versions neither trigger the lint nor serve as baseline; their contract is explicitly
 unstable.
 
-**Raise.**  Some (target, language) pair present in both versions whose new requirement is
-strictly above the old one in the strictness order $\sqsubseteq$ (spec D3):
-$\textsf{unconstrained} \to [m]$, $[m] \to [m']$ with $m < m'$, or anything
-$\to \textsf{forbidden}$.  The two boundary cases are explicit and both warn: a newly declared
-minimum on a previously $\textsf{unconstrained}$ cell ($\textsf{unconstrained} \to [m]$), and a
-flip to `"none"` ($\cdot \to \textsf{forbidden}$), are each strict $\sqsubseteq$-increases (an
-omitted language key in the stored table reads as $\textsf{unconstrained}$, so a first
-declaration is a raise from it).  A target absent from the baseline's table is an addition, not a
-raise - `cabin publish` writes a row for every library-like target, so a target genuinely present
-in the baseline is never missing from its table.  The compared cells are the published
-**declared** requirements of `registry-index.md` (each target's own $\mathrm{ReqOf}$,
-uncomposed), so PL3 catches a raise to a target's own declaration.
+**Narrowing.**  Some (target, language) pair present in both versions whose new requirement
+**excludes a consumer level the baseline accepted**:
+$\mathrm{Sat}(\text{old}) \not\subseteq \mathrm{Sat}(\text{new})$ (spec D12).  The
+strictness order is only partial (spec D3), so the lint is semantic rather than order-based;
+it covers a raised minimum, a lowered or newly added maximum, a range shifted sideways (which
+both adds and drops levels - the dropped ones are what breaks existing consumers), a first
+declaration on a previously $\textsf{unconstrained}$ cell that excludes anything, and a flip
+to `"none"` ($\mathrm{Sat} = \emptyset$ excludes everything).  A reshaping that keeps the
+accepted set intact - e.g. $\textsf{unconstrained} \to [\bot_L, {\uparrow}]$ - does not
+warn, and neither does any pure widening.  A target absent from the baseline's table is an
+addition, not a narrowing - `cabin publish` writes a row for every library-like target, so a
+target genuinely present in the baseline is never missing from its table.  The compared cells
+are the published **declared** requirements of `registry-index.md` (each target's own
+$\mathrm{ReqOf}$, uncomposed), so PL3 catches a narrowing of a target's own declaration.
 
-**Limitation - effective raises PL3 cannot see.**  A patch can raise consumers' *effective*
+**Limitation - effective narrowings PL3 cannot see.**  A patch can narrow consumers' *effective*
 requirements without changing any target's own declared cell: adding (or flipping to public) a
 public dependency edge - intra- or cross-package - imposes the re-exported dependency's
 requirements on every consumer, and adding a public edge never lowers $R_L$ (spec C1); likewise
 changing the version requirement on an existing public dependency can pull in a stricter
 transitive requirement.  Because this index stores declared, uncomposed cells and no public-edge
 structure (`registry-index.md`, "Composition is the consumer's job"), the declared-cell
-comparison cannot detect these raises - the imposed requirement depends on which dependency
+comparison cannot detect these narrowings - the imposed requirement depends on which dependency
 version a future resolution picks, which the publisher cannot know.  PL3 deliberately scopes to
-declared-cell raises; the held-back reports of `preference-mode.md` carry the per-resolution
-consequences of the composed ones.  Removing a declaration or relaxing a minimum is a relaxation
-and is never linted, like every other lowering.
+declared-cell narrowings; the held-back reports of `preference-mode.md` carry the
+per-resolution consequences of the composed ones.  Removing a declaration or widening a range
+is a relaxation and is never linted.
 
 **Limitation - baselines with no recorded table.**  A baseline whose index entry stores no
 `standards` table - a version published before the field existed, or one with no library-like
 targets - offers no rows to compare, so PL3 makes no comparison against it.  Reading an absent
 table as $\textsf{unconstrained}$ everywhere instead would flag a package's *first* library-like
-target added in a patch release as a raise ($\textsf{unconstrained} \to [m]$), a false positive:
+target added in a patch release as a narrowing, a false positive:
 that target is an addition, not a tightened declaration, and the two are indistinguishable from a
 baseline that records nothing.  PL3 therefore skips an unrecorded baseline; the only miss is a
-requirement raised in the very first patch published after the `standards` field landed - a
+requirement narrowed in the very first patch published after the `standards` field landed - a
 transient migration-window gap on a warning-only check, weighed against a permanent false
 positive on every legitimate first-library addition.
 
-**Warn, citing the policy: requirement raises are treated as minor incompatibilities - allowed
-in minor releases, discouraged in patches.**  A raise can only shrink the set of consumers whose
-edges remain compatible (spec C3: viable versions only shrink as requirements grow), and
-caret-style requirements pull patch releases in automatically, so a patch-level raise breaks
-consumers who changed nothing.  PL3 stays a warning rather than an error because the registry
-cannot see consumers and a fix may legitimately need the raise; preference mode
+**Warn, citing the policy: requirement narrowings are treated as minor incompatibilities -
+allowed in minor releases, discouraged in patches.**  A narrowing shrinks the set of consumers
+whose edges remain compatible (spec C3 covers the pure-tightening direction; a sideways shift
+still breaks every consumer sitting on a dropped level), and caret-style requirements pull
+patch releases in automatically, so a patch-level narrowing breaks consumers who changed
+nothing.  PL3 stays a warning rather than an error because the registry
+cannot see consumers and a fix may legitimately need the narrowing; preference mode
 (`preference-mode.md`) then softens the blast radius by holding non-satisfying consumers back
 with a report instead of failing them.
 
-Lowering a requirement is never linted, in any release type: a pointwise relaxation only grows
+Widening a requirement is never linted, in any release type: a pointwise relaxation only grows
 the viable set (spec T2 with the assignments swapped; remark after C3).
 
 ## 5. No GNU-extension lint, by construction

@@ -79,15 +79,15 @@ Each requirement value encodes one element of the spec's requirement domain $\ma
 | Value | $\mathrm{Req}_L$ element (D3) |
 | --- | --- |
 | language key omitted | $\textsf{unconstrained}$ |
-| `{ "min": "<level>" }` | $[m]$, a minimum |
+| `{ "min": "<level>" }` | $[m, {\uparrow}]$, a minimum |
+| `{ "min": "<a>", "max": "<b>" }` | $[a, b]$, a bounded range |
 | `"none"` | $\textsf{forbidden}$ |
 
 `min` is an ISO level of spec D2 in its manifest spelling (`c89`...`c23`, `c++98`...`c++26`).  The
-object form is the `{min, max?}` pair: `max` is **reserved and never written in v1**, mirroring
-the reserved range slot of the manifest layer (spec D4 remark; `docs/language-standards.md`,
-"Accepted values").  v1 loaders reject a populated `max` with an error saying range requirements
-are reserved for a future version, the same dedicated diagnostic the manifest parser gives
-range-like inputs.  Populating it later is a domain swap, not a schema change (spec D4 remark).
+object form is the `{min, max?}` pair: `min` is required, and `max` is present exactly when the
+declared requirement is bounded (spec D3/D4; `docs/language-standards.md`, "Accepted values").
+Loaders validate `min <= max` on read and reject an empty range with the same diagnostic the
+manifest parser gives one.
 A cell is therefore either the literal string `"none"` or a `{min, max?}` object - the two
 shapes encode **different** requirement kinds, never the same one.  A bare level string
 (`"c++17"`) is not a valid cell: writers must use the object form for minima, and loaders
@@ -167,7 +167,7 @@ file-registry writer contract of `docs/registry-design.md`:
 - `cabin publish` writes every library-like target of the version (an entry whose requirements
   are all unconstrained and whose flags are false serializes as `{}` - the target existing and
   imposing nothing is itself information), omits unconstrained language keys, and omits every
-  default-valued member (`false` flags, and the reserved `max` of a minimum cell).
+  default-valued member (`false` flags, and the absent `max` of a minimum-only cell).
 
 ## 5. Composition with the sparse HTTP layout
 
@@ -198,8 +198,11 @@ negligible next to each version's `dependencies` map.
 ## 7. Fallback: package-level summary (not chosen)
 
 If per-target tables ever dominate index size, the fallback is one row per version and language:
-the join (spec D4) of the version's per-target requirements, i.e. the strictest.  It is lossy in
-exactly the way the per-target table is not: the strictest target dominates, over-constraining
-consumers that only use a milder target, and the per-target attribution a held-back report needs
-(which target imposes the minimum) is erased.  It would be adopted only under demonstrated size
-pressure, never as the default.
+the join (spec D4) of the version's per-target requirements.  It is lossy in exactly the way the
+per-target table is not: the composed range over-constrains consumers that only use a milder
+target - and because the strictness order is only partial (spec L1), there is no single
+"strictest target": the row's two bounds may come from different targets, the row may be a
+synthesized range no single target declared, or `forbidden` outright when two targets' ranges are
+disjoint - and the per-target attribution a held-back report needs (which target imposes each
+bound) is erased.  It would be adopted only under demonstrated size pressure, never as the
+default.

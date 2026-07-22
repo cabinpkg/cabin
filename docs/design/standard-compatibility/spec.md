@@ -40,18 +40,25 @@ Out of scope (specified elsewhere, consumed here as resolved inputs):
   build-time check is already positioned to diagnose precisely, so the fallback stays a
   build-time concern.  And an explicit `"none"` is unsatisfiable here (D9 row 1) - the
   resolver ranks such a version last and selects it only when nothing better is in range, where
-  the post-resolution enforcement then refuses it (`preference-mode.md`), even while the
-  build-time check's `"none"` handling remains deferred.  Where the two documents appear to
-  disagree, each governs its own layer; for resolver behavior, this document wins.
+  the post-resolution enforcement then refuses it (`preference-mode.md`).  The build-time check
+  deliberately leaves `"none"` to that post-resolution layer, whose per-edge
+  `ignore-interface-standard` override must be able to unblock exactly that class; the range
+  bounds themselves (minimum and maximum) are enforced at both layers.  Where the two documents
+  appear to disagree, each governs its own layer; for resolver behavior, this document wins.
 
 ## 2. The model at a glance (informative)
 
-Every dependency target induces, per consumer language, a **requirement**: unconstrained, a
-minimum standard level, or forbidden.  Requirements accumulate along public dependency edges by
-taking the strictest (the join).  A dependency edge is compatible when the consumer's compile
-level, in every language the consumer compiles, satisfies the dependency's accumulated
-requirement.  A candidate package version is viable when every edge resolving to it is
-compatible.  Everything below makes this precise and proves it well-behaved.
+Every dependency target induces, per consumer language, a **requirement**: the set of consumer
+levels it accepts - everything (unconstrained), everything from a minimum up, an inclusive
+bounded range, or nothing (forbidden).  Requirements accumulate along public dependency edges
+by **intersecting** their accepted sets (the join); an empty intersection accepts nothing.  A
+dependency edge is compatible when the consumer's compile level, in every language the consumer
+compiles, lies inside the dependency's accumulated set.  A candidate package version is viable
+when every edge resolving to it is compatible.  Two consequences shape everything downstream:
+requirements are only **partially** ordered by strictness (two ranges can be incomparable), and
+a composed requirement's two bounds may come from **different** sources - no algorithm or
+diagnostic may assume one declaration explains a composed value.  Everything below makes this
+precise and proves it well-behaved.
 
 ## 3. Definitions
 
@@ -87,59 +94,76 @@ no alias is an element of $\mathrm{CLevel}$ or $\mathrm{CxxLevel}$, and nothing 
 mentions them again.
 
 **D3 (requirement domain).**  For each language $L$, the per-language requirement domain is
+the **interval domain**
 
 $$
 \mathrm{Req}_L = \{\textsf{unconstrained}\}
-  \cup \{\, [m] : m \in \mathrm{Level}_L \,\}
+  \cup \{\, [m, {\uparrow}] : m \in \mathrm{Level}_L \,\}
+  \cup \{\, [a, b] : a, b \in \mathrm{Level}_L,\ a \le b \,\}
   \cup \{\textsf{forbidden}\}
 $$
 
-ordered by **strictness** $\sqsubseteq$, defined case by case:
-
-- $\textsf{unconstrained} \sqsubseteq r$ for every $r \in \mathrm{Req}_L$;
-- $r \sqsubseteq \textsf{forbidden}$ for every $r \in \mathrm{Req}_L$;
-- $[a] \sqsubseteq [b]$ iff $a \le b$ in $\mathrm{Level}_L$;
-- no other pairs are related, and $\sqsubseteq$ is reflexive.
-
-Informally: $\textsf{unconstrained}$ imposes nothing, $[m]$ requires a consumer level of at
-least $m$, $\textsf{forbidden}$ is unsatisfiable.  In v1, $\mathrm{Req}_L$ is a **finite chain**
-(L1):
+with the **denotation** $\llbracket \cdot \rrbracket : \mathrm{Req}_L \to
+\mathcal{P}(\mathrm{Level}_L)$ - the set of consumer levels a requirement accepts:
 
 $$
-\textsf{unconstrained} \sqsubseteq [\bot_L] \sqsubseteq \cdots
-  \sqsubseteq [\max \mathrm{Level}_L] \sqsubseteq \textsf{forbidden}
+\begin{aligned}
+\llbracket \textsf{unconstrained} \rrbracket &= \mathrm{Level}_L \\
+\llbracket [m, {\uparrow}] \rrbracket &= \{\, \ell : \ell \ge m \,\} \\
+\llbracket [a, b] \rrbracket &= \{\, \ell : a \le \ell \le b \,\} \\
+\llbracket \textsf{forbidden} \rrbracket &= \emptyset
+\end{aligned}
 $$
+
+$[m, {\uparrow}]$ is the **minimum-only** shape (declared `min` with no `max`); $[a, b]$ the
+**bounded** shape (declared `min` and `max`, inclusive on both ends; $a \le b$ is a manifest
+validation invariant - an empty declared range is rejected at parse).  The **strictness**
+preorder is reverse inclusion of denotations:
+
+$$
+r_1 \sqsubseteq r_2 \iff \llbracket r_2 \rrbracket \subseteq \llbracket r_1 \rrbracket
+$$
+
+Write $r_1 \approx r_2$ when both directions hold, i.e.
+$\llbracket r_1 \rrbracket = \llbracket r_2 \rrbracket$.  $\sqsubseteq$ is reflexive and
+transitive; it is antisymmetric only on the quotient by $\approx$ (L1 lists the $\approx$
+classes) and it is **not total**: two ranges can be incomparable - e.g.
+$\llbracket [\texttt{c++11}, \texttt{c++14}] \rrbracket$ and
+$\llbracket [\texttt{c++20}, \texttt{c++23}] \rrbracket$ contain neither one the other.
+No definition, algorithm, or diagnostic may assume two requirements are comparable.
 
 **D4 (join).**  For $r_1, r_2 \in \mathrm{Req}_L$, the join $r_1 \sqcup r_2$ is the
-$\sqsubseteq$-maximum of $r_1$ and $r_2$ (well-defined because $\sqsubseteq$ is total, L1).  For
-a finite set or multiset $S \subseteq \mathrm{Req}_L$, $\bigsqcup S$ is the
-$\sqsubseteq$-maximum of $S$, with $\bigsqcup \emptyset = \textsf{unconstrained}$.
+requirement denoting the **intersection** of the accepted sets:
+$\llbracket r_1 \sqcup r_2 \rrbracket
+  = \llbracket r_1 \rrbracket \cap \llbracket r_2 \rrbracket$.
+The denoted sets are intervals of a finite chain and intervals are closed under intersection,
+so such a requirement always exists; it is unique up to $\approx$, and the normative
+**structural rule** picks one shape deterministically:
 
-*Remark (reserved `max` and the interval generalization).*  Each interface requirement is
-serialized as a pair `{min, max}` whose `max` slot is reserved and **always absent in v1**.
-$\mathrm{Req}_L$ is designed so that populating `max` later is a domain swap, not a signature
-change.  Define the interval domain
+- if either operand is $\textsf{forbidden}$, the join is $\textsf{forbidden}$;
+- otherwise take the lower bound as the maximum of the operands' lower bounds (absent when
+  neither has one) and the upper bound as the minimum of the operands' upper bounds (absent
+  when neither has one);
+- no bounds $\to$ $\textsf{unconstrained}$; lower bound $m$ only $\to$ $[m, {\uparrow}]$;
+  both bounds with $a \le b$ $\to$ $[a, b]$; both bounds with $a > b$ - the **empty
+  intersection** - $\to$ $\textsf{forbidden}$.
 
-$$
-\mathrm{Int}_L = \{\, [a, b] : a, b \in \mathrm{Level}_L,\ a \le b \,\}
-  \cup \{\textsf{full}\} \cup \{\textsf{empty}\}
-$$
+For a finite set or multiset $S \subseteq \mathrm{Req}_L$, $\bigsqcup S$ is the iterated
+join, with $\bigsqcup \emptyset = \textsf{unconstrained}$ (L2 shows the result is
+independent of iteration order and multiplicity).  An empty intersection arising anywhere in a
+composition collapses the whole join to $\textsf{forbidden}$: no consumer level satisfies the
+combined requirements, and diagnostics must be able to name **both** contributing bounds.
 
-where $[a, b]$ denotes $\{\, \ell \in \mathrm{Level}_L : a \le \ell \le b \,\}$,
-$\textsf{full}$ denotes $\mathrm{Level}_L$, and $\textsf{empty}$ denotes $\emptyset$.
-$\mathrm{Req}_L$ embeds into $\mathrm{Int}_L$ by $\textsf{unconstrained} \mapsto \textsf{full}$,
-$[m] \mapsto [m, \max \mathrm{Level}_L]$, $\textsf{forbidden} \mapsto \textsf{empty}$.  On
-$\mathrm{Int}_L$, the order is reverse set inclusion of the denoted sets, the join is **set
-intersection** of the denoted sets, and an empty intersection is $\textsf{forbidden}$
-($\textsf{empty}$).  Under the embedding, intersection of two up-sets
-$[m_1, \max \mathrm{Level}_L]$ and $[m_2, \max \mathrm{Level}_L]$ is
-$[m_1 \sqcup m_2, \max \mathrm{Level}_L]$, which agrees with the v1 join, and $\textsf{full}$
-and $\textsf{empty}$ remain identity and absorbing element.  Every downstream definition in this
-document (D10 through D14) depends on $\mathrm{Req}_L$ only through the operations $\sqcup$,
-$\bigsqcup$, and the predicate $\mathrm{satisfies}$ / the set $\mathrm{Sat}$ (D11, D12), all of
-which are defined on $\mathrm{Int}_L$ verbatim ($\mathrm{satisfies}$ becomes membership of the
-consumer level in the denoted set).  The extension therefore changes no downstream signatures.
-The rest of this document works in the v1 chain.
+*Remark (why $\approx$-equal shapes stay distinct).*  $[m, {\uparrow}]$ and
+$[m, \max \mathrm{Level}_L]$ denote the same set **today**, and
+$[\bot_L, {\uparrow}]$ denotes the same set as $\textsf{unconstrained}$.  The shapes are kept
+distinct anyway, for two normative reasons.  First, provenance: diagnostics report exactly the
+declared bounds ("`c++17` or newer" versus "`c++17..c++26`"), and "nothing declared" versus "a
+declared minimum at the lowest level" are different facts about the manifest.  Second, chain
+extension: when a future revision appends a new level to $\mathrm{Level}_L$, a minimum-only
+requirement accepts it and a bounded one does not - the two shapes diverge, so serialized
+metadata must preserve which one was declared.  The structural join of D4 preserves shapes
+accordingly: it emits a bounded result only when some operand contributed an upper bound.
 
 **D5 (targets, dependency graph, public reachability).**  Fix a finite set $T$ of targets and a
 set of directed dependency edges $E \subseteq T \times T$, where $(c, d) \in E$ means target $c$
@@ -182,10 +206,12 @@ attributes, produced by the manifest layer (precedence and inheritance already a
   the relevance rule of `docs/language-standards.md`: an inherited implementation default says
   how sibling targets compile, not that this target's headers involve $L$.
 - For each $L \in \mathrm{Lang}$, an explicit interface declaration
-  $\mathrm{decl}_L(t) \in \mathrm{Level}_L \cup \{\textsf{none}\} \cup \{\bot\}$, where a level
-  means a declared minimum (`interface-c-standard` / `interface-cxx-standard`),
-  $\textsf{none}$ means the declared value `"none"` (headers not consumable from $L$), and
-  $\bot$ means no explicit interface declaration for $L$.
+  $\mathrm{decl}_L(t)$, one of: a declared range $(m, M)$ with
+  $m \in \mathrm{Level}_L$ and $M \in \mathrm{Level}_L \cup \{{\uparrow}\}$, $m \le M$
+  (`interface-c-standard` / `interface-cxx-standard`; the string form `"c++17"` is the
+  minimum-only $(m, {\uparrow})$, the table form `{ min, max }` a bounded $(m, M)$);
+  $\textsf{none}$, the declared value `"none"` (headers not consumable from $L$); or
+  $\bot$, no explicit interface declaration for $L$.
 
 *Remark (why D6's population contract matters).*  D9 routes on whether $\mathrm{impl}_L(d)$ is
 present.  If a package-level implementation default could populate it, a pure-C++ compiled
@@ -219,8 +245,8 @@ $\mathrm{ReqOf}(d, L) \in \mathrm{Req}_L$ by the first matching row:
 | # | Condition | $\mathrm{ReqOf}(d, L)$ |
 |---|-----------|------------------------|
 | 1 | $\mathrm{decl}_L(d) = \textsf{none}$ | $\textsf{forbidden}$ |
-| 2 | $\mathrm{decl}_L(d) = m \in \mathrm{Level}_L$ | $[m]$ |
-| 3 | $\mathrm{decl}_L(d) = \bot$, $\mathrm{impl}_L(d) = m \in \mathrm{Level}_L$, $\mathrm{kind}(d) = \textsf{header-only}$ | $[m]$ |
+| 2 | $\mathrm{decl}_L(d) = (m, M)$ | $[m, {\uparrow}]$ when $M = {\uparrow}$, else $[m, M]$ |
+| 3 | $\mathrm{decl}_L(d) = \bot$, $\mathrm{impl}_L(d) = m \in \mathrm{Level}_L$, $\mathrm{kind}(d) = \textsf{header-only}$ | $[m, {\uparrow}]$ |
 | 4 | $\mathrm{decl}_L(d) = \bot$, $\mathrm{impl}_L(d) = m \in \mathrm{Level}_L$, $\mathrm{kind}(d) = \textsf{compiled}$ | $\textsf{unconstrained}$ |
 | 5 | $\mathrm{decl}_L(d) = \bot$, $\mathrm{impl}_L(d) = \bot$, $L = \mathsf{C{+}{+}}$ | $\textsf{unconstrained}$ |
 | 6 | $\mathrm{decl}_L(d) = \bot$, $\mathrm{impl}_L(d) = \bot$, $L = \mathsf{C}$ | $\textsf{forbidden}$ |
@@ -258,30 +284,30 @@ when $t$ has none, by the empty-join convention of D4).  Requirements propagate 
 edges only; private edges of $t$ do not contribute to $R_L(t)$.  T1 proves this recursion has
 exactly one solution on the finite DAG $(T, E_{\mathrm{pub}})$ and gives its closed form.
 
+*Remark (per-bound provenance).*  Because the join intersects ranges, the lower and upper
+bound of $R_L(t)$ may be attained by **different** elements of $\mathrm{PubReach}(t)$, and a
+$\textsf{forbidden}$ may arise either from a single $\textsf{forbidden}$ contribution (rows
+1 and 6 of D9) or from an empty intersection of two bounds.  An implementation that explains
+$R_L(t)$ to users must therefore track provenance **per bound** - one origin chain for the
+lower bound, one for the upper - and, for an empty intersection, report both clashing chains;
+a single "origin of the requirement" does not exist in general.
+
 **D11 ($\mathrm{satisfies}$).**  For a consumer $c$, a language $L \in \mathrm{langs}(c)$, and a
 requirement $r \in \mathrm{Req}_L$:
 
 $$
-\begin{aligned}
-\mathrm{satisfies}(c, L, \textsf{unconstrained}) &= \text{true} \\
-\mathrm{satisfies}(c, L, [m]) &= \bigl(\mathrm{lvl}(c, L) \ge m\bigr) \\
-\mathrm{satisfies}(c, L, \textsf{forbidden}) &= \text{false}
-\end{aligned}
+\mathrm{satisfies}(c, L, r) = \bigl(\mathrm{lvl}(c, L) \in \llbracket r \rrbracket\bigr)
 $$
 
-**D12 (satisfaction sets).**  For $r \in \mathrm{Req}_L$, define
-$\mathrm{Sat}_L(r) \subseteq \mathrm{Level}_L$:
+unfolded per shape: true for $\textsf{unconstrained}$; $\mathrm{lvl}(c, L) \ge m$ for
+$[m, {\uparrow}]$; $a \le \mathrm{lvl}(c, L) \le b$ for $[a, b]$; false for
+$\textsf{forbidden}$.
 
-$$
-\begin{aligned}
-\mathrm{Sat}_L(\textsf{unconstrained}) &= \mathrm{Level}_L \\
-\mathrm{Sat}_L([m]) &= \{\, \ell \in \mathrm{Level}_L : \ell \ge m \,\} \\
-\mathrm{Sat}_L(\textsf{forbidden}) &= \emptyset
-\end{aligned}
-$$
-
-By construction, $\mathrm{satisfies}(c, L, r)$ iff $\mathrm{lvl}(c, L) \in \mathrm{Sat}_L(r)$.
-We drop the subscript and write $\mathrm{Sat}(r)$ when $L$ is clear.
+**D12 (satisfaction sets).**  For $r \in \mathrm{Req}_L$, the satisfaction set is the
+denotation: $\mathrm{Sat}_L(r) = \llbracket r \rrbracket$.  By construction,
+$\mathrm{satisfies}(c, L, r)$ iff $\mathrm{lvl}(c, L) \in \mathrm{Sat}_L(r)$.  We drop the
+subscript and write $\mathrm{Sat}(r)$ when $L$ is clear.  (D11/D12 keep both names so the
+edge-compatibility prose reads the same as before; they are one function.)
 
 **D13 (edge compatibility).**  A dependency edge $(c, d) \in E$ is **compatible** iff
 
@@ -315,193 +341,112 @@ happens when no candidate is viable is answered by preference mode with select-l
 
 ## 4. Lemmas
 
-**L1 ($\mathrm{Req}_L$ is a finite chain).**  $(\mathrm{Req}_L, \sqsubseteq)$ is a finite
-totally ordered set with least element $\textsf{unconstrained}$ and greatest element
-$\textsf{forbidden}$.
+**L1 (structure of the domain).**  $(\mathrm{Req}_L, \sqsubseteq)$ is a finite preorder with
+least element $\textsf{unconstrained}$ and greatest element $\textsf{forbidden}$.  Its
+quotient by $\approx$ is a finite partial order in bijection with the set of interval-shaped
+subsets of $\mathrm{Level}_L$ (including $\mathrm{Level}_L$ itself and $\emptyset$), ordered
+by reverse inclusion.  The $\approx$ classes are exactly:
 
-*Proof.*  Let $\mathrm{Level}_L = \{m_1 < m_2 < \cdots < m_n\}$ (finite and totally ordered by
-D2; $n = 5$ for C, $n = 7$ for C++).  Define
-$\varphi : \mathrm{Req}_L \to \{0, 1, \ldots, n+1\}$ by
+- $\{\textsf{unconstrained},\ [\bot_L, {\uparrow}],\ [\bot_L, \max \mathrm{Level}_L]\}$
+  (all denoting $\mathrm{Level}_L$);
+- $\{[m, {\uparrow}],\ [m, \max \mathrm{Level}_L]\}$ for each $m > \bot_L$;
+- the singleton $\{[a, b]\}$ for each $a \le b < \max \mathrm{Level}_L$;
+- the singleton $\{\textsf{forbidden}\}$.
 
-$$
-\varphi(\textsf{unconstrained}) = 0, \qquad
-\varphi([m_i]) = i, \qquad
-\varphi(\textsf{forbidden}) = n+1
-$$
+$\sqsubseteq$ is **not total**: for disjoint or partially overlapping ranges - e.g.
+$[\texttt{c++11}, \texttt{c++14}]$ and $[\texttt{c++20}, \texttt{c++23}]$ - neither
+denotation contains the other, so neither $r_1 \sqsubseteq r_2$ nor $r_2 \sqsubseteq r_1$.
 
-$\varphi$ is a bijection: the three shapes of D3 are disjoint, and $m_i \mapsto i$ is a
-bijection on the middle block.  We check $r \sqsubseteq s \iff \varphi(r) \le \varphi(s)$ by
-cases on the definition of $\sqsubseteq$ in D3:
-
-- $r = \textsf{unconstrained}$: $r \sqsubseteq s$ holds for all $s$, and
-  $\varphi(r) = 0 \le \varphi(s)$ holds for all $s$.
-- $s = \textsf{forbidden}$: $r \sqsubseteq s$ holds for all $r$, and
-  $\varphi(r) \le n+1 = \varphi(s)$ holds for all $r$.
-- $r = [m_i]$, $s = [m_j]$:
-  $r \sqsubseteq s \iff m_i \le m_j \iff i \le j \iff \varphi(r) \le \varphi(s)$.
-- $r = [m_i]$, $s = \textsf{unconstrained}$: D3 relates this pair only via reflexivity, which
-  does not apply ($[m_i] \ne \textsf{unconstrained}$), so $r \not\sqsubseteq s$; and
-  $\varphi(r) = i \ge 1 > 0 = \varphi(s)$.
-- $r = \textsf{forbidden}$, $s \ne \textsf{forbidden}$: similarly $r \not\sqsubseteq s$ and
-  $\varphi(r) = n+1 > \varphi(s)$.
-
-So $\varphi$ is an order isomorphism onto the integer interval $\{0, \ldots, n+1\}$ with its
-usual total order.  Total orders, reflexivity, antisymmetry, and transitivity transport along
-order isomorphisms, so $(\mathrm{Req}_L, \sqsubseteq)$ is a finite chain;
-$\varphi^{-1}(0) = \textsf{unconstrained}$ is its least and
-$\varphi^{-1}(n+1) = \textsf{forbidden}$ its greatest element.  $\blacksquare$
-
-**L2 (bounded join-semilattice).**  $(\mathrm{Req}_L, \sqsubseteq, \sqcup)$ is a bounded
-join-semilattice: $\sqcup$ is the least upper bound, and it is associative, commutative, and
-idempotent, with $\textsf{unconstrained}$ as identity and $\textsf{forbidden}$ as absorbing
-element.
-
-*Proof.*  By L1 the order is total, so for any $r_1, r_2$ the $\sqsubseteq$-maximum
-$\max(r_1, r_2)$ exists and is one of the two elements.  It is an upper bound of both by
-definition of maximum, and any upper bound $u$ satisfies $u \sqsupseteq \max(r_1, r_2)$ because
-$u$ is above the larger of the two; so $\sqcup = \max$ is the least upper bound.  Through the
-isomorphism $\varphi$ of L1, $\sqcup$ corresponds to $\max$ on integers, which is associative,
-commutative, and idempotent; these equational properties transport along the bijection
-$\varphi$.  For example
-$\varphi(r_1 \sqcup r_2) = \max(\varphi(r_1), \varphi(r_2))$, so
-
-$$
-\varphi\bigl((r_1 \sqcup r_2) \sqcup r_3\bigr)
-  = \max\bigl(\max(\varphi r_1, \varphi r_2), \varphi r_3\bigr)
-  = \max\bigl(\varphi r_1, \max(\varphi r_2, \varphi r_3)\bigr)
-  = \varphi\bigl(r_1 \sqcup (r_2 \sqcup r_3)\bigr)
-$$
-
-and injectivity of $\varphi$ gives associativity; commutativity and idempotence are the same
-argument.  $\textsf{unconstrained}$ is the least element (L1), so
-$\textsf{unconstrained} \sqcup r = \max(\textsf{unconstrained}, r) = r$: identity.
-$\textsf{forbidden}$ is the greatest element (L1), so
-$\textsf{forbidden} \sqcup r = \textsf{forbidden}$: absorbing.  Boundedness is L1's least and
-greatest elements.  Consequently the set join $\bigsqcup S$ of D4 is well-defined for every
-finite multiset $S$: by associativity and commutativity the result is independent of the order
-of combination, by idempotence it is independent of multiplicity, and
-$\bigsqcup \emptyset = \textsf{unconstrained}$ is the identity, so
-$\bigsqcup (S \cup S') = \bigsqcup S \sqcup \bigsqcup S'$ for all finite $S, S'$.
+*Proof.*  Reflexivity and transitivity of $\sqsubseteq$ are those of $\subseteq$; the bounds
+follow from $\llbracket \textsf{unconstrained} \rrbracket = \mathrm{Level}_L \supseteq
+\llbracket r \rrbracket \supseteq \emptyset = \llbracket \textsf{forbidden} \rrbracket$.
+The map $r \mapsto \llbracket r \rrbracket$ is surjective onto the nonempty intervals,
+$\mathrm{Level}_L$, and $\emptyset$ by construction of D3, and it identifies exactly the
+listed classes (two shapes denote the same set iff they have the same lower endpoint and both
+reach the top, or are both empty).  Non-totality is the displayed counterexample.
 $\blacksquare$
 
-**L3 (semantic characterization).**  For all $r_1, r_2 \in \mathrm{Req}_L$:
+**L2 (bounded join-semilattice).**  The structural join of D4 is associative, commutative,
+and idempotent **on shapes** (not merely up to $\approx$), with $\textsf{unconstrained}$ as
+identity and $\textsf{forbidden}$ as absorbing element.  Consequently the set join
+$\bigsqcup S$ of D4 is well-defined for every finite multiset $S$ - independent of iteration
+order and multiplicity - with $\bigsqcup \emptyset = \textsf{unconstrained}$ and
+$\bigsqcup (S \cup S') = \bigsqcup S \sqcup \bigsqcup S'$.
 
-1. (Soundness)  $r_1 \sqsubseteq r_2 \implies \mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$.
-2. (Completeness, up to one degenerate pair)
-   $\mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1) \implies r_1 \sqsubseteq r_2$, **except** for
-   the single pair $r_1 = [\bot_L]$, $r_2 = \textsf{unconstrained}$ (where $\bot_L$ is the
-   least level, D2).
-3. (Induced equivalence)  $\mathrm{Sat}(r_1) = \mathrm{Sat}(r_2)$ iff $r_1 = r_2$ or
-   $\{r_1, r_2\} = \{\textsf{unconstrained}, [\bot_L]\}$.
+*Proof.*  Represent every non-$\textsf{forbidden}$ shape by its bound pair
+$(m^{-}, m^{+}) \in (\mathrm{Level}_L \cup \{\bot\}) \times
+(\mathrm{Level}_L \cup \{\bot\})$, reading $\bot$ as "no bound": $\textsf{unconstrained}
+= (\bot, \bot)$, $[m, {\uparrow}] = (m, \bot)$, $[a, b] = (a, b)$.  The structural rule
+combines pairs componentwise - $\max$ on lower bounds and $\min$ on upper bounds, each with
+$\bot$ as identity - and both components are commutative idempotent monoids, so the pair
+combination is associative, commutative, and idempotent, with $(\bot, \bot)$ as identity.
+The final rendering (collapsing an inverted pair to $\textsf{forbidden}$) does not disturb
+this: an inverted pair arises in some grouping iff the overall intersection is empty (the
+componentwise bounds are grouping-independent), and $\textsf{forbidden}$ absorbs every
+further join, so all groupings agree on the shape.  Well-definedness of $\bigsqcup$ and the
+flattening law follow as usual from associativity, commutativity, idempotence, and the
+identity.  $\blacksquare$
 
-Consequently $\sqsubseteq$ coincides with reverse $\mathrm{Sat}$-inclusion on the quotient of
-$\mathrm{Req}_L$ by the equivalence $\textsf{unconstrained} \approx [\bot_L]$, and
-$\mathrm{Sat}$ is an order isomorphism from that quotient (ordered by $\sqsubseteq$) onto its
-image ordered by $\supseteq$.  The two identified elements are kept distinct in
-$\mathrm{Req}_L$ anyway: they are behaviorally equal for $\mathrm{satisfies}$ but differ in
-provenance (nothing declared versus a declared minimum), which diagnostics report.
-
-*Proof.*
-
-(1)  Assume $r_1 \sqsubseteq r_2$; cases on D3.  If $r_1 = \textsf{unconstrained}$ then
-$\mathrm{Sat}(r_1) = \mathrm{Level}_L \supseteq \mathrm{Sat}(r_2)$ for any $r_2$.  If
-$r_2 = \textsf{forbidden}$ then $\mathrm{Sat}(r_2) = \emptyset \subseteq \mathrm{Sat}(r_1)$.
-If $r_1 = [a]$, $r_2 = [b]$ with $a \le b$: $\ell \in \mathrm{Sat}([b])$ means
-$\ell \ge b \ge a$, so $\ell \in \mathrm{Sat}([a])$.  These three cases cover every related
-pair (D3 relates no others, and the reflexive pairs are trivial).
-
-(2)  We prove the contrapositive: assume $r_1 \not\sqsubseteq r_2$ and
-$(r_1, r_2) \ne ([\bot_L], \textsf{unconstrained})$; we show
-$\mathrm{Sat}(r_2) \not\subseteq \mathrm{Sat}(r_1)$, i.e. exhibit
-$\ell \in \mathrm{Sat}(r_2) \setminus \mathrm{Sat}(r_1)$.  Since $\sqsubseteq$ is total (L1),
-$r_1 \not\sqsubseteq r_2$ means $r_2 \sqsubset r_1$ strictly.  Cases on the strict pairs, using
-the chain of L1:
-
-- $r_2 = \textsf{unconstrained}$, $r_1 = [a]$ with $a \ne \bot_L$ (the excluded pair is exactly
-  $a = \bot_L$): take $\ell = \bot_L$.  Then
-  $\ell \in \mathrm{Sat}(\textsf{unconstrained}) = \mathrm{Level}_L$, and
-  $\ell \notin \mathrm{Sat}([a])$ because $\bot_L < a$.
-- $r_2 = \textsf{unconstrained}$, $r_1 = \textsf{forbidden}$: any $\ell \in \mathrm{Level}_L$
-  works ($\mathrm{Level}_L$ is nonempty); $\ell \in \mathrm{Level}_L = \mathrm{Sat}(r_2)$ and
-  $\mathrm{Sat}(r_1) = \emptyset$.
-- $r_2 = [b]$, $r_1 = [a]$ with $b < a$: take $\ell = b$.  Then $\ell \ge b$ so
-  $\ell \in \mathrm{Sat}([b])$, and $\ell = b < a$ so $\ell \notin \mathrm{Sat}([a])$.
-- $r_2 = [b]$, $r_1 = \textsf{forbidden}$: take $\ell = b \in \mathrm{Sat}([b])$;
-  $\mathrm{Sat}(\textsf{forbidden}) = \emptyset$.
-
-(There is no case $r_2 = \textsf{forbidden}$ with $r_2 \sqsubset r_1$, since
-$\textsf{forbidden}$ is greatest.)  In every case
-$\mathrm{Sat}(r_2) \not\subseteq \mathrm{Sat}(r_1)$, proving the contrapositive.
-
-For the excluded pair itself:
-$\mathrm{Sat}(\textsf{unconstrained}) = \mathrm{Level}_L
-  = \{\, \ell : \ell \ge \bot_L \,\} = \mathrm{Sat}([\bot_L])$,
-so $\mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$ holds while
-$[\bot_L] \sqsubseteq \textsf{unconstrained}$ fails (D3, as in L1's fourth case) - the
-exception is genuine and is the only one.
-
-(3)  If $r_1 = r_2$, equality of $\mathrm{Sat}$ is trivial; and
-$\mathrm{Sat}(\textsf{unconstrained}) = \mathrm{Sat}([\bot_L])$ was just shown.  Conversely
-assume $\mathrm{Sat}(r_1) = \mathrm{Sat}(r_2)$ with $r_1 \ne r_2$; by totality (L1) one is
-strictly below the other, say $r_2 \sqsubset r_1$.  Mutual inclusion holds, so by the
-contrapositive argument of (2) the pair must be the excluded one:
-$(r_1, r_2) = ([\bot_L], \textsf{unconstrained})$.  (Every other strict pair produced a
-separating $\ell$.)  $\blacksquare$
+**L3 (strictness is denotational).**  $r_1 \sqsubseteq r_2$ iff
+$\mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$ - definitional after D3/D12, recorded as a
+lemma because downstream proofs cite it.  The induced equivalence is the $\approx$ of D3,
+whose classes L1 lists; $\approx$-equal shapes are behaviorally identical for
+$\mathrm{satisfies}$ and differ only in provenance and under future chain extension (the
+remark after D4).
 
 **L4 (join is intersection of satisfaction sets).**  For all $r_1, r_2 \in \mathrm{Req}_L$:
-$\mathrm{Sat}(r_1 \sqcup r_2) = \mathrm{Sat}(r_1) \cap \mathrm{Sat}(r_2)$.  More generally, for
-finite $S \subseteq \mathrm{Req}_L$:
-$\mathrm{Sat}(\bigsqcup S) = \bigcap_{r \in S} \mathrm{Sat}(r)$, with the convention that the
-empty intersection is $\mathrm{Level}_L$.
+$\mathrm{Sat}(r_1 \sqcup r_2) = \mathrm{Sat}(r_1) \cap \mathrm{Sat}(r_2)$, and for finite
+$S$: $\mathrm{Sat}(\bigsqcup S) = \bigcap_{r \in S} \mathrm{Sat}(r)$, with the empty
+intersection denoting $\mathrm{Level}_L$.
 
-*Proof.*  By L1, $\sqsubseteq$ is total, so without loss of generality $r_1 \sqsubseteq r_2$,
-hence $r_1 \sqcup r_2 = r_2$ and by L3(1) $\mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$.
-Then $\mathrm{Sat}(r_1 \sqcup r_2) = \mathrm{Sat}(r_2)
-  = \mathrm{Sat}(r_1) \cap \mathrm{Sat}(r_2)$,
-the last step because $\mathrm{Sat}(r_2)$ is the smaller of two nested sets.  The finite
-generalization follows by induction on $|S|$: the base case is
-$\mathrm{Sat}(\bigsqcup \emptyset) = \mathrm{Sat}(\textsf{unconstrained}) = \mathrm{Level}_L$
-(the empty intersection), and the step is the binary case just proved together with
-$\bigsqcup (S \cup \{r\}) = \bigsqcup S \sqcup r$ (L2).  $\blacksquare$
-
-*Remark.*  L4 is the v1 shadow of the interval rule of D4's remark: under the interval
-generalization, $\mathrm{Sat}$ becomes the denotation itself and L4 becomes the definition of
-join (intersection), with $\mathrm{Sat}(r) = \emptyset \iff r = \textsf{forbidden}$.  Nothing
-downstream distinguishes the two readings.
+*Proof.*  The binary claim is D4's defining property; what needs proof is that the
+**structural rule** realizes it.  Membership in
+$\llbracket r_1 \rrbracket \cap \llbracket r_2 \rrbracket$ means satisfying every lower
+bound and every upper bound present among the operands, i.e. $\ell \ge$ the maximum of the
+lower bounds and $\ell \le$ the minimum of the upper bounds (each vacuous when absent) -
+exactly the set the structural result denotes, including the empty case rendered
+$\textsf{forbidden}$ and the no-bound cases rendered $\textsf{unconstrained}$ /
+$[m, {\uparrow}]$.  The finite generalization follows by induction on $|S|$ using L2.
+$\blacksquare$
 
 **L5 (antitonicity of $\mathrm{satisfies}$).**  If $r_1 \sqsubseteq r_2$ and
 $\mathrm{satisfies}(c, L, r_2)$, then $\mathrm{satisfies}(c, L, r_1)$.
 
-*Proof.*  $\mathrm{satisfies}(c, L, r_2)$ iff $\mathrm{lvl}(c, L) \in \mathrm{Sat}(r_2)$ (D12).
-By L3(1), $\mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$, so
-$\mathrm{lvl}(c, L) \in \mathrm{Sat}(r_1)$, i.e. $\mathrm{satisfies}(c, L, r_1)$.
+*Proof.*  $\mathrm{lvl}(c, L) \in \mathrm{Sat}(r_2) \subseteq \mathrm{Sat}(r_1)$ by L3.
 $\blacksquare$
 
-**L6 (satisfaction sets are upward closed).**  For every $r \in \mathrm{Req}_L$, if
-$\ell \in \mathrm{Sat}(r)$ and $\ell' \ge \ell$ then $\ell' \in \mathrm{Sat}(r)$.
-Consequently, raising a consumer's effective level in any language never breaks satisfaction of
-any requirement: if $\mathrm{satisfies}(c, L, r)$ and $c'$ agrees with $c$ except
-$\mathrm{lvl}(c', L) \ge \mathrm{lvl}(c, L)$, then $\mathrm{satisfies}(c', L, r)$.
+**L6 (satisfaction sets are convex, not upward closed in general).**  Every
+$\mathrm{Sat}(r)$ is an order-convex subset of $\mathrm{Level}_L$: if
+$\ell_1 \le x \le \ell_2$ with $\ell_1, \ell_2 \in \mathrm{Sat}(r)$, then
+$x \in \mathrm{Sat}(r)$.  Upward closure - "raising a consumer's level never breaks
+satisfaction" - **fails** exactly for the bounded shapes $[a, b]$ with
+$b < \max \mathrm{Level}_L$: raising past $b$ breaks satisfaction.  Every other shape's
+denotation is upward closed: $\mathrm{Level}_L$ itself, the up-sets of the minimum-only
+shapes, the empty set (vacuously), and a bounded range whose $b = \max \mathrm{Level}_L$ -
+though the last stays upward closed only for **today's** chain, since a future appended level
+falls outside it (the remark after D4).
 
-*Proof.*  Cases on $r$ (D12).  $\mathrm{Sat}(\textsf{unconstrained}) = \mathrm{Level}_L$ is
-upward closed trivially.  $\mathrm{Sat}([m]) = \{\, \ell : \ell \ge m \,\}$: from
-$\ell \ge m$ and $\ell' \ge \ell$, transitivity of $\le$ gives $\ell' \ge m$.
-$\mathrm{Sat}(\textsf{forbidden}) = \emptyset$ is upward closed vacuously.  The consequence is
-immediate from D11/D12: $\mathrm{satisfies}(c, L, r)$ iff
-$\mathrm{lvl}(c, L) \in \mathrm{Sat}(r)$, and $\mathrm{lvl}(c', L) \ge \mathrm{lvl}(c, L)$
-stays in the upward closed set.  $\blacksquare$
+*Proof.*  Each denotation of D3 is $\mathrm{Level}_L$, an up-set, an interval, or empty; all
+are convex.  For the failure claim: $b \in \mathrm{Sat}([a, b])$ and any $\ell > b$ is not,
+and such $\ell$ exists exactly when $b < \max \mathrm{Level}_L$; the remaining shapes'
+denotations are upward closed by inspection.  $\blacksquare$
 
-**L7 (set joins are monotone).**  For finite multisets $S \subseteq S'$ over $\mathrm{Req}_L$:
-$\bigsqcup S \sqsubseteq \bigsqcup S'$.  Moreover, if $S = \{r_1, \ldots, r_k\}$ and
-$S' = \{r'_1, \ldots, r'_k\}$ with $r_i \sqsubseteq r'_i$ pointwise, then
-$\bigsqcup S \sqsubseteq \bigsqcup S'$.
+*Remark (normative consequence for remedies).*  Diagnostics and documentation must not
+unconditionally advise raising a consumer's standard.  Below a minimum, raising (up to any
+cap) helps; **above a maximum, only lowering the consumer, or changing the dependency, can** -
+and against $\textsf{forbidden}$ nothing at the standard level helps.
 
-*Proof.*  For the first claim: $\bigsqcup S'$ is an upper bound of every element of $S'$, hence
-of every element of $S \subseteq S'$; since $\bigsqcup S$ is the **least** upper bound of $S$
-(L2), $\bigsqcup S \sqsubseteq \bigsqcup S'$.  For the second: each
-$r_i \sqsubseteq r'_i \sqsubseteq \bigsqcup S'$, so $\bigsqcup S'$ is an upper bound of
-$\{r_1, \ldots, r_k\}$, and again leastness of $\bigsqcup S$ gives
-$\bigsqcup S \sqsubseteq \bigsqcup S'$.  $\blacksquare$
+**L7 (set joins are monotone).**  For finite multisets $S \subseteq S'$ over
+$\mathrm{Req}_L$: $\bigsqcup S \sqsubseteq \bigsqcup S'$.  Moreover, if
+$S = \{r_1, \ldots, r_k\}$ and $S' = \{r'_1, \ldots, r'_k\}$ with
+$r_i \sqsubseteq r'_i$ pointwise, then $\bigsqcup S \sqsubseteq \bigsqcup S'$.
+
+*Proof.*  By L4, $\mathrm{Sat}(\bigsqcup S') = \bigcap_{r \in S'} \mathrm{Sat}(r)
+\subseteq \bigcap_{r \in S} \mathrm{Sat}(r) = \mathrm{Sat}(\bigsqcup S)$ for the subset
+claim (intersecting more sets can only shrink the result), and
+$\bigcap_i \mathrm{Sat}(r'_i) \subseteq \bigcap_i \mathrm{Sat}(r_i)$ for the pointwise
+claim ($\mathrm{Sat}(r'_i) \subseteq \mathrm{Sat}(r_i)$ componentwise by L3).  Both are
+$\sqsubseteq$ by L3.  $\blacksquare$
 
 ## 5. Theorems
 
@@ -632,11 +577,17 @@ $\textsf{unconstrained}$ - is essential, and two rows of D9 sit **above** the bo
 
 - A **header-only** target with no declaration already imposes its inferred implementation
   minimum (row 3).  Declaring an explicit, older `interface-*-standard` replaces
-  $[\mathrm{impl}_L(u)]$ by a smaller $[m]$ - a relaxation that can move $R_L$ **down**.  That
-  is the declared purpose of the field: promising less than the implementation uses.
+  $[\mathrm{impl}_L(u), {\uparrow}]$ by a wider range - a relaxation that can move $R_L$
+  **down**.  That is the declared purpose of the field: promising less than the implementation
+  uses.
 - A target consumed from **C** under the strict default already imposes $\textsf{forbidden}$
-  (row 6).  Declaring `interface-c-standard` replaces $\textsf{forbidden}$ by $[m]$ - again a
-  relaxation moving down, and again the point of the declaration.
+  (row 6).  Declaring `interface-c-standard` replaces $\textsf{forbidden}$ by a range - again
+  a relaxation moving down, and again the point of the declaration.
+- Symmetrically, a change that only tightens - raising a minimum, lowering or adding a
+  maximum, shifting a range so that it excludes previously accepted levels - satisfies T2's
+  hypotheses in the tightening direction and can only shrink the viable set (C3).  A sideways
+  shift both relaxes and tightens; neither T2 direction applies to it as a whole, and the
+  viable set can change arbitrarily.
 
 These moves are relaxations by the author of the **dependency**, widening its consumer set; T2
 and C3 are about changes that tighten requirements.  Both directions are monotone: T2 applied
@@ -655,15 +606,15 @@ with:
 
 *Proof.*
 
-(1)  A requirement is one of three tags, and the $[m]$ case is a single comparison of two
+(1)  A requirement is one of four shapes, and the range cases are at most two comparisons of
 elements of a fixed finite chain (D2): constant work.
 
 (2)  Fix $L$.  Compute a topological order of $(T, E_{\mathrm{pub}})$ in
 $O(\lvert T \rvert + \lvert E_{\mathrm{pub}} \rvert)$ (standard for finite DAGs).  Process
 targets in reverse dependency order; at target $t$, fold $\sqcup$ over $\mathrm{ReqOf}(t, L)$
 (constant work: D9 is a six-row decision table over already-resolved attributes) and the
-stored values $R_L(d)$ of its public dependencies (one $O(1)$ join per outgoing public edge,
-by (1)'s comparison bound and L2's $\sqcup = \max$).  Each edge is touched once, each target
+stored values $R_L(d)$ of its public dependencies (one $O(1)$ join per outgoing public edge:
+D4's structural rule is a constant number of comparisons).  Each edge is touched once, each target
 once: $O(\lvert T \rvert + \lvert E_{\mathrm{pub}} \rvert)$.  Correctness: this is exactly the
 topological computation of T1, which proved it yields the unique solution regardless of the
 order chosen.  Summing over the two languages gives $O(\lvert T \rvert + \lvert E \rvert)$.
@@ -680,8 +631,9 @@ three-case match).  $\blacksquare$
 **Assumption A (author obligation).**  For every target $u$ and language $L$: every consumer
 level $\ell \in \mathrm{Sat}_L(\mathrm{ReqOf}(u, L))$ can compile $u$'s public headers as
 language $L$ at level $\ell$.  Unfolding D12, that means: if $u$ declares (or, per D9, infers)
-an interface minimum $m$, its public headers compile under every consumer level $\ge m$ in
-that language; if $\mathrm{ReqOf}(u, L) = \textsf{unconstrained}$, they compile under
+an interface range, its public headers compile under every consumer level inside that range -
+including, for a bounded range, **no newer** than its maximum, which is exactly how an author
+records headers that use features a later standard removed; if $\mathrm{ReqOf}(u, L) = \textsf{unconstrained}$, they compile under
 **every** level of $L$ (for the C-to-C++ default, row 5 of D9, this is the C author's
 obligation that the headers are consumable from any C++ level, for example via `extern "C"`
 guards); if $\mathrm{ReqOf}(u, L) = \textsf{forbidden}$, $\mathrm{Sat} = \emptyset$ and the
@@ -711,7 +663,7 @@ $$
 $$
 
 Compatibility of the edge gives $\mathrm{satisfies}(c, L, R_L(d))$, i.e.
-$\mathrm{lvl}(c, L) \in \mathrm{Sat}(R_L(d))$ (D12).  By L3(1),
+$\mathrm{lvl}(c, L) \in \mathrm{Sat}(R_L(d))$ (D12).  By L3,
 $\mathrm{Sat}(R_L(d)) \subseteq \mathrm{Sat}(\mathrm{ReqOf}(u, L))$, hence
 $\mathrm{lvl}(c, L) \in \mathrm{Sat}(\mathrm{ReqOf}(u, L))$.  Assumption A for $u$ and $L$
 states that every level in $\mathrm{Sat}(\mathrm{ReqOf}(u, L))$ compiles $u$'s public headers
@@ -751,16 +703,17 @@ above should be read as implying one:
 
 All domains in this specification are finite:
 $\lvert \mathrm{CLevel} \rvert = 5$, $\lvert \mathrm{CxxLevel} \rvert = 7$,
-$\lvert \mathrm{Req}_{\mathsf{C}} \rvert = 7$,
-$\lvert \mathrm{Req}_{\mathsf{C{+}{+}}} \rvert = 9$.  Every per-pair claim below - and every
-lemma about $\sqsubseteq$, $\sqcup$, $\mathrm{Sat}$, and $\mathrm{satisfies}$ - is therefore
-verifiable by **exhaustive enumeration** over the full domain, and the implementation's test
-suite is expected to do exactly that: enumerate all pairs (or triples, for associativity) and
-assert the property, citing the lemma number it checks (L1
-totality/antisymmetry/transitivity, L2 associativity, commutativity, idempotence, identity
-and absorption, L3 soundness and its single
-exception, L4 intersection, L5 antitonicity, L6 upward closure).  The examples pick
-representative points of that space and work them end to end.
+$\lvert \mathrm{Req}_{\mathsf{C}} \rvert = 2 + 5 + 15 = 22$,
+$\lvert \mathrm{Req}_{\mathsf{C{+}{+}}} \rvert = 2 + 7 + 28 = 37$ (two sentinels, the
+minimum-only shapes, and one bounded shape per pair $a \le b$).  Every per-pair claim below -
+and every lemma about $\sqsubseteq$, $\sqcup$, $\mathrm{Sat}$, and $\mathrm{satisfies}$ -
+is therefore verifiable by **exhaustive enumeration** over the full domain, and the
+implementation's test suite is expected to do exactly that: enumerate all pairs (and triples,
+for associativity, at least on the C chain) and assert the property, citing the lemma it
+checks (L2 associativity, commutativity, idempotence, identity and absorption; L4
+intersection including the empty-intersection collapse; L5 antitonicity; L6 convexity and the
+failure of upward closure on bounded shapes; L1 non-totality by counterexample).  The
+examples pick representative points of that space and work them end to end.
 
 Reference table - $\mathrm{satisfies}$ over all of $\mathrm{CxxLevel}$ for the requirements
 used below (rows are requirements $r$, columns consumer levels $\ell$; $\checkmark$ means
@@ -770,12 +723,16 @@ means false):
 | Requirement / level | `c++98` | `c++11` | `c++14` | `c++17` | `c++20` | `c++23` | `c++26` |
 |---|---|---|---|---|---|---|---|
 | $\textsf{unconstrained}$ | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ |
-| $[\texttt{c++17}]$ | | | | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ |
-| $[\texttt{c++20}]$ | | | | | $\checkmark$ | $\checkmark$ | $\checkmark$ |
+| $[\texttt{c++17}, {\uparrow}]$ | | | | $\checkmark$ | $\checkmark$ | $\checkmark$ | $\checkmark$ |
+| $[\texttt{c++20}, {\uparrow}]$ | | | | | $\checkmark$ | $\checkmark$ | $\checkmark$ |
+| $[\texttt{c++11}, \texttt{c++14}]$ | | $\checkmark$ | $\checkmark$ | | | | |
 | $\textsf{forbidden}$ | | | | | | | |
 
-Each row is upward closed (L6), and rows shrink as the requirement climbs the chain of L1
-(L3(1) in table form).
+Each row is an order-convex block (L6); the bounded row is the one that is not upward closed -
+it ends at its cap, while the $\textsf{unconstrained}$ and minimum-only rows are up-sets and the
+$\textsf{forbidden}$ row is upward closed vacuously.  $[\texttt{c++20}, {\uparrow}] \sqcup
+[\texttt{c++11}, \texttt{c++14}] = \textsf{forbidden}$: the two rows share no column (D4's
+empty-intersection collapse).
 
 ### Example 1: C++23 implementation, c++17 interface, consumed from c++17
 
@@ -786,17 +743,17 @@ the public headers only need C++17 even though the implementation compiles as C+
 no public dependencies.  Consumer $X$: $\mathrm{langs}(X) = \{\mathsf{C{+}{+}}\}$,
 $\mathrm{lvl}(X, \mathsf{C{+}{+}}) = \texttt{c++17}$.
 
-- $\mathrm{ReqOf}(Z, \mathsf{C{+}{+}}) = [\texttt{c++17}]$ by D9 row 2 - the explicit
-  declaration wins; the implementation standard never enters (contrast Example 5, where it
-  would infer $[\texttt{c++23}]$ only for a header-only target; for this **compiled** target
-  an *absent* declaration would give $\textsf{unconstrained}$ by row 4).
+- $\mathrm{ReqOf}(Z, \mathsf{C{+}{+}}) = [\texttt{c++17}, {\uparrow}]$ by D9 row 2 - the
+  explicit declaration wins; the implementation standard never enters (contrast Example 5,
+  where it would infer $[\texttt{c++23}, {\uparrow}]$ only for a header-only target; for this
+  **compiled** target an *absent* declaration would give $\textsf{unconstrained}$ by row 4).
 - $R_{\mathsf{C{+}{+}}}(Z) = \mathrm{ReqOf}(Z, \mathsf{C{+}{+}}) \sqcup \bigsqcup \emptyset
-  = [\texttt{c++17}] \sqcup \textsf{unconstrained} = [\texttt{c++17}]$ (D10, D4, L2
-  identity).
-- Edge $(X, Z)$: $\mathrm{satisfies}(X, \mathsf{C{+}{+}}, [\texttt{c++17}])$ iff
-  $\texttt{c++17} \ge \texttt{c++17}$: **true** - see the $[\texttt{c++17}]$ row of the
-  reference table.  The edge is compatible (D13); if it is the only edge resolving to $Z$'s
-  version, that version is viable (D14).
+  = [\texttt{c++17}, {\uparrow}] \sqcup \textsf{unconstrained}
+  = [\texttt{c++17}, {\uparrow}]$ (D10, D4, L2 identity).
+- Edge $(X, Z)$: $\mathrm{satisfies}(X, \mathsf{C{+}{+}}, [\texttt{c++17}, {\uparrow}])$ iff
+  $\texttt{c++17} \ge \texttt{c++17}$: **true** - see the $[\texttt{c++17}, {\uparrow}]$
+  row of the reference table.  The edge is compatible (D13); if it is the only edge resolving
+  to $Z$'s version, that version is viable (D14).
 
 ### Example 2: diamond - consumers at c++17 and c++23 sharing one dependency
 
@@ -807,7 +764,7 @@ $\mathrm{decl}_{\mathsf{C{+}{+}}}(Z) = \texttt{c++20}$, no public dependencies),
 depends on both $X$ and $Y$ - a diamond with $Z$ shared at the bottom, both edges resolving to
 the same candidate version $v$ of $Z$.
 
-- $R_{\mathsf{C{+}{+}}}(Z) = [\texttt{c++20}]$ as in Example 1.
+- $R_{\mathsf{C{+}{+}}}(Z) = [\texttt{c++20}, {\uparrow}]$ as in Example 1.
 - Edge $(Y, Z)$: $\texttt{c++23} \ge \texttt{c++20}$ - compatible.
 - Edge $(X, Z)$: $\texttt{c++17} \ge \texttt{c++20}$ is false
   ($\texttt{c++17} < \texttt{c++20}$ in D2's chain) - **incompatible**.
@@ -815,8 +772,8 @@ the same candidate version $v$ of $Z$.
   cannot rescue $v$; because $(X, Z)$ is incompatible, $v$ is not viable, and the resolver
   must find a version of $Z$ whose requirement $X$ satisfies (or fail).  One incompatible
   consumer poisons the version for the whole graph - exactly the per-edge conjunction of
-  D13/D14.  (L6 view: $\mathrm{Sat}([\texttt{c++20}])$ is upward closed, $Y$ sits inside it,
-  $X$ sits below it.)
+  D13/D14.  ($\mathrm{Sat}$ view: $Y$ sits inside
+  $\mathrm{Sat}([\texttt{c++20}, {\uparrow}])$, $X$ below it.)
 
 ### Example 3: `"none"` on a transitive public dependency poisons the root
 
@@ -851,19 +808,19 @@ $\mathrm{impl}_{\mathsf{C{+}{+}}}(W) = \bot$,
 $\mathrm{decl}_{\mathsf{C}}(W) = \texttt{c17}$ (`interface-c-standard = "c17"`),
 $\mathrm{decl}_{\mathsf{C{+}{+}}}(W) = \bot$, no public dependencies.
 
-- $R_{\mathsf{C}}(W) = \mathrm{ReqOf}(W, \mathsf{C}) = [\texttt{c17}]$ (D9 row 2).
+- $R_{\mathsf{C}}(W) = \mathrm{ReqOf}(W, \mathsf{C}) = [\texttt{c17}, {\uparrow}]$ (D9
+  row 2).
 - $R_{\mathsf{C{+}{+}}}(W) = \mathrm{ReqOf}(W, \mathsf{C{+}{+}}) = \textsf{unconstrained}$
   (D9 row 5: no C++ implementation, no declaration - the permissive C-to-C++ default).
 - Edge $(M, W)$ is a conjunction over $\mathrm{langs}(M)$ (D13):
   - $L = \mathsf{C{+}{+}}$:
     $\mathrm{satisfies}(M, \mathsf{C{+}{+}}, \textsf{unconstrained})$ is true.
-  - $L = \mathsf{C}$: $\mathrm{satisfies}(M, \mathsf{C}, [\texttt{c17}])$ iff
+  - $L = \mathsf{C}$: $\mathrm{satisfies}(M, \mathsf{C}, [\texttt{c17}, {\uparrow}])$ iff
     $\texttt{c11} \ge \texttt{c17}$: **false** ($\texttt{c11} < \texttt{c17}$, D2 - no
     equivalence special case).
 - One failed conjunct suffices: the edge is **incompatible**, even though the C++ side is
-  satisfied.  $M$ must raise its C level to `c17` or `c23` (L6: once inside
-  $\mathrm{Sat}([\texttt{c17}])$, raising further never breaks it), or $W$ must relax its
-  interface.  Conversely, a C++-only consumer
+  satisfied.  $M$ must raise its C level to `c17` or `c23` (a minimum-only requirement is
+  upward closed, L6), or $W$ must relax its interface.  Conversely, a C++-only consumer
   ($\mathrm{langs} = \{\mathsf{C{+}{+}}\}$) would take only the first conjunct and pass:
   languages the consumer does not compile impose nothing.
 
@@ -881,26 +838,50 @@ D6's population contract, a package-level implementation default alone would lea
 $\mathrm{impl}_{\mathsf{C{+}{+}}}(H) = \bot$), $\mathrm{decl}_{\mathsf{C{+}{+}}}(H) = \bot$,
 no public dependencies.  Consumer $X$ at $\mathrm{lvl}(X, \mathsf{C{+}{+}}) = \texttt{c++17}$.
 
-- $\mathrm{ReqOf}(H, \mathsf{C{+}{+}}) = [\texttt{c++20}]$ by D9 row 3: with no translation
-  units of its own, $H$'s headers *are* the implementation, so the implementation standard is
-  inferred as the interface minimum.  $R_{\mathsf{C{+}{+}}}(H) = [\texttt{c++20}]$.
+- $\mathrm{ReqOf}(H, \mathsf{C{+}{+}}) = [\texttt{c++20}, {\uparrow}]$ by D9 row 3: with
+  no translation units of its own, $H$'s headers *are* the implementation, so the
+  implementation standard is inferred as the interface minimum.
+  $R_{\mathsf{C{+}{+}}}(H) = [\texttt{c++20}, {\uparrow}]$.
 - Edge $(X, H)$: $\texttt{c++17} \ge \texttt{c++20}$ is false - incompatible (the
-  $[\texttt{c++20}]$ row of the reference table).
+  $[\texttt{c++20}, {\uparrow}]$ row of the reference table).
 - Now the author audits the headers, finds they only use C++17, and declares
-  `interface-cxx-standard = "c++17"`: $\mathrm{decl}_{\mathsf{C{+}{+}}}(H) = \texttt{c++17}$,
-  and D9 row 2 preempts row 3 - the explicit declaration wins over inference.
-  $R_{\mathsf{C{+}{+}}}(H) = [\texttt{c++17}]$, and the edge is compatible.  Note this move
-  went **down** the chain ($[\texttt{c++17}] \sqsubseteq [\texttt{c++20}]$): it is the first
-  deliberate exception in the remark after C3 - a relaxation by the dependency's author,
+  `interface-cxx-standard = "c++17"`:
+  $\mathrm{decl}_{\mathsf{C{+}{+}}}(H) = (\texttt{c++17}, {\uparrow})$, and D9 row 2
+  preempts row 3 - the explicit declaration wins over inference.
+  $R_{\mathsf{C{+}{+}}}(H) = [\texttt{c++17}, {\uparrow}]$, and the edge is compatible.
+  Note this move widened the accepted set
+  ($[\texttt{c++17}, {\uparrow}] \sqsubseteq [\texttt{c++20}, {\uparrow}]$): it is the
+  first deliberate exception in the remark after C3 - a relaxation by the dependency's author,
   widening the consumer set (T2 with the assignments swapped: the viable set can only grow).
+
+### Example 6: a bounded interface and the empty intersection
+
+Library $G$ ships headers that use a construct a later standard **removed** (say, dynamic
+exception specifications or `register`, both removed in C++17): its author declares
+`interface-cxx-standard = { min = "c++11", max = "c++14" }`, so
+$\mathrm{decl}_{\mathsf{C{+}{+}}}(G) = (\texttt{c++11}, \texttt{c++14})$ and
+$\mathrm{ReqOf}(G, \mathsf{C{+}{+}}) = [\texttt{c++11}, \texttt{c++14}]$ (D9 row 2).
+
+- Consumer $X$ at $\texttt{c++17}$:
+  $\mathrm{satisfies}(X, \mathsf{C{+}{+}}, [\texttt{c++11}, \texttt{c++14}])$ is false -
+  $\texttt{c++17} > \texttt{c++14}$, the bounded row of the reference table.  Raising $X$
+  cannot help (L6's remark); only lowering to the range, or a newer $G$, can.
+- Aggregator $A$ publicly depends on both $G$ and a modern library $N$ with
+  $\mathrm{ReqOf}(N, \mathsf{C{+}{+}}) = [\texttt{c++20}, {\uparrow}]$.  By D10,
+  $R_{\mathsf{C{+}{+}}}(A) = [\texttt{c++20}, {\uparrow}] \sqcup
+  [\texttt{c++11}, \texttt{c++14}] = \textsf{forbidden}$ - the empty intersection: **no**
+  C++ level satisfies both.  Every edge onto $A$ is incompatible at every consumer level, and
+  a useful diagnostic must name both chains - the $[\texttt{c++20}, {\uparrow}]$ bound via
+  $N$ and the $[\texttt{c++11}, \texttt{c++14}]$ cap via $G$ - because neither source alone
+  explains the composed $\textsf{forbidden}$ (the remark after D10).
 
 ### Exhaustiveness note
 
 Every check above is a lookup in a table like the reference table, and both tables and graphs
-here are tiny by construction of the model: $\mathrm{Req}_L$ has at most 9 elements,
-$\mathrm{satisfies}$ at most $9 \times 7 = 63$ cells per language, $\sqcup$ at most
-$9 \times 9 = 81$ cells, and D9 is a six-row decision table over finitely many attribute
-combinations.  The implementation's test suite is expected to verify L1-L6 by full enumeration
-of those tables (citing the lemma numbers), T1/T2 on small DAGs including the diamond of
-Example 2 and the chain of Example 3, and each row of D9 by a dedicated fixture - covering C
-alongside C++ throughout.
+here are small by construction of the model: $\mathrm{Req}_L$ has at most 37 elements,
+$\mathrm{satisfies}$ at most $37 \times 7 = 259$ cells per language, $\sqcup$ at most
+$37 \times 37 = 1369$ cells, and D9 is a six-row decision table over finitely many attribute
+combinations.  The implementation's test suite is expected to verify L1-L7 by full enumeration
+of those tables (citing the lemmas), T1/T2 on small DAGs including the diamond of Example 2
+and the chain of Example 3, the empty intersection of Example 6 with both provenance chains,
+and each row of D9 by a dedicated fixture - covering C alongside C++ throughout.
