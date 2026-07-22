@@ -92,8 +92,7 @@ pub struct VersionMetadata {
     /// lints) can read a candidate version's per-target interface
     /// requirements without downloading its archive.  An empty table
     /// (the default for pre-`standards` entries) means everything is
-    /// unconstrained; the resolver does not consult it for version
-    /// selection.  See `docs/design/standard-compatibility/registry-index.md`.
+    /// unconstrained.  See `docs/design/standard-compatibility/registry-index.md`.
     pub standards: cabin_core::StandardsMetadata,
 }
 
