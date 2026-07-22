@@ -32,14 +32,6 @@
 //!
 //! Crate boundaries:
 //!
-//! - this crate stays dependency-light: it depends only on
-//!   `miette` (with `fancy` enabled), `termcolor`, and
-//!   `thiserror`.  Domain crates depend on `miette` for the
-//!   `Diagnostic` derive and on this crate when they want to
-//!   reference a stable code constant.
-//! - the CLI orchestrator (`cabin`) depends on this
-//!   crate to render typed diagnostics; it must not
-//!   construct domain errors itself.
 //! - rendering routes through one of two entry points:
 //!   `render_to_string` always emits the no-color theme (used
 //!   by tests so output stays byte-stable across terminals);
