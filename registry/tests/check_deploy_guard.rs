@@ -158,11 +158,9 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""crons": ["*/15 * * * *", "0 3 * * *"]"#,
         r#""crons": ["*/15 * * * *"]"#,
     ),
-    (
-        "stale_dump_database_id",
-        r#""D1_DATABASE_ID": "481e7566"#,
-        r#""D1_DATABASE_ID": "00000000"#,
-    ),
+    // (the stale-D1_DATABASE_ID case is built dynamically in the test:
+    // its mutation target is the live database id, which every wipe
+    // changes, and a hardcoded id would break the fixture on each one)
     (
         "drifted_migrations_dir",
         r#""migrations_dir": "migrations""#,
@@ -181,6 +179,32 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
     ),
     ("replaced_dump_cron", r#""0 3 * * *""#, r#""0 3 1 * *""#),
 ];
+
+/// The `D1_DATABASE_ID` mirror breakage, built against whatever id the
+/// config currently carries (a wipe changes it, so no fixture may
+/// hardcode it).
+#[test]
+fn a_stale_dump_database_id_is_caught() {
+    let config = real_config();
+    let marker = r#""D1_DATABASE_ID": ""#;
+    let start = config
+        .find(marker)
+        .expect("the config carries D1_DATABASE_ID")
+        + marker.len();
+    let id = &config[start..start + 36];
+    let stale = config.replacen(
+        &format!("{marker}{id}"),
+        r#""D1_DATABASE_ID": "00000000-0000-0000-0000-000000000000"#,
+        1,
+    );
+    assert_ne!(stale, config, "the stale-id mutation matched nothing");
+    assert!(!guard_accepts(
+        "deploy_stale_dump_database_id",
+        &stale,
+        Some(BUNDLE_WITH_GOVERNOR),
+        true,
+    ));
+}
 
 #[test]
 fn config_breakage_is_caught() {
