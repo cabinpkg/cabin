@@ -20,33 +20,33 @@ API routes, or server functions are required.
 Install Node.js dependencies:
 
 ```bash
-yarn install
+npm install
 ```
 
 Start the local Astro dev server:
 
 ```bash
-yarn dev
+npm run dev
 ```
 
-`yarn dev` starts Astro, which serves the site at
+`npm run dev` starts Astro, which serves the site at
 [`localhost:4321`](http://localhost:4321) by default.
 
 ### Build and preview
 
 ```bash
-yarn lint
-yarn typecheck
-yarn build
-yarn preview
+npm run lint
+npm run typecheck
+npm run build
+npm run preview
 ```
 
-`yarn build` runs Astro type checking, verifies that generated HTML has no
+`npm run build` runs Astro type checking, verifies that generated HTML has no
 inline scripts, and writes the static site to `dist/`.
 
 Biome is used for TypeScript, JavaScript, CSS, and config files. Astro component
 files are excluded from Biome because this setup relies on Astro's own parser and
-type checker for `.astro`; run `yarn typecheck` directly, or rely on `yarn build`,
+type checker for `.astro`; run `npm run typecheck` directly, or rely on `npm run build`,
 which runs `astro check` before building.
 
 ### Cloudflare deployment
@@ -55,8 +55,8 @@ which runs `astro check` before building.
 asset directory. Build before deploying:
 
 ```bash
-yarn build
-yarn wrangler deploy
+npm run build
+npx wrangler deploy
 ```
 
 No deploy workflow is included because Cloudflare account and project secrets
@@ -78,9 +78,9 @@ website itself holds no sessions and no secrets.
   alpha; every sign-in affordance says so.
 - Without the registry routes mounted (or with the registry down), the
   account pages render their signed-out/error states and the rest of the
-  site is unaffected; `yarn verify:progressive` enforces at build time
+  site is unaffected; `npm run verify:progressive` enforces at build time
   that no marketing page's HTML depends on `/api/`.
-- During `yarn dev`, an Astro dev-server proxy forwards `/api/*`,
+- During `npm run dev`, an Astro dev-server proxy forwards `/api/*`,
   `/login`, and `/callback` to the production origin, so the pages'
   relative fetches resolve and cookies set by proxied responses land on
   localhost. The proxy is dev-only and absent from the production build.
@@ -90,7 +90,7 @@ website itself holds no sessions and no secrets.
   session can be minted for localhost. Local development sees the
   signed-out and error states against real API responses; end-to-end
   sign-in happens on production.
-- The session API client lives in `src/lib/account.ts`; `yarn test` runs
+- The session API client lives in `src/lib/account.ts`; `npm test` runs
   its `node:test` suite directly on Node (>= 22.18).
 - `/dashboard/source` is the source viewer: it range-reads a published
   version's zip archive through the registry's session source route and
@@ -127,8 +127,8 @@ The documentation at `cabinpkg.com/docs/` is generated from the repository-root
 `docs/*.md` Markdown — the canonical source, kept at the repo root rather than
 copied into this project. A `docs` content collection (`src/content.config.ts`)
 loads them, `src/pages/docs/[...slug].astro` renders each page, and
-`src/lib/docsNav.ts` holds the sidebar nav. `yarn build` runs
-`yarn verify:docs-links`, which fails the build on a broken internal docs link.
+`src/lib/docsNav.ts` holds the sidebar nav. `npm run build` runs
+`npm run verify:docs-links`, which fails the build on a broken internal docs link.
 
 ### Known limitation
 

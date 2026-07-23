@@ -1,4 +1,4 @@
-// node:test suite for the account API client (`yarn test`). Runs on
+// node:test suite for the account API client (`npm test`). Runs on
 // plain Node (>= 22.18 strips the type annotations natively), so the
 // module under test stays dependency-free and fetch is mocked by hand.
 import assert from "node:assert/strict";

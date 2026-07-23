@@ -29,21 +29,21 @@ from 22.18).
 
 ## Commands
 
-- `yarn dev` / `yarn typecheck` (`astro check`) / `yarn lint` (Biome) /
-  `yarn fmt` (Biome `--write`).
-- `yarn build` = `yarn typecheck && astro build && yarn verify`; writes the
-  static site to `dist/`.
-- `yarn verify` = `verify:csp` (fails on any inline `<script>` in built
+- `npm run dev` / `npm run typecheck` (`astro check`) / `npm run lint` (Biome) /
+  `npm run fmt` (Biome `--write`).
+- `npm run build` = `npm run typecheck && astro build && npm run verify`; writes
+  the static site to `dist/`.
+- `npm run verify` = `verify:csp` (fails on any inline `<script>` in built
   HTML) + `verify:docs-links` (fails on unresolved `/docs/...` or
   un-rewritten relative `*.md` links), both against the built `dist/`.
 
 ## Build-time gotchas
 
-1. `yarn typecheck` passing does NOT mean the build passes. Data-loading,
+1. `npm run typecheck` passing does NOT mean the build passes. Data-loading,
    `getStaticPaths`, and content-collection errors surface only during
    `astro build`, never during `astro check`. After any change to data
    loading or routes, run a full clean build and confirm the output:
-   `/bin/rm -rf dist .astro && yarn build` (expect
+   `/bin/rm -rf dist .astro && npm run build` (expect
    `dist/packages/ports/<name>/index.html` and `dist/packages.json`).
 2. Never resolve repo paths via `import.meta.url`: under `astro build`,
    modules are bundled into `dist/.prerender/chunks/` at a different depth
@@ -89,6 +89,6 @@ from 22.18).
   `while (true)`). It lints `.ts`/`.js`/`.css`/config but excludes `.astro`
   files (Astro's own parser and `astro check` cover those).
 - Deploy: Cloudflare Workers Static Assets serving `./dist`
-  (`wrangler.jsonc`); `yarn build && yarn wrangler deploy`. No deploy
+  (`wrangler.jsonc`); `npm run build && npx wrangler deploy`. No deploy
   workflow is committed (account/secrets vary by environment); CI
   (`.github/workflows/website.yml`) only lints and builds.

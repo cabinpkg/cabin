@@ -7,7 +7,7 @@ import type { PackageRecord } from "./types";
 // The foundation-port recipes live inside the cabin-port crate at
 // crates/cabin-port/ports/.  Resolve that directory by walking up from the
 // current working directory to the nearest ancestor that contains it, so it
-// works whether the build runs from website/ (local `yarn build`, CI) or the
+// works whether the build runs from website/ (local `npm run build`, CI) or the
 // repo root.  We avoid import.meta.url because `astro build` bundles this
 // module into dist/.prerender/chunks/ at a different depth than this source
 // file.
