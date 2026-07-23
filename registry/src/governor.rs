@@ -469,14 +469,19 @@ const OBJECT_KEYS: &str = "SELECT key, bytes, state FROM objects WHERE pool = ?1
 const PRUNE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows WHERE window < ?1";
 
 // The operator-triggered ledger wipe (pre-launch only, guarded by the
-// caller on `meta.launched`). Deliberately **primary-only** plus the
-// windows: the registry wipe deletes primary blobs, so those rows
-// restart from zero and reconciliation rebuilds whatever the fresh
-// registry accrues - but the BACKUP bucket is never wiped, so its
-// `backup` and `dump` rows must survive or the ledger would
-// understate objects that keep billing.
+// caller on `meta.launched`). Deliberately **primary-storage-only**:
+// the registry wipe deletes the primary blobs, so those rows restart
+// from zero and reconciliation rebuilds whatever the fresh registry
+// accrues - but the BACKUP bucket is never wiped, so its `backup` and
+// `dump` rows must survive or the ledger would understate objects that
+// keep billing. The monthly `op_windows` are NOT wiped: they count R2
+// operations Cloudflare has already metered this month, reconciliation
+// cannot rebuild them (R2 exposes no per-pool op counter), and zeroing
+// them mid-month would re-mint a full month of Class A/B allowance on
+// top of the ops that already ran. Daily `principal_windows` are
+// fairness-only (they never grant pool allowance) and roll forward on
+// their own, so clearing them is harmless.
 const WIPE_PRIMARY_OBJECTS: &str = "DELETE FROM objects WHERE pool = 'primary'";
-const WIPE_OP_WINDOWS: &str = "DELETE FROM op_windows";
 const WIPE_PRINCIPAL_WINDOWS: &str = "DELETE FROM principal_windows";
 
 // ---------------------------------------------------------------------
@@ -604,18 +609,53 @@ fn validate(decision: &Decision) -> Result<(), Refusal> {
         if key.is_empty() || key.len() > 512 {
             return Err(invalid("object key length out of range"));
         }
-        // The bound exists only to keep the admission arithmetic
-        // overflow-free (the same clamp the limits get); anything a
-        // configured pool could actually admit passes. An
-        // artifact-sized cap here once broke nightly dumps the moment
-        // the database outgrew it.
-        if bytes > LIMIT_CLAMP {
+        // Zero is never a real archive, dump, or sidecar: a profile zip
+        // is at least its 22-byte end record. Admitting a zero-byte
+        // object inserts a phantom row that later `KeyConflict`s a real
+        // reserve of the same content-addressed key. The upper bound
+        // keeps the admission arithmetic overflow-free (the same clamp
+        // the limits get); anything a configured pool could actually
+        // admit passes. An artifact-sized cap here once broke nightly
+        // dumps the moment the database outgrew it.
+        if bytes == 0 || bytes > LIMIT_CLAMP {
             return Err(invalid("object bytes out of range"));
         }
     }
     for release in &decision.release {
         if release.key.is_empty() || release.key.len() > 512 {
             return Err(invalid("object key length out of range"));
+        }
+    }
+    // Each (pool, key) may take part in at most one storage operation
+    // per decision. Reserve and commit ADD capacity; release REMOVES
+    // it. Mixing them for one key in a single decision has no
+    // conservative direction: `decide` applies commits before releases,
+    // so a commit+release of one key would record the object as
+    // committed and then delete its ledger row while the object still
+    // exists in R2 - an under-count that mints free capacity. Real
+    // callers always separate these into distinct decisions (reserve
+    // before the R2 write, commit/release after), so a collision is a
+    // caller bug the engine refuses outright rather than applies.
+    let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+    for entry in decision
+        .reserve
+        .iter()
+        .map(|r| (r.pool.as_str(), r.key.as_str()))
+        .chain(
+            decision
+                .commit
+                .iter()
+                .map(|c| (c.pool.as_str(), c.key.as_str())),
+        )
+        .chain(
+            decision
+                .release
+                .iter()
+                .map(|r| (r.pool.as_str(), r.key.as_str())),
+        )
+    {
+        if !seen.insert(entry) {
+            return Err(invalid("a storage key appears in more than one operation"));
         }
     }
     Ok(())
@@ -938,14 +978,22 @@ pub fn reconcile(
         unreferenced: Vec::new(),
         mismatched: Vec::new(),
     };
-    for live in &request.live {
+    // A live object is a real R2 object, and a real archive or dump is
+    // never empty; a zero-byte entry is corrupt D1 data, so drop it
+    // rather than commit the phantom row `validate` forbids on the
+    // request path (a 0-byte committed row would later `KeyConflict` a
+    // real reserve of the same content-addressed key). A dropped key
+    // that carries a ledger row is reported `unreferenced` for the
+    // operator, exactly like any other entry the live set does not name.
+    let live: Vec<&LiveObject> = request.live.iter().filter(|obj| obj.bytes > 0).collect();
+    for obj in &live {
         // Reality is never clamped downward: the request-path item cap
         // does not apply here, because recording less than an object's
         // true size would make the ledger understate R2.
-        let bytes = i64::try_from(live.bytes).unwrap_or(i64::MAX);
-        match ledger_bytes.get(live.key.as_str()) {
-            None => report.added.push(live.key.clone()),
-            Some(&stored) if stored != bytes => report.mismatched.push(live.key.clone()),
+        let bytes = i64::try_from(obj.bytes).unwrap_or(i64::MAX);
+        match ledger_bytes.get(obj.key.as_str()) {
+            None => report.added.push(obj.key.clone()),
+            Some(&stored) if stored != bytes => report.mismatched.push(obj.key.clone()),
             Some(_) => {}
         }
         // The same conservative commit upsert the settle path uses:
@@ -955,14 +1003,14 @@ pub fn reconcile(
             COMMIT_OBJECT,
             &[
                 pool.into(),
-                live.key.as_str().into(),
+                obj.key.as_str().into(),
                 bytes.into(),
                 now_iso.into(),
             ],
         )?;
     }
     let live_keys: std::collections::HashSet<&str> =
-        request.live.iter().map(|live| live.key.as_str()).collect();
+        live.iter().map(|obj| obj.key.as_str()).collect();
     for row in &ledger {
         if !live_keys.contains(row.key.as_str()) {
             report.unreferenced.push(row.key.clone());
@@ -976,19 +1024,21 @@ pub fn reconcile(
     Ok(report)
 }
 
-/// Clears the primary-pool ledger and every operation window. The
-/// caller owns the guard: this is the pre-launch registry wipe's
-/// companion and must never run against a launched registry
+/// Clears the primary-pool storage ledger and the daily fairness
+/// windows. The caller owns the guard: this is the pre-launch registry
+/// wipe's companion and must never run against a launched registry
 /// (`docs/runbook.md`, "Wipe procedure"). The `backup` and `dump`
-/// rows survive on purpose - the wipe never touches the BACKUP
-/// bucket, and their objects keep billing.
+/// storage rows survive on purpose - the wipe never touches the BACKUP
+/// bucket, and their objects keep billing. The monthly `op_windows`
+/// survive too: they mirror R2 operations Cloudflare already metered
+/// this month and are not reconstructable, so zeroing them would mint
+/// fresh monthly allowance for spend that already happened.
 ///
 /// # Errors
 ///
 /// Storage-level failure.
 pub fn wipe(store: &mut impl Store) -> Result<(), String> {
     store.exec(WIPE_PRIMARY_OBJECTS, &[])?;
-    store.exec(WIPE_OP_WINDOWS, &[])?;
     store.exec(WIPE_PRINCIPAL_WINDOWS, &[])?;
     Ok(())
 }
@@ -1021,14 +1071,24 @@ mod tests {
             .collect()
     }
 
-    impl Store for Sqlite {
-        fn exec(&mut self, sql: &str, params: &[Value]) -> Result<usize, String> {
+    // The adapter bodies live in inherent methods so the fault-
+    // injecting [`Flaky`] store below can delegate to them without
+    // spelling a dynamic-argument `exec(`/`prepare(` call - the SQL-
+    // consolidation scan sanctions exactly the const-exec and
+    // `prepare(sql)` shapes in this file, and widening it for a test
+    // forwarder would loosen the ceiling for the whole engine.
+    impl Sqlite {
+        fn run_statement(&mut self, sql: &str, params: &[Value]) -> Result<usize, String> {
             self.0
                 .execute(sql, rusqlite::params_from_iter(bindings(params)))
                 .map_err(|err| err.to_string())
         }
 
-        fn rows(&mut self, sql: &str, params: &[Value]) -> Result<Vec<serde_json::Value>, String> {
+        fn read_rows(
+            &mut self,
+            sql: &str,
+            params: &[Value],
+        ) -> Result<Vec<serde_json::Value>, String> {
             let mut statement = self.0.prepare(sql).map_err(|err| err.to_string())?;
             let names: Vec<String> = statement
                 .column_names()
@@ -1055,6 +1115,16 @@ mod tests {
                 out.push(serde_json::Value::Object(object));
             }
             Ok(out)
+        }
+    }
+
+    impl Store for Sqlite {
+        fn exec(&mut self, sql: &str, params: &[Value]) -> Result<usize, String> {
+            self.run_statement(sql, params)
+        }
+
+        fn rows(&mut self, sql: &str, params: &[Value]) -> Result<Vec<serde_json::Value>, String> {
+            self.read_rows(sql, params)
         }
     }
 
@@ -1614,6 +1684,42 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_skips_a_zero_byte_live_object() {
+        let mut store = Sqlite::new();
+        // A 0-byte "live" object is corrupt D1 data - a real archive is
+        // never empty - so reconcile must not record a phantom row for
+        // it (that row would later `KeyConflict` a real reserve of the
+        // same content-addressed key), the same invariant N2 enforces
+        // on the request path.
+        let report = reconcile(
+            &mut store,
+            NOW,
+            &ReconcileRequest {
+                pool: StoragePool::Primary,
+                live: vec![
+                    LiveObject {
+                        key: "real".to_owned(),
+                        bytes: 10,
+                    },
+                    LiveObject {
+                        key: "empty".to_owned(),
+                        bytes: 0,
+                    },
+                ],
+            },
+        )
+        .expect("reconcile runs");
+        assert_eq!(report.added, vec!["real".to_owned()]);
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 10);
+        // Exactly one row exists; the empty key recorded nothing.
+        let snapshot = usage(&mut store).expect("usage reads");
+        assert_eq!(
+            snapshot.storage.iter().map(|row| row.objects).sum::<u64>(),
+            1
+        );
+    }
+
+    #[test]
     fn reconcile_prunes_stale_fairness_rows() {
         let mut store = Sqlite::new();
         let limits = small_limits();
@@ -1638,7 +1744,7 @@ mod tests {
     }
 
     #[test]
-    fn wipe_clears_primary_and_windows_but_keeps_backup_and_dump() {
+    fn wipe_clears_primary_storage_but_keeps_op_windows_backup_and_dump() {
         let mut store = Sqlite::new();
         let limits = small_limits();
         allowed(
@@ -1655,24 +1761,26 @@ mod tests {
         );
         refused(&mut store, &limits, &reserve(StoragePool::Primary, "b", 1));
         wipe(&mut store).expect("wipe runs");
-        // Primary rows and every window are gone; the backup and dump
-        // rows survive - the registry wipe never touches the BACKUP
-        // bucket, so their objects keep billing.
+        // The primary storage rows are gone - the registry wipe deleted
+        // those blobs - so primary capacity is free again.
         let snapshot = usage(&mut store).expect("usage reads");
         assert!(snapshot.storage.iter().all(|row| row.pool != "primary"));
-        assert_eq!(pool_bytes(&mut store, StoragePool::Backup), 50);
-        assert_eq!(pool_bytes(&mut store, StoragePool::Dump), 30);
-        assert!(usage(&mut store).expect("usage reads").ops.is_empty());
         allowed(
             &mut store,
             &limits,
             &reserve(StoragePool::Primary, "b", 100),
         );
-        allowed(
-            &mut store,
-            &limits,
-            &consume_as(OpPool::BOrdinary, 5, "1", 5),
-        );
+        // The backup and dump rows survive - the BACKUP bucket is never
+        // wiped, so their objects keep billing.
+        assert_eq!(pool_bytes(&mut store, StoragePool::Backup), 50);
+        assert_eq!(pool_bytes(&mut store, StoragePool::Dump), 30);
+        // The monthly op window survives too: the 5 ordinary reads were
+        // real R2 operations Cloudflare already metered this month, and
+        // reconciliation cannot rebuild op counters, so the wipe must
+        // not re-mint their allowance. The pool stays exhausted until
+        // the month rolls forward.
+        assert_eq!(pool_used(&mut store, OpPool::BOrdinary), 5);
+        refused(&mut store, &limits, &consume(OpPool::BOrdinary, 1));
     }
 
     #[test]
@@ -1771,5 +1879,468 @@ mod tests {
                 retry_after_secs: 60
             })
         );
+    }
+
+    #[test]
+    fn a_key_cannot_be_committed_and_released_in_one_decision() {
+        let mut store = Sqlite::new();
+        let limits = small_limits();
+        // commit ADDS the object's bytes, release REMOVES its row, and
+        // `decide` runs commits before releases: applied together for
+        // one key the net direction is non-conservative - the object
+        // stays in R2 while the ledger loses its row, minting free
+        // capacity. The engine refuses the ambiguous decision outright.
+        let commit_then_release = Decision {
+            commit: vec![Commit {
+                pool: StoragePool::Primary,
+                key: "k".to_owned(),
+                bytes: 50,
+            }],
+            release: vec![Release {
+                pool: StoragePool::Primary,
+                key: "k".to_owned(),
+            }],
+            ..Decision::default()
+        };
+        assert!(matches!(
+            refused(&mut store, &limits, &commit_then_release),
+            Refusal::Invalid { .. }
+        ));
+        // Nothing was applied: no committed row, no deletion.
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 0);
+
+        // reserve+release of one key, and a key duplicated in one list,
+        // are refused the same way.
+        let reserve_then_release = Decision {
+            reserve: vec![Reserve {
+                pool: StoragePool::Primary,
+                key: "k".to_owned(),
+                bytes: 50,
+            }],
+            release: vec![Release {
+                pool: StoragePool::Primary,
+                key: "k".to_owned(),
+            }],
+            ..Decision::default()
+        };
+        assert!(matches!(
+            refused(&mut store, &limits, &reserve_then_release),
+            Refusal::Invalid { .. }
+        ));
+
+        // Distinct keys across commit and release stay allowed: a real
+        // settle that commits one blob and releases another in one pass.
+        allowed(
+            &mut store,
+            &limits,
+            &reserve(StoragePool::Primary, "old", 10),
+        );
+        let distinct = Decision {
+            commit: vec![Commit {
+                pool: StoragePool::Primary,
+                key: "new".to_owned(),
+                bytes: 20,
+            }],
+            release: vec![Release {
+                pool: StoragePool::Primary,
+                key: "old".to_owned(),
+            }],
+            ..Decision::default()
+        };
+        allowed(&mut store, &limits, &distinct);
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 20);
+        // The same key under DIFFERENT pools is two distinct objects, so
+        // it stays allowed WITHIN one decision (the validator keys on
+        // pool AND key, not key alone).
+        let cross_pool = Decision {
+            reserve: vec![
+                Reserve {
+                    pool: StoragePool::Primary,
+                    key: "shared".to_owned(),
+                    bytes: 5,
+                },
+                Reserve {
+                    pool: StoragePool::Backup,
+                    key: "shared".to_owned(),
+                    bytes: 5,
+                },
+            ],
+            ..Decision::default()
+        };
+        allowed(&mut store, &limits, &cross_pool);
+    }
+
+    #[test]
+    fn a_zero_byte_object_is_refused() {
+        let mut store = Sqlite::new();
+        let limits = small_limits();
+        // No real archive, dump, or sidecar is empty; a 0-byte reserve
+        // would insert a phantom row that later conflicts a real
+        // reserve of the same content-addressed key.
+        assert!(matches!(
+            refused(&mut store, &limits, &reserve(StoragePool::Primary, "z", 0)),
+            Refusal::Invalid { .. }
+        ));
+        assert!(matches!(
+            refused(&mut store, &limits, &commit(StoragePool::Primary, "z", 0)),
+            Refusal::Invalid { .. }
+        ));
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 0);
+    }
+
+    /// A [`Store`] that injects one storage failure on the Nth
+    /// statement (0-indexed), to prove the engine surfaces storage
+    /// errors - the caller then fails closed - instead of silently
+    /// resolving to an allow.
+    struct Flaky {
+        inner: Sqlite,
+        countdown: std::cell::Cell<i64>,
+    }
+
+    impl Flaky {
+        fn failing_on(nth: i64) -> Flaky {
+            Flaky {
+                inner: Sqlite::new(),
+                countdown: std::cell::Cell::new(nth),
+            }
+        }
+
+        fn trip(&self) -> bool {
+            let n = self.countdown.get();
+            self.countdown.set(n - 1);
+            n == 0
+        }
+    }
+
+    impl Store for Flaky {
+        fn exec(&mut self, sql: &str, params: &[Value]) -> Result<usize, String> {
+            if self.trip() {
+                return Err("injected storage failure".to_owned());
+            }
+            self.inner.run_statement(sql, params)
+        }
+
+        fn rows(&mut self, sql: &str, params: &[Value]) -> Result<Vec<serde_json::Value>, String> {
+            if self.trip() {
+                return Err("injected storage failure".to_owned());
+            }
+            self.inner.read_rows(sql, params)
+        }
+    }
+
+    #[test]
+    fn a_storage_failure_makes_decide_fail_closed_not_allow() {
+        // The whole fail-closed contract: any Store error must surface
+        // as Err so the client refuses before initiating a billable R2
+        // call - never a silent Ok(allowed).
+        let mut store = Flaky::failing_on(0);
+        let err = decide(
+            &mut store,
+            &small_limits(),
+            NOW,
+            &reserve(StoragePool::Primary, "a", 10),
+        )
+        .expect_err("a storage failure must not resolve to an allow");
+        assert!(err.contains("injected"));
+    }
+
+    #[test]
+    fn a_failure_at_any_step_never_resolves_to_an_allow() {
+        // A consume+reserve issues four statements (roll, consume,
+        // state lookup, admission insert). Breaking ANY of them - even
+        // after the consume already applied - must never yield an
+        // allow; the caller treats the resulting error exactly like an
+        // unreachable governor and refuses.
+        let decision = Decision {
+            consume: vec![Consume {
+                pool: OpPool::APublish,
+                n: 1,
+                principal: None,
+                principal_cap: None,
+            }],
+            reserve: vec![Reserve {
+                pool: StoragePool::Primary,
+                key: "a".to_owned(),
+                bytes: 10,
+            }],
+            ..Decision::default()
+        };
+        for nth in 0..4 {
+            let mut store = Flaky::failing_on(nth);
+            let result = decide(&mut store, &small_limits(), NOW, &decision);
+            assert!(
+                !matches!(&result, Ok(outcome) if outcome.ok),
+                "breaking statement {nth} must never resolve to an allow, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn usage_and_reconcile_surface_storage_failure() {
+        // The breaker cron and admin route rely on usage()/reconcile()
+        // returning Err - not an empty/zero snapshot - during a storage
+        // incident, so they fail closed instead of reading a false
+        // "healthy zero" that would disable the budget breaker.
+        let mut store = Flaky::failing_on(0);
+        assert!(usage(&mut store).is_err());
+        let mut store = Flaky::failing_on(0);
+        assert!(
+            reconcile(
+                &mut store,
+                NOW,
+                &ReconcileRequest {
+                    pool: StoragePool::Primary,
+                    live: vec![],
+                },
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn releasing_a_committed_object_frees_capacity() {
+        let mut store = Sqlite::new();
+        let limits = small_limits(); // dump limit 30
+        // RELEASE_OBJECT is state-agnostic; the operator's evidence-
+        // backed release and the dump self-release both free COMMITTED
+        // rows, not just reserved ones. A "safety" refactor to delete
+        // only reserved rows would silently leak the dump/backup pools.
+        allowed(&mut store, &limits, &commit(StoragePool::Dump, "d/x", 30));
+        refused(&mut store, &limits, &reserve(StoragePool::Dump, "d/y", 1));
+        allowed(&mut store, &limits, &release(StoragePool::Dump, "d/x"));
+        assert_eq!(pool_bytes(&mut store, StoragePool::Dump), 0);
+        allowed(&mut store, &limits, &reserve(StoragePool::Dump, "d/y", 30));
+    }
+
+    #[test]
+    fn reconcile_never_lowers_a_committed_byte_count() {
+        let mut store = Sqlite::new();
+        // Reconcile is increase-only: an authoritative set reporting a
+        // SMALLER size than the ledger keeps the larger value (the MAX
+        // upsert) and only reports the mismatch. Lowering it would
+        // under-count real R2 usage - the one thing reconcile must
+        // never do.
+        allowed(
+            &mut store,
+            &small_limits(),
+            &commit(StoragePool::Primary, "k", 40),
+        );
+        let report = reconcile(
+            &mut store,
+            NOW,
+            &ReconcileRequest {
+                pool: StoragePool::Primary,
+                live: vec![LiveObject {
+                    key: "k".to_owned(),
+                    bytes: 10,
+                }],
+            },
+        )
+        .expect("reconcile runs");
+        assert_eq!(report.mismatched, vec!["k".to_owned()]);
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 40);
+    }
+
+    #[test]
+    fn a_publish_lifecycle_settles_reserved_into_committed_once() {
+        let mut store = Sqlite::new();
+        let limits = small_limits();
+        // The publish path in order: an existence-head consume
+        // (BPublish), then a Class A consume plus a Primary reserve,
+        // then the commit that settles reserved -> committed WITHOUT
+        // inflating the pool.
+        allowed(&mut store, &limits, &consume(OpPool::BPublish, 1));
+        let admit = Decision {
+            consume: vec![Consume {
+                pool: OpPool::APublish,
+                n: 1,
+                principal: None,
+                principal_cap: None,
+            }],
+            reserve: vec![Reserve {
+                pool: StoragePool::Primary,
+                key: "blobs/sha256/ab".to_owned(),
+                bytes: 60,
+            }],
+            ..Decision::default()
+        };
+        allowed(&mut store, &limits, &admit);
+        let snapshot = usage(&mut store).expect("usage reads");
+        assert!(
+            snapshot
+                .storage
+                .iter()
+                .any(|row| row.state == "reserved" && row.bytes == 60)
+        );
+        allowed(
+            &mut store,
+            &limits,
+            &commit(StoragePool::Primary, "blobs/sha256/ab", 60),
+        );
+        let snapshot = usage(&mut store).expect("usage reads");
+        assert_eq!(snapshot.storage.len(), 1);
+        assert_eq!(snapshot.storage[0].state, "committed");
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 60);
+        assert_eq!(pool_used(&mut store, OpPool::APublish), 1);
+        assert_eq!(pool_used(&mut store, OpPool::BPublish), 1);
+    }
+
+    #[test]
+    fn a_replayed_admit_dedups_the_reserve_but_recharges_the_op() {
+        let mut store = Sqlite::new();
+        let limits = Limits {
+            a_publish_month: 1_000,
+            ..small_limits()
+        };
+        // A lost decide-response makes the caller retry the same admit.
+        // The content-addressed reserve is idempotent (one storage
+        // row), but the op consume has no idempotency key and recharges
+        // - accepted because over-counting ops is conservative, and the
+        // retry's R2 put targets the same object so storage stays
+        // counted once.
+        let admit = Decision {
+            consume: vec![Consume {
+                pool: OpPool::APublish,
+                n: 1,
+                principal: None,
+                principal_cap: None,
+            }],
+            reserve: vec![Reserve {
+                pool: StoragePool::Primary,
+                key: "blobs/sha256/ab".to_owned(),
+                bytes: 60,
+            }],
+            ..Decision::default()
+        };
+        allowed(&mut store, &limits, &admit);
+        allowed(&mut store, &limits, &admit);
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), 60);
+        assert_eq!(pool_used(&mut store, OpPool::APublish), 2);
+    }
+
+    #[test]
+    fn committed_plus_reserved_never_exceeds_the_limit() {
+        let mut store = Sqlite::new();
+        let limits = small_limits(); // primary 100
+        // A deterministic pseudo-random sequence of reserves, settles,
+        // and releases over a small key space (so the dedup and
+        // conflict paths both fire and both ledger states coexist): the
+        // admission invariant SUM(reserved+committed) <= limit must hold
+        // after every step, whatever the interleaving.
+        let mut seed = 1_u64;
+        for step in 0..1_000 {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let bytes = (seed >> 33) % 40 + 1;
+            let key = format!("k{}", (seed >> 20) % 12);
+            let reserved = decide(
+                &mut store,
+                &limits,
+                NOW,
+                &reserve(StoragePool::Primary, &key, bytes),
+            )
+            .expect("decide runs")
+            .ok;
+            // Settle some just-reserved keys into COMMITTED state at the
+            // same bytes: reserved -> committed never changes the pool
+            // sum, so both states mix into the ledger and the invariant
+            // (which spans committed + reserved) still has to hold.
+            if reserved && step % 3 == 0 {
+                decide(
+                    &mut store,
+                    &limits,
+                    NOW,
+                    &commit(StoragePool::Primary, &key, bytes),
+                )
+                .expect("decide runs");
+            }
+            if step % 7 == 0 {
+                decide(
+                    &mut store,
+                    &limits,
+                    NOW,
+                    &release(StoragePool::Primary, &key),
+                )
+                .expect("decide runs");
+            }
+            assert!(
+                pool_bytes(&mut store, StoragePool::Primary) <= 100,
+                "admission invariant broken at step {step}"
+            );
+        }
+    }
+
+    #[test]
+    fn admission_is_overflow_free_at_the_clamp_boundary() {
+        let mut store = Sqlite::new();
+        let limits = Limits {
+            storage_primary_bytes: LIMIT_CLAMP,
+            ..small_limits()
+        };
+        // Reserve exactly the clamp against a clamp-sized limit: the
+        // largest SUM(bytes)+bytes the admission arithmetic evaluates.
+        // It must land exactly, and one more byte must refuse - no i64
+        // wrap that would admit an over-limit reserve.
+        allowed(
+            &mut store,
+            &limits,
+            &reserve(StoragePool::Primary, "a", LIMIT_CLAMP),
+        );
+        refused(&mut store, &limits, &reserve(StoragePool::Primary, "b", 1));
+        assert_eq!(pool_bytes(&mut store, StoragePool::Primary), LIMIT_CLAMP);
+    }
+
+    #[test]
+    fn op_windows_roll_across_a_year_boundary_and_a_zero_limit_refuses() {
+        let mut store = Sqlite::new();
+        let limits = small_limits();
+        // December's window is spent to the limit...
+        let outcome = decide(
+            &mut store,
+            &limits,
+            "2026-12-31T23:59:00.000Z",
+            &consume(OpPool::BOrdinary, 5),
+        )
+        .expect("decide runs");
+        assert!(outcome.ok);
+        let outcome = decide(
+            &mut store,
+            &limits,
+            "2026-12-31T23:59:30.000Z",
+            &consume(OpPool::BOrdinary, 1),
+        )
+        .expect("decide runs");
+        assert!(!outcome.ok);
+        // ...January of the next year rolls it forward (lexical YYYY-MM
+        // order holds: "2027-01" > "2026-12")...
+        let outcome = decide(
+            &mut store,
+            &limits,
+            "2027-01-01T00:00:00.000Z",
+            &consume(OpPool::BOrdinary, 5),
+        )
+        .expect("decide runs");
+        assert!(outcome.ok);
+        // ...and a clock regressing back into December must not mint
+        // fresh allowance.
+        let outcome = decide(
+            &mut store,
+            &limits,
+            "2026-12-31T23:59:59.000Z",
+            &consume(OpPool::BOrdinary, 1),
+        )
+        .expect("decide runs");
+        assert!(!outcome.ok, "a regressed clock must not reset the window");
+
+        // A zero op limit (a GOVERNOR_R2_CLASS_B_*="0" typo fails closed
+        // to zero) refuses every consume on that pool.
+        let zero = Limits {
+            b_source_month: 0,
+            ..small_limits()
+        };
+        let mut store = Sqlite::new();
+        assert!(matches!(
+            refused(&mut store, &zero, &consume(OpPool::BSource, 1)),
+            Refusal::PoolExhausted { .. }
+        ));
     }
 }
