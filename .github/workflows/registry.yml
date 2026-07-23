@@ -51,6 +51,9 @@ jobs:
       - name: SQL consolidation guard
         run: bash scripts/check-sql.sh
 
+      - name: R2 acquisition guard
+        run: bash scripts/check-r2.sh
+
       - name: Check formatting
         run: cargo fmt --all --verbose -- --check
 
