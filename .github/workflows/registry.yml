@@ -70,6 +70,11 @@ jobs:
           cargo install -q "worker-build@=0.8.5" --locked
           worker-build --release
 
+      # After the build so the bundle export check runs against the
+      # artifact wrangler would actually deploy.
+      - name: Deploy-config guard
+        run: bash scripts/check-deploy.sh --require-bundle
+
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
   # client's canonical output and the server's schema cannot drift apart.
