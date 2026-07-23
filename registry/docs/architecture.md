@@ -924,6 +924,23 @@ which is the operator's explicit release
 the full usage snapshot, giving `wrangler tail` the ledger next to the
 analytics evaluation it audits.
 
+**CI guardrails.** Two lexical guards keep the governed-R2 invariant
+reviewable as the code grows: `scripts/check-r2.sh` pins the typed
+acquisition spellings (`env.bucket` in every direct form) to an
+allowlisted, reviewed function with its exact acquisition count, and
+bans the generic accessors (`get_binding`, `unchecked_into`) outright
+- the same assurance model as the SQL guard, a tripwire that forces
+diff review at the seam, not a proof of admission; JS-reflection
+acquisition (`Reflect::get` over the raw env plus a checked cast)
+remains deliberate-evasion territory that only code review catches -
+and `scripts/check-deploy.sh`
+refuses a `wrangler.jsonc` whose bindings, Durable Object lifecycle,
+crons, or `GOVERNOR_*`/`BUDGET_*` vars no longer match what the code
+deploys against - including the bundle-export check that would
+otherwise fail only at `wrangler deploy` time. Both run in CI
+(`registry.yml`) and are themselves regression-tested
+(`tests/check_r2_guard.rs`, `tests/check_deploy_guard.rs`).
+
 **What stays best-effort on purpose.** Workers requests and D1 rows
 are revealed by the platform only after the fact, so they keep the
 breaker's approximate, cron-driven treatment - presenting them as
@@ -957,8 +974,10 @@ recovery"):
   the backup-health alert. `scripts/backup-backfill.sh` is the manual
   recovery path; it deliberately leaves queue rows for the drain to
   settle. No code path deletes from
-  the backup bucket, so it is append-only: a deletion in the primary -
-  malicious or accidental - cannot propagate.
+  the backup bucket's `blobs/sha256/` namespace, so the replicated
+  blobs are append-only: a deletion in the primary - malicious or
+  accidental - cannot propagate. (The `d1/` dump namespace is pruned
+  by its own job's validation and retention, below.)
 - **Nightly D1 dump (RPO <= 24 h).** A second cron schedule drives the
   D1 REST export endpoint from the Worker itself and streams the
   official `.sql` dump into `BACKUP` at `d1/<date>.sql` plus a `.sha256`
