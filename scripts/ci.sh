@@ -89,9 +89,9 @@ fi
 
 if [[ "$web_changed" -eq 1 ]]; then
   (cd website &&
-    step yarn install --frozen-lockfile &&
-    step yarn lint &&
-    step yarn build)
+    step npm ci &&
+    step npm run lint &&
+    step npm run build)
 else
   echo "skipping website lint/build: no website/ or docs/ changes since main"
 fi

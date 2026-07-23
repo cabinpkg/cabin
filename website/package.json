@@ -8,12 +8,12 @@
     "type": "module",
     "scripts": {
         "dev": "astro dev",
-        "build": "yarn typecheck && astro build && yarn verify",
+        "build": "npm run typecheck && astro build && npm run verify",
         "preview": "astro preview",
         "lint": "biome check .",
         "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
         "typecheck": "astro check",
-        "verify": "yarn verify:csp && yarn verify:docs-links && yarn verify:progressive",
+        "verify": "npm run verify:csp && npm run verify:docs-links && npm run verify:progressive",
         "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
         "verify:docs-links": "node scripts/verify-docs-links.mjs",
         "verify:progressive": "node scripts/verify-progressive-independence.mjs",
@@ -50,5 +50,5 @@
         "typescript": "^6.0.3",
         "wrangler": "^4.112.0"
     },
-    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "packageManager": "npm@11.17.0"
 }

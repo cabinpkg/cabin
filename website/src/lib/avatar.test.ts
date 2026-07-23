@@ -1,4 +1,4 @@
-// node:test suite for the avatar URL derivation (`yarn test`).
+// node:test suite for the avatar URL derivation (`npm test`).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { avatarUrl } from "./avatar.ts";

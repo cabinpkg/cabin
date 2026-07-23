@@ -34,7 +34,7 @@ same change and treat the architecture doc as authoritative.
   `RUSTFLAGS="-D warnings"`, `RUSTDOCFLAGS="-D warnings"`, and clippy's
   trailing `-- -D warnings` are intentional.
 - Changes under `docs/` or `website/` require, from `website/`:
-  `yarn install --frozen-lockfile && yarn lint && yarn build` (build runs
+  `npm ci && npm run lint && npm run build` (build runs
   typecheck, Astro build, CSP checks, and docs-link checks). For docs-only
   changes, run only the checks matching the touched surface.
 - Commit subjects follow Conventional Commits, lower-case, at or under 100

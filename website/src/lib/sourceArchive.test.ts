@@ -1,4 +1,4 @@
-// node:test suite for the strict-zip-profile parser (`yarn test`). The
+// node:test suite for the strict-zip-profile parser (`npm test`). The
 // fixtures are profile archives built by hand right here - local records,
 // central directory, EOCD, in the profile's exact tiling - so the parser
 // is exercised against the same byte layout `cabin package` produces.
