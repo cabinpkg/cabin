@@ -92,16 +92,24 @@ pub enum ApiRoute<'a> {
         name: &'a str,
         version: &'a str,
     },
+    /// `GET`/`POST /api/v1/admin/governor`: the governor ledger's
+    /// operator surface - usage snapshot, evidence-backed release, and
+    /// the pre-launch ledger wipe (`docs/runbook.md`, "The cost
+    /// governor").
+    AdminGovernor,
 }
 
 /// Matches `path` against the API routes:
 /// `/api/v1/packages/<scope>/<name>/<version>`,
 /// `/api/v1/packages/<scope>/<name>/<version>/yank`, and the admin
-/// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]` and
-/// `/api/v1/admin/packages`.
+/// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`,
+/// `/api/v1/admin/packages`, and `/api/v1/admin/governor`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     if path == "/api/v1/admin/packages" {
         return Some(ApiRoute::AdminPackages);
+    }
+    if path == "/api/v1/admin/governor" {
+        return Some(ApiRoute::AdminGovernor);
     }
     if let Some(rest) = path.strip_prefix("/api/v1/admin/versions") {
         if rest.is_empty() {
@@ -864,6 +872,22 @@ mod tests {
             match_api_route("/api/v1/admin/packages"),
             Some(ApiRoute::AdminPackages)
         );
+        assert_eq!(
+            match_api_route("/api/v1/admin/governor"),
+            Some(ApiRoute::AdminGovernor)
+        );
+        // Exact match only: no subtree grows under it by accident.
+        assert_eq!(match_api_route("/api/v1/admin/governor/"), None);
+        assert_eq!(match_api_route("/api/v1/admin/governor/usage"), None);
+    }
+
+    #[test]
+    fn the_blob_cache_identity_is_not_a_route() {
+        // The artifact edge cache keys on a synthetic /__cache URL that
+        // must never become servable: on the registry host an unmatched
+        // path is the uniform 401 before any cache or data work.
+        assert_eq!(match_route("/__cache/blobs/sha256/abcd"), None);
+        assert_eq!(match_api_route("/__cache/blobs/sha256/abcd"), None);
     }
 
     #[test]

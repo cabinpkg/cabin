@@ -12,9 +12,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Runs the real guard over a scratch tree containing `call_site`;
-/// `true` means the guard accepted it.
-fn guard_accepts(name: &str, call_site: &str) -> bool {
+/// Runs the real guard over a scratch tree containing `call_site` at
+/// `src/<file>`; `true` means the guard accepted it.
+fn guard_accepts_in(name: &str, file: &str, call_site: &str) -> bool {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("src")).expect("create scratch src/");
@@ -23,7 +23,7 @@ fn guard_accepts(name: &str, call_site: &str) -> bool {
     for script in ["check-sql.sh", "check-sql.pl"] {
         fs::copy(scripts.join(script), dir.join("scripts").join(script)).expect("copy the guard");
     }
-    fs::write(dir.join("src/glue.rs"), call_site).expect("write the call site");
+    fs::write(dir.join("src").join(file), call_site).expect("write the call site");
 
     let status = Command::new("bash")
         .arg("scripts/check-sql.sh")
@@ -31,6 +31,10 @@ fn guard_accepts(name: &str, call_site: &str) -> bool {
         .output()
         .expect("run the guard");
     status.status.success()
+}
+
+fn guard_accepts(name: &str, call_site: &str) -> bool {
+    guard_accepts_in(name, "glue.rs", call_site)
 }
 
 /// The canonical spelling - and the shapes around it that are not
@@ -148,6 +152,76 @@ fn executed_sql_outside_sql_rs_is_caught() {
         escaped.is_empty(),
         "the guard accepted executed SQL outside src/sql.rs: {escaped:?}"
     );
+}
+
+/// The governor's Durable Object statements are consolidated in
+/// `src/governor.rs` (module-local consts, validated by its host
+/// tests) and executed through the storage adapter in
+/// `src/governor_do.rs` - both sanctioned, and only there.
+#[test]
+fn the_governor_carve_outs_are_file_scoped() {
+    // The engine's const spelling passes in its own module...
+    assert!(guard_accepts_in(
+        "guard_governor_const_exec",
+        "governor.rs",
+        "store.exec(CONSUME_OPS, &[pool.as_str().into()])?;",
+    ));
+    // ...but nowhere else, and a dynamic argument fails even there.
+    assert!(!guard_accepts_in(
+        "guard_governor_const_exec_elsewhere",
+        "glue.rs",
+        "store.exec(CONSUME_OPS, &[pool.as_str().into()])?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_dynamic_exec",
+        "governor.rs",
+        "store.exec(dynamic_sql, &[])?;",
+    ));
+    // The host-test adapter's exact `prepare(sql)` pass-through is
+    // file-scoped too, and any other prepare argument stays rejected.
+    assert!(guard_accepts_in(
+        "guard_governor_test_adapter_prepare",
+        "governor.rs",
+        "let mut statement = self.0.prepare(sql).map_err(|err| err.to_string())?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_test_adapter_prepare_elsewhere",
+        "glue.rs",
+        "let mut statement = self.0.prepare(sql).map_err(|err| err.to_string())?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_dynamic_prepare",
+        "governor.rs",
+        "self.0.prepare(dynamic_sql)?;",
+    ));
+    // The adapter's pass-through is scoped to its file the same way,
+    // and even there only the named parameters and consts pass -
+    // dynamic and literal spellings stay rejected.
+    assert!(guard_accepts_in(
+        "guard_governor_do_passthrough",
+        "governor_do.rs",
+        "self.0.exec(sql, Some(bindings(params)))?;",
+    ));
+    assert!(guard_accepts_in(
+        "guard_governor_do_schema_and_const",
+        "governor_do.rs",
+        "sql.exec(statement, None)?;\nself.0.exec(CHANGED_ROWS, None)?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_do_passthrough_elsewhere",
+        "glue.rs",
+        "self.0.exec(sql, Some(bindings(params)))?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_do_dynamic",
+        "governor_do.rs",
+        "self.0.exec(dynamic_sql, None)?;",
+    ));
+    assert!(!guard_accepts_in(
+        "guard_governor_do_literal",
+        "governor_do.rs",
+        "self.0.exec(\"DROP TABLE objects\", None)?;",
+    ));
 }
 
 /// The guard the workflow runs is the one under test.

@@ -2,22 +2,26 @@
 //! plumbing. Everything with behavior worth testing lives in the host-target
 //! modules; keep this file thin.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::Deserialize;
 use worker::{
-    Context, D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response,
+    Context, D1Database, Delay, Env, Fetch, Headers, Method, Request, RequestInit, Response,
     ScheduleContext, ScheduledEvent, console_error, console_log, event,
 };
 
 use crate::auth::{self, AuthContext, Scope};
 use crate::documents::{self, VersionRow};
 use crate::error;
+use crate::governor::{self, Consume, Decision, OpPool, Refusal, Reserve, StoragePool};
+use crate::governor_client::{self, Gate};
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, backup, breaker, quota, sql, verify};
+use crate::{analytics, backup, breaker, quota, sql, telemetry, verify};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -292,11 +296,12 @@ async fn handle_website(
     };
 
     let mut response = match req.method() {
-        // The admin listings are the only API routes read with GET;
-        // anything else is an authenticated 404.
+        // The admin listings and the governor snapshot are the only API
+        // routes read with GET; anything else is an authenticated 404.
         Method::Get => match match_api_route(path) {
             Some(ApiRoute::AdminVersions) => admin_versions_response(req, &db, &auth).await?,
             Some(ApiRoute::AdminPackages) => admin_packages_response(&db, &auth).await?,
+            Some(ApiRoute::AdminGovernor) => admin_governor_usage_response(env, &auth).await?,
             _ => error_response(404, error::NOT_FOUND)?,
         },
         Method::Put => match match_api_route(path) {
@@ -307,14 +312,16 @@ async fn handle_website(
             }) => {
                 let (scope, name, version) =
                     (scope.to_owned(), name.to_owned(), version.to_owned());
-                publish_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
+                publish_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
-            Some(
-                ApiRoute::Yank { .. }
-                | ApiRoute::AdminVersions
-                | ApiRoute::AdminPackages
-                | ApiRoute::AdminVerdict { .. },
-            ) => error_response(405, error::METHOD_NOT_ALLOWED)?,
+            Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
+            None => error_response(404, error::NOT_FOUND)?,
+        },
+        Method::Post => match match_api_route(path) {
+            Some(ApiRoute::AdminGovernor) => {
+                admin_governor_mutation_response(req, env, &db, &auth).await?
+            }
+            Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
         Method::Patch => match match_api_route(path) {
@@ -334,11 +341,9 @@ async fn handle_website(
             }) => {
                 let (scope, name, version) =
                     (scope.to_owned(), name.to_owned(), version.to_owned());
-                verdict_response(req, env, &db, &auth, &scope, &name, &version).await?
+                verdict_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
             }
-            Some(ApiRoute::Publish { .. } | ApiRoute::AdminVersions | ApiRoute::AdminPackages) => {
-                error_response(405, error::METHOD_NOT_ALLOWED)?
-            }
+            Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
         _ => error_response(405, error::METHOD_NOT_ALLOWED)?,
@@ -451,8 +456,9 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 /// packages (`400`, before the quotas - name validity does not depend
 /// on quota state), and the per-user quota checks (`403`);
 /// on success the archive lands in R2 first (an orphaned blob from a
-/// crash between the two writes is harmless, content-addressed garbage -
-/// see `docs/runbook.md`), then one atomic D1 batch inserts (or, for a
+/// crash between the two writes stays conservatively represented by
+/// its governor reservation - see `docs/runbook.md`), then one atomic
+/// D1 batch inserts (or, for a
 /// rejected row, replaces) the package and version rows and bumps the
 /// storage self-accounting. New rows start `pending` and the `201`
 /// reports it: nothing becomes resolvable before the verifier says so.
@@ -464,7 +470,6 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
 async fn publish_response(
     req: &mut Request,
     env: &Env,
-    ctx: &Context,
     db: &D1Database,
     auth: &AuthContext,
     scope: &str,
@@ -521,12 +526,11 @@ async fn publish_response(
         Some(ExistingVersion::Answered(response)) => {
             // The idempotent no-op (200) is a retry of a committed
             // publish that still holds the row's exact bytes, so it is
-            // the one chance to self-heal both stores: a primary blob a
-            // reclaim race deleted, and a backup copy a crashed
-            // original's replication never wrote. The 409 arm gets
-            // neither: its uploaded bytes were rejected.
+            // the one chance to self-heal a primary blob a reclaim
+            // race deleted. The 409 arm gets no heal: its uploaded
+            // bytes were rejected.
             if response.status_code() == 200 {
-                heal_blobs_on_retry(env, ctx, &computed_hex, frame.archive).await?;
+                heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
             }
             return Ok(response);
         }
@@ -581,31 +585,38 @@ async fn publish_response(
     };
     match &replaced {
         Some(old_checksum) => {
-            if !replace_rejected_version(env, ctx, db, &new, old_checksum).await? {
-                // A concurrent replacement or verdict moved the rejected
-                // row first; answer for the row's new state exactly as if
-                // this request had arrived after the winner.
-                return match existing_version(db, scope, name, version, metadata_text).await? {
-                    Some(ExistingVersion::Answered(response)) => {
-                        if response.status_code() == 200 {
-                            heal_blobs_on_retry(env, ctx, &computed_hex, frame.archive).await?;
+            match replace_rejected_version(env, db, &new, old_checksum).await? {
+                Persist::Done => {}
+                Persist::Refused(response) => return Ok(response),
+                Persist::Lost => {
+                    // A concurrent replacement or verdict moved the
+                    // rejected row first; answer for the row's new
+                    // state exactly as if this request had arrived
+                    // after the winner.
+                    return match existing_version(db, scope, name, version, metadata_text).await? {
+                        Some(ExistingVersion::Answered(response)) => {
+                            if response.status_code() == 200 {
+                                heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
+                            }
+                            Ok(response)
                         }
-                        Ok(response)
-                    }
-                    // Rejected again (a third racer) or gone: the
-                    // conservative refusal; a retry resolves it.
-                    _ => error_response(409, error::VERSION_IMMUTABLE),
-                };
+                        // Rejected again (a third racer) or gone: the
+                        // conservative refusal; a retry resolves it.
+                        _ => error_response(409, error::VERSION_IMMUTABLE),
+                    };
+                }
             }
         }
-        None => {
-            if !persist_new_version(env, ctx, db, &new).await? {
+        None => match persist_new_version(env, db, &new).await? {
+            Persist::Done => {}
+            Persist::Refused(response) => return Ok(response),
+            Persist::Lost => {
                 // A twin publish won the race between this request's
                 // preflight and its batch; answer exactly like the
                 // preflight would have.
                 return error_response(400, publish::NAME_TWIN_CONFLICT);
             }
-        }
+        },
     }
 
     json_response_with_status(
@@ -822,12 +833,14 @@ struct VerdictTargetRecord {
 /// and yank: a verdict stores no new bytes (a rejection frees them),
 /// so blocking it would only stall the pending queue - verification
 /// must be able to drain it whatever the service mode
-/// (`docs/architecture.md`, "Billing model and the budget breaker").
+/// (`docs/architecture.md`, "Billing model: the governor and the breaker").
 /// The response reports the resulting state plus whether this request
 /// changed it.
+#[allow(clippy::too_many_arguments)] // the route triple plus the verdict plumbing
 async fn verdict_response(
     req: &mut Request,
     env: &Env,
+    ctx: &Context,
     db: &D1Database,
     auth: &AuthContext,
     scope: &str,
@@ -885,6 +898,14 @@ async fn verdict_response(
                 // replacement won the race.
                 return error_response(409, error::VERDICT_TARGET_CHANGED);
             }
+            // The fast replication path: drain the just-enqueued
+            // backup work off the response path. The queue row is
+            // durable, so a lost kick only defers to the next breaker
+            // cron pass.
+            if parsed.verdict == verify::Verdict::Verified {
+                let env = env.clone();
+                ctx.wait_until(async move { drain_backup_queue(&env).await });
+            }
             true
         }
     };
@@ -903,6 +924,86 @@ async fn verdict_response(
         })
         .to_string(),
     )
+}
+
+/// `GET /api/v1/admin/governor` (`verify` scope): the governor
+/// ledger's usage snapshot, for the operator (`docs/runbook.md`, "The
+/// cost governor"). Admin infrastructure like the verifier listings:
+/// no scope membership, not budget-gated - inspecting the ledger must
+/// work in every service mode.
+async fn admin_governor_usage_response(env: &Env, auth: &AuthContext) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    match governor_client::usage(env).await {
+        Some(snapshot) => json_response(
+            &serde_json::to_string(&snapshot)
+                .map_err(|err| worker::Error::RustError(err.to_string()))?,
+        ),
+        None => error_response(503, error::GOVERNOR_UNAVAILABLE),
+    }
+}
+
+/// The admin governor mutation body: exactly one of an evidence-backed
+/// release or the pre-launch ledger wipe.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdminGovernorBody {
+    #[serde(default)]
+    release: Option<governor::Release>,
+    #[serde(default)]
+    wipe: Option<bool>,
+}
+
+/// `POST /api/v1/admin/governor` (`verify` scope): the two explicit
+/// operator actions on the ledger. `release` frees one object's entry
+/// and must only follow evidence the object is gone - the endpoint
+/// cannot check R2 for the operator, and a release for a live object
+/// would make the ledger understate reality (`docs/runbook.md`, "The
+/// cost governor"). `wipe` clears the primary rows and the operation
+/// windows (backup and dump rows survive - their objects are never
+/// wiped) and is the registry wipe's companion, guarded on
+/// `meta.launched` exactly like
+/// `scripts/wipe.sh`: only an affirmatively read `'false'` proceeds.
+async fn admin_governor_mutation_response(
+    req: &mut Request,
+    env: &Env,
+    db: &D1Database,
+    auth: &AuthContext,
+) -> worker::Result<Response> {
+    if !has_verify_scope(auth) {
+        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
+        return error_response(400, error::INVALID_GOVERNOR_BODY);
+    };
+    let parsed: AdminGovernorBody = match serde_json::from_slice(&body) {
+        Ok(parsed) => parsed,
+        Err(_) => return error_response(400, error::INVALID_GOVERNOR_BODY),
+    };
+    match (parsed.release, parsed.wipe) {
+        (Some(release), None) => {
+            let decision = Decision {
+                release: vec![release],
+                ..Decision::default()
+            };
+            match governor_client::decide(env, &decision).await {
+                Gate::Allowed => json_response(r#"{"ok":true}"#),
+                Gate::Refused(_) => error_response(503, error::GOVERNOR_UNAVAILABLE),
+            }
+        }
+        (None, Some(true)) => {
+            if read_meta(db, "launched").await?.as_deref() != Some("false") {
+                return error_response(403, error::GOVERNOR_LEDGER_LAUNCHED);
+            }
+            if governor_client::wipe(env).await {
+                json_response(r#"{"ok":true}"#)
+            } else {
+                error_response(503, error::GOVERNOR_UNAVAILABLE)
+            }
+        }
+        _ => error_response(400, error::INVALID_GOVERNOR_BODY),
+    }
 }
 
 /// Rows changed by a statement, from its result metadata.
@@ -925,19 +1026,36 @@ async fn apply_verdict(
 ) -> worker::Result<bool> {
     match parsed.verdict {
         verify::Verdict::Verified => {
-            let result = db
-                .prepare(sql::MARK_VERSION_VERIFIED)
-                .bind(&[
-                    now_iso8601().into(),
-                    scope.into(),
-                    name.into(),
-                    version.into(),
-                    target.checksum.as_str().into(),
-                    target.published_at.as_str().into(),
-                ])?
-                .run()
+            let now = now_iso8601();
+            // One batch: the verified transition and its backup-queue
+            // row commit together, so a crash right after can never
+            // lose the replication work - the enqueue's guards repeat
+            // the mark's, so the row appears exactly when the
+            // transition applied (`sql::ENQUEUE_VERIFIED_BACKUP`).
+            let results = db
+                .batch(vec![
+                    db.prepare(sql::MARK_VERSION_VERIFIED).bind(&[
+                        now.as_str().into(),
+                        scope.into(),
+                        name.into(),
+                        version.into(),
+                        target.checksum.as_str().into(),
+                        target.published_at.as_str().into(),
+                    ])?,
+                    db.prepare(sql::ENQUEUE_VERIFIED_BACKUP).bind(&[
+                        scope.into(),
+                        name.into(),
+                        version.into(),
+                        target.checksum.as_str().into(),
+                        target.published_at.as_str().into(),
+                        now.as_str().into(),
+                    ])?,
+                ])
                 .await?;
-            Ok(changed_rows(result.meta()?) > 0)
+            let mark = results
+                .first()
+                .ok_or_else(|| worker::Error::RustError("missing batch result 0".to_owned()))?;
+            Ok(changed_rows(mark.meta()?) > 0)
         }
         verify::Verdict::Rejected => {
             let applied = apply_rejection(
@@ -1028,6 +1146,40 @@ async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
     Ok(crate::auth::hex(&Uint8Array::new(&buffer).to_vec()))
 }
 
+/// The synthetic edge-cache identity for immutable verified archives:
+/// derived from the content checksum only, never from the outward URL
+/// or query string, so no request input can alias or bust an entry.
+/// The path exists on no route (the registry host answers its uniform
+/// 401 there), and the Worker runs on every request to its hostnames,
+/// so the entry is reachable only through this handler - after Bearer
+/// auth and the D1 verified-version gate.
+fn blob_cache_url(checksum: &str) -> String {
+    format!("https://registry.cabinpkg.com/__cache/blobs/sha256/{checksum}")
+}
+
+/// The stored copy's freshness. Archives are content-addressed and
+/// immutable, but the TTL is one day, not forever: an operator
+/// takedown (direct R2/D1 surgery) cannot purge warm colos, so the
+/// entry must age out on its own within an operationally useful
+/// window. Re-fills are governor-bounded and cheap at one charged
+/// read per blob per colo per day.
+const BLOB_CACHE_CONTROL: &str = "public, max-age=86400, immutable";
+
+/// Only archives up to this size are buffered and cached: `cache.put`
+/// needs a fixed-length body to store reliably, but buffering is
+/// isolate memory, and the publish protocol admits bodies past the
+/// default 16 MiB archive quota (raised quota classes, the 64 MiB
+/// frame cap). Twice the default quota covers everything the registry
+/// actually serves today; anything larger streams straight from R2 -
+/// charged and admission-controlled like any miss, just uncached.
+const BLOB_CACHE_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+thread_local! {
+    /// Checksums with an R2 read in flight in this isolate, for the
+    /// cache-stampede single-flight ([`artifact_response`]).
+    static INFLIGHT_BLOB_READS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
+
 async fn artifact_response(
     env: &Env,
     db: &D1Database,
@@ -1059,6 +1211,36 @@ async fn artifact_response(
     // Archives are immutable and content-addressed; yanked versions stay
     // downloadable on purpose (docs/remote-registry.md, "Yank").
     let key = format!("blobs/sha256/{}", record.checksum);
+    if status == Some(verify::Status::Verified) {
+        let response =
+            verified_artifact_response(env, auth, &key, &record.checksum, scope, name, version)
+                .await?;
+        if response.status_code() == 200 {
+            count_download(env, ctx, scope, name, version);
+        }
+        return Ok(response);
+    }
+
+    // The verifier's pending fetch: never cached (the bytes are not yet
+    // part of the registry), charged to the isolated verifier pool so
+    // ordinary traffic can never starve verification - and vice versa.
+    // The per-user cap rides along because the verify scope is mintable
+    // by every allowlisted user today: one user must not be able to
+    // drain the whole verifier pool either.
+    let quotas = quota::quotas_for_class(&auth.quota_class);
+    let decision = Decision {
+        consume: vec![Consume {
+            pool: OpPool::BVerifier,
+            n: 1,
+            principal: Some(auth.user_id.to_string()),
+            principal_cap: Some(quotas.artifact_reads_per_day),
+        }],
+        ..Decision::default()
+    };
+    match governor_client::decide(env, &decision).await {
+        Gate::Allowed => {}
+        Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
+    }
     let Some(object) = env.bucket("BLOBS")?.get(&key).execute().await? else {
         console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
         return error_response(500, error::INTERNAL);
@@ -1068,7 +1250,6 @@ async fn artifact_response(
         console_error!("blob {key} for {scope}/{name}@{version} has no body");
         return error_response(500, error::INTERNAL);
     };
-
     let mut response = Response::from_stream(body.stream()?)?;
     response
         .headers_mut()
@@ -1076,53 +1257,226 @@ async fn artifact_response(
     response
         .headers_mut()
         .set("content-length", &size.to_string())?;
-    count_download(env, db, ctx, status, scope, name, version);
     Ok(response)
 }
 
-/// Schedules the download counter's best-effort increment
-/// (`docs/architecture.md`, "Download counts"), called only once the
-/// artifact response is fully constructed - a missing-blob or failed-
-/// stream 500 never counts. Only
-/// verified downloads count (the SQL guard repeats the check). The
-/// counter is telemetry, so the whole task - the breaker-mode read
-/// included - runs off the response path and is suppressed while the
-/// breaker blocks writes, treating an unreadable mode as blocked (the
-/// write plane's fail-closed direction); the download itself was
-/// already served, keeping the read plane's fail-open promise.
-fn count_download(
+/// A verified archive download: edge cache first (a hit costs no R2
+/// operation and no governor call), then a single-flighted, governor-
+/// charged R2 read that fills the cache for everyone else. On a
+/// governor refusal or outage the R2 read is never initiated - only
+/// already-cached bodies keep serving (`docs/architecture.md`, "The
+/// cost governor").
+/// A cache-matched response carries immutable headers; rebuild a
+/// mutable response around the cached body and headers so the shared
+/// response plumbing (the generation stamp) can write to it.
+fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
+    let status = cached.status_code();
+    let headers = cached.headers().clone();
+    let mut response = Response::from_stream(cached.stream()?)?
+        .with_status(status)
+        .with_headers(headers);
+    // The stored copy carries the internal `public` freshness header;
+    // the outward answer to an authenticated request must not.
+    response.headers_mut().set("cache-control", "no-store")?;
+    Ok(response)
+}
+
+async fn verified_artifact_response(
     env: &Env,
-    db: &D1Database,
-    ctx: &Context,
-    status: Option<verify::Status>,
+    auth: &AuthContext,
+    key: &str,
+    checksum: &str,
     scope: &str,
     name: &str,
     version: &str,
-) {
-    if status != Some(verify::Status::Verified) {
+) -> worker::Result<Response> {
+    let cache_url = blob_cache_url(checksum);
+    let cache = worker::Cache::default();
+    // Cache errors read as misses: the charged path is admission-
+    // controlled, so failing open here risks one governed R2 read, not
+    // unbounded spend - while failing the request would take downloads
+    // down with the cache.
+    if let Ok(Some(cached)) = cache.get(cache_url.as_str(), false).await {
+        return thaw_cached(cached);
+    }
+
+    // In-isolate single-flight: one uncached checksum must not fan out
+    // into simultaneous R2 reads. The first request becomes the loader;
+    // the rest poll the cache briefly and fall through to their own
+    // (charged, admission-controlled) read once the loader vanished or
+    // the bounded wait ran out. Only the marker's OWNER removes it: a
+    // timed-out follower proceeding alongside a still-active loader
+    // must not clear the loader's marker, or later requests would stop
+    // waiting entirely. Cross-isolate concurrency stays possible and
+    // stays correct: every actual R2 read is charged.
+    let mut owns_marker =
+        INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(checksum.to_owned()));
+    if !owns_marker {
+        for _ in 0..20 {
+            Delay::from(Duration::from_millis(100)).await;
+            if let Ok(Some(cached)) = cache.get(cache_url.as_str(), false).await {
+                return thaw_cached(cached);
+            }
+            let gone = INFLIGHT_BLOB_READS.with(|set| !set.borrow().contains(checksum));
+            if gone {
+                break;
+            }
+        }
+        owns_marker = INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(checksum.to_owned()));
+    }
+    let result = charged_blob_read(env, auth, key, &cache_url, scope, name, version).await;
+    if owns_marker {
+        INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().remove(checksum));
+    }
+    result
+}
+
+/// The cache-miss path: charge one ordinary Class B read (with the
+/// caller's per-user fairness cap) immediately before the R2 `get`,
+/// then serve and fill the edge cache.
+async fn charged_blob_read(
+    env: &Env,
+    auth: &AuthContext,
+    key: &str,
+    cache_url: &str,
+    scope: &str,
+    name: &str,
+    version: &str,
+) -> worker::Result<Response> {
+    let quotas = quota::quotas_for_class(&auth.quota_class);
+    let decision = Decision {
+        consume: vec![Consume {
+            pool: OpPool::BOrdinary,
+            n: 1,
+            principal: Some(auth.user_id.to_string()),
+            principal_cap: Some(quotas.artifact_reads_per_day),
+        }],
+        ..Decision::default()
+    };
+    match governor_client::decide(env, &decision).await {
+        Gate::Allowed => {}
+        Gate::Refused(refusal) => return governor_refusal_response(refusal.as_ref(), false),
+    }
+
+    let Some(object) = env.bucket("BLOBS")?.get(key).execute().await? else {
+        console_error!("blob {key} for {scope}/{name}@{version} is missing from R2");
+        return error_response(500, error::INTERNAL);
+    };
+    let size = object.size();
+    let Some(body) = object.body() else {
+        console_error!("blob {key} for {scope}/{name}@{version} has no body");
+        return error_response(500, error::INTERNAL);
+    };
+    if size > BLOB_CACHE_MAX_BYTES {
+        // Too large to buffer: stream it out uncached. The read was
+        // charged like any miss, so oversized archives simply keep
+        // paying per download instead of pressuring isolate memory.
+        let mut response = Response::from_stream(body.stream()?)?;
+        let headers = response.headers_mut();
+        headers.set("content-type", "application/zip")?;
+        headers.set("content-length", &size.to_string())?;
+        headers.set("cache-control", "no-store")?;
+        return Ok(response);
+    }
+    // Buffered, not streamed, for everything cacheable: a fixed body
+    // is what lets the runtime tee one copy into the cache without a
+    // second R2 read (a plain stream does not store reliably).
+    let bytes = body.bytes().await?;
+    let mut response = Response::from_bytes(bytes)?;
+    response
+        .headers_mut()
+        .set("content-type", "application/zip")?;
+    // The freshness directives go on the internal cache copy ONLY: the
+    // outward response answered an authenticated request, and `public`
+    // would explicitly license shared caches to store and re-serve it
+    // past the Worker's auth gates (RFC 9111's Authorization
+    // exception).
+    let mut for_cache = response.cloned()?;
+    for_cache
+        .headers_mut()
+        .set("cache-control", BLOB_CACHE_CONTROL)?;
+    response.headers_mut().set("cache-control", "no-store")?;
+    if let Err(err) = worker::Cache::default().put(cache_url, for_cache).await {
+        console_error!("caching blob {key} failed: {err}");
+    }
+    Ok(response)
+}
+
+thread_local! {
+    /// Buffered download counts per served verified version, flushed
+    /// to D1 in one batch under `crate::telemetry`'s policy - the
+    /// replacement for the old one-D1-write-per-download pattern.
+    static PENDING_DOWNLOADS: RefCell<HashMap<(String, String, String), u32>> =
+        RefCell::new(HashMap::new());
+    static LAST_DOWNLOAD_FLUSH_MS: Cell<f64> = const { Cell::new(0.0) };
+}
+
+/// Buffers one served verified download and flushes the buffer when
+/// the batching policy says so (`docs/architecture.md`, "Download
+/// counts"). Called only once a 200 artifact response is constructed -
+/// refusals and missing-blob 500s never count. The counter is
+/// approximate telemetry, never the hard accounting ledger: counts
+/// buffered in an isolate that dies are lost, a failed flush is logged
+/// and dropped, and nothing here can fail or delay a download. The
+/// flush - the breaker-mode read included - runs off the response path
+/// and is suppressed while the breaker blocks writes, treating an
+/// unreadable mode as blocked (the write plane's fail-closed
+/// direction).
+fn count_download(env: &Env, ctx: &Context, scope: &str, name: &str, version: &str) {
+    let pending = PENDING_DOWNLOADS.with(|map| {
+        let mut map = map.borrow_mut();
+        *map.entry((scope.to_owned(), name.to_owned(), version.to_owned()))
+            .or_insert(0) += 1;
+        map.len()
+    });
+    let now = now_epoch_ms();
+    let interval_ms = env
+        .var("DOWNLOAD_FLUSH_INTERVAL_MS")
+        .ok()
+        .and_then(|var| var.to_string().parse().ok())
+        .unwrap_or(telemetry::FLUSH_INTERVAL_MS);
+    if !telemetry::should_flush(
+        pending,
+        now - LAST_DOWNLOAD_FLUSH_MS.with(Cell::get),
+        interval_ms,
+    ) {
         return;
     }
-    let Ok(update) = db.prepare(sql::INCREMENT_VERSION_DOWNLOADS).bind(&[
-        scope.into(),
-        name.into(),
-        version.into(),
-    ]) else {
-        return;
-    };
+    LAST_DOWNLOAD_FLUSH_MS.with(|cell| cell.set(now));
+    let batch: Vec<((String, String, String), u32)> =
+        PENDING_DOWNLOADS.with(|map| map.borrow_mut().drain().collect());
     let env = env.clone();
-    let label = format!("{scope}/{name}@{version}");
     ctx.wait_until(async move {
-        let mode = match env.d1("DB") {
-            Ok(db) => service_mode(&env, &db)
-                .await
-                .unwrap_or(breaker::Mode::WritesBlocked),
-            Err(_) => breaker::Mode::WritesBlocked,
+        let Ok(db) = env.d1("DB") else {
+            return;
         };
+        let mode = service_mode(&env, &db)
+            .await
+            .unwrap_or(breaker::Mode::WritesBlocked);
         if mode >= breaker::Mode::WritesBlocked {
             return;
         }
-        if let Err(err) = update.run().await {
-            console_error!("download count for {label} failed: {err}");
+        let statements: Vec<_> = batch
+            .iter()
+            .filter_map(|((scope, name, version), count)| {
+                db.prepare(sql::ADD_VERSION_DOWNLOADS)
+                    .bind(&[
+                        scope.as_str().into(),
+                        name.as_str().into(),
+                        version.as_str().into(),
+                        js_int(i64::from(*count)),
+                    ])
+                    .ok()
+            })
+            .collect();
+        if statements.is_empty() {
+            return;
+        }
+        if let Err(err) = db.batch(statements).await {
+            console_error!(
+                "download-count flush of {} versions failed: {err}",
+                batch.len()
+            );
         }
     });
 }
@@ -1167,12 +1521,31 @@ struct NewVersion<'a> {
     user_id: i64,
 }
 
+/// The write phase's outcome: persisted, lost its guarded race, or
+/// refused by the governor before any billable R2 call.
+enum Persist {
+    Done,
+    Lost,
+    Refused(Response),
+}
+
 /// The publish write phase: R2 before D1, skipping the upload when the
 /// content-addressed blob is already there (e.g. the same archive
 /// published under a name it was yanked from, or a retry after a crash
 /// between the two writes), then one atomic D1 batch for the package and
 /// version rows plus the storage self-accounting. The row starts
 /// `pending`: it becomes resolvable only once the verifier says so.
+///
+/// Every billable R2 call is governed (`docs/architecture.md`, "The
+/// cost governor"): the existence head consumes a publish-plane Class B
+/// op, and a fresh upload consumes a Class A op plus a storage
+/// reservation keyed by the content-addressed object key - so retries
+/// and concurrent identical publishes share one reservation instead of
+/// double-counting, and a crash after the put leaves the reservation
+/// conservatively held (never auto-released; reconciliation settles it
+/// once the D1 rows prove the blob live, and reports it otherwise).
+/// After the batch commits the reservation settles into committed
+/// usage.
 ///
 /// The accounting decision lives inside the batch (one transaction): the
 /// meta bump counts the archive only when the row just inserted is the
@@ -1182,24 +1555,56 @@ struct NewVersion<'a> {
 /// path - blob already uploaded but never counted - still accounts for
 /// it, a second name sharing the blob never double-counts it, and two
 /// concurrent first publishes of the same archive serialize on the
-/// transaction so exactly one of them counts it. Once the batch commits,
-/// the blob is replicated to the BACKUP bucket off the response path
-/// ([`replicate_blob`]).
+/// transaction so exactly one of them counts it. Backup replication no
+/// longer rides publish at all: only versions that become **verified**
+/// enter the durable backup queue ([`sql::ENQUEUE_VERIFIED_BACKUP`]).
 ///
-/// `false` means the batch's `-`/`_` twin guard suppressed both
-/// inserts - a twin publish won the race after this request's
+/// [`Persist::Lost`] means the batch's `-`/`_` twin guard suppressed
+/// both inserts - a twin publish won the race after this request's
 /// preflight - and nothing was persisted (the uploaded blob stays
-/// behind exactly like a crash between the two writes: harmless,
-/// content-addressed garbage); the caller answers the twin `400`.
+/// behind exactly like a crash between the two writes: an orphan the
+/// ledger keeps conservatively represented); the caller answers the
+/// twin `400`.
 async fn persist_new_version(
     env: &Env,
-    ctx: &Context,
     db: &D1Database,
     new: &NewVersion<'_>,
-) -> worker::Result<bool> {
+) -> worker::Result<Persist> {
     let key = format!("blobs/sha256/{}", new.checksum_hex);
     let bucket = env.bucket("BLOBS")?;
+    match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
+        Gate::Allowed => {}
+        Gate::Refused(refusal) => {
+            return Ok(Persist::Refused(governor_refusal_response(
+                refusal.as_ref(),
+                true,
+            )?));
+        }
+    }
     if bucket.head(&key).await?.is_none() {
+        let admit = Decision {
+            consume: vec![Consume {
+                pool: OpPool::APublish,
+                n: 1,
+                principal: None,
+                principal_cap: None,
+            }],
+            reserve: vec![Reserve {
+                pool: StoragePool::Primary,
+                key: key.clone(),
+                bytes: new.archive.len() as u64,
+            }],
+            ..Decision::default()
+        };
+        match governor_client::decide(env, &admit).await {
+            Gate::Allowed => {}
+            Gate::Refused(refusal) => {
+                return Ok(Persist::Refused(governor_refusal_response(
+                    refusal.as_ref(),
+                    true,
+                )?));
+            }
+        }
         bucket.put(&key, new.archive.to_vec()).execute().await?;
     }
 
@@ -1241,19 +1646,70 @@ async fn persist_new_version(
         .get(1)
         .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
     if changed_rows(version_insert.meta()?) == 0 {
-        return Ok(false);
+        return Ok(Persist::Lost);
     }
 
-    // Self-heal the head-skip race: a reclaim delete whose refcount was
-    // read before this batch committed can land between the head above
-    // and here, leaving the just-inserted row's blob missing. This
-    // request still holds the bytes, so one more head buys the repair.
-    if bucket.head(&key).await?.is_none() {
-        bucket.put(&key, new.archive.to_vec()).execute().await?;
-    }
+    // The row now references the blob: settle the reservation into
+    // committed usage (best-effort - a lost settle leaves conservative
+    // reserved state for reconciliation, never unaccounted spend).
+    governor_client::settle(
+        env,
+        &commit_object(StoragePool::Primary, &key, new.archive.len() as u64),
+    )
+    .await;
 
-    replicate_blob(env, ctx, &key, new.archive);
-    Ok(true)
+    heal_blob_if_reclaimed(env, &bucket, &key, new.archive).await?;
+    Ok(Persist::Done)
+}
+
+/// Self-heal for the head-skip/reclaim race: a reclaim delete whose
+/// refcount was read before the publish batch committed can land after
+/// the earlier head, leaving the just-inserted row's blob missing; the
+/// request still holds the bytes, so one more head buys the repair.
+/// Every call here is billable, so the whole repair is opportunistic:
+/// a governor refusal skips it (the publish already succeeded, and the
+/// missing-blob case stays loud on the artifact route) rather than
+/// initiating unpaid R2 work.
+async fn heal_blob_if_reclaimed(
+    env: &Env,
+    bucket: &worker::Bucket,
+    key: &str,
+    archive: &[u8],
+) -> worker::Result<()> {
+    match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
+        Gate::Allowed => {}
+        Gate::Refused(_) => {
+            console_log!("governor refused the post-publish heal head for {key}; skipping");
+            return Ok(());
+        }
+    }
+    if bucket.head(key).await?.is_some() {
+        return Ok(());
+    }
+    let admit = Decision {
+        consume: vec![Consume {
+            pool: OpPool::APublish,
+            n: 1,
+            principal: None,
+            principal_cap: None,
+        }],
+        // Idempotent against the committed row: same key, same bytes.
+        reserve: vec![Reserve {
+            pool: StoragePool::Primary,
+            key: key.to_owned(),
+            bytes: archive.len() as u64,
+        }],
+        ..Decision::default()
+    };
+    match governor_client::decide(env, &admit).await {
+        Gate::Allowed => {}
+        Gate::Refused(_) => {
+            console_log!("governor refused the post-publish heal put for {key}; skipping");
+            return Ok(());
+        }
+    }
+    bucket.put(key, archive.to_vec()).execute().await?;
+    Ok(())
 }
 
 /// The write phase for a publish over a **rejected** row
@@ -1278,13 +1734,39 @@ async fn persist_new_version(
 /// delete failed.
 async fn replace_rejected_version(
     env: &Env,
-    ctx: &Context,
     db: &D1Database,
     new: &NewVersion<'_>,
     old_checksum: &str,
-) -> worker::Result<bool> {
+) -> worker::Result<Persist> {
     let key = format!("blobs/sha256/{}", new.checksum_hex);
     let bucket = env.bucket("BLOBS")?;
+    // The unconditional put is one Class A op plus a storage
+    // reservation; the reservation is idempotent when the ledger
+    // already carries the content-addressed key (same key means the
+    // same bytes).
+    let admit = Decision {
+        consume: vec![Consume {
+            pool: OpPool::APublish,
+            n: 1,
+            principal: None,
+            principal_cap: None,
+        }],
+        reserve: vec![Reserve {
+            pool: StoragePool::Primary,
+            key: key.clone(),
+            bytes: new.archive.len() as u64,
+        }],
+        ..Decision::default()
+    };
+    match governor_client::decide(env, &admit).await {
+        Gate::Allowed => {}
+        Gate::Refused(refusal) => {
+            return Ok(Persist::Refused(governor_refusal_response(
+                refusal.as_ref(),
+                true,
+            )?));
+        }
+    }
     // Unconditional put, unlike persist_new_version's head-first skip:
     // when the replacement re-uses the rejected bytes, the rejecting
     // verdict's reclaim delete may still be in flight, and a head could
@@ -1294,8 +1776,8 @@ async fn replace_rejected_version(
     // this put (two stores, no shared transaction); that residual
     // window needs the same version's verdict and replacement in flight
     // simultaneously, fails loudly (the artifact route's missing-blob
-    // 500), and the append-only BACKUP replica holds the bytes for
-    // recovery.
+    // 500), and the verified-only BACKUP replica holds the bytes for
+    // recovery when the version had ever been verified.
     bucket.put(&key, new.archive.to_vec()).execute().await?;
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
@@ -1327,19 +1809,23 @@ async fn replace_rejected_version(
         .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
     if changed_rows(row_flip.meta()?) == 0 {
         // Lost the race; the blob uploaded above is at worst an
-        // unreferenced orphan (see docs/runbook.md).
-        return Ok(false);
+        // unreferenced orphan (see docs/runbook.md), which the kept
+        // reservation represents conservatively.
+        return Ok(Persist::Lost);
     }
+
+    governor_client::settle(
+        env,
+        &commit_object(StoragePool::Primary, &key, new.archive.len() as u64),
+    )
+    .await;
 
     // Same self-heal as persist_new_version: repair the blob if a
     // reclaim delete landed between the put above and the batch commit.
-    if bucket.head(&key).await?.is_none() {
-        bucket.put(&key, new.archive.to_vec()).execute().await?;
-    }
+    heal_blob_if_reclaimed(env, &bucket, &key, new.archive).await?;
 
     delete_blob_if_unreferenced(env, db, old_checksum).await?;
-    replicate_blob(env, ctx, &key, new.archive);
-    Ok(true)
+    Ok(Persist::Done)
 }
 
 /// Deletes `checksum`'s blob from the primary bucket when no live
@@ -1375,15 +1861,27 @@ async fn delete_blob_if_unreferenced(
     }
     let key = format!("blobs/sha256/{checksum}");
     // No live reference also means nothing needs a backup copy any
-    // more: clear the replication-failure bookkeeping first (before
-    // the delete, so it can never linger past the primary object), or
-    // a blob whose backup copy never landed would keep the breaker
-    // alerting - and abort scripts/backup-backfill.sh against a
-    // deleted primary object - forever.
-    db.prepare(sql::CLEAR_REPLICATION_FAILURE)
-        .bind(&[key.as_str().into()])?
+    // more: retire the queue row first (before the delete, so it can
+    // never linger past the primary object), or a blob whose copy
+    // never landed would keep the drain retrying against a deleted
+    // primary object forever. The retire re-checks liveness inside
+    // the statement - a verdict landing between this request's
+    // refcount read and here enqueues transactionally, and its work
+    // must not be lost to this stale reader.
+    db.prepare(sql::RETIRE_DEAD_BACKUP_PENDING)
+        .bind(&[key.as_str().into(), checksum.into()])?
         .run()
         .await?;
+    // R2 deletes are not billable, so no consumption rides them. The
+    // ledger entry deliberately stays committed: a successful delete is
+    // NOT proof the key stays gone - a concurrent same-checksum publish
+    // can recreate the content-addressed object at any moment, and a
+    // release here could strand that publish's bytes outside the ledger
+    // if it crashed before its own settle. Reconciliation reports the
+    // entry as unreferenced, and releasing it is the operator's
+    // explicit, evidence-backed action (`docs/runbook.md`, "The cost
+    // governor"). The dump pool differs: its keys are cron-unique and
+    // never concurrently recreated, so the dump jobs release their own.
     if let Err(err) = env.bucket("BLOBS")?.delete(&key).await {
         console_error!("reclaiming blob {key} failed (left as an orphan): {err}");
     }
@@ -1391,72 +1889,365 @@ async fn delete_blob_if_unreferenced(
 }
 
 /// The idempotent no-op's self-heal: the retry holds the row's exact
-/// bytes, so it repairs a primary blob a reclaim race deleted (the
-/// head-first check keeps the common healthy case at one head), then
-/// re-schedules the backup copy as usual.
-async fn heal_blobs_on_retry(
-    env: &Env,
-    ctx: &Context,
-    checksum_hex: &str,
-    archive: &[u8],
-) -> worker::Result<()> {
+/// bytes, so it repairs a primary blob a reclaim race deleted. Like
+/// every repair path it is governed and opportunistic - a refusal
+/// skips it without failing the (already correct) response. Backup
+/// replication no longer rides retries: the verified-backup queue is
+/// durable on its own.
+async fn heal_blobs_on_retry(env: &Env, checksum_hex: &str, archive: &[u8]) -> worker::Result<()> {
     let key = format!("blobs/sha256/{checksum_hex}");
     let bucket = env.bucket("BLOBS")?;
-    if bucket.head(&key).await?.is_none() {
-        bucket.put(&key, archive.to_vec()).execute().await?;
-    }
-    replicate_blob(env, ctx, &key, archive);
-    Ok(())
+    heal_blob_if_reclaimed(env, &bucket, &key, archive).await
 }
 
-/// Best-effort blob replication to the BACKUP bucket, scheduled off the
-/// response path once the D1 batch has committed - and again on the
-/// idempotent re-publish no-op, so a retry of a publish whose isolate
-/// died before replicating heals the gap - which keeps every logged
-/// failure referring to a referenced blob. Nothing ever deletes from BACKUP
-/// here or anywhere else in the service - the primary's reclaim paths do
-/// not propagate - so the backup is append-only. The head-first copy
-/// also self-heals a blob a crashed earlier publish never replicated. A
-/// failed copy is logged with its key and recorded in
-/// `backup_replication_failures` for `scripts/backup-backfill.sh` to
-/// re-run; the breaker cron alerts while such rows exist.
-fn replicate_blob(env: &Env, ctx: &Context, key: &str, archive: &[u8]) {
-    let (Ok(backup), Ok(db)) = (env.bucket("BACKUP"), env.d1("DB")) else {
-        console_error!("backup replication for {key}: BACKUP or DB binding is missing");
+#[derive(Deserialize)]
+struct BackupPendingRecord {
+    key: String,
+}
+
+/// Drains the verified-artifact backup queue (`docs/runbook.md`,
+/// "Disaster recovery"): for each due row, replicate the blob from
+/// BLOBS to the append-only BACKUP bucket and delete the row on
+/// success. Runs off the verdict response path and on every breaker
+/// cron pass; the queue row is the durable record, so any failure
+/// here just leaves the work for the next pass (and the stale-row
+/// alert if it keeps failing). Every billable call is charged to the
+/// infrastructure pools first, and a governor refusal stops the drain
+/// - fail closed, retry next pass.
+async fn drain_backup_queue(env: &Env) {
+    let (Ok(db), Ok(blobs), Ok(backup)) = (env.d1("DB"), env.bucket("BLOBS"), env.bucket("BACKUP"))
+    else {
+        console_error!("backup drain: a binding is missing");
         return;
     };
-    let key = key.to_owned();
-    let archive = archive.to_vec();
-    ctx.wait_until(async move {
-        let outcome = match backup.head(&key).await {
-            Ok(Some(_)) => Ok(()),
-            Ok(None) => backup.put(&key, archive).execute().await.map(|_| ()),
-            Err(err) => Err(err),
-        };
-        let bookkeeping = match outcome {
-            Ok(()) => db
-                .prepare(sql::CLEAR_REPLICATION_FAILURE)
-                .bind(&[key.clone().into()]),
-            Err(err) => {
-                console_error!(
-                    "backup replication failed for {key}: {err}; \
-                     recorded for scripts/backup-backfill.sh"
-                );
-                db.prepare(sql::RECORD_REPLICATION_FAILURE)
-                    .bind(&[key.clone().into(), now_iso8601().into()])
-            }
-        };
-        match bookkeeping {
-            Ok(statement) => {
-                if statement.run().await.is_err() {
-                    console_error!("backup replication bookkeeping for {key} failed");
+    // Bounded per call: keyset-paginated pages of 10, so rows a pass
+    // keeps (missing primary blob, unconfirmed commit) are walked
+    // past instead of re-read forever.
+    let mut cursor = String::new();
+    for _ in 0..5 {
+        let rows: Vec<BackupPendingRecord> = match db
+            .prepare(sql::LIST_BACKUP_PENDING)
+            .bind(&[cursor.as_str().into()])
+        {
+            Ok(statement) => match statement.all().await {
+                Ok(result) => match result.results() {
+                    Ok(rows) => rows,
+                    Err(err) => {
+                        console_error!("backup drain: queue rows did not parse: {err}");
+                        return;
+                    }
+                },
+                Err(err) => {
+                    console_error!("backup drain: queue listing failed: {err}");
+                    return;
                 }
+            },
+            Err(err) => {
+                console_error!("backup drain: queue listing failed to bind: {err}");
+                return;
             }
-            Err(_) => {
-                console_error!("backup replication bookkeeping for {key} could not be prepared");
+        };
+        if rows.is_empty() {
+            return;
+        }
+        let page = rows.len();
+        for row in &rows {
+            if !backup_one(env, &db, &blobs, &backup, row).await {
+                return;
             }
         }
-    });
+        if page < 10 {
+            return;
+        }
+        if let Some(last) = rows.last() {
+            cursor.clone_from(&last.key);
+        }
+    }
+}
+
+/// Replicates one queue row; `false` stops the drain pass (governor
+/// refusal or a storage error worth backing off from).
+async fn backup_one(
+    env: &Env,
+    db: &D1Database,
+    blobs: &worker::Bucket,
+    backup: &worker::Bucket,
+    row: &BackupPendingRecord,
+) -> bool {
+    let delete_row = |key: String| async move {
+        if let Ok(statement) = db.prepare(sql::DELETE_BACKUP_PENDING).bind(&[key.into()])
+            && statement.run().await.is_err()
+        {
+            console_error!("backup drain: deleting a queue row failed");
+        }
+    };
+    let Some(checksum) = row.key.strip_prefix("blobs/sha256/") else {
+        console_error!("backup drain: malformed queue key {}", row.key);
+        delete_row(row.key.clone()).await;
+        return true;
+    };
+    // Only blobs the registry still serves as verified content are
+    // worth a backup copy: a rejection (or replacement) that landed
+    // after the enqueue retires the row instead.
+    let live: Result<Option<CountRecord>, _> = match db
+        .prepare(sql::COUNT_LIVE_VERIFIED_BLOB_REFERENCES)
+        .bind(&[checksum.into()])
+    {
+        Ok(statement) => statement.first(None).await,
+        Err(err) => Err(err),
+    };
+    match live {
+        Ok(Some(count)) if count.n > 0 => {}
+        Ok(_) => {
+            // Dead row: retire under the in-statement liveness
+            // re-check, so a verdict racing this pass cannot lose its
+            // just-enqueued work.
+            if let Ok(statement) = db
+                .prepare(sql::RETIRE_DEAD_BACKUP_PENDING)
+                .bind(&[row.key.as_str().into(), checksum.into()])
+                && statement.run().await.is_err()
+            {
+                console_error!("backup drain: retiring a dead queue row failed");
+            }
+            return true;
+        }
+        Err(err) => {
+            console_error!("backup drain: liveness check for {} failed: {err}", row.key);
+            return false;
+        }
+    }
+
+    match governor_client::decide(env, &consume_one(OpPool::BInfra)).await {
+        Gate::Allowed => {}
+        Gate::Refused(_) => {
+            console_error!("backup drain: governor refused the backup head; stopping");
+            return false;
+        }
+    }
+    match backup.head(&row.key).await {
+        Ok(Some(object)) => {
+            // Already replicated (a shared checksum, a retry after a
+            // lost acknowledgement, or an out-of-band backfill copy):
+            // settle the ledger at the size the head OBSERVED - the
+            // object is reality, the queue row only expected it. The
+            // row is retired only once the commit is CONFIRMED: for an
+            // out-of-band copy there is no reservation behind it, so
+            // deleting the row on an unacknowledged commit would leave
+            // a real backup object unledgered with nothing left to
+            // retry.
+            let commit = commit_object(StoragePool::Backup, &row.key, object.size());
+            match governor_client::decide(env, &commit).await {
+                Gate::Allowed => {
+                    delete_row(row.key.clone()).await;
+                    true
+                }
+                Gate::Refused(_) => {
+                    console_error!(
+                        "backup drain: ledger commit for {} unconfirmed; keeping the row",
+                        row.key
+                    );
+                    false
+                }
+            }
+        }
+        Ok(None) => match copy_blob_to_backup(env, blobs, backup, &row.key).await {
+            CopyOutcome::Copied(len) => {
+                // Same confirmed-commit rule as the head arm. A lost
+                // commit here would still be covered by the copy's
+                // reservation, but keeping the row costs one retry and
+                // keeps the settled/reserved distinction honest.
+                let commit = commit_object(StoragePool::Backup, &row.key, len);
+                match governor_client::decide(env, &commit).await {
+                    Gate::Allowed => {
+                        delete_row(row.key.clone()).await;
+                        true
+                    }
+                    Gate::Refused(_) => {
+                        console_error!(
+                            "backup drain: ledger commit for {} unconfirmed; keeping the row",
+                            row.key
+                        );
+                        false
+                    }
+                }
+            }
+            CopyOutcome::KeepRow => true,
+            CopyOutcome::Stop => false,
+        },
+        Err(err) => {
+            console_error!("backup drain: head for {} failed: {err}", row.key);
+            false
+        }
+    }
+}
+
+enum CopyOutcome {
+    /// The copy landed; the value is the object's byte length.
+    Copied(u64),
+    /// This row cannot be copied right now (missing primary blob);
+    /// keep it so the stale-row alert keeps firing.
+    KeepRow,
+    /// Back off: governor refusal or a storage error.
+    Stop,
+}
+
+/// The charged copy itself: one infrastructure Class B read of the
+/// primary blob, then one Class A put with a backup-storage
+/// reservation, both taken before their calls.
+async fn copy_blob_to_backup(
+    env: &Env,
+    blobs: &worker::Bucket,
+    backup: &worker::Bucket,
+    key: &str,
+) -> CopyOutcome {
+    match governor_client::decide(env, &consume_one(OpPool::BInfra)).await {
+        Gate::Allowed => {}
+        Gate::Refused(_) => {
+            console_error!("backup drain: governor refused the source read; stopping");
+            return CopyOutcome::Stop;
+        }
+    }
+    let object = match blobs.get(key).execute().await {
+        Ok(Some(object)) => object,
+        Ok(None) => {
+            // A verified version's primary blob is missing: loud, and
+            // the row stays so the alert keeps firing until an
+            // operator intervenes.
+            console_error!("backup drain: primary blob {key} is missing");
+            return CopyOutcome::KeepRow;
+        }
+        Err(err) => {
+            console_error!("backup drain: reading {key} failed: {err}");
+            return CopyOutcome::Stop;
+        }
+    };
+    let Some(body) = object.body() else {
+        console_error!("backup drain: blob {key} has no body");
+        return CopyOutcome::KeepRow;
+    };
+    let bytes = match body.bytes().await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            console_error!("backup drain: buffering {key} failed: {err}");
+            return CopyOutcome::Stop;
+        }
+    };
+
+    let admit = Decision {
+        consume: vec![Consume {
+            pool: OpPool::AInfra,
+            n: 1,
+            principal: None,
+            principal_cap: None,
+        }],
+        reserve: vec![Reserve {
+            pool: StoragePool::Backup,
+            key: key.to_owned(),
+            bytes: bytes.len() as u64,
+        }],
+        ..Decision::default()
+    };
+    match governor_client::decide(env, &admit).await {
+        Gate::Allowed => {}
+        Gate::Refused(_) => {
+            console_error!("backup drain: governor refused the backup put; stopping");
+            return CopyOutcome::Stop;
+        }
+    }
+    let len = bytes.len() as u64;
+    if let Err(err) = backup.put(key, bytes).execute().await {
+        // The put's outcome is uncertain: the reservation stays held
+        // (conservative) and the queue row retries next pass.
+        console_error!("backup drain: replicating {key} failed: {err}");
+        return CopyOutcome::Stop;
+    }
+    CopyOutcome::Copied(len)
+}
+
+#[derive(Deserialize)]
+struct LiveBlobRecord {
+    checksum: String,
+    size: i64,
+}
+
+/// The governor reconciliation pass (`docs/architecture.md`, "The cost
+/// governor"): pushes D1's authoritative live-blob set so the ledger
+/// records every referenced blob as committed usage. Increase-only by
+/// construction - the governor adds and settles, but a ledger entry D1
+/// does not name is only reported here (a candidate orphan or leaked
+/// reservation), and releasing it is the operator's explicit,
+/// evidence-backed action (`docs/runbook.md`, "Governor ledger").
+async fn reconcile_governor(env: &Env, db: &D1Database) {
+    // Operator visibility: one summary line per pass, so `wrangler
+    // tail` shows the ledger next to the analytics-based evaluation.
+    if let Some(snapshot) = governor_client::usage(env).await {
+        let storage: Vec<String> = snapshot
+            .storage
+            .iter()
+            .map(|row| format!("{}/{}={}B", row.pool, row.state, row.bytes))
+            .collect();
+        let ops: Vec<String> = snapshot
+            .ops
+            .iter()
+            .map(|row| format!("{}[{}]={}", row.pool, row.window, row.used))
+            .collect();
+        console_log!(
+            "governor usage: storage {}; ops {}",
+            if storage.is_empty() {
+                "-".to_owned()
+            } else {
+                storage.join(" ")
+            },
+            if ops.is_empty() {
+                "-".to_owned()
+            } else {
+                ops.join(" ")
+            },
+        );
+    }
+    let rows: Vec<LiveBlobRecord> = match db.prepare(sql::LIVE_BLOB_SIZES).all().await {
+        Ok(result) => match result.results() {
+            Ok(rows) => rows,
+            Err(err) => {
+                console_error!("governor reconciliation: live set did not parse: {err}");
+                return;
+            }
+        },
+        Err(err) => {
+            console_error!("governor reconciliation: live-set query failed: {err}");
+            return;
+        }
+    };
+    let live = rows
+        .into_iter()
+        .map(|row| governor::LiveObject {
+            key: format!("blobs/sha256/{}", row.checksum),
+            bytes: non_negative(row.size),
+        })
+        .collect();
+    let request = governor::ReconcileRequest {
+        pool: StoragePool::Primary,
+        live,
+    };
+    match governor_client::reconcile(env, &request).await {
+        Some(report) => {
+            if !report.added.is_empty() {
+                console_log!(
+                    "governor reconciliation recorded {} previously unledgered blob(s)",
+                    report.added.len()
+                );
+            }
+            if !report.unreferenced.is_empty() || !report.mismatched.is_empty() {
+                console_error!(
+                    "governor ledger divergence: {} unreferenced entr(ies), {} byte \
+                     mismatch(es); see docs/runbook.md, \"Governor ledger\"",
+                    report.unreferenced.len(),
+                    report.mismatched.len()
+                );
+            }
+        }
+        None => console_error!("governor reconciliation: the governor did not answer"),
+    }
 }
 
 /// What the publish handler found for an already-existing
@@ -1722,7 +2513,7 @@ async fn service_mode(env: &Env, db: &D1Database) -> worker::Result<breaker::Mod
 }
 
 /// `Some(503)` when the budget breaker has writes blocked
-/// (`docs/architecture.md`, "Billing model and the budget breaker").
+/// (`docs/architecture.md`, "Billing model: the governor and the breaker").
 /// `>=`, not `==`: `reads_blocked` sits above `writes_blocked` on the
 /// ladder and blocks writes too.
 async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Response>> {
@@ -1735,6 +2526,67 @@ async fn write_gate(env: &Env, db: &D1Database) -> worker::Result<Option<Respons
         )?));
     }
     Ok(None)
+}
+
+/// Renders a governor gate refusal for the Bearer plane
+/// (`docs/architecture.md`, "The cost governor"): the per-user fairness
+/// refusal is a `429` with its own code and a `Retry-After` reaching
+/// the next UTC day; every other refusal - pool exhausted, key
+/// conflict, or an unreachable governor - is the breaker's `503` +
+/// `registry_over_budget` envelope, with the detail picking the plane.
+fn governor_refusal_response(
+    refusal: Option<&Refusal>,
+    write_plane: bool,
+) -> worker::Result<Response> {
+    match refusal {
+        Some(Refusal::PrincipalExhausted {
+            retry_after_secs, ..
+        }) => error_response_with_code(
+            quota::READ_RATE_LIMITED.status,
+            quota::READ_RATE_LIMITED.detail,
+            quota::READ_RATE_LIMITED.code,
+            Some(*retry_after_secs),
+        ),
+        Some(_) => error_response_with_code(
+            breaker::OVER_BUDGET_STATUS,
+            if write_plane {
+                breaker::OVER_BUDGET_DETAIL
+            } else {
+                breaker::OVER_BUDGET_READS_DETAIL
+            },
+            breaker::OVER_BUDGET_CODE,
+            Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),
+        ),
+        None => error_response_with_code(
+            breaker::OVER_BUDGET_STATUS,
+            breaker::GOVERNOR_UNAVAILABLE_DETAIL,
+            breaker::OVER_BUDGET_CODE,
+            Some(breaker::GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS),
+        ),
+    }
+}
+
+fn consume_one(pool: OpPool) -> Decision {
+    Decision {
+        consume: vec![Consume {
+            pool,
+            n: 1,
+            principal: None,
+            principal_cap: None,
+        }],
+        ..Decision::default()
+    }
+}
+
+fn commit_object(pool: StoragePool, key: &str, bytes: u64) -> Decision {
+    Decision {
+        commit: vec![governor::Commit {
+            pool,
+            key: key.to_owned(),
+            bytes,
+        }],
+        ..Decision::default()
+    }
 }
 
 pub(crate) async fn read_meta(db: &D1Database, key: &str) -> worker::Result<Option<String>> {
@@ -1763,8 +2615,9 @@ const BREAKER_CRON: &str = "*/15 * * * *";
 /// evaluation (every 15 minutes: gather usage, evaluate it against the
 /// budgets, persist the resulting service mode - failed analytics
 /// queries leave their metric unset, which can escalate but never
-/// unblock writes, [`breaker::next_mode`]). Any other trigger - the
-/// nightly `0 3 * * *`, or a temporary schedule added for an ops
+/// unblock writes, [`breaker::next_mode`]), then the governor
+/// reconciliation pass and a backup-queue drain. Any other trigger -
+/// the nightly `0 3 * * *`, or a temporary schedule added for an ops
 /// rehearsal - runs the D1 dump job, so exercising the backup path
 /// never needs a recompile.
 #[event(scheduled)]
@@ -1773,6 +2626,11 @@ pub async fn scheduled(event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
         if let Err(err) = evaluate_budgets(&env).await {
             console_error!("budget evaluation failed; keeping the last service mode: {err}");
         }
+        match env.d1("DB") {
+            Ok(db) => reconcile_governor(&env, &db).await,
+            Err(err) => console_error!("governor reconciliation: no DB binding: {err}"),
+        }
+        drain_backup_queue(&env).await;
     } else if let Err(err) = crate::backup_glue::run_nightly_dump(&env).await {
         console_error!("nightly backup failed: {err}");
     }
@@ -1993,7 +2851,7 @@ async fn read_stale_pending(db: &D1Database) -> worker::Result<u64> {
 struct BackupHealth {
     last_backup_at: Option<String>,
     freshness: backup::Freshness,
-    replication_failures: Option<u64>,
+    overdue_backups: Option<u64>,
     alert: Option<String>,
 }
 
@@ -2004,7 +2862,7 @@ impl BackupHealth {
         BackupHealth {
             last_backup_at: None,
             freshness: backup::Freshness::Never,
-            replication_failures: None,
+            overdue_backups: None,
             alert: Some("backup health could not be read from d1".to_owned()),
         }
     }
@@ -2012,18 +2870,18 @@ impl BackupHealth {
 
 async fn read_backup_health(db: &D1Database, now: &str) -> worker::Result<BackupHealth> {
     let last_backup_at = read_meta(db, "last_backup_at").await?;
-    let failures: CountRecord = db
-        .prepare(sql::COUNT_REPLICATION_FAILURES)
+    let overdue: CountRecord = db
+        .prepare(sql::COUNT_STALE_BACKUP_PENDING)
         .first(None)
         .await?
         .ok_or_else(|| worker::Error::RustError("empty COUNT(*) result".to_owned()))?;
-    let replication_failures = non_negative(failures.n);
+    let overdue_backups = non_negative(overdue.n);
     let freshness = backup::freshness(now, last_backup_at.as_deref());
     Ok(BackupHealth {
         last_backup_at,
         freshness,
-        replication_failures: Some(replication_failures),
-        alert: backup::alert(freshness, replication_failures),
+        overdue_backups: Some(overdue_backups),
+        alert: backup::alert(freshness, overdue_backups),
     })
 }
 
@@ -2100,7 +2958,7 @@ async fn notify_webhook(
         "backup": {
             "last_backup_at": health.last_backup_at,
             "freshness": health.freshness.as_str(),
-            "replication_failures": health.replication_failures,
+            "overdue_backups": health.overdue_backups,
             "alert": health.alert,
         },
         "verification": {

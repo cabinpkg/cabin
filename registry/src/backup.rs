@@ -34,7 +34,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "packages",
     "versions",
     "meta",
-    "backup_replication_failures",
+    "backup_pending",
     "d1_migrations",
 ];
 
@@ -356,11 +356,11 @@ pub fn freshness(now_iso: &str, last_backup_at: Option<&str>) -> Freshness {
 }
 
 /// The backup-health alert for one breaker pass, `None` when healthy.
-/// Raised while the last dump is missing or stale, or while any blob
-/// replication failure is on record - a backup system's classic failure
-/// mode is stopping silently, so unhealthy states alert on every pass
-/// until resolved.
-pub fn alert(freshness: Freshness, replication_failures: u64) -> Option<String> {
+/// Raised while the last dump is missing or stale, or while any
+/// verified-artifact backup has sat in the replication queue for over
+/// an hour - a backup system's classic failure mode is stopping
+/// silently, so unhealthy states alert on every pass until resolved.
+pub fn alert(freshness: Freshness, stale_backups: u64) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     match freshness {
         Freshness::Fresh => {}
@@ -369,16 +369,16 @@ pub fn alert(freshness: Freshness, replication_failures: u64) -> Option<String> 
         )),
         Freshness::Never => parts.push("no successful D1 dump has been recorded".to_owned()),
     }
-    match replication_failures {
+    match stale_backups {
         0 => {}
         1 => parts.push(
-            "1 archive blob failed to replicate to the backup bucket \
-             (re-run scripts/backup-backfill.sh)"
+            "1 verified archive blob is overdue for backup replication \
+             (check the drain; scripts/backup-backfill.sh recovers by hand)"
                 .to_owned(),
         ),
         n => parts.push(format!(
-            "{n} archive blobs failed to replicate to the backup bucket \
-             (re-run scripts/backup-backfill.sh)"
+            "{n} verified archive blobs are overdue for backup replication \
+             (check the drain; scripts/backup-backfill.sh recovers by hand)"
         )),
     }
     if parts.is_empty() {
@@ -635,7 +635,7 @@ mod tests {
                 "tokens",
                 "packages",
                 "versions",
-                "backup_replication_failures",
+                "backup_pending",
                 "d1_migrations"
             ]
         );
@@ -783,17 +783,18 @@ mod tests {
     // --- alerting ---
 
     #[test]
-    fn alert_covers_freshness_and_replication_failures() {
+    fn alert_covers_freshness_and_the_backup_backlog() {
         assert_eq!(alert(Freshness::Fresh, 0), None);
         let stale = alert(Freshness::Stale, 0).unwrap();
         assert!(stale.contains("older than 36 h"), "{stale}");
         let never = alert(Freshness::Never, 0).unwrap();
         assert!(never.contains("no successful D1 dump"), "{never}");
         let one = alert(Freshness::Fresh, 1).unwrap();
-        assert!(one.contains("1 archive blob failed"), "{one}");
+        assert!(one.contains("1 verified archive blob is overdue"), "{one}");
         let both = alert(Freshness::Stale, 2).unwrap();
         assert!(
-            both.contains("older than 36 h") && both.contains("2 archive blobs failed"),
+            both.contains("older than 36 h")
+                && both.contains("2 verified archive blobs are overdue"),
             "{both}"
         );
     }

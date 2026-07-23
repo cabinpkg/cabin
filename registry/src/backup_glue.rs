@@ -17,6 +17,8 @@ use worker::{
 
 use crate::backup::{self, DumpCheck, DumpScanner, ExportPoll};
 use crate::glue::{now_iso8601, post_json, read_meta, upsert_meta};
+use crate::governor::{Consume, Decision, OpPool, Reserve, StoragePool};
+use crate::governor_client::{self, Gate};
 
 const DEFAULT_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
@@ -28,6 +30,62 @@ const EXPORT_POLL_ATTEMPTS: u32 = 120;
 
 fn err(message: String) -> worker::Error {
     worker::Error::RustError(message)
+}
+
+/// One governed decision for the dump job; a refusal (or an
+/// unreachable governor) fails the job - the freshness alert is the
+/// operator's summons - rather than initiating unpaid R2 work.
+async fn governed(env: &Env, decision: &Decision) -> worker::Result<()> {
+    match governor_client::decide(env, decision).await {
+        Gate::Allowed => Ok(()),
+        Gate::Refused(refusal) => Err(err(format!(
+            "the governor refused a dump-job operation: {refusal:?}"
+        ))),
+    }
+}
+
+fn consume_a_infra() -> Consume {
+    Consume {
+        pool: OpPool::AInfra,
+        n: 1,
+        principal: None,
+        principal_cap: None,
+    }
+}
+
+/// Admission for one dump-object write: one infrastructure Class A op
+/// plus a storage reservation. A same-size retry is the idempotent
+/// reservation; a retry whose export size CHANGED answers the
+/// key-conflict refusal and fails the job - committing past admission
+/// here would be spending past the hard cap, and the freshness alert
+/// plus the next day's fresh key (or an operator release of the stale
+/// entry) are the recovery paths.
+async fn admit_dump_object(env: &Env, key: &str, bytes: u64) -> worker::Result<()> {
+    let admit = Decision {
+        consume: vec![consume_a_infra()],
+        reserve: vec![Reserve {
+            pool: StoragePool::Dump,
+            key: key.to_owned(),
+            bytes,
+        }],
+        ..Decision::default()
+    };
+    governed(env, &admit).await
+}
+
+/// Best-effort release after an affirmative delete of a dump object.
+async fn release_dump_object(env: &Env, key: &str) {
+    governor_client::settle(
+        env,
+        &Decision {
+            release: vec![crate::governor::Release {
+                pool: StoragePool::Dump,
+                key: key.to_owned(),
+            }],
+            ..Decision::default()
+        },
+    )
+    .await;
 }
 
 /// One nightly backup pass. Any failure leaves `meta.last_backup_at`
@@ -54,29 +112,52 @@ pub async fn run_nightly_dump(env: &Env) -> worker::Result<()> {
     }
 
     let signed_url = export_signed_url(env).await?;
-    let check = stream_dump_into(&bucket, &key, &signed_url).await?;
+    let check = stream_dump_into(env, &bucket, &key, &signed_url).await?;
     if let Some(error) = check.error() {
-        remove_invalid_dump(&db, &bucket, &key).await;
+        remove_invalid_dump(env, &db, &bucket, &key).await;
         return Err(err(format!("dump {key} failed validation: {error}")));
     }
-    if let Err(error) = verify_reread(&bucket, &key, &check.sha256_hex).await {
-        remove_invalid_dump(&db, &bucket, &key).await;
+    if let Err(error) = verify_reread(env, &bucket, &key, &check.sha256_hex).await {
+        remove_invalid_dump(env, &db, &bucket, &key).await;
         return Err(error);
     }
-    bucket
-        .put(
-            format!("{key}.sha256"),
-            format!("{}  {date}.sql\n", check.sha256_hex),
-        )
-        .execute()
-        .await?;
+    // The dump's reservation settles into committed usage now that the
+    // stored object is validated; best-effort, like every settle.
+    governor_client::settle(
+        env,
+        &Decision {
+            commit: vec![crate::governor::Commit {
+                pool: StoragePool::Dump,
+                key: key.clone(),
+                bytes: check.bytes,
+            }],
+            ..Decision::default()
+        },
+    )
+    .await;
+    let sidecar_key = format!("{key}.sha256");
+    let sidecar = format!("{}  {date}.sql\n", check.sha256_hex);
+    admit_dump_object(env, &sidecar_key, sidecar.len() as u64).await?;
+    bucket.put(&sidecar_key, sidecar.clone()).execute().await?;
+    governor_client::settle(
+        env,
+        &Decision {
+            commit: vec![crate::governor::Commit {
+                pool: StoragePool::Dump,
+                key: sidecar_key,
+                bytes: sidecar.len() as u64,
+            }],
+            ..Decision::default()
+        },
+    )
+    .await;
     console_log!(
         "backup dump {key} stored and verified: {} bytes, sha256 {}",
         check.bytes,
         check.sha256_hex
     );
 
-    prune_dumps(&bucket, &date).await;
+    prune_dumps(env, &bucket, &date).await;
 
     // Recorded last: `last_backup_at` must never claim success for a
     // dump that was not stored, validated, and re-read above.
@@ -134,6 +215,7 @@ async fn export_signed_url(env: &Env) -> worker::Result<String> {
 /// declared length is refused because it cannot ride an R2 fixed-length
 /// streaming put safely.
 async fn stream_dump_into(
+    env: &Env,
     bucket: &Bucket,
     key: &str,
     signed_url: &str,
@@ -152,6 +234,10 @@ async fn stream_dump_into(
         .get("content-length")?
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| err("the export download omitted a valid content-length".to_owned()))?;
+    // Capacity is taken before the write starts; the declared length is
+    // authoritative because the fixed-length put below fails on any
+    // disagreement.
+    admit_dump_object(env, key, length).await?;
 
     let scanner = Rc::new(RefCell::new(Some(DumpScanner::new())));
     let tap = Rc::clone(&scanner);
@@ -190,11 +276,16 @@ async fn stream_dump_into(
 /// ponytail: a sub-second window remains between a parallel run's
 /// re-read and its meta write - a D1 lock would close it, if
 /// simultaneous rehearsal schedules ever become a real pattern.
-async fn remove_invalid_dump(db: &D1Database, bucket: &Bucket, key: &str) {
+async fn remove_invalid_dump(env: &Env, db: &D1Database, bucket: &Bucket, key: &str) {
     match read_meta(db, "last_backup_key").await {
         Ok(recorded) if recorded.as_deref() != Some(key) => {
-            if let Err(error) = bucket.delete(key).await {
-                worker::console_error!("failed to delete the invalid dump {key}: {error}");
+            match bucket.delete(key).await {
+                // The affirmative delete is the proof that releases
+                // the dump's reservation.
+                Ok(()) => release_dump_object(env, key).await,
+                Err(error) => {
+                    worker::console_error!("failed to delete the invalid dump {key}: {error}");
+                }
             }
         }
         Ok(_) => {
@@ -209,7 +300,25 @@ async fn remove_invalid_dump(db: &D1Database, bucket: &Bucket, key: &str) {
 /// Validation is only real once the stored object itself checks out:
 /// re-read `key` from the bucket and compare its digest with the one
 /// computed while streaming in.
-async fn verify_reread(bucket: &Bucket, key: &str, expected_hex: &str) -> worker::Result<()> {
+async fn verify_reread(
+    env: &Env,
+    bucket: &Bucket,
+    key: &str,
+    expected_hex: &str,
+) -> worker::Result<()> {
+    governed(
+        env,
+        &Decision {
+            consume: vec![Consume {
+                pool: OpPool::BInfra,
+                n: 1,
+                principal: None,
+                principal_cap: None,
+            }],
+            ..Decision::default()
+        },
+    )
+    .await?;
     let Some(object) = bucket.get(key).execute().await? else {
         return Err(err(format!("dump {key} is missing on re-read")));
     };
@@ -235,7 +344,22 @@ async fn verify_reread(bucket: &Bucket, key: &str, expected_hex: &str) -> worker
 /// Best-effort: a failed delete logs and stays for the next nightly
 /// pass. Steady state is ~42 dumps plus sidecars, so one unpaginated
 /// list page (R2 default 1000) covers it with a wide margin.
-async fn prune_dumps(bucket: &Bucket, today: &str) {
+async fn prune_dumps(env: &Env, bucket: &Bucket, today: &str) {
+    // The list is a billable Class A operation; a governor refusal
+    // skips this pass's optional maintenance instead of running it
+    // unpaid.
+    let paid = governed(
+        env,
+        &Decision {
+            consume: vec![consume_a_infra()],
+            ..Decision::default()
+        },
+    )
+    .await;
+    if let Err(error) = paid {
+        worker::console_error!("dump prune skipped: {error}");
+        return;
+    }
     let listing = match bucket.list().prefix(backup::DUMP_PREFIX).execute().await {
         Ok(listing) => listing,
         Err(error) => {
@@ -251,10 +375,14 @@ async fn prune_dumps(bucket: &Bucket, today: &str) {
     for date in backup::dates_to_prune(&dates, today) {
         let key = backup::dump_object_key(&date);
         for target in [key.clone(), format!("{key}.sha256")] {
-            if let Err(error) = bucket.delete(&target).await {
-                worker::console_error!("dump prune failed to delete {target}: {error}");
-            } else {
-                console_log!("dump prune deleted {target}");
+            match bucket.delete(&target).await {
+                Ok(()) => {
+                    release_dump_object(env, &target).await;
+                    console_log!("dump prune deleted {target}");
+                }
+                Err(error) => {
+                    worker::console_error!("dump prune failed to delete {target}: {error}");
+                }
             }
         }
     }

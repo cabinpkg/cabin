@@ -39,6 +39,10 @@ pub const VERDICT_TARGET_CHANGED: &str =
     "the version changed since it was listed; fetch the pending list again";
 pub const INVALID_STATUS_QUERY: &str =
     "the status query parameter must be pending, verified, or rejected";
+pub const INVALID_GOVERNOR_BODY: &str = r#"the governor body must be exactly {"release": {"pool": "primary" | "backup" | "dump", "key": <string>}} or {"wipe": true}"#;
+pub const GOVERNOR_LEDGER_LAUNCHED: &str =
+    "the registry is launched; the governor ledger only resets pre-launch";
+pub const GOVERNOR_UNAVAILABLE: &str = "the governor did not answer; try again";
 pub const CSRF_REQUIRED: &str = "the request must declare Content-Type: application/json and \
      carry the X-CSRF-Protection header";
 pub const INVALID_TOKEN_NAME_OR_SCOPES: &str = "invalid token name or scopes";

@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
 #
 # One-shot backup reconciliation (see docs/runbook.md, "Disaster
-# recovery"): copies every referenced archive blob that is missing from
-# the BACKUP bucket, then clears the blob-replication failure log.
-# Publish-time replication is best-effort, so run this once after
-# enabling backups over existing data, and again whenever the breaker
-# cron alerts on replication failures.
+# recovery"): copies every **verified** archive blob that is missing
+# from the BACKUP bucket. The deployed Worker replicates through the
+# durable backup_pending queue on its own; this script is the manual
+# recovery path for a drain that keeps failing, or for seeding backups
+# over pre-existing data.
+#
+# It UPSERTS one backup_pending queue row per verified checksum and
+# never deletes any: the Worker's drain retires each row itself (its
+# existence head finds the copy, settles the governor's backup ledger
+# at the observed size, and deletes the row), so every copy made here -
+# and every pre-queue verified blob - is absorbed, ledger included,
+# within one breaker cron pass. Deleting or skipping rows here would
+# leave the governor's backup ledger understating reality.
 #
 #   scripts/backup-backfill.sh
 #
 # Requires CLOUDFLARE_API_TOKEN in the environment. Idempotent:
-# re-running skips blobs the backup already holds.
+# re-running skips blobs the backup already holds. Note the copies run
+# outside the Worker, so they are not charged to the governor's
+# operation pools (they bill as ordinary R2 usage on the operator's
+# account activity).
 
 set -euo pipefail
 
@@ -28,8 +39,6 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
-d1_exec() { wrangler d1 execute DB --remote --command "$1" >/dev/null; }
-
 # d1_column <sql> <column>: one value per line from a remote query.
 d1_column() {
   wrangler d1 execute DB --remote --json --command "$1" |
@@ -40,18 +49,29 @@ d1_column() {
     ' "$2"
 }
 
-step "copying referenced blobs missing from $backup"
+# The queue rows make the drain visit (and ledger) every verified
+# blob, whether this run copies it or an earlier out-of-band copy
+# already exists. MAX(archive_size) is the conservative expected size;
+# the drain settles at the size its head observes.
+step "enqueueing every verified blob for the worker's drain"
+wrangler d1 execute DB --remote --command "
+  INSERT INTO backup_pending (key, bytes, enqueued_at)
+    SELECT 'blobs/sha256/' || checksum, MAX(archive_size),
+           strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM versions WHERE verification = 'verified' GROUP BY checksum
+  ON CONFLICT (key) DO NOTHING" >/dev/null
+
+step "copying verified blobs missing from $backup"
 blob="$(mktemp)"
 trap 'rm -f "$blob"' EXIT
 # Captured via an assignment first: a failed enumeration aborts here
 # (`set -e` catches failing assignments), whereas a command substitution
-# inside `<<<` would silently feed the loop nothing - and the failure
-# log below must never be cleared on a run that enumerated nothing.
-# Rejected rows are excluded: their blob is reclaimed from the primary
-# (docs/architecture.md, "The verification lifecycle"), so there is
-# nothing to copy and no backup need.
+# inside `<<<` would silently feed the loop nothing. Verified only: the
+# backup set holds exactly the content the registry serves as verified
+# (docs/architecture.md, "Backups"); pending uploads are not backed up
+# until their verdict, and rejected blobs are reclaimed.
 checksums="$(d1_column "SELECT DISTINCT checksum FROM versions
-  WHERE verification != 'rejected'" checksum)"
+  WHERE verification = 'verified'" checksum)"
 copied=0
 present=0
 while IFS= read -r checksum; do
@@ -68,18 +88,6 @@ while IFS= read -r checksum; do
     printf '    copied %s (%s bytes)\n' "$key" "$(wc -c <"$blob" | tr -d ' ')"
     copied=$((copied + 1))
   fi
-  # Clear the failure log for exactly this verified key. Never the
-  # whole table: a publish racing this run can log a failure for a
-  # blob that postdates the snapshot above, and erasing that row would
-  # silence the breaker alert while the blob is still missing.
-  d1_exec "DELETE FROM backup_replication_failures WHERE key = '$key'"
 done <<<"$checksums"
-
-step "clearing failure rows for blobs with no live reference"
-# The reclaim path clears these as it deletes, but a failed bookkeeping
-# write can leave a straggler that would alert forever with no primary
-# object left to copy. Rows for live checksums stay untouched.
-d1_exec "DELETE FROM backup_replication_failures WHERE key NOT IN
-  (SELECT 'blobs/sha256/' || checksum FROM versions WHERE verification != 'rejected')"
 
 echo "backup backfill OK (copied $copied, already present $present)"

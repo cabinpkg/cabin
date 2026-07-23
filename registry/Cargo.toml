@@ -24,6 +24,16 @@ sha2 = "0.11"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = "0.3"
 worker = { version = "0.8", features = ["d1"] }
+# Exact pins, not direct API use: wasm-bindgen 0.2.126 changed its
+# macro codegen in a way that breaks worker 0.8's #[durable_object]
+# expansion (unresolved `wasm_bindgen`/`RUST_STRUCT` in the generated
+# code), and js-sys/web-sys/wasm-bindgen-futures are version-locked to
+# wasm-bindgen, so the whole family is held at the last working set.
+# Drop all four when a worker upgrade compiles without them.
+wasm-bindgen = "=0.2.125"
+js-sys = "=0.3.102"
+web-sys = "=0.3.102"
+wasm-bindgen-futures = "=0.4.75"
 
 # Host-target only: tests/sql_validation.rs prepares every executed
 # statement (src/sql.rs) against the real migrated schema, and the

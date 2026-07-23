@@ -611,17 +611,16 @@ fn download_counting_is_verified_only_and_scope_isolated() {
         .expect("downloads column")
     };
 
-    // Two verified downloads count; the identical (name, version) under
-    // the other scope - pending there - stays untouched.
-    for _ in 0..2 {
-        let changed = conn
-            .execute(
-                sql::INCREMENT_VERSION_DOWNLOADS,
-                rusqlite::params!["alpha", "pkg", "1.0.0"],
-            )
-            .expect("increment verified download");
-        assert_eq!(changed, 1);
-    }
+    // A batched flush of two downloads counts; the identical
+    // (name, version) under the other scope - pending there - stays
+    // untouched.
+    let changed = conn
+        .execute(
+            sql::ADD_VERSION_DOWNLOADS,
+            rusqlite::params!["alpha", "pkg", "1.0.0", 2],
+        )
+        .expect("add verified downloads");
+    assert_eq!(changed, 1);
     assert_eq!(downloads("alpha"), 2);
     assert_eq!(downloads("beta"), 0);
 
@@ -630,8 +629,8 @@ fn download_counting_is_verified_only_and_scope_isolated() {
     for (scope, name, version) in [("beta", "pkg", "1.0.0"), ("ghost", "pkg", "1.0.0")] {
         let changed = conn
             .execute(
-                sql::INCREMENT_VERSION_DOWNLOADS,
-                rusqlite::params![scope, name, version],
+                sql::ADD_VERSION_DOWNLOADS,
+                rusqlite::params![scope, name, version, 1],
             )
             .expect("guarded increment");
         assert_eq!(changed, 0, "scope: {scope}");
@@ -645,8 +644,8 @@ fn download_counting_is_verified_only_and_scope_isolated() {
     )
     .expect("yank alpha");
     conn.execute(
-        sql::INCREMENT_VERSION_DOWNLOADS,
-        rusqlite::params!["alpha", "pkg", "1.0.0"],
+        sql::ADD_VERSION_DOWNLOADS,
+        rusqlite::params!["alpha", "pkg", "1.0.0", 1],
     )
     .expect("increment yanked download");
     assert_eq!(downloads("alpha"), 3);
@@ -866,13 +865,11 @@ fn registry_stats_totals_are_verified_only_and_name_distinct() {
          UPDATE versions SET downloads = 100 WHERE scope = 'beta' AND version = '1.0.0';",
     )
     .expect("seed verified versions and a pending counter");
-    for _ in 0..2 {
-        conn.execute(
-            sql::INCREMENT_VERSION_DOWNLOADS,
-            rusqlite::params!["alpha", "pkg", "1.0.0"],
-        )
-        .expect("increment verified download");
-    }
+    conn.execute(
+        sql::ADD_VERSION_DOWNLOADS,
+        rusqlite::params!["alpha", "pkg", "1.0.0", 2],
+    )
+    .expect("add verified downloads");
 
     let (packages, versions, downloads): (i64, i64, i64) = conn
         .query_row(sql::REGISTRY_STATS, [], |row| {

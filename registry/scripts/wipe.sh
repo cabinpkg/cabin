@@ -71,9 +71,13 @@ new_generation=$((old_generation + 1))
 if [[ "$mode" == "--local" ]]; then
   # The local analogue of the whole remote procedure: the emulated D1
   # and R2 state under .wrangler/ simply goes away, and migrations
-  # recreate the schema from zero. No config ids, no deploy.
-  step "deleting the local D1 and R2 state"
-  rm -rf .wrangler/state/v3/d1 .wrangler/state/v3/r2
+  # recreate the schema from zero. The governor Durable Object's
+  # ledger and the emulated edge cache go with them - a wiped registry
+  # must not keep accounting for (or serving) deleted blobs. No config
+  # ids, no deploy.
+  step "deleting the local D1, R2, Durable Object, and cache state"
+  rm -rf .wrangler/state/v3/d1 .wrangler/state/v3/r2 \
+    .wrangler/state/v3/do .wrangler/state/v3/cache
 
   step "reapplying migrations from zero"
   wrangler d1 migrations apply DB --local
@@ -172,4 +176,7 @@ Follow-ups (docs/runbook.md):
   - tokens are gone: re-issue REGISTRY_VERIFY_TOKEN on /settings/tokens
     and update the GitHub secret (gh secret set REGISTRY_VERIFY_TOKEN)
   - users sign in again and re-issue their tokens
+  - the governor ledger still accounts for the deleted blobs: with the
+    fresh verify token, POST {"wipe":true} to /api/v1/admin/governor
+    (refused once launched; docs/runbook.md, "The cost governor")
 EOF

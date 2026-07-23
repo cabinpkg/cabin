@@ -76,6 +76,15 @@ pub const OVER_BUDGET_READS_DETAIL: &str =
     "registry downloads are temporarily disabled: the registry's read budget is exhausted";
 pub const OVER_BUDGET_RETRY_AFTER_SECS: u64 = 900;
 
+/// The fail-closed detail when the cost governor cannot answer: any
+/// path that would initiate a new billable R2 operation refuses with
+/// the same `503` + `registry_over_budget` envelope clients already
+/// classify, and a short `Retry-After` because the outage is usually
+/// transient. Cache hits and non-R2 routes keep serving.
+pub const GOVERNOR_UNAVAILABLE_DETAIL: &str =
+    "registry storage operations are temporarily disabled: the cost governor is unavailable";
+pub const GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS: u64 = 60;
+
 /// Budget ceilings, each comfortably below the matching Cloudflare free
 /// limit so the service blocks itself before Cloudflare does. Overridable
 /// per environment via the same-named env vars.
