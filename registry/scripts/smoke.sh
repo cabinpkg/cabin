@@ -36,7 +36,10 @@
 # cron pass, and - after a restart onto tiny governor pools - the hard
 # refusal paths: cached downloads keep serving, uncached ones answer
 # the coded 503, the verifier pool stays isolated, a fresh publish
-# refuses before any R2 write, and the source viewer fails closed. Ordinary sign-in still needs a
+# refuses before any R2 write, and the source viewer fails closed; the
+# admin governor endpoint's usage/release/wipe/reconcile actions; and a
+# final bounded-concurrency leg proving simultaneous downloads with
+# retries never take the ordinary pool past its configured limit. Ordinary sign-in still needs a
 # real GitHub roundtrip and stays out of scope; the session cookie is
 # minted directly under the pinned SESSION_SECRET instead. Local-only:
 # state lives in .wrangler/, never a deployed environment.
@@ -1713,6 +1716,33 @@ wrequest PATCH "/api/v1/admin/versions/$scope/$name/$iso_verified_version" "$wor
 expect_body '"verification":"verified"'
 as_publisher
 
+# Load-leg fixtures: five more verified versions with distinct bytes,
+# never downloaded, so the concurrency leg at the end has distinct
+# uncached artifacts to charge. Published while pools are still large;
+# the publish token bucket (burst 5) is reset per publish.
+load_versions="0.7.0 0.8.0 0.9.0 0.10.0 0.11.0"
+for v in $load_versions; do
+  wrangler d1 execute DB --local --command "
+    UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+  make_min_zip "$work/load-$v.zip" "load$v"
+  publish_min_version "$v" "$work/load-$v.zip"
+done
+as_verifier
+wcheck "/api/v1/admin/versions?status=pending" 200
+cp "$body" "$work/pending-load.json"
+for v in $load_versions; do
+  listing_entry "$work/pending-load.json" "$scope/$name" "$v" "$work/entry-load-$v.json"
+  node -e '
+    const fs = require("fs");
+    const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    fs.writeFileSync(process.argv[2], JSON.stringify({
+      verdict: "verified", checksum: entry.checksum, published_at: entry.published_at,
+    }));' "$work/entry-load-$v.json" "$work/verdict-load-$v.json"
+  wrequest PATCH "/api/v1/admin/versions/$scope/$name/$v" "$work/verdict-load-$v.json" 200
+  expect_body '"verification":"verified"'
+done
+as_publisher
+
 # Tiny pools via a restart: the ledger and windows persist in the local
 # Durable Object state, so the main run's consumption already exceeds
 # these limits and every fresh billable call must refuse - while the
@@ -1869,5 +1899,173 @@ expect_body 'launched'
 wrangler d1 execute DB --local --command \
   "UPDATE meta SET value = 'false' WHERE key = 'launched';" >/dev/null
 as_publisher
+
+# --- Bounded concurrency: the pool never overshoots under load. ---
+# The ordinary-read pool gets exactly three fresh operations of
+# headroom, then two barrier-released waves race for them through the
+# serialized Durable Object: five simultaneous distinct uncached
+# downloads (whose ledger delta must equal their successes one to
+# one), then ten simultaneous attempts with same-key races and cache
+# hits, then a sequential retry pass. The invariant: distinct
+# successes <= ledger delta <= headroom, and the ledger never crosses
+# the configured limit. The retries deliberately avoid curl --retry:
+# it honors a 503's Retry-After, which reaches the next UTC day here
+# and would hang the run.
+step "restarting wrangler dev with exact ordinary-read headroom"
+as_verifier
+wcheck "/api/v1/admin/governor" 200
+used_before="$(node -e '
+  const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const row = s.ops.find((row) => row.pool === "b_ordinary");
+  console.log(row ? `${row.used} ${row.window}` : "0 -");
+' "$body")"
+window_before="${used_before#* }"
+used_before="${used_before%% *}"
+as_publisher
+headroom=3
+load_limit=$((used_before + headroom))
+kill -- "-$dev_pid" 2>/dev/null || true
+kill -- "-$web_pid" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  curl -fsS -o /dev/null "$base/healthz" 2>/dev/null || break
+  sleep 0.5
+done
+# Replace, never append: wrangler takes the last value of a duplicated
+# key, and a stale duplicate is a foot-gun for the next reader.
+grep -v '^GOVERNOR_R2_CLASS_B_ORDINARY_MONTH=' "$dev_vars" >"$dev_vars.next"
+mv "$dev_vars.next" "$dev_vars"
+cat >>"$dev_vars" <<EOF
+GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="$load_limit"
+EOF
+start_registry_dev
+start_web_dev
+
+step "concurrent downloads with retries never take the pool past its limit"
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+load_dir="$work/load-status"
+mkdir -p "$load_dir"
+# fire_wave <wave> <attempts-per-artifact>: all requests of a wave are
+# parked behind a go-file barrier and released together, so the wave
+# really arrives simultaneously instead of serializing on fork order.
+fire_wave() {
+  local wave="$1" attempts="$2" wave_pids="" v attempt
+  for v in $load_versions; do
+    for attempt in $(seq 1 "$attempts"); do
+      (
+        until [[ -f "$load_dir/go-$wave" ]]; do sleep 0.05; done
+        start="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+        curl -sS -o "$load_dir/body-$wave-$v-$attempt" -w '%{http_code}' \
+          -H "Authorization: Bearer $token" \
+          "$base/artifacts/$scope/$name/$scope-$name-$v.zip" \
+          >"$load_dir/status-$wave-$v-$attempt"
+        perl -MTime::HiRes=time -e 'printf "%s %.6f", $ARGV[0], time' "$start" \
+          >"$load_dir/time-$wave-$v-$attempt"
+      ) &
+      wave_pids="$wave_pids $!"
+    done
+  done
+  : >"$load_dir/go-$wave"
+  for pid in $wave_pids; do
+    wait "$pid" || fail "a load-test download process failed outright"
+  done
+}
+# Wave 1: one request per artifact, all distinct, all uncached - the
+# only way any of them answers 200 is one fresh charged read, and no
+# request path charges more than once per attempt, so the ledger
+# delta must equal the success count EXACTLY. (The snapshot is
+# aggregate, so this pins totals, not per-request attribution; a code
+# bug that both double-charged one request and served another free
+# would need the per-request charge invariant to break twice over.)
+fire_wave 1 1
+wave1_successes=0
+for v in $load_versions; do
+  if grep -qxs 200 "$load_dir/status-1-$v-1"; then
+    wave1_successes=$((wave1_successes + 1))
+  fi
+done
+as_verifier
+wcheck "/api/v1/admin/governor" 200
+wave1_used="$(node -e '
+  const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const row = s.ops.find((row) => row.pool === "b_ordinary");
+  console.log(row ? row.used : 0);
+' "$body")"
+as_publisher
+wave1_delta=$((wave1_used - used_before))
+[[ "$wave1_delta" -eq "$wave1_successes" ]] \
+  || fail "wave 1 served $wave1_successes distinct uncached artifacts but charged $wave1_delta operations (must be one-to-one)"
+# Wave 2: two simultaneous attempts per artifact - same-key races,
+# cache hits for wave 1's winners, refusals once the pool is dry. The
+# recorded request spans must show overlap - a harness-level check
+# that the shell really had requests in flight together (the governor
+# object itself serializes by design, so "concurrent admission" means
+# simultaneous arrival, which is exactly what the spans witness).
+fire_wave 2 2
+node -e '
+  const fs = require("fs");
+  const dir = process.argv[1];
+  const spans = fs.readdirSync(dir).filter((f) => f.startsWith("time-2-"))
+    .map((f) => fs.readFileSync(`${dir}/${f}`, "utf8").trim().split(" ").map(Number));
+  const overlap = spans.some((a, i) =>
+    spans.some((b, j) => i !== j && a[0] < b[1] && b[0] < a[1]));
+  process.exit(overlap && spans.length >= 2 ? 0 : 1);
+' "$load_dir" || fail "no two wave-2 requests overlapped; the wave serialized"
+# One sequential retry per artifact that saw no success in either
+# wave: a retry must not mint allowance either.
+for v in $load_versions; do
+  if ! grep -qxs 200 "$load_dir"/status-[12]-"$v"-*; then
+    curl -sS -o "$load_dir/body-retry-$v-1" -w '%{http_code}' \
+      -H "Authorization: Bearer $token" \
+      "$base/artifacts/$scope/$name/$scope-$name-$v.zip" \
+      >"$load_dir/status-retry-$v-1"
+  fi
+done
+# Every attempt must resolve to a success or the budget refusal -
+# any other status (a 500, a rate limit) would make the accounting
+# assertions below vacuous for that attempt.
+successes=0
+refusals=0
+for status_file in "$load_dir"/status-*; do
+  status="$(cat "$status_file")"
+  case "$status" in
+    200) ;;
+    503)
+      grep -qs 'registry_over_budget' "${status_file/status-/body-}" \
+        || fail "a load-test 503 was not the budget envelope: $(cat "${status_file/status-/body-}")"
+      refusals=$((refusals + 1))
+      ;;
+    *) fail "a load-test attempt answered $status (expected 200 or the budget 503)" ;;
+  esac
+done
+for v in $load_versions; do
+  if grep -qxs 200 "$load_dir"/status-*-"$v"-*; then
+    successes=$((successes + 1))
+  fi
+done
+as_verifier
+wcheck "/api/v1/admin/governor" 200
+used_after="$(node -e '
+  const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  const row = s.ops.find((row) => row.pool === "b_ordinary");
+  console.log(row ? `${row.used} ${row.window}` : "0 -");
+' "$body")"
+window_after="${used_after#* }"
+used_after="${used_after%% *}"
+as_publisher
+[[ "$window_after" == "$window_before" ]] \
+  || fail "the UTC month rolled over mid-leg ($window_before -> $window_after); rerun the smoke test"
+delta=$((used_after - used_before))
+printf '    %s/5 distinct artifacts served, %s refusal(s); used %s -> %s (limit %s)\n' \
+  "$successes" "$refusals" "$used_before" "$used_after" "$load_limit"
+[[ "$used_after" -le "$load_limit" ]] \
+  || fail "the ledger crossed its configured limit: $used_after > $load_limit"
+[[ "$delta" -le "$headroom" ]] \
+  || fail "the concurrent wave consumed $delta operations against $headroom of headroom"
+[[ "$successes" -le "$delta" ]] \
+  || fail "$successes distinct successes but only $delta charged operations - an uncharged serve"
+[[ "$successes" -ge 1 ]] || fail "no download won any of the admitted operations"
+[[ "$refusals" -ge 1 ]] \
+  || fail "attempts exceeded the budget yet nothing answered the budget envelope"
 
 echo "smoke OK"
