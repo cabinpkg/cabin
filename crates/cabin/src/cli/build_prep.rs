@@ -491,8 +491,6 @@ pub(crate) fn prepare_workspace(
         &dev_for,
     )?;
 
-    // Per-package build flags + the (fail-hard) compiler wrapper,
-    // folded into a toolchain summary.
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
         host_platform: &host_platform,
