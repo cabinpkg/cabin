@@ -28,10 +28,15 @@
 # 400/416 matrix, exact bytes and headers, verified-only with yanked
 # browsable, and the counter never moving), the budget breaker (writes
 # 503 while service_mode =
-# writes_blocked, reads unaffected), blob replication into the BACKUP
-# bucket, and the nightly dump job (triggered via the /__scheduled test
+# writes_blocked, reads unaffected), verified-only blob replication
+# into the BACKUP bucket through the durable queue, the nightly dump
+# job (triggered via the /__scheduled test
 # route against a local mock of the D1 export API serving a real
-# `wrangler d1 export --local` dump). Ordinary sign-in still needs a
+# `wrangler d1 export --local` dump), the governor's reconciliation
+# cron pass, and - after a restart onto tiny governor pools - the hard
+# refusal paths: cached downloads keep serving, uncached ones answer
+# the coded 503, the verifier pool stays isolated, a fresh publish
+# refuses before any R2 write, and the source viewer fails closed. Ordinary sign-in still needs a
 # real GitHub roundtrip and stays out of scope; the session cookie is
 # minted directly under the pinned SESSION_SECRET instead. Local-only:
 # state lives in .wrangler/, never a deployed environment.
@@ -222,7 +227,7 @@ if [[ -n "$token" ]]; then
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
-    DELETE FROM backup_replication_failures;
+    DELETE FROM backup_pending;
     -- A prior run that failed inside a breaker leg leaves its pinned
     -- mode behind; normalize so re-runs never start blocked.
     UPDATE meta SET value = 'normal' WHERE key = 'service_mode';"
@@ -395,7 +400,9 @@ fi
 # breaker leg below observes a flipped mode immediately (the deployed
 # worker uses the in-code 60 s TTL), and STATS_CACHE_TTL_SECS=0
 # disables the stats edge cache so the download-count leg observes a
-# fresh count (deployed: 300 s). The GITHUB_* entries point the
+# fresh count (deployed: 300 s), with DOWNLOAD_FLUSH_INTERVAL_MS=0
+# flushing every buffered download count immediately for the same
+# reason (deployed: 30 s batches). The GITHUB_* entries point the
 # claim flow's server-side calls at the GitHub mock above (the client
 # secret only has to exist for the mock exchange).
 cat >"$dev_vars" <<EOF
@@ -405,6 +412,7 @@ SESSION_SECRET="smoke-session-secret-not-for-production"
 ALLOWED_GITHUB_IDS="0,1"
 SERVICE_MODE_TTL_SECS="0"
 STATS_CACHE_TTL_SECS="0"
+DOWNLOAD_FLUSH_INTERVAL_MS="0"
 GITHUB_OAUTH_BASE="http://127.0.0.1:${github_port}"
 GITHUB_API_BASE="http://127.0.0.1:${github_port}"
 GITHUB_CLIENT_SECRET="smoke-client-secret"
@@ -419,39 +427,47 @@ for stale_port in "$port" "$web_port"; do
   fi
 done
 
-step "starting wrangler dev on port ${port} (first build takes a while)"
 # Job control (-m) gives each dev-server tree its own process group so
 # cleanup can kill all of it at once.
-set -m
-wrangler dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
-dev_pid=$!
-set +m
-disown "$dev_pid"
-
-for _ in $(seq 1 300); do
-  kill -0 "$dev_pid" 2>/dev/null || { cat "$dev_log" >&2; fail "wrangler dev exited early"; }
-  curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && break
-  sleep 1
-done
+start_registry_dev() {
+  set -m
+  wrangler dev --port "$port" --test-scheduled >"$dev_log" 2>&1 &
+  dev_pid=$!
+  set +m
+  disown "$dev_pid"
+  for _ in $(seq 1 300); do
+    kill -0 "$dev_pid" 2>/dev/null || { cat "$dev_log" >&2; fail "wrangler dev exited early"; }
+    curl -fsS -o /dev/null "$base/healthz" 2>/dev/null && return 0
+    sleep 1
+  done
+  fail "wrangler dev never answered /healthz"
+}
 
 # The website-role instance: same code, same local state, but wrangler
 # pins its emulated Host header to cabinpkg.com, which is what flips the
-# Worker's role dispatch. Started second so the first instance's build
-# is already cached.
-step "starting the website-role wrangler dev on port ${web_port}"
-set -m
-wrangler dev --port "$web_port" --host cabinpkg.com >"$web_log" 2>&1 &
-web_pid=$!
-set +m
-disown "$web_pid"
+# Worker's role dispatch. /healthz only exists on the registry role;
+# any HTTP status at all (the website role answers it 401/404) proves
+# the instance is up.
+start_web_dev() {
+  set -m
+  wrangler dev --port "$web_port" --host cabinpkg.com >"$web_log" 2>&1 &
+  web_pid=$!
+  set +m
+  disown "$web_pid"
+  for _ in $(seq 1 300); do
+    kill -0 "$web_pid" 2>/dev/null || { cat "$web_log" >&2; fail "the website-role wrangler dev exited early"; }
+    [[ "$(curl -sS -o /dev/null -w '%{http_code}' "$web_base/healthz" 2>/dev/null)" != "000" ]] && return 0
+    sleep 1
+  done
+  fail "the website-role wrangler dev never answered"
+}
 
-# /healthz only exists on the registry role; any HTTP status at all
-# (the website role answers it 401/404) proves the instance is up.
-for _ in $(seq 1 300); do
-  kill -0 "$web_pid" 2>/dev/null || { cat "$web_log" >&2; fail "the website-role wrangler dev exited early"; }
-  [[ "$(curl -sS -o /dev/null -w '%{http_code}' "$web_base/healthz" 2>/dev/null)" != "000" ]] && break
-  sleep 1
-done
+step "starting wrangler dev on port ${port} (first build takes a while)"
+start_registry_dev
+
+# Started second so the first instance's build is already cached.
+step "starting the website-role wrangler dev on port ${web_port}"
+start_web_dev
 
 curl_args=()
 step "healthz is unauthenticated and empty"
@@ -963,6 +979,13 @@ wrangler d1 execute DB --local --command "
 step "pending versions are invisible to ordinary tokens"
 check "$package_path" 404
 check "$artifact_path" 404
+# And they have no backup copy: only versions that become verified
+# enter the durable backup set (the verdict batch enqueues the work).
+sleep 1
+if wrangler r2 object get "cabin-registry-backup/blobs/sha256/$blob_hash" \
+    --file /dev/null --local >/dev/null 2>&1; then
+  fail "a pending version's blob was replicated to the BACKUP bucket"
+fi
 # The source viewer gates on verified the same way; a valid range makes
 # sure the 404 is the gate, not the range policy (checked first).
 session_request GET "/api/v1/user/source/$scope/$name/$version" 404 -H "Range: bytes=-22"
@@ -1050,7 +1073,16 @@ as_publisher
 check "$package_path" 200
 expect_body "\"name\":\"$scope/$name\""
 expect_body '"0.2.0"'
-check "$artifact_path" 200
+# This is the first verified download (a cache-miss fill), so it also
+# proves the outward answer to an authenticated request never licenses
+# a shared cache: the `public` freshness header lives only on the
+# internal cache copy, and the client sees no-store.
+first_download_status="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' \
+  ${curl_args[@]+"${curl_args[@]}"} "$base$artifact_path")"
+[[ "$first_download_status" == "200" ]] \
+  || fail "the first verified download returned $first_download_status"
+grep -qi '^cache-control: no-store' "$headers" \
+  || fail "a cache-miss artifact is missing the outward no-store: $(grep -i cache-control "$headers")"
 
 step "a verified version flips the corpus row to vetted"
 as_verifier
@@ -1131,23 +1163,52 @@ await_backup_blob() {
   fail "blob $key never appeared in the BACKUP bucket"
 }
 
-step "the published blob replicates to the BACKUP bucket"
+# The verdict batch enqueued the backup work transactionally with the
+# verified transition, and the verdict's waitUntil drain replicated it.
+step "the verified blob replicates to the BACKUP bucket and drains its queue row"
 await_backup_blob "blobs/sha256/$blob_hash" "$work/replicated.zip"
 cmp -s "$work/replicated.zip" "$fixture_archive" \
   || fail "replicated blob differs from the published archive"
+for _ in $(seq 1 20); do
+  queue_rows="$(wrangler d1 execute DB --local --json --command \
+    "SELECT COUNT(*) AS n FROM backup_pending
+     WHERE key = 'blobs/sha256/$blob_hash'" |
+    node -e '
+      const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      console.log(out[0].results[0].n);
+    ')"
+  [[ "$queue_rows" == "0" ]] && break
+  sleep 0.5
+done
+[[ "$queue_rows" == "0" ]] || fail "the drained backup queue row was not deleted"
 
-# A retry of a publish whose isolate died before replicating takes the
-# idempotent no-op path; it must re-schedule the copy.
-step "an idempotent re-publish heals missing primary and backup blobs"
+# The backup set is durable through the queue, not through re-publish:
+# an idempotent no-op heals a reclaim-raced primary blob (the retry
+# holds the bytes), while the append-only backup bucket is never
+# rewritten by the publish path - a lost backup object is
+# scripts/backup-backfill.sh territory.
+step "an idempotent re-publish heals the primary blob only"
 wrangler r2 object delete "cabin-registry-backup/blobs/sha256/$blob_hash" --local >/dev/null
 wrangler r2 object delete "cabin-registry-blobs/blobs/sha256/$blob_hash" --local >/dev/null
 wrequest PUT "$publish_path" "$work/publish.bin" 200
 expect_body '"no_op":true'
 expect_body '"verification":"verified"'
+# The heal runs before the response, so the primary object itself is
+# back (the artifact route could otherwise answer from the edge cache).
+wrangler r2 object get "cabin-registry-blobs/blobs/sha256/$blob_hash" \
+  --file "$work/healed.zip" --local >/dev/null \
+  || fail "the idempotent re-publish did not heal the primary blob"
+cmp -s "$work/healed.zip" "$fixture_archive" \
+  || fail "the healed primary blob differs from the published archive"
 check "$artifact_path" 200
-await_backup_blob "blobs/sha256/$blob_hash" "$work/rehealed.zip"
-cmp -s "$work/rehealed.zip" "$fixture_archive" \
-  || fail "re-healed blob differs from the published archive"
+sleep 1
+if wrangler r2 object get "cabin-registry-backup/blobs/sha256/$blob_hash" \
+    --file /dev/null --local >/dev/null 2>&1; then
+  fail "a re-publish rewrote the append-only BACKUP bucket"
+fi
+# Put the copy back so later legs and the local state stay coherent.
+wrangler r2 object put "cabin-registry-backup/blobs/sha256/$blob_hash" \
+  --file "$fixture_archive" --local >/dev/null
 
 step "byte-identical re-publish is an idempotent no-op reporting the status"
 wrequest PUT "$publish_path" "$work/publish.bin" 200
@@ -1516,6 +1577,20 @@ rerun_at="$(wrangler d1 execute DB --local --json --command \
 [[ "$rerun_at" == "$last_backup_at" ]] \
   || fail "same-day re-run rewrote last_backup_at: $rerun_at (was $last_backup_at)"
 
+# The breaker expression additionally runs the governor reconciliation
+# (the usage log line proves the ledger answered) and a backup-queue
+# drain; with no analytics token the budget evaluation degrades
+# gracefully on the exact storage counter alone.
+step "the breaker cron reconciles the governor ledger"
+check "/__scheduled?cron=*/15+*+*+*+*" 200
+governor_logged=""
+for _ in $(seq 1 20); do
+  grep -q "governor usage:" "$dev_log" && { governor_logged=1; break; }
+  sleep 0.5
+done
+[[ -n "$governor_logged" ]] \
+  || fail "the breaker cron pass never logged the governor usage snapshot"
+
 # --- The strict zip container profile, at publish and at verification. ---
 # These publishes charge the publish bucket like any others, so the leg
 # gets its own burst.
@@ -1590,5 +1665,179 @@ expect_body '"verification":"rejected"'
 expect_body '"changed":true'
 as_publisher
 check "$profile_artifact_path" 404
+
+# --- The governor's hard limits, against tiny pools. ---
+# The isolation fixtures publish while pools are still large: a pending
+# version (never verified, never downloaded) and a verified one (never
+# downloaded), each with distinct content-addressed bytes.
+step "seeding isolation fixtures for the governor legs"
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+make_min_zip() { # <out-file> <entry-name>: a container-valid zip
+  python3 - "$1" "$2" <<'PY'
+import struct, sys
+name = sys.argv[2].encode()
+lfh = struct.pack("<IHHHHHIIIHH", 0x04034b50, 20, 0, 0, 0, 0, 0, 0, 0, len(name), 0) + name
+cd = struct.pack("<IHHHHHHIIIHHHHHII",
+                 0x02014b50, 20, 20, 0, 0, 0, 0, 0, 0, 0, len(name), 0, 0, 0, 0, 0, 0) + name
+eocd = struct.pack("<IHHHHIIH", 0x06054b50, 0, 0, 1, 1, len(cd), len(lfh), 0)
+open(sys.argv[1], "wb").write(lfh + cd + eocd)
+PY
+}
+publish_min_version() { # <version> <zip>: sed the fixture metadata onto it
+  local v="$1" zip="$2" hash
+  hash="$(shasum -a 256 "$zip" | cut -d' ' -f1)"
+  sed "s/0\.2\.0/$v/g" "$fixture_metadata" |
+    sed "s/$blob_hash/$hash/" >"$work/iso-$v.json"
+  frame "$work/iso-$v.json" "$zip" "$work/iso-$v.publish.bin"
+  wrequest PUT "/api/v1/packages/$scope/$name/$v" "$work/iso-$v.publish.bin" 201
+  expect_body '"verification":"pending"'
+}
+iso_pending_version="0.4.0"
+iso_verified_version="0.5.0"
+make_min_zip "$work/iso-pending.zip" "isopending"
+make_min_zip "$work/iso-verified.zip" "isoverified"
+publish_min_version "$iso_pending_version" "$work/iso-pending.zip"
+publish_min_version "$iso_verified_version" "$work/iso-verified.zip"
+as_verifier
+wcheck "/api/v1/admin/versions?status=pending" 200
+cp "$body" "$work/pending-iso.json"
+listing_entry "$work/pending-iso.json" "$scope/$name" "$iso_verified_version" "$work/entry-iso.json"
+node -e '
+  const fs = require("fs");
+  const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  fs.writeFileSync(process.argv[2], JSON.stringify({
+    verdict: "verified", checksum: entry.checksum, published_at: entry.published_at,
+  }));' "$work/entry-iso.json" "$work/verdict-iso.json"
+wrequest PATCH "/api/v1/admin/versions/$scope/$name/$iso_verified_version" "$work/verdict-iso.json" 200
+expect_body '"verification":"verified"'
+as_publisher
+
+# Tiny pools via a restart: the ledger and windows persist in the local
+# Durable Object state, so the main run's consumption already exceeds
+# these limits and every fresh billable call must refuse - while the
+# edge cache, filled before the restart, keeps serving.
+step "restarting wrangler dev with tiny governor pools"
+kill -- "-$dev_pid" 2>/dev/null || true
+kill -- "-$web_pid" 2>/dev/null || true
+for _ in $(seq 1 30); do
+  curl -fsS -o /dev/null "$base/healthz" 2>/dev/null || break
+  sleep 0.5
+done
+cat >>"$dev_vars" <<EOF
+GOVERNOR_R2_CLASS_B_ORDINARY_MONTH="1"
+GOVERNOR_STORAGE_PRIMARY_BYTES="1"
+GOVERNOR_R2_CLASS_B_SOURCE_MONTH="0"
+EOF
+start_registry_dev
+start_web_dev
+
+iso_verified_artifact="/artifacts/$scope/$name/$scope-$name-$iso_verified_version.zip"
+iso_pending_artifact="/artifacts/$scope/$name/$scope-$name-$iso_pending_version.zip"
+
+step "cached verified downloads keep serving under an exhausted read pool"
+check "$artifact_path" 200
+# A cache HIT (this response cannot have consumed the pool) thaws to
+# the same outward no-store; the stored copy's public header never
+# escapes.
+curl -sS -o /dev/null -D "$headers" ${curl_args[@]+"${curl_args[@]}"} "$base$artifact_path"
+grep -qi '^cache-control: no-store' "$headers" \
+  || fail "a cache-hit artifact is missing the outward no-store: $(grep -i cache-control "$headers")"
+
+step "an uncached verified download is refused with the budget envelope"
+check "$iso_verified_artifact" 503
+expect_body 'registry_over_budget'
+
+step "the verifier pool is isolated from the exhausted ordinary pool"
+as_verifier
+check "$iso_pending_artifact" 200
+as_publisher
+
+step "a fresh publish is refused before any r2 write when storage is exhausted"
+wrangler d1 execute DB --local --command "
+  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
+make_min_zip "$work/iso-blocked.zip" "isoblocked"
+blocked_hash="$(shasum -a 256 "$work/iso-blocked.zip" | cut -d' ' -f1)"
+sed "s/0\.2\.0/0.6.0/g" "$fixture_metadata" |
+  sed "s/$blob_hash/$blocked_hash/" >"$work/iso-blocked.json"
+frame "$work/iso-blocked.json" "$work/iso-blocked.zip" "$work/iso-blocked.publish.bin"
+wrequest PUT "/api/v1/packages/$scope/$name/0.6.0" "$work/iso-blocked.publish.bin" 503
+expect_body 'registry_over_budget'
+if wrangler r2 object get "cabin-registry-blobs/blobs/sha256/$blocked_hash" \
+    --file /dev/null --local >/dev/null 2>&1; then
+  fail "a refused publish still wrote its blob to R2"
+fi
+
+step "an idempotent re-publish stays a 200 no-op under a full storage pool"
+wrequest PUT "$publish_path" "$work/publish.bin" 200
+expect_body '"no_op":true'
+
+step "source-viewer reads fail closed on an exhausted source pool"
+session_request GET "/api/v1/user/source/$scope/$name/$iso_verified_version" 503 -H "Range: bytes=-22"
+expect_body 'registry_over_budget'
+
+step "the admin governor endpoint reports usage and takes operator actions"
+# Ordinary tokens are refused; the verify scope reads the snapshot.
+wcheck "/api/v1/admin/governor" 403
+expect_body 'verify scope'
+as_verifier
+wcheck "/api/v1/admin/governor" 200
+expect_body '"storage"'
+# An idempotent release of an unknown key answers ok.
+printf '{"release":{"pool":"primary","key":"blobs/sha256/none"}}' >"$work/gov-release.json"
+wrequest POST "/api/v1/admin/governor" "$work/gov-release.json" 200
+expect_body '"ok":true'
+# The pre-launch ledger wipe clears the primary rows and the windows,
+# while the backup and dump rows survive - the registry wipe never
+# touches the BACKUP bucket, so their objects keep billing...
+printf '{"wipe":true}' >"$work/gov-wipe.json"
+wrequest POST "/api/v1/admin/governor" "$work/gov-wipe.json" 200
+expect_body '"ok":true'
+wcheck "/api/v1/admin/governor" 200
+node -e '
+  const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (s.storage.some((row) => row.pool === "primary")) process.exit(1);
+  if (!s.storage.some((row) => row.pool === "backup")) process.exit(1);
+  if (s.ops.length !== 0) process.exit(1);
+' "$body" || fail "the governor wipe left the wrong ledger rows: $(cat "$body")"
+
+# ...and reconciliation rebuilds the primary rows from D1's live set:
+# the next breaker cron pass commits every live checksum back into the
+# ledger (increase-only) and logs how many it recorded; the pass after
+# that logs the rebuilt rows in its usage snapshot (each pass logs
+# usage before it reconciles).
+step "reconciliation rebuilds the wiped primary ledger from d1"
+recon_mark="$(($(wc -l <"$dev_log" | tr -d ' ') + 1))"
+check "/__scheduled?cron=*/15+*+*+*+*" 200
+recon_ok=""
+for _ in $(seq 1 20); do
+  if tail -n "+$recon_mark" "$dev_log" | grep -q "previously unledgered blob"; then
+    recon_ok=1
+    break
+  fi
+  sleep 0.5
+done
+[[ -n "$recon_ok" ]] \
+  || fail "the post-wipe cron pass never re-committed the live primary set"
+recon_mark="$(($(wc -l <"$dev_log" | tr -d ' ') + 1))"
+check "/__scheduled?cron=*/15+*+*+*+*" 200
+recon_ok=""
+for _ in $(seq 1 20); do
+  if tail -n "+$recon_mark" "$dev_log" | grep -q "primary/committed="; then
+    recon_ok=1
+    break
+  fi
+  sleep 0.5
+done
+[[ -n "$recon_ok" ]] \
+  || fail "the rebuilt primary ledger never appeared in the usage snapshot"
+# ...and refuses while the registry is launched (the wipe guard).
+wrangler d1 execute DB --local --command \
+  "UPDATE meta SET value = 'true' WHERE key = 'launched';" >/dev/null
+wrequest POST "/api/v1/admin/governor" "$work/gov-wipe.json" 403
+expect_body 'launched'
+wrangler d1 execute DB --local --command \
+  "UPDATE meta SET value = 'false' WHERE key = 'launched';" >/dev/null
+as_publisher
 
 echo "smoke OK"
