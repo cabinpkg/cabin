@@ -123,7 +123,7 @@ pub struct SourceMetadata {
 /// `<scope>/<name>`, under exactly the read-route grammars
 /// (`routes::is_valid_scope`, `routes::is_valid_name`) - what cannot be
 /// published cannot be routed to, and vice versa.
-pub fn is_valid_publish_name(scope: &str, name: &str) -> bool {
+fn is_valid_publish_name(scope: &str, name: &str) -> bool {
     crate::routes::is_valid_scope(scope) && crate::routes::is_valid_name(name)
 }
 

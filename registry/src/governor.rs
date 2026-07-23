@@ -160,7 +160,7 @@ pub fn op_env_var(pool: OpPool) -> &'static str {
 }
 
 impl Limits {
-    pub fn storage_limit(&self, pool: StoragePool) -> u64 {
+    fn storage_limit(&self, pool: StoragePool) -> u64 {
         match pool {
             StoragePool::Primary => self.storage_primary_bytes,
             StoragePool::Backup => self.storage_backup_bytes,
@@ -168,7 +168,7 @@ impl Limits {
         }
     }
 
-    pub fn op_limit(&self, pool: OpPool) -> u64 {
+    fn op_limit(&self, pool: OpPool) -> u64 {
         match pool {
             OpPool::APublish => self.a_publish_month,
             OpPool::AInfra => self.a_infra_month,
