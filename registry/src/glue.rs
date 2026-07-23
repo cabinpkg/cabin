@@ -945,7 +945,7 @@ async fn admin_governor_usage_response(env: &Env, auth: &AuthContext) -> worker:
 }
 
 /// The admin governor mutation body: exactly one of an evidence-backed
-/// release or the pre-launch ledger wipe.
+/// release, the pre-launch ledger wipe, or an on-demand reconcile.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AdminGovernorBody {
@@ -953,9 +953,11 @@ struct AdminGovernorBody {
     release: Option<governor::Release>,
     #[serde(default)]
     wipe: Option<bool>,
+    #[serde(default)]
+    reconcile: Option<bool>,
 }
 
-/// `POST /api/v1/admin/governor` (`verify` scope): the two explicit
+/// `POST /api/v1/admin/governor` (`verify` scope): the three explicit
 /// operator actions on the ledger. `release` frees one object's entry
 /// and must only follow evidence the object is gone - the endpoint
 /// cannot check R2 for the operator, and a release for a live object
@@ -967,6 +969,11 @@ struct AdminGovernorBody {
 /// and is the registry wipe's companion, guarded on `meta.launched`
 /// exactly like
 /// `scripts/wipe.sh`: only an affirmatively read `'false'` proceeds.
+/// `reconcile` runs the cron pass's increase-only primary rebuild on
+/// demand and answers with the report - the recovery path after a
+/// ledger wipe or a Durable Object storage loss, when waiting up to
+/// 15 minutes for the cron would leave admission running against an
+/// empty ledger (`docs/runbook.md`, "Known ceilings").
 async fn admin_governor_mutation_response(
     req: &mut Request,
     env: &Env,
@@ -983,8 +990,8 @@ async fn admin_governor_mutation_response(
         Ok(parsed) => parsed,
         Err(_) => return error_response(400, error::INVALID_GOVERNOR_BODY),
     };
-    match (parsed.release, parsed.wipe) {
-        (Some(release), None) => {
+    match (parsed.release, parsed.wipe, parsed.reconcile) {
+        (Some(release), None, None) => {
             let decision = Decision {
                 release: vec![release],
                 ..Decision::default()
@@ -994,7 +1001,7 @@ async fn admin_governor_mutation_response(
                 Gate::Refused(_) => error_response(503, error::GOVERNOR_UNAVAILABLE),
             }
         }
-        (None, Some(true)) => {
+        (None, Some(true), None) => {
             if read_meta(db, "launched").await?.as_deref() != Some("false") {
                 return error_response(403, error::GOVERNOR_LEDGER_LAUNCHED);
             }
@@ -1004,6 +1011,13 @@ async fn admin_governor_mutation_response(
                 error_response(503, error::GOVERNOR_UNAVAILABLE)
             }
         }
+        (None, None, Some(true)) => match push_live_set_to_governor(env, db).await? {
+            Some(report) => json_response(
+                &serde_json::to_string(&report)
+                    .map_err(|err| worker::Error::RustError(err.to_string()))?,
+            ),
+            None => error_response(503, error::GOVERNOR_UNAVAILABLE),
+        },
         _ => error_response(400, error::INVALID_GOVERNOR_BODY),
     }
 }
@@ -2207,32 +2221,10 @@ async fn reconcile_governor(env: &Env, db: &D1Database) {
             },
         );
     }
-    let rows: Vec<LiveBlobRecord> = match db.prepare(sql::LIVE_BLOB_SIZES).all().await {
-        Ok(result) => match result.results() {
-            Ok(rows) => rows,
-            Err(err) => {
-                console_error!("governor reconciliation: live set did not parse: {err}");
-                return;
-            }
-        },
-        Err(err) => {
-            console_error!("governor reconciliation: live-set query failed: {err}");
-            return;
-        }
-    };
-    let live = rows
-        .into_iter()
-        .map(|row| governor::LiveObject {
-            key: format!("blobs/sha256/{}", row.checksum),
-            bytes: non_negative(row.size),
-        })
-        .collect();
-    let request = governor::ReconcileRequest {
-        pool: StoragePool::Primary,
-        live,
-    };
-    match governor_client::reconcile(env, &request).await {
-        Some(report) => {
+    match push_live_set_to_governor(env, db).await {
+        Err(err) => console_error!("governor reconciliation: live-set query failed: {err}"),
+        Ok(None) => console_error!("governor reconciliation: the governor did not answer"),
+        Ok(Some(report)) => {
             if !report.added.is_empty() {
                 console_log!(
                     "governor reconciliation recorded {} previously unledgered blob(s)",
@@ -2248,8 +2240,32 @@ async fn reconcile_governor(env: &Env, db: &D1Database) {
                 );
             }
         }
-        None => console_error!("governor reconciliation: the governor did not answer"),
     }
+}
+
+/// The reconciliation core the cron pass and the admin endpoint's
+/// on-demand `{"reconcile":true}` action share: pushes D1's
+/// authoritative live-blob set (primary pool only - operation windows,
+/// backup, and dump accounting have their own recovery paths;
+/// `docs/runbook.md`, "Known ceilings") and returns the governor's
+/// report. `None` means the governor did not answer.
+async fn push_live_set_to_governor(
+    env: &Env,
+    db: &D1Database,
+) -> worker::Result<Option<governor::ReconcileReport>> {
+    let rows: Vec<LiveBlobRecord> = db.prepare(sql::LIVE_BLOB_SIZES).all().await?.results()?;
+    let live = rows
+        .into_iter()
+        .map(|row| governor::LiveObject {
+            key: format!("blobs/sha256/{}", row.checksum),
+            bytes: non_negative(row.size),
+        })
+        .collect();
+    let request = governor::ReconcileRequest {
+        pool: StoragePool::Primary,
+        live,
+    };
+    Ok(governor_client::reconcile(env, &request).await)
 }
 
 /// What the publish handler found for an already-existing

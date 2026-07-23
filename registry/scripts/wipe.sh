@@ -113,7 +113,11 @@ new_id="$(wrangler d1 list --json | node -e '
 
 # The nightly dump exports whatever database D1_DATABASE_ID names, and
 # the binding deploys whatever database_id names - both must be the
-# recreated id before migrating and deploying (docs/runbook.md).
+# recreated id before migrating and deploying (docs/runbook.md). The
+# textual replace below targets the FIRST database_id, which is only
+# the DB binding's while it is the only one - refuse otherwise.
+[[ "$(grep -c '"database_id"' wrangler.jsonc)" -eq 1 ]] \
+  || fail "wrangler.jsonc carries more than one d1 binding; bake the DB binding's new id in by hand"
 step "baking the new database id into wrangler.jsonc ($new_id)"
 node -e '
   const fs = require("fs");
@@ -129,6 +133,13 @@ node -e '
 
 step "applying all migrations from zero"
 wrangler d1 migrations apply DB --remote
+
+# The database now runs exactly the files' content, so the deploy
+# gate's stamp is refreshed here rather than by hand (the pre-launch
+# policy edits migrations in place, which is exactly the state the
+# gate exists to block until a wipe like this one lands it).
+step "refreshing the migrations-applied stamp"
+cat migrations/*.sql | shasum -a 256 | cut -d' ' -f1 >migrations-applied
 
 # wrangler r2 object has no list or bulk mode, so the sweep drives the
 # R2 REST API directly. Deleting drains the listing, so it re-fetches
@@ -172,11 +183,12 @@ cat <<EOF
 wipe OK (generation $old_generation -> $new_generation)
 
 Follow-ups (docs/runbook.md):
-  - commit the wrangler.jsonc database-id change
+  - commit the wrangler.jsonc database-id change and the refreshed
+    migrations-applied stamp
   - tokens are gone: re-issue REGISTRY_VERIFY_TOKEN on /settings/tokens
     and update the GitHub secret (gh secret set REGISTRY_VERIFY_TOKEN)
   - users sign in again and re-issue their tokens
   - the governor ledger still accounts for the deleted blobs: with the
-    fresh verify token, POST {"wipe":true} to /api/v1/admin/governor
-    (refused once launched; docs/runbook.md, "The cost governor")
+    fresh verify token, run scripts/governor.sh wipe (refused once
+    launched; docs/runbook.md, "The cost governor")
 EOF

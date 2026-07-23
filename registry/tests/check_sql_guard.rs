@@ -20,7 +20,7 @@ fn guard_accepts_in(name: &str, file: &str, call_site: &str) -> bool {
     fs::create_dir_all(dir.join("src")).expect("create scratch src/");
     fs::create_dir_all(dir.join("scripts")).expect("create scratch scripts/");
     let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-    for script in ["check-sql.sh", "check-sql.pl"] {
+    for script in ["check-sql.sh", "check-sql.pl", "lexical.pm"] {
         fs::copy(scripts.join(script), dir.join("scripts").join(script)).expect("copy the guard");
     }
     fs::write(dir.join("src").join(file), call_site).expect("write the call site");
@@ -141,6 +141,12 @@ fn executed_sql_outside_sql_rs_is_caught() {
         (
             "after_a_byte_quote_char_literal",
             "let quote = b'\"'; db.prepare(dynamic_sql).run().await?;",
+        ),
+        (
+            // A path-form method item aliases the method; every later
+            // call through the alias would evade the call scan.
+            "method_item_alias",
+            "let p = D1Database::prepare; p(&db, dynamic_sql).run().await?;",
         ),
     ];
     let escaped: Vec<&str> = cases

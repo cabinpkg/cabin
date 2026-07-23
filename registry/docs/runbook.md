@@ -110,10 +110,16 @@ the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason the
 auto-deploy stays skipped while `migrations/` content disagrees with
-the `migrations-applied` stamp: after applying changed migrations to
-the live database (or completing a wipe), refresh the stamp from this
-directory and land it like any other change:
-`cat migrations/*.sql | shasum -a 256 | cut -d' ' -f1 | tee migrations-applied`.
+the `migrations-applied` stamp. `scripts/migrate.sh --remote` is the
+one honest way to move both: it applies pending migration files,
+verifies D1 reports nothing left pending, and only then refreshes the
+stamp (land the change like any other). It refuses the state where
+nothing is pending yet the files differ from the stamp - that means an
+already-applied file was edited in place, which D1 (tracking applied
+migrations by filename) would never replay; pre-launch that edit ships
+through `scripts/wipe.sh` (which reapplies from zero and refreshes the
+stamp itself), post-launch it must become a new migration file.
+Hand-refreshing the stamp bypasses those checks; don't.
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
@@ -211,14 +217,18 @@ What it does, in order:
    another), then reads `meta.launched` through the binding.
 2. Deletes and recreates the database
    (`wrangler d1 delete cabin-registry -y` / `wrangler d1 create
-   cabin-registry`) and bakes the new id into BOTH
-   `d1_databases[0].database_id` and `vars.D1_DATABASE_ID` in
-   `wrangler.jsonc`, verifying the file now carries it exactly twice
+   cabin-registry`) and bakes the new id into BOTH the `DB` binding's
+   `database_id` and `vars.D1_DATABASE_ID` in `wrangler.jsonc`
+   (refusing if more than one D1 binding exists - the rewrite targets
+   the only one), verifying the file now carries it exactly twice
    (the nightly dump exports whatever database `D1_DATABASE_ID` names -
    a stale value backs up the wrong, deleted database). Commit that
    change.
-3. Applies all migrations from zero:
-   `wrangler d1 migrations apply DB --remote`.
+3. Applies all migrations from zero
+   (`wrangler d1 migrations apply DB --remote`) and refreshes the
+   `migrations-applied` deploy-gate stamp - the recreated database now
+   runs exactly the files' content. Commit the stamp with the
+   `wrangler.jsonc` change.
 4. Deletes every `blobs/`-prefixed object from `cabin-registry-blobs`
    through the R2 REST API (list by prefix, delete per key -
    `wrangler r2 object delete` removes exactly one object and has no
@@ -233,10 +243,15 @@ What it does, in order:
 7. Resets the governor ledger - a manual follow-up the script reminds
    you of: the ledger still accounts for the deleted primary blobs
    (conservative, so nothing overspends, but admission runs against
-   ghosts). Sign in, mint a verify-scoped token, and
-   `POST {"wipe":true}` to `/api/v1/admin/governor` with it; the
-   endpoint refuses unless `meta.launched` reads exactly `'false'`,
-   mirroring this script's guard. The wipe clears the primary storage
+   ghosts). Sign in, mint a verify-scoped token, and run
+   `scripts/governor.sh wipe` with it (`REGISTRY_VERIFY_TOKEN` plus
+   `CLOUDFLARE_API_TOKEN` in the environment): it re-runs the launch
+   guard, proves the primary bucket really carries no `blobs/` objects
+   (an interrupted sweep would otherwise leave the fresh ledger
+   undercounting objects that keep billing), asks for a typed
+   confirmation, and only then posts the wipe; the endpoint refuses on
+   its own unless `meta.launched` reads exactly `'false'`, mirroring
+   this script's guard. The wipe clears the primary storage
    rows and the daily fairness windows only - the `backup` and `dump`
    entries survive (the BACKUP bucket is never wiped and its objects
    keep billing), and the monthly operation windows survive too: they
@@ -405,18 +420,24 @@ closed (`503 registry_over_budget`; edge-cache hits keep serving).
 The hard limits, env-overridable in `wrangler.jsonc` `vars` with
 in-code defaults (`src/governor.rs`):
 
-| Var | Default | Pool |
+| Var | Default | Pool (as snapshots name it) |
 | --- | --- | --- |
-| `GOVERNOR_STORAGE_PRIMARY_BYTES` | 4 GiB | BLOBS archive bytes |
-| `GOVERNOR_STORAGE_BACKUP_BYTES` | 4 GiB | BACKUP verified copies |
-| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | BACKUP `d1/` dumps + sidecars |
-| `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | publish-path puts |
-| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | replication/dump puts, lists |
-| `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | artifact cache misses |
-| `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | source-viewer ranged reads |
-| `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | pending-artifact fetches |
-| `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | publish-path heads |
-| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | replication/dump reads |
+| `GOVERNOR_STORAGE_PRIMARY_BYTES` | 4 GiB | `primary` - BLOBS archive bytes |
+| `GOVERNOR_STORAGE_BACKUP_BYTES` | 4 GiB | `backup` - BACKUP verified copies |
+| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | `dump` - BACKUP `d1/` dumps + sidecars |
+| `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | `a_publish` - publish-path puts |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | `a_infra` - replication/dump puts, lists |
+| `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | `b_ordinary` - artifact cache misses |
+| `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | `b_source` - source-viewer ranged reads |
+| `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | `b_verifier` - pending-artifact fetches |
+| `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | `b_publish` - publish-path heads |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - replication/dump reads |
+
+A limit var only takes effect through `wrangler.jsonc` `vars` and a
+deploy; `scripts/check-deploy.sh` (also a CI step) refuses a var whose
+name is not one of the ten above or whose value does not parse as a
+u64, because a misspelled name is silently ignored and an unparsable
+value fails closed to a zero limit in production.
 
 Two knob rules that differ from the breaker's, on purpose:
 
@@ -439,34 +460,92 @@ evaluation - `wrangler tail` or the dashboard shows both - and the
 reconciliation report right after it: objects added conservatively,
 plus `governor ledger divergence: N unreferenced entr(ies), M byte
 mismatch(es)` when the ledger carries entries D1 does not prove live.
-On demand, `GET /api/v1/admin/governor` (Bearer, `verify` scope)
-returns the same snapshot as JSON:
+On demand (with a verify-scoped token in `REGISTRY_VERIFY_TOKEN`):
 
 ```sh
-curl -sS -H "Authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
-  https://cabinpkg.com/api/v1/admin/governor
+scripts/governor.sh usage      # the snapshot, readable
+scripts/governor.sh compare    # ledger totals against D1's live view
 ```
+
+`usage` renders `GET /api/v1/admin/governor` (Bearer, `verify` scope);
+`compare` also sums D1's live and verified blob views and says which
+direction any divergence runs and which script fixes it. Both are
+read-only and safe on a live registry. The first `usage` after a
+deploy that introduces the class also serves as initialization: the
+named object is created on first use and applies its schema
+idempotently before answering.
 
 **Reconciliation and operator releases.** Reconciliation is
 increase-only: it records every live blob as committed usage and only
-*reports* the rest. An `unreferenced` entry is a candidate orphan (a
-crashed publish's blob, a lost race, or a blob you deleted by hand);
-it keeps consuming allowance until an operator releases it with
-evidence. To release one: confirm the object really is gone (or
-delete it - dashboard or `wrangler r2 object delete`), then release
-the ledger entry:
+*reports* the rest. It runs on every breaker cron pass, and on demand:
 
 ```sh
-curl -sS -X POST \
-  -H "Authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"release":{"pool":"primary","key":"blobs/sha256/<hex>"}}' \
-  https://cabinpkg.com/api/v1/admin/governor
+scripts/governor.sh reconcile          # divergence counts, and settles
+scripts/governor.sh reconcile --keys   # ...with the divergent keys
 ```
 
-Never release an entry for an object that still exists: the ledger
-would understate reality, which is the one direction the design
-forbids. The endpoint's other action, `{"wipe":true}`, clears the
+(the endpoint action is `POST {"reconcile":true}`; it answers the
+report - `added`, `unreferenced`, `mismatched` - and touches the
+**primary** pool only). An `unreferenced` entry is a candidate orphan
+(a crashed publish's blob, a lost race, or a blob you deleted by
+hand); it keeps consuming allowance until an operator releases it with
+evidence. To release one: delete the object if it still exists
+(dashboard or `npx --yes wrangler@4.112.0 r2 object delete`), then:
+
+```sh
+scripts/governor.sh release primary blobs/sha256/<hex>
+```
+
+The script is the evidence rule made executable (with
+`CLOUDFLARE_API_TOKEN` for the R2 checks): it refuses while the object
+still exists in R2, refuses while any non-rejected D1 version still
+references the checksum, and treats an API failure as "absence not
+proven", because a release for a live object would make the ledger
+understate reality - the one direction the design forbids.
+Observation alone cannot close the race with an in-flight publisher
+(one that reserved the key but has not put yet reads as absent, then
+lands its put after the release - an undercount reconciliation could
+never repair, since a crashed publisher leaves no D1 row either), so
+primary releases additionally **require writes blocked**, which the
+script enforces. The full sequence:
+
+```sh
+# note the current mode first: the final step restores THIS value, not
+# a blanket 'normal' - if the breaker had the registry in 'warn' or a
+# blocked mode for budget reasons, forcing 'normal' would reopen it
+# until the next cron pass recomputes
+npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
+  "SELECT value FROM meta WHERE key = 'service_mode'"
+npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
+  "UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode'"
+# wait ~5 minutes: the mode cache (60 s) plus in-flight upload time -
+# after a publish's reservation, the put is server-paced (the body is
+# already consumed), so the reserve-to-put gap is not client-extendable
+scripts/governor.sh release primary blobs/sha256/<hex>
+npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
+  "UPDATE meta SET value = '<the mode noted above>' WHERE key = 'service_mode'"
+```
+
+Mind the clock: the breaker cron overwrites the manual override within
+15 minutes, so finish the release inside one window (the script
+re-checks the mode right before it posts and refuses if the override
+lapsed). As a backstop it re-checks the key after the release and, if
+it somehow reappeared, runs a reconcile - which can re-ledger the
+object only once D1 references it - and exits non-zero for
+investigation either way. This is coordination plus bounded
+observation, not a transaction - the endpoint cannot inspect R2
+atomically - and the residual window (a Worker frozen mid-request
+across the whole drain wait, then crashing between its put and its D1
+rows) is accepted pre-launch; if the registry ever has open sign-ups,
+the upgrade path is a two-phase release inside the governor itself. `release dump d1/<date>.sql` covers the
+dump-retry conflict below the same way (the nightly job is the only
+writer of dated dump keys, so no mode flip is needed); `release
+backup <key>` exists for the incident case only and demands its own
+typed confirmation (the backup blobs are append-only, so a gone
+backup object is an incident, not maintenance). Never drive the raw
+endpoint by hand - it cannot check R2 or the service mode for you.
+The endpoint's remaining action,
+`{"wipe":true}` (`scripts/governor.sh wipe`), clears the
 primary storage rows and the daily fairness windows (backup, dump, and
 the monthly operation windows all survive - the operation counters
 mirror already-metered R2 spend and cannot be rebuilt) and only works
@@ -524,15 +603,16 @@ after a storage loss on a *launched* registry the month's operation
 budget re-opens on top of ops already metered - Cloudflare's 30-day
 Durable Object point-in-time recovery is the first-line fix, restoring
 the object to just before the loss. Reconciliation only repopulates
-**storage**, and only on the breaker cron (≤15 min after the object
-comes back): the **primary** rows rebuild automatically from D1;
-`scripts/backup-backfill.sh` re-ledgers the **backup** pool (its
-queue rows walk every verified blob through the drain); and the
-**dump** entries regrow only as nightly dumps land - audit the
-`d1/` prefix against the usage snapshot by hand if the gap matters
-before retention cycles it out. On a launched registry, hold publishes
-(or run a reconcile by hand) until the first pass lands, so the empty
-ledger cannot admit a write past the true R2 cap in the interim.
+**storage**: the **primary** rows rebuild from D1 - run
+`scripts/governor.sh reconcile` immediately rather than waiting up to
+15 minutes for the breaker cron's pass; `scripts/backup-backfill.sh`
+re-ledgers the **backup** pool (its queue rows walk every verified
+blob through the drain); and the **dump** entries regrow only as
+nightly dumps land - `scripts/backup-audit.sh` audits the `d1/`
+prefix against the usage snapshot if the gap matters before retention
+cycles it out. On a launched registry, hold publishes until that
+reconcile lands, so the empty ledger cannot admit a write past the
+true R2 cap in the interim.
 
 **Deploy notes.** The Durable Object class ships with the same
 `wrangler deploy` as the Worker (the `migrations` block in
@@ -551,7 +631,92 @@ class must only ever be migrated by `renamed_classes`/
 `transferred_classes` - never dropped and recreated, and never a
 `deleted_classes` migration on a launched registry - because a class
 delete destroys the SQLite storage and the monthly operation windows
-cannot be rebuilt.
+cannot be rebuilt. `scripts/check-deploy.sh` (a CI step after the
+Worker build, runnable locally any time) enforces the static half of
+all of this before a deploy can: bindings present, the `v1` migration
+verbatim, no `deleted_classes` for a bound class, no mixing of the
+`migrations` array with wrangler's newer `exports` lifecycle, the
+bundle really exporting `Governor`, and every `GOVERNOR_*`/`BUDGET_*`
+var name and value valid.
+
+**Governor rollout sequence.** Exact and copyable; nothing here
+mutates production until the merge itself.
+
+```sh
+# 1. Before merging: the full local gate (the same shapes CI runs).
+cargo fmt --all -- --check && cargo clippy --all-targets --locked -- -D warnings
+cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
+RUSTFLAGS="-D warnings" cargo test --locked
+bash scripts/check-sql.sh && bash scripts/check-r2.sh
+cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
+bash scripts/check-deploy.sh --require-bundle
+
+# 2. The full local smoke run (wrangler dev; several minutes). Wipe
+#    local state first so the ledger and edge cache start empty.
+CABIN_WIPE_YES=1 scripts/wipe.sh --local
+CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh
+
+# 3. Merge to main; CI's build + conformance jobs gate deploy-registry
+#    (skipped while the migrations stamp is pending - scripts/migrate.sh).
+#    Watch it land:
+npx --yes wrangler@4.112.0 deployments list
+
+# 4. Post-deploy validation (see "Deploy skew" for the smoke curls):
+curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
+REGISTRY_VERIFY_TOKEN=... scripts/governor.sh usage
+REGISTRY_VERIFY_TOKEN=... scripts/governor.sh compare
+```
+
+What the local smoke run proves, and what it cannot: `wrangler dev`
+runs the production runtime (workerd) with a real local Cache API,
+Durable Object, R2, and D1 under `.wrangler/`, so governor admission,
+cache-hit-versus-charged-read, every refusal path, and the
+bounded-concurrency invariant execute for real locally. What local
+runs cannot prove is the production **edge** cache's behavior -
+per-colo entries, eviction under memory pressure, TTL interaction with
+the immutable headers. The exact remote verification: with a real
+token, download one verified artifact twice and compare
+`scripts/governor.sh usage` before and after - the first read may
+charge `b_ordinary` once (a miss), the second must not move it (a
+hit); on a cold colo or after eviction both charge, which is the
+governed-and-budgeted path working, not a bug.
+
+**Rollback.** Worker code and governor state are separate by design:
+the ledger lives in the Durable Object and no rollback, redeploy, or
+`wrangler rollback` touches it (Cloudflare rollbacks change no
+resources). Two rules bound what a rollback may target:
+
+- **Never below the governor.** The platform refuses a rollback across
+  a Durable Object lifecycle change (the `v1` migration), and that
+  refusal is load-bearing: a pre-governor Worker would spend R2 with
+  no admission control at all. Do not work around it with a manual
+  re-deploy of old code.
+- **Adjacent governor-era versions only.** The DO's stored schema and
+  the worker's protocol evolve together; roll back only to a version
+  whose governor protocol matches what is deployed today (any version
+  since the hardening pass shares it), and prefer a `git revert`
+  through CI - it keeps the freshness and migrations gates and leaves
+  an auditable trail. `npx --yes wrangler@4.112.0 rollback` is for the
+  emergency where CI itself is the problem.
+
+```sh
+npx --yes wrangler@4.112.0 deployments list   # find the target version
+npx --yes wrangler@4.112.0 rollback           # interactive; or pass the version id
+# then validate exactly like a deploy:
+curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
+REGISTRY_VERIFY_TOKEN=... scripts/governor.sh usage
+REGISTRY_VERIFY_TOKEN=... scripts/governor.sh compare
+```
+
+The newer accounting state a rollback leaves behind is safe by the
+ledger's own invariants: entries the older code does not recognize
+keep holding their allowance (conservative, never spend), and the
+reconciliation cron keeps settling the primary pool from D1 either
+way. If the rollback was prompted by suspected accounting corruption,
+stop before rolling back and capture `scripts/diagnose.sh` output plus
+`scripts/governor.sh usage` first - Cloudflare's 30-day Durable Object
+point-in-time recovery ("Known ceilings" above) needs the incident
+time, and a rollback does not restore DO state.
 
 ## Read budgets and paid-plan activation
 
@@ -721,14 +886,26 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   recovery path is republishing - and the queue row is the durable
   record, so a crash anywhere between verdict and copy is retried
   rather than lost. Nothing in the service ever deletes from the
-  backup bucket - the primary's reclaim paths do not propagate - so
-  it is append-only, and a malicious or accidental deletion in the
-  primary cannot reach it. Queue rows older than an hour raise the
+  backup bucket's `blobs/sha256/` namespace - the primary's reclaim
+  paths do not propagate - so the replicated blobs are append-only,
+  and a malicious or accidental deletion in the primary cannot reach
+  them. (The `d1/` namespace is different: the nightly job itself
+  deletes invalid dumps and prunes past retention - that is its own
+  bookkeeping, not a reclaim path.) Queue rows older than an hour raise the
   breaker's backup-health alert;
   `scripts/backup-backfill.sh` is the manual recovery path (it copies
   every verified blob the backup lacks and deliberately leaves queue
   rows for the Worker's drain to settle, governor ledger included).
   Run the backfill once when seeding backups over existing data.
+  `scripts/backup-audit.sh` is the read-only inverse: it lists the
+  bucket and reports verified blobs missing a copy, blobs beyond the
+  current verified set (append-only history from before a wipe or an
+  older restore - reported because each holds backup-pool allowance,
+  never deleted by tooling; removing one is a per-object operator
+  decision paired with `scripts/governor.sh release`), dumps without a
+  validating sidecar, sidecars without their dump, and - given a
+  verify token - the governor's backup and dump pools against the
+  bucket's actual contents.
 - **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
   runs a nightly logical dump from the Worker itself: it drives the D1
   REST export endpoint (the same API `wrangler d1 export --remote`
@@ -856,8 +1033,9 @@ reuses it instead of re-uploading (and counts it into
 is never invisible spend: the crashed publish's reservation keeps
 representing the bytes, reconciliation reports the entry as
 `unreferenced` on every pass, and the cleanup is the operator pairing -
-delete the object (dashboard or `wrangler r2 object delete`), then
-release the ledger entry ("The cost governor"). There is deliberately
+delete the object (dashboard or `npx --yes wrangler@4.112.0 r2 object
+delete`), then `scripts/governor.sh release primary <key>` ("The cost
+governor"). There is deliberately
 no automatic garbage collection, and the reclaim path never releases
 primary ledger entries on its own - a successful delete of a
 content-addressed key is no proof the key stays gone, because a
@@ -889,3 +1067,10 @@ after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
 `wrangler tail` (or the dashboard). One line per request:
 `req=<id> method=<m> path=<p> status=<s> token=<token-row-id|->`. Tokens and
 token hashes are never logged.
+
+For an incident report or a bug thread, `scripts/diagnose.sh` gathers
+the shareable aggregate state in one pass - config and stamp status,
+service mode, corpus and queue counts, the governor snapshot (with
+`REGISTRY_VERIFY_TOKEN`), and the deployment list - and deliberately
+prints no tokens, object keys, content checksums, package names, or
+user data.
