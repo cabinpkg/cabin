@@ -616,14 +616,19 @@ async fn copy_blob_to_backup(
             return CopyOutcome::Stop;
         }
     };
+    // The stored size is the known length the fixed-length streaming
+    // put needs (the same shape as `stream_dump_into`), so the archive
+    // never has to fit in Worker memory; the put fails on any
+    // disagreement with the actual body.
+    let len = object.size();
     let Some(body) = object.body() else {
         console_error!("backup drain: blob {key} has no body");
         return CopyOutcome::KeepRow;
     };
-    let bytes = match body.bytes().await {
-        Ok(bytes) => bytes,
+    let stream = match body.stream() {
+        Ok(stream) => stream,
         Err(err) => {
-            console_error!("backup drain: buffering {key} failed: {err}");
+            console_error!("backup drain: streaming {key} failed: {err}");
             return CopyOutcome::Stop;
         }
     };
@@ -638,7 +643,7 @@ async fn copy_blob_to_backup(
         reserve: vec![Reserve {
             pool: StoragePool::Backup,
             key: key.to_owned(),
-            bytes: bytes.len() as u64,
+            bytes: len,
         }],
         ..Decision::default()
     };
@@ -649,8 +654,11 @@ async fn copy_blob_to_backup(
             return CopyOutcome::Stop;
         }
     }
-    let len = bytes.len() as u64;
-    if let Err(err) = backup.put(key, bytes).execute().await {
+    if let Err(err) = backup
+        .put(key, Data::Stream(FixedLengthStream::wrap(stream, len)))
+        .execute()
+        .await
+    {
         // The put's outcome is uncertain: the reservation stays held
         // (conservative) and the queue row retries next pass.
         console_error!("backup drain: replicating {key} failed: {err}");
