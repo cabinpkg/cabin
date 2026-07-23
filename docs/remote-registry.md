@@ -540,8 +540,8 @@ What yanking means - matching the resolver behavior in
 | `404` | Authenticated request for an unknown package or version - including versions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
 | `409` | Publish of an existing (pending or verified) version with different bytes, or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
-| `429` | Publish rate limit exceeded (token bucket).  Carries `Retry-After` (seconds) saying when the next publish will be accepted, and the envelope code `rate_limited`. |
-| `503` | The registry's own budget breaker tripped (the hosted service blocks itself before provider limits or real spend are reached).  Writes are disabled service-wide; reads stay unaffected unless the registry's operator has configured a read budget and it is exhausted too, in which case authenticated reads (index and archive requests) answer `503` as well.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
+| `429` | A rate limit: the publish token bucket is empty (code `rate_limited`), or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |
+| `503` | The registry is protecting its own infrastructure budget (the hosted service blocks itself before provider limits or real spend are reached): its service-wide breaker tripped, or its per-request cost governor refused - or could not be reached - for the specific resource the request needed.  Writes refuse first; archive downloads refuse when the registry's read allowance for fresh storage reads is exhausted (recently downloaded archives can keep serving from the registry's edge cache through that), or service-wide when the registry's operator has paused reads outright.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
 
 ## Error envelope
 
@@ -563,12 +563,13 @@ before.  The defined codes:
 | `code` | Status | Meaning |
 | --- | --- | --- |
 | `rate_limited` | `429` | The publish token bucket is empty; `Retry-After` says when it refills. |
+| `read_rate_limited` | `429` | The caller's daily allowance of registry-side archive reads is spent; `Retry-After` reaches the next UTC day.  Cached downloads are unaffected. |
 | `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |
 | `quota_storage` | `403` | The publish would exceed the total stored-bytes quota. |
 | `quota_packages_daily` | `403` | The daily new-package quota is exhausted. |
 | `quota_packages_total` | `403` | The total package quota is exhausted. |
 | `quota_versions_daily` | `403` | The daily per-package version quota is exhausted. |
-| `registry_over_budget` | `503` | The service-wide budget breaker has writes - and, when a read budget is configured and exhausted, reads - paused; `Retry-After` covers the next re-evaluation. |
+| `registry_over_budget` | `503` | The registry's budget protection refused the request: the service-wide breaker has the plane paused, or the per-request cost governor refused (or could not answer for) the specific resource the request needed; `Retry-After` covers the next re-evaluation. |
 
 Cabin maps these refusals to actionable messages.  For the breaker it keys on the
 `registry_over_budget` code, not on the `503` alone - a `503` can also come from the hosting

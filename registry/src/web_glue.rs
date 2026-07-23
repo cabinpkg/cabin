@@ -830,7 +830,7 @@ struct SourceVersionRecord {
 /// sees an unsatisfiable range. A source read is never counted as a
 /// download and never consults the service mode: the session plane is
 /// exempt from the read-side budget gate (`docs/architecture.md`,
-/// "Billing model and the budget breaker"). It is **not** exempt from
+/// "Billing model: the governor and the breaker"). It is **not** exempt from
 /// the cost governor: every ranged read is a billable R2 operation, so
 /// the viewer draws from its own `b_source` pool with a per-user daily
 /// fairness cap, and fails closed - a refusal or an unreachable

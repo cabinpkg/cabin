@@ -1,6 +1,6 @@
 //! Per-user publish quotas: the class -> quota map, the publish token
 //! bucket, and the pure enforcement checks the publish handler runs in
-//! order (`docs/architecture.md`, "Billing model and the budget breaker").
+//! order (`docs/architecture.md`, "Billing model: the governor and the breaker").
 //!
 //! Everything here is pure and host-testable; the wasm32 glue supplies
 //! the clock, the D1 counts, and the archive size. Daily windows are UTC

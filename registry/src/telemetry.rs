@@ -20,8 +20,7 @@ pub const FLUSH_INTERVAL_MS: f64 = 30_000.0;
 
 /// Whether the buffer should flush now.
 pub fn should_flush(pending_versions: usize, elapsed_ms: f64, interval_ms: f64) -> bool {
-    pending_versions > 0
-        && (pending_versions >= FLUSH_MAX_PENDING || elapsed_ms >= interval_ms)
+    pending_versions > 0 && (pending_versions >= FLUSH_MAX_PENDING || elapsed_ms >= interval_ms)
 }
 
 #[cfg(test)]
@@ -31,7 +30,11 @@ mod tests {
     #[test]
     fn empty_buffers_never_flush() {
         assert!(!should_flush(0, 0.0, FLUSH_INTERVAL_MS));
-        assert!(!should_flush(0, FLUSH_INTERVAL_MS * 10.0, FLUSH_INTERVAL_MS));
+        assert!(!should_flush(
+            0,
+            FLUSH_INTERVAL_MS * 10.0,
+            FLUSH_INTERVAL_MS
+        ));
     }
 
     #[test]

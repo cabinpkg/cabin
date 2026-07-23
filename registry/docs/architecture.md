@@ -33,9 +33,20 @@ the service.
   exception: it never became part of the registry, so any bytes replace
   it and return it to `pending`. There is no unpublish or delete.
 - **No KV.** The data is relational and small; a second store would only add
-  consistency questions. The read plane itself is uncached; the one edge
-  cache in the service is the public stats summary's fixed-key Cache API
-  entry ("Download counts").
+  consistency questions. Two Cache API surfaces exist: the public stats
+  summary's fixed-key entry ("Download counts") and the immutable
+  verified-artifact bodies, keyed by content checksum behind
+  authentication ("The cost governor" - a cache hit costs no R2
+  operation).
+- **The governor's ledger lives in one SQLite-backed Durable Object.**
+  Every billable R2 resource Cabin can initiate - stored bytes and
+  Class A/B operations - passes through its serialized admission
+  control before the R2 call ("The cost governor"). D1 stays canonical
+  for registry *content*; the ledger is accounting state whose
+  **primary** pool is reconstructible conservatively from D1's
+  live-checksum view, while the backup pool re-ledgers through the
+  backfill script's queue rows and dump entries regrow with the
+  nightly job ([`runbook.md`](runbook.md), "The cost governor").
 
 ## Origins and roles
 
@@ -106,8 +117,11 @@ download the artifact anyway - but no single request streams a 16 MiB
 blob. Responses carry the session plane's `Cache-Control: no-store`
 like every authenticated response. The route never consults the
 service mode - the session plane is exempt from the read-side budget
-gate ("Billing model and the budget breaker") - and a source read is
-never a download ("Download counts").
+gate ("Billing model: the governor and the breaker") - but every
+ranged read is a billable R2 operation, so it **is** governed: the
+viewer draws from its own `b_source` pool with a per-user daily
+fairness cap, and fails closed before R2 is consulted ("The cost
+governor"). A source read is never a download ("Download counts").
 
 **Search and reverse dependencies.** The dashboard's package search
 (`GET /api/v1/user/search?q=<term>`) and the package resource
@@ -491,15 +505,16 @@ gate, and the verdict body live in `src/verify.rs`.
   needs no scope membership, and verdicts are deliberately exempt from
   the budget breaker: a verdict stores no new bytes, a rejection frees
   them, and verification must be able to drain the pending queue
-  whatever the service mode - "Billing model and the budget breaker"):
+  whatever the service mode - "Billing model: the governor and the breaker"):
   `verified` stamps
   `verified_at`; `rejected` records the reason, refunds the archive's
   bytes from `meta.total_stored_bytes` when the row was the checksum's
   sole live reference (decided inside the same transaction that flips
   the row, so a duplicate concurrent verdict cannot refund twice), and
-  reclaims the blob best-effort - a failed delete leaves a harmless
-  orphan that the replacement path retries, and publishes re-check
-  their blob after their batch commits, so a reclaim racing a
+  reclaims the blob best-effort - a failed delete leaves an orphan the
+  governor's ledger keeps conservatively represented until an operator
+  releases it, the replacement path retries the delete, and publishes
+  re-check their blob after their batch commits, so a reclaim racing a
   deduplicating publish of the same bytes is self-healed. The body's
   `checksum` and `published_at` (required to verify, optional to
   reject - exposure must name the inspected row generation, and
@@ -622,22 +637,29 @@ tests.
 
 ## Download counts
 
-Every served artifact download of a **verified** version increments
-`versions.downloads`, best-effort, off the response
-path (`ctx.wait_until`), scheduled only once the blob's body was
-actually acquired - a missing-blob 500 never counts, the verifier's
-pending fetches never count (the SQL guard repeats the verified
-check inside the statement, so lifecycle races cannot count either),
-and yanked versions keep counting because they stay downloadable. The
-metric is deliberately approximate: it counts responses issued, not
-fully consumed streams or unique installations; a failed deferred
-write is logged and dropped; and the increment is suppressed while
-the breaker blocks writes - the counter is telemetry, so its whole
-deferred task (the breaker-mode read included; nothing about it
-touches the response path) follows the write plane's fail-closed
-direction, an unreadable mode skipping the write, while the download
-itself was already served, keeping the read plane's fail-open
-promise. The counter tracks the registry artifact route **only**: the
+Every served artifact download of a **verified** version counts
+toward `versions.downloads` through an in-isolate buffer flushed in
+one batched D1 write (`src/telemetry.rs` holds the flush policy: the
+first download 30 s after the last flush, or 50 pending versions,
+whichever first - there is no timer, so a lone buffered count waits
+for the next download or the isolate's end;
+`DOWNLOAD_FLUSH_INTERVAL_MS` overrides the interval and the smoke
+test pins 0) - deliberately **not** one D1 write per download, which
+would make the counter a per-download cost channel, and deliberately
+not another global hot object. Counts are buffered only once a 200
+response was constructed - refusals and missing-blob 500s never
+count, the verifier's pending fetches never count (the SQL guard
+repeats the verified check inside the statement, so lifecycle races
+cannot count either), and yanked versions keep counting because they
+stay downloadable. Edge-cache hits still count: the Worker runs on
+every request, hit or miss. The metric is approximate telemetry and
+never part of the governor's hard ledger: an isolate that dies with a
+non-empty buffer loses those counts, a failed flush is logged and
+dropped, nothing about it can fail or delay a download, and the flush
+(its breaker-mode read included) runs off the response path and is
+suppressed while the breaker blocks writes - the write plane's
+fail-closed direction, while the download itself was already served.
+The counter tracks the registry artifact route **only**: the
 website origin's source-viewer reads ("The source viewer's ranged
 reads") never increment it - browsing files is not an install, and a
 viewer session would otherwise count one download per file viewed.
@@ -662,19 +684,25 @@ per-package stats route is deliberately deferred until the website
 has registry-package pages to feed: it would be a high-cardinality,
 unauthenticated, per-package existence oracle with no consumer today.
 
-## Billing model and the budget breaker
+## Billing model: the governor and the breaker
 
-The service runs on the Workers **free** plan today on purpose. Workers
-requests and D1 fail closed on their own when the free limits are hit -
-without billing attached they cannot produce a bill - so on the free plan
-the only real billing exposure is R2 overage: storage and Class A
-(write/list) operations. The expected move to a sponsored/paid plan
-(Project Alexandria) changes that calculus: a paid plan removes the
-platform's own fail-closed caps, and the read path - index reads and
-archive downloads, driven by CI - becomes an uncapped spend channel. The
-service therefore blocks itself gracefully *before* any Cloudflare limit
-or real spend is reached, in two layers, plus a read-side valve that
-stays dormant until an operator configures a read budget (below).
+Cost containment is two mechanisms with a deliberate division of labor:
+
+- **The cost governor** ("The cost governor" below) is the hard,
+  request-time authority for every billable R2 resource Cabin can
+  initiate - stored bytes, Class A (write/list) operations, and Class B
+  (read) operations. Nothing the deployed Worker does may start a
+  billable R2 call without the governor's admission first, and a
+  governor outage fails those paths closed. Abuse can exhaust an
+  isolated allowance and turn requests into `503`s, but it cannot turn
+  into unbounded R2 spend.
+- **The service-wide breaker** (below) covers what cannot be exactly
+  pre-authorized because the platform only reveals it after the fact -
+  Workers requests per day and D1 rows read per day - plus broader
+  degradation: it is the operator-visible service mode, and the
+  Cloudflare GraphQL Analytics numbers it evaluates act as an
+  **independent auditor** of the governor's ledger, never as an
+  authority that could grant allowance.
 
 **Per-user quotas** stop any single user from exhausting the shared free
 budget. Quota classes are quota tiers granted manually on need (in the
@@ -682,17 +710,20 @@ spirit of crates.io's per-user limit increases); the hosted registry is
 free and has no billing path. `users.quota_class` (default `'default'`)
 selects a quota set from the map in
 `src/quota.rs` - per-archive bytes, total stored bytes per user, new
-packages per day, total packages, versions per package per day, and a
+packages per day, total packages, versions per package per day, a
 publish token bucket (burst plus per-minute refill, state on the token row
-in `tokens.rl_tokens` / `tokens.rl_updated_at`). Daily windows are UTC
-calendar days. Publish enforces, in order: the budget gate (`503`), the
-token scope (`403`), the rate limit (`429`, `Retry-After`, charged per
-attempt), scope membership (the uniform `403` - "The write path"),
-framing (`400`), metadata and checksum (`400`), the idempotent no-op /
-immutability wall (`200`/`409`), then - for genuinely new versions only -
-the archive-size cap (`413`) and the storage, package, and version quotas
-(`403` with per-quota envelope codes) - so a byte-identical re-publish,
-including one grandfathered above a later cap, never consumes quota. The
+in `tokens.rl_tokens` / `tokens.rl_updated_at`), and the governor's
+per-user daily read-fairness caps (charged artifact reads and
+source-viewer reads). Daily windows are UTC calendar days. Publish
+enforces, in order: the budget gate (`503`), the token scope (`403`),
+the rate limit (`429`, `Retry-After`, charged per attempt), scope
+membership (the uniform `403` - "The write path"), framing (`400`),
+metadata and checksum (`400`), the idempotent no-op / immutability wall
+(`200`/`409`), then - for genuinely new versions only - the
+archive-size cap (`413`), the storage, package, and version quotas
+(`403` with per-quota envelope codes), and finally the governor's
+storage admission (`503`) - so a byte-identical re-publish, including
+one grandfathered above a later cap, never consumes quota. The
 per-package quota counts key on the full `(scope, name)` pair, so equal
 package parts under two scopes never share a bucket. Attribution rides on
 `versions.published_by`, `versions.archive_size`, and `packages.created_by`,
@@ -714,19 +745,10 @@ the in-code defaults). Storage usage is **exact self-accounting**: the
 publish batch adds a blob's size to `meta.total_stored_bytes` the first
 time a version row references its checksum (so a retry after a crash
 between the R2 and D1 writes still counts the blob, and deduplicated
-re-use under a second name never double-counts it), so the one metric
-with direct billing exposure never depends on analytics. A missing or
-corrupt counter reads as unavailable data - never as zero - so it can
-keep or escalate the persisted mode but never unblock writes. Orphaned
-blobs (a crash or lost publish race that never commits the D1 rows) sit
-outside the counter on purpose; the budget headroom absorbs that bounded
-drift, and the counter can be recomputed from D1 alone if drift ever
-needs reconciling - every version row carries `archive_size`, one size
-per distinct live checksum (see [`runbook.md`](runbook.md), "Orphaned
-R2 blobs"). The other metrics (Workers requests/day, R2
-Class A operations/month, D1 rows read/day, R2 Class B (read)
-operations/month) come from the Cloudflare GraphQL Analytics API,
-queried by a cron pass every 15 minutes
+re-use under a second name never double-counts it). The other metrics
+(Workers requests/day, R2 Class A operations/month, D1 rows read/day,
+R2 Class B (read) operations/month) come from the Cloudflare GraphQL
+Analytics API, queried by a cron pass every 15 minutes
 (`src/analytics.rs` holds the dataset names; a rejected dataset degrades to
 "metric unavailable", and partial data can escalate the mode but never
 de-escalate it - missing analytics never unblocks writes). Completeness
@@ -737,10 +759,18 @@ dormant, warn-only monitoring must not keep a stale `writes_blocked`
 pinned over a metric that could never have caused it). The planes are
 independent on purpose: a write-side analytics outage drops a
 `reads_blocked` whose read data proves recovery to `writes_blocked` and
-no further, while a read-side outage never reopens reads. The analytics
-numbers are a conservative usage signal, not billing measurements -
-Cloudflare documents them as approximate - which is one more reason the
-budgets sit well below the limits they guard.
+no further, while a read-side outage never reopens reads.
+
+The analytics numbers are approximate by Cloudflare's own
+documentation, which is why they are **never the authority for the hard
+R2 limits**: the governor enforces those from its own exact ledger, and
+nothing the analytics cron observes - or fails to observe - can
+increase a governor allowance, release a conservative reservation, or
+prove recovery. The R2 metrics' remaining roles are auditing (a large
+divergence between observed R2 operations and the governor's consumed
+totals means spend outside the governed paths - alert and investigate)
+and the emergency escalation below, which can only make the service
+*more* closed.
 
 Degradation order: `normal` -> `warn` (any metric at 80% of its budget)
 -> `writes_blocked` (a write-side metric at budget) -> `reads_blocked`
@@ -766,28 +796,142 @@ unreadable or unknown mode blocks them ("Why 503, not 402").
 
 **Reads gate only on an affirmatively read `reads_blocked`** - a
 recorded revision (2026-07-18) of the original principle that reads
-never consult the mode. The paid-plan read path has no platform-level
-spend cap, so the valve has to exist; the fail semantics stay
-asymmetric on purpose. A missing, unreadable, or unknown mode, a failed
-cache fill, or any error on the mode lookup leaves reads serving
-exactly as before, so yanked-state and downloads keep working
-throughout an outage of the breaker itself (the deferred download-count
-write is the one mode consumer off the read path; it follows the write
-plane's fail-closed rule and runs after the response - "Download
-counts"). The gate covers the Bearer data plane only (`/config.json`,
-`/packages/*`, `/artifacts/*`), runs **after** Bearer validation - the
-uniform 401 stays byte-identical, so unauthenticated callers cannot
-observe service state - and answers the same envelope:
-`503 registry_over_budget` with `Retry-After`. Exempt from the gate:
-`/healthz`, the public `/api/v1/stats`, the entire session plane (the
-dashboard is where the operator and users see what is happening while
-blocked), the admin plane, and the verifier's `config.json` and
-artifact fetches (never the package documents, which it does not
-read) - verification must be able to drain the pending queue while
-reads are blocked, and its spend is negligible. For the same reason
-the admin verdict is exempt from the budget gates entirely: a verdict
-stores no new bytes and a rejection frees them ("The verification
-lifecycle").
+never consult the mode. The fail semantics stay asymmetric on purpose:
+a missing, unreadable, or unknown mode, a failed cache fill, or any
+error on the mode lookup leaves reads serving exactly as before, so
+yanked-state lookups keep working throughout an outage of the breaker
+itself. (The governor is the opposite by design: any R2-touching read
+that cannot get an admission answer fails closed - the asymmetry is
+possible because a cache hit needs no admission, so popular content
+keeps flowing through either outage.) The gate covers the Bearer data
+plane only (`/config.json`, `/packages/*`, `/artifacts/*`), runs
+**after** Bearer validation - the uniform 401 stays byte-identical, so
+unauthenticated callers cannot observe service state - and answers the
+same envelope: `503 registry_over_budget` with `Retry-After`. Exempt
+from the gate: `/healthz`, the public `/api/v1/stats`, the entire
+session plane (the dashboard is where the operator and users see what
+is happening while blocked), the admin plane, and the verifier's
+`config.json` and artifact fetches (never the package documents, which
+it does not read) - verification must be able to drain the pending
+queue while reads are blocked, and its spend rides its own isolated
+governor pool. For the same reason the admin verdict is exempt from
+the budget gates entirely: a verdict stores no new bytes and a
+rejection frees them ("The verification lifecycle").
+
+## The cost governor
+
+One named, SQLite-backed Durable Object (`GOVERNOR` binding, singleton
+`"governor"`) is the serialized authority for the shared R2 budgets.
+The accounting engine is pure Rust (`src/governor.rs`) over a tiny
+store abstraction, so the same SQL and decision logic run against
+`rusqlite` in host tests and against the object's SQLite storage in
+production (`src/governor_do.rs`); the Worker talks to it through a
+narrow, typed, idempotent JSON protocol (`src/governor_client.rs`:
+`decide`, `usage`, `reconcile`). At the registry's scale one object is
+the simplest design that makes every decision atomic; sharding is the
+upgrade path if the singleton ever becomes a throughput problem.
+
+**Pools.** Storage is three byte-stocks with one ledger row per R2
+object: `primary` (BLOBS archive blobs), `backup` (BACKUP verified
+copies), and `dump` (BACKUP `d1/` dumps and sidecars). Billable
+operations are seven monthly flows: Class A `a_publish` / `a_infra`
+and Class B `b_ordinary` (artifact cache misses), `b_source` (the
+source viewer), `b_verifier` (pending-artifact fetches), `b_publish`
+(publish-path existence heads), and `b_infra` (replication and dump
+reads). The split is the isolation: read abuse can exhaust only
+`b_ordinary`, the verifier keeps draining its queue on `b_verifier`,
+and the infrastructure pools are reachable from no request
+classification at all - only the cron jobs and the write path's
+internals touch them, so no ordinary credential can spend them. Limits
+are env-overridable (`GOVERNOR_*`, in-code defaults in
+`src/governor.rs`) and sized with headroom under the R2 free tier; a
+limit var that is set but unparsable fails closed to **zero** - a typo
+in a hard cap must block its pool loudly, not silently revert to a
+default ([`runbook.md`](runbook.md), "The cost governor").
+
+**Semantics.** Operation budgets are consumed immediately before each
+billable R2 call - a refusal means the call is never made, and a crash
+after consumption merely wastes one op (conservative). Storage runs
+reserve -> write -> settle: capacity is reserved before the R2 put,
+and the reservation settles into committed usage only once the D1 rows
+prove the object referenced. Reservations are keyed by the
+content-addressed object key, which makes retries and concurrent
+identical publishes *share* one reservation instead of double-counting
+(same key means same bytes), makes the crash-retry heal itself (the
+retry's settle lands on the crashed attempt's row), and turns a
+conflicting byte count under one key into a refusal rather than a
+silent merge. The invariant: **committed plus reserved usage never
+exceeds a pool's limit at admission, and the ledger never understates
+R2 reality.** A commit therefore never refuses - once bytes exist in
+R2, refusing to record them would create unaccounted spend, so
+admission catches up at the next reservation instead. Nothing is
+released by age: a reservation whose write outcome is unknown stays
+held until reconciliation proves the object live (settling it) or an
+operator releases it with evidence; the automated release paths run
+only where the code affirmatively knows the paid write did not stick -
+a refused admission (the call was never made) and the dump jobs'
+affirmative deletes of their cron-unique objects. The primary pool
+never auto-releases, not even after a successful delete: a
+content-addressed key can be recreated by a concurrent same-checksum
+publish at any moment, so "deleted now" is no proof of "stays gone",
+and reclaimed entries wait for the operator instead
+([`runbook.md`](runbook.md), "The cost governor"). Operation windows are **explicit UTC calendar
+months** - Cloudflare's actual billing window cannot be inferred
+reliably, so the budgets carry headroom for the skew instead - and
+roll forward only, so a regressed clock can never reset a window and
+mint fresh allowance. A reinitialized object recreates its schema
+idempotently; its primary rows rebuild conservatively from D1's
+live-checksum view via reconciliation, the backup pool re-ledgers
+through the backfill script's queue rows, dump entries regrow with
+the nightly job, and operation windows restart at zero
+([`runbook.md`](runbook.md), "The cost governor", "Known ceilings").
+
+**The read plane and the edge cache.** Immutable verified archives are
+served through the Cache API under a synthetic identity derived from
+the content checksum alone (`https://registry.cabinpkg.com/__cache/...`;
+never from the outward URL or query string, so request input cannot
+alias or poison an entry, and the Worker runs on every request to its
+hostnames, so the entry is unreachable without passing Bearer auth and
+the D1 verified-version gate first). A cache hit costs no R2 operation
+and no governor round-trip - the deliberate reason a governor outage
+can fail closed without taking popular downloads down. A miss takes an
+in-isolate single-flight slot (one uncached checksum must not fan out
+into simultaneous R2 reads; waiters poll the cache briefly and only
+fall through to their own charged read if the loader vanished), then
+charges one `b_ordinary` op - with the caller's per-user daily
+fairness cap - before the R2 `get`, and fills the cache for everyone
+else. Fairness refusals are per-caller `429 read_rate_limited` with a
+`Retry-After` reaching the next UTC day; pool refusals and governor
+outages are the breaker's `503 registry_over_budget` envelope, which
+clients already classify. Fairness caps come from the quota-class
+model and only ever *bound* a user's drain rate - global correctness
+never depends on them, because the pool check always runs too. The
+verifier's pending fetches are never cached (the bytes are not yet
+part of the registry) and charge `b_verifier`; the source viewer's
+ranged reads are never cached (every request is a distinct slice) and
+charge `b_source` under their own per-user cap.
+
+**Reconciliation.** Every breaker cron pass pushes D1's authoritative
+live set - one size per distinct non-rejected checksum, the same shape
+the storage self-accounting counts - to the governor, which commits
+every named object (recording blobs the ledger missed, settling
+reservations a lost acknowledgement stranded, growing understated byte
+counts) and *reports* everything else: ledger entries D1 does not name
+are candidate orphans or leaked reservations, logged for the operator
+and never auto-released. Decreases require proof the object is gone,
+which is the operator's explicit release
+([`runbook.md`](runbook.md), "The cost governor"). The pass also logs
+the full usage snapshot, giving `wrangler tail` the ledger next to the
+analytics evaluation it audits.
+
+**What stays best-effort on purpose.** Workers requests and D1 rows
+are revealed by the platform only after the fact, so they keep the
+breaker's approximate, cron-driven treatment - presenting them as
+hard-enforced would be a lie. Download counters are approximate
+telemetry ("Download counts") and never part of the ledger. And the
+operator's out-of-band tools (`scripts/backup-backfill.sh`, wipes,
+restores) run outside the Worker and are deliberately ungoverned:
+reconciliation absorbs their effects conservatively.
 
 ## Backups
 
@@ -798,13 +942,21 @@ involved (`D1_EXPORT_API_TOKEN`) is scoped to D1 alone. Three pieces,
 all operationally documented in [`runbook.md`](runbook.md) ("Disaster
 recovery"):
 
-- **Blob replication (RPO ~0).** After a publish's primary R2 put and
-  D1 batch succeed, the archive blob is copied to the
-  `BACKUP` bucket under the same content-addressed key, best-effort via
-  `waitUntil`; an idempotent re-publish re-schedules the copy (a retry
-  of a publish whose isolate died before replicating heals the gap),
-  and failures land in the `backup_replication_failures` table
-  for `scripts/backup-backfill.sh` to re-run. No code path deletes from
+- **Verified-blob replication (durable queue).** Only versions that
+  become **verified** enter the backup set: the verdict batch that
+  flips a row to `verified` enqueues its blob into `backup_pending` in
+  the same transaction, so the work is recorded exactly when the
+  transition applies and a crash can never lose it - replication no
+  longer rides the pending publish path at all (a pending upload that
+  is later rejected was never worth a copy). The queue drains on the
+  verdict's `waitUntil` (fast path) and on every breaker cron pass
+  (retry path); each copy is governed (`b_infra`/`a_infra` plus a
+  `backup`-pool reservation settled on success), shared checksums
+  collapse onto one row, a rejection that lands after the enqueue
+  retires the row without copying, and rows older than an hour raise
+  the backup-health alert. `scripts/backup-backfill.sh` is the manual
+  recovery path; it deliberately leaves queue rows for the drain to
+  settle. No code path deletes from
   the backup bucket, so it is append-only: a deletion in the primary -
   malicious or accidental - cannot propagate.
 - **Nightly D1 dump (RPO <= 24 h).** A second cron schedule drives the
@@ -828,8 +980,9 @@ recovery"):
   the breaker's `*/15 * * * *` exactly; any other schedule runs the
   dump job, so rehearsals need no recompile.
 - **Freshness alerting.** Every breaker pass evaluates backup health
-  (`src/backup.rs`; > 36 h without a successful dump, or a non-empty
-  replication failure log) and alerts via log + webhook on every pass
+  (`src/backup.rs`; > 36 h without a successful dump, or any
+  `backup_pending` queue row older than an hour) and alerts via log +
+  webhook on every pass
   while unhealthy - a backup system that stops must not stop silently.
 
 First-line recovery is D1 Time Travel (always on; 7-day retention on
@@ -852,17 +1005,25 @@ stats totals' JSON shape (`src/stats.rs`), the
 scope-claim grant rules and GitHub-response parsing (`src/claim.rs`),
 the sign-in allowlist (`src/allowlist.rs`), the
 quota engine (`src/quota.rs`), the budget breaker (`src/breaker.rs`), the
-analytics query shapes (`src/analytics.rs`), the verification lifecycle's
+analytics query shapes (`src/analytics.rs`), the governor's accounting
+engine, pools, limits, and protocol types (`src/governor.rs`, with its
+Durable Object SQL exercised by `rusqlite` in host tests), the
+download-telemetry flush policy (`src/telemetry.rs`), the verification
+lifecycle's
 statuses, verdict rules, and read gate (`src/verify.rs`), and the backup
 logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
 (`src/glue.rs` for the role dispatch and the Bearer planes,
 `src/web_glue.rs` for the OAuth and session planes,
-`src/backup_glue.rs` for the nightly dump job, wasm32 only) is thin
+`src/backup_glue.rs` for the nightly dump job, `src/governor_do.rs`
+for the governor Durable Object and `src/governor_client.rs` for its
+Worker-side client, wasm32 only) is thin
 binding-and-I/O wiring covered by
-`scripts/smoke.sh`. Every SQL statement the glue executes is a named
+`scripts/smoke.sh`. Every D1 statement the glue executes is a named
 const in `src/sql.rs`, schema-validated at test time and guarded in CI
-(see "Why no ORM" below). Read-plane path
+(see "Why no ORM" below; the guard grants `src/governor.rs` and its
+adapter the same consolidated-home treatment for the Durable Object's
+SQLite statements). Read-plane path
 components are validated before any lookup: scopes and names follow the
 grammars in "Scopes", versions must parse as SemVer, and anything else
 answers without touching storage - the artifact filename must additionally
@@ -910,7 +1071,7 @@ one.
 
 `429` was considered and rejected. It asserts per-client fault, but the
 breaker is deliberately aggregate and never keyed on client or token
-("Billing model and the budget breaker"); WAF rate limiting already
+("Billing model: the governor and the breaker"); WAF rate limiting already
 emits `429`, and conflating the two would cost diagnostics.
 
 The cost of the move is that `503`, unlike `402`, is a status the
@@ -957,7 +1118,7 @@ pinned to a single narrow profile. The full normative spec is
   content-addressed
   R2 blobs and has no archive dependency, so a tar.gz would force either a
   server-side repack job (Workers CPU) or a second derived zip sidecar (R2
-  budget - see "Billing model and the budget breaker"); both were rejected.
+  budget - see "Billing model: the governor and the breaker"); both were rejected.
   Zip is directly seekable, and its fixed-offset EOCD lets the publish path
   reject a non-zip with a few O(1) reads before it hashes anything ("The
   write path").

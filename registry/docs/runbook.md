@@ -230,12 +230,24 @@ What it does, in order:
    wipe happened).
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
+7. Resets the governor ledger - a manual follow-up the script reminds
+   you of: the ledger still accounts for the deleted primary blobs
+   (conservative, so nothing overspends, but admission runs against
+   ghosts). Sign in, mint a verify-scoped token, and
+   `POST {"wipe":true}` to `/api/v1/admin/governor` with it; the
+   endpoint refuses unless `meta.launched` reads exactly `'false'`,
+   mirroring this script's guard. The wipe clears the primary rows
+   and the operation windows only - the `backup` and `dump` entries
+   survive, because the BACKUP bucket is never wiped and its objects
+   keep billing ("The cost governor").
 
 `scripts/wipe.sh --local` is the same idea for the local `.wrangler/`
-state (guard, drop the emulated D1/R2 state - the emulated backup
-bucket included, since local state is test data rather than a backup -
-reapply migrations, bump the generation); the smoke test uses it to
-assert the refusal branch.
+state (guard, drop the emulated D1/R2/Durable Object/cache state - the
+emulated backup bucket included, since local state is test data rather
+than a backup - reapply migrations, bump the generation); the smoke
+test uses it to assert the refusal branch, and a re-run of the smoke
+test wants it first so the governor ledger and the emulated edge cache
+start empty.
 
 If a remote wipe is interrupted between the delete and the end, the
 guard cannot read the half-provisioned database and refuses the re-run;
@@ -297,7 +309,7 @@ The scheduled handler (cron, every 15 minutes) evaluates usage against the
 budgets and persists the result to `meta.service_mode`
 (`normal` | `warn` | `writes_blocked` | `reads_blocked`) with a
 human-readable `meta.service_mode_reason` (`docs/architecture.md`,
-"Billing model and the budget breaker"; `reads_blocked` is unreachable
+"Billing model: the governor and the breaker"; `reads_blocked` is unreachable
 until a read budget is configured - see "Read budgets and paid-plan
 activation" below). Inspect it:
 
@@ -323,7 +335,11 @@ caches the mode in isolate memory for ~60 s (`SERVICE_MODE_TTL_SECS`; the
 smoke test pins it to 0 via `.dev.vars`), so an override can take up to a
 minute to bite.
 
-The budget ceilings the cron evaluates against, with their in-code
+The breaker's numbers are approximate and cron-delayed; the hard,
+request-time R2 enforcement lives in the governor ("The cost governor"
+below), which the analytics here only audit - they can escalate the
+mode, never grant governor allowance. The budget ceilings the cron
+evaluates against, with their in-code
 defaults (`src/breaker.rs`), each comfortably below the matching
 Cloudflare free limit:
 
@@ -371,6 +387,142 @@ working token the cron logs the skip, evaluates on the exact
 self-accounted storage alone, and never de-escalates the persisted mode on
 the missing data. Optionally set a `NOTIFY_WEBHOOK_URL` secret to receive
 a JSON summary POST on every mode change.
+
+## The cost governor
+
+The governor is the hard, request-time authority for every billable R2
+resource the Worker can initiate (`docs/architecture.md`, "The cost
+governor"): one named SQLite-backed Durable Object (binding `GOVERNOR`,
+class `Governor`, singleton `"governor"`) whose ledger admits or
+refuses each R2 call before it is made. The breaker above stays the
+approximate, analytics-driven service mode; the governor is exact and
+per-request, and an unreachable governor fails every fresh R2 path
+closed (`503 registry_over_budget`; edge-cache hits keep serving).
+
+The hard limits, env-overridable in `wrangler.jsonc` `vars` with
+in-code defaults (`src/governor.rs`):
+
+| Var | Default | Pool |
+| --- | --- | --- |
+| `GOVERNOR_STORAGE_PRIMARY_BYTES` | 4 GiB | BLOBS archive bytes |
+| `GOVERNOR_STORAGE_BACKUP_BYTES` | 4 GiB | BACKUP verified copies |
+| `GOVERNOR_STORAGE_DUMP_BYTES` | 512 MiB | BACKUP `d1/` dumps + sidecars |
+| `GOVERNOR_R2_CLASS_A_PUBLISH_MONTH` | 200,000 | publish-path puts |
+| `GOVERNOR_R2_CLASS_A_INFRA_MONTH` | 200,000 | replication/dump puts, lists |
+| `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` | 4,000,000 | artifact cache misses |
+| `GOVERNOR_R2_CLASS_B_SOURCE_MONTH` | 500,000 | source-viewer ranged reads |
+| `GOVERNOR_R2_CLASS_B_VERIFIER_MONTH` | 500,000 | pending-artifact fetches |
+| `GOVERNOR_R2_CLASS_B_PUBLISH_MONTH` | 200,000 | publish-path heads |
+| `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | replication/dump reads |
+
+Two knob rules that differ from the breaker's, on purpose:
+
+- **A set-but-unparsable limit fails closed to zero** and blocks its
+  pool loudly (the breaker's budgets fall back to defaults instead).
+  These are hard spending caps; a typo must never silently widen one.
+- **Operation windows are explicit UTC calendar months**, not
+  Cloudflare's billing window, which cannot be inferred reliably; the
+  defaults carry the headroom for that skew. Windows only roll
+  forward - a regressed clock cannot mint allowance.
+
+Storage sizing note: primary + backup + dump defaults sum to 8.5 GiB
+against the 10 GB-month account-wide free limit, and the breaker's
+`BUDGET_R2_STORAGE_BYTES` keeps watching the primary bytes
+independently.
+
+**Inspecting the ledger.** Every breaker cron pass logs one summary
+line (`governor usage: storage ... ops ...`) next to the analytics
+evaluation - `wrangler tail` or the dashboard shows both - and the
+reconciliation report right after it: objects added conservatively,
+plus `governor ledger divergence: N unreferenced entr(ies), M byte
+mismatch(es)` when the ledger carries entries D1 does not prove live.
+On demand, `GET /api/v1/admin/governor` (Bearer, `verify` scope)
+returns the same snapshot as JSON:
+
+```sh
+curl -sS -H "Authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+  https://cabinpkg.com/api/v1/admin/governor
+```
+
+**Reconciliation and operator releases.** Reconciliation is
+increase-only: it records every live blob as committed usage and only
+*reports* the rest. An `unreferenced` entry is a candidate orphan (a
+crashed publish's blob, a lost race, or a blob you deleted by hand);
+it keeps consuming allowance until an operator releases it with
+evidence. To release one: confirm the object really is gone (or
+delete it - dashboard or `wrangler r2 object delete`), then release
+the ledger entry:
+
+```sh
+curl -sS -X POST \
+  -H "Authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"release":{"pool":"primary","key":"blobs/sha256/<hex>"}}' \
+  https://cabinpkg.com/api/v1/admin/governor
+```
+
+Never release an entry for an object that still exists: the ledger
+would understate reality, which is the one direction the design
+forbids. The endpoint's other action, `{"wipe":true}`, clears the
+primary rows and the operation windows (backup and dump rows survive)
+and only works pre-launch (see "Wipe procedure").
+
+**Analytics divergence.** The breaker cron's R2 numbers audit the
+governor: if observed Class A/B operations or storage run well ahead
+of the governor's consumed totals, something is spending outside the
+governed paths (a leaked credential, dashboard activity, a bug).
+Investigate; the emergency lever is the service mode override above,
+which only ever makes the service more closed.
+
+**The governor's own platform limits.** SQLite-backed Durable Objects
+are the one kind the free plan offers (hence `new_sqlite_classes` in
+`wrangler.jsonc`), with their own free limits (100k requests/day, 100k
+rows written/day, 5 GB storage). Cache hits never touch the object, so
+ordinary traffic stays far below them; if abuse ever saturates the
+object anyway, the platform refuses its requests and every governed
+path fails closed - the backstop points the same direction as the
+design.
+
+**Reclaim and the ledger.** Rejected-content reclaim deletes the
+primary object (deletes are free) but never releases its ledger entry:
+the entry shows up as `unreferenced` in reconciliation reports, and
+releasing it is the operator's action above. Expect the primary ledger
+to accumulate a small tail of rejected/orphaned entries between
+sweeps; each entry only ever holds allowance, never spends.
+
+**Dump-retry conflicts.** A same-date dump retry whose export size
+changed is refused (`KeyConflict`) instead of admitted past the cap;
+the job fails, the freshness alert fires, and the next day's fresh key
+(or an operator release of the stale `d1/<date>.sql` entry after
+confirming the object) recovers.
+
+**Known ceilings.** Two residual windows are documented rather than
+engineered around: a
+spurious FORWARD platform-clock jump across a month boundary would
+roll an operation window early (a later regress cannot roll it back -
+windows only move forward - so the net effect is one early reset,
+with the analytics operation counts as the independent tell), and
+a catastrophic loss of the Durable Object's storage would restart the
+operation windows at zero. After such a loss, the **primary** rows
+rebuild automatically from D1 via reconciliation;
+`scripts/backup-backfill.sh` re-ledgers the **backup** pool (its
+queue rows walk every verified blob through the drain); and the
+**dump** entries regrow only as nightly dumps land - audit the
+`d1/` prefix against the usage snapshot by hand if the gap matters
+before retention cycles it out.
+
+**Deploy notes.** The Durable Object class ships with the same
+`wrangler deploy` as the Worker (the `migrations` block in
+`wrangler.jsonc` tags `Governor` as a SQLite-backed class); the CI
+deploy token's Workers Scripts:Edit scope covers Durable Object
+migrations, but watch the first deploy that introduces the class and
+fall back to a manual `npx --yes wrangler@4.112.0 deploy` if the API
+refuses. A wiped or reinitialized object recreates its schema
+idempotently; reconciliation then rebuilds the **primary** rows
+conservatively from D1, the backfill script re-ledgers the **backup**
+pool, dump entries regrow with the nightly job ("Known ceilings"
+above), and operation windows restart at zero - which is why the wipe
+procedure resets the ledger explicitly (see "Wipe procedure").
 
 ## Read budgets and paid-plan activation
 
@@ -529,20 +681,25 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
 
 **What is backed up, and how.**
 
-- **Archive blobs (RPO ~0).** After the primary R2 put succeeds, publish
-  replicates the blob to the backup bucket
+- **Verified archive blobs (durable queue; RPO ~0 from the verified
+  transition).** The verdict batch that marks a version `verified`
+  enqueues its blob into the `backup_pending` table in the same
+  transaction; the verdict's `waitUntil` and every breaker cron pass
+  drain the queue into the backup bucket
   (`cabin-registry-backup`, Worker binding `BACKUP`) under the same
-  `blobs/sha256/<hex>` key, off the response path via `waitUntil`.
-  Nothing in the service ever deletes from the backup bucket - the
-  primary's reclaim paths do not propagate - so it is append-only, and a
-  malicious or accidental deletion in the primary cannot reach it.
-  Replication is best-effort: a failed copy is logged with its key in
-  the `backup_replication_failures` table, the breaker cron alerts while
-  any row exists, and `scripts/backup-backfill.sh` re-copies everything
-  missing and clears each verified key from the log (only handled keys,
-  so a publish racing the backfill cannot have its fresh failure
-  erased). Run the backfill once when enabling backups over existing
-  data.
+  `blobs/sha256/<hex>` key. Only verified content is replicated -
+  pending uploads are not yet part of the registry, and their
+  recovery path is republishing - and the queue row is the durable
+  record, so a crash anywhere between verdict and copy is retried
+  rather than lost. Nothing in the service ever deletes from the
+  backup bucket - the primary's reclaim paths do not propagate - so
+  it is append-only, and a malicious or accidental deletion in the
+  primary cannot reach it. Queue rows older than an hour raise the
+  breaker's backup-health alert;
+  `scripts/backup-backfill.sh` is the manual recovery path (it copies
+  every verified blob the backup lacks and deliberately leaves queue
+  rows for the Worker's drain to settle, governor ledger included).
+  Run the backfill once when seeding backups over existing data.
 - **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
   runs a nightly logical dump from the Worker itself: it drives the D1
   REST export endpoint (the same API `wrangler d1 export --remote`
@@ -567,10 +724,11 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
 - **Freshness alerting.** A backup system's classic failure is stopping
   silently, so every breaker pass evaluates backup health: it logs an
   error and POSTs to `NOTIFY_WEBHOOK_URL` (when configured) while
-  `meta.last_backup_at` is older than 36 h (or missing) or the
-  replication failure log is non-empty; the webhook payload always
-  carries a `backup` block with `last_backup_at`, `freshness`, and the
-  failure count. Note the alert also fires between provisioning and the
+  `meta.last_backup_at` is older than 36 h (or missing) or any
+  `backup_pending` queue row is older than an hour; the webhook payload
+  always carries a `backup` block with `last_backup_at`, `freshness`,
+  and the overdue-backup count. Note the alert also fires between
+  provisioning and the
   first nightly pass - that is the "no dump recorded yet" state working
   as intended.
 
@@ -627,8 +785,10 @@ list; each later option covers a case the earlier one cannot.
    content-addressed and never mutated, the copied-back objects are
    byte-identical to what clients pinned in lockfiles.
 
-**RPO / recovery time.** Blobs: RPO ~0 (replicated at publish; the
-failure log plus backfill close the gaps). Metadata: RPO <= 24 h from
+**RPO / recovery time.** Blobs: RPO ~0 from the verified transition
+(the durable queue drains on the verdict itself; the stale-row alert
+plus backfill close the gaps; a pending upload's recovery path is
+republishing). Metadata: RPO <= 24 h from
 the nightly dump, and effectively minutes when Time Travel applies.
 Recovery time is dominated
 by operator response, not data volume, at today's scale: a Time Travel
@@ -660,12 +820,19 @@ follow-up before the registry carries data that cannot be re-published.
 ## Orphaned R2 blobs
 
 Publish writes the R2 blob before the D1 rows, so a crash between the two
-writes can leave a blob no `versions` row references. That is harmless,
-content-addressed garbage: it is unreachable through the API (artifact
-lookups go through D1), a retried publish reuses it instead of re-uploading
-(and counts it into `meta.total_stored_bytes` at that point), and there is
-deliberately no garbage collection. Ignore such blobs, or delete them
-manually from the dashboard if the storage ever bothers you.
+writes can leave a blob no `versions` row references. It is unreachable
+through the API (artifact lookups go through D1), and a retried publish
+reuses it instead of re-uploading (and counts it into
+`meta.total_stored_bytes` at that point). Under the governor an orphan
+is never invisible spend: the crashed publish's reservation keeps
+representing the bytes, reconciliation reports the entry as
+`unreferenced` on every pass, and the cleanup is the operator pairing -
+delete the object (dashboard or `wrangler r2 object delete`), then
+release the ledger entry ("The cost governor"). There is deliberately
+no automatic garbage collection, and the reclaim path never releases
+primary ledger entries on its own - a successful delete of a
+content-addressed key is no proof the key stays gone, because a
+concurrent same-checksum publish can recreate it at any moment.
 
 Orphaned bytes are also invisible to the storage self-accounting - the
 counter tracks referenced blobs only, by design ("never analytics"), and
