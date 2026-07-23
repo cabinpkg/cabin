@@ -236,10 +236,13 @@ What it does, in order:
    ghosts). Sign in, mint a verify-scoped token, and
    `POST {"wipe":true}` to `/api/v1/admin/governor` with it; the
    endpoint refuses unless `meta.launched` reads exactly `'false'`,
-   mirroring this script's guard. The wipe clears the primary rows
-   and the operation windows only - the `backup` and `dump` entries
-   survive, because the BACKUP bucket is never wiped and its objects
-   keep billing ("The cost governor").
+   mirroring this script's guard. The wipe clears the primary storage
+   rows and the daily fairness windows only - the `backup` and `dump`
+   entries survive (the BACKUP bucket is never wiped and its objects
+   keep billing), and the monthly operation windows survive too: they
+   mirror R2 operations Cloudflare already metered this month and
+   cannot be rebuilt, so zeroing them would re-mint a month of
+   allowance for spend that already happened ("The cost governor").
 
 `scripts/wipe.sh --local` is the same idea for the local `.wrangler/`
 state (guard, drop the emulated D1/R2/Durable Object/cache state - the
@@ -464,8 +467,10 @@ curl -sS -X POST \
 Never release an entry for an object that still exists: the ledger
 would understate reality, which is the one direction the design
 forbids. The endpoint's other action, `{"wipe":true}`, clears the
-primary rows and the operation windows (backup and dump rows survive)
-and only works pre-launch (see "Wipe procedure").
+primary storage rows and the daily fairness windows (backup, dump, and
+the monthly operation windows all survive - the operation counters
+mirror already-metered R2 spend and cannot be rebuilt) and only works
+pre-launch (see "Wipe procedure").
 
 **Analytics divergence.** The breaker cron's R2 numbers audit the
 governor: if observed Class A/B operations or storage run well ahead
@@ -477,11 +482,21 @@ which only ever makes the service more closed.
 **The governor's own platform limits.** SQLite-backed Durable Objects
 are the one kind the free plan offers (hence `new_sqlite_classes` in
 `wrangler.jsonc`), with their own free limits (100k requests/day, 100k
-rows written/day, 5 GB storage). Cache hits never touch the object, so
-ordinary traffic stays far below them; if abuse ever saturates the
-object anyway, the platform refuses its requests and every governed
-path fails closed - the backstop points the same direction as the
-design.
+rows written/day, 5 GB storage). Both daily quotas sit *below* the R2
+budgets the object enforces, and whichever is reached first fails the
+governed paths closed. The rows-written quota usually binds sooner: an
+admitted ordinary read writes both its fairness row and its op-window
+row, so ~50k charged reads exhaust the 100k rows/day before the
+request count matters, and the `b_ordinary` budget alone
+(4,000,000/month ≈ 133k/day) exceeds both quotas. Cache hits never
+touch the object, so steady-state traffic stays far below either
+wall; when one is hit the platform refuses the object's requests and
+every governed path fails closed (an availability backstop, never
+overspend). Moving to Workers Paid lifts these ceilings and is the
+prerequisite for opening the registry beyond the allowlist; until
+then, do not raise `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH` toward its
+cap without accepting that the object's daily quotas become the
+guaranteed failure point.
 
 **Reclaim and the ledger.** Rejected-content reclaim deletes the
 primary object (deletes are free) but never releases its ledger entry:
@@ -503,13 +518,21 @@ roll an operation window early (a later regress cannot roll it back -
 windows only move forward - so the net effect is one early reset,
 with the analytics operation counts as the independent tell), and
 a catastrophic loss of the Durable Object's storage would restart the
-operation windows at zero. After such a loss, the **primary** rows
-rebuild automatically from D1 via reconciliation;
+operation windows at zero. Storage rows are reconstructable but the
+**operation windows are not** (R2 exposes no per-pool op counter), so
+after a storage loss on a *launched* registry the month's operation
+budget re-opens on top of ops already metered - Cloudflare's 30-day
+Durable Object point-in-time recovery is the first-line fix, restoring
+the object to just before the loss. Reconciliation only repopulates
+**storage**, and only on the breaker cron (≤15 min after the object
+comes back): the **primary** rows rebuild automatically from D1;
 `scripts/backup-backfill.sh` re-ledgers the **backup** pool (its
 queue rows walk every verified blob through the drain); and the
 **dump** entries regrow only as nightly dumps land - audit the
 `d1/` prefix against the usage snapshot by hand if the gap matters
-before retention cycles it out.
+before retention cycles it out. On a launched registry, hold publishes
+(or run a reconcile by hand) until the first pass lands, so the empty
+ledger cannot admit a write past the true R2 cap in the interim.
 
 **Deploy notes.** The Durable Object class ships with the same
 `wrangler deploy` as the Worker (the `migrations` block in
@@ -520,9 +543,15 @@ fall back to a manual `npx --yes wrangler@4.112.0 deploy` if the API
 refuses. A wiped or reinitialized object recreates its schema
 idempotently; reconciliation then rebuilds the **primary** rows
 conservatively from D1, the backfill script re-ledgers the **backup**
-pool, dump entries regrow with the nightly job ("Known ceilings"
-above), and operation windows restart at zero - which is why the wipe
-procedure resets the ledger explicitly (see "Wipe procedure").
+pool, and dump entries regrow with the nightly job ("Known ceilings"
+above). The schema is applied with `CREATE TABLE IF NOT EXISTS` only,
+so any future column change to a governor table needs an explicit
+migration (an `ALTER TABLE`, not a silent no-op), and the `Governor`
+class must only ever be migrated by `renamed_classes`/
+`transferred_classes` - never dropped and recreated, and never a
+`deleted_classes` migration on a launched registry - because a class
+delete destroys the SQLite storage and the monthly operation windows
+cannot be rebuilt.
 
 ## Read budgets and paid-plan activation
 
