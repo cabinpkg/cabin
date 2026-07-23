@@ -1807,6 +1807,30 @@ node -e '
   if (!ordinary || ordinary.used === 0) process.exit(1);
 ' "$body" || fail "the governor wipe cleared the op windows or left the wrong rows: $(cat "$body")"
 
+# The on-demand reconcile is the operator's recovery path after a
+# ledger wipe or a Durable Object storage loss: the same increase-only
+# primary rebuild the cron runs, answering with the report instead of
+# waiting up to 15 minutes. Exactly-one-of holds for the new arm too.
+step "an admin reconcile rebuilds the wiped primary ledger on demand"
+printf '{"reconcile":true}' >"$work/gov-reconcile.json"
+wrequest POST "/api/v1/admin/governor" "$work/gov-reconcile.json" 200
+node -e '
+  const report = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (!Array.isArray(report.added) || report.added.length === 0) process.exit(1);
+' "$body" || fail "the on-demand reconcile recorded nothing after the wipe: $(cat "$body")"
+wcheck "/api/v1/admin/governor" 200
+node -e '
+  const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (!s.storage.some((row) => row.pool === "primary" && row.state === "committed"))
+    process.exit(1);
+' "$body" || fail "the on-demand reconcile left no committed primary rows: $(cat "$body")"
+printf '{"reconcile":true,"wipe":true}' >"$work/gov-bad.json"
+wrequest POST "/api/v1/admin/governor" "$work/gov-bad.json" 400
+# A second wipe re-empties the primary rows so the cron leg below still
+# proves the scheduled pass rebuilds them on its own.
+wrequest POST "/api/v1/admin/governor" "$work/gov-wipe.json" 200
+expect_body '"ok":true'
+
 # ...and reconciliation rebuilds the primary rows from D1's live set:
 # the next breaker cron pass commits every live checksum back into the
 # ledger (increase-only) and logs how many it recorded; the pass after

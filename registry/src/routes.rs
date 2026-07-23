@@ -93,9 +93,9 @@ pub enum ApiRoute<'a> {
         version: &'a str,
     },
     /// `GET`/`POST /api/v1/admin/governor`: the governor ledger's
-    /// operator surface - usage snapshot, evidence-backed release, and
-    /// the pre-launch ledger wipe (`docs/runbook.md`, "The cost
-    /// governor").
+    /// operator surface - usage snapshot, evidence-backed release, the
+    /// pre-launch ledger wipe, and the on-demand reconcile
+    /// (`docs/runbook.md`, "The cost governor").
     AdminGovernor,
 }
 
