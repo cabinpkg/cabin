@@ -24,16 +24,12 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 api_origin="${CABIN_API_ORIGIN:-https://cabinpkg.com}"
 endpoint="$api_origin/api/v1/admin/governor"
 primary_bucket="cabin-registry-blobs"
 backup_bucket="cabin-registry-backup"
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 [[ "$api_origin" == https://* ]] || fail "CABIN_API_ORIGIN must be https"
 : "${REGISTRY_VERIFY_TOKEN:?REGISTRY_VERIFY_TOKEN (verify scope) is required}"

@@ -11,7 +11,8 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+mod common;
 
 /// A minified bundle shape like worker-build's, exporting `Governor`.
 const BUNDLE_WITH_GOVERNOR: &str =
@@ -25,27 +26,19 @@ fn real_config() -> String {
 /// Runs the real guard over a scratch tree holding `config` (and a
 /// bundle unless `bundle` is None); `true` means the guard accepted.
 fn guard_accepts(name: &str, config: &str, bundle: Option<&str>, require_bundle: bool) -> bool {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("scripts")).expect("create scratch scripts/");
-    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-    fs::copy(
-        scripts.join("check-deploy.sh"),
-        dir.join("scripts/check-deploy.sh"),
-    )
-    .expect("copy the guard");
+    let dir = common::scratch(name);
+    common::copy_scripts(&dir, &["check-deploy.sh"]);
     fs::write(dir.join("wrangler.jsonc"), config).expect("write the config");
     if let Some(bundle) = bundle {
         fs::create_dir_all(dir.join("build")).expect("create scratch build/");
         fs::write(dir.join("build/index.js"), bundle).expect("write the bundle");
     }
-    let mut command = Command::new("bash");
-    command.arg("scripts/check-deploy.sh");
-    if require_bundle {
-        command.arg("--require-bundle");
-    }
-    let output = command.current_dir(&dir).output().expect("run the guard");
-    output.status.success()
+    let args: &[&str] = if require_bundle {
+        &["--require-bundle"]
+    } else {
+        &[]
+    };
+    common::bash_accepts(&dir, "check-deploy.sh", args)
 }
 
 /// The config that deploys is the config the guard accepts - with the

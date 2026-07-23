@@ -1034,7 +1034,8 @@ logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
 (`src/glue.rs` for the role dispatch and the Bearer planes,
 `src/web_glue.rs` for the OAuth and session planes,
-`src/backup_glue.rs` for the nightly dump job, `src/governor_do.rs`
+`src/backup_glue.rs` for the nightly dump job and the backup-queue
+drain, `src/governor_do.rs`
 for the governor Durable Object and `src/governor_client.rs` for its
 Worker-side client, wasm32 only) is thin
 binding-and-I/O wiring covered by

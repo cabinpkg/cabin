@@ -1,22 +1,12 @@
 //! User-facing diagnostic presentation for Cabin's typed
 //! domain errors.
 //!
-//! ## Why this crate exists
-//!
-//! Domain crates (`cabin-workspace`, `cabin-manifest`,
-//! `cabin-config`, …) return strongly typed `thiserror`
-//! enums.  Without a dedicated presentation layer, the CLI
-//! orchestrator wraps each one in `anyhow::with_context`,
-//! which in turn duplicates the path / operation that the
-//! typed error already names.  The result is the doubled-
-//! chain output Cabin used to emit:
-//!
-//! ```text
-//! error: failed to load workspace at /tmp/x/cabin.toml: failed to read ... (os error 2)
-//! ```
-//!
-//! `cabin-diagnostics` is the single home for the
-//! presentation contract:
+//! Domain crates return strongly typed `thiserror` enums;
+//! without a dedicated presentation layer the CLI orchestrator
+//! wraps each one in `anyhow::with_context`, duplicating the
+//! path / operation the typed error already names.
+//! `cabin-diagnostics` is the single home for the presentation
+//! contract:
 //!
 //! - **Stable codes.** [`code`] is the registry of diagnostic
 //!   codes (`cabin::workspace::manifest_not_found`,
@@ -24,10 +14,9 @@
 //!   errors point at.  Codes are stable across releases.
 //! - **Rendering.** [`render`] walks a [`miette::Diagnostic`]
 //!   and emits the report through miette's `fancy`
-//!   `GraphicalReportHandler`, which gives source-spanned
-//!   diagnostics the box-drawing snippet view familiar from
-//!   Rust's compiler errors and gives spanless diagnostics
-//!   a `× <message>` header with attached code, help, and
+//!   `GraphicalReportHandler`: source-spanned diagnostics get
+//!   the box-drawing snippet view, spanless diagnostics a
+//!   `× <message>` header with attached code, help, and
 //!   related entries.
 //!
 //! Crate boundaries:
@@ -58,83 +47,71 @@ pub use miette;
 /// it fires, and the user action belong in the diagnostics
 /// docs.
 pub mod code {
-    /// `cabin::config::load_failed` - fallback for config
-    /// discovery, read, parse, and validation failures.
+    /// Fallback for config discovery, read, parse, and validation
+    /// failures.
     pub const CONFIG_LOAD_FAILED: &str = "cabin::config::load_failed";
-    /// `cabin::config::invalid_build_jobs` - `build.jobs`
-    /// carried zero, a negative value, or a non-integer value.
+    /// `build.jobs` carried zero, a negative value, or a
+    /// non-integer value.
     pub const CONFIG_INVALID_BUILD_JOBS: &str = "cabin::config::invalid_build_jobs";
-    /// `cabin::lockfile::error` - fallback for `cabin.lock`
-    /// read, parse, validation, or write failures.
+    /// Fallback for `cabin.lock` read, parse, validation, or
+    /// write failures.
     pub const LOCKFILE_ERROR: &str = "cabin::lockfile::error";
-    /// `cabin::resolver::error` - dependency resolution could
-    /// not produce a valid package set.
+    /// Dependency resolution could not produce a valid package
+    /// set.
     pub const RESOLVER_ERROR: &str = "cabin::resolver::error";
-    /// `cabin::artifact::error` - artifact fetch,
-    /// verification, or extraction failed.
+    /// Artifact fetch, verification, or extraction failed.
     pub const ARTIFACT_ERROR: &str = "cabin::artifact::error";
-    /// `cabin::build::error` - build graph planning or
-    /// validation failed.
+    /// Build graph planning or validation failed.
     pub const BUILD_ERROR: &str = "cabin::build::error";
-    /// `cabin::language::standard_flag_conflict` - a package
-    /// declares a first-class `c-standard` / `cxx-standard`
-    /// while its manifest-derived `cflags` / `cxxflags` also
-    /// pin one via `-std=` / `/std:`.
+    /// A package declares a first-class `c-standard` /
+    /// `cxx-standard` while its manifest-derived `cflags` /
+    /// `cxxflags` also pin one via `-std=` / `/std:`.
     pub const LANGUAGE_STANDARD_FLAG_CONFLICT: &str = "cabin::language::standard_flag_conflict";
-    /// `cabin::language::standard_compat_violation` -
-    /// post-resolution standard-compatibility check: a resolved
-    /// dependency edge violates the standard-compatibility model of
-    /// `docs/design/standard-compatibility/spec.md` for a language
-    /// the consuming target compiles.  Fails the command unless the
-    /// edge carries a per-edge `ignore-interface-standard = true`
-    /// override, which instead emits the sibling unchecked-edge
-    /// note below.
+    /// Post-resolution standard-compatibility check: a resolved
+    /// dependency edge violates the standard-compatibility model
+    /// of `docs/design/standard-compatibility/spec.md` for a
+    /// language the consuming target compiles.  Fails the command
+    /// unless the edge carries a per-edge
+    /// `ignore-interface-standard = true` override, which instead
+    /// emits the sibling unchecked-edge note below.
     pub const LANGUAGE_STANDARD_COMPAT_VIOLATION: &str =
         "cabin::language::standard_compat_violation";
-    /// `cabin::language::standard_compat_unchecked_edge` - note: a
-    /// violated dependency edge was exempted from the check by
-    /// `ignore-interface-standard = true` on the consuming
-    /// package's `[dependencies]` entry, so it goes unchecked.
+    /// Note: a violated dependency edge was exempted from the
+    /// check by `ignore-interface-standard = true` on the
+    /// consuming package's `[dependencies]` entry, so it goes
+    /// unchecked.
     pub const LANGUAGE_STANDARD_COMPAT_UNCHECKED_EDGE: &str =
         "cabin::language::standard_compat_unchecked_edge";
-    /// `cabin::package::error` - package validation, archive
-    /// creation, or metadata rendering failed.
+    /// Package validation, archive creation, or metadata
+    /// rendering failed.
     pub const PACKAGE_ERROR: &str = "cabin::package::error";
-    /// `cabin::toolchain::error` - local toolchain
-    /// resolution, detection, or wrapper resolution failed.
+    /// Local toolchain resolution, detection, or wrapper
+    /// resolution failed.
     pub const TOOLCHAIN_ERROR: &str = "cabin::toolchain::error";
-    /// `cabin::vendor::error` - vendor plan construction or
-    /// materialization failed.
+    /// Vendor plan construction or materialization failed.
     pub const VENDOR_ERROR: &str = "cabin::vendor::error";
-    /// `cabin::index::error` - index discovery or read failed.
+    /// Index discovery or read failed.
     pub const INDEX_ERROR: &str = "cabin::index::error";
-    /// `cabin::index_http::error` - registry index HTTP
-    /// transport failure.
+    /// Registry index HTTP transport failure.
     pub const INDEX_HTTP_ERROR: &str = "cabin::index_http::error";
-    /// `cabin::publish::error` - `cabin publish` packaging
-    /// or upload failure.
+    /// `cabin publish` packaging or upload failure.
     pub const PUBLISH_ERROR: &str = "cabin::publish::error";
-    /// `cabin::fmt::error` - `cabin fmt` (clang-format
-    /// invocation) failed.
+    /// `cabin fmt` (clang-format invocation) failed.
     pub const FMT_ERROR: &str = "cabin::fmt::error";
-    /// `cabin::tidy::error` - `cabin tidy` (clang-tidy
-    /// invocation) failed.
+    /// `cabin tidy` (clang-tidy invocation) failed.
     pub const TIDY_ERROR: &str = "cabin::tidy::error";
-    /// `cabin::source_discovery::error` - recursive source
-    /// discovery (glob / walk) failed.
+    /// Recursive source discovery (glob / walk) failed.
     pub const SOURCE_DISCOVERY_ERROR: &str = "cabin::source_discovery::error";
-    /// `cabin::test::error` - `cabin test` failed before
-    /// any test could run (planning, environment, or
-    /// invocation failure).
+    /// `cabin test` failed before any test could run (planning,
+    /// environment, or invocation failure).
     pub const TEST_ERROR: &str = "cabin::test::error";
-    /// `cabin::explain::error` - `cabin explain` could not
-    /// load or render the requested diagnostic.
+    /// `cabin explain` could not load or render the requested
+    /// diagnostic.
     pub const EXPLAIN_ERROR: &str = "cabin::explain::error";
-    /// `cabin::ninja::error` - failure to invoke or read
-    /// from the Ninja backend.
+    /// Failure to invoke or read from the Ninja backend.
     pub const NINJA_ERROR: &str = "cabin::ninja::error";
-    /// `cabin::feature::error` - `[features]` resolution
-    /// failed (unknown feature, cycle, etc.).
+    /// `[features]` resolution failed (unknown feature, cycle,
+    /// etc.).
     pub const FEATURE_ERROR: &str = "cabin::feature::error";
 }
 
@@ -196,16 +173,10 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
 /// Render a [`miette::Diagnostic`] onto `writer`, emitting ANSI
 /// color exactly when the writer reports it supports color.
 ///
-/// The caller encodes the user's color choice in the writer it
-/// constructs (a `termcolor::StandardStream` built with
-/// `ColorChoice::Never` reports `supports_color() == false`), so
-/// the writer capability is the single routing input: a `NoColor`
-/// sink stays plain even under `--color always`, matching how the
-/// pre-miette renderer behaved.
-///
-/// The body bytes from `GraphicalReportHandler` already carry
-/// the ANSI escapes when color is selected; the writer's
-/// `WriteColor` API is otherwise unused.
+/// The writer capability is the single routing input: the caller
+/// encodes the user's color choice in the writer it constructs,
+/// so a `NoColor` sink (a `termcolor::StandardStream` built with
+/// `ColorChoice::Never`) stays plain even under `--color always`.
 ///
 /// # Errors
 /// Returns an [`io::Error`] if `GraphicalReportHandler::render_report`
@@ -230,10 +201,9 @@ pub fn render(diagnostic: &dyn miette::Diagnostic, writer: &mut dyn WriteColor) 
 /// shared layout choices.  Cause-chain rendering is disabled
 /// because most domain errors already embed the load-bearing
 /// field values in their own message, and re-displaying the
-/// source duplicates that text (the pre-miette cabin renderer
-/// had the same policy).  Source-spanned snippets continue to
-/// render because they come from `source_code` + `labels`, not
-/// from the cause chain.
+/// source duplicates that text.  Source-spanned snippets
+/// continue to render because they come from `source_code` +
+/// `labels`, not from the cause chain.
 fn build_handler(theme: GraphicalTheme) -> GraphicalReportHandler {
     GraphicalReportHandler::new_themed(theme).without_cause_chain()
 }

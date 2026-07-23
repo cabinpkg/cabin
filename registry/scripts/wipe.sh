@@ -22,6 +22,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 mode="--remote"
 if [[ "${1:-}" == "--local" ]]; then
@@ -33,11 +34,6 @@ fi
 
 database="cabin-registry"
 blobs_bucket="cabin-registry-blobs"
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 if [[ "$mode" == "--remote" && "${CABIN_WIPE_YES:-}" != "1" ]]; then
   printf 'About to WIPE the deployed registry (%s, %s). Type "wipe" to confirm: ' \

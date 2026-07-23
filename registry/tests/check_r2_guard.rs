@@ -11,28 +11,18 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
+
+mod common;
 
 /// Runs the real guard over a scratch tree containing `call_site` at
 /// `src/<file>`; `true` means the guard accepted it.
 fn guard_accepts_in(name: &str, file: &str, call_site: &str) -> bool {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
+    let dir = common::scratch(name);
+    common::copy_scripts(&dir, &["check-r2.sh", "check-r2.pl", "lexical.pm"]);
     fs::create_dir_all(dir.join("src")).expect("create scratch src/");
-    fs::create_dir_all(dir.join("scripts")).expect("create scratch scripts/");
-    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-    for script in ["check-r2.sh", "check-r2.pl", "lexical.pm"] {
-        fs::copy(scripts.join(script), dir.join("scripts").join(script)).expect("copy the guard");
-    }
     fs::write(dir.join("src").join(file), call_site).expect("write the call site");
-
-    let status = Command::new("bash")
-        .arg("scripts/check-r2.sh")
-        .current_dir(&dir)
-        .output()
-        .expect("run the guard");
-    status.status.success()
+    common::bash_accepts(&dir, "check-r2.sh", &[])
 }
 
 /// A pinned function holding exactly its sanctioned acquisitions - and
@@ -49,10 +39,6 @@ fn the_canonical_call_sites_pass() {
             "        return not_found();\n",
             "    };\n",
             "}\n",
-            "async fn drain_backup_queue(env: &Env) {\n",
-            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
-            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
-            "}\n",
             // Field access is not a call, a lookalike name is not the
             // method, and a comment describing one is not code.
             "fn bucket_from_columns(auth: &AuthContext) -> Option<quota::Bucket> {\n",
@@ -64,6 +50,19 @@ fn the_canonical_call_sites_pass() {
         ),
     );
     assert!(accepted, "the guard rejected the canonical call sites");
+    // The queue drain's double acquisition is pinned under
+    // backup_glue.rs, where the drain lives.
+    let accepted = guard_accepts_in(
+        "r2_canonical_backup_glue",
+        "backup_glue.rs",
+        concat!(
+            "async fn drain_backup_queue(env: &Env) {\n",
+            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
+            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
+            "}\n",
+        ),
+    );
+    assert!(accepted, "the guard rejected the backup_glue drain");
 }
 
 #[test]

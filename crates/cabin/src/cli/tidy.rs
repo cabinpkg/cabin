@@ -210,9 +210,6 @@ pub(crate) fn tidy(args: &TidyArgs, reporter: Reporter) -> Result<ExitCode> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    // Build the per-target compile-command list by running the
-    // planner with the dev profile and a process-resolved
-    // toolchain.
     let host_platform = cabin_core::TargetPlatform::current();
     let toolchain_selection = cabin_core::ToolchainSelection::default();
     let toolchain = crate::cli::resolve_toolchain_layered(

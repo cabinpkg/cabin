@@ -53,6 +53,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 port="${SMOKE_PORT:-8787}"
 web_port="${SMOKE_WEB_PORT:-8789}"
@@ -84,7 +85,7 @@ cleanup() {
   # A failure inside a breaker leg would otherwise leave the pinned mode
   # behind in the local D1 state, blocking unrelated local work until
   # the next run's seeding normalizes it.
-  npx --yes wrangler@4.112.0 d1 execute DB --local --command \
+  wrangler d1 execute DB --local --command \
     "UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
      UPDATE meta SET value = '' WHERE key = 'service_mode_reason';" \
     >/dev/null 2>&1 || true
@@ -100,11 +101,6 @@ cleanup() {
   rm -f "$body" "$headers" "$dev_log" "$web_log"
 }
 trap cleanup EXIT
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 # check_at <base> <path> <expected statuses...>; body lands in $body.
 check_at() {

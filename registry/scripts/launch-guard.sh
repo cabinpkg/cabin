@@ -13,6 +13,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 mode="${1:?usage: scripts/launch-guard.sh <--remote|--local>}"
 case "$mode" in
@@ -31,7 +32,7 @@ refuse() { printf 'launch guard: %s\n' "$*" >&2; exit 1; }
 # could read one database while a wipe deletes another. Local mode has
 # no name resolution; the DB binding is the local state.
 if [[ "$mode" == "--remote" ]]; then
-  account_id="$(npx --yes wrangler@4.112.0 d1 list --json | node -e '
+  account_id="$(wrangler d1 list --json | node -e '
     const list = JSON.parse(require("fs").readFileSync(0, "utf8"));
     const db = list.find((db) => db.name === "cabin-registry");
     if (!db) process.exit(1);
@@ -47,7 +48,7 @@ if [[ "$mode" == "--remote" ]]; then
     || refuse "the account's cabin-registry is $account_id but wrangler.jsonc binds $config_id; refusing (fail-safe)"
 fi
 
-out="$(npx --yes wrangler@4.112.0 d1 execute DB "$mode" --json --command \
+out="$(wrangler d1 execute DB "$mode" --json --command \
   "SELECT value FROM meta WHERE key = 'launched'")" \
   || refuse "could not read meta.launched; refusing (fail-safe)"
 
