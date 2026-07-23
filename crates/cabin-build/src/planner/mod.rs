@@ -168,6 +168,15 @@ struct PreparedSource {
 /// [`BuildError::InvalidSourcePath`], [`BuildError::EmptyTargetSources`],
 /// [`BuildError::MissingCCompiler`]).
 pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
+    let selected = select_targets(req)?;
+    let resolved = resolve_dependencies(&selected, req)?;
+    emit_actions(&selected, resolved, req)
+}
+
+/// Phase one: resolve the requested selection (or enumerate the
+/// default-buildable set) into concrete target IDs, hard-erroring on
+/// missing required features for explicitly named targets.
+fn select_targets(req: &PlanRequest<'_>) -> Result<Vec<TargetId>, BuildError> {
     let empty_features = BTreeSet::new();
     let enabled_of = |pkg_idx: usize| -> &BTreeSet<String> {
         req.enabled_features
@@ -175,7 +184,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             .unwrap_or(&empty_features)
     };
 
-    let selected = if let Some(sel) = &req.selected {
+    if let Some(sel) = &req.selected {
         let selected = resolve_selection(sel, req.graph, req.selected_packages)?;
         // Explicitly named targets hard-error when their
         // `required-features` are not enabled - a silent skip here
@@ -192,7 +201,7 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                 });
             }
         }
-        selected
+        Ok(selected)
     } else {
         let (chosen, gated) =
             default_selection(req.graph, req.selected_packages, req.enabled_features);
@@ -207,15 +216,35 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
                     .collect(),
             });
         }
-        chosen
-    };
+        Ok(chosen)
+    }
+}
 
-    // Walk the target dep graph, resolving each raw `deps` entry to a
-    // concrete (package, target) ID and recording the edges together
-    // with their declared visibility.
+/// Everything dependency resolution hands the emission phase.
+struct ResolvedTargets {
+    resolved_deps: HashMap<TargetId, Vec<TargetDepEdge>>,
+    reachable: HashSet<TargetId>,
+    topo: Vec<TargetId>,
+    standard_compat_violations: Vec<crate::standard_compat::StandardCompatViolation>,
+}
+
+/// Phase two: walk the target dep graph from the selection, resolving
+/// each raw `deps` entry to a concrete [`TargetDepEdge`], then
+/// topo-sort the reachable targets and run the post-resolution
+/// standard-compatibility check over the resolved edges.
+fn resolve_dependencies(
+    selected: &[TargetId],
+    req: &PlanRequest<'_>,
+) -> Result<ResolvedTargets, BuildError> {
+    let empty_features = BTreeSet::new();
+    let enabled_of = |pkg_idx: usize| -> &BTreeSet<String> {
+        req.enabled_features
+            .and_then(|m| m.get(&pkg_idx))
+            .unwrap_or(&empty_features)
+    };
     let mut resolved_deps: HashMap<TargetId, Vec<TargetDepEdge>> = HashMap::new();
     let mut reachable: HashSet<TargetId> = HashSet::new();
-    let mut to_visit: Vec<TargetId> = selected.clone();
+    let mut to_visit: Vec<TargetId> = selected.to_vec();
 
     while let Some(tid) = to_visit.pop() {
         if !reachable.insert(tid.clone()) {
@@ -293,6 +322,29 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
         Vec::new()
     };
 
+    Ok(ResolvedTargets {
+        resolved_deps,
+        reachable,
+        topo,
+        standard_compat_violations,
+    })
+}
+
+/// Phase three: lower every reachable target in topological order
+/// into compile / archive / link actions and assemble the
+/// [`BuildGraph`].
+fn emit_actions(
+    selected: &[TargetId],
+    resolved: ResolvedTargets,
+    req: &PlanRequest<'_>,
+) -> Result<BuildGraph, BuildError> {
+    let ResolvedTargets {
+        resolved_deps,
+        reachable,
+        topo,
+        standard_compat_violations,
+    } = resolved;
+
     // Promote the OS-supplied build directory to UTF-8 once: it
     // prefixes every object, archive, and executable path in the
     // semantic IR, so it must be valid UTF-8 to be embedded in build
@@ -367,9 +419,6 @@ pub fn plan(req: &PlanRequest<'_>) -> Result<BuildGraph, BuildError> {
             continue;
         }
 
-        // Build the per-source list.  Each manifest-declared source
-        // resolves to an absolute path under the manifest directory
-        // and a per-target object path.
         let mut prepared: Vec<PreparedSource> = Vec::with_capacity(target.sources.len());
         for source in &target.sources {
             let language =
