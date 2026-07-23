@@ -9,28 +9,18 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
+
+mod common;
 
 /// Runs the real guard over a scratch tree containing `call_site` at
 /// `src/<file>`; `true` means the guard accepted it.
 fn guard_accepts_in(name: &str, file: &str, call_site: &str) -> bool {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
-    let _ = fs::remove_dir_all(&dir);
+    let dir = common::scratch(name);
+    common::copy_scripts(&dir, &["check-sql.sh", "check-sql.pl", "lexical.pm"]);
     fs::create_dir_all(dir.join("src")).expect("create scratch src/");
-    fs::create_dir_all(dir.join("scripts")).expect("create scratch scripts/");
-    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-    for script in ["check-sql.sh", "check-sql.pl", "lexical.pm"] {
-        fs::copy(scripts.join(script), dir.join("scripts").join(script)).expect("copy the guard");
-    }
     fs::write(dir.join("src").join(file), call_site).expect("write the call site");
-
-    let status = Command::new("bash")
-        .arg("scripts/check-sql.sh")
-        .current_dir(&dir)
-        .output()
-        .expect("run the guard");
-    status.status.success()
+    common::bash_accepts(&dir, "check-sql.sh", &[])
 }
 
 fn guard_accepts(name: &str, call_site: &str) -> bool {
