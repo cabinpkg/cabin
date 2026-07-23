@@ -14,6 +14,7 @@ pub mod breaker;
 pub mod claim;
 pub mod documents;
 pub mod error;
+pub mod governor;
 pub mod names;
 pub mod publish;
 pub mod quota;
@@ -22,6 +23,7 @@ pub mod session;
 pub mod source;
 pub mod sql;
 pub mod stats;
+pub mod telemetry;
 pub mod user_api;
 pub mod verify;
 
@@ -29,5 +31,9 @@ pub mod verify;
 mod backup_glue;
 #[cfg(target_arch = "wasm32")]
 mod glue;
+#[cfg(target_arch = "wasm32")]
+mod governor_client;
+#[cfg(target_arch = "wasm32")]
+mod governor_do;
 #[cfg(target_arch = "wasm32")]
 mod web_glue;

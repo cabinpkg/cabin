@@ -81,10 +81,29 @@ for my $file (@ARGV) {
     # through a lookahead, so an accepted call never consumes the one
     # behind it, and it is whitespace-normalized first, so wrapping the
     # call or commenting its argument stays acceptable.
+    # The governor's Durable Object SQLite statements have their own
+    # consolidated home with the same assurance model as sql.rs: every
+    # statement is a module-local const in src/governor.rs, executed by
+    # the engine and prepared against the real governor schema by its
+    # host tests. So src/governor.rs may exec a bare SCREAMING_CASE
+    # const, and src/governor_do.rs - the storage adapter the engine
+    # runs through - may exec exactly its pass-through parameters
+    # (`sql`, the engine's statement; `statement`, the schema loop) or
+    # a named const; dynamic and literal spellings stay rejected even
+    # there.
+    my $is_governor    = $file =~ m{(?:^|/)src/governor\.rs$};
+    my $is_governor_do = $file =~ m{(?:^|/)src/governor_do\.rs$};
     while ($source =~ m{ [.:] \s* (?: r\# )? (prepare|exec) \b (?= \s* \( ) (?= \s* (.{0,400}) ) }gsx) {
         my ($method, $argument) = ($1, $2);
         $argument =~ s/\s+/ /g;
         next if $method eq 'prepare' && $argument =~ m{^\( ?sql::[A-Z][A-Z0-9_]* ?,? ?\)};
+        next if $method eq 'exec' && $is_governor && $argument =~ m{^\( ?[A-Z][A-Z0-9_]* ?,};
+        next if $method eq 'exec'
+            && $is_governor_do
+            && $argument =~ m{^\( ?(?:sql|statement|[A-Z][A-Z0-9_]*) ?,};
+        # The engine's host-test rusqlite adapter forwards the engine's
+        # `sql` parameter verbatim; only that exact spelling passes.
+        next if $method eq 'prepare' && $is_governor && $argument =~ m{^\( ?sql ?\)};
         my $line = 1 + (substr($source, 0, $-[0]) =~ tr/\n//);
         print "$file:$line: $method" . substr($argument, 0, 40) . "\n";
         $fail = 1;

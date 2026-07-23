@@ -22,13 +22,20 @@
     // NOTIFY_WEBHOOK_URL (POSTed a JSON summary on service-mode changes
     // and backup-freshness alerts).
     // GITHUB_CLIENT_ID is a public OAuth identifier and lives in `vars`.
-    // The budget ceilings BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
+    // The breaker budgets BUDGET_R2_STORAGE_BYTES, BUDGET_R2_CLASS_A_MONTH,
     // BUDGET_WORKERS_REQ_DAY, and BUDGET_D1_ROWS_READ_DAY have in-code
     // defaults (src/breaker.rs) and only need `vars` entries to override.
     // BUDGET_R2_CLASS_B_MONTH is different: unset, Class B is monitored
     // against a warn-only default; setting it is what arms the read-side
     // breaker (docs/runbook.md, "Read budgets and the paid-plan
     // activation procedure") - do not set it before that procedure.
+    // The governor's hard R2 limits (GOVERNOR_STORAGE_*_BYTES and
+    // GOVERNOR_R2_CLASS_{A,B}_*_MONTH; src/governor.rs) follow the same
+    // in-code-default pattern, with one deliberate difference: a var
+    // that is set but unparsable fails closed to a ZERO limit - a typo
+    // in a hard spending cap blocks its pool loudly instead of
+    // silently reverting to a default (docs/runbook.md, "The cost
+    // governor").
     // One Worker, one role per hostname (docs/architecture.md, "Origins
     // and roles"): the registry custom domain serves only the machine
     // read plane, and the website origin (cabinpkg.com) serves /login,
@@ -96,5 +103,15 @@
     "r2_buckets": [
         { "binding": "BLOBS", "bucket_name": "cabin-registry-blobs" },
         { "binding": "BACKUP", "bucket_name": "cabin-registry-backup" }
-    ]
+    ],
+    // The cost governor: one named SQLite-backed Durable Object is the
+    // serialized authority for the hard R2 budgets (src/governor.rs,
+    // src/governor_do.rs; docs/architecture.md, "The cost governor").
+    // SQLite-backed classes are what the free plan supports, hence
+    // new_sqlite_classes; the migration tag ships with the same deploy
+    // that first references the class.
+    "durable_objects": {
+        "bindings": [{ "name": "GOVERNOR", "class_name": "Governor" }]
+    },
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Governor"] }]
 }

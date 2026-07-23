@@ -21,6 +21,15 @@ pub struct ClassQuotas {
     pub publish_burst: f64,
     /// Publish token bucket: refill rate in tokens per minute.
     pub publish_refill_per_minute: f64,
+    /// Governor fairness cap: R2-charged artifact reads (cache misses)
+    /// per user per UTC day. Cache hits are free and uncounted; the
+    /// cap only bounds how fast one user can drain the shared read
+    /// pool, never grants allowance (`docs/architecture.md`, "The cost
+    /// governor").
+    pub artifact_reads_per_day: u64,
+    /// Governor fairness cap: source-viewer ranged reads per user per
+    /// UTC day (every one is an R2 read; the viewer path is uncached).
+    pub source_reads_per_day: u64,
 }
 
 const DEFAULT: ClassQuotas = ClassQuotas {
@@ -31,6 +40,8 @@ const DEFAULT: ClassQuotas = ClassQuotas {
     max_versions_per_package_per_day: 30,
     publish_burst: 5.0,
     publish_refill_per_minute: 1.0,
+    artifact_reads_per_day: 5_000,
+    source_reads_per_day: 2_000,
 };
 
 /// Quotas for a `users.quota_class` value. Unknown class names get the
@@ -117,6 +128,14 @@ pub const RATE_LIMITED: Denial = Denial {
     status: 429,
     code: "rate_limited",
     detail: "publish rate limit exceeded; retry after the token bucket refills",
+};
+/// The governor's per-user read-fairness refusal
+/// ([`ClassQuotas::artifact_reads_per_day`]); `Retry-After` carries the
+/// seconds until the UTC day rolls over.
+pub const READ_RATE_LIMITED: Denial = Denial {
+    status: 429,
+    code: "read_rate_limited",
+    detail: "read rate limit exceeded; retry after the daily read allowance resets",
 };
 pub const ARCHIVE_TOO_LARGE: Denial = Denial {
     status: 413,
