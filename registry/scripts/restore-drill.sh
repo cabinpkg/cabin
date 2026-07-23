@@ -20,6 +20,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 # The pre-cutover form took an environment argument; refuse it loudly
 # instead of silently acting on the sole remaining deployment.
@@ -27,11 +28,6 @@ cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 backup="cabin-registry-backup"
 scratch="cabin-registry-drill"
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 # column <database-arg...> -- <sql> <column>: one value per line.
 column() {

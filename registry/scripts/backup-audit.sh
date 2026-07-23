@@ -22,6 +22,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 show_keys=""
 if [[ "${1:-}" == "--keys" ]]; then
@@ -32,11 +33,6 @@ elif [[ -n "${1:-}" ]]; then
 fi
 
 backup_bucket="cabin-registry-backup"
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 : "${CLOUDFLARE_API_TOKEN:?CLOUDFLARE_API_TOKEN is required to list the backup bucket}"
 

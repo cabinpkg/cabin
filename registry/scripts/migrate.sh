@@ -23,17 +23,13 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
+. scripts/lib.sh
 
 mode="${1:?usage: scripts/migrate.sh <--remote|--local>}"
 case "$mode" in
   --remote | --local) ;;
   *) echo "usage: scripts/migrate.sh <--remote|--local>" >&2; exit 1 ;;
 esac
-
-step() { printf '==> %s\n' "$*"; }
-fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
 
 if [[ "$mode" == "--local" ]]; then
   step "applying migrations to the local database"

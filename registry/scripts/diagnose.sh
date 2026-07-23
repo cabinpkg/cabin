@@ -16,10 +16,7 @@
 set -euo pipefail
 
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
-
-step() { printf '==> %s\n' "$*"; }
-
-wrangler() { npx --yes wrangler@4.112.0 "$@"; }
+. scripts/lib.sh
 
 step "deploy configuration (scripts/check-deploy.sh)"
 if bash scripts/check-deploy.sh >/dev/null 2>&1; then
