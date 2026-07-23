@@ -17,7 +17,10 @@ use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
     STATS_PATH, SessionRoute, WebRoute,
 };
-use crate::{allowlist, auth, claim, error, names, quota, session, source, sql, stats, user_api};
+use crate::{
+    allowlist, auth, breaker, claim, error, governor, governor_client, names, quota, session,
+    source, sql, stats, user_api,
+};
 
 /// The one identity provider policy admits today; the `identities`
 /// schema stays provider-neutral (docs/architecture.md, "Two credential
@@ -99,7 +102,7 @@ pub async fn respond_session(
             Method::Get,
         ) => {
             let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
-            package_source(req, env, &db, &scope, &name, &version).await
+            package_source(req, env, &db, &user, &scope, &name, &version).await
         }
         (SessionRoute::Tokens, Method::Get) => list_tokens(&db, user.user_id).await,
         (SessionRoute::Tokens, Method::Post) => create_token(req, &db, user.user_id).await,
@@ -827,11 +830,17 @@ struct SourceVersionRecord {
 /// sees an unsatisfiable range. A source read is never counted as a
 /// download and never consults the service mode: the session plane is
 /// exempt from the read-side budget gate (`docs/architecture.md`,
-/// "Billing model and the budget breaker").
+/// "Billing model and the budget breaker"). It is **not** exempt from
+/// the cost governor: every ranged read is a billable R2 operation, so
+/// the viewer draws from its own `b_source` pool with a per-user daily
+/// fairness cap, and fails closed - a refusal or an unreachable
+/// governor answers before R2 is consulted ("The cost governor").
+#[allow(clippy::too_many_arguments)] // the route triple plus the session plumbing
 async fn package_source(
     req: &Request,
     env: &Env,
     db: &D1Database,
+    user: &UserRecord,
     scope: &str,
     name: &str,
     version: &str,
@@ -856,6 +865,23 @@ async fn package_source(
             .set("content-range", &source::unsatisfiable_content_range(size))?;
         return Ok(response);
     };
+
+    let quotas = quota::quotas_for_class(&user.quota_class);
+    let decision = governor::Decision {
+        consume: vec![governor::Consume {
+            pool: governor::OpPool::BSource,
+            n: 1,
+            principal: Some(user.user_id.to_string()),
+            principal_cap: Some(quotas.source_reads_per_day),
+        }],
+        ..governor::Decision::default()
+    };
+    match governor_client::decide(env, &decision).await {
+        governor_client::Gate::Allowed => {}
+        governor_client::Gate::Refused(refusal) => {
+            return source_read_refusal(refusal.as_ref());
+        }
+    }
 
     let key = format!("blobs/sha256/{}", record.checksum);
     let object = env
@@ -1299,6 +1325,41 @@ fn json_response(body: &str) -> worker::Result<Response> {
 
 fn json_error(status: u16, detail: &str) -> worker::Result<Response> {
     Ok(json_response(&error::envelope(detail))?.with_status(status))
+}
+
+/// Renders a governor refusal for the source viewer's charged reads:
+/// the per-user fairness refusal is a coded `429` whose `Retry-After`
+/// reaches the next UTC day; everything else - pool exhausted or an
+/// unreachable governor - is the breaker's coded `503`, mirroring the
+/// bearer plane's rendering with the session plane's headers.
+fn source_read_refusal(refusal: Option<&governor::Refusal>) -> worker::Result<Response> {
+    let (status, detail, code, retry_after_secs) = match refusal {
+        Some(governor::Refusal::PrincipalExhausted {
+            retry_after_secs, ..
+        }) => (
+            quota::READ_RATE_LIMITED.status,
+            quota::READ_RATE_LIMITED.detail,
+            quota::READ_RATE_LIMITED.code,
+            *retry_after_secs,
+        ),
+        Some(_) => (
+            breaker::OVER_BUDGET_STATUS,
+            breaker::OVER_BUDGET_READS_DETAIL,
+            breaker::OVER_BUDGET_CODE,
+            breaker::OVER_BUDGET_RETRY_AFTER_SECS,
+        ),
+        None => (
+            breaker::OVER_BUDGET_STATUS,
+            breaker::GOVERNOR_UNAVAILABLE_DETAIL,
+            breaker::OVER_BUDGET_CODE,
+            breaker::GOVERNOR_UNAVAILABLE_RETRY_AFTER_SECS,
+        ),
+    };
+    let mut response = json_response(&error::envelope_with_code(detail, code))?.with_status(status);
+    response
+        .headers_mut()
+        .set("retry-after", &retry_after_secs.to_string())?;
+    Ok(response)
 }
 
 fn redirect_response(status: u16, location: &str, cookies: &[String]) -> worker::Result<Response> {

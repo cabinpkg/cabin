@@ -462,23 +462,58 @@ statements! {
          WHERE key = 'total_stored_bytes'";
 
     // ------------------------------------------------------------------
-    // backup: blob-replication failure bookkeeping
+    // backup: the verified-artifact replication queue
     // ------------------------------------------------------------------
 
-    /// Clears one key's replication-failure record (successful copy, or
-    /// the blob no longer needs a backup).
-    CLEAR_REPLICATION_FAILURE = "DELETE FROM backup_replication_failures WHERE key = ?1";
+    /// Enqueues a just-verified version's blob for backup replication,
+    /// in the same batch as [`MARK_VERSION_VERIFIED`]: the row appears
+    /// exactly when the verified transition applied (the guards repeat
+    /// the mark's), so the queue is recorded transactionally with the
+    /// transition and a crash can never lose the work. Shared checksums
+    /// collapse onto one queue row; a key already replicated re-enters
+    /// harmlessly (the drain's head sees the copy and settles).
+    ENQUEUE_VERIFIED_BACKUP =
+        "INSERT INTO backup_pending (key, bytes, enqueued_at) \
+         SELECT 'blobs/sha256/' || checksum, archive_size, ?6 FROM versions \
+         WHERE scope = ?1 AND name = ?2 AND version = ?3 \
+         AND verification = 'verified' AND checksum = ?4 AND published_at = ?5 \
+         ON CONFLICT (key) DO NOTHING";
 
-    /// Records (or refreshes) one key's replication failure for
-    /// `scripts/backup-backfill.sh`.
-    RECORD_REPLICATION_FAILURE =
-        "INSERT INTO backup_replication_failures (key, failed_at) \
-         VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET \
-         failed_at = excluded.failed_at";
+    /// The drain's work list: keyset-paginated (`key > ?1`, key
+    /// order), so rows a pass must keep (a missing primary blob under
+    /// a still-verified version) are walked past instead of pinning
+    /// the page - ten stuck rows must not starve every later healthy
+    /// entry. The row's `bytes` is deliberately not read here: the
+    /// ledger settles at sizes the drain observes (the head's object,
+    /// or the buffered copy), never at the enqueue-time expectation.
+    LIST_BACKUP_PENDING =
+        "SELECT key FROM backup_pending WHERE key > ?1 ORDER BY key LIMIT 10";
 
-    /// How many replication failures are outstanding (the breaker's
-    /// backup-health alert).
-    COUNT_REPLICATION_FAILURES = "SELECT COUNT(*) AS n FROM backup_replication_failures";
+    /// Removes one queue row whose work is done (the copy landed).
+    DELETE_BACKUP_PENDING = "DELETE FROM backup_pending WHERE key = ?1";
+
+    /// Retires one queue row as dead - but only while no verified
+    /// reference exists, re-checked inside the statement: a
+    /// check-then-delete split would let a verdict that lands in
+    /// between (enqueueing this very key transactionally) lose its
+    /// recorded backup work to a stale reader.
+    RETIRE_DEAD_BACKUP_PENDING =
+        "DELETE FROM backup_pending WHERE key = ?1 \
+         AND NOT EXISTS (SELECT 1 FROM versions \
+                         WHERE checksum = ?2 AND verification = 'verified')";
+
+    /// Live **verified** references to one blob: the drain only copies
+    /// blobs the registry still serves as verified content.
+    COUNT_LIVE_VERIFIED_BLOB_REFERENCES =
+        "SELECT COUNT(*) AS n FROM versions \
+         WHERE checksum = ?1 AND verification = 'verified'";
+
+    /// Queue rows older than an hour (the breaker's backup-health
+    /// alert): fresh rows are in-flight work, stale ones mean the
+    /// drain is failing or refused.
+    COUNT_STALE_BACKUP_PENDING =
+        "SELECT COUNT(*) AS n FROM backup_pending \
+         WHERE enqueued_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')";
 
     // ------------------------------------------------------------------
     // downloads: the artifact read plane and blob reclaim
@@ -512,14 +547,16 @@ statements! {
          COALESCE(SUM(downloads), 0) AS downloads \
          FROM versions WHERE verification = 'verified'";
 
-    /// Counts one served download. The `verification` guard keeps the
-    /// counter honest inside the statement itself: only verified rows
-    /// ever count, so the verifier's pending fetches (readable with the
-    /// `verify` scope) and any racing lifecycle change can never
-    /// increment. Yanked versions keep counting - they stay
-    /// downloadable on purpose.
-    INCREMENT_VERSION_DOWNLOADS =
-        "UPDATE versions SET downloads = downloads + 1 \
+    /// Applies one flush of the batched download telemetry
+    /// (`src/telemetry.rs`): the buffered per-version count lands in
+    /// one statement per version instead of one write per download.
+    /// The `verification` guard keeps the counter honest inside the
+    /// statement itself: only verified rows ever count, so the
+    /// verifier's pending fetches (readable with the `verify` scope)
+    /// and any racing lifecycle change can never increment. Yanked
+    /// versions keep counting - they stay downloadable on purpose.
+    ADD_VERSION_DOWNLOADS =
+        "UPDATE versions SET downloads = downloads + ?4 \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 \
          AND verification = 'verified'";
 
@@ -527,4 +564,11 @@ statements! {
     COUNT_LIVE_BLOB_REFERENCES =
         "SELECT COUNT(*) AS n FROM versions \
          WHERE checksum = ?1 AND verification != 'rejected'";
+
+    /// The governor reconciliation's authoritative live set: one size
+    /// per distinct live checksum, the same shape the storage
+    /// self-accounting counts (`docs/runbook.md`, "Orphaned R2 blobs").
+    LIVE_BLOB_SIZES =
+        "SELECT checksum, MAX(archive_size) AS size FROM versions \
+         WHERE verification != 'rejected' GROUP BY checksum";
 }

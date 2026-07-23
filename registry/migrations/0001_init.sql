@@ -5,6 +5,10 @@
 -- disposable and the operator wipes and re-migrates from zero
 -- (scripts/wipe.sh; docs/runbook.md, "Data policy"), so schema changes
 -- edit this file in place instead of accreting ALTER TABLE layers.
+-- Editing it deliberately leaves `migrations-applied` stale, which
+-- keeps CI's Worker deploy skipped until the operator wipes/applies
+-- and refreshes the stamp (docs/runbook.md, "Deploy skew") - never
+-- refresh the stamp in the same change that edits the schema.
 
 -- The registry-native identity model (docs/architecture.md, "Two
 -- credential planes"): users are registry rows, external accounts live
@@ -119,15 +123,18 @@ CREATE INDEX versions_published_by ON versions (published_by);
 CREATE INDEX versions_checksum ON versions (checksum);
 CREATE INDEX versions_verification ON versions (verification);
 
--- Blob-replication failure log (see docs/runbook.md, "Disaster
--- recovery"). Publish replicates each archive blob to the BACKUP
--- bucket best-effort; a failed copy lands here keyed by the R2 object
--- key so it can be re-run (scripts/backup-backfill.sh copies every
--- missing blob and clears the table). The breaker cron alerts while
--- rows exist.
-CREATE TABLE backup_replication_failures (
+-- The verified-artifact backup queue (see docs/runbook.md, "Disaster
+-- recovery"). The verdict batch that marks a version verified enqueues
+-- its blob here in the same transaction; the drain (verdict waitUntil
+-- plus every breaker cron pass) copies each blob to the BACKUP bucket
+-- and deletes the row on success, so a crash between the transition
+-- and the copy can never lose the work. Only verified content is ever
+-- replicated - pending uploads stay out of the backup set. The breaker
+-- cron alerts while rows older than an hour exist.
+CREATE TABLE backup_pending (
     key TEXT PRIMARY KEY,
-    failed_at TEXT NOT NULL
+    bytes INTEGER NOT NULL,
+    enqueued_at TEXT NOT NULL
 );
 
 CREATE TABLE meta (
