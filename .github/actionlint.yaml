@@ -1,4 +1,0 @@
-self-hosted-runner:
-  labels:
-    - ubuntu-26.04
-    - windows-11-vs2026-arm
