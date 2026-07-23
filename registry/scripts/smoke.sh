@@ -1787,9 +1787,12 @@ expect_body '"storage"'
 printf '{"release":{"pool":"primary","key":"blobs/sha256/none"}}' >"$work/gov-release.json"
 wrequest POST "/api/v1/admin/governor" "$work/gov-release.json" 200
 expect_body '"ok":true'
-# The pre-launch ledger wipe clears the primary rows and the windows,
-# while the backup and dump rows survive - the registry wipe never
-# touches the BACKUP bucket, so their objects keep billing...
+# The pre-launch ledger wipe clears the primary storage rows, while the
+# backup and dump rows survive - the registry wipe never touches the
+# BACKUP bucket, so their objects keep billing - and the monthly op
+# windows survive too: they mirror R2 operations Cloudflare already
+# metered this month and cannot be rebuilt, so zeroing them would
+# re-mint a month of allowance for spend that already happened...
 printf '{"wipe":true}' >"$work/gov-wipe.json"
 wrequest POST "/api/v1/admin/governor" "$work/gov-wipe.json" 200
 expect_body '"ok":true'
@@ -1798,8 +1801,11 @@ node -e '
   const s = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   if (s.storage.some((row) => row.pool === "primary")) process.exit(1);
   if (!s.storage.some((row) => row.pool === "backup")) process.exit(1);
-  if (s.ops.length !== 0) process.exit(1);
-' "$body" || fail "the governor wipe left the wrong ledger rows: $(cat "$body")"
+  // The exhausted ordinary-read counter must survive the wipe: the ops
+  // Cloudflare already metered this month are not re-minted.
+  const ordinary = s.ops.find((row) => row.pool === "b_ordinary");
+  if (!ordinary || ordinary.used === 0) process.exit(1);
+' "$body" || fail "the governor wipe cleared the op windows or left the wrong rows: $(cat "$body")"
 
 # ...and reconciliation rebuilds the primary rows from D1's live set:
 # the next breaker cron pass commits every live checksum back into the

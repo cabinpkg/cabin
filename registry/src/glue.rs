@@ -960,10 +960,12 @@ struct AdminGovernorBody {
 /// and must only follow evidence the object is gone - the endpoint
 /// cannot check R2 for the operator, and a release for a live object
 /// would make the ledger understate reality (`docs/runbook.md`, "The
-/// cost governor"). `wipe` clears the primary rows and the operation
-/// windows (backup and dump rows survive - their objects are never
-/// wiped) and is the registry wipe's companion, guarded on
-/// `meta.launched` exactly like
+/// cost governor"). `wipe` clears the primary storage rows and the
+/// daily fairness windows (backup and dump rows survive - their
+/// objects are never wiped - and the monthly op windows survive too:
+/// they mirror already-metered R2 operations and cannot be rebuilt)
+/// and is the registry wipe's companion, guarded on `meta.launched`
+/// exactly like
 /// `scripts/wipe.sh`: only an affirmatively read `'false'` proceeds.
 async fn admin_governor_mutation_response(
     req: &mut Request,
