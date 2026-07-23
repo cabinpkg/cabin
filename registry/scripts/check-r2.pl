@@ -20,10 +20,11 @@ require "$FindBin::RealBin/lexical.pm";
 # (path suffix) => { enclosing fn => sanctioned acquisition count }.
 # glue.rs: the four request-path acquisitions are each immediately
 # preceded by a governor decide (artifact/read/publish paths), the
-# reclaim delete is R2's one free operation, the heal and drain helpers
-# admit per call inside, and the cron entry acquires both buckets once
-# for the drain. web_glue's source viewer and backup_glue's dump job
-# admit before every billable call (docs/architecture.md).
+# reclaim delete is R2's one free operation, and the heal helper
+# admits per call inside. web_glue's source viewer and backup_glue's
+# jobs - the dump job, and the queue drain that acquires both buckets
+# once per pass - admit before every billable call
+# (docs/architecture.md).
 my %allow = (
     'src/glue.rs' => {
         artifact_response           => 1,
@@ -32,10 +33,12 @@ my %allow = (
         replace_rejected_version    => 1,
         delete_blob_if_unreferenced => 1,
         heal_blobs_on_retry         => 1,
-        drain_backup_queue          => 2,
     },
-    'src/web_glue.rs'    => { package_source   => 1 },
-    'src/backup_glue.rs' => { run_nightly_dump => 1 },
+    'src/web_glue.rs'    => { package_source => 1 },
+    'src/backup_glue.rs' => {
+        run_nightly_dump   => 1,
+        drain_backup_queue => 2,
+    },
 );
 
 my $fail = 0;

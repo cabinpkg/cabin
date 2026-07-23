@@ -49,10 +49,6 @@ fn the_canonical_call_sites_pass() {
             "        return not_found();\n",
             "    };\n",
             "}\n",
-            "async fn drain_backup_queue(env: &Env) {\n",
-            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
-            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
-            "}\n",
             // Field access is not a call, a lookalike name is not the
             // method, and a comment describing one is not code.
             "fn bucket_from_columns(auth: &AuthContext) -> Option<quota::Bucket> {\n",
@@ -64,6 +60,19 @@ fn the_canonical_call_sites_pass() {
         ),
     );
     assert!(accepted, "the guard rejected the canonical call sites");
+    // The queue drain's double acquisition is pinned under
+    // backup_glue.rs, where the drain lives.
+    let accepted = guard_accepts_in(
+        "r2_canonical_backup_glue",
+        "backup_glue.rs",
+        concat!(
+            "async fn drain_backup_queue(env: &Env) {\n",
+            "    let (Ok(db), Ok(blobs), Ok(backup)) =\n",
+            "        (env.d1(\"DB\"), env.bucket(\"BLOBS\"), env.bucket(\"BACKUP\"));\n",
+            "}\n",
+        ),
+    );
+    assert!(accepted, "the guard rejected the backup_glue drain");
 }
 
 #[test]
