@@ -104,6 +104,11 @@ impl DurableObject for Governor {
                     .map(|report| serde_json::to_string(&report).unwrap_or_default()),
                 Err(err) => return Response::error(format!("bad reconcile body: {err}"), 400),
             },
+            // The pre-launch ledger wipe; the Worker-side admin route
+            // owns the meta.launched guard.
+            (Method::Post, "/wipe") => {
+                governor::wipe(&mut store).map(|()| r#"{"ok":true}"#.to_owned())
+            }
             _ => return Response::error("unknown governor route", 404),
         };
         match result {

@@ -93,6 +93,18 @@ pub(crate) async fn usage(env: &Env) -> Option<UsageSnapshot> {
     call_json(env, "/usage", None).await
 }
 
+/// The pre-launch ledger wipe; the admin route owns the launch guard.
+/// `false` means the governor did not confirm.
+pub(crate) async fn wipe(env: &Env) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Confirmation {
+        ok: bool,
+    }
+    call_json::<Confirmation>(env, "/wipe", Some(String::new()))
+        .await
+        .is_some_and(|answer| answer.ok)
+}
+
 pub(crate) async fn reconcile(env: &Env, request: &ReconcileRequest) -> Option<ReconcileReport> {
     let body = serde_json::to_string(request).ok()?;
     call_json(env, "/reconcile", Some(body)).await
