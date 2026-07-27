@@ -2217,6 +2217,7 @@ fn target_dep_cycle_within_package_is_reported() {
         language: Default::default(),
         compiler_wrapper: Default::default(),
         patches: Default::default(),
+        upstream: None,
     };
     let graph = single_package_graph(package, "/abs/proj");
     let tc = toolchain();

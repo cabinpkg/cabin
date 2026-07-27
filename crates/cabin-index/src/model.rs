@@ -94,6 +94,11 @@ pub struct VersionMetadata {
     /// (the default for pre-`standards` entries) means everything is
     /// unconstrained.  See `docs/design/standard-compatibility/registry-index.md`.
     pub standards: cabin_core::StandardsMetadata,
+    /// Declared `[package.upstream]` provenance, typed.  Inert for
+    /// resolution and fetching - Cabin never downloads the upstream
+    /// URL; the registry's external verifier consumes it.  `None`
+    /// for entries that declare none.
+    pub upstream: Option<cabin_core::UpstreamProvenance>,
 }
 
 /// One `system = true` dependency entry as it appears in an index

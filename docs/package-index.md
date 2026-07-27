@@ -118,6 +118,7 @@ Each version's metadata:
 | `source` | no | `null` | Source archive metadata.  Optional in the schema; required by `cabin fetch` and `cabin build`.  See [Source artifact](#source-artifact) below. |
 | `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
+| `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, `sha256`, `format`, optional `strip-prefix`, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
 
 Unknown fields anywhere in the file are rejected.
 
@@ -224,6 +225,9 @@ Loading rejects an index when:
 - a `standards` interface cell carries an empty range (`max` older than `min`), or is a bare
   standard string (`"c++17"`) rather than `"none"` or a `{ "min": "<level>", "max": "<level>" }`
   table
+- an `upstream` block violates the provenance rules: a non-HTTPS or credential-bearing `url`, a
+  `sha256` that is not 64 lowercase hex characters, a `format` other than `"tar.gz"` / `"zip"`, a
+  multi-component `strip-prefix`, or an unsafe copy path
 
 ## Not supported yet
 

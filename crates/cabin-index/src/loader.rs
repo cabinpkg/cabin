@@ -381,6 +381,7 @@ pub fn parse_package_entry(
                 compiler_wrapper: raw_ver.compiler_wrapper,
                 language: raw_ver.language,
                 standards: raw_ver.standards,
+                upstream: raw_ver.upstream,
             },
         );
     }
@@ -620,6 +621,13 @@ struct RawVersion {
     /// range-validated `max` and a bare-string cell.
     #[serde(default)]
     standards: cabin_core::StandardsMetadata,
+    /// Declared `[package.upstream]` provenance.  Optional; older
+    /// registries that omit the field continue to load.  Parsed into
+    /// the typed [`cabin_core::UpstreamProvenance`], whose
+    /// deserializer re-validates the declaration (HTTPS, hex digest,
+    /// supported format, safe paths).
+    #[serde(default)]
+    upstream: Option<cabin_core::UpstreamProvenance>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1688,6 +1696,89 @@ mod tests {
         let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
         let (_, meta) = entry.versions.iter().next().unwrap();
         assert!(meta.standards.is_empty());
+    }
+
+    /// A published `upstream` block parses into the typed
+    /// provenance model; entries without one load as `None`.
+    #[test]
+    fn loads_upstream_provenance() {
+        let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(&format!(
+                r#"{{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {{ "10.2.1": {{
+                    "dependencies": {{}},
+                    "upstream": {{
+                        "url": "https://example.com/fmt-10.2.1.tar.gz",
+                        "sha256": "{sha}",
+                        "format": "tar.gz",
+                        "strip-prefix": "fmt-10.2.1",
+                        "copy": [{{"from": "support/a", "to": "a"}}]
+                    }}
+                }} }}
+            }}"#
+            ))
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        let upstream = meta.upstream.as_ref().expect("upstream loaded");
+        assert_eq!(
+            upstream.url().as_str(),
+            "https://example.com/fmt-10.2.1.tar.gz"
+        );
+        assert_eq!(upstream.sha256_hex(), sha);
+        assert_eq!(upstream.format(), cabin_core::UpstreamFormat::TarGz);
+        assert_eq!(upstream.strip_prefix(), Some("fmt-10.2.1"));
+        assert_eq!(upstream.copies().len(), 1);
+    }
+
+    #[test]
+    fn index_without_upstream_loads_none() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": { "10.2.1": { "dependencies": {} } }
+            }"#,
+            )
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        assert!(meta.upstream.is_none());
+    }
+
+    /// The typed deserializer re-validates the declaration, so a
+    /// tampered index entry (non-HTTPS URL) is a parse error, not a
+    /// value.
+    #[test]
+    fn rejects_invalid_upstream_in_index() {
+        let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(&format!(
+                r#"{{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {{ "10.2.1": {{
+                    "dependencies": {{}},
+                    "upstream": {{
+                        "url": "http://example.com/fmt.tar.gz",
+                        "sha256": "{sha}",
+                        "format": "tar.gz"
+                    }}
+                }} }}
+            }}"#
+            ))
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        assert!(err.to_string().contains("https"), "unexpected error: {err}");
     }
 
     /// A populated `max` loads as a bounded requirement; an empty

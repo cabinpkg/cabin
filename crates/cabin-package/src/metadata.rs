@@ -99,6 +99,14 @@ pub struct PackageMetadata {
     /// `docs/design/standard-compatibility/registry-index.md`.
     #[serde(default, skip_serializing_if = "StandardsMetadata::is_empty")]
     pub standards: StandardsMetadata,
+    /// Manifest-declared `[package.upstream]` provenance (the URL in
+    /// its normalized `url`-crate serialization), preserved so the
+    /// registry's external verifier can check the published tree
+    /// against the pinned upstream archive.  Omitted when the
+    /// manifest declares none so older readers and packages without
+    /// provenance see the same shape they always have.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<cabin_core::UpstreamProvenance>,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -297,6 +305,7 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
         compiler_wrapper: package.compiler_wrapper.clone(),
         language: package.language,
         standards: StandardsMetadata::from_package(package),
+        upstream: package.upstream.clone(),
         yanked: false,
         checksum: checksum.to_owned(),
         source: SourceMetadata {
@@ -540,6 +549,47 @@ mod tests {
         let meta = canonical_metadata(&proj, "sha256:x");
         let body = render_canonical_json(&meta).unwrap();
         assert!(body.ends_with('\n'));
+    }
+
+    #[test]
+    fn metadata_carries_upstream_provenance() {
+        let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        let upstream = cabin_core::UpstreamProvenance::new(
+            "https://example.com/fmt-10.2.1.tar.gz",
+            sha,
+            "tar.gz",
+            Some("fmt-10.2.1".to_owned()),
+            vec![
+                cabin_core::UpstreamCopy::new("support/config.h.in".into(), "config.h".into())
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        let proj = package("fmt", "10.2.1", Vec::new()).with_upstream(Some(upstream));
+        let body = render_canonical_json(&canonical_metadata(&proj, "sha256:x")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            value["upstream"],
+            serde_json::json!({
+                "url": "https://example.com/fmt-10.2.1.tar.gz",
+                "sha256": sha,
+                "format": "tar.gz",
+                "strip-prefix": "fmt-10.2.1",
+                "copy": [{"from": "support/config.h.in", "to": "config.h"}],
+            })
+        );
+        // Declaration order is wire order: `upstream` sits between
+        // any standards table and the trailing yanked / checksum /
+        // source block.
+        let u_pos = body.find("\"upstream\"").unwrap();
+        assert!(u_pos < body.find("\"yanked\"").unwrap());
+    }
+
+    #[test]
+    fn metadata_omits_absent_upstream() {
+        let proj = package("fmt", "10.2.1", Vec::new());
+        let body = render_canonical_json(&canonical_metadata(&proj, "sha256:x")).unwrap();
+        assert!(!body.contains("\"upstream\""));
     }
 
     #[test]
