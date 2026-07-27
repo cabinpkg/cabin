@@ -81,7 +81,7 @@ pub(crate) fn check(
     for target in &package.targets {
         for source in &target.sources {
             match archive_path(source) {
-                Some(path) if files.contains(&path) => {}
+                Some(path) if files.contains_key(&path) => {}
                 // A source path that does not reduce to a plain
                 // relative path cannot name an archive entry;
                 // `validate_publishable` already rejected escaping or
@@ -144,6 +144,7 @@ const CHECK_ORDER: &[&str] = &[
     "system-dependencies",
     "language",
     "standards",
+    "upstream",
     "checksum",
 ];
 
@@ -184,6 +185,7 @@ fn field_reason(key: &str) -> Reason {
         "version" => Reason::VersionMismatch,
         "dependencies" | "dev-dependencies" | "system-dependencies" => Reason::DependencyMismatch,
         "language" | "standards" => Reason::LanguageStandardMismatch,
+        "upstream" => Reason::UpstreamMismatch,
         "checksum" => Reason::ChecksumMismatch,
         _ => Reason::MetadataMismatch,
     }
@@ -203,6 +205,7 @@ mod tests {
         for key in ["language", "standards"] {
             assert_eq!(field_reason(key), Reason::LanguageStandardMismatch);
         }
+        assert_eq!(field_reason("upstream"), Reason::UpstreamMismatch);
         assert_eq!(field_reason("checksum"), Reason::ChecksumMismatch);
         for key in [
             "schema",

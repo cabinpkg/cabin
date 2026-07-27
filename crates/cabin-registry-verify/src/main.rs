@@ -2,7 +2,7 @@
 //! advisories for the GitHub Actions workflow.
 //!
 //! ```text
-//! cabin-registry-verify <archive.zip> <listing-entry.json>
+//! cabin-registry-verify <archive.zip> <listing-entry.json> [--upstream <upstream-archive>]
 //! cabin-registry-verify --name-advisories <listing-entry.json> <corpus.json>
 //! ```
 //!
@@ -34,25 +34,26 @@ fn main() -> ExitCode {
     }
 }
 
-const USAGE: &str = "usage: cabin-registry-verify <archive.zip> <listing-entry.json> | \
+const USAGE: &str = "usage: cabin-registry-verify <archive.zip> <listing-entry.json> \
+     [--upstream <upstream-archive>] | \
      cabin-registry-verify --name-advisories <listing-entry.json> <corpus.json>";
 
 fn run() -> Result<(), String> {
-    let mut args = std::env::args_os().skip(1);
-    let (Some(first), Some(second), third, None) =
-        (args.next(), args.next(), args.next(), args.next())
-    else {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let Some(([first, second], rest)) = args.split_first_chunk() else {
         return Err(USAGE.into());
     };
     if first == "--name-advisories" {
-        let Some(corpus) = third else {
+        let [corpus] = rest else {
             return Err(USAGE.into());
         };
         return advise(&PathBuf::from(second), &PathBuf::from(corpus));
     }
-    if third.is_some() {
-        return Err(USAGE.into());
-    }
+    let upstream = match rest {
+        [] => None,
+        [flag, path] if flag == "--upstream" => Some(PathBuf::from(path)),
+        _ => return Err(USAGE.into()),
+    };
     let archive = PathBuf::from(first);
     let entry = PathBuf::from(second);
 
@@ -69,7 +70,8 @@ fn run() -> Result<(), String> {
     let pending: PendingVersion = serde_json::from_slice(&entry_bytes)
         .map_err(|err| format!("failed to parse {}: {err}", entry.display()))?;
 
-    let verdict = inspect(&archive, &pending, &limits).map_err(|err| err.to_string())?;
+    let verdict =
+        inspect(&archive, &pending, &limits, upstream.as_deref()).map_err(|err| err.to_string())?;
     let rendered = match verdict {
         Verdict::Verified => serde_json::json!({ "verdict": "verified" }),
         Verdict::Rejected(reasons) => serde_json::json!({

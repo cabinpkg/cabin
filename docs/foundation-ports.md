@@ -287,6 +287,11 @@ For a bundled (`port = true`) dependency the shape is:
 
 - Not Cabin's public registry.  Cabin's registry layer is documented in
   [`registry-design.md`](registry-design.md) and evolves independently.
+- Not published metadata.  A port recipe's `[source]` / `[[copy]]` vocabulary has a published
+  counterpart - the optional `[package.upstream]` provenance table on a package manifest
+  ([`manifest.md`](manifest.md#packageupstream)), which the hosted registry's external verifier
+  checks against the pinned upstream archive.  The recipe stays local development policy;
+  `cabin publish` never archives port recipes.
 - Not a submission queue.  New foundation ports require a curated review; this directory is
   intentionally small.
 - Not a vehicle for binary distribution.  Only source archives are supported.

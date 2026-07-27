@@ -13,12 +13,13 @@
 // u16/u32 field widths, so the narrowing casts are intentional.
 #![allow(clippy::cast_possible_truncation)]
 
+use std::fs;
 use std::io::Write as _;
 use std::path::PathBuf;
 
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
-use cabin_registry_verify::{Limits, PendingVersion, Reason, Verdict, inspect};
+use cabin_registry_verify::{Limits, PendingVersion, Reason, Verdict, VerifyError, inspect};
 
 // Zip record signatures (little-endian on disk).
 const LOCAL_SIG: u32 = 0x0403_4b50;
@@ -294,7 +295,7 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
 }
 
 fn assert_rejected(archive: &std::path::Path, pending: &PendingVersion, reason: Reason) {
-    let verdict = inspect(archive, pending, &Limits::default()).unwrap();
+    let verdict = inspect(archive, pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Rejected(vec![reason]));
 }
 
@@ -313,7 +314,7 @@ const MINIMAL_MANIFEST: &str = "[package]\nname = \"demo\"\nversion = \"1.2.3\"\
 fn benign_archive_verifies() {
     let dir = TempDir::new().unwrap();
     let (archive, pending) = benign(&dir);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -346,7 +347,7 @@ fn scoped_archive_verifies() {
     .unwrap();
     let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
     assert_eq!(pending.name, "acme/demo");
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 
     // A listing row naming a different scope must not bind this
@@ -377,7 +378,7 @@ fn long_paths_within_the_cap_verify() {
     )
     .unwrap();
     let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -402,7 +403,7 @@ fn source_with_an_internal_parent_component_verifies() {
     )
     .unwrap();
     let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -419,7 +420,7 @@ fn non_ascii_name_with_the_utf8_bit_verifies() {
         Entry::deflated("src/café.h", b"int f();\n"),
     ];
     let (archive, pending) = hand_pending(&dir, &entries, MINIMAL_MANIFEST);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -432,7 +433,7 @@ fn many_tiny_entries_stay_within_the_ratio_floor() {
     let mut entries = vec![Entry::deflated("cabin.toml", MINIMAL_MANIFEST.as_bytes())];
     entries.extend((0..9000).map(|i| Entry::deflated(&format!("src/f{i}.h"), b"")));
     let (archive, pending) = hand_pending(&dir, &entries, MINIMAL_MANIFEST);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -444,7 +445,7 @@ fn stored_entry_verifies() {
     let dir = TempDir::new().unwrap();
     let entries = [Entry::stored("cabin.toml", MINIMAL_MANIFEST.as_bytes())];
     let (archive, pending) = hand_pending(&dir, &entries, MINIMAL_MANIFEST);
-    let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+    let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
 }
 
@@ -517,7 +518,7 @@ fn over_long_path_is_rejected() {
         max_path_len: 32,
         ..Limits::default()
     };
-    let verdict = inspect(&archive, &pending, &limits).unwrap();
+    let verdict = inspect(&archive, &pending, &limits, None).unwrap();
     assert_eq!(verdict, Verdict::Rejected(vec![Reason::PathTooLong]));
 }
 
@@ -614,7 +615,7 @@ fn entry_flood_is_rejected() {
         max_entries: 4,
         ..Limits::default()
     };
-    let verdict = inspect(&archive, &pending, &limits).unwrap();
+    let verdict = inspect(&archive, &pending, &limits, None).unwrap();
     assert_eq!(verdict, Verdict::Rejected(vec![Reason::TooManyEntries]));
 }
 
@@ -641,7 +642,7 @@ fn absolute_cap_bounds_low_ratio_archives() {
         abs_cap_bytes: 1024,
         ..Limits::default()
     };
-    let verdict = inspect(&archive, &pending, &limits).unwrap();
+    let verdict = inspect(&archive, &pending, &limits, None).unwrap();
     assert_eq!(
         verdict,
         Verdict::Rejected(vec![Reason::DecompressedTooLarge])
@@ -871,7 +872,7 @@ fn unpublishable_manifests_are_rejected() {
     ] {
         let (archive, pending) =
             hostile_one(&dir, Entry::deflated("cabin.toml", manifest.as_bytes()));
-        let verdict = inspect(&archive, &pending, &Limits::default()).unwrap();
+        let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
         assert_eq!(
             verdict,
             Verdict::Rejected(vec![Reason::ManifestInvalid]),
@@ -1080,6 +1081,37 @@ mod binary {
     }
 
     #[test]
+    fn upstream_flag_threads_the_archive_into_the_inspection() {
+        let dir = TempDir::new().unwrap();
+        let (upstream, hex) = default_upstream(&dir);
+        let staged = provenance_staged(&dir, &hex);
+        let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+        let entry = write_entry(&dir, &pending);
+        verifier()
+            .arg(&archive)
+            .arg(&entry)
+            .arg("--upstream")
+            .arg(&upstream)
+            .assert()
+            .success()
+            .stdout("{\"verdict\":\"verified\"}\n");
+    }
+
+    #[test]
+    fn stray_arguments_exit_two_with_usage() {
+        let dir = TempDir::new().unwrap();
+        let (archive, pending) = benign(&dir);
+        let entry = write_entry(&dir, &pending);
+        verifier()
+            .arg(&archive)
+            .arg(&entry)
+            .arg("stray")
+            .assert()
+            .code(2)
+            .stdout("");
+    }
+
+    #[test]
     fn invalid_limit_values_exit_two() {
         let dir = TempDir::new().unwrap();
         let (archive, pending) = benign(&dir);
@@ -1092,4 +1124,510 @@ mod binary {
             .code(2)
             .stdout("");
     }
+}
+
+// ---- Upstream provenance ----
+//
+// A provenance-bearing package must be the declared transformation
+// of its pinned upstream archive: extract (with `strip-prefix`),
+// apply the copy steps, collect under the packaging include/exclude
+// policy, and match the published tree byte-for-byte except the root
+// `cabin.toml`.
+
+const UPSTREAM_LIB_CC: &str = "int lib() { return 42; }\n";
+const UPSTREAM_LIB_H: &str = "#pragma once\nint lib();\n";
+const UPSTREAM_CONFIG_H: &str = "#define LIB_HAVE_CONFIG 1\n";
+
+/// Build a gzip'd tar at `name` holding `entries` and return its
+/// path plus lowercase SHA-256 hex.
+fn upstream_tar_gz(dir: &TempDir, name: &str, entries: &[(&str, &str)]) -> (PathBuf, String) {
+    let path = dir.child(name).to_path_buf();
+    let file = fs::File::create(&path).unwrap();
+    let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+    let mut builder = tar::Builder::new(enc);
+    for (rel, body) in entries {
+        let bytes = body.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, rel, std::io::Cursor::new(bytes))
+            .unwrap();
+    }
+    builder.into_inner().unwrap().finish().unwrap();
+    let hex = cabin_core::hash::hash_reader(fs::File::open(&path).unwrap()).unwrap();
+    (path, hex)
+}
+
+/// The upstream archive most provenance tests pin: a `lib-1.0/`
+/// prefixed tree whose stripped contents (plus the declared
+/// `config.h` copy) are exactly what [`provenance_staged`] packages.
+fn default_upstream(dir: &TempDir) -> (PathBuf, String) {
+    upstream_tar_gz(
+        dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/scripts/config.h.prebuilt", UPSTREAM_CONFIG_H),
+        ],
+    )
+}
+
+/// Stage a provenance-bearing package through the real packager.
+/// The source tree is what a client materializes from the archive in
+/// [`default_upstream`]: the stripped files, the declared
+/// `config.h` copy (source file left in place), and the author's
+/// `cabin.toml`.
+fn provenance_staged(dir: &TempDir, upstream_sha: &str) -> cabin_package::StagedPackage {
+    provenance_staged_with(dir, upstream_sha, "lib-1.0", "scripts/config.h.prebuilt")
+}
+
+fn provenance_staged_with(
+    dir: &TempDir,
+    upstream_sha: &str,
+    strip_prefix: &str,
+    copy_from: &str,
+) -> cabin_package::StagedPackage {
+    dir.child("pkg/cabin.toml")
+        .write_str(&format!(
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             \n\
+             [package.upstream]\n\
+             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+             sha256 = \"{upstream_sha}\"\n\
+             format = \"tar.gz\"\n\
+             strip-prefix = \"{strip_prefix}\"\n\
+             \n\
+             [[package.upstream.copy]]\n\
+             from = \"{copy_from}\"\n\
+             to = \"config.h\"\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n\
+             interface-cxx-standard = \"c++17\"\n",
+        ))
+        .unwrap();
+    dir.child("pkg/src/lib.cc")
+        .write_str(UPSTREAM_LIB_CC)
+        .unwrap();
+    dir.child("pkg/include/lib.h")
+        .write_str(UPSTREAM_LIB_H)
+        .unwrap();
+    dir.child("pkg/scripts/config.h.prebuilt")
+        .write_str(UPSTREAM_CONFIG_H)
+        .unwrap();
+    dir.child("pkg/config.h")
+        .write_str(UPSTREAM_CONFIG_H)
+        .unwrap();
+    cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap()
+}
+
+fn assert_upstream_rejected(
+    archive: &std::path::Path,
+    pending: &PendingVersion,
+    upstream: &std::path::Path,
+    reason: Reason,
+) {
+    let verdict = inspect(archive, pending, &Limits::default(), Some(upstream)).unwrap();
+    assert_eq!(verdict, Verdict::Rejected(vec![reason]));
+}
+
+#[test]
+fn provenance_tar_gz_package_verifies() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = default_upstream(&dir);
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let verdict = inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+}
+
+#[test]
+fn provenance_zip_package_verifies() {
+    // A zip upstream with no strip prefix and no copies (the
+    // miniz-style shape).  The upstream container is an ordinary
+    // zip; the strict profile only binds the *published* archive.
+    let dir = TempDir::new().unwrap();
+    let upstream_bytes = assemble(&[
+        Entry::stored("src/lib.cc", UPSTREAM_LIB_CC.as_bytes()),
+        Entry::stored("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+    ]);
+    let upstream = dir.child("lib-1.0.zip");
+    upstream.write_binary(&upstream_bytes).unwrap();
+    let hex = cabin_core::hash::hash_reader(upstream_bytes.as_slice()).unwrap();
+
+    dir.child("pkg/cabin.toml")
+        .write_str(&format!(
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             \n\
+             [package.upstream]\n\
+             url = \"https://upstream.invalid/lib-1.0.zip\"\n\
+             sha256 = \"{hex}\"\n\
+             format = \"zip\"\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n\
+             interface-cxx-standard = \"c++17\"\n",
+        ))
+        .unwrap();
+    dir.child("pkg/src/lib.cc")
+        .write_str(UPSTREAM_LIB_CC)
+        .unwrap();
+    dir.child("pkg/include/lib.h")
+        .write_str(UPSTREAM_LIB_H)
+        .unwrap();
+    let staged = cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap();
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let verdict = inspect(
+        &archive,
+        &pending,
+        &Limits::default(),
+        Some(upstream.path()),
+    )
+    .unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+}
+
+/// Names the packaging policy excludes (`.git`, `cabin.lock`) and an
+/// upstream root `cabin.toml` do not break verification: the
+/// expected tree is collected under the same include/exclude walk
+/// `cabin package` runs, and the root manifest is exempt on both
+/// sides.
+#[test]
+fn upstream_only_policy_excluded_files_still_verify() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/scripts/config.h.prebuilt", UPSTREAM_CONFIG_H),
+            ("lib-1.0/cabin.toml", "# upstream's own manifest\n"),
+            ("lib-1.0/cabin.lock", "# stale lock\n"),
+            ("lib-1.0/.git/config", "[core]\n"),
+        ],
+    );
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let verdict = inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+}
+
+#[test]
+fn upstream_checksum_mismatch_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, _hex) = default_upstream(&dir);
+    // The manifest pins a digest the downloaded bytes do not match.
+    let staged = provenance_staged(&dir, &"0".repeat(64));
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamChecksumMismatch,
+    );
+}
+
+#[test]
+fn upstream_content_divergence_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", "int lib() { return 7; } // differs\n"),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/scripts/config.h.prebuilt", UPSTREAM_CONFIG_H),
+        ],
+    );
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamTreeMismatch("file contents"),
+    );
+}
+
+#[test]
+fn published_archive_missing_an_upstream_file_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/src/extra.cc", "int extra();\n"),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/scripts/config.h.prebuilt", UPSTREAM_CONFIG_H),
+        ],
+    );
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamTreeMismatch("missing file"),
+    );
+}
+
+#[test]
+fn published_archive_with_an_unexplained_file_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = default_upstream(&dir);
+    dir.child("pkg/NOTICE.txt")
+        .write_str("added by hand\n")
+        .unwrap();
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamTreeMismatch("extra file"),
+    );
+}
+
+#[test]
+fn upstream_copy_source_missing_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = default_upstream(&dir);
+    let staged = provenance_staged_with(&dir, &hex, "lib-1.0", "scripts/absent.prebuilt");
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamCopyInvalid("missing source"),
+    );
+}
+
+#[test]
+fn upstream_missing_strip_prefix_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = default_upstream(&dir);
+    let staged = provenance_staged_with(&dir, &hex, "wrong-prefix", "scripts/config.h.prebuilt");
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamArchiveInvalid(Some("strip prefix")),
+    );
+}
+
+/// A hostile upstream archive (here: a fifo entry the hardened
+/// extractor refuses) is a deterministic rejection, not an
+/// operational failure - the pinned bytes themselves cannot be
+/// interpreted.
+#[test]
+fn hostile_upstream_archive_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.child("lib-1.0.tar.gz").to_path_buf();
+    let file = fs::File::create(&path).unwrap();
+    let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+    let mut builder = tar::Builder::new(enc);
+    let body = UPSTREAM_LIB_CC.as_bytes();
+    let mut header = tar::Header::new_gnu();
+    header.set_size(body.len() as u64);
+    header.set_mode(0o644);
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_cksum();
+    builder
+        .append_data(
+            &mut header,
+            "lib-1.0/src/lib.cc",
+            std::io::Cursor::new(body),
+        )
+        .unwrap();
+    let mut header = tar::Header::new_gnu();
+    header.set_path("lib-1.0/pipe").unwrap();
+    header.set_size(0);
+    header.set_entry_type(tar::EntryType::Fifo);
+    header.set_cksum();
+    builder.append(&header, std::io::empty()).unwrap();
+    builder.into_inner().unwrap().finish().unwrap();
+    let hex = cabin_core::hash::hash_reader(fs::File::open(&path).unwrap()).unwrap();
+
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &path,
+        Reason::UpstreamArchiveInvalid(None),
+    );
+}
+
+/// A pinned archive whose bytes match the digest but whose stream
+/// will not decode is a deterministic, publisher-controlled fault:
+/// it must reject, not sit pending forever re-failing every cron
+/// pass.
+#[test]
+fn truncated_upstream_archive_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, _hex) = default_upstream(&dir);
+    let bytes = fs::read(&upstream).unwrap();
+    let truncated = dir.child("truncated.tar.gz");
+    truncated.write_binary(&bytes[..bytes.len() / 2]).unwrap();
+    let hex = cabin_core::hash::hash_reader(&bytes[..bytes.len() / 2]).unwrap();
+
+    // The manifest pins the truncated bytes' own digest, so the
+    // checksum gate passes and the decode failure is what rejects.
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        truncated.path(),
+        Reason::UpstreamArchiveInvalid(Some("stream")),
+    );
+}
+
+/// An entry name the verifier's filesystem cannot materialize (a
+/// 256-byte component fits the extractor's 256-byte *path* cap but
+/// exceeds `NAME_MAX`) is archive-determined: it must reject, not
+/// stay pending.
+#[test]
+fn unmaterializable_upstream_filename_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let long_name = "a".repeat(256);
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[("src/lib.cc", UPSTREAM_LIB_CC), (&long_name, "x\n")],
+    );
+
+    dir.child("pkg/cabin.toml")
+        .write_str(&format!(
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             \n\
+             [package.upstream]\n\
+             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+             sha256 = \"{hex}\"\n\
+             format = \"tar.gz\"\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n\
+             interface-cxx-standard = \"c++17\"\n",
+        ))
+        .unwrap();
+    dir.child("pkg/src/lib.cc")
+        .write_str(UPSTREAM_LIB_CC)
+        .unwrap();
+    let staged = cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap();
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamArchiveInvalid(Some("file name")),
+    );
+}
+
+/// A copy destination the extracted tree already occupies with a
+/// directory is a deterministic declaration/tree conflict, not an
+/// operational failure.
+#[test]
+fn upstream_copy_destination_conflict_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+            ("lib-1.0/scripts/config.h.prebuilt", UPSTREAM_CONFIG_H),
+            // The declared copy's `to = "config.h"` is a directory
+            // in the upstream tree.
+            ("lib-1.0/config.h/inner.txt", "occupied\n"),
+        ],
+    );
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamCopyInvalid("destination"),
+    );
+}
+
+/// A stored `upstream` block that disagrees with the archived
+/// manifest is caught by the consistency pass with its own code,
+/// before any upstream bytes are consulted.
+#[test]
+fn stored_upstream_divergence_is_rejected_as_upstream_mismatch() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = default_upstream(&dir);
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, mut pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    pending.metadata["upstream"]["sha256"] = serde_json::json!("1".repeat(64));
+    assert_upstream_rejected(&archive, &pending, &upstream, Reason::UpstreamMismatch);
+}
+
+/// Declared provenance with no downloaded archive - and the
+/// reverse - are operational failures: no verdict, the version
+/// stays pending.
+#[test]
+fn upstream_archive_presence_must_match_the_declaration() {
+    let dir = TempDir::new().unwrap();
+    let (_upstream, hex) = default_upstream(&dir);
+    let staged = provenance_staged(&dir, &hex);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let err = inspect(&archive, &pending, &Limits::default(), None).unwrap_err();
+    assert!(
+        matches!(err, VerifyError::MissingUpstreamArchive),
+        "{err:?}"
+    );
+
+    let plain_dir = TempDir::new().unwrap();
+    let (plain_archive, plain_pending) = benign(&plain_dir);
+    let err = inspect(
+        &plain_archive,
+        &plain_pending,
+        &Limits::default(),
+        Some(&archive),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, VerifyError::UnexpectedUpstreamArchive),
+        "{err:?}"
+    );
 }

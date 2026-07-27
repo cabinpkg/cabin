@@ -400,14 +400,21 @@ hosted service: the `cabin-registry-verify` binary is invoked by the `registry-v
 Actions workflow, never by users.  The crate must:
 
 - never appear in the `cabin` binary's dependency graph;
-- never extract an archive to disk; every check streams under the decompression caps (memory
-  stays within a small constant factor of the cap; only the manifest entry is retained), and a
-  cap violation is a rejection, never an OOM;
+- never extract the *registry* archive to disk; every check on it streams under the
+  decompression caps (memory stays within a small constant factor of the cap; only the manifest
+  entry is retained), and a cap violation is a rejection, never an OOM.  The upstream-provenance
+  pass is the one deliberate extraction: a pinned upstream archive whose digest already matched
+  is extracted into a scratch directory through `cabin-artifact`'s hardened extractors - the
+  same bounded code path foundation ports run - because the tree comparison needs the exact
+  extraction and collection semantics clients use;
 - reuse `cabin-package`'s seams instead of duplicating them: the publishability rules
-  (`validate_publishable`) and the canonical-metadata derivation (`canonical_metadata`) are
+  (`validate_publishable`), the canonical-metadata derivation (`canonical_metadata`), and the
+  archive include / exclude walk (`collect_package_files`, for the expected upstream tree) are
   the same code publish runs, so producer and verifier cannot drift;
-- not perform HTTP - the workflow downloads archives and PATCHes verdicts; the binary is pure
-  local inspection (files in, JSON verdict out);
+- not perform HTTP - the workflow downloads archives (the registry's and, for
+  provenance-bearing versions, the pinned upstream one, without ever sending the privileged
+  token to the publisher-controlled URL) and PATCHes verdicts; the binary is pure local
+  inspection (files in, JSON verdict out);
 - treat archive-caused failures as verdicts and environment-caused failures as errors that
   leave the version pending (fail safe).
 
