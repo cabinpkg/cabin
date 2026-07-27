@@ -331,7 +331,7 @@ pub(crate) fn emit_link_diagnostic_if_applicable(
             .map(|d| d.name.as_str().to_owned())
             .collect();
         // `target.deps` entries are either a bare name (same-package
-        // target or the same-name shorthand on a dependency package)
+        // target or a dependency package's sole library-like target)
         // or a qualified `package:target` reference.  We only care
         // about whether the *package* appears, so the suffix gets
         // stripped.

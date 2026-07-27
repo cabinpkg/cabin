@@ -1178,8 +1178,8 @@ fn target_dep_table_form_accepts_explicit_public() {
 }
 
 /// The table form keeps the reference exactly as written: a bare
-/// name that will later resolve through the same-name shorthand
-/// (`fmt` -> `fmt:fmt`) stays pre-alias here, because alias
+/// name that will later resolve to a dependency package's sole
+/// library-like target stays pre-alias here, because alias
 /// resolution happens in the planner against a concrete package
 /// graph - visibility is attached to the *resolved* edge there.
 #[test]

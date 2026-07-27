@@ -520,8 +520,8 @@ fn plans_library_then_executable_within_one_package() {
 #[test]
 fn cross_package_path_dep_links_library() {
     // greet at /abs/greet, app at /abs/app depending on greet.
-    // `deps = ["greet"]` exercises the same-name shorthand
-    // (`greet` -> `greet:greet`).
+    // `deps = ["greet"]` resolves to the dependency's sole
+    // library target (here also named `greet`).
     let greet_proj = Package::new(
         pkg_name("greet"),
         version(),
@@ -581,15 +581,123 @@ fn cross_package_path_dep_links_library() {
 }
 
 #[test]
-fn bare_dep_shorthand_requires_same_name_target() {
-    // `deps = ["greet"]` is shorthand for `greet:greet` - pure name
-    // matching, never a "default library" pick.  When the dependency
-    // declares no target named like the package, the entry must fail
-    // and spell out the qualified candidates.
+fn bare_dep_resolves_sole_library_target() {
+    // `deps = ["zlib"]` resolves to the dependency's *sole*
+    // library-like target - here named `z`, not `zlib` - so a
+    // package need not echo its own name in a target key.  The key
+    // stays the package-local identity that drives the artifact
+    // name (`libz.a`).  The dependency compiles a C source so the
+    // shorthand is exercised for C alongside the C++ consumers.
+    let zlib_proj = Package::new(
+        pkg_name("zlib"),
+        version(),
+        vec![target_with_includes(
+            "z",
+            TargetKind::Library,
+            &["src/z.c"],
+            &["include"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["zlib"],
+        )],
+        vec![dep("zlib", "../zlib")],
+    )
+    .unwrap();
+    let zlib_pkg = make_pkg("zlib", "/abs/zlib", zlib_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![zlib_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain_with_cc();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs
+            .contains(&Utf8PathBuf::from("/abs/build/dev/packages/zlib/libz.a")),
+        "sole library target `z` should be linked, inputs: {:?}",
+        link.inputs
+    );
+    // zlib's include dir propagates into app's compile.
+    let app_compile = compile_actions(&bg)
+        .into_iter()
+        .find(|c| c.object.as_str().replace('\\', "/").contains("/app/"))
+        .expect("app compile action present");
+    assert!(
+        app_compile
+            .arguments
+            .include_dirs
+            .contains(&Utf8PathBuf::from("/abs/zlib/include"))
+    );
+}
+
+#[test]
+fn bare_dep_resolves_sole_header_only_target() {
+    // `header-only` is library-like: a dependency whose sole such
+    // target is header-only resolves through the bare name, and its
+    // include dirs reach the consumer without any archive.
+    let hdr_proj = Package::new(
+        pkg_name("hdrlib"),
+        version(),
+        vec![target_with_includes(
+            "span",
+            TargetKind::HeaderOnly,
+            &[],
+            &["include"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["hdrlib"],
+        )],
+        vec![dep("hdrlib", "../hdrlib")],
+    )
+    .unwrap();
+    let hdr_pkg = make_pkg("hdrlib", "/abs/hdrlib", hdr_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![hdr_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let app_compile = compile_actions(&bg)
+        .into_iter()
+        .find(|c| c.object.as_str().replace('\\', "/").contains("/app/"))
+        .expect("app compile action present");
+    assert!(
+        app_compile
+            .arguments
+            .include_dirs
+            .contains(&Utf8PathBuf::from("/abs/hdrlib/include"))
+    );
+}
+
+#[test]
+fn bare_dep_with_multiple_library_targets_is_ambiguous() {
+    // Two library-like targets leave no principled pick for a bare
+    // name - even when one of them is named after the package, the
+    // old basename rule must not tie-break.  The error lists the
+    // qualified candidates in the package's target order.
     let greet_proj = Package::new(
         pkg_name("greet"),
         version(),
-        vec![target("core", TargetKind::Library, &["src/core.cc"], &[])],
+        vec![
+            target("extras", TargetKind::Library, &["src/extras.cc"], &[]),
+            target("greet", TargetKind::Library, &["src/greet.cc"], &[]),
+        ],
         Vec::new(),
     )
     .unwrap();
@@ -611,33 +719,124 @@ fn bare_dep_shorthand_requires_same_name_target() {
     let tc = toolchain();
     let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
     match &err {
-        BuildError::NoSameNameTargetInDependency {
-            dep,
+        BuildError::AmbiguousLibraryTargetInDependency {
             package,
             candidates,
         } => {
-            assert_eq!(dep, "greet");
             assert_eq!(package, "greet");
-            assert_eq!(candidates, &["greet:core".to_owned()]);
+            assert_eq!(
+                candidates,
+                &["greet:extras".to_owned(), "greet:greet".to_owned()]
+            );
         }
-        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
+        other => panic!("expected AmbiguousLibraryTargetInDependency, got {other:?}"),
     }
     let rendered = err.to_string();
     assert!(
-        rendered.contains("`greet:core`"),
-        "error should suggest the qualified spelling, got: {rendered}"
+        rendered.contains("`greet:extras` or `greet:greet`"),
+        "error should list the qualified candidates, got: {rendered}"
+    );
+}
+
+#[test]
+fn local_target_shadows_same_named_dependency_package() {
+    // A bare name is a same-package target reference first; only a
+    // name with no local match falls through to the dependency
+    // shorthand.  Here `greet` names both a local library and a
+    // dependency package - the local target wins.
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![target("core", TargetKind::Library, &["src/core.cc"], &[])],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![
+            target("greet", TargetKind::Library, &["src/greet.cc"], &[]),
+            target("app", TargetKind::Executable, &["src/main.cc"], &["greet"]),
+        ],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs
+            .contains(&Utf8PathBuf::from("/abs/build/dev/packages/app/libgreet.a")),
+        "local target must shadow the dependency package, inputs: {:?}",
+        link.inputs
+    );
+    assert!(
+        !link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/greet/libcore.a"
+        )),
+        "the dependency's library must not be picked when a local target matches"
+    );
+}
+
+#[test]
+fn qualified_reference_disambiguates_multiple_library_targets() {
+    // The same two-library dependency resolves fine when the entry
+    // picks its target explicitly.
+    let greet_proj = Package::new(
+        pkg_name("greet"),
+        version(),
+        vec![
+            target("core", TargetKind::Library, &["src/core.cc"], &[]),
+            target("extras", TargetKind::Library, &["src/extras.cc"], &[]),
+        ],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["greet:extras"],
+        )],
+        vec![dep("greet", "../greet")],
+    )
+    .unwrap();
+    let greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/greet/libextras.a"
+        )),
+        "explicitly selected target should be linked, inputs: {:?}",
+        link.inputs
+    );
+    assert!(
+        !link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/greet/libcore.a"
+        )),
+        "unselected sibling library must not be linked"
     );
 }
 
 /// A scoped dependency nests its build outputs one directory per
 /// name component (`packages/<scope>/<name>/...`) - the full
-/// `scope/name` string is never one path component - and the
-/// same-name `deps` shorthand resolves to the target named after the
-/// package's *base* name (target names never contain `/`).  The
-/// dependency compiles a C source so the scoped layout is exercised
-/// for C alongside the C++ consumers elsewhere in this module.
+/// `scope/name` string is never one path component - and the bare
+/// `deps` shorthand resolves to the dependency's sole library-like
+/// target.  The dependency compiles a C source so the scoped layout
+/// is exercised for C alongside the C++ consumers elsewhere in this
+/// module.
 #[test]
-fn scoped_dependency_nests_build_dirs_and_links_base_named_target() {
+fn scoped_dependency_nests_build_dirs_and_links_sole_target() {
     let fmt_proj = Package::new(
         pkg_name("fmtlib/fmt"),
         version(),
@@ -697,11 +896,11 @@ fn scoped_dependency_nests_build_dirs_and_links_base_named_target() {
     );
 }
 
-/// A scoped dependency whose targets are all named differently from
-/// its base name fails the shorthand with qualified candidates, just
-/// like a bare one.
+/// A scoped dependency resolves its bare shorthand exactly like a
+/// bare one: the sole library-like target is selected whatever it
+/// is named - the base name plays no role.
 #[test]
-fn scoped_dep_shorthand_requires_base_named_target() {
+fn scoped_bare_dep_resolves_sole_library_target() {
     let fmt_proj = Package::new(
         pkg_name("fmtlib/fmt"),
         version(),
@@ -725,19 +924,15 @@ fn scoped_dep_shorthand_requires_base_named_target() {
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     let graph = graph_with(vec![fmt_pkg, app_pkg], vec![1], Some(1));
     let tc = toolchain();
-    let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
-    match &err {
-        BuildError::NoSameNameTargetInDependency {
-            dep,
-            package,
-            candidates,
-        } => {
-            assert_eq!(dep, "fmtlib/fmt");
-            assert_eq!(package, "fmtlib/fmt");
-            assert_eq!(candidates, &["fmtlib/fmt:core".to_owned()]);
-        }
-        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
-    }
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/fmtlib/fmt/libcore.a"
+        )),
+        "scoped dep's sole library target should be linked, inputs: {:?}",
+        link.inputs
+    );
 }
 
 /// An unrelated bare workspace member named like a dependency's
@@ -825,11 +1020,12 @@ fn bare_package_name_colliding_with_a_scope_is_rejected() {
 }
 
 #[test]
-fn bare_dep_shorthand_ignores_non_linkable_same_name_target() {
+fn bare_dep_ignores_non_library_targets_when_picking_the_sole_candidate() {
     // The dependency declares an *executable* named like the
-    // package plus a differently named library.  The shorthand must
-    // not silently pick the executable (it contributes no include
-    // dirs or archives); the error lists the linkable candidates.
+    // package plus a differently named library.  Only library-like
+    // kinds are candidates (an executable contributes no include
+    // dirs or archives), so the library is the sole pick even
+    // though the executable shares the package's name.
     let tool_proj = Package::new(
         pkg_name("tool"),
         version(),
@@ -856,35 +1052,79 @@ fn bare_dep_shorthand_ignores_non_linkable_same_name_target() {
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     let graph = graph_with(vec![tool_pkg, app_pkg], vec![1], Some(1));
     let tc = toolchain();
+    let bg = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap();
+    let link = link_action(&bg);
+    assert!(
+        link.inputs.contains(&Utf8PathBuf::from(
+            "/abs/build/dev/packages/tool/libtoollib.a"
+        )),
+        "sole library target should be linked, inputs: {:?}",
+        link.inputs
+    );
+}
+
+#[test]
+fn bare_dep_with_no_library_targets_errors() {
+    // A dependency declaring only an executable has nothing a bare
+    // name could link; the entry fails with the targeted diagnostic
+    // instead of silently linking nothing.
+    let tool_proj = Package::new(
+        pkg_name("tool"),
+        version(),
+        vec![target(
+            "tool",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &[],
+        )],
+        Vec::new(),
+    )
+    .unwrap();
+    let app_proj = Package::new(
+        pkg_name("app"),
+        version(),
+        vec![target(
+            "app",
+            TargetKind::Executable,
+            &["src/main.cc"],
+            &["tool"],
+        )],
+        vec![dep("tool", "../tool")],
+    )
+    .unwrap();
+    let tool_pkg = make_pkg("tool", "/abs/tool", tool_proj, vec![]);
+    let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
+    let graph = graph_with(vec![tool_pkg, app_pkg], vec![1], Some(1));
+    let tc = toolchain();
     let err = plan(&plan_request(&graph, &tc, "/abs/build")).unwrap_err();
     match &err {
-        BuildError::NoSameNameTargetInDependency {
-            dep,
-            package,
-            candidates,
-        } => {
-            assert_eq!(dep, "tool");
+        BuildError::NoLibraryTargetInDependency { package } => {
             assert_eq!(package, "tool");
-            assert_eq!(candidates, &["tool:toollib".to_owned()]);
         }
-        other => panic!("expected NoSameNameTargetInDependency, got {other:?}"),
+        other => panic!("expected NoLibraryTargetInDependency, got {other:?}"),
     }
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("no library or header-only target"),
+        "error should explain the missing linkable target, got: {rendered}"
+    );
 }
 
 // -----------------------------------------------------------------
 // per-edge dependency visibility.
 // -----------------------------------------------------------------
 
-/// greet at index 0 (library target `greet`), app at index 1
-/// depending on greet.  The shared fixture for edge-visibility
-/// resolution tests.
+/// greet at index 0 (sole library target `greet`, plus a
+/// non-library `extras` executable so qualified references have a
+/// second name to point at), app at index 1 depending on greet.
+/// The shared fixture for edge-visibility resolution tests.
 fn visibility_fixture() -> PackageGraph {
     let greet_proj = Package::new(
         pkg_name("greet"),
         version(),
         vec![
             target("greet", TargetKind::Library, &["src/greet.cc"], &[]),
-            target("extras", TargetKind::Library, &["src/extras.cc"], &[]),
+            target("extras", TargetKind::Executable, &["src/extras.cc"], &[]),
         ],
         Vec::new(),
     )
@@ -911,8 +1151,8 @@ fn resolve_edge(decl: &cabin_core::TargetDep, graph: &PackageGraph) -> TargetDep
 #[test]
 fn dep_edge_visibility_defaults_private() {
     // The string shorthand is a private edge, across every
-    // reference form: same-package bare name, same-name shorthand,
-    // and qualified `package:target`.
+    // reference form: same-package bare name, bare dependency
+    // package, and qualified `package:target`.
     let graph = visibility_fixture();
     for reference in ["core", "greet", "greet:extras"] {
         let edge = resolve_edge(&cabin_core::TargetDep::private(reference), &graph);
@@ -921,12 +1161,11 @@ fn dep_edge_visibility_defaults_private() {
 }
 
 #[test]
-fn dep_edge_visibility_survives_same_name_alias_resolution() {
+fn dep_edge_visibility_survives_bare_dep_resolution() {
     // `{ name = "greet", public = true }` resolves through the
-    // same-name shorthand (`greet` -> `greet:greet`).  The recorded
-    // edge names the concrete (package, target) - never the
-    // pre-alias spelling - and still carries the declared
-    // visibility.
+    // sole-library shorthand.  The recorded edge names the concrete
+    // (package, target) - never the pre-alias spelling - and still
+    // carries the declared visibility.
     let graph = visibility_fixture();
     let decl = cabin_core::TargetDep {
         reference: "greet".to_owned(),
@@ -945,8 +1184,8 @@ fn dep_edge_visibility_survives_same_name_alias_resolution() {
 #[test]
 fn dep_edge_visibility_attaches_to_qualified_and_local_references() {
     let graph = visibility_fixture();
-    // Qualified reference to a dependency target named differently
-    // from its package.
+    // Qualified reference to a non-library dependency target the
+    // bare shorthand would never pick.
     let qualified = cabin_core::TargetDep {
         reference: "greet:extras".to_owned(),
         public: true,

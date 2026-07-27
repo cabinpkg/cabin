@@ -1,14 +1,15 @@
 //! End-to-end coverage for target-dep reference resolution: the
-//! bare-name shorthand (`deps = ["foo"]` means `foo:foo`) and the
-//! hard error when a dependency package declares no same-named
-//! target.
+//! bare-name shorthand (`deps = ["foo"]` links the `foo` package's
+//! sole library-like target) and the hard error when the choice is
+//! ambiguous.
 
 use super::*;
 
-/// Workspace whose `toolkit` package exports a target named `kit`
-/// (not `toolkit`), plus an `app` whose `deps` entry is set by the
-/// caller.  `app_dep` is spliced into the array verbatim, so it can
-/// be a quoted string (`"\"toolkit:kit\""`) or an inline table.
+/// Workspace whose `toolkit` package exports a sole library target
+/// named `kit` (not `toolkit`), plus an `app` whose `deps` entry is
+/// set by the caller.  `app_dep` is spliced into the array verbatim,
+/// so it can be a quoted string (`"\"toolkit:kit\""`) or an inline
+/// table.
 fn write_shorthand_workspace(root: &Path, app_dep: &str) {
     assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
         .write_str(
@@ -61,13 +62,47 @@ deps = [{app_dep}]
 }
 
 #[test]
-fn bare_name_without_same_name_target_fails_with_suggestion() {
+fn bare_name_links_sole_library_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // `deps = ["toolkit"]` is shorthand for `toolkit:toolkit`,
-    // which does not exist; the error must not silently pick `kit`
-    // as a "default library" and must suggest the qualified form.
+    // `deps = ["toolkit"]` resolves to `toolkit`'s sole library
+    // target `kit` - the target name need not echo the package
+    // name.
     write_shorthand_workspace(dir.path(), "\"toolkit\"");
+    cabin()
+        .args(["build", "-p", "app", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+}
+
+#[test]
+fn bare_name_with_multiple_library_targets_fails_with_candidates() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    // A second library target makes the bare name ambiguous; the
+    // error lists both qualified candidates.
+    write_shorthand_workspace(dir.path(), "\"toolkit\"");
+    assert_fs::fixture::ChildPath::new(dir.path().join("packages/toolkit/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "toolkit"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.kit]
+type = "library"
+sources = ["src/kit.cc"]
+include-dirs = ["include"]
+
+[target.extras]
+type = "library"
+sources = ["src/kit.cc"]
+"#,
+        )
+        .unwrap();
     cabin()
         .args(["build", "-p", "app", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -76,9 +111,10 @@ fn bare_name_without_same_name_target_fails_with_suggestion() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "no library or header-only target named \"toolkit\"",
+            "more than one library or header-only target",
         ))
-        .stderr(predicate::str::contains("toolkit:kit"));
+        .stderr(predicate::str::contains("toolkit:kit"))
+        .stderr(predicate::str::contains("toolkit:extras"));
 }
 
 #[test]
@@ -115,8 +151,9 @@ fn public_table_form_dep_builds_like_a_string_entry() {
 fn bare_name_shorthand_links_same_name_target() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();
-    // Same fixture, but the dependency exports a target named like
-    // the package - the shorthand resolves to `util:util`.
+    // Same shape, but the dependency's sole library target happens
+    // to be named like the package - the common layout keeps
+    // working.
     assert_fs::fixture::ChildPath::new(dir.path().join("cabin.toml"))
         .write_str(
             r#"[workspace]

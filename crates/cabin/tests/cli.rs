@@ -342,10 +342,10 @@ fmt = ">=10.0.0 <11.0.0"
 
 /// Like [`write_app_using_fmt`], but the consumer depends on the
 /// scoped package `fmtlib/fmt` (a quoted dependency key) and its
-/// `deps` shorthand resolves to the dependency's base-named target
-/// `fmt`. Publish requires scoped names, so the file-registry and
-/// sparse-HTTP fixtures publish `fmtlib/fmt`; the bare-`fmt` helper
-/// above is kept for modules that hand-write their index.
+/// `deps` shorthand resolves to the dependency's sole library
+/// target `fmt`. Publish requires scoped names, so the file-registry
+/// and sparse-HTTP fixtures publish `fmtlib/fmt`; the bare-`fmt`
+/// helper above is kept for modules that hand-write their index.
 fn write_app_using_scoped_fmt(dir: &Path, app_main: Option<&str>) {
     let manifest = if app_main.is_some() {
         r#"[package]
