@@ -219,7 +219,10 @@ Server-side behavior is part of the contract:
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
   metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
   name (`system-dependencies` is exempt - its keys name system packages, not registry
-  packages), and verifies the archive
+  packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
+  manifest's provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"`
+  format, single-component `strip-prefix`, non-escaping copy paths - the server never fetches the
+  URL), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family (`registry/docs/architecture.md`, "Name
   fidelity"): a reserved package name (`package name is reserved` - the DOS device stems plus a

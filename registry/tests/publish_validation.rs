@@ -144,7 +144,7 @@ fn generated_fixtures_pass_the_full_validation_path() {
         checked += 1;
     }
     assert!(
-        checked >= 2,
-        "expected at least the two gen-fixtures.sh pairs in {dir}, found {checked}"
+        checked >= 3,
+        "expected at least the three gen-fixtures.sh pairs in {dir}, found {checked}"
     );
 }

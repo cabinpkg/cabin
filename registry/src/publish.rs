@@ -69,6 +69,18 @@ pub const INVALID_DEPENDENCY_NAME: &str =
 pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
 pub const CHECKSUM_MISMATCH: &str = "checksum does not match the archive bytes";
 pub const NOT_ZIP: &str = "archive is not a zip container";
+pub const INVALID_UPSTREAM_URL: &str = "upstream url must be https and must not embed credentials";
+pub const INVALID_UPSTREAM_SHA256: &str =
+    "upstream sha256 must be 64 lowercase hexadecimal characters";
+pub const UNSUPPORTED_UPSTREAM_FORMAT: &str = "upstream format must be \"tar.gz\" or \"zip\"";
+pub const INVALID_UPSTREAM_STRIP_PREFIX: &str =
+    "upstream strip-prefix must be a single relative path component";
+pub const INVALID_UPSTREAM_COPY_PATH: &str =
+    "upstream copy paths must be plain forward-slash relative paths naming two different files";
+pub const TOO_MANY_UPSTREAM_COPIES: &str = "too many upstream copy steps";
+
+/// Mirror of the client-side `cabin_core::MAX_COPY_STEPS` cap.
+const MAX_UPSTREAM_COPY_STEPS: usize = 16;
 
 /// The canonical per-version metadata document `cabin package` emits
 /// (`cabin_package::metadata::PackageMetadata`), mirrored key for key.
@@ -104,6 +116,12 @@ pub struct VersionMetadata {
     pub compiler_wrapper: Option<serde_json::Value>,
     pub language: Option<serde_json::Value>,
     pub standards: Option<serde_json::Value>,
+    /// Optional `[package.upstream]` provenance.  Typed (unlike the
+    /// opaque blocks above) so [`validate_metadata`] can gatekeep the
+    /// declared URL / digest / format shape synchronously; the
+    /// authoritative deep validation stays with the client parser and
+    /// the external verifier's metadata-equality pass.
+    pub upstream: Option<UpstreamMetadata>,
     pub yanked: bool,
     pub checksum: String,
     pub source: SourceMetadata,
@@ -117,6 +135,132 @@ pub struct SourceMetadata {
     pub kind: String,
     pub path: String,
     pub format: String,
+}
+
+/// The metadata document's optional `upstream` block, mirroring the
+/// client's `[package.upstream]` wire shape.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpstreamMetadata {
+    pub url: String,
+    pub sha256: String,
+    pub format: String,
+    /// Absent and explicit `null` both deserialize to `None`; the
+    /// canonical document omits the field, and a non-canonical
+    /// explicit `null` is caught by the verifier's metadata-equality
+    /// pass rather than by a `400` here.
+    #[serde(rename = "strip-prefix")]
+    pub strip_prefix: Option<String>,
+    #[serde(default)]
+    pub copy: Vec<UpstreamCopyMetadata>,
+}
+
+/// One `upstream.copy` step.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpstreamCopyMetadata {
+    pub from: String,
+    pub to: String,
+}
+
+/// Lexical mirror of the client's upstream provenance rules
+/// (`cabin_core::UpstreamProvenance::new`).  Deliberately a strict
+/// subset - the client's `url::Url` parse is the authority, and the
+/// external verifier's metadata-equality pass re-derives the whole
+/// document from the archived manifest - so an honest client is never
+/// rejected here, while an obviously malformed hand-crafted document
+/// never enters the pending queue.  The URL arrives in `url::Url`'s
+/// normalized serialization, so the scheme is already lowercase and
+/// userinfo appears in the authority iff credentials were embedded.
+fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
+    // 2048 mirrors the client's `MAX_URL_BYTES`.
+    if upstream.url.len() > 2048 {
+        return Err(INVALID_UPSTREAM_URL);
+    }
+    let authority = upstream
+        .url
+        .strip_prefix("https://")
+        .ok_or(INVALID_UPSTREAM_URL)?;
+    let authority = authority.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() || authority.contains('@') {
+        return Err(INVALID_UPSTREAM_URL);
+    }
+    if upstream.sha256.len() != 64
+        || !upstream
+            .sha256
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(INVALID_UPSTREAM_SHA256);
+    }
+    if upstream.format != "tar.gz" && upstream.format != "zip" {
+        return Err(UNSUPPORTED_UPSTREAM_FORMAT);
+    }
+    // 254 mirrors the client's bound (the archive entry-path cap
+    // minus the shortest child, `/` plus one byte); the finer
+    // portability rules stay client-side (subset, not authority).
+    if let Some(prefix) = &upstream.strip_prefix
+        && (prefix.is_empty()
+            || prefix.len() > 254
+            || prefix == "."
+            || prefix == ".."
+            || prefix.contains('/')
+            || prefix.contains('\\'))
+    {
+        return Err(INVALID_UPSTREAM_STRIP_PREFIX);
+    }
+    if upstream.copy.len() > MAX_UPSTREAM_COPY_STEPS {
+        return Err(TOO_MANY_UPSTREAM_COPIES);
+    }
+    for step in &upstream.copy {
+        for path in [step.from.as_str(), step.to.as_str()] {
+            // 256 / 255 mirror the client's archive-path and
+            // `NAME_MAX` component caps.
+            let unsafe_shape = path.is_empty()
+                || path.len() > 256
+                || path.starts_with('/')
+                || path.contains('\\')
+                || path.split('/').any(|component| {
+                    component.is_empty()
+                        || component.len() > 255
+                        || component == "."
+                        || component == ".."
+                });
+            if unsafe_shape {
+                return Err(INVALID_UPSTREAM_COPY_PATH);
+            }
+        }
+        // Case-folded, matching the client and the archive's
+        // case-conflict rule.
+        if step.from.to_lowercase() == step.to.to_lowercase() {
+            return Err(INVALID_UPSTREAM_COPY_PATH);
+        }
+        // The archive entry backing `from` carries the unstripped
+        // prefix, so the combined length is what the entry-path cap
+        // binds.
+        if let Some(prefix) = &upstream.strip_prefix
+            && prefix.len() + 1 + step.from.len() > 256
+        {
+            return Err(INVALID_UPSTREAM_COPY_PATH);
+        }
+    }
+    // Case-folded pairwise collisions between steps (`to` vs `to`,
+    // `to` vs another step's `from`) mirror the client rule: they
+    // could only ever produce a case-conflict rejection at
+    // verification time.  Byte-identical spellings stay legal.
+    for (index, step) in upstream.copy.iter().enumerate() {
+        let to = step.to.to_lowercase();
+        for (other_index, other) in upstream.copy.iter().enumerate() {
+            let colliding_to =
+                other_index > index && step.to != other.to && to == other.to.to_lowercase();
+            let colliding_from =
+                other_index != index && step.to != other.from && to == other.from.to_lowercase();
+            if colliding_to || colliding_from {
+                return Err(INVALID_UPSTREAM_COPY_PATH);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Package names accepted at publish: both parts of the canonical
@@ -136,7 +280,8 @@ fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 /// part only), `SemVer`, dependency keys (the `dependencies` and
 /// `dev-dependencies` maps key on canonical `<scope>/<name>` names -
 /// `system-dependencies` is exempt, its keys name system packages,
-/// not registry packages), `yanked`. The
+/// not registry packages), the optional `upstream` block's lexical
+/// provenance rules ([`validate_upstream`]), `yanked`. The
 /// checksum is checked separately by [`verify_checksum`] once the
 /// caller has digested the archive bytes.
 ///
@@ -200,6 +345,9 @@ pub fn validate_metadata(
                 return Err(INVALID_DEPENDENCY_NAME);
             }
         }
+    }
+    if let Some(upstream) = &parsed.upstream {
+        validate_upstream(upstream)?;
     }
     if parsed.yanked {
         return Err(YANKED_AT_PUBLISH);
@@ -373,6 +521,242 @@ mod tests {
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
+    }
+
+    fn upstream_metadata_json(upstream: &str) -> String {
+        format!(
+            r#"{{
+  "schema": 1,
+  "name": "fmtlib/fmt",
+  "version": "1.0.0",
+  "dependencies": {{}},
+  "upstream": {upstream},
+  "yanked": false,
+  "checksum": "sha256:aa",
+  "source": {{
+    "type": "archive",
+    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+    "format": "zip"
+  }}
+}}"#
+        )
+    }
+
+    const UPSTREAM_SHA: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+
+    #[test]
+    fn validate_metadata_accepts_upstream_provenance() {
+        let body = upstream_metadata_json(&format!(
+            r#"{{
+    "url": "https://example.com/fmt-1.0.0.tar.gz",
+    "sha256": "{UPSTREAM_SHA}",
+    "format": "tar.gz",
+    "strip-prefix": "fmt-1.0.0",
+    "copy": [{{"from": "support/config.h.in", "to": "config.h"}}]
+  }}"#
+        ));
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        let upstream = parsed.upstream.expect("upstream parsed");
+        assert_eq!(upstream.url, "https://example.com/fmt-1.0.0.tar.gz");
+        assert_eq!(upstream.strip_prefix.as_deref(), Some("fmt-1.0.0"));
+        assert_eq!(upstream.copy.len(), 1);
+    }
+
+    #[test]
+    fn validate_metadata_accepts_minimal_upstream() {
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/fmt.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
+        ));
+        validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn validate_metadata_rejects_bad_upstream_urls() {
+        for url in [
+            "http://example.com/fmt.tar.gz",
+            "https://user@example.com/fmt.tar.gz",
+            "https://user:pw@example.com/fmt.tar.gz",
+            "https:///fmt.tar.gz",
+            "ftp://example.com/fmt.tar.gz",
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz"}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_URL,
+                "url: {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_bad_upstream_sha256() {
+        for sha in [
+            "aa",
+            "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{sha}", "format": "zip"}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_SHA256,
+                "sha: {sha}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_unsupported_upstream_formats() {
+        for format in ["tar.xz", "7z", ""] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "{format}"}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                UNSUPPORTED_UPSTREAM_FORMAT,
+                "format: {format}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_bad_upstream_strip_prefixes() {
+        // `a\\b` is the JSON-escaped spelling of a literal `a\b`.
+        let overlong = "a".repeat(255);
+        for prefix in ["", ".", "..", "a/b", r"a\\b", overlong.as_str()] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "strip-prefix": "{prefix}"}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_STRIP_PREFIX,
+                "prefix: {prefix}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_escaping_upstream_copy_paths() {
+        for (from, to) in [
+            ("../secret", "a"),
+            ("a", "/etc/a"),
+            ("", "a"),
+            ("a/../../b", "a"),
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_COPY_PATH,
+                "copy: {from} -> {to}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_noncanonical_and_self_copy_paths() {
+        for (from, to) in [
+            ("./a", "b"),
+            ("a", "./b"),
+            (r"a\\b", "b"),
+            ("a//b", "b"),
+            ("a", "a"),
+            ("README", "readme"),
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_COPY_PATH,
+                "copy: {from} -> {to}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_overlong_upstream_copy_paths() {
+        for path in [
+            "a".repeat(256),
+            format!("{}/{}", "d".repeat(200), "f".repeat(60)),
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{path}", "to": "b"}}]}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_COPY_PATH,
+                "path len {}",
+                path.len()
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_overlong_upstream_urls() {
+        let url = format!("https://example.com/{}", "a".repeat(2048));
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            INVALID_UPSTREAM_URL
+        );
+    }
+
+    #[test]
+    fn validate_metadata_rejects_copy_source_overlong_under_prefix() {
+        let prefix = "p".repeat(200);
+        let from = "f".repeat(60);
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.tar.gz", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz", "strip-prefix": "{prefix}", "copy": [{{"from": "{from}", "to": "b"}}]}}"#
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            INVALID_UPSTREAM_COPY_PATH
+        );
+    }
+
+    #[test]
+    fn validate_metadata_rejects_case_colliding_copy_steps() {
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "a", "to": "README"}}, {{"from": "b", "to": "readme"}}]}}"#
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            INVALID_UPSTREAM_COPY_PATH
+        );
+    }
+
+    #[test]
+    fn validate_metadata_rejects_too_many_upstream_copies() {
+        let steps: Vec<String> = (0..=MAX_UPSTREAM_COPY_STEPS)
+            .map(|i| format!(r#"{{"from": "src/{i}.h", "to": "{i}.h"}}"#))
+            .collect();
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{copies}]}}"#,
+            copies = steps.join(",")
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            TOO_MANY_UPSTREAM_COPIES
+        );
+    }
+
+    #[test]
+    fn validate_metadata_rejects_unknown_upstream_fields() {
+        // Unknown future syntax falls through deny_unknown_fields as
+        // the generic non-canonical 400, mirroring the client parser.
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "mirror": "x"}}"#
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            METADATA_NOT_CANONICAL
+        );
     }
 
     #[test]
