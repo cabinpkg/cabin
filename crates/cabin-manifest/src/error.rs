@@ -42,6 +42,12 @@ pub enum ManifestError {
         source: semver::Error,
     },
 
+    #[error("invalid `[package.upstream]`: {source}")]
+    Upstream {
+        #[source]
+        source: cabin_core::UpstreamError,
+    },
+
     #[error(
         "unknown target type {value:?} for target {target:?} (expected one of: {})",
         supported_target_types()

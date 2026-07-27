@@ -432,6 +432,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         interface_c_standard,
         interface_cxx_standard,
         gnu_extensions,
+        upstream,
     } = package;
 
     let package_name = PackageName::new(name)?;
@@ -496,6 +497,7 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
         general: build_general,
         conditional: conditional_build_flags,
     };
+    let upstream_model = upstream_from_raw(upstream)?;
     Ok(Package::with_config(cabin_core::PackageConfigInput {
         name: package_name,
         version: parsed_version,
@@ -509,7 +511,33 @@ fn project_from_raw(input: ProjectFromRawInput) -> Result<Package, ManifestError
     .with_build(build_settings)
     .with_language(language)
     .with_compiler_wrapper(compiler_wrapper)
-    .with_patches(patches))
+    .with_patches(patches)
+    .with_upstream(upstream_model))
+}
+
+/// Validate an optional `[package.upstream]` table into the typed
+/// `cabin_core` model.
+fn upstream_from_raw(
+    raw: Option<crate::raw::RawUpstream>,
+) -> Result<Option<cabin_core::UpstreamProvenance>, ManifestError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let copies = raw
+        .copy
+        .into_iter()
+        .map(|step| cabin_core::UpstreamCopy::new(step.from, step.to))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| ManifestError::Upstream { source })?;
+    cabin_core::UpstreamProvenance::new(
+        &raw.url,
+        &raw.sha256,
+        &raw.format,
+        raw.strip_prefix,
+        copies,
+    )
+    .map(Some)
+    .map_err(|source| ManifestError::Upstream { source })
 }
 
 /// Every compiled language needs an effective implementation

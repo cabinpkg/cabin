@@ -70,6 +70,41 @@ Source-language *classification* stays per-file (target kinds, `.c` vs `.cc` ext
 [Targets](targets.md)); the standard each language compiles with is governed by the fields above and
 their per-target overrides ([Language standards](language-standards.md)).
 
+### `[package.upstream]`
+
+An optional machine-verifiable claim that the package's source tree came from a pinned upstream
+archive.  The shape mirrors a foundation-port recipe's `[source]` and `[[copy]]` tables
+([`foundation-ports.md`](foundation-ports.md)), with published-metadata restrictions: the URL must
+be credential-free HTTPS and the archive format is declared explicitly, never inferred from the URL.
+
+```toml
+[package.upstream]
+url = "https://example.com/library-1.2.3.tar.gz"
+sha256 = "1f9d0a4b2c8e63b7f0d5a9c8e7b6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8"
+format = "tar.gz"
+strip-prefix = "library-1.2.3"
+
+[[package.upstream.copy]]
+from = "scripts/config.h.prebuilt"
+to = "config.h"
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `url` | string | yes | HTTPS URL of the pinned upstream archive, at most 2048 bytes.  Other schemes and URLs embedding credentials are rejected. |
+| `sha256` | string | yes | SHA-256 of the archive bytes: exactly 64 lowercase hexadecimal characters. |
+| `format` | string | yes | Archive container format: `"tar.gz"` or `"zip"`. |
+| `strip-prefix` | string | no | Single directory component stripped from every archive entry before comparison; omit it when the archive root is the source root.  Must be a portable component the extractor could accept (no `/` or `\`, at most 254 bytes so a child entry fits the 256-byte path cap, none of the Windows-hostile shapes). |
+| `[[package.upstream.copy]]` | array of tables | no | Declarative file placements applied to the extracted upstream tree, in declaration order: copy `from` to `to`.  Both are plain forward-slash relative paths with portable components (no absolute paths, no `.` / `..` components, no `\`), `from` and `to` must differ (including under case folding), steps must not case-collide with each other, at most 16 steps are accepted, and `strip-prefix` plus `/` plus `from` must fit the 256-byte archive entry-path cap.  Static file-to-file copies only - never a build script or codegen hook. |
+
+The declaration is inert for consumers: resolving, fetching, and building a package never touch the
+upstream URL.  It rides through the package's canonical metadata and registry index entries
+([`package-format.md`](package-format.md)), and the hosted registry's external verifier downloads
+the pinned archive and requires the published source tree to match it
+([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  The pinned archive must be at
+most 256 MiB: the verification pipeline downloads it under that cap, and a larger archive cannot be
+verified - its versions stay pending until an operator intervenes.
+
 ## `[target.<name>]`
 
 The table key (`<name>`) is the target name.  Target names must be non-empty, must not contain
@@ -311,6 +346,10 @@ The parser and downstream tools reject manifests when:
 - a dependency key does not match the referenced package's name
 - two loaded packages share a `[package].name`
 - the package or target dependency graph contains a cycle
+- a `[package.upstream]` table has a non-HTTPS or credential-bearing `url`, a `sha256` that is not
+  64 lowercase hexadecimal characters, a `format` other than `"tar.gz"` / `"zip"`, a `strip-prefix`
+  that is not a single relative path component, more than 16 copy steps, or a copy step whose
+  `from` / `to` is not a plain portable forward-slash relative path or names the same file twice
 
 ## Example - direct version dependency
 
