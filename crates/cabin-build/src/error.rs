@@ -22,23 +22,33 @@ pub enum BuildError {
     UnknownTargetInPackage { package: String, target: String },
 
     /// A target's `deps` entry names a package dependency by its
-    /// bare name, but the dependency declares no library or
-    /// header-only target with that name.  A bare name is shorthand
-    /// for a same-named linkable target (`foo` means `foo:foo`);
-    /// packages never export a *default* target, so anything else -
-    /// including a same-named executable - must be spelled
-    /// `package:target`.
+    /// bare name, but the dependency declares more than one library
+    /// or header-only target.  A bare name resolves to the
+    /// dependency's *sole* library-like target; with several
+    /// candidates there is no principled pick, so the entry must be
+    /// qualified.
     #[error(
-        "`deps` entry {dep:?} matches package dependency {package:?}, but that package declares no library or header-only target named {dep:?}; a bare name is shorthand for a same-named linkable target (`{dep}:{dep}`), not a default library - use a local target name or an explicit `package:target`{}",
-        format_target_suggestions(.package, .candidates)
+        "`deps` entry {package:?} is ambiguous: package {package:?} declares more than one library or header-only target; pick one with an explicit `package:target`, e.g. `{}`",
+        .candidates.join("` or `")
     )]
-    NoSameNameTargetInDependency {
-        dep: String,
+    AmbiguousLibraryTargetInDependency {
         package: String,
         /// Qualified `package:target` spellings of the dependency
-        /// package's library and header-only targets.
+        /// package's library and header-only targets, in the
+        /// package's target order (name-sorted for parsed
+        /// manifests).
         candidates: Vec<String>,
     },
+
+    /// A target's `deps` entry names a package dependency by its
+    /// bare name, but the dependency declares no library or
+    /// header-only target at all - there is nothing a bare name
+    /// could link.  A non-library target (e.g. an executable) can
+    /// still be referenced with an explicit `package:target`.
+    #[error(
+        "`deps` entry {package:?} matches package dependency {package:?}, but that package declares no library or header-only target to link; reference a non-library target explicitly with `package:target`, or add a library target to {package:?}"
+    )]
+    NoLibraryTargetInDependency { package: String },
 
     /// One package's bare name equals another package's scope, so
     /// both would claim `packages/<name>` in the build tree (the
@@ -283,14 +293,6 @@ fn format_gated_targets(gated: &[(String, Vec<String>)]) -> String {
         .map(|(target, missing)| format!("`{target}` requires [{}]", format_feature_list(missing)))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn format_target_suggestions(package: &str, candidates: &[String]) -> String {
-    if candidates.is_empty() {
-        format!(" (package {package:?} declares no library or header-only targets)")
-    } else {
-        format!(", e.g. `{}`", candidates.join("` or `"))
-    }
 }
 
 /// Payload of [`BuildError::IncompatibleLanguageStandard`].

@@ -455,10 +455,10 @@ impl std::fmt::Display for TargetKind {
 /// (`"foo"`, `"pkg:target"`), which declares a *private* edge, and
 /// the table form (`{ name = "foo", public = true }`), which
 /// additionally sets the per-edge visibility.  Both forms keep the
-/// reference exactly as written; alias resolution (`foo` ->
-/// `foo:foo`) happens in `cabin-build` against a concrete package
-/// graph, and the resolved edge carries this declaration's
-/// visibility.
+/// reference exactly as written; alias resolution (bare `foo` ->
+/// the `foo` dependency's sole library-like target) happens in
+/// `cabin-build` against a concrete package graph, and the resolved
+/// edge carries this declaration's visibility.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetDep {
     /// Raw target reference exactly as written in the manifest -
@@ -580,16 +580,15 @@ pub struct Target {
     #[serde(default)]
     pub defines: Vec<String>,
     /// Explicit references to the linked targets.  A bare name
-    /// resolves to a same-package target first, then as the
-    /// same-name shorthand on a dependency package (`foo` means
-    /// `foo:foo`, matching the dependency's library / header-only
-    /// targets only); every other cross-package reference is the
-    /// qualified `package:target` form.  A package dependency only
-    /// makes the package available - it never exports a *default*
-    /// target, so a bare name that matches neither a local target
-    /// nor a same-named linkable dependency target is a hard error.
-    /// Resolution against a concrete package graph lives in
-    /// `cabin-build`, not here.
+    /// resolves to a same-package target first, then to a
+    /// dependency package's *sole* library / header-only target,
+    /// whatever it is named; every other cross-package reference is
+    /// the qualified `package:target` form.  A dependency declaring
+    /// several library-like targets makes the bare form ambiguous
+    /// (a hard error naming the qualified candidates), and one
+    /// declaring none cannot be referenced bare at all.  Resolution
+    /// against a concrete package graph lives in `cabin-build`, not
+    /// here.
     ///
     /// References are stored as raw strings, not [`TargetName`], because
     /// the qualified `package:target` form contains a `:` that the

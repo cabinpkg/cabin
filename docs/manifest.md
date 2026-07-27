@@ -240,16 +240,17 @@ semantics.
 Inside a target's `deps` array, each entry is a reference string or a table wrapping one:
 
 - `"name"` - a same-package target.  When no local target matches and `name` is a declared package
-  dependency, the entry is *shorthand for the dependency's same-named target* - `"fmt"` means
-  `"fmt:fmt"`, and a scoped `"fmtlib/fmt"` means `"fmtlib/fmt:fmt"` (target names never contain
-  `/`, so the shorthand target is the package's *base* name).  It resolves only when that
-  dependency declares a `library` or `header-only` target with that name.  The shorthand is pure
-  name matching; a package never exports a "default" or "unique" library target, and a name that
-  matches neither form (including one that only matches a same-named executable) is a hard error
-  suggesting the qualified spelling.
+  dependency, the entry resolves to *that dependency's sole `library` or `header-only` target*,
+  whatever it is named - `"zlib"` links `zlib:z` when `z` is the only library target `zlib`
+  declares, and a scoped `"fmtlib/fmt"` resolves the same way.  Non-library targets (such as
+  executables) are never candidates.  A dependency that declares several library or header-only
+  targets makes the bare name ambiguous - a hard error listing the qualified candidates - and one
+  that declares none has nothing a bare name could link; both cases require the explicit
+  `package:target` spelling.
 - `"package:target"` - qualified reference.  The `package` part must be either the current package
-  or a declared package dependency; the `target` part must exist in that package.  Any dependency
-  target whose name differs from its package name must be spelled this way.
+  or a declared package dependency; the `target` part must exist in that package.  This is the
+  only spelling for a non-library dependency target, and the required one when the dependency
+  declares several library or header-only targets.
 - `{ name = "<reference>", public = <bool> }` - table form.  `name` takes either reference
   spelling above; `public` (default `false`) declares the edge's visibility.  A string entry is
   exactly equivalent to `{ name = "<reference>", public = false }`.
@@ -264,15 +265,16 @@ type = "library"
 sources = ["src/net.cc"]
 deps = [
     "util",                            # private edge
-    { name = "fmt", public = true },   # public edge, same-name shorthand
+    { name = "fmt", public = true },   # public edge, bare dependency package
     { name = "foo:opt", public = true } # public edge, qualified reference
 ]
 ```
 
 Rule of thumb: **an edge is public iff the target's public headers include headers of that
 dependency.**  If only the target's `.c` / `.cc` files include the dependency's headers, the edge
-is private.  Visibility applies to the resolved edge - the same-name shorthand resolves first, so
-`{ name = "fmt", public = true }` declares a public edge to `fmt:fmt`.
+is private.  Visibility applies to the resolved edge - the bare-name shorthand resolves first, so
+`{ name = "fmt", public = true }` declares a public edge to the `fmt` package's sole library
+target.
 
 Today the flag is declarative: it does not change how anything builds or links.  It exists so
 interface requirements (see [Language standards](language-standards.md)) can propagate along

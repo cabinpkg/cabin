@@ -89,17 +89,16 @@ Common fields:
 - `defines`: preprocessor defines applied to this target's compile actions.
 - `deps`: explicit references to the linked targets:
   - same-package by bare name: `deps = ["lib"]`;
-  - cross-package by the same-name shorthand: `deps = ["fmt"]` means `deps = ["fmt:fmt"]` and
-    resolves only because the `fmt` package declares a `library` (or `header-only`) target named
-    `fmt`;
-  - qualified `package:target`: `deps = ["fmt:fmt"]`, and the only spelling for a dependency
-    target named differently from its package (`deps = ["foo:opt"]`) or for a non-library
-    dependency target.
+  - cross-package by bare package name: `deps = ["zlib"]` resolves to the `zlib` package's sole
+    `library` (or `header-only`) target, whatever it is named - `zlib:z` when `z` is the only one;
+  - qualified `package:target`: `deps = ["fmt:fmt"]` - the only spelling for a non-library
+    dependency target (`deps = ["foo:opt"]`), and the required one when the dependency declares
+    several library / header-only targets.
 
-  A bare name resolves to a local target first, then as the shorthand.  The shorthand is pure name
-  matching over the dependency's `library` / `header-only` targets - a package dependency makes
-  the package *available* but never exports a default target, so a bare name whose dependency
-  package has no same-named linkable target is a hard error naming the qualified candidates.
+  A bare name resolves to a local target first, then as the dependency shorthand.  A dependency
+  with several library / header-only targets makes the bare name ambiguous - a hard error naming
+  the qualified candidates - and one with none has nothing a bare name could link; both cases
+  require the qualified spelling.
 
   Any of these references may be wrapped in the table form `{ name = "fmt", public = true }` to
   declare the edge **public** - meaning this target's public headers include headers of that

@@ -9,10 +9,11 @@ use std::path::Path;
 use super::{PlanRequest, TargetDepEdge, TargetId, find_target, format_target_id};
 
 /// Resolve one declared `deps` entry into a graph edge.  The alias
-/// forms (`foo` as a same-package target or as the `foo:foo`
-/// shorthand) resolve *before* the declared visibility is attached,
-/// so the recorded edge always names the concrete (package, target)
-/// and downstream code never sees pre-alias names.
+/// forms (`foo` as a same-package target or as a dependency
+/// package's sole library-like target) resolve *before* the declared
+/// visibility is attached, so the recorded edge always names the
+/// concrete (package, target) and downstream code never sees
+/// pre-alias names.
 pub(super) fn resolve_target_dep_edge(
     decl: &cabin_core::TargetDep,
     pkg_idx: usize,
@@ -96,41 +97,39 @@ pub(super) fn resolve_target_dep(
     }
 
     // Otherwise a bare name that matches a visible dependency
-    // package is the same-name shorthand: `deps = ["foo"]` means
-    // `foo:foo`, and `deps = ["scope/foo"]` means `scope/foo:foo` -
-    // target names never contain `/`, so a scoped dependency's
-    // same-name target is named after its base name.  This is pure
-    // name matching - a package never
-    // exports a *default* target, so a dependency whose targets are
-    // all named differently must be spelled `package:target`.  The
-    // shorthand only accepts a link/interface-bearing target
-    // (library / header-only): a same-named executable would build
-    // but contribute no include dirs or archives, which reads as a
-    // silent no-op link.  The exotic executable-dep case keeps its
-    // explicit `package:target` spelling.
+    // package resolves to that package's *sole* library-like target
+    // (library / header-only), whatever it is named - the target key
+    // is a package-local identity, so it need not echo the package
+    // name (`deps = ["zlib"]` links `zlib:z`).  Only
+    // link/interface-bearing kinds participate: an executable would
+    // build but contribute no include dirs or archives, which reads
+    // as a silent no-op link, so the exotic executable-dep case
+    // keeps its explicit `package:target` spelling.  With several
+    // candidates there is no principled pick, so the entry must be
+    // qualified.  Candidate order follows the package's target
+    // list (name-sorted for parsed manifests), keeping the
+    // diagnostic stable.
     if let Some(dep_idx) = find_dep_edge(raw) {
         let dep_pkg = &graph.packages[dep_idx];
-        let shorthand_target = dep_pkg.package.name.base_name();
-        if dep_pkg
-            .package
-            .targets
-            .iter()
-            .any(|t| t.name.as_str() == shorthand_target && t.kind.is_library_like())
-        {
-            return Ok((dep_idx, shorthand_target.to_owned()));
-        }
-        let candidates: Vec<String> = dep_pkg
+        let candidates: Vec<&Target> = dep_pkg
             .package
             .targets
             .iter()
             .filter(|t| t.kind.is_library_like())
-            .map(|t| format!("{}:{}", dep_pkg.package.name.as_str(), t.name.as_str()))
             .collect();
-        return Err(BuildError::NoSameNameTargetInDependency {
-            dep: raw.to_owned(),
-            package: dep_pkg.package.name.as_str().to_owned(),
-            candidates,
-        });
+        return match candidates.as_slice() {
+            [sole] => Ok((dep_idx, sole.name.as_str().to_owned())),
+            [] => Err(BuildError::NoLibraryTargetInDependency {
+                package: dep_pkg.package.name.as_str().to_owned(),
+            }),
+            _ => Err(BuildError::AmbiguousLibraryTargetInDependency {
+                package: dep_pkg.package.name.as_str().to_owned(),
+                candidates: candidates
+                    .iter()
+                    .map(|t| format!("{}:{}", dep_pkg.package.name.as_str(), t.name.as_str()))
+                    .collect(),
+            }),
+        };
     }
 
     if declared_as_dev(raw) {

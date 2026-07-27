@@ -157,7 +157,8 @@ struct PreparedSource {
 /// and dependency-resolution errors ([`BuildError::UnknownTargetReference`],
 /// [`BuildError::AmbiguousTarget`], [`BuildError::UnknownPackageInTargetSelector`],
 /// [`BuildError::UnknownTargetInPackage`],
-/// [`BuildError::NoSameNameTargetInDependency`],
+/// [`BuildError::AmbiguousLibraryTargetInDependency`],
+/// [`BuildError::NoLibraryTargetInDependency`],
 /// [`BuildError::DevDependencyNotActive`]); required-feature gating
 /// errors ([`BuildError::TargetRequiresFeatures`],
 /// [`BuildError::TargetDepRequiresFeatures`],
