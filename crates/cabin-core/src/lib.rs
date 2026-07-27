@@ -34,6 +34,7 @@ pub mod standard_compatibility;
 pub mod term_color;
 pub mod term_verbosity;
 pub mod toolchain;
+pub mod upstream;
 pub mod version_req;
 
 pub use build_flags::{
@@ -103,4 +104,7 @@ pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvErr
 pub use toolchain::{
     ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, ToolKind, ToolSelection, ToolSource,
     ToolSpec, ToolchainDecl, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
+};
+pub use upstream::{
+    MAX_COPY_STEPS, MAX_URL_BYTES, UpstreamCopy, UpstreamError, UpstreamFormat, UpstreamProvenance,
 };

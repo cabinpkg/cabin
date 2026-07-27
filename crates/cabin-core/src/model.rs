@@ -1000,6 +1000,12 @@ pub struct Package {
     /// metadata.
     #[serde(default, skip_serializing_if = "PatchManifestSettings::is_empty")]
     pub patches: PatchManifestSettings,
+    /// Optional `[package.upstream]` provenance declaration.  Inert
+    /// for consumers - nothing in resolution, fetching, or building
+    /// reads it; the registry's external verifier checks it against
+    /// the pinned upstream archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<crate::UpstreamProvenance>,
 }
 
 fn is_empty_features(f: &Features) -> bool {
@@ -1079,6 +1085,7 @@ impl Package {
             language: LanguageStandardSettings::default(),
             compiler_wrapper: None,
             patches: PatchManifestSettings::default(),
+            upstream: None,
         })
     }
 
@@ -1161,6 +1168,13 @@ impl Package {
     #[must_use]
     pub fn with_patches(mut self, patches: PatchManifestSettings) -> Self {
         self.patches = patches;
+        self
+    }
+
+    /// Attach the manifest-declared `[package.upstream]` provenance.
+    #[must_use]
+    pub fn with_upstream(mut self, upstream: Option<crate::UpstreamProvenance>) -> Self {
+        self.upstream = upstream;
         self
     }
 

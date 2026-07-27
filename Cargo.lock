@@ -314,6 +314,7 @@ name = "cabinpkg-core"
 version = "0.17.0"
 dependencies = [
  "cabinpkg-env",
+ "cabinpkg-fs",
  "camino",
  "semver",
  "serde",
