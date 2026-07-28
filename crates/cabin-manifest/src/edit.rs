@@ -444,6 +444,14 @@ mod tests {
         }
     }
 
+    fn registry_dep(name: &str, version: &str) -> NewDependency {
+        NewDependency {
+            name: name.to_owned(),
+            version: Some(version.to_owned()),
+            ..NewDependency::default()
+        }
+    }
+
     #[test]
     fn upserts_port_dependency_as_inline_table() {
         let mut doc = parse_document(PACKAGE_ONLY).unwrap();
@@ -532,7 +540,7 @@ mod tests {
     fn keeps_sorted_table_sorted() {
         let src = format!("{PACKAGE_ONLY}\n[dependencies]\nalpha = \"^1\"\ncharlie = \"^3\"\n");
         let mut doc = parse_document(&src).unwrap();
-        upsert_dependency(&mut doc, DepTable::Normal, &port_dep("bravo", "^2")).unwrap();
+        upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         let out = doc.to_string();
         let a = out.find("alpha").unwrap();
         let b = out.find("bravo").unwrap();
@@ -547,7 +555,7 @@ mod tests {
     fn appends_to_unsorted_table() {
         let src = format!("{PACKAGE_ONLY}\n[dependencies]\ncharlie = \"^3\"\nalpha = \"^1\"\n");
         let mut doc = parse_document(&src).unwrap();
-        upsert_dependency(&mut doc, DepTable::Normal, &port_dep("bravo", "^2")).unwrap();
+        upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         let out = doc.to_string();
         let c = out.find("charlie").unwrap();
         let a = out.find("alpha").unwrap();
@@ -560,13 +568,11 @@ mod tests {
 
     #[test]
     fn updates_existing_entry_in_place() {
-        let src = format!(
-            "{PACKAGE_ONLY}\n[dependencies]\nzlib = {{ port = true, version = \"^1.0\" }}\n"
-        );
+        let src = format!("{PACKAGE_ONLY}\n[dependencies]\nzlib = \"^1.0\"\n");
         let mut doc = parse_document(&src).unwrap();
-        upsert_dependency(&mut doc, DepTable::Normal, &port_dep("zlib", "^2.0")).unwrap();
+        upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("zlib", "^2.0")).unwrap();
         let out = doc.to_string();
-        assert!(out.contains("version = \"^2.0\""), "got:\n{out}");
+        assert!(out.contains("zlib = \"^2.0\""), "got:\n{out}");
         assert!(
             !out.contains("^1.0"),
             "old version should be gone, got:\n{out}"
@@ -582,14 +588,14 @@ mod tests {
     fn preserves_surrounding_comments() {
         let src = format!("{PACKAGE_ONLY}\n[dependencies]\n# keep me\nalpha = \"^1\"\n");
         let mut doc = parse_document(&src).unwrap();
-        upsert_dependency(&mut doc, DepTable::Normal, &port_dep("bravo", "^2")).unwrap();
+        upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("bravo", "^2")).unwrap();
         assert!(doc.to_string().contains("# keep me"), "got:\n{doc}");
     }
 
     #[test]
     fn inserts_into_dev_dependencies() {
         let mut doc = parse_document(PACKAGE_ONLY).unwrap();
-        upsert_dependency(&mut doc, DepTable::Dev, &port_dep("gtest", "^1.14")).unwrap();
+        upsert_dependency(&mut doc, DepTable::Dev, &registry_dep("gtest", "^1.14")).unwrap();
         assert!(
             doc.to_string().contains("[dev-dependencies]"),
             "got:\n{doc}"
@@ -636,7 +642,7 @@ mod tests {
             parse_document("dependencies = 5\n[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
                 .unwrap();
         let err =
-            upsert_dependency(&mut doc, DepTable::Normal, &port_dep("zlib", "^1")).unwrap_err();
+            upsert_dependency(&mut doc, DepTable::Normal, &registry_dep("zlib", "^1")).unwrap_err();
         assert!(
             matches!(
                 err,
