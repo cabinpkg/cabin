@@ -4,10 +4,10 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-fmt = { port = true, version = "^12" }
+"cabin-ports/fmt" = "=12.2.0"
 
 [target.greeter]
 type = "library"
 sources = ["src/greeter.cc"]
 include-dirs = ["include"]
-deps = ["fmt"]
+deps = ["cabin-ports/fmt"]

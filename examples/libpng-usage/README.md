@@ -1,23 +1,23 @@
 # libpng-usage
 
-A consumer example for the curated
-[`crates/cabin-port/ports/libpng/1.6.50/`](../../crates/cabin-port/ports/libpng/1.6.50/) foundation
-port.  The program creates a libpng read struct, prints the libpng version, and prints the zlib
-version - the latter reached only through libpng's own dependency on the bundled zlib port.
+A consumer example for the `cabin-ports/libpng` registry package, published from the curated
+[`crates/cabin-port/ports/libpng/1.6.50/`](../../crates/cabin-port/ports/libpng/1.6.50/) recipe.
+The program creates a libpng read struct, prints the libpng version, and prints the zlib version -
+the latter reached only through libpng's own dependency on `cabin-ports/zlib`.
 
 This is **not** itself a port and does not vendor or copy libpng or zlib sources.  It demonstrates
-depending on a curated foundation port that itself depends on another foundation port.
+depending on a registry package that itself depends on another registry package.
 
-## A transitive port dependency
+## A transitive registry dependency
 
 libpng depends on zlib.  The app declares only libpng:
 
 ```toml
 [dependencies]
-libpng = { port = true, version = "^1.6" }
+"cabin-ports/libpng" = "=1.6.50"
 ```
 
-The bundled libpng overlay declares `zlib = { port = true }`, so port discovery pulls zlib in
+The published libpng package declares `"cabin-ports/zlib" = "^1.3"`, so the resolver pulls zlib in
 transitively. zlib's headers and its compiled archive propagate through the libpng edge, which is
 why `src/main.c` can `#include <zlib.h>` and call `zlibVersion()` even though the app never names
 zlib.  The dependency tree shows the nesting:
@@ -25,8 +25,8 @@ zlib.  The dependency tree shows the nesting:
 ```
 $ cabin tree
 libpng-usage v0.1.0 (workspace)
-`-- libpng v1.6.50 [normal] (port)
-    `-- zlib v1.3.1 [normal] (port)
+`-- cabin-ports/libpng v1.6.50 [normal] (registry, sha256:...)
+    `-- cabin-ports/zlib v1.3.1 [normal] (registry, sha256:...)
 ```
 
 ## Build and run
@@ -37,11 +37,11 @@ cabin build
 cabin run
 ```
 
-Expected output (versions are whatever the resolved ports pin):
+Expected output (versions are whatever the resolved packages pin):
 
 ```
 libpng version: 1.6.50
-zlib version (via libpng port edge): 1.3.1
+zlib version (via libpng edge): 1.3.1
 ```
 
 ## Prebuilt configuration, no configure step
@@ -54,13 +54,18 @@ source set links on every architecture.
 
 ## Caching and offline
 
-The first `cabin build` downloads both the libpng and zlib archives (URLs and SHA-256s pinned by the
-port recipes), verifies their checksums, extracts them under Cabin's cache, and builds.  Subsequent
-builds reuse the cache and work offline (`cabin build --offline`).  On a pristine cache, `cabin
-build --frozen` fails with a clear "cannot prepare port" error rather than downloading.
+Registry dependencies resolve through the hosted registry by default; while the registry is in
+private alpha its reads are authenticated, so run `cabin login` before the first build (see
+[`docs/remote-registry.md`](../../docs/remote-registry.md)).  The first `cabin build` downloads both
+the libpng and zlib package archives, verifies their checksums, extracts them under Cabin's cache,
+and builds.  Subsequent builds reuse the cached archives without re-fetching them.  Resolving still
+consults the registry index, so a fully offline build needs a local index; see
+[`docs/vendoring-offline.md`](../../docs/vendoring-offline.md) for the `cabin vendor` +
+`--offline --index-path` workflow.
 
 The integration test for this example
-(`crates/cabin/tests/cabin_examples.rs::libpng_usage_cache_lifecycle_builds_and_runs`) walks that
-whole cache lifecycle and skips cleanly when `CABIN_NET_OFFLINE` is set or when the host cannot
-reach `downloads.sourceforge.net:443`, so a CI runner without outbound network does not fail the
-suite.
+(`crates/cabin/tests/cabin_examples.rs::libpng_usage_builds_and_runs`) runs only with `--ignored`
+and needs outbound network: it stages the committed recipes into a local file registry through the
+publisher pipeline and builds against that with `--index-path`, downloading the pinned upstream
+archives on the way.  The hermetic cache-lifecycle coverage lives in
+`crates/cabin/tests/cli/registry_ports.rs`.

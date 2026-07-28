@@ -4,9 +4,9 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-nlohmann_json = { port = true, version = "^3.12" }
+"cabin-ports/nlohmann_json" = "=3.12.0"
 
 [target.json-cli]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["nlohmann_json"]
+deps = ["cabin-ports/nlohmann_json"]

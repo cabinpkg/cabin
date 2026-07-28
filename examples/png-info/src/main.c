@@ -8,7 +8,7 @@
  * simplified write API, then decode it back and report what a
  * png-info tool would print. The DEFLATE stream inside the PNG is
  * produced and consumed by zlib, which this package never declares:
- * it arrives transitively through the libpng port edge. */
+ * it arrives transitively through the libpng dependency edge. */
 
 int main(void) {
     static const unsigned char pixels[2 * 2 * 4] = {
@@ -64,6 +64,6 @@ int main(void) {
     printf("roundtrip pixels match: %s\n",
            memcmp(pixels, decoded, sizeof pixels) == 0 ? "yes" : "no");
     printf("libpng version: %s\n", PNG_LIBPNG_VER_STRING);
-    printf("zlib version (transitive port edge): %s\n", zlibVersion());
+    printf("zlib version (transitive edge): %s\n", zlibVersion());
     return 0;
 }

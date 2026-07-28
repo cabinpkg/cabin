@@ -8,8 +8,9 @@ A `header-only` target produces no archive and never reaches the link line; it e
 the dependency graph so its `include-dirs` (and, when declared, its `interface-c-standard` /
 `interface-cxx-standard`) propagate transitively to every dependent target.  Declaring `sources`
 on a `header-only` target is rejected at manifest-load time.  This is the same mechanism the
-curated header-only foundation ports are built on - see [`nlohmann-json-usage/`](../nlohmann-json-usage),
-[`cli11-usage/`](../cli11-usage), and [`stb-usage/`](../stb-usage) for consuming them.
+header-only `cabin-ports/*` registry packages are built on - see
+[`nlohmann-json-usage/`](../nlohmann-json-usage), [`cli11-usage/`](../cli11-usage), and
+[`stb-usage/`](../stb-usage) for consuming them.
 
 Everything is local to this package, so the example builds without network access.
 

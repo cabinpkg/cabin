@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-uthash = { port = true, version = "^2.4" }
+"cabin-ports/uthash" = "=2.4.0"
 
 [target.uthash-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["uthash"]
+deps = ["cabin-ports/uthash"]

@@ -4,9 +4,9 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-CLI11 = { port = true, version = "^2.6" }
+"cabin-ports/cli11" = "=2.6.2"
 
 [target.cli11-usage]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["CLI11"]
+deps = ["cabin-ports/cli11"]

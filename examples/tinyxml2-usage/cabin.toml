@@ -4,9 +4,9 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-tinyxml2 = { port = true, version = "^11" }
+"cabin-ports/tinyxml2" = "=11.0.0"
 
 [target.tinyxml2-usage]
 type = "executable"
 sources = ["src/main.cc"]
-deps = ["tinyxml2"]
+deps = ["cabin-ports/tinyxml2"]

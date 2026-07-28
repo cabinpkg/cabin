@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-sqlite3 = { port = true, version = "^3" }
+"cabin-ports/sqlite3" = "=3.53.2"
 
 [target.sqlite-todo]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["sqlite3"]
+deps = ["cabin-ports/sqlite3"]

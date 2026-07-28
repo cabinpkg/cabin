@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-miniz = { port = true, version = "^3.1" }
+"cabin-ports/miniz" = "=3.1.2"
 
 [target.miniz-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["miniz"]
+deps = ["cabin-ports/miniz"]

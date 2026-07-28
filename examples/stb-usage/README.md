@@ -1,23 +1,25 @@
 # stb-usage
 
-A consumer example for the curated
+A consumer example for the `cabin-ports/stb` registry package,
+published from the curated
 [`crates/cabin-port/ports/stb/2026.4.15/`](../../crates/cabin-port/ports/stb/2026.4.15/)
-foundation port.  The program includes `stb_sprintf.h` with
+recipe.  The program includes `stb_sprintf.h` with
 `STB_SPRINTF_IMPLEMENTATION` defined - the stb single-file pattern,
 where exactly one translation unit hosts the function bodies - and
 prints a formatted string.
 
-stb publishes no tagged releases, so the port pins one upstream
-commit by its immutable tarball URL and SHA-256; the port version is
-that commit's date spelled as SemVer (`2026.4.15`), which is why the
-dependency requirement reads `^2026`.
+stb publishes no tagged releases, so the recipe pins one upstream
+commit by its immutable tarball URL and SHA-256, and the published
+package's version is that commit's date spelled as SemVer
+(`2026.4.15`).
 
 This is **not** itself a port and does not vendor or copy stb
 sources.  It demonstrates depending on a curated header-only C
-foundation port from a normal Cabin package.  The first `cabin build`
-downloads the upstream archive (URL and SHA-256 pinned by the port
-recipe), verifies its checksum, extracts it under Cabin's cache, and
-then builds normally; subsequent builds reuse the cache.
+library through an ordinary scoped registry package.  The first
+`cabin build` resolves the dependency against the registry index,
+downloads the published package archive, verifies its checksum,
+extracts it under Cabin's cache, and then builds normally;
+subsequent builds reuse the cache.
 
 ## Build and run
 
@@ -35,12 +37,17 @@ stb_sprintf formatted: Cabin scores 42
 
 ## Offline
 
-If you have no network the first time, the build fails with a clear
-"cannot download port" error.  Once the archive is already cached,
-subsequent builds work offline.
+The first `cabin build` needs the registry.  Reads resolve through
+the hosted registry by default, and while it is in private alpha
+they are authenticated, so run `cabin login` first (see
+[`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
+archive without re-fetching it.  Resolving still consults the
+registry index, so a fully offline build needs a local index; see
+[`docs/vendoring-offline.md`](../../docs/vendoring-offline.md) for
+the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::stb_usage_builds_and_runs`)
-skips cleanly when `CABIN_NET_OFFLINE` is set or when the host
-cannot reach `github.com:443`, so a CI runner without outbound
-network does not fail the suite.
+is `#[ignore = "requires external network"]`: it stages the
+committed recipes into a local file registry through the publisher
+pipeline and builds this example against it with `--index-path`.

@@ -2,23 +2,23 @@
 
 A Cabin workspace whose internal library carries an external dependency:
 
-- `packages/greeter` - a `library` that depends on the curated
-  [`fmt`](../../crates/cabin-port/ports/fmt) foundation port and formats its greeting with
-  `fmt::format`.
+- `packages/greeter` - a `library` that depends on the `cabin-ports/fmt` registry package,
+  published from the curated [`crates/cabin-port/ports/fmt/`](../../crates/cabin-port/ports/fmt)
+  recipe, and formats its greeting with `fmt::format`.
 - `packages/app` - an `executable` that depends on `greeter` through a path dependency and prints
   the greeting.
 
 Where [`workspace-basic/`](../workspace-basic) shows workspace mechanics with path dependencies
 alone, this example adds the mixed-dependency shape real projects have: `app` declares only the
-internal `greeter` library, and the fmt port's headers and archive propagate to `app`'s compile
+internal `greeter` library, and the fmt package's headers and archive propagate to `app`'s compile
 and link transitively through the `app -> greeter -> fmt` chain.
 
 The workspace root is a *virtual* manifest (no `[package]`) with `members = ["packages/*"]`;
 `default-members = ["packages/app"]` makes `cabin run` launch the app without `-p`.
 
-The first workspace build downloads the fmt archive (URL and SHA-256 pinned by the port recipe),
-verifies its checksum, extracts it under Cabin's cache, and then builds normally; subsequent
-builds reuse the cache.
+The first workspace build resolves `"cabin-ports/fmt" = "=12.2.0"` against the registry index,
+downloads the published archive, verifies its checksum, extracts it under Cabin's cache, and then
+builds normally; subsequent builds reuse the cache.
 
 ## Build and run
 
@@ -40,10 +40,15 @@ Hello, Cabin! (formatted by fmt 120200)
 
 ## Offline
 
-If you have no network the first time, the build fails with a clear "cannot download port" error.
-Once the archive is already cached, subsequent builds work offline.
+The first build needs the registry.  Reads resolve through the hosted registry by default, and
+while it is in private alpha they are authenticated, so run `cabin login` first (see
+[`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
+archive without re-fetching it.  Resolving still consults the
+registry index, so a fully offline build needs a local index; see
+[`docs/vendoring-offline.md`](../../docs/vendoring-offline.md) for
+the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
-(`crates/cabin/tests/cabin_examples.rs::workspace_app_and_lib_builds_and_runs`) skips cleanly when
-`CABIN_NET_OFFLINE` is set or when the host cannot reach `github.com:443`, so a CI runner without
-outbound network does not fail the suite.
+(`crates/cabin/tests/cabin_examples.rs::workspace_app_and_lib_builds_and_runs`) is
+`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+registry through the publisher pipeline and builds this example against it with `--index-path`.

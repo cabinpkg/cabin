@@ -4,12 +4,12 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-# libpng depends on the bundled zlib port. The app declares only
+# libpng depends on zlib. The app declares only
 # libpng; zlib is pulled in transitively, and its archive + headers
 # propagate through the libpng edge.
-libpng = { port = true, version = "^1.6" }
+"cabin-ports/libpng" = "=1.6.50"
 
 [target.libpng-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["libpng"]
+deps = ["cabin-ports/libpng"]

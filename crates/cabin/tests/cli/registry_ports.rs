@@ -40,12 +40,6 @@ const SQLITE3_OVERLAY: &str = include_str!("../../../cabin-port/ports/sqlite3/3.
 const SQLITE3_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/main.c");
 
-const LIBPNG_ZLIB_H: &str = include_str!(
-    "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-zlib-1.3.1/zlib.h"
-);
-const LIBPNG_ZLIB_C: &str = include_str!(
-    "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-zlib-1.3.1/zutil.c"
-);
 const FAKE_PNG_H: &str = include_str!(
     "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/png.h"
 );

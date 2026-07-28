@@ -1,7 +1,8 @@
 # sqlite-todo
 
-A miniature todo-list app on the curated
-[`sqlite3`](../../crates/cabin-port/ports/sqlite3) foundation port (the amalgamation).  Where
+A miniature todo-list app on the `cabin-ports/sqlite3` registry package (the amalgamation),
+published from the curated
+[`crates/cabin-port/ports/sqlite3/`](../../crates/cabin-port/ports/sqlite3) recipe.  Where
 [`sqlite3-usage/`](../sqlite3-usage) is the minimal consumption smoke test, this example walks the
 shape of a real SQLite program from C: open a database, run DDL and DML through `sqlite3_exec`,
 then iterate a `SELECT` with the prepare/step/finalize statement API.
@@ -9,9 +10,10 @@ then iterate a `SELECT` with the prepare/step/finalize statement API.
 The database lives in `:memory:`, so every run is deterministic and leaves no files behind.  To
 persist between runs, open a file path instead of `:memory:`.
 
-This is **not** itself a port and does not vendor any sources.  The first `cabin build` downloads
-the upstream amalgamation (URL and SHA-256 pinned by the port recipe), verifies its checksum,
-extracts it under Cabin's cache, and then builds normally; subsequent builds reuse the cache.
+This is **not** itself a port and does not vendor any sources.  The first `cabin build` resolves
+the pinned dependency against the registry index, downloads the published archive, verifies its
+checksum, extracts it under Cabin's cache, and then builds normally; subsequent builds reuse the
+cache.
 
 ## Build and run
 
@@ -33,10 +35,15 @@ open todos: 2
 
 ## Offline
 
-If you have no network the first time, the build fails with a clear "cannot download port" error.
-Once the archive is already cached, subsequent builds work offline.
+The first `cabin build` needs the registry.  Reads resolve through the hosted registry by default,
+and while it is in private alpha they are authenticated, so run `cabin login` first (see
+[`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
+archive without re-fetching it.  Resolving still consults the
+registry index, so a fully offline build needs a local index; see
+[`docs/vendoring-offline.md`](../../docs/vendoring-offline.md) for
+the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
-(`crates/cabin/tests/cabin_examples.rs::sqlite_todo_builds_and_runs`) skips cleanly when
-`CABIN_NET_OFFLINE` is set or when the host cannot reach `www.sqlite.org:443`, so a CI runner
-without outbound network does not fail the suite.
+(`crates/cabin/tests/cabin_examples.rs::sqlite_todo_builds_and_runs`) is
+`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+registry through the publisher pipeline and builds this example against it with `--index-path`.
