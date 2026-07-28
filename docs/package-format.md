@@ -186,7 +186,12 @@ Before archive bytes are written, `cabin-package` validates:
 - the manifest does not declare a `[patch]` table.  Patches are local development policy; `cabin
   package` returns `package "<name>" declares a [patch] table; patches are local development policy
   and not publishable.  Remove the [patch] table from this manifest before packaging, or move the
-  patches to a .cabin/config.toml file.` See [`patch-overrides.md`](patch-overrides.md).
+  patches to a .cabin/config.toml file.` See [`patch-overrides.md`](patch-overrides.md);
+- an optional `[package.upstream]` table, when present, already passed the manifest parser's
+  provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"` format,
+  single-component `strip-prefix`, canonical portable copy paths - see
+  [`manifest.md`](manifest.md#packageupstream)); packaging carries it into the canonical metadata
+  (the URL in its normalized serialization) and never fetches it.
 
 The two workspace-marker rewrites above (dependency entries and standard fields) are the only case
 where an archived `cabin.toml` differs from the on-disk bytes; packaging a workspace-inheriting
@@ -242,6 +247,7 @@ would not contain cabin.toml`.
 | `toolchain` *(optional)* | The workspace root's `[toolchain]` plus any `[target.'cfg(...)'.toolchain]` overrides, exactly as written in the manifest.  Environment- or CLI-derived selections are deliberately not written here.  Omitted when no `[toolchain]` table was declared.  See [`toolchains.md`](toolchains.md). |
 | `build` *(optional)* | The package's `[profile]` plus any general `[target.'cfg(...)'.profile]` and named `[target.'cfg(...)'.profile.<name>]` overrides.  Named entries carry an optional profile-name discriminator.  Omitted when empty. |
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
+| `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), `sha256`, `format`, optional `strip-prefix`, and the `copy` steps (omitted when there are none).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |
 | `source.type` | Always `"archive"`. |

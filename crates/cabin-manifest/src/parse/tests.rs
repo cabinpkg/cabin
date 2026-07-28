@@ -3625,3 +3625,205 @@ cxx-standard = { workspace = true }
         "unexpected: {err}"
     );
 }
+
+const UPSTREAM: &str = r#"
+        [package]
+        name = "zlib"
+        version = "1.3.1"
+
+        [package.upstream]
+        url = "https://example.com/zlib-1.3.1.tar.gz"
+        sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+        format = "tar.gz"
+        strip-prefix = "zlib-1.3.1"
+
+        [[package.upstream.copy]]
+        from = "scripts/zconf.h.prebuilt"
+        to = "zconf.h"
+    "#;
+
+#[test]
+fn package_upstream_is_parsed() {
+    let package = parse_project(UPSTREAM);
+    let upstream = package.upstream.expect("upstream parsed");
+    assert_eq!(
+        upstream.url().as_str(),
+        "https://example.com/zlib-1.3.1.tar.gz"
+    );
+    assert_eq!(
+        upstream.sha256_hex(),
+        "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+    );
+    assert_eq!(upstream.format(), cabin_core::UpstreamFormat::TarGz);
+    assert_eq!(upstream.strip_prefix(), Some("zlib-1.3.1"));
+    assert_eq!(upstream.copies().len(), 1);
+    assert_eq!(
+        upstream.copies()[0].from(),
+        Utf8PathBuf::from("scripts/zconf.h.prebuilt")
+    );
+    assert_eq!(upstream.copies()[0].to(), Utf8PathBuf::from("zconf.h"));
+}
+
+#[test]
+fn package_without_upstream_has_none() {
+    assert!(parse_project(MINIMAL).upstream.is_none());
+}
+
+#[test]
+fn package_upstream_zip_without_strip_prefix_or_copies() {
+    let package = parse_project(
+        r#"
+        [package]
+        name = "miniz"
+        version = "3.1.2"
+
+        [package.upstream]
+        url = "https://example.com/miniz-3.1.2.zip"
+        sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+        format = "zip"
+    "#,
+    );
+    let upstream = package.upstream.expect("upstream parsed");
+    assert_eq!(upstream.format(), cabin_core::UpstreamFormat::Zip);
+    assert_eq!(upstream.strip_prefix(), None);
+    assert!(upstream.copies().is_empty());
+}
+
+#[test]
+fn package_upstream_rejects_http_url() {
+    let err = parse_project_err(&UPSTREAM.replace("https://", "http://"));
+    assert!(
+        matches!(
+            &err,
+            ManifestError::Upstream {
+                source: cabin_core::UpstreamError::InsecureUrl { .. }
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn package_upstream_rejects_url_credentials() {
+    let err =
+        parse_project_err(&UPSTREAM.replace("https://example.com", "https://u:p@example.com"));
+    assert!(
+        matches!(
+            &err,
+            ManifestError::Upstream {
+                source: cabin_core::UpstreamError::UrlWithCredentials { .. }
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn package_upstream_rejects_bad_sha256() {
+    for replacement in [
+        "deadbeef",
+        "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
+    ] {
+        let err = parse_project_err(&UPSTREAM.replace(
+            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+            replacement,
+        ));
+        assert!(
+            matches!(
+                &err,
+                ManifestError::Upstream {
+                    source: cabin_core::UpstreamError::InvalidChecksum { .. }
+                }
+            ),
+            "{replacement}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn package_upstream_rejects_unsupported_format() {
+    let err = parse_project_err(&UPSTREAM.replace("format = \"tar.gz\"", "format = \"tar.xz\""));
+    assert!(
+        matches!(
+            &err,
+            ManifestError::Upstream {
+                source: cabin_core::UpstreamError::UnsupportedFormat { .. }
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn package_upstream_rejects_missing_format() {
+    // `format` is required: the archive format is declared, never
+    // inferred from the URL.
+    let err = parse_project_err(&UPSTREAM.replace("format = \"tar.gz\"\n", ""));
+    assert!(
+        err.to_string().contains("missing field `format`"),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn package_upstream_rejects_multi_component_strip_prefix() {
+    let err = parse_project_err(
+        &UPSTREAM.replace("strip-prefix = \"zlib-1.3.1\"", "strip-prefix = \"a/b\""),
+    );
+    assert!(
+        matches!(
+            &err,
+            ManifestError::Upstream {
+                source: cabin_core::UpstreamError::InvalidStripPrefix { .. }
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn package_upstream_rejects_snake_case_strip_prefix_key() {
+    // Manifest field names are kebab-case; the port-recipe spelling
+    // `strip_prefix` is not accepted here.
+    let err = parse_project_err(&UPSTREAM.replace("strip-prefix =", "strip_prefix ="));
+    assert!(err.to_string().contains("unknown field"), "{err:?}");
+}
+
+#[test]
+fn package_upstream_rejects_escaping_copy_paths() {
+    for (needle, replacement, field) in [
+        (
+            "from = \"scripts/zconf.h.prebuilt\"",
+            "from = \"../secret\"",
+            "from",
+        ),
+        ("to = \"zconf.h\"", "to = \"/etc/zconf.h\"", "to"),
+    ] {
+        let err = parse_project_err(&UPSTREAM.replace(needle, replacement));
+        assert!(
+            matches!(
+                &err,
+                ManifestError::Upstream {
+                    source: cabin_core::UpstreamError::UnsafeCopyPath { field: f, .. }
+                } if *f == field
+            ),
+            "{replacement}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn package_upstream_rejects_unknown_fields() {
+    let err = parse_project_err(
+        &UPSTREAM.replace("format = \"tar.gz\"", "format = \"tar.gz\"\nmirror = \"x\""),
+    );
+    assert!(err.to_string().contains("unknown field"), "{err:?}");
+}
+
+#[test]
+fn package_upstream_rejects_unknown_copy_fields() {
+    let err = parse_project_err(
+        &UPSTREAM.replace("to = \"zconf.h\"", "to = \"zconf.h\"\nmode = \"0644\""),
+    );
+    assert!(err.to_string().contains("unknown field"), "{err:?}");
+}

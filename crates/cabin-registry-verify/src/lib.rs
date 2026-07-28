@@ -32,7 +32,18 @@
 //! 2. consistency: the embedded manifest, parsed with the real
 //!    manifest parser, must agree with the canonical metadata the
 //!    registry stored, and the archive bytes must hash to the
-//!    checksum the registry recorded.
+//!    checksum the registry recorded;
+//! 3. upstream provenance, when the metadata declares it: the
+//!    workflow-downloaded upstream archive must hash to the pinned
+//!    SHA-256, interpret safely under `cabin-artifact`'s hardened
+//!    extraction (this pass extracts to a scratch directory - the
+//!    never-extract rule binds the hostile *registry* archive, and
+//!    the upstream bytes only reach extraction after their digest
+//!    pin holds), and reproduce the published tree exactly, except
+//!    the root `cabin.toml` (see `upstream`).  The binary still
+//!    performs no HTTP: the workflow downloads the upstream archive
+//!    (with no bearer token - the URL is publisher-controlled) and
+//!    passes it as `--upstream <file>`.
 //!
 //! Failures caused by the archive bytes are verdicts
 //! ([`Verdict::Rejected`] with a machine-readable [`Reason`]);
@@ -52,6 +63,7 @@ mod consistency;
 mod limits;
 pub mod names;
 mod scan;
+mod upstream;
 
 pub use limits::{Limits, LimitsError, limits_from_env};
 
@@ -171,6 +183,34 @@ pub enum Reason {
     /// profile: a bad or misplaced EOCD, a non-contiguous layout, or
     /// bytes outside the tiled regions.
     ArchiveInvalid,
+    /// The metadata's `upstream` block disagrees with the archived
+    /// manifest's `[package.upstream]` declaration.
+    UpstreamMismatch,
+    /// The downloaded upstream archive does not hash to the declared
+    /// pinned SHA-256.
+    UpstreamChecksumMismatch,
+    /// The pinned upstream archive cannot be interpreted as
+    /// declared: the hardened extractor refused it (hostile entries,
+    /// bomb caps), its compressed stream would not decode
+    /// (`stream`), an entry name cannot be materialized on the
+    /// verifier's filesystem (`file name`), the declared strip
+    /// prefix is absent (`strip prefix`), or the extracted file set
+    /// violates packaging rules (`file set`).
+    UpstreamArchiveInvalid(Option<&'static str>),
+    /// A declared copy step cannot be applied to the extracted
+    /// upstream tree: its `from` file is absent (`missing source`),
+    /// or its `to` cannot name a regular file there (`destination` -
+    /// the destination is a directory, or one of its ancestors is a
+    /// regular file).
+    UpstreamCopyInvalid(&'static str),
+    /// The published source tree is not the declared transformation
+    /// of the pinned upstream archive.  The detail names the first
+    /// divergence in sorted-path order - missing and diverging files
+    /// are reported before unexplained extras: `missing file` (the
+    /// archive lacks a file the upstream tree produces),
+    /// `file contents`, or `extra file` (the archive carries a file
+    /// upstream does not explain).
+    UpstreamTreeMismatch(&'static str),
 }
 
 impl Reason {
@@ -202,14 +242,22 @@ impl Reason {
             Reason::ChecksumMismatch => "checksum_mismatch",
             Reason::MetadataMismatch => "metadata_mismatch",
             Reason::ArchiveInvalid => "archive_invalid",
+            Reason::UpstreamMismatch => "upstream_mismatch",
+            Reason::UpstreamChecksumMismatch => "upstream_checksum_mismatch",
+            Reason::UpstreamArchiveInvalid(_) => "upstream_archive_invalid",
+            Reason::UpstreamCopyInvalid(_) => "upstream_copy_invalid",
+            Reason::UpstreamTreeMismatch(_) => "upstream_tree_mismatch",
         }
     }
 
     /// The fixed detail that narrows this reason, when it carries one.
     fn detail(self) -> Option<&'static str> {
         match self {
-            Reason::InvalidPath(detail) => detail,
-            Reason::UnsupportedZipFeature(detail) | Reason::HeaderMismatch(detail) => Some(detail),
+            Reason::InvalidPath(detail) | Reason::UpstreamArchiveInvalid(detail) => detail,
+            Reason::UnsupportedZipFeature(detail)
+            | Reason::HeaderMismatch(detail)
+            | Reason::UpstreamCopyInvalid(detail)
+            | Reason::UpstreamTreeMismatch(detail) => Some(detail),
             _ => None,
         }
     }
@@ -243,10 +291,29 @@ pub enum VerifyError {
     /// infrastructure fault, not a hostile archive).
     #[error("the canonical metadata is not the shape the registry stores: missing {0}")]
     MalformedMetadata(&'static str),
+    /// The metadata declares upstream provenance but the caller
+    /// supplied no downloaded upstream archive - the workflow's
+    /// download step failed or is out of date.  No verdict can be
+    /// rendered without the pinned bytes.
+    #[error(
+        "the metadata declares upstream provenance but no upstream archive was supplied; \
+         pass --upstream <file>"
+    )]
+    MissingUpstreamArchive,
+    /// An upstream archive was supplied for a version whose metadata
+    /// declares no provenance - a workflow orchestration fault.
+    #[error("an upstream archive was supplied but the metadata declares no upstream provenance")]
+    UnexpectedUpstreamArchive,
 }
 
 /// Inspect `archive` against the listing entry the registry reported
 /// and render a verdict.
+///
+/// `upstream_archive` is the pinned upstream archive the workflow
+/// downloaded from the metadata's `upstream.url`.  It must be
+/// supplied exactly when the stored metadata declares an `upstream`
+/// block; a mismatch either way is an operational error, not a
+/// verdict - the archive bytes were never judged.
 ///
 /// # Errors
 ///
@@ -256,6 +323,7 @@ pub fn inspect(
     archive: &Path,
     pending: &PendingVersion,
     limits: &Limits,
+    upstream_archive: Option<&Path>,
 ) -> Result<Verdict, VerifyError> {
     let (manifest, files) = match scan::scan_archive(archive, limits)? {
         scan::ScanOutcome::Manifest { bytes, files } => (bytes, files),
@@ -271,9 +339,27 @@ pub fn inspect(
         source,
     })?;
 
-    match consistency::check(&manifest, &files, pending, &archive_hex)? {
-        Some(reason) => Ok(Verdict::Rejected(vec![reason])),
-        None => Ok(Verdict::Verified),
+    if let Some(reason) = consistency::check(&manifest, &files, pending, &archive_hex)? {
+        return Ok(Verdict::Rejected(vec![reason]));
+    }
+
+    // The consistency pass just proved the stored document equals
+    // what the archived manifest derives, so the stored `upstream`
+    // block (already validated at publish) is the declaration to
+    // enforce against the downloaded bytes.
+    let declared = pending.metadata.get("upstream");
+    match (declared, upstream_archive) {
+        (None, None) => Ok(Verdict::Verified),
+        (Some(value), Some(path)) => {
+            let declared: cabin_core::UpstreamProvenance = serde_json::from_value(value.clone())
+                .map_err(|_| VerifyError::MalformedMetadata("upstream"))?;
+            match upstream::check(path, &declared, &files)? {
+                Some(reason) => Ok(Verdict::Rejected(vec![reason])),
+                None => Ok(Verdict::Verified),
+            }
+        }
+        (Some(_), None) => Err(VerifyError::MissingUpstreamArchive),
+        (None, Some(_)) => Err(VerifyError::UnexpectedUpstreamArchive),
     }
 }
 

@@ -810,7 +810,11 @@ verification for over an hour") is the summons. To resolve one:
   anything is exposed - never PATCH `verified` from the name alone.
   Fetch the pending entry and the archive with the verify token
   exactly as the workflow does, run
-  `cabin-registry-verify <archive.zip> <entry.json>` locally, and
+  `cabin-registry-verify <archive.zip> <entry.json>` locally - for a
+  version whose metadata declares `upstream` provenance, also
+  download the pinned archive from `metadata.upstream.url` (no
+  bearer token to that URL) and add `--upstream <file>`, or the
+  binary exits operationally - and
   PATCH the verdict it prints **with the listing's `checksum` and
   `published_at`** (the admin API refuses an unbound `verified`).
   With a verified version on record the name counts as accepted, and

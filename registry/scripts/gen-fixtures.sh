@@ -7,10 +7,11 @@
 #
 #   scripts/gen-fixtures.sh <out-dir>
 #
-# Produces two pairs in <out-dir> (scoped names, so the filenames carry
+# Produces three pairs in <out-dir> (scoped names, so the filenames carry
 # the flattened `<scope>-<name>` stem):
-#   smoke-nodep-0.1.0.zip   / smoke-nodep-0.1.0.json    no dependencies
-#   smoke-withdep-0.2.0.zip / smoke-withdep-0.2.0.json  a dependency + a standards block
+#   smoke-nodep-0.1.0.zip        / smoke-nodep-0.1.0.json         no dependencies
+#   smoke-withdep-0.2.0.zip      / smoke-withdep-0.2.0.json       a dependency + a standards block
+#   smoke-withupstream-0.3.0.zip / smoke-withupstream-0.3.0.json  a [package.upstream] block
 #
 # The frozen pair under tests/fixtures/ is a checked-in copy of the
 # `withdep` output; regenerate it with this script if the canonical
@@ -62,7 +63,30 @@ interface-cxx-standard = "c++17"
 EOF
 printf 'void withdep() {}\n' >"$src/withdep/src/withdep.cc"
 
-for pkg in nodep withdep; do
+mkdir -p "$src/withupstream/src"
+cat >"$src/withupstream/cabin.toml" <<'EOF'
+[package]
+name = "smoke/withupstream"
+version = "0.3.0"
+c-standard = "c11"
+
+[package.upstream]
+url = "https://example.com/withupstream-0.3.0.tar.gz"
+sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+format = "tar.gz"
+strip-prefix = "withupstream-0.3.0"
+
+[[package.upstream.copy]]
+from = "scripts/config.h.prebuilt"
+to = "config.h"
+
+[target.withupstream]
+type = "library"
+sources = ["src/withupstream.c"]
+EOF
+printf 'int withupstream(void) { return 0; }\n' >"$src/withupstream/src/withupstream.c"
+
+for pkg in nodep withdep withupstream; do
   step "packaging $pkg"
   "$cabin" package --manifest-path "$src/$pkg/cabin.toml" --output-dir "$out"
 done

@@ -314,6 +314,7 @@ name = "cabinpkg-core"
 version = "0.17.0"
 dependencies = [
  "cabinpkg-env",
+ "cabinpkg-fs",
  "camino",
  "semver",
  "serde",
@@ -566,6 +567,7 @@ version = "0.17.0"
 dependencies = [
  "assert_cmd",
  "assert_fs",
+ "cabinpkg-artifact",
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-manifest",
@@ -575,6 +577,8 @@ dependencies = [
  "flate2",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "thiserror",
 ]
 

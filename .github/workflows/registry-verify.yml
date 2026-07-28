@@ -106,7 +106,19 @@ jobs:
           # and fail the run at the end.
           verifier=target/release/cabin-registry-verify
           failures=0
-          for i in $(seq 0 $((count - 1))); do
+          # Aggregate seconds this run may spend downloading upstream
+          # archives.  `--max-time` bounds one transfer, but the admin
+          # listing is deterministically sorted, so a publisher with
+          # several slow upstream hosts could otherwise pin the same
+          # early-sorting versions to the front of every cron pass and
+          # starve everything behind them.  When the budget runs out,
+          # remaining provenance versions verify without their
+          # upstream file (structure/consistency still render
+          # verdicts; provenance-clean ones stay pending), and the
+          # shuffled order below rotates which versions get the
+          # budget across runs.
+          upstream_budget=300
+          for i in $(seq 0 $((count - 1)) | shuf); do
             entry=$(jq -c ".versions[$i]" <<<"$list")
             name=$(jq -r '.name' <<<"$entry")
             version=$(jq -r '.version' <<<"$entry")
@@ -161,7 +173,72 @@ jobs:
               continue
             fi
 
-            if ! result=$("$verifier" "$workdir/archive.zip" "$workdir/entry.json"); then
+            # Upstream provenance: when the stored metadata declares
+            # a pinned upstream archive, download it and hand it to
+            # the verifier.  The URL is publisher-controlled, so the
+            # privileged token is never sent with this request, and
+            # curl is pinned to https on the initial request and on
+            # every redirect; integrity comes from the verifier's
+            # SHA-256 pin.  Destination-IP filtering (private/
+            # loopback ranges, per redirect hop and DNS answer) is
+            # deliberately not attempted: plain curl cannot enforce
+            # it, this job runs only on ephemeral GitHub-hosted
+            # runners with no privileged network position, and the
+            # response bytes are never disclosed - the digest pin
+            # reduces any reachable endpoint to an equality oracle.
+            # Revisit before ever moving this job to a self-hosted
+            # runner.  Publish validation already rejected
+            # non-https URLs, so a cleartext URL here is corrupt
+            # registry state - an operational failure, never a
+            # verdict.  A failed download must not reject the package
+            # (a flaky upstream host is not the publisher's fault),
+            # but the verifier still runs without the upstream file:
+            # its first two passes can reject a bad archive on their
+            # own, and a version whose provenance could not be
+            # checked exits operationally and stays pending.  The
+            # timeouts bound how long one version can stall the run;
+            # the 256 MiB size cap bounds runner disk and is part of
+            # the documented provenance contract (docs/manifest.md),
+            # and the extraction is bounded by `cabin-artifact`'s
+            # built-in client caps.  Rejecting on a size-cap abort is
+            # deliberately avoided: curl's judgment can reflect a
+            # server-misreported length, and a false rejection is
+            # terminal while pending is recoverable.
+            upstream_args=()
+            upstream_url=$(jq -r '.metadata.upstream.url // empty' <<<"$entry")
+            if [ -n "$upstream_url" ]; then
+              case "$upstream_url" in
+                https://*) ;;
+                *)
+                  echo "$name@$version: stored upstream url is not https; leaving it pending" >&2
+                  failures=$((failures + 1))
+                  rm -rf "$workdir"
+                  continue
+                  ;;
+              esac
+              if [ "$upstream_budget" -le 0 ]; then
+                echo "$name@$version: upstream download budget exhausted; verifying without it" >&2
+              else
+                # One transfer may use at most the remaining budget
+                # (never more than 120 s), and every attempt charges
+                # at least one whole second, so the aggregate bound
+                # holds even against sub-second transfers.
+                transfer_cap=$((upstream_budget < 120 ? upstream_budget : 120))
+                download_started=$SECONDS
+                if curl -fsSL --proto '=https' --proto-redir '=https' \
+                  --connect-timeout 10 --max-time "$transfer_cap" --max-filesize 268435456 \
+                  -o "$workdir/upstream-archive" "$upstream_url"; then
+                  upstream_args=(--upstream "$workdir/upstream-archive")
+                else
+                  echo "$name@$version: upstream archive download failed; verifying without it" >&2
+                fi
+                spent=$((SECONDS - download_started))
+                [ "$spent" -lt 1 ] && spent=1
+                upstream_budget=$((upstream_budget - spent))
+              fi
+            fi
+
+            if ! result=$("$verifier" "$workdir/archive.zip" "$workdir/entry.json" "${upstream_args[@]}"); then
               echo "$name@$version: verifier failed operationally; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"

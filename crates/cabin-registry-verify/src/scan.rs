@@ -23,12 +23,13 @@
 //! entry order) are pinned by the client and its own tests, not by
 //! this pass.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
 
 use flate2::{Decompress, FlushDecompress, Status};
+use sha2::{Digest, Sha256};
 
 use crate::{Limits, Reason, VerifyError};
 
@@ -83,9 +84,10 @@ const U32_SENTINEL: u32 = 0xFFFF_FFFF;
 
 /// What the structure pass concluded.
 pub(crate) enum ScanOutcome {
-    /// Structure is sound; the embedded manifest bytes plus the set
-    /// of entry paths (so the consistency pass can check the
-    /// manifest's declared sources are present).
+    /// Structure is sound; the embedded manifest bytes plus the
+    /// entry paths and content digests (so the consistency pass can
+    /// check the manifest's declared sources are present and the
+    /// upstream pass can compare trees).
     Manifest {
         bytes: Vec<u8>,
         files: Contents,
@@ -93,8 +95,11 @@ pub(crate) enum ScanOutcome {
     Reject(Reason),
 }
 
-/// The regular-file entry paths the scan saw.
-pub(crate) type Contents = HashSet<String>;
+/// The regular-file entries the scan saw: entry path mapped to the
+/// lowercase SHA-256 hex of its decompressed bytes.  The digests are
+/// computed while the CRC pass already streams every entry, so
+/// retaining them costs no extra decode and no per-file body memory.
+pub(crate) type Contents = BTreeMap<String, String>;
 
 /// Inspect `archive`.
 ///
@@ -198,7 +203,7 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
 
     // Step 4: walk the central directory, consuming exactly
     // `cd_count` records and exactly `cd_size` bytes.
-    let mut files: Contents = HashSet::new();
+    let mut files: Contents = BTreeMap::new();
     let mut folded: HashSet<String> = HashSet::new();
     let mut records: Vec<Central> = Vec::with_capacity(usize::from(total));
     let mut off = cd_start;
@@ -274,7 +279,9 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
             return Err(reason);
         }
 
-        if !files.insert(name.to_owned()) {
+        // Placeholder digest; the local-record walk below fills in
+        // the real one once the entry's bytes are decoded.
+        if files.insert(name.to_owned(), String::new()).is_some() {
             return Err(Reason::DuplicatePath);
         }
         if !folded.insert(name.to_lowercase()) {
@@ -299,12 +306,12 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
     // consistent extraction.  Exact-name form is `path_conflict`;
     // case-folded form (`a` vs `A/b`) is `case_conflict`, checked
     // second so the more specific exact form wins.
-    for path in &files {
+    for path in files.keys() {
         let mut boundary = 0;
         while let Some(slash) = path[boundary..].find('/') {
             boundary += slash;
             let prefix = &path[..boundary];
-            if files.contains(prefix) {
+            if files.contains_key(prefix) {
                 return Err(Reason::PathConflict);
             }
             if folded.contains(&prefix.to_lowercase()) {
@@ -372,8 +379,9 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
         let data = &bytes[name_end..data_end];
 
         let mut collector = (record.name == ROOT_MANIFEST).then(Vec::new);
+        let mut sha = Sha256::new();
         let (crc, produced, consumed) =
-            decode_entry(record.method, data, budget, collector.as_mut())?;
+            decode_entry(record.method, data, budget, &mut sha, collector.as_mut())?;
         if record.method == 8
             && (consumed != u64::from(record.compressed)
                 || produced != u64::from(record.uncompressed))
@@ -387,6 +395,10 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
         if let Some(bytes) = collector {
             manifest = Some(bytes);
         }
+        files.insert(
+            record.name.clone(),
+            cabin_core::hash::hex_digest(&sha.finalize()),
+        );
         pos = data_end;
     }
     if pos != cd_start {
@@ -414,12 +426,13 @@ fn entry_type_gate(external_attrs: u32) -> Option<Reason> {
 /// Decompress one entry through the archive-global [`CappedReader`]
 /// budget, returning `(crc, produced, consumed)` where `consumed` is
 /// the compressed input the deflate layer read (equal to `produced`
-/// for a stored entry).  The manifest entry's bytes are collected
-/// into `collect`.
+/// for a stored entry).  Every decompressed byte updates `sha`; the
+/// manifest entry's bytes are additionally collected into `collect`.
 fn decode_entry(
     method: u16,
     data: &[u8],
     budget: u64,
+    sha: &mut Sha256,
     collect: Option<&mut Vec<u8>>,
 ) -> Result<(u32, u64, u64), Reason> {
     match method {
@@ -428,7 +441,7 @@ fn decode_entry(
         // itself is the output.
         0 => {
             let mut capped = CappedReader::new(data, budget);
-            let (crc, produced) = drain(&mut capped, collect)?;
+            let (crc, produced) = drain(&mut capped, sha, collect)?;
             Ok((crc, produced, produced))
         }
         // Deflate: the stream must reach its final block, not merely
@@ -439,7 +452,7 @@ fn decode_entry(
         // pass. Drive the raw inflater directly and require
         // `Status::StreamEnd`; `consumed`/`produced` are then checked
         // against the declared sizes by the caller.
-        8 => inflate(data, budget, collect),
+        8 => inflate(data, budget, sha, collect),
         _ => unreachable!("method restricted to store/deflate in the central-directory walk"),
     }
 }
@@ -454,6 +467,7 @@ fn decode_entry(
 fn inflate(
     data: &[u8],
     budget: u64,
+    sha: &mut Sha256,
     mut collect: Option<&mut Vec<u8>>,
 ) -> Result<(u32, u64, u64), Reason> {
     let mut dec = Decompress::new(false);
@@ -473,6 +487,7 @@ fn inflate(
                 return Err(Reason::DecompressedTooLarge);
             }
             hasher.update(&out[..written]);
+            sha.update(&out[..written]);
             if let Some(sink) = collect.as_deref_mut() {
                 sink.extend_from_slice(&out[..written]);
             }
@@ -492,6 +507,7 @@ fn inflate(
 /// collecting them, and return `(crc, produced)`.
 fn drain<R: Read>(
     capped: &mut CappedReader<R>,
+    sha: &mut Sha256,
     mut collect: Option<&mut Vec<u8>>,
 ) -> Result<(u32, u64), Reason> {
     let mut hasher = crc32fast::Hasher::new();
@@ -502,6 +518,7 @@ fn drain<R: Read>(
             Ok(0) => break,
             Ok(read) => {
                 hasher.update(&buf[..read]);
+                sha.update(&buf[..read]);
                 produced += read as u64;
                 if let Some(sink) = collect.as_deref_mut() {
                     sink.extend_from_slice(&buf[..read]);

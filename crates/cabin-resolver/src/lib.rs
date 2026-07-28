@@ -454,6 +454,7 @@ mod tests {
                     compiler_wrapper: None,
                     language: None,
                     standards: cabin_index::StandardsMetadata::default(),
+                    upstream: None,
                 },
             );
         }
@@ -993,6 +994,7 @@ mod tests {
                 compiler_wrapper: None,
                 language: None,
                 standards: cabin_index::StandardsMetadata::default(),
+                upstream: None,
             },
         );
         IndexEntry {
@@ -1289,6 +1291,7 @@ mod tests {
                 compiler_wrapper: None,
                 language: None,
                 standards: cabin_index::StandardsMetadata::default(),
+                upstream: None,
             },
         );
         IndexEntry {

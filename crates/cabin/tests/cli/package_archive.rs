@@ -442,3 +442,90 @@ fn package_overwrite_with_different_bytes_fails() {
         .failure()
         .stderr(predicate::str::contains("already exists"));
 }
+
+/// `[package.upstream]` provenance rides through `cabin package`
+/// into the canonical metadata document in canonical normalized
+/// form (the URL in its `url`-crate serialization).  The archive
+/// contents are unchanged: provenance never adds archive entries,
+/// and packaging never fetches the upstream URL (this test runs
+/// fully offline against an unreachable host).
+#[test]
+fn package_metadata_preserves_upstream_provenance() {
+    let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+    let dir = TempDir::new().unwrap();
+    write_simple_package(dir.path());
+    let manifest_path = dir.path().join("cabin.toml");
+    let manifest = fs::read_to_string(&manifest_path).unwrap()
+        + &format!(
+            r#"
+[package.upstream]
+url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
+sha256 = "{sha}"
+format = "tar.gz"
+strip-prefix = "fmt-10.2.1"
+
+[[package.upstream.copy]]
+from = "support/config.h.in"
+to = "config.h"
+"#
+        );
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(&manifest)
+        .unwrap();
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(&manifest_path)
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(dist.join("fmt-10.2.1.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        value["upstream"],
+        serde_json::json!({
+            "url": "https://upstream.invalid/fmt-10.2.1.tar.gz",
+            "sha256": sha,
+            "format": "tar.gz",
+            "strip-prefix": "fmt-10.2.1",
+            "copy": [{"from": "support/config.h.in", "to": "config.h"}],
+        })
+    );
+
+    let entries = read_archive_entries(&dist.join("fmt-10.2.1.zip"));
+    assert!(entries.contains("cabin.toml"));
+    assert!(!entries.iter().any(|e| e.contains("config.h")));
+}
+
+/// An invalid `[package.upstream]` declaration fails `cabin package`
+/// with the manifest diagnostic, before anything is staged.
+#[test]
+fn package_rejects_invalid_upstream_declaration() {
+    let dir = TempDir::new().unwrap();
+    write_simple_package(dir.path());
+    let manifest_path = dir.path().join("cabin.toml");
+    let mut manifest = fs::read_to_string(&manifest_path).unwrap();
+    manifest.push_str(
+        r#"
+[package.upstream]
+url = "http://upstream.invalid/fmt.tar.gz"
+sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+format = "tar.gz"
+"#,
+    );
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(&manifest)
+        .unwrap();
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(&manifest_path)
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("https"));
+    assert!(!dist.exists(), "nothing staged on a rejected manifest");
+}

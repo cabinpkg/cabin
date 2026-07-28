@@ -435,13 +435,24 @@ Publish validates in a fixed order, stopping at the first failure:
    network work, and the verifier mirrors it structurally: the stored
    document passed this check, and its manifest-equality pass forces
    the archived manifest's maps to match;
-8. `yanked` is `false` (`400`);
-9. the archive bytes pass a container sanity check - a zip whose EOCD sits
+8. when the document declares an `upstream` provenance block, it passes
+   the lexical mirror of the client's provenance rules - an
+   `https://` URL whose authority embeds no credentials, a 64-hex
+   `sha256`, a `"tar.gz"` / `"zip"` format, a single-component
+   `strip-prefix`, and non-escaping copy paths (`400`).  A strict
+   subset of the client parser's typed validation, so an honest
+   client is never rejected here; the external verifier's
+   metadata-equality pass plus its upstream-archive comparison are
+   the authority (`docs/remote-registry.md`, "The verifier's
+   checks").  The Worker itself never fetches the upstream URL -
+   all archive fetching stays out-of-Worker by design;
+9. `yanked` is `false` (`400`);
+10. the archive bytes pass a container sanity check - a zip whose EOCD sits
    at the fixed `len - 22` offset with a zero comment and single-disk
    fields, and whose central directory abuts the EOCD (all O(1) reads; see
    [`archive-format.md`](archive-format.md)) - the cheapest rejection, taken
    before hashing so a non-zip never reaches SubtleCrypto (`400`);
-10. the metadata's `checksum` equals `sha256:` + the digest the server itself
+11. the metadata's `checksum` equals `sha256:` + the digest the server itself
     computes from the uploaded archive bytes via SubtleCrypto (`400`).
 
 Publishing under a scope the user is a member of is all it takes to

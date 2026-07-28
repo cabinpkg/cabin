@@ -219,7 +219,10 @@ Server-side behavior is part of the contract:
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
   metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
   name (`system-dependencies` is exempt - its keys name system packages, not registry
-  packages), and verifies the archive
+  packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
+  manifest's provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"`
+  format, single-component `strip-prefix`, non-escaping copy paths - the server never fetches the
+  URL), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family (`registry/docs/architecture.md`, "Name
   fidelity"): a reserved package name (`package name is reserved` - the DOS device stems plus a
@@ -370,8 +373,8 @@ the recovery path, and a late duplicate verdict must never race the replacement.
 The hosted registry's verifier is `cabin-registry-verify`, run every few minutes by a GitHub
 Actions workflow (operations live in the service runbook).  It inspects each pending archive
 against the canonical metadata the listing reported - parsing the zip container by hand,
-decompressing each entry through a bounded reader, never extracting to disk, and assuming the
-archive is hostile.  The archive must conform to the strict zip profile whose normative
+decompressing each entry through a bounded reader, never extracting the registry archive to
+disk, and assuming the archive is hostile.  The archive must conform to the strict zip profile whose normative
 definition is `registry/docs/archive-format.md`; this section is the user-facing summary.  The
 checks, in order:
 
@@ -402,9 +405,29 @@ checks, in order:
    extract but fail to build), and must reproduce the
    entire stored canonical metadata document through the same derivation publish used - name,
    version, the three dependency tables, language-standard fields and the per-target standards
-   table, features, profiles, toolchain, build settings, and the source block - and the archive
+   table, features, profiles, toolchain, build settings, the upstream provenance block, and the
+   source block - and the archive
    bytes must hash to the recorded checksum (defense in depth; the server already checked at
    publish).
+4. **Upstream provenance**, when the metadata declares a `[package.upstream]` block
+   ([`manifest.md`](manifest.md#packageupstream)).  The workflow downloads the pinned upstream
+   archive itself - the binary still performs no HTTP, and the privileged token is never sent to
+   the publisher-controlled URL - and passes it to the verifier, which requires the bytes to hash
+   to the pinned SHA-256, interprets the archive with the same hardened extraction foundation
+   ports use (bomb caps, lexical path safety, `strip-prefix` matching, symlinks skipped) in a
+   scratch directory, applies the declared copy steps in order, collects the resulting tree under
+   `cabin package`'s include / exclude policy, and requires the published archive's entries to
+   match the expected tree byte for byte - except the root `cabin.toml`, which is the publisher's
+   manifest, never upstream's.  When the upstream download fails - including a pinned archive over
+   the 256 MiB download cap, which is part of the provenance contract
+   ([`manifest.md`](manifest.md#packageupstream)), or when the run's bounded upstream-download time
+   budget is exhausted (versions are processed in a shuffled order, so slow upstream hosts cannot
+   pin the same versions to the front of every pass) - the verifier still runs the structure and
+   consistency passes (which can reject on their own); a version whose provenance could then not
+   be checked stays pending, because a transport failure must not terminally reject a package
+   (the stuck-pending alert summons an operator instead).  Deterministic disagreements - a digest
+   mismatch, an uninterpretable archive, an inapplicable copy step, a diverging tree - are
+   rejections with the stable codes below.
 
 A rejection records machine-readable reason codes in the version's `verification_reason`:
 
@@ -432,6 +455,11 @@ A rejection records machine-readable reason codes in the version's `verification
 | `checksum_mismatch` | archive bytes do not hash to the recorded checksum |
 | `metadata_mismatch` | any other canonical-metadata field disagrees with what the manifest derives |
 | `archive_invalid` | not a well-formed zip container: a bad or misplaced EOCD, a non-contiguous layout, or bytes outside the tiled regions |
+| `upstream_mismatch` | the stored `upstream` block disagrees with the manifest's `[package.upstream]` declaration |
+| `upstream_checksum_mismatch` | the downloaded upstream archive does not hash to the pinned SHA-256 |
+| `upstream_archive_invalid` | the pinned upstream archive cannot be interpreted as declared: the hardened extractor refused it, its compressed stream would not decode (`stream`), an entry name cannot be materialized on the verifier's filesystem (`file name`), the declared strip prefix is absent (`strip prefix`), or the extracted file set violates packaging rules (`file set`) |
+| `upstream_copy_invalid` | a declared copy step cannot be applied to the extracted upstream tree: its `from` file is absent (`missing source`), or its `to` cannot name a regular file there (`destination`) |
+| `upstream_tree_mismatch` | the published tree is not the declared transformation of the upstream archive; the detail names the first divergence in sorted-path order, reporting missing and diverging files before unexplained extras: `missing file`, `file contents`, or `extra file` |
 
 A recorded reason is the `code` above, optionally followed by one parenthesized detail that
 narrows the cause - `unsupported_zip_feature (zip64)`, `header_mismatch (crc)`,

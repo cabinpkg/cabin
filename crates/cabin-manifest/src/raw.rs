@@ -216,6 +216,35 @@ pub(crate) struct RawPackage {
     /// marker form.
     #[serde(default, rename = "gnu-extensions")]
     pub(crate) gnu_extensions: Option<bool>,
+    /// `[package.upstream]` - optional machine-verifiable upstream
+    /// provenance.  Validated into a typed
+    /// `cabin_core::UpstreamProvenance` by the parser.
+    #[serde(default)]
+    pub(crate) upstream: Option<RawUpstream>,
+}
+
+/// `[package.upstream]` table.  Field values are validated by
+/// `cabin_core::UpstreamProvenance::new`; unknown fields are
+/// rejected here.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawUpstream {
+    pub(crate) url: String,
+    pub(crate) sha256: String,
+    pub(crate) format: String,
+    #[serde(default, rename = "strip-prefix")]
+    pub(crate) strip_prefix: Option<String>,
+    /// `[[package.upstream.copy]]` file placements.
+    #[serde(default)]
+    pub(crate) copy: Vec<RawUpstreamCopy>,
+}
+
+/// One `[[package.upstream.copy]]` step.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawUpstreamCopy {
+    pub(crate) from: String,
+    pub(crate) to: String,
 }
 
 #[derive(Debug, Deserialize)]

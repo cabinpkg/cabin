@@ -225,6 +225,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     language: Option<&'a cabin_core::LanguageStandardSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     standards: Option<&'a cabin_core::StandardsMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    upstream: Option<&'a cabin_core::UpstreamProvenance>,
 }
 
 #[derive(Serialize)]
@@ -255,6 +257,7 @@ fn version_value_from_metadata(
         compiler_wrapper: metadata.compiler_wrapper.as_ref(),
         language: (!metadata.language.is_empty()).then_some(&metadata.language),
         standards: (!metadata.standards.is_empty()).then_some(&metadata.standards),
+        upstream: metadata.upstream.as_ref(),
     };
     Ok(serde_json::to_value(&wire)?)
 }
@@ -280,6 +283,7 @@ mod tests {
             compiler_wrapper: Default::default(),
             language: Default::default(),
             standards: Default::default(),
+            upstream: None,
             yanked: false,
             checksum: format!("sha256:{}", "a".repeat(64)),
             source: SourceMetadata {
@@ -416,5 +420,45 @@ mod tests {
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("standards").is_none());
+    }
+
+    #[test]
+    fn render_projects_upstream_provenance() {
+        let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        let mut meta = metadata("fmt", "10.2.1");
+        meta.upstream = Some(
+            cabin_core::UpstreamProvenance::new(
+                "https://example.com/fmt-10.2.1.tar.gz",
+                sha,
+                "tar.gz",
+                Some("fmt-10.2.1".to_owned()),
+                vec![
+                    cabin_core::UpstreamCopy::new("support/config.h.in".into(), "config.h".into())
+                        .unwrap(),
+                ],
+            )
+            .unwrap(),
+        );
+
+        let index = insert_version(None, &meta).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let upstream = &value["versions"]["10.2.1"]["upstream"];
+        assert_eq!(upstream["url"], "https://example.com/fmt-10.2.1.tar.gz");
+        assert_eq!(upstream["sha256"], sha);
+        assert_eq!(upstream["format"], "tar.gz");
+        assert_eq!(upstream["strip-prefix"], "fmt-10.2.1");
+        assert_eq!(upstream["copy"][0]["from"], "support/config.h.in");
+        assert_eq!(upstream["copy"][0]["to"], "config.h");
+    }
+
+    /// A package without provenance omits the field, so existing
+    /// entries stay byte-identical.
+    #[test]
+    fn render_omits_absent_upstream() {
+        let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let body = render(&index, Path::new("packages/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(value["versions"]["10.2.1"].get("upstream").is_none());
     }
 }
