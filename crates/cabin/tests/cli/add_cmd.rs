@@ -423,11 +423,13 @@ fn add_preserves_existing_comments() {
     let dir = TempDir::new().expect("tempdir");
     let manifest = dir.path().join("cabin.toml");
     dir.child("cabin.toml")
-        .write_str(&format!("{PACKAGE_MANIFEST}\n[dependencies]\n# keep this note\nxxhash = {{ port = true, version = \"^0.8\" }}\n"))
+        .write_str(&format!(
+            "{PACKAGE_MANIFEST}\n[dependencies]\n# keep this note\n\"cabin-ports/xxhash\" = \"=0.8.3\"\n"
+        ))
         .unwrap();
 
     cabin()
-        .args(["add", "--port", "zlib", "--manifest-path"])
+        .args(["add", "cabin-ports/zlib@=1.3.1", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success();

@@ -13,9 +13,9 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-zlib = { port = true, version = "^1.3.1" }
+"cabin-ports/zlib" = "=1.3.1"
 # xxhash stays pinned
-xxhash = { port = true, version = "^0.8" }
+"cabin-ports/xxhash" = "=0.8.3"
 
 [target.demo]
 type = "executable"
@@ -33,11 +33,13 @@ fn manifest_with(body: &str) -> (TempDir, PathBuf) {
 fn remove_deletes_entry_and_reports_status() {
     let (_dir, manifest) = manifest_with(MANIFEST_WITH_DEPS);
     cabin()
-        .args(["remove", "zlib", "--manifest-path"])
+        .args(["remove", "cabin-ports/zlib", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Removing zlib from dependencies"));
+        .stdout(predicate::str::contains(
+            "Removing cabin-ports/zlib from dependencies",
+        ));
 
     let body = std::fs::read_to_string(&manifest).unwrap();
     assert!(!body.contains("zlib"), "zlib should be gone:\n{body}");
@@ -55,10 +57,10 @@ fn remove_deletes_entry_and_reports_status() {
 
 #[test]
 fn remove_last_dependency_drops_empty_table() {
-    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = { port = true, version = \"^1.3.1\" }\n";
+    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"cabin-ports/zlib\" = \"=1.3.1\"\n";
     let (_dir, manifest) = manifest_with(body);
     cabin()
-        .args(["remove", "zlib", "--manifest-path"])
+        .args(["remove", "cabin-ports/zlib", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success();
@@ -72,15 +74,15 @@ fn remove_last_dependency_drops_empty_table() {
 
 #[test]
 fn remove_from_dev_dependencies() {
-    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dev-dependencies]\ntinyxml2 = { port = true, version = \"^11\" }\n";
+    let body = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dev-dependencies]\n\"cabin-ports/tinyxml2\" = \"=11.0.0\"\n";
     let (_dir, manifest) = manifest_with(body);
     cabin()
-        .args(["remove", "tinyxml2", "--dev", "--manifest-path"])
+        .args(["remove", "cabin-ports/tinyxml2", "--dev", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Removing tinyxml2 from dev-dependencies",
+            "Removing cabin-ports/tinyxml2 from dev-dependencies",
         ));
 
     let after = std::fs::read_to_string(&manifest).unwrap();
@@ -112,11 +114,12 @@ fn remove_missing_dependency_fails_with_cargo_wording() {
 
 #[test]
 fn remove_normal_dependency_does_not_match_dev_table() {
-    // `zlib` lives in [dependencies]; `cabin remove zlib --dev` must
-    // report it missing from [dev-dependencies] rather than deleting it.
+    // `cabin-ports/zlib` lives in [dependencies]; removing it with
+    // `--dev` must report it missing from [dev-dependencies] rather
+    // than deleting it.
     let (_dir, manifest) = manifest_with(MANIFEST_WITH_DEPS);
     cabin()
-        .args(["remove", "zlib", "--dev", "--manifest-path"])
+        .args(["remove", "cabin-ports/zlib", "--dev", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .failure()
@@ -140,16 +143,24 @@ fn remove_targets_selected_workspace_member() {
         .unwrap();
     dir.child("packages/app/cabin.toml")
         .write_str(
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = { port = true, version = \"^1.3.1\" }\n",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\n\"cabin-ports/zlib\" = \"=1.3.1\"\n",
         )
         .unwrap();
 
     cabin()
-        .args(["remove", "zlib", "--package", "app", "--manifest-path"])
+        .args([
+            "remove",
+            "cabin-ports/zlib",
+            "--package",
+            "app",
+            "--manifest-path",
+        ])
         .arg(&root)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Removing zlib from dependencies"));
+        .stdout(predicate::str::contains(
+            "Removing cabin-ports/zlib from dependencies",
+        ));
 
     let member = std::fs::read_to_string(dir.path().join("packages/app/cabin.toml")).unwrap();
     assert!(

@@ -52,11 +52,40 @@ pub struct FakeArchive {
     name: String,
     path: PathBuf,
     port_toml: PathBuf,
+    sha256: String,
 }
 
 impl FakeArchive {
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+}
+
+impl FakePort {
+    /// Re-pin the recipe's `[source].url` to a never-fetched
+    /// `https://ports.invalid/...` address and seed the archive bytes
+    /// into `cache_dir`'s content-addressed `ports` slot.  Publisher
+    /// conversion refuses non-HTTPS pins (the `[package.upstream]`
+    /// provenance rules), and the cache-first archive lookup makes the
+    /// unreachable pin a no-op, so registry-fixture staging works with
+    /// no server and no network.
+    pub fn pin_https_source_and_seed_cache(&self, cache_dir: &Path) {
+        patch_port_toml_url(
+            &self.archive.port_toml,
+            &format!("https://ports.invalid/{}", self.archive.name),
+        );
+        let slot = cache_dir
+            .join("ports")
+            .join("archives")
+            .join("sha256")
+            .join(format!("{}.tar.gz", self.archive.sha256));
+        fs::create_dir_all(slot.parent().expect("cache slot parent"))
+            .expect("create fake port cache slot");
+        fs::copy(&self.archive.path, &slot).expect("seed fake port archive into cache");
     }
 }
 
@@ -137,6 +166,7 @@ impl FakePortBuilder {
                 name: archive_name,
                 path: archive_path,
                 port_toml,
+                sha256,
             },
         }
     }

@@ -130,6 +130,7 @@ fn fake_zlib_port_builds_and_runs() {
         manifest,
         build_dir: tmp.path().join("build"),
         cache_dir: tmp.path().join("cache"),
+        index_path: None,
         expected_stdout: &["fake zlib: fake-zlib/1.3.1"],
     });
     assert_eq!(server.requests_for(zlib.archive.name()), 1);
@@ -162,6 +163,7 @@ fn fake_cjson_port_builds_and_runs() {
         manifest,
         build_dir: tmp.path().join("build"),
         cache_dir: tmp.path().join("cache"),
+        index_path: None,
         expected_stdout: &["fake cJSON: 1.7.18"],
     });
     assert_eq!(server.requests_for(cjson.archive.name()), 1);
@@ -194,6 +196,7 @@ fn fake_xxhash_port_builds_and_runs() {
         manifest,
         build_dir: tmp.path().join("build"),
         cache_dir: tmp.path().join("cache"),
+        index_path: None,
         expected_stdout: &["fake xxhash: 803"],
     });
     assert_eq!(server.requests_for(xxhash.archive.name()), 1);
@@ -226,6 +229,7 @@ fn fake_tinyxml2_port_builds_and_runs() {
         manifest,
         build_dir: tmp.path().join("build"),
         cache_dir: tmp.path().join("cache"),
+        index_path: None,
         expected_stdout: &["fake tinyxml2: 11.0.0"],
     });
     assert_eq!(server.requests_for(tinyxml2.archive.name()), 1);
@@ -258,6 +262,7 @@ fn fake_sqlite3_port_builds_single_threaded_feature_and_runs() {
         manifest,
         build_dir: tmp.path().join("build"),
         cache_dir: tmp.path().join("cache"),
+        index_path: None,
         expected_stdout: &["fake sqlite3: 3.53.2", "fake sqlite3 threadsafe: 0"],
     });
     assert_eq!(server.requests_for(sqlite3.archive.name()), 1);

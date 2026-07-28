@@ -213,10 +213,10 @@ would not contain cabin.toml`.
   "name": "fmt",
   "version": "10.2.1",
   "dependencies": {
-    "zlib": ">=1.2.0, <2.0.0"
+    "cabin-ports/zlib": ">=1.2.0, <2.0.0"
   },
   "dev-dependencies": {
-    "gtest": "^1.14"
+    "cabin-ports/googletest": "^1.17"
   },
   "system-dependencies": {
     "openssl": { "version": ">=3" }

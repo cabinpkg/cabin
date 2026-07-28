@@ -11,7 +11,8 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 - `crates/<name>/examples/` - **Cargo example targets for the Rust crates.** None exist today; this
   is where they would go if added.
 - `crates/cabin-port/ports/` - **curated foundation ports.** Cabin recipes that adapt real upstream
-  C/C++ libraries that do not yet ship a native `cabin.toml`.  Not example projects; see
+  C/C++ libraries that do not yet ship a native `cabin.toml`, and the recipes the `cabin-ports/*`
+  registry packages these examples depend on are published from.  Not example projects; see
   [`../crates/cabin-port/ports/README.md`](../crates/cabin-port/ports/README.md).
 
 ## Available examples
@@ -24,30 +25,30 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
 | [`library-with-tests/`](library-with-tests) | A library plus two `test` targets, run with `cabin test`.  The example to read for unit testing. |
 | [`header-only-lib/`](header-only-lib) | Authoring a `header-only` target (include-dirs, nothing compiled) consumed by an executable in the same package. |
 | [`workspace-basic/`](workspace-basic) | A virtual workspace root with two members (`util` library, `cli` executable depending on `util` via a path dependency). |
-| [`workspace-app-and-lib/`](workspace-app-and-lib) | A workspace whose internal `greeter` library depends on the fmt foundation port; the `app` member reaches fmt transitively through its path dependency. |
+| [`workspace-app-and-lib/`](workspace-app-and-lib) | A workspace whose internal `greeter` library depends on the `cabin-ports/fmt` registry package; the `app` member reaches fmt transitively through its path dependency. |
 | [`feature-gated-targets/`](feature-gated-targets) | A feature-gated optional library: `required-features` on `[target.tls]`, the `tls` feature enabled on the dependency edge, and explicit `deps = ["netlib:net", "netlib:tls"]` links. |
-| [`zlib-usage/`](zlib-usage) | Consuming the curated zlib foundation port from [`crates/cabin-port/ports/zlib/`](../crates/cabin-port/ports/zlib). |
-| [`cjson-usage/`](cjson-usage) | Consuming the curated cJSON foundation port from [`crates/cabin-port/ports/cJSON/`](../crates/cabin-port/ports/cJSON). |
-| [`xxhash-usage/`](xxhash-usage) | Consuming the curated xxHash foundation port from [`crates/cabin-port/ports/xxhash/`](../crates/cabin-port/ports/xxhash). |
-| [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the curated tinyxml2 C++ foundation port from [`crates/cabin-port/ports/tinyxml2/`](../crates/cabin-port/ports/tinyxml2). |
-| [`sqlite3-usage/`](sqlite3-usage) | Consuming the curated SQLite foundation port (amalgamation) from [`crates/cabin-port/ports/sqlite3/`](../crates/cabin-port/ports/sqlite3), including a `single-threaded` feature. |
-| [`libpng-usage/`](libpng-usage) | Consuming the curated libpng foundation port from [`crates/cabin-port/ports/libpng/`](../crates/cabin-port/ports/libpng), which itself depends transitively on the bundled zlib port. |
-| [`fmt-usage/`](fmt-usage) | Consuming the curated {fmt} C++ foundation port from [`crates/cabin-port/ports/fmt/`](../crates/cabin-port/ports/fmt). |
-| [`spdlog-usage/`](spdlog-usage) | Consuming the curated spdlog header-only C++ foundation port from [`crates/cabin-port/ports/spdlog/`](../crates/cabin-port/ports/spdlog). |
-| [`googletest-usage/`](googletest-usage) | A `test` target linking the curated GoogleTest foundation port from [`crates/cabin-port/ports/googletest/`](../crates/cabin-port/ports/googletest), run with `cabin test`. |
-| [`catch2-usage/`](catch2-usage) | A `test` target linking the curated Catch2 foundation port (amalgamation, port-supplied `main`) from [`crates/cabin-port/ports/catch2/`](../crates/cabin-port/ports/catch2), run with `cabin test`. |
-| [`nlohmann-json-usage/`](nlohmann-json-usage) | Consuming the curated header-only nlohmann_json foundation port from [`crates/cabin-port/ports/nlohmann_json/`](../crates/cabin-port/ports/nlohmann_json). |
-| [`cli11-usage/`](cli11-usage) | Consuming the curated header-only CLI11 foundation port from [`crates/cabin-port/ports/CLI11/`](../crates/cabin-port/ports/CLI11). |
-| [`miniz-usage/`](miniz-usage) | Consuming the curated miniz foundation port (zip-sourced amalgamation) from [`crates/cabin-port/ports/miniz/`](../crates/cabin-port/ports/miniz). |
-| [`stb-usage/`](stb-usage) | Consuming the curated header-only stb foundation port (implementation-macro pattern) from [`crates/cabin-port/ports/stb/`](../crates/cabin-port/ports/stb). |
-| [`uthash-usage/`](uthash-usage) | Consuming the curated header-only uthash foundation port from [`crates/cabin-port/ports/uthash/`](../crates/cabin-port/ports/uthash). |
-| [`inih-usage/`](inih-usage) | Consuming the curated inih C foundation port from [`crates/cabin-port/ports/inih/`](../crates/cabin-port/ports/inih). |
-| [`picohttpparser-usage/`](picohttpparser-usage) | Consuming the curated picohttpparser C foundation port from [`crates/cabin-port/ports/picohttpparser/`](../crates/cabin-port/ports/picohttpparser). |
-| [`cli-with-spdlog/`](cli-with-spdlog) | A CLI app combining three foundation ports - CLI11 flags, {fmt} formatting, spdlog logging - including the `SPDLOG_FMT_EXTERNAL` opt-in to the external fmt port. |
+| [`zlib-usage/`](zlib-usage) | Consuming the `cabin-ports/zlib` registry package. |
+| [`cjson-usage/`](cjson-usage) | Consuming the `cabin-ports/cjson` registry package. |
+| [`xxhash-usage/`](xxhash-usage) | Consuming the `cabin-ports/xxhash` registry package. |
+| [`tinyxml2-usage/`](tinyxml2-usage) | Consuming the `cabin-ports/tinyxml2` C++ registry package. |
+| [`sqlite3-usage/`](sqlite3-usage) | Consuming the `cabin-ports/sqlite3` registry package (SQLite amalgamation), including a `single-threaded` feature. |
+| [`libpng-usage/`](libpng-usage) | Consuming the `cabin-ports/libpng` registry package, which itself depends transitively on `cabin-ports/zlib`. |
+| [`fmt-usage/`](fmt-usage) | Consuming the `cabin-ports/fmt` C++ registry package. |
+| [`spdlog-usage/`](spdlog-usage) | Consuming the header-only `cabin-ports/spdlog` C++ registry package. |
+| [`googletest-usage/`](googletest-usage) | A `test` target linking the `cabin-ports/googletest` registry package, run with `cabin test`. |
+| [`catch2-usage/`](catch2-usage) | A `test` target linking the `cabin-ports/catch2` registry package (amalgamation, package-supplied `main`), run with `cabin test`. |
+| [`nlohmann-json-usage/`](nlohmann-json-usage) | Consuming the header-only `cabin-ports/nlohmann_json` registry package. |
+| [`cli11-usage/`](cli11-usage) | Consuming the header-only `cabin-ports/cli11` registry package. |
+| [`miniz-usage/`](miniz-usage) | Consuming the `cabin-ports/miniz` registry package (zip-sourced amalgamation). |
+| [`stb-usage/`](stb-usage) | Consuming the header-only `cabin-ports/stb` registry package (implementation-macro pattern). |
+| [`uthash-usage/`](uthash-usage) | Consuming the header-only `cabin-ports/uthash` registry package. |
+| [`inih-usage/`](inih-usage) | Consuming the `cabin-ports/inih` C registry package. |
+| [`picohttpparser-usage/`](picohttpparser-usage) | Consuming the `cabin-ports/picohttpparser` C registry package. |
+| [`cli-with-spdlog/`](cli-with-spdlog) | A CLI app combining three `cabin-ports` packages - CLI11 flags, {fmt} formatting, spdlog logging - including the `SPDLOG_FMT_EXTERNAL` opt-in to the external fmt package. |
 | [`unit-test-gtest/`](unit-test-gtest) | A library unit-tested with GoogleTest through `cabin test`: a fixture, value assertions, and exception assertions.  The example to read for framework-based testing. |
-| [`json-cli/`](json-cli) | A JSON round trip on the header-only nlohmann_json port: parse a document, read typed values, emit a derived summary. |
-| [`sqlite-todo/`](sqlite-todo) | An in-memory todo list on the sqlite3 port: DDL/DML through `sqlite3_exec`, then a prepare/step/finalize query loop. |
-| [`png-info/`](png-info) | An in-memory PNG encode/decode roundtrip on the libpng port, pushing real image data across the transitive `libpng -> zlib` C port edge. |
+| [`json-cli/`](json-cli) | A JSON round trip on the header-only `cabin-ports/nlohmann_json` package: parse a document, read typed values, emit a derived summary. |
+| [`sqlite-todo/`](sqlite-todo) | An in-memory todo list on the `cabin-ports/sqlite3` package: DDL/DML through `sqlite3_exec`, then a prepare/step/finalize query loop. |
+| [`png-info/`](png-info) | An in-memory PNG encode/decode roundtrip on the `cabin-ports/libpng` package, pushing real image data across the transitive `libpng -> zlib` C package edge. |
 | [`platform-cfg/`](platform-cfg) | Per-platform `[target.'cfg(...)']` defines: one source that compiles a different macro on Windows (MSVC) vs.  Unix (GCC/Clang). |
 
 ## Running an example manually
@@ -71,7 +72,9 @@ cargo test --test cabin_examples
 ```
 
 The tests copy each example into a temporary directory before building, so the source tree never
-accumulates build output.  Tests skip cleanly when Ninja or a C/C++ compiler is missing; the
-foundation-port example tests additionally skip when `CABIN_NET_OFFLINE` is set or when the host
-cannot reach the archive host - `github.com:443` for most ports, `www.sqlite.org:443` for sqlite3,
-and `downloads.sourceforge.net:443` for libpng.
+accumulates build output.  Tests that compile real sources fail with a clear message when Ninja or
+a C/C++ compiler is missing.  The tests
+for the examples consuming `cabin-ports/*` packages are `#[ignore]`d because they need outbound
+network; run them with `cargo test --test cabin_examples -- --ignored`, which stages the committed
+recipes into a local file registry through the publisher pipeline - downloading the pinned upstream
+archives - and builds each example against that registry with `--index-path`.

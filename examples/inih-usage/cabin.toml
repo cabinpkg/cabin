@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-inih = { port = true, version = "^62" }
+"cabin-ports/inih" = "=62.0.0"
 
 [target.inih-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["inih"]
+deps = ["cabin-ports/inih"]

@@ -30,7 +30,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build gcc g++
 
-      - name: Run ignored real-upstream foundation-port examples
+      - name: Run ignored real-upstream registry example smoke tests
         run: |
           cargo test -p cabinpkg --test cabin_examples --all-features --locked \
             --verbose -- --ignored --show-output

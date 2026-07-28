@@ -1,20 +1,26 @@
 # cli-with-spdlog
 
-A small command-line app that combines three curated foundation ports in one binary:
+A small command-line app that combines three `cabin-ports/*` registry packages in one binary:
 
-- [`CLI11`](../../crates/cabin-port/ports/CLI11) parses `--name` / `--count` flags.
-- [`fmt`](../../crates/cabin-port/ports/fmt) formats the greeting lines.
-- [`spdlog`](../../crates/cabin-port/ports/spdlog) logs what the app is about to do.
+- [`cabin-ports/cli11`](../../crates/cabin-port/ports/CLI11) parses `--name` / `--count` flags.
+- [`cabin-ports/fmt`](../../crates/cabin-port/ports/fmt) formats the greeting lines.
+- [`cabin-ports/spdlog`](../../crates/cabin-port/ports/spdlog) logs what the app is about to do.
 
-The spdlog port is header-only and defaults to its **bundled** {fmt} copy.  Cabin propagates
-include dirs across dependency edges but not defines, so the opt-in to the external fmt port
+Each one is an ordinary scoped registry package, published to the Cabin registry from the curated
+recipe it links to by the repository tool `cabin-port-publish`.  The same libraries are still
+reachable as bundled `port = true` dependencies; see
+[`docs/foundation-ports.md`](../../docs/foundation-ports.md).
+
+The spdlog package is header-only and defaults to its **bundled** {fmt} copy.  Cabin propagates
+include dirs across dependency edges but not defines, so the opt-in to the external fmt package
 happens in this package's own manifest: `defines = ["SPDLOG_FMT_EXTERNAL"]` on the executable
 target reaches every translation unit that includes spdlog's headers, and all three libraries end
-up sharing the single fmt port.
+up sharing the single fmt package.
 
-This is **not** itself a port and does not vendor any sources.  The first `cabin build` downloads
-the three upstream archives (URL and SHA-256 pinned by each port recipe), verifies checksums,
-extracts them under Cabin's cache, and then builds normally; subsequent builds reuse the cache.
+This is **not** itself a port and does not vendor any sources.  The first `cabin build` resolves
+the three pinned dependencies against the registry index, downloads the published archives,
+verifies their checksums, extracts them under Cabin's cache, and then builds normally; subsequent
+builds reuse the cache.
 
 ## Build and run
 
@@ -42,10 +48,15 @@ cabin run -- --name you --count 3
 
 ## Offline
 
-If you have no network the first time, the build fails with a clear "cannot download port" error.
-Once the archives are already cached, subsequent builds work offline.
+The first `cabin build` needs the registry.  Reads resolve through the hosted registry by default,
+and while it is in private alpha they are authenticated, so run `cabin login` first (see
+[`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
+archive without re-fetching it.  Resolving still consults the
+registry index, so a fully offline build needs a local index; see
+[`docs/vendoring-offline.md`](../../docs/vendoring-offline.md) for
+the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
-(`crates/cabin/tests/cabin_examples.rs::cli_with_spdlog_builds_and_runs`) skips cleanly when
-`CABIN_NET_OFFLINE` is set or when the host cannot reach `github.com:443`, so a CI runner without
-outbound network does not fail the suite.
+(`crates/cabin/tests/cabin_examples.rs::cli_with_spdlog_builds_and_runs`) is
+`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+registry through the publisher pipeline and builds this example against it with `--index-path`.

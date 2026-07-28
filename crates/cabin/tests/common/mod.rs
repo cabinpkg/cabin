@@ -19,6 +19,7 @@ use cabin_build::Dialect;
 mod fake_ports;
 mod foundation_port_smoke;
 mod port_schema;
+mod ports_registry;
 
 #[allow(unused_imports)]
 pub use fake_ports::{FakeArchiveServer, FakePortRepo};
@@ -31,6 +32,8 @@ pub use port_schema::{
     assert_builtin_port_bundled_and_parses, assert_tar_gz_source, builtin_overlay,
     load_real_port_and_assert_schema,
 };
+#[allow(unused_imports)]
+pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
 
 /// File name of the executable built from `stem` in the host's
 /// build dialect (`app` on Unix, `app.exe` on Windows).  Single

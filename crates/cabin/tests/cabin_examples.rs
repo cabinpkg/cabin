@@ -257,16 +257,19 @@ fn workspace_basic_runs_selected_package() {
     );
 }
 
-// Real-upstream bundled-port examples are external-network smoke tests.
-// They intentionally do not run in default PR/push CI; the required CI
-// exercises the same Cabin port machinery hermetically via the
-// loopback tests under `cli/foundation_port_*`, including the
-// transitive libpng -> zlib + `[[copy]]` lifecycle in
-// `foundation_port_libpng::fake_libpng_cache_lifecycle`.
+// Real-upstream registry examples are external-network smoke tests:
+// each one stages the committed `crates/cabin-port/ports/` recipes into
+// a local file registry through the publisher pipeline (one shared
+// staging per test process, downloading the pinned upstream archives)
+// and consumes the published `cabin-ports/*` packages from it.  They
+// intentionally do not run in default PR/push CI; the required CI
+// exercises the same consumption path hermetically via
+// `cli/registry_ports.rs`, and the builtin-port machinery via the
+// loopback tests under `cli/foundation_port_*`.
 #[test]
 #[ignore = "requires external network"]
 fn zlib_usage_builds_and_runs() {
-    // The bundled zlib port compiles `.c` sources, so this gate
+    // The zlib package compiles `.c` sources, so this gate
     // includes the C compiler and the C++ one used to build
     // `src/main.cc`.
     require_c_and_cxx_build_tools();
@@ -276,6 +279,7 @@ fn zlib_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["zlib version: 1.3"],
     });
 }
@@ -283,7 +287,7 @@ fn zlib_usage_builds_and_runs() {
 #[test]
 #[ignore = "requires external network"]
 fn cjson_usage_builds_and_runs() {
-    // The bundled cJSON port compiles a `.c` source and the
+    // The cJSON package compiles a `.c` source and the
     // consumer is also C, so this gate needs the C compiler.
     require_c_and_cxx_build_tools();
     let dir = copy_example("cjson-usage");
@@ -292,6 +296,7 @@ fn cjson_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["cJSON parsed name: Cabin", "cJSON version: 1.7"],
     });
 }
@@ -309,6 +314,7 @@ fn xxhash_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["xxHash version: 803", "XXH64(\"Cabin\") = 002d85a6f376e171"],
     });
 }
@@ -323,6 +329,7 @@ fn tinyxml2_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["tinyxml2 parsed to: Cabin", "tinyxml2 version: 11.0.0"],
     });
 }
@@ -332,7 +339,7 @@ fn tinyxml2_usage_builds_and_runs() {
 fn sqlite3_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("sqlite3-usage");
-    // Both sqlite tests prepare the *same* port; give each its own
+    // Both sqlite tests fetch the *same* package; give each its own
     // cache dir so concurrent test runs do not race on one shared
     // content-addressed source tree.
     // The default build is threadsafe; the in-memory query proves the
@@ -343,6 +350,7 @@ fn sqlite3_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "sqlite version: 3.53",
             "sqlite threadsafe: 1",
@@ -352,14 +360,14 @@ fn sqlite3_usage_builds_and_runs() {
 }
 
 /// End-to-end proof that the `single-threaded` feature flows all the
-/// way to the compiled object: enabling it on the port dependency
+/// way to the compiled object: enabling it on the registry dependency
 /// must compile SQLite with `SQLITE_THREADSAFE=0`, which
 /// `sqlite3_threadsafe()` reports as `0` at run time.
 #[test]
 #[ignore = "requires external network"]
 fn sqlite3_single_threaded_feature_disables_threadsafety() {
     require_c_and_cxx_build_tools();
-    // Start from the example, then enable the feature on the port dep.
+    // Start from the example, then enable the feature on the dependency.
     let dir = copy_example("sqlite3-usage");
     dir.child("cabin.toml")
         .write_str(
@@ -369,12 +377,12 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
+"cabin-ports/sqlite3" = { version = "=3.53.2", features = ["single-threaded"] }
 
 [target.sqlite3-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["sqlite3"]
+deps = ["cabin-ports/sqlite3"]
 "#,
         )
         .unwrap();
@@ -383,51 +391,34 @@ deps = ["sqlite3"]
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["sqlite threadsafe: 0"],
     });
 }
 
-/// libpng depends on the bundled zlib port, so this example
-/// exercises a transitive port edge end to end.  The program forces a
-/// real zlib symbol (`zlibVersion()`) reached only through the
-/// `libpng -> zlib` edge, proving both the transitive include
-/// propagation (zlib.h is visible while compiling) and the transitive
-/// link (the zlib archive is on the final link line).
-///
-/// The single test also walks the full cache lifecycle the way a user
-/// would: a cold cache downloads both ports, a warm cache reuses them,
-/// an offline build against the warm cache succeeds (which is the proof
-/// the warm path needed no network), and a `--frozen` build against a
-/// pristine cache fails with a clear, port-named diagnostic.
+/// libpng depends on zlib, so this example exercises a transitive
+/// registry edge end to end.  The program forces a real zlib symbol
+/// (`zlibVersion()`) reached only through the `libpng -> zlib` edge,
+/// proving both the transitive include propagation (zlib.h is
+/// visible while compiling) and the transitive link (the zlib
+/// archive is on the final link line).  The hermetic cache-lifecycle
+/// counterpart lives in `cli/registry_ports.rs`.
 #[test]
 #[ignore = "requires external network"]
-fn libpng_usage_cache_lifecycle_builds_and_runs() {
+fn libpng_usage_builds_and_runs() {
     // libpng and zlib are both C; the consumer is C too.
     require_c_and_cxx_build_tools();
-    // The cold-cache run also fetches the transitive zlib port, whose
-    // archive is pinned to GitHub - so this test needs GitHub and
-    // SourceForge reachable; on an unreachable host it fails rather
-    // than fetching.
     let dir = copy_example("libpng-usage");
-    let manifest = dir.path().join("cabin.toml");
-    // A warm cache shared across the cold/warm/offline phases, plus a
-    // pristine cache for the frozen-cold phase.  Per-test cache dirs
-    // keep concurrent runs from racing on one content-addressed tree.
-    let warm_cache = dir.path().join("cache");
-    let frozen_cache = dir.path().join("cache-frozen");
-
-    run_port_cache_lifecycle(&PortCacheLifecycle {
+    run_port_build_then_run(&PortBuildRun {
         label: "libpng-usage",
-        manifest,
-        build_root: dir.path().join("build"),
-        warm_cache,
-        pristine_cache: frozen_cache,
+        manifest: dir.path().join("cabin.toml"),
+        build_dir: dir.path().join("build"),
+        cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "libpng version: 1.6.50",
-            "zlib version (via libpng port edge): 1.3",
+            "zlib version (via libpng edge): 1.3",
         ],
-        expected_downloads: &["libpng", "zlib"],
-        frozen_port: "libpng",
     });
 }
 
@@ -444,6 +435,7 @@ fn fmt_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["fmt version: 120200", "Hello, Cabin!"],
     });
 }
@@ -461,6 +453,7 @@ fn spdlog_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["[info] Hello from spdlog!", "spdlog version: 1.17.0"],
     });
 }
@@ -470,10 +463,10 @@ fn spdlog_usage_builds_and_runs() {
 fn googletest_usage_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("googletest-usage");
-    // `cabin test` prepares the port, builds the test target against
-    // it, and runs the produced binary; the port ships no gtest_main,
-    // so the passing run also proves the example's own `main` linked
-    // against the port archive.
+    // `cabin test` fetches the package, builds the test target
+    // against it, and runs the produced binary; the package ships no
+    // gtest_main, so the passing run also proves the example's own
+    // `main` linked against the published archive.
     let output = cabin()
         .args(["test", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -481,6 +474,8 @@ fn googletest_usage_runs_tests() {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -502,7 +497,7 @@ fn googletest_usage_runs_tests() {
 fn catch2_usage_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("catch2-usage");
-    // `cabin test` prepares the port, builds the test target, and
+    // `cabin test` fetches the package, builds the test target, and
     // runs it; the passing run proves the amalgamated TU's default
     // main() drove the TEST_CASEs (the test source defines no main).
     let output = cabin()
@@ -512,6 +507,8 @@ fn catch2_usage_runs_tests() {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -538,6 +535,7 @@ fn nlohmann_json_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "json parsed name: Cabin",
             "json parsed answer: 42",
@@ -558,6 +556,7 @@ fn cli11_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["CLI11 parsed count: 3", "CLI11 version: 2.6.2"],
     });
 }
@@ -576,6 +575,7 @@ fn miniz_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "miniz roundtrip: Cabin compresses with miniz",
             "miniz version: 11.3.2",
@@ -595,6 +595,7 @@ fn stb_usage_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["stb_sprintf formatted: Cabin scores 42"],
     });
 }
@@ -605,13 +606,15 @@ fn uthash_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("uthash-usage");
     // The passing run proves the real uthash tarball - whose root
-    // carries an `include -> src` symlink entry - prepared cleanly
-    // under the skip-symlinks port extraction policy.
+    // carries an `include -> src` symlink entry - staged cleanly
+    // under the skip-symlinks port extraction policy before
+    // publishing, and the published package builds.
     run_port_build_then_run(&PortBuildRun {
         label: "uthash-usage",
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["uthash lookup: cabin = 42", "uthash version: 2.4.0"],
     });
 }
@@ -622,12 +625,13 @@ fn inih_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("inih-usage");
     // The two parsed values prove ini.c's handler dispatch linked
-    // and ran from the port archive.
+    // and ran from the published archive.
     run_port_build_then_run(&PortBuildRun {
         label: "inih-usage",
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &["inih parsed name: Cabin", "inih parsed port: 8080"],
     });
 }
@@ -638,12 +642,13 @@ fn picohttpparser_usage_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("picohttpparser-usage");
     // The parsed method/path/header-count triple proves
-    // phr_parse_request linked from the port archive and ran.
+    // phr_parse_request linked from the published archive and ran.
     run_port_build_then_run(&PortBuildRun {
         label: "picohttpparser-usage",
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "picohttpparser method: GET",
             "picohttpparser path: /hello",
@@ -653,7 +658,7 @@ fn picohttpparser_usage_builds_and_runs() {
 }
 
 /// End-to-end proof that the `custom-main` feature flows to the
-/// port's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
+/// package's translation unit: with CATCH_AMALGAMATED_CUSTOM_MAIN the
 /// amalgamation compiles out its default main(), so the consumer's
 /// own entry point links without a duplicate-symbol error and drives
 /// the TEST_CASEs through Catch::Session.
@@ -670,7 +675,7 @@ version = "0.1.0"
 cxx-standard = "c++17"
 
 [dependencies]
-catch2 = { port = true, version = "^3.15", features = ["custom-main"] }
+"cabin-ports/catch2" = { version = "=3.15.1", features = ["custom-main"] }
 
 [target.calc]
 type = "library"
@@ -680,7 +685,7 @@ include-dirs = ["include"]
 [target.calc_catch2]
 type = "test"
 sources = ["tests/calc_catch2.cc"]
-deps = ["calc", "catch2"]
+deps = ["calc", "cabin-ports/catch2"]
 "#,
         )
         .unwrap();
@@ -705,6 +710,8 @@ int main(int argc, char* argv[]) {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -724,12 +731,14 @@ fn cli_with_spdlog_builds_and_runs() {
     // `cabin run` passes no flags, so the printed lines are the CLI11
     // defaults; the `[info]` line proves spdlog's sink ran, and the
     // external-fmt version line proves SPDLOG_FMT_EXTERNAL compiled
-    // spdlog against the fmt port instead of its bundled copy.
+    // spdlog against the external fmt package instead of its
+    // bundled copy.
     run_port_build_then_run(&PortBuildRun {
         label: "cli-with-spdlog",
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "[info] preparing 2 greeting(s) for Cabin",
             "1/2: Hello, Cabin!",
@@ -745,8 +754,8 @@ fn cli_with_spdlog_builds_and_runs() {
 fn unit_test_gtest_runs_tests() {
     require_cxx_build_tools();
     let dir = copy_example("unit-test-gtest");
-    // `cabin test` prepares the port, builds the `stats` library and
-    // the gtest target against it, and runs the produced binary; the
+    // `cabin test` fetches the package, builds the `stats` library
+    // and the gtest target against it, and runs the produced binary; the
     // TEST_F/TEST cases (fixture, value, and exception assertions)
     // all pass inside the single target run.
     let output = cabin()
@@ -756,6 +765,8 @@ fn unit_test_gtest_runs_tests() {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success()
         .get_output()
@@ -785,6 +796,7 @@ fn json_cli_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "package: json-cli v0.1.0",
             "dependency count: 3",
@@ -806,6 +818,7 @@ fn sqlite_todo_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "[x] #1 write the manifest",
             "[ ] #2 add a lockfile",
@@ -821,7 +834,7 @@ fn png_info_builds_and_runs() {
     require_c_and_cxx_build_tools();
     let dir = copy_example("png-info");
     // The matching roundtrip proves real DEFLATE data flowed through
-    // the transitive libpng -> zlib port edge in both directions;
+    // the transitive libpng -> zlib registry edge in both directions;
     // the encoded byte count varies with zlib, so it stays
     // unasserted.
     run_port_build_then_run(&PortBuildRun {
@@ -829,11 +842,12 @@ fn png_info_builds_and_runs() {
         manifest: dir.path().join("cabin.toml"),
         build_dir: dir.path().join("build"),
         cache_dir: dir.path().join("cache"),
+        index_path: Some(committed_ports_registry().to_path_buf()),
         expected_stdout: &[
             "png-info: 2x2, 4 channel(s)",
             "roundtrip pixels match: yes",
             "libpng version: 1.6.50",
-            "zlib version (transitive port edge): 1.3",
+            "zlib version (transitive edge): 1.3",
         ],
     });
 }
@@ -850,10 +864,12 @@ fn workspace_app_and_lib_builds_and_runs() {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success();
     // `default-members = ["packages/app"]` selects the app without
-    // `-p`. The fmt-formatted greeting proves the port's headers and
+    // `-p`. The fmt-formatted greeting proves the package's headers and
     // archive reached `app` transitively through the internal
     // `greeter` path dependency.
     let output = cabin()
@@ -863,6 +879,8 @@ fn workspace_app_and_lib_builds_and_runs() {
         .arg(dir.path().join("build"))
         .arg("--cache-dir")
         .arg(dir.path().join("cache"))
+        .arg("--index-path")
+        .arg(committed_ports_registry())
         .assert()
         .success()
         .get_output()

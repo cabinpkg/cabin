@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-stb = { port = true, version = "^2026" }
+"cabin-ports/stb" = "=2026.4.15"
 
 [target.stb-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["stb"]
+deps = ["cabin-ports/stb"]

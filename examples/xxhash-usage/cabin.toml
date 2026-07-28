@@ -4,9 +4,9 @@ version = "0.1.0"
 c-standard = "c11"
 
 [dependencies]
-xxhash = { port = true, version = "^0.8" }
+"cabin-ports/xxhash" = "=0.8.3"
 
 [target.xxhash-usage]
 type = "executable"
 sources = ["src/main.c"]
-deps = ["xxhash"]
+deps = ["cabin-ports/xxhash"]
