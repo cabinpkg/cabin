@@ -1,0 +1,43 @@
+# SECURITY INVARIANTS — read before editing:
+# This workflow runs on `pull_request_target`, so it executes with a
+# write-capable token even for PRs from forks. It is safe ONLY because:
+#   1. It never checks out or executes PR code (no actions/checkout).
+#   2. It never expands untrusted event fields (title, body, branch name,
+#      commit messages) inside `${{ }}`. Untrusted data is fetched at
+#      runtime via `gh api` into quoted shell variables only.
+#   3. It uses no third-party actions.
+# Keep this workflow single-purpose. Do NOT add checkout, build steps, or
+# any `${{ github.event.* }}` interpolation beyond the PR number.
+name: Draft PR on fixup commits
+
+on:
+  # zizmor: ignore[dangerous-triggers] -- accepted: no checkout, no untrusted interpolation (see header)
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+# Deny-all by default; the job below requests only what it needs.
+permissions: {}
+
+concurrency:
+  group: fixup-draft-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fixup-draft:
+    name: Convert to draft if fixup commits exist
+    runs-on: ubuntu-slim
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      pull-requests: write # needed for convertPullRequestToDraft (gh pr ready --undo)
+    steps:
+      - name: Check commit titles and convert
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          titles=$(gh api "repos/$REPO/pulls/$PR/commits" --paginate \
+                     --jq '.[].commit.message | split("\n")[0]')
+          if grep -qiE '^(fixup|squash|amend)!' <<< "$titles"; then
+            gh pr ready --undo "$PR" --repo "$REPO"
+          fi
