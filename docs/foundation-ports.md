@@ -374,6 +374,27 @@ the public index - pending (not yet verified) versions are hidden there - and in
 the registry's idempotency rule: re-publishing byte-identical bytes is a no-op, divergent bytes
 for an existing version are rejected (published versions are immutable).
 
+### Publish automation
+
+The workflow `.github/workflows/ports-publish.yml` automates the tool.  Pull requests that touch
+the recipes, the `cabin-port` pipeline, or the publisher run the complete `--dry-run` preflight
+with no secrets; pushes to `main` with such changes publish the converted set to
+`https://registry.cabinpkg.com`; manual dispatch from `main` republishes everything, which is
+the recovery path after a pre-launch registry wipe (dispatching the workflow on any other ref
+runs the dry-run instead, never a publish).  Publish runs are serialized and an active run is
+never cancelled; a run superseded by a newer matching commit on `main` skips its upload instead
+of immutably publishing an intermediate state.  The check runs immediately before the publish
+command, whose own preflight still takes minutes - a commit landing inside that residual window
+can make a stale run publish first, in which case the newer run fails against the registry's
+immutability and the fix is a packaging-revision bump (see below), never silent divergence.
+The publish job authenticates through the `CABIN_PORTS_TOKEN` repository secret (a registry
+token for the account owning the `cabin-ports` scope), exposed to `cabin publish` as
+`CABIN_REGISTRY_TOKEN`.  Upstream archives restored from the CI cache are never trusted: the
+tool re-hashes every cached archive against the recipe's pinned SHA-256 and re-downloads on a
+mismatch.  The recipes and the workflow live in the `cabinpkg/cabin` repository; the
+`cabin-ports` GitHub organization is the registry scope authority, not a separate source
+repository.
+
 ### Packaging revisions
 
 Published versions are immutable, and the published version preserves the upstream version.  When
