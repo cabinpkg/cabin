@@ -21,6 +21,33 @@
 //! candidate-selection time (see `provider::DependencyProvider`),
 //! so the ranges produced here describe the *numeric* interval
 //! and the candidate filter handles the pre-release rule.
+//!
+//! ## Build-metadata boundary
+//!
+//! `matches` ignores build metadata, but `semver::Version`'s total
+//! order does not: `1.2.3+meta` sorts strictly above `1.2.3`.  A
+//! comparator boundary that falls exactly on a full version must
+//! therefore extend past that version's build-metadata variants -
+//! otherwise `=1.2.3` would exclude `1.2.3+meta` and `>1.2.3` would
+//! include it, disagreeing with `matches`.  Boundary comparators use
+//! the [`just_above_all_builds`] successor as their bound; the
+//! successor carries a marker build tag so the pre-release candidate
+//! filter can tell synthetic bounds from comparator-derived ones.
+//!
+//! One documented approximation remains: a compound requirement that
+//! itself places an `I.J.(K+1)-0` pre-release bound exactly at a
+//! full-version boundary's successor can disagree with `matches` on
+//! that single bare `-0` version, in either direction - `>I.J.K`
+//! excludes it (the marker bound sorts just above it) and
+//! `<=I.J.K` / `=I.J.K` admit it (their exclusive upper bound sorts
+//! just above it).  The trade is deliberate: an unmarked bare
+//! successor would instead admit pre-releases for every plain
+//! full-version `>` requirement, and would surface pre-release-
+//! carrying bounds in the complements `PubGrub` derives during
+//! conflict resolution - both far likelier surfaces than an
+//! explicit `-0` bound (see the
+//! `synthetic_bounds_do_not_admit_prereleases` /
+//! `explicit_successor_prerelease_bounds_stay_approximate` tests).
 
 use pubgrub::Ranges;
 use semver::{BuildMetadata, Comparator, Op, Prerelease, Version, VersionReq};
@@ -34,6 +61,68 @@ fn version(major: u64, minor: u64, patch: u64, pre: Prerelease) -> Version {
         pre,
         build: BuildMetadata::EMPTY,
     }
+}
+
+/// Build metadata carried by synthetic boundary versions produced by
+/// [`just_above_all_builds`].  Comparator-derived bounds always have
+/// empty build metadata (a [`Comparator`] has no build field), so a
+/// non-empty tag unambiguously marks a bound as synthetic - the
+/// pre-release candidate filter must ignore such bounds (see
+/// `provider::range_admits_prerelease_of`).
+pub(crate) const SYNTHETIC_BOUND_BUILD: &str = "0";
+
+/// The smallest version that sorts above `v` *and every build-metadata
+/// variant of `v`* in `semver::Version`'s total order.
+///
+/// `semver::VersionReq::matches` ignores build metadata, so a
+/// requirement boundary that falls exactly on a full version `V` must
+/// treat `V+anything` like `V`.  The interval algebra cannot express
+/// "V and its builds" with `V` itself as a bound (builds sort strictly
+/// above the bare version), so boundary comparators use this
+/// successor instead:
+///
+/// - for a pre-release `I.J.K-pre`, the successor is `I.J.K-pre.0` -
+///   the smallest extension of the same tag.  It carries no marker:
+///   it is itself a comparator-adjacent pre-release boundary, and the
+///   pre-release candidate filter must keep honoring it;
+/// - for a release `I.J.K`, the successor is `I.J.(K+1)-0` plus the
+///   [`SYNTHETIC_BOUND_BUILD`] marker (nothing sorts between the last
+///   build of `I.J.K` and the first pre-release of `I.J.(K+1)`),
+///   carrying components at the `u64` ceiling.  The marker keeps the
+///   pre-release filter from reading the `-0` tag as a comparator's
+///   pre-release opt-in for the `I.J.(K+1)` triple.
+///
+/// Returns `None` when no representable successor exists
+/// (`MAX.MAX.MAX`): nothing but its own builds sorts above it.
+fn just_above_all_builds(v: &Version) -> Option<Version> {
+    if !v.pre.is_empty() {
+        let pre = Prerelease::new(&format!("{}.0", v.pre))
+            .expect("appending `.0` to a valid pre-release tag stays valid");
+        return Some(Version {
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            pre,
+            build: BuildMetadata::EMPTY,
+        });
+    }
+    let build = BuildMetadata::new(SYNTHETIC_BOUND_BUILD)
+        .expect("the synthetic bound tag is valid build metadata");
+    let zero = Prerelease::new("0").expect("`0` is a valid pre-release tag");
+    let (major, minor, patch) = match v.patch.checked_add(1) {
+        Some(patch) => (v.major, v.minor, patch),
+        None => match v.minor.checked_add(1) {
+            Some(minor) => (v.major, minor, 0),
+            None => (v.major.checked_add(1)?, 0, 0),
+        },
+    };
+    Some(Version {
+        major,
+        minor,
+        patch,
+        pre: zero,
+        build,
+    })
 }
 
 /// Failure produced when a [`VersionReq`] uses a comparator
@@ -105,8 +194,14 @@ fn comparator_to_range(cmp: &Comparator) -> Option<Ranges<Version>> {
 
 fn exact_range(cmp: &Comparator) -> Ranges<Version> {
     match (cmp.minor, cmp.patch) {
+        // `=I.J.K` covers the named version *and its build-metadata
+        // variants* (`matches` ignores build metadata), so the range
+        // is the closed-open interval up to the synthetic successor
+        // rather than a singleton that would exclude `I.J.K+meta`.
         (Some(minor), Some(patch)) => {
-            Ranges::singleton(version(cmp.major, minor, patch, cmp.pre.clone()))
+            let exact = version(cmp.major, minor, patch, cmp.pre.clone());
+            let upper = just_above_all_builds(&exact);
+            between_or_unbounded(exact, upper)
         }
         // `=I.J` ≡ `[I.J.0, I.(J+1).0)`; the next-series bound carries
         // past a `u64`-ceiling component instead of saturating.
@@ -124,8 +219,13 @@ fn exact_range(cmp: &Comparator) -> Ranges<Version> {
 
 fn greater_range(cmp: &Comparator) -> Ranges<Version> {
     match (cmp.minor, cmp.patch) {
+        // `>I.J.K` excludes the named version's build-metadata
+        // variants too (they compare equal under `matches`), so the
+        // bound is the synthetic successor, not the bare version
+        // (which sorts below its own builds).
         (Some(minor), Some(patch)) => {
-            Ranges::strictly_higher_than(version(cmp.major, minor, patch, cmp.pre.clone()))
+            let exact = version(cmp.major, minor, patch, cmp.pre.clone());
+            higher_than_or_empty(just_above_all_builds(&exact))
         }
         // `>I.J` excludes the whole `I.J` series, i.e. `>= I.(J+1).0`.
         (Some(minor), None) => higher_than_or_empty(next_minor_series(cmp.major, minor)),
@@ -158,8 +258,12 @@ fn less_range(cmp: &Comparator) -> Ranges<Version> {
 
 fn less_eq_range(cmp: &Comparator) -> Ranges<Version> {
     match (cmp.minor, cmp.patch) {
+        // `<=I.J.K` includes the named version's build-metadata
+        // variants (equal under `matches`), so the range runs up to
+        // the synthetic successor exclusively.
         (Some(minor), Some(patch)) => {
-            Ranges::lower_than(version(cmp.major, minor, patch, cmp.pre.clone()))
+            let exact = version(cmp.major, minor, patch, cmp.pre.clone());
+            strictly_lower_than_or_full(just_above_all_builds(&exact))
         }
         // `<=I.J` includes the whole `I.J` series, i.e. `< I.(J+1).0`.
         (Some(minor), None) => strictly_lower_than_or_full(next_minor_series(cmp.major, minor)),
@@ -207,7 +311,11 @@ fn caret_range(cmp: &Comparator) -> Ranges<Version> {
         };
     };
     if major == 0 && minor == 0 && patch == 0 && cmp.pre.is_empty() {
-        return Ranges::singleton(version(0, 0, 0, Prerelease::EMPTY));
+        // `^0.0.0` covers `0.0.0` and its build-metadata variants,
+        // like the exact form.
+        let exact = version(0, 0, 0, Prerelease::EMPTY);
+        let upper = just_above_all_builds(&exact);
+        return between_or_unbounded(exact, upper);
     }
     between_or_unbounded(
         version(major, minor, patch, cmp.pre.clone()),
@@ -562,6 +670,143 @@ mod tests {
             let parsed = req(req_str);
             let range = req_to_range(&parsed).expect("supported requirement converts");
             for s in &samples {
+                let v = ver(s);
+                assert_eq!(
+                    range.contains(&v),
+                    parsed.matches(&v),
+                    "range/semver disagree for `{req_str}` at `{s}`: range={range}",
+                );
+            }
+        }
+    }
+
+    /// Build metadata is invisible to `matches`, so every boundary
+    /// comparator must treat `V+meta` exactly like `V`.  These are
+    /// the cases the old singleton / bare-version bounds got wrong.
+    #[test]
+    fn build_metadata_is_ignored_at_full_version_boundaries() {
+        assert_matches(
+            "=1.2.3",
+            &[
+                ("1.2.3", true),
+                ("1.2.3+cabin.1", true),
+                ("1.2.3+zzz", true),
+                ("1.2.4", false),
+                ("1.2.2+cabin.9", false),
+            ],
+        );
+        assert_matches(
+            "<=1.2.3",
+            &[
+                ("1.2.3+cabin.1", true),
+                ("1.2.4", false),
+                ("1.2.4+a", false),
+            ],
+        );
+        assert_matches(
+            ">1.2.3",
+            &[("1.2.3+cabin.1", false), ("1.2.4", true), ("1.2.4+a", true)],
+        );
+        assert_matches("<1.2.3", &[("1.2.3+cabin.1", false), ("1.2.2+a", true)]);
+        assert_matches(">=1.2.3", &[("1.2.3+cabin.1", true), ("1.2.2+zzz", false)]);
+        assert_matches(
+            "^1.2.3",
+            &[
+                ("1.2.3+cabin.1", true),
+                ("1.9.9+b", true),
+                ("2.0.0+b", false),
+            ],
+        );
+        assert_matches("~1.2.3", &[("1.2.99+cabin.2", true), ("1.3.0+b", false)]);
+        assert_matches("^0.0.0", &[("0.0.0+cabin.1", true), ("0.0.1", false)]);
+        // The exact pre-release form keeps admitting its own builds
+        // and nothing else.
+        assert_matches(
+            "=1.0.0-alpha",
+            &[
+                ("1.0.0-alpha", true),
+                ("1.0.0-alpha+b", true),
+                ("1.0.0-alpha.0", false),
+                ("1.0.0-beta", false),
+                ("1.0.0", false),
+            ],
+        );
+    }
+
+    /// The synthetic successor bound must not read as a pre-release
+    /// opt-in: a plain full-version boundary comparator admits no
+    /// pre-release of the successor triple, while a user-authored
+    /// pre-release comparator at that triple keeps admitting.
+    #[test]
+    fn synthetic_bounds_do_not_admit_prereleases() {
+        use crate::provider::candidate_admits_prerelease;
+
+        let plain = req_to_range(&req(">1.2.3")).unwrap();
+        assert!(!candidate_admits_prerelease(&plain, &ver("1.2.4-0")));
+        assert!(!candidate_admits_prerelease(&plain, &ver("1.2.4-alpha")));
+
+        let opted_in = req_to_range(&req(">=1.2.4-0")).unwrap();
+        assert!(candidate_admits_prerelease(&opted_in, &ver("1.2.4-0")));
+        assert!(candidate_admits_prerelease(&opted_in, &ver("1.2.4-alpha")));
+    }
+
+    /// Documented approximation: a compound requirement that places
+    /// an explicit `I.J.(K+1)-0` pre-release bound right at a
+    /// full-version boundary comparator's synthetic successor can
+    /// disagree with `matches` (the marker bound sorts just above
+    /// the bare `-0`).  Accepted deliberately: dropping the marker
+    /// would instead wrongly admit pre-releases for every plain
+    /// full-version `>` requirement (see
+    /// [`synthetic_bounds_do_not_admit_prereleases`]), a far
+    /// likelier requirement shape than an explicit `-0` bound.
+    #[test]
+    fn explicit_successor_prerelease_bounds_stay_approximate() {
+        let range = req_to_range(&req(">1.2.3, >=1.2.4-0")).unwrap();
+        let boundary = ver("1.2.4-0");
+        assert!(req(">1.2.3, >=1.2.4-0").matches(&boundary));
+        assert!(!range.contains(&boundary));
+        // One identifier deeper, the approximation ends.
+        assert!(range.contains(&ver("1.2.4-0.0")));
+        assert!(range.contains(&ver("1.2.4")));
+
+        // The mirror direction: `<=` (and `=`) place their exclusive
+        // upper bound just above the bare successor, so the same
+        // pathological intersection retains it where `matches`
+        // rejects it.  Same single-version approximation, accepted
+        // for the same reason.
+        for req_str in ["<=1.2.3, >=1.2.4-0", "=1.2.3, >=1.2.4-0"] {
+            let range = req_to_range(&req(req_str)).unwrap();
+            assert!(!req(req_str).matches(&boundary), "{req_str}");
+            assert!(range.contains(&boundary), "{req_str}: {range}");
+            // Nothing but that bare boundary version diverges.
+            assert!(!range.contains(&ver("1.2.4-0.0")), "{req_str}");
+            assert!(!range.contains(&ver("1.2.4")), "{req_str}");
+        }
+    }
+
+    /// The agreement guarantee extended to build-carrying samples:
+    /// the translated range and `matches` agree everywhere `matches`
+    /// ignores the build tag.
+    #[test]
+    fn ranges_agree_with_semver_matches_on_build_metadata() {
+        let reqs = [
+            "=1.2.3", "=1.2", "=1", ">1.2.3", ">=1.2.3", "<1.2.3", "<=1.2.3", "~1.2.3", "^1.2.3",
+            "^0.0.3", "^0.0.0", "1.2.*", "*",
+        ];
+        let samples = [
+            "1.2.2+m",
+            "1.2.3+m",
+            "1.2.3+cabin.10",
+            "1.2.4+m",
+            "1.3.0+m",
+            "2.0.0+m",
+            "0.0.0+m",
+            "0.0.3+m",
+        ];
+        for req_str in reqs {
+            let parsed = req(req_str);
+            let range = req_to_range(&parsed).expect("supported requirement converts");
+            for s in samples {
                 let v = ver(s);
                 assert_eq!(
                     range.contains(&v),

@@ -390,10 +390,11 @@ fn classify(consumer: ConsumerStandards, standards: &StandardsMetadata) -> Stand
 ///
 /// Pre-release versions are excluded by default, mirroring
 /// [`semver::VersionReq::matches`].  A pre-release is admitted
-/// only when one of the bounds defining `range` shares its
-/// `major.minor.patch` with a non-empty `pre` tag (the
-/// `>=1.0.0-alpha, <1.0.0` style opt-in semver expects), or when
-/// the range is exactly that singleton (`= 1.0.0-alpha`).
+/// only when one of the comparator-derived bounds defining `range`
+/// shares its `major.minor.patch` with a non-empty `pre` tag (the
+/// `>=1.0.0-alpha, <1.0.0` style opt-in semver expects; the exact
+/// form `= 1.0.0-alpha` carries the tag on its lower bound), or
+/// when the range is exactly that singleton.
 ///
 /// A lockfile-pinned pre-release is *not* bypassed here: if the
 /// manifest constraint no longer admits it, `PreferLocked` must
@@ -416,10 +417,17 @@ pub(crate) fn candidate_admits_prerelease(range: &Ranges<Version>, candidate: &V
 /// (via [`req_to_range`]), checking the bounds is equivalent in
 /// practice and avoids carrying the original [`VersionReq`] set
 /// alongside the range.
+///
+/// Bounds with non-empty build metadata are synthetic successors
+/// (`range::just_above_all_builds`) - a comparator has no build
+/// field, so no user-authored requirement produces one.  Their
+/// pre-release tag encodes an interval boundary, not a comparator's
+/// opt-in, so they must not admit pre-release candidates.
 fn range_admits_prerelease_of(range: &Ranges<Version>, candidate: &Version) -> bool {
     let matches = |bound: &Bound<Version>| match bound {
         Bound::Included(v) | Bound::Excluded(v) => {
-            !v.pre.is_empty()
+            v.build.is_empty()
+                && !v.pre.is_empty()
                 && v.major == candidate.major
                 && v.minor == candidate.minor
                 && v.patch == candidate.patch
