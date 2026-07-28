@@ -179,7 +179,15 @@ jobs:
             # privileged token is never sent with this request, and
             # curl is pinned to https on the initial request and on
             # every redirect; integrity comes from the verifier's
-            # SHA-256 pin.  Publish validation already rejected
+            # SHA-256 pin.  Destination-IP filtering (private/
+            # loopback ranges, per redirect hop and DNS answer) is
+            # deliberately not attempted: plain curl cannot enforce
+            # it, this job runs only on ephemeral GitHub-hosted
+            # runners with no privileged network position, and the
+            # response bytes are never disclosed - the digest pin
+            # reduces any reachable endpoint to an equality oracle.
+            # Revisit before ever moving this job to a self-hosted
+            # runner.  Publish validation already rejected
             # non-https URLs, so a cleartext URL here is corrupt
             # registry state - an operational failure, never a
             # verdict.  A failed download must not reject the package
