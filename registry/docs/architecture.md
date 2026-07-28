@@ -725,7 +725,18 @@ packages per day, total packages, versions per package per day, a
 publish token bucket (burst plus per-minute refill, state on the token row
 in `tokens.rl_tokens` / `tokens.rl_updated_at`), and the governor's
 per-user daily read-fairness caps (charged artifact reads and
-source-viewer reads). Daily windows are UTC calendar days. Publish
+source-viewer reads). Two classes exist: `default`, and `operator` -
+the bulk-publishing tier for the operator's own accounts, sized so the
+cabin-ports conversion pipeline can seed the entire curated port set in
+one serial run (values in `src/quota.rs`). Granting a class is a manual
+`UPDATE users SET quota_class = '...'`; there is deliberately no admin
+route. Class limits are read live on every request, but the token
+bucket's *balance* persists on the token row, so a promotion becomes
+fully effective only after the balance refills toward the new burst at
+the new rate (minutes) - reset the account's buckets in the same change
+(`UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE
+user_id = ...`; a NULL bucket reads as full) when the promotion must
+take effect immediately. Daily windows are UTC calendar days. Publish
 enforces, in order: the budget gate (`503`), the token scope (`403`),
 the rate limit (`429`, `Retry-After`, charged per attempt), scope
 membership (the uniform `403` - "The write path"), framing (`400`),
