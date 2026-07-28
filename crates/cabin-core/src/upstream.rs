@@ -67,6 +67,11 @@ pub enum UpstreamError {
          archive rejects case conflicts); use byte-identical or distinct names"
     )]
     CaseCollidingCopies { first: String, second: String },
+    #[error(
+        "upstream copy paths {first:?} and {second:?} conflict: one is a parent directory of the \
+         other, so both cannot name regular files"
+    )]
+    NestedCopyPaths { first: String, second: String },
 }
 
 /// Byte cap on the upstream URL's normalized serialization: a
@@ -304,34 +309,39 @@ impl UpstreamProvenance {
                 }
             }
         }
-        // Copies materialize alongside the extracted tree, and the
-        // packaging walk rejects case-folded collisions, so two
-        // steps whose paths fold together without being
-        // byte-identical are a guaranteed dead end: `to` against
-        // another `to`, and `to` against another step's `from`.
-        // Byte-identical spellings stay legal - duplicate `to`s mean
-        // the later step deterministically wins, and an exact
-        // `to == from` chain reads the previously placed file.
-        for (index, step) in copies.iter().enumerate() {
-            let to = step.to().as_str();
-            for other in &copies[index + 1..] {
-                let other_to = other.to().as_str();
-                if to != other_to && to.to_lowercase() == other_to.to_lowercase() {
+        // Every plan path - each step's `from` and `to` - must name a
+        // regular file in one tree the packaging walk would accept,
+        // so any pair that folds together without being
+        // byte-identical (the archive's case-conflict rule), or
+        // where one is a component-prefix parent of the other (a
+        // path cannot be both a file and a directory), is a
+        // guaranteed dead end no archive can satisfy.
+        // Byte-identical spellings stay legal: duplicate `to`s mean
+        // the later step deterministically wins, an exact
+        // `to == from` chain reads the previously placed file, and
+        // repeated `from`s read one source twice.
+        let plan_paths: Vec<&str> = copies
+            .iter()
+            .flat_map(|step| [step.from().as_str(), step.to().as_str()])
+            .collect();
+        for (index, first) in plan_paths.iter().enumerate() {
+            for second in &plan_paths[index + 1..] {
+                if first == second {
+                    continue;
+                }
+                let (first_folded, second_folded) = (first.to_lowercase(), second.to_lowercase());
+                if first_folded == second_folded {
                     return Err(UpstreamError::CaseCollidingCopies {
-                        first: to.to_owned(),
-                        second: other_to.to_owned(),
+                        first: (*first).to_owned(),
+                        second: (*second).to_owned(),
                     });
                 }
-            }
-            for (other_index, other) in copies.iter().enumerate() {
-                let other_from = other.from().as_str();
-                if other_index != index
-                    && to != other_from
-                    && to.to_lowercase() == other_from.to_lowercase()
+                if second_folded.starts_with(&format!("{first_folded}/"))
+                    || first_folded.starts_with(&format!("{second_folded}/"))
                 {
-                    return Err(UpstreamError::CaseCollidingCopies {
-                        first: to.to_owned(),
-                        second: other_from.to_owned(),
+                    return Err(UpstreamError::NestedCopyPaths {
+                        first: (*first).to_owned(),
+                        second: (*second).to_owned(),
                     });
                 }
             }
@@ -653,11 +663,13 @@ mod tests {
 
     #[test]
     fn rejects_case_colliding_copy_steps() {
-        // `to` vs `to`, and `to` vs another step's `from`: both
-        // materialize a guaranteed case conflict on the verifier.
+        // Any two plan paths that fold together - `to` vs `to`,
+        // `to` vs `from`, `from` vs `from` - materialize a
+        // guaranteed case conflict on the verifier.
         let cases = [
             (("a", "README"), ("b", "readme")),
             (("a", "Scripts/x"), ("scripts/X", "b")),
+            (("README", "a"), ("readme", "b")),
         ];
         for ((from1, to1), (from2, to2)) in cases {
             let copies = vec![
@@ -679,6 +691,30 @@ mod tests {
             UpstreamCopy::new("config.h".into(), "other.h".into()).unwrap(),
         ];
         UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies).unwrap();
+    }
+
+    #[test]
+    fn rejects_nested_copy_plan_paths() {
+        // A plan path that is a parent directory of another can
+        // never verify: one wants a regular file where the other
+        // needs a directory.  Covers to/to, from/to, and same-step
+        // from/to nesting.
+        let cases = [
+            (("a", "generated"), ("b", "generated/config.h")),
+            (("nested/src.h", "a"), ("b", "Nested")),
+            (("lib", "lib/copy.h"), ("x", "y")),
+        ];
+        for ((from1, to1), (from2, to2)) in cases {
+            let copies = vec![
+                UpstreamCopy::new(from1.into(), to1.into()).unwrap(),
+                UpstreamCopy::new(from2.into(), to2.into()).unwrap(),
+            ];
+            let err = UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies).unwrap_err();
+            assert!(
+                matches!(err, UpstreamError::NestedCopyPaths { .. }),
+                "{from1}->{to1} + {from2}->{to2}: {err:?}"
+            );
+        }
     }
 
     #[test]
