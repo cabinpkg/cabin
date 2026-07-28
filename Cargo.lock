@@ -528,6 +528,7 @@ dependencies = [
  "cabinpkg-manifest",
  "cabinpkg-port",
  "cabinpkg-publish",
+ "cabinpkg-registry-api",
  "camino",
  "etcetera",
  "flate2",

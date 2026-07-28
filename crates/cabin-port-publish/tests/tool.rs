@@ -371,14 +371,24 @@ struct FakeRegistry {
 
 impl FakeRegistry {
     fn start() -> Self {
+        Self::start_rate_limiting_puts(0)
+    }
+
+    /// Like [`FakeRegistry::start`], but the first `limited_puts`
+    /// uploads answer `429` with a one-second `Retry-After` before
+    /// the registry starts accepting - the shape of a drained publish
+    /// token bucket.
+    fn start_rate_limiting_puts(limited_puts: u32) -> Self {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let url = format!("http://{}", server.server_addr());
         let requests: Arc<Mutex<Vec<(String, String, usize)>>> = Arc::default();
         let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let remaining_429s = Arc::new(std::sync::atomic::AtomicU32::new(limited_puts));
         let handle = {
             let base = url.clone();
             let requests = Arc::clone(&requests);
             let shutdown = Arc::clone(&shutdown);
+            let remaining_429s = Arc::clone(&remaining_429s);
             std::thread::spawn(move || {
                 while !shutdown.load(std::sync::atomic::Ordering::SeqCst) {
                     let Ok(Some(mut request)) =
@@ -437,6 +447,17 @@ impl FakeRegistry {
                             respond(request, 401, "{\"error\":\"authentication required\"}");
                             continue;
                         }
+                        let limited = remaining_429s
+                            .fetch_update(
+                                std::sync::atomic::Ordering::SeqCst,
+                                std::sync::atomic::Ordering::SeqCst,
+                                |n| n.checked_sub(1),
+                            )
+                            .is_ok();
+                        if limited {
+                            respond_rate_limited(request);
+                            continue;
+                        }
                         let version = path.rsplit('/').next().unwrap_or_default().to_owned();
                         respond(
                             request,
@@ -463,6 +484,17 @@ impl FakeRegistry {
     fn requests(&self) -> Vec<(String, String, usize)> {
         self.requests.lock().unwrap().clone()
     }
+}
+
+/// The drained-bucket refusal: `429` with a one-second `Retry-After`,
+/// the smallest delay the retry loop honors, keeping the test fast.
+fn respond_rate_limited(request: tiny_http::Request) {
+    let response = tiny_http::Response::from_string(
+        "{\"error\":{\"code\":\"rate_limited\",\"detail\":\"publish rate limit exceeded\"}}",
+    )
+    .with_status_code(429)
+    .with_header(tiny_http::Header::from_bytes(&b"Retry-After"[..], &b"1"[..]).unwrap());
+    let _ = request.respond(response);
 }
 
 impl Drop for FakeRegistry {
@@ -530,6 +562,65 @@ fn publish_uploads_every_package_in_dependency_order() {
         "{stdout}"
     );
     assert!(stdout.contains("verification: pending"), "{stdout}");
+}
+
+/// A drained publish token bucket answers `429` with `Retry-After`;
+/// the tool must wait it out and retry the same package instead of
+/// failing the run (every attempt charges the bucket, so a rerun
+/// could otherwise never make progress past the burst).
+#[test]
+fn publish_retries_a_rate_limited_package() {
+    require_build_tools();
+    let dir = TempDir::new().unwrap();
+    let (ports, cache) = fake_ports(&dir);
+    let work = dir.child("work").to_path_buf();
+    let registry = FakeRegistry::start_rate_limiting_puts(1);
+
+    let output = scrubbed(tool())
+        .arg("--publish")
+        .arg("--index-url")
+        .arg(&registry.url)
+        .arg("--ports-dir")
+        .arg(&ports)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .arg("--work-dir")
+        .arg(&work)
+        .arg("--cabin")
+        .arg(cabin_binary())
+        .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234")
+        // Inherited color-forcing must not defeat the retry parser:
+        // the tool passes --color never to the captured subprocess.
+        .env("CABIN_TERM_COLOR", "always")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("note: the registry rate limited cabin-ports/zlib"),
+        "{stderr}"
+    );
+
+    // The limited PUT is retried: zlib uploads twice (429 then 201),
+    // libpng once, and order is preserved.
+    let puts: Vec<String> = registry
+        .requests()
+        .into_iter()
+        .filter(|(method, _, _)| method == "PUT")
+        .map(|(_, path, _)| path)
+        .collect();
+    assert_eq!(
+        puts,
+        [
+            "/api/v1/packages/cabin-ports/zlib/1.3.1+cabin.1",
+            "/api/v1/packages/cabin-ports/zlib/1.3.1+cabin.1",
+            "/api/v1/packages/cabin-ports/libpng/1.6.50",
+        ]
+    );
 }
 
 /// A failing preflight must leave the remote registry untouched:
