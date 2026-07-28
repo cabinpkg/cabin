@@ -517,6 +517,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "cabinpkg-port-publish"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "assert_fs",
+ "cabinpkg-core",
+ "cabinpkg-credentials",
+ "cabinpkg-env",
+ "cabinpkg-index-http",
+ "cabinpkg-manifest",
+ "cabinpkg-package",
+ "cabinpkg-port",
+ "cabinpkg-publish",
+ "cabinpkg-registry-api",
+ "camino",
+ "etcetera",
+ "flate2",
+ "semver",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tiny_http",
+ "toml_edit",
+ "url",
+]
+
+[[package]]
 name = "cabinpkg-publish"
 version = "0.17.0"
 dependencies = [
