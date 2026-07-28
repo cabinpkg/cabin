@@ -37,14 +37,17 @@ jobs:
         working-directory: registry
 
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: registry
 
@@ -85,11 +88,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: |
             .
@@ -121,16 +128,21 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # Full history so the freshness check below can walk
           # $GITHUB_SHA..origin/main.
           fetch-depth: 0
 
       - run: rustup target add wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
-        with:
+      # Accepted risk: GitHub's cache isolation only lets this
+      # main-branch job restore main-scoped entries (PR caches are
+      # unreachable), and dropping the cache would roughly double
+      # production deploy latency.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
           workspaces: registry
 
       # The concurrency group serializes deploys but does not order
@@ -169,7 +181,7 @@ jobs:
         if: >-
           steps.freshness.outputs.superseded != 'true' &&
           steps.migrations.outputs.pending != 'true'
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CF_REGISTRY_DEPLOY_TOKEN }}
           # Public account tag (also in wrangler.jsonc vars); pinning it

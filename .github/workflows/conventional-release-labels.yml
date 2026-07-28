@@ -3,6 +3,7 @@ name: Conventional Release Labels
 # pull_request_target grants label-write access for fork PRs.
 # Never add a checkout step to this workflow.
 on:
+  # zizmor: ignore[dangerous-triggers] -- accepted: no checkout, no untrusted interpolation; the single pinned action only writes labels
   pull_request_target:
     types: [ opened, edited ]
 
@@ -13,6 +14,6 @@ jobs:
   label:
     runs-on: ubuntu-slim
     steps:
-      - uses: bcoe/conventional-release-labels@v1
+      - uses: bcoe/conventional-release-labels@886f696738527c7be444262c327c89436dfb95a8 # v1.3.1
         with:
           ignored_types: '[]'
