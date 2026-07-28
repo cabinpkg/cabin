@@ -244,18 +244,25 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
             return Err(INVALID_UPSTREAM_COPY_PATH);
         }
     }
-    // Case-folded pairwise collisions between steps (`to` vs `to`,
-    // `to` vs another step's `from`) mirror the client rule: they
-    // could only ever produce a case-conflict rejection at
-    // verification time.  Byte-identical spellings stay legal.
-    for (index, step) in upstream.copy.iter().enumerate() {
-        let to = step.to.to_lowercase();
-        for (other_index, other) in upstream.copy.iter().enumerate() {
-            let colliding_to =
-                other_index > index && step.to != other.to && to == other.to.to_lowercase();
-            let colliding_from =
-                other_index != index && step.to != other.from && to == other.from.to_lowercase();
-            if colliding_to || colliding_from {
+    // Pairwise plan consistency, mirroring the client rule: two
+    // plan paths that fold together without being byte-identical,
+    // or where one is a parent directory of the other, could only
+    // ever produce a rejection at verification time.
+    let plan_paths: Vec<&str> = upstream
+        .copy
+        .iter()
+        .flat_map(|step| [step.from.as_str(), step.to.as_str()])
+        .collect();
+    for (index, first) in plan_paths.iter().enumerate() {
+        for second in &plan_paths[index + 1..] {
+            if first == second {
+                continue;
+            }
+            let (first_folded, second_folded) = (first.to_lowercase(), second.to_lowercase());
+            let conflicting = first_folded == second_folded
+                || second_folded.starts_with(&format!("{first_folded}/"))
+                || first_folded.starts_with(&format!("{second_folded}/"));
+            if conflicting {
                 return Err(INVALID_UPSTREAM_COPY_PATH);
             }
         }
@@ -722,13 +729,20 @@ mod tests {
 
     #[test]
     fn validate_metadata_rejects_case_colliding_copy_steps() {
-        let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "a", "to": "README"}}, {{"from": "b", "to": "readme"}}]}}"#
-        ));
-        assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
-            INVALID_UPSTREAM_COPY_PATH
-        );
+        for copies in [
+            r#"[{"from": "a", "to": "README"}, {"from": "b", "to": "readme"}]"#,
+            r#"[{"from": "README", "to": "a"}, {"from": "readme", "to": "b"}]"#,
+            r#"[{"from": "a", "to": "generated"}, {"from": "b", "to": "generated/config.h"}]"#,
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": {copies}}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_COPY_PATH,
+                "copies: {copies}"
+            );
+        }
     }
 
     #[test]
