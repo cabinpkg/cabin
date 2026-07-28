@@ -89,8 +89,9 @@ Common fields:
 - `defines`: preprocessor defines applied to this target's compile actions.
 - `deps`: explicit references to the linked targets:
   - same-package by bare name: `deps = ["lib"]`;
-  - cross-package by bare package name: `deps = ["zlib"]` resolves to the `zlib` package's sole
-    `library` (or `header-only`) target, whatever it is named - `zlib:z` when `z` is the only one;
+  - cross-package by bare package name: `deps = ["cabin-ports/zlib"]` resolves to the
+    `cabin-ports/zlib` package's sole `library` (or `header-only`) target, whatever it is named -
+    `cabin-ports/zlib:z` when `z` is the only one;
   - qualified `package:target`: `deps = ["fmt:fmt"]` - the only spelling for a non-library
     dependency target (`deps = ["foo:opt"]`), and the required one when the dependency declares
     several library / header-only targets.

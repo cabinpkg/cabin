@@ -122,19 +122,19 @@ target may therefore depend on packages declared only under `[dev-dependencies]`
 demo = { path = "../demo" }
 
 [dev-dependencies]
-gtest = "^1.14"
+"cabin-ports/googletest" = "=1.17.0"
 
 [target.demo_test]
 type = "test"
 sources = ["tests/lib_test.cc"]
-deps = ["demo", "gtest"]
+deps = ["demo", "cabin-ports/googletest"]
 ```
 
 Every dependency source form works under `[dev-dependencies]`: versioned registry requirements
 (resolved and fetched like normal deps, and recorded in the lockfile), `path` deps, and foundation
 ports (`port = true` / `port-path`).  The
 [`unit-test-gtest`](https://github.com/cabinpkg/cabin/tree/main/examples/unit-test-gtest) example
-links the `googletest` port from `[dev-dependencies]` this way.
+links the `cabin-ports/googletest` registry package from `[dev-dependencies]` this way.
 
 Only dev-only target kinds (`test`, `example`) may list dev dependencies in `deps`; an ordinary
 `library` / `executable` target referencing one fails with a diagnostic naming the

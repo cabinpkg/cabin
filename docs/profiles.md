@@ -191,7 +191,7 @@ target's objects require at link time.  It differs from `ldflags` in two load-be
 - **It propagates.** A library's `link-libs` are added to the final link command of every executable
   that depends on that library (transitively), emitted as `-l<name>` *after* the library's archive
   so GNU `ld`'s left-to-right resolution finds the symbols.  `ldflags`, by contrast, apply only to
-  the declaring package's own link.  This is what lets a static-library port (e.g. sqlite needing
+  the declaring package's own link.  This is what lets a static-library dependency (e.g. sqlite3 needing
   `-lpthread -ldl -lm` on Unix) carry its system-library requirements to consumers without every
   consumer re-declaring them.
 - **It is validated and trusted.** Each entry must be a bare library name (a leading
