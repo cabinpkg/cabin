@@ -44,12 +44,32 @@ const DEFAULT: ClassQuotas = ClassQuotas {
     source_reads_per_day: 2_000,
 };
 
+/// Bulk-publishing tier for the operator's own accounts, granted
+/// manually via `users.quota_class` (docs/architecture.md, "Per-user
+/// quotas"). Sized for the cabin-ports conversion pipeline, which
+/// publishes the whole curated recipe set - currently 17 packages -
+/// in one serial run: the burst must cover a full set so a routine
+/// republish never waits on the refill, and the daily new-package cap
+/// must clear a from-scratch registry seeding.
+const OPERATOR: ClassQuotas = ClassQuotas {
+    max_archive_bytes: 16 * 1024 * 1024,
+    max_total_bytes_per_user: 128 * 1024 * 1024,
+    max_new_packages_per_day: 50,
+    max_packages_total: 100,
+    max_versions_per_package_per_day: 30,
+    publish_burst: 20.0,
+    publish_refill_per_minute: 5.0,
+    artifact_reads_per_day: 5_000,
+    source_reads_per_day: 2_000,
+};
+
 /// Quotas for a `users.quota_class` value. Unknown class names get the
 /// default class: deny-by-default, a typo never grants more.
-pub fn quotas_for_class(_class: &str) -> ClassQuotas {
-    // 'default' is the only class today; a second class adds a match
-    // here, not new columns.
-    DEFAULT
+pub fn quotas_for_class(class: &str) -> ClassQuotas {
+    match class {
+        "operator" => OPERATOR,
+        _ => DEFAULT,
+    }
 }
 
 /// Publish token-bucket state, as stored on the token row (`rl_tokens`,
@@ -249,6 +269,21 @@ mod tests {
         assert_eq!(quotas_for_class("default"), DEFAULT);
         assert_eq!(quotas_for_class("enterprise"), DEFAULT);
         assert_eq!(quotas_for_class(""), DEFAULT);
+        // Case-sensitive on purpose: a hand-typed 'Operator' must not
+        // silently grant the bulk tier.
+        assert_eq!(quotas_for_class("Operator"), DEFAULT);
+    }
+
+    #[test]
+    fn the_operator_class_covers_a_full_ports_republish() {
+        let quotas = quotas_for_class("operator");
+        assert_eq!(quotas, OPERATOR);
+        // The curated foundation-port set (17 packages today) must fit
+        // a single burst, one day's new-package allowance, and the
+        // total-package cap with headroom.
+        assert!(quotas.publish_burst >= 17.0);
+        assert!(quotas.max_new_packages_per_day >= 17);
+        assert!(quotas.max_packages_total >= 17);
     }
 
     #[test]
