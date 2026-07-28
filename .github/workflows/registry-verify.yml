@@ -210,14 +210,23 @@ jobs:
               esac
               if [ "$upstream_budget" -le 0 ]; then
                 echo "$name@$version: upstream download budget exhausted; verifying without it" >&2
-              elif download_started=$SECONDS && curl -fsSL --proto '=https' --proto-redir '=https' \
-                --connect-timeout 10 --max-time 120 --max-filesize 268435456 \
-                -o "$workdir/upstream-archive" "$upstream_url"; then
-                upstream_budget=$((upstream_budget - (SECONDS - download_started)))
-                upstream_args=(--upstream "$workdir/upstream-archive")
               else
-                upstream_budget=$((upstream_budget - (SECONDS - download_started)))
-                echo "$name@$version: upstream archive download failed; verifying without it" >&2
+                # One transfer may use at most the remaining budget
+                # (never more than 120 s), and every attempt charges
+                # at least one whole second, so the aggregate bound
+                # holds even against sub-second transfers.
+                transfer_cap=$((upstream_budget < 120 ? upstream_budget : 120))
+                download_started=$SECONDS
+                if curl -fsSL --proto '=https' --proto-redir '=https' \
+                  --connect-timeout 10 --max-time "$transfer_cap" --max-filesize 268435456 \
+                  -o "$workdir/upstream-archive" "$upstream_url"; then
+                  upstream_args=(--upstream "$workdir/upstream-archive")
+                else
+                  echo "$name@$version: upstream archive download failed; verifying without it" >&2
+                fi
+                spent=$((SECONDS - download_started))
+                [ "$spent" -lt 1 ] && spent=1
+                upstream_budget=$((upstream_budget - spent))
               fi
             fi
 
