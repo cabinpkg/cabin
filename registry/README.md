@@ -16,9 +16,10 @@ plane: one role per hostname, dispatched on the Host header. See
 [`docs/architecture.md`](docs/architecture.md) ("Origins and roles") for
 the design and [`docs/runbook.md`](docs/runbook.md) for operations.
 
-Everything here is experimental, matching the client's `-Z remote-registry`
-gate: routes and storage formats may change without migration paths. Use of
-the hosted service is governed by the
+The service is in private alpha: the client's read path is stable, but the
+mutation surfaces stay behind the client's `-Z remote-registry` gate, and
+routes and storage formats may change without migration paths. Use of the
+hosted service is governed by the
 [Usage Policy](https://cabinpkg.com/policies).
 
 ## Deployment
@@ -50,7 +51,7 @@ and create a token with the scopes you need through the token page (its
 URL is what the `WWW-Authenticate` challenge on every unauthenticated
 response names, and what `cabin login` prints) - the plaintext is shown
 exactly once; the registry stores only its hash. Then hand it to the
-client with `cabin login` (`-Z remote-registry`).
+client with `cabin login`.
 
 Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later

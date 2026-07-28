@@ -55,7 +55,7 @@ crates/
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
-  cabin-credentials/ registry token storage (credentials.toml, -Z remote-registry)
+  cabin-credentials/ registry token storage (credentials.toml)
   cabin-registry-api/ remote registry API client (publish / yank, -Z remote-registry)
   cabin-registry-verify/ hosted-registry archive verifier (verification lifecycle)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
@@ -79,7 +79,7 @@ docs/
   distribution.md    shell completions + man pages
   installation.md    supported platforms + install methods
   registry-design.md local registry interface boundary
-  remote-registry.md experimental remote-registry protocol contract (behind -Z remote-registry)
+  remote-registry.md remote-registry protocol contract (stable reads; mutations behind -Z remote-registry)
   features.md        features foundation
   workspaces.md      workspace root discovery, member selection, inheritance
   metadata-tree-explain.md  `cabin metadata` / `cabin tree` / `cabin explain`
@@ -320,15 +320,14 @@ Owns the read-only sparse HTTP index client.  Wraps `ureq::Agent` for blocking `
 public surface is intentionally small:
 
 - [`cabin_index_http::HttpClient`] - `get_bytes` and `download` helpers that map HTTP statuses
-  (`404`, `401`/`403` for the experimental authenticated path, `503` for the hosted registry's
+  (`404`, `401`/`403` for the authenticated path, `503` for the hosted registry's
   read-side budget breaker, `5xx`) and transport errors to `IndexHttpError` variants;
 - [`cabin_index_http::HttpIndex`] - opens a registry by fetching `<base>/config.json`, validates it,
   exposes `fetch_package(name) -> IndexEntry` and a transitive walker `load_package_index(roots) ->
   PackageIndex` that returns the same shape as the local file loader;
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
-  origin (part of the experimental `-Z remote-registry` client, see
-  [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests on that exact
-  origin and never over cleartext `http` beyond loopback hosts;
+  origin (see [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests
+  on that exact origin and never over cleartext `http` beyond loopback hosts;
 - [`cabin_index_http::fetch_login_url`] - `cabin login`'s advisory, always-unauthenticated probe of
   `config.json` for the `WWW-Authenticate` `Cabin login_url` challenge; every failure degrades to
   `None` so the probe can never block a login.
@@ -349,7 +348,7 @@ The crate must:
 
 ### `cabin-credentials`
 
-Owns registry credential storage for the experimental remote-registry client
+Owns registry credential storage for the remote-registry client
 ([`remote-registry.md`](remote-registry.md)): the `credentials.toml` file in the user config home
 (the same `CABIN_CONFIG_HOME` / `etcetera` resolution as the user-level `config.toml`), keyed by
 normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override and the redacting
@@ -1431,8 +1430,8 @@ if the recorded arrays differ from the active policy.  `cabin metadata` adds two
 Local override policy never enters published artifacts: `cabin-package` rejects manifests with a
 non-empty `[patch]` table; `.cabin/config.toml` (which carries config patches + source replacement)
 is already in `EXCLUDED_DIR_NAMES`.  Git sources and registry-server work remain deferred; the
-authenticated remote-registry client - reads and publish - is an experimental track behind
-`-Z remote-registry` ([`remote-registry.md`](remote-registry.md)).
+authenticated remote-registry client's reads are stable, while its mutations (publish / yank)
+stay behind `-Z remote-registry` ([`remote-registry.md`](remote-registry.md)).
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
@@ -1556,10 +1555,10 @@ and a read-only sparse HTTP client for a static layout.  Account systems, hosted
 ownership workflows, package yanking, signing policy, and administrative control planes are outside
 this local-core boundary.  See [`registry-design.md`](registry-design.md) for the concrete read-path
 and file-registry shape this repository supports.  The *client* side of an authenticated remote
-registry - bearer-token reads, publish, yank - is an experimental track gated behind
-`-Z remote-registry` and specified in [`remote-registry.md`](remote-registry.md); the registry
-service's hosted implementation lives under `registry/` in this repository, outside the OSS-core
-boundary.
+registry is specified in [`remote-registry.md`](remote-registry.md): bearer-token reads (and the
+default hosted index origin) are stable, while publish and yank stay gated behind
+`-Z remote-registry`; the registry service's hosted implementation lives under `registry/` in
+this repository, outside the OSS-core boundary.
 
 ## Scope and limitations
 
@@ -1572,11 +1571,12 @@ documented in `registry/docs/architecture.md`:
 - **No Git dependencies.** A Git-backed registry index is intentionally never planned; see
   [`registry-design.md`](registry-design.md).  Source registries are local file directories or
   sparse HTTP today.
-- **No non-local registry control plane.** Every command that needs an index expects `--index-path
-  <dir>` or `--index-url <url>`.  There is no default remote registry, and package upload over the
-  network exists only behind the experimental `-Z remote-registry` client - protocol,
-  `cabin login` / `cabin logout`, authenticated reads, `cabin publish` against an HTTP index
-  source, and `cabin yank`; see [`remote-registry.md`](remote-registry.md).
+- **No non-local registry control plane.** A command that needs an index uses `--index-path
+  <dir>`, `--index-url <url>`, the `[registry]` config setting, or the default hosted index
+  origin (`https://registry.cabinpkg.com`; reads, `cabin login` / `cabin logout` included, are
+  stable).  Package upload over the network exists only behind the experimental
+  `-Z remote-registry` client - `cabin publish` against an HTTP index source and `cabin yank`;
+  see [`remote-registry.md`](remote-registry.md).
 - **No account / ownership workflows.** Ownership, signing, and restricted package access are out
   of scope.
 - **No administrative policy surfaces.**

@@ -14,9 +14,9 @@ ownership workflows, token issuance, hosted storage, signing policy, and
 other server-side control planes are outside the OSS core's boundary
 (the hosted service is developed under the repository's separate
 `registry/` workspace, not in the Cabin crates).
-The *client* side of a remote registry protocol is an experimental,
-`-Z remote-registry`-gated track; see
-[Experimental remote registry client](#experimental-remote-registry-client).
+The *client* side of the remote registry protocol has stable reads and
+experimental (`-Z remote-registry`-gated) mutations; see
+[Remote registry client](#remote-registry-client).
 
 ## Local File Registry
 
@@ -100,9 +100,10 @@ from the flat `packages/<name>.json` /
 serves scoped routes only.
 
 The client is read-only.  It does not publish packages, mutate registry
-state, persist HTTP metadata for offline use, or infer a default remote
-source.  Commands that need an index source require `--index-path`,
-`--index-url`, or a local config default.
+state, or persist HTTP metadata for offline use.  Commands that need an
+index source use `--index-path`, `--index-url`, a local config default,
+or - when none of those apply - Cabin's default hosted index origin
+([`remote-registry.md`](remote-registry.md#the-default-registry)).
 
 HTTP archive bytes still flow through the artifact cache.  Cabin hashes
 the bytes, checks them against the index's `sha256:<hex>` value, stores
@@ -119,8 +120,8 @@ domain model:
 - `cabin-registry-file` owns the local mutable file-registry layout;
 - `cabin-index-http` performs read-only HTTP fetches and hands the
   retrieved JSON to the same typed index model;
-- `cabin-registry-api` owns the experimental authenticated mutation
-  routes (publish / yank, behind `-Z remote-registry`);
+- `cabin-registry-api` owns the authenticated mutation routes
+  (publish / yank, behind `-Z remote-registry`);
 - `cabin-artifact` verifies, caches, and extracts source archives
   without knowing whether bytes came from a file or HTTP.
 
@@ -128,18 +129,17 @@ The separation is intentional: adding a new local or static read
 transport should not require changing package metadata, the lockfile,
 or the build planner.
 
-## Experimental Remote Registry Client
+## Remote Registry Client
 
-Gated behind `-Z remote-registry`, with no compatibility promise, Cabin
-is growing a client for authenticated remote registries.  The protocol
-both sides implement - bearer-token reads, network-backed package
-publishing, and a yank command - is specified in
-[`remote-registry.md`](remote-registry.md).  Under this experimental
-track:
+Cabin's client for authenticated remote registries has stable reads;
+its mutations (network-backed package publishing and a yank command)
+stay behind `-Z remote-registry` with no compatibility promise.  The
+protocol both sides implement is specified in
+[`remote-registry.md`](remote-registry.md).  Under this track:
 
 - the registry `config.json` fields `auth-required` and `api` are
-  recognized; without `-Z remote-registry` their presence fails the
-  index load with an error naming the field (never a silent ignore);
+  recognized unconditionally; the read routes never consult `api`
+  (only the gated mutation commands do);
 - client-side credential handling uses `Authorization: Bearer` tokens
   issued on the registry's web UI, whose URL the client discovers from
   the `WWW-Authenticate` `Cabin login_url` challenge on unauthenticated
@@ -164,7 +164,7 @@ workspace.
 The local OSS core deliberately excludes:
 
 - registry account or ownership services (the server side of the
-  experimental protocol above);
+  remote-registry protocol above);
 - artifact signing policy;
 - Git repository indexes;
 - persistent HTTP metadata caching;

@@ -18,7 +18,7 @@ const ... : &str = ...` constants.
 | `CABIN_CACHE_DIR` | unset | Artifact cache directory for this invocation.  Wins over `CABIN_CACHE_HOME` and the platform fallback. |
 | `CABIN_CACHE_HOME` | platform user cache home with `cabin` suffix | Per-user cache home (the directory the global cache lives under).  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user cache home via the `etcetera` crate (`$XDG_CACHE_HOME/cabin` / `$HOME/.cache/cabin` on Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
-| `CABIN_REGISTRY_TOKEN` | unset | Bearer token for the experimental remote-registry client (`-Z remote-registry`).  When set and non-empty it wins over every `credentials.toml` entry for this invocation.  See [`remote-registry.md`](remote-registry.md#client-side-token-handling). |
+| `CABIN_REGISTRY_TOKEN` | unset | Bearer token for registry access.  When set and non-empty it wins over `credentials.toml` for the default hosted registry's origin and loopback origins; other registries always use `credentials.toml`.  See [`remote-registry.md`](remote-registry.md#environment-override). |
 | `CABIN_COMPILER_WRAPPER` | unset | Compiler-wrapper executable name or path. `none` (aliases `off`, `disabled`) disables wrapping. |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
 | `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |

@@ -165,10 +165,10 @@ The same libraries are also published to the Cabin registry as ordinary `cabin-p
 ```
 
 The dependency key needs quotes (scoped names contain `/`), and the requirement never carries a
-`+cabin.<n>` packaging revision - requirement matching ignores build metadata.  Resolving a
-registry dependency requires a configured index (`--index-url` / `--index-path` or the
-`[registry]` config table) and, while the registry is in private alpha, the
-`-Z remote-registry` gate (see [remote-registry.md](remote-registry.md)); the bundled
+`+cabin.<n>` packaging revision - requirement matching ignores build metadata.  Registry
+dependencies resolve through the hosted registry by default (no flag; see
+[remote-registry.md](remote-registry.md#the-default-registry)) - while the registry is in
+private alpha its reads are authenticated, so a `cabin login` token is required; the bundled
 `port = true` form works with no configuration on a stock `cabin` install.
 
 `port = true` requires a sibling `version = "<requirement>"` field (see "Bundled ports" above).
