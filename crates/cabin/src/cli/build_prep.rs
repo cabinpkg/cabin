@@ -191,7 +191,6 @@ pub(crate) struct PreparedWorkspace {
 pub(crate) fn prepare_workspace(
     args: &WorkspacePipelineArgs<'_>,
     reporter: Reporter,
-    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<PreparedWorkspace> {
     let manifest_path = super::resolve_invocation_manifest(args.manifest_path)?;
 
@@ -302,11 +301,8 @@ pub(crate) fn prepare_workspace(
         Vec<super::RegistryPackageSource>,
         BTreeSet<(String, String)>,
     ) = if has_versioned {
-        let Some(index_source) = resolved_index_source.as_ref() else {
-            bail!(super::VERSIONED_DEPS_REQUIRE_INDEX);
-        };
         let inputs = super::config::resolve_pipeline_inputs(
-            index_source,
+            resolved_index_source.as_ref(),
             &effective_config,
             args.cache_dir,
             resolved_cache_dir.as_ref(),
@@ -333,7 +329,6 @@ pub(crate) fn prepare_workspace(
             )?,
             no_patches: args.no_patches,
             dev_for: &dev_for,
-            experimental_features,
         })?;
         (pipeline.registry_sources(), pipeline.lockfile_pinned)
     } else {

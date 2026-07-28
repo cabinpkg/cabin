@@ -137,7 +137,6 @@ pub(crate) fn test(
     args: &TestArgs,
     reporter: crate::cli::term_verbosity::Reporter,
     color: cabin_core::ColorChoice,
-    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
     // `--allow-no-tests` succeeds without building anything, so an
     // empty test selection must not activate dev deps at all - not
@@ -192,7 +191,6 @@ pub(crate) fn test(
             dev: DevActivation::SelectedPrimaries,
         },
         reporter,
-        experimental_features,
     )?;
 
     // Build every test target in the selected packages, narrowed

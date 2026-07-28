@@ -88,6 +88,10 @@ pub struct HttpClient {
     agent: ureq::Agent,
     max_body_bytes: usize,
     auth: Option<RegistryAuth>,
+    /// The agent's redirect budget, kept so [`HttpClient::with_auth`]
+    /// can refuse a redirect-following client: a credential must
+    /// never ride a client that lets the server steer requests.
+    max_redirects: u32,
 }
 
 impl HttpClient {
@@ -115,18 +119,27 @@ impl HttpClient {
             agent,
             max_body_bytes: MAX_BODY_BYTES,
             auth: None,
+            max_redirects,
         }
     }
 
     /// Attach a registry credential: every request whose URL is on
     /// the credential's exact origin (and satisfies the cleartext
     /// rule, see [`RegistryAuth`]) carries `Authorization: Bearer
-    /// <token>`; requests to any other origin never do.  Callers
-    /// must combine this with the redirect-free [`HttpClient::new`]
-    /// client - the redirect-following variant is reserved for
-    /// unauthenticated pinned downloads.
+    /// <token>`; requests to any other origin never do.
+    ///
+    /// # Panics
+    /// Panics when called on a redirect-following client
+    /// ([`HttpClient::with_redirect_budget`], reserved for
+    /// unauthenticated pinned downloads): the origin check runs
+    /// before the agent resolves redirects, so a credentialed client
+    /// must never let the server steer requests.
     #[must_use]
     pub fn with_auth(mut self, auth: RegistryAuth) -> Self {
+        assert!(
+            self.max_redirects == 0,
+            "registry credentials require the redirect-free client (`HttpClient::new`)"
+        );
         self.auth = Some(auth);
         self
     }
@@ -206,13 +219,9 @@ impl HttpClient {
             // wants a login, a 401 despite one means the stored token
             // is no longer valid, and a 403 despite one means the
             // token is valid but lacks the scope the route requires.
-            // The tokenless 401 advice applies even without
-            // `-Z remote-registry` on the command line - a 401 can
-            // only mean the registry wants auth, and the message
-            // itself names the experimental flag the user must opt
-            // into.  A tokenless 403 is *not* the protocol's
-            // missing-scope case (no scope was presented), so it
-            // keeps the generic status mapping below.
+            // A tokenless 403 is *not* the protocol's missing-scope
+            // case (no scope was presented), so it keeps the generic
+            // status mapping below.
             Err(ureq::Error::Status(401, _)) => Err(if auth.is_some() {
                 IndexHttpError::TokenRejected {
                     origin: origin_for_error(url),
@@ -379,8 +388,10 @@ pub fn fetch_login_url(index_url: &str) -> Option<String> {
 /// Parses the `Cabin login_url="<url>"` challenge.  Deliberately strict
 /// to the one challenge the protocol defines (scheme token `Cabin`,
 /// parameter `login_url`), not a general RFC 7235 parser.  The value
-/// must parse as an absolute `http(s)` URL without userinfo or control
-/// characters - anything else is not worth printing to a terminal.
+/// must parse as an absolute `http(s)` URL without userinfo, made of
+/// printable ASCII only - the string is printed to a terminal, and
+/// looser charsets admit control or bidi characters that can visually
+/// reorder or spoof the instruction.
 fn parse_login_url(header: &str) -> Option<String> {
     let header = header.trim();
     let scheme_len = "Cabin".len();
@@ -405,7 +416,7 @@ fn parse_login_url(header: &str) -> Option<String> {
     let plausible = matches!(parsed.scheme(), "http" | "https")
         && parsed.username().is_empty()
         && parsed.password().is_none()
-        && !url.chars().any(char::is_control);
+        && url.chars().all(|c| c.is_ascii_graphic());
     plausible.then(|| url.to_owned())
 }
 
@@ -564,6 +575,7 @@ mod tests {
                 .build(),
             max_body_bytes: 4,
             auth: None,
+            max_redirects: 0,
         };
 
         let result = client.get_bytes(&format!("{}/to", server.url()), "pkg");
@@ -581,7 +593,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Authenticated reads (`-Z remote-registry` client plumbing)
+    // Authenticated reads
     // -----------------------------------------------------------------
 
     const TEST_TOKEN: &str = "cabin_testToken12345";
@@ -744,8 +756,9 @@ mod tests {
                     "message must advise cabin login: {message}"
                 );
                 assert!(
-                    message.contains("-Z remote-registry"),
-                    "message must name the experimental flag: {message}"
+                    !message.contains("-Z remote-registry"),
+                    "authenticated reads are not experimental; the advice must not name the \
+                     flag: {message}"
                 );
             }
             other => panic!("expected AuthRequired, got {other:?}"),
@@ -965,6 +978,16 @@ mod tests {
         );
     }
 
+    /// A credential can never ride a redirect-following client: the
+    /// origin check runs before the agent resolves redirects, so the
+    /// combination is refused outright.
+    #[test]
+    #[should_panic(expected = "redirect-free client")]
+    fn with_auth_refuses_a_redirect_following_client() {
+        let _ =
+            HttpClient::with_redirect_budget(5).with_auth(auth_for("https://registry.example.com"));
+    }
+
     /// The redaction contract holds through the client's own Debug
     /// output too.
     #[test]
@@ -1029,6 +1052,12 @@ mod tests {
             r#"Cabin login_url="ftp://x/y""#,
             r#"Cabin login_url="https://user:pw@x/y""#,
             "Cabin login_url=\"https://x/\u{7}y\"",
+            // Unicode bidi controls are not `char::is_control`, but
+            // they can visually reorder a printed URL; the printable-
+            // ASCII rule rejects them (and every other non-ASCII
+            // character).
+            "Cabin login_url=\"https://x/\u{202e}y\"",
+            "Cabin login_url=\"https://x/\u{2066}y\"",
         ] {
             assert_eq!(parse_login_url(header), None, "header: {header:?}");
         }

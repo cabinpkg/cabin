@@ -138,8 +138,9 @@ mod tests {
             .filter(|s| s.is_hide_set())
             .map(clap::Command::get_name)
             .collect();
-        // `login` / `logout` / `yank` are hidden while the
-        // remote-registry client they belong to stays behind
+        // `login` / `logout` are hidden by the same curation rule
+        // (cargo hides `login` too - credential plumbing is not a
+        // day-to-day command); `yank` is additionally still behind
         // `-Z remote-registry`.
         let expected: BTreeSet<&str> = [
             "compgen", "explain", "fetch", "login", "logout", "mangen", "metadata", "package",

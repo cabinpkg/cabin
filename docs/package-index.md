@@ -68,14 +68,13 @@ deeper than one scope directory is ignored.
 absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
 the full layout contract.
 
-`config.json` may also carry two optional fields belonging to the experimental remote-registry
-protocol: `auth-required` (bool; every request to the registry must carry
+`config.json` may also carry two optional fields belonging to the remote-registry protocol:
+`auth-required` (bool; every request to the registry must carry
 `Authorization: Bearer <token>`) and `api` (string; absolute `http(s)` base URL of the registry
 web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials).  Both index loaders -
-this local loader and the sparse HTTP client - parse the fields unconditionally, but presence of
-either without `-Z remote-registry` fails the index load with an error naming the field and
-instructing `-Z remote-registry`.  Silent ignoring is deliberately forbidden: dropping
-`auth-required` would surface later as a confusing `401`.  See
+this local loader and the sparse HTTP client - recognize the fields unconditionally, so a
+vendored or mirrored copy of a hosted registry loads like any other file registry; the read
+routes never consult `api` (only the experimental mutation commands do).  See
 [`remote-registry.md`](remote-registry.md) for the full protocol.
 
 In both layouts the filename stem (`fmt` for `fmt.json`) must equal the package's declared `name`
@@ -235,8 +234,8 @@ The index format deliberately leaves the following out:
 
 - OCI / GHCR or other remote-archive transports;
 - Git sources;
-- account or credential handling (an experimental bearer-token protocol exists behind
-  `-Z remote-registry`; see [`remote-registry.md`](remote-registry.md));
+- account or credential handling beyond the bearer-token protocol of
+  [`remote-registry.md`](remote-registry.md);
 - append-only / immutable indexes;
 - artifact signing or trust configuration;
 - platform-specific dependency data beyond the current serialized dependency records;
@@ -259,9 +258,10 @@ Request shape:
 | 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
 | 3 | `GET <artifact-url>` | Source-archive download for each `(name, version)` `cabin fetch` / `cabin build` needs. |
 
-The `config.json` fetched in step 1 is subject to the same experimental-field gating as the local
-loader: an `auth-required` or `api` field without `-Z remote-registry` fails the load with an error
-naming the field (see [Registry-root layout](#registry-root-layout)).
+The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` fields
+as the local loader (see [Registry-root layout](#registry-root-layout)); on an `auth-required`
+registry every request in the table carries the stored bearer credential
+([`remote-registry.md`](remote-registry.md#client-side-token-handling)).
 
 Source-path resolution for each version:
 
@@ -295,6 +295,11 @@ clear message:
 cannot use --index-url with --frozen: there is no persistent HTTP index metadata cache,
 so a frozen run would have to perform network fetches it is not allowed to perform
 ```
+
+With no index source configured at all, the [default registry](remote-registry.md#the-default-registry)
+would apply.  Source replacement applies to it first, exactly like a config URL; a default that
+still resolves to a URL is refused with its own wording (`cannot resolve versioned dependencies
+with --frozen: no index source is configured, ...`), pointing at `--index-path`.
 
 `--locked --index-url` does work - the lockfile lives on the local filesystem, and the resolver can
 validate fetched metadata against it.  Full offline / vendoring workflows are separate commands

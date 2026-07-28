@@ -24,10 +24,12 @@ const installSnippet = `[dependencies]\n"${pack.name}" = "=${requirement}"`;
     <p class="mb-3 leading-7 text-ink-muted">Add this to your <code class="rounded-sm bg-night-lifted px-1.5 py-0.5 font-mono text-sm text-ink">cabin.toml</code>:</p>
     <CodeBlock code={installSnippet} />
     <p class="mt-3 text-sm leading-6 text-ink-muted">
-        Resolving <code class="rounded-sm bg-night-lifted px-1.5 py-0.5 font-mono text-xs text-ink">cabin-ports/*</code>
-        dependencies requires the Cabin registry, which is in private alpha.
-        These libraries are also available today as bundled foundation ports
-        &mdash; see <a
+        <code class="rounded-sm bg-night-lifted px-1.5 py-0.5 font-mono text-xs text-ink">cabin-ports/*</code>
+        dependencies resolve from the Cabin registry out of the box; while the
+        registry is in private alpha its reads are authenticated, so run
+        <code class="rounded-sm bg-night-lifted px-1.5 py-0.5 font-mono text-xs text-ink">cabin login</code>
+        with an account token first.  These libraries are also available today
+        as bundled foundation ports &mdash; see <a
             href="/docs/foundation-ports/"
             class="font-medium text-steel hover:text-steel-bright">the
             foundation ports docs</a>.

@@ -35,12 +35,13 @@ pub(super) fn publish(
     if args.output_dir.is_some() && args.registry_dir.is_some() {
         bail!("--output-dir is not compatible with --registry-dir; pick one");
     }
-    // The `--index-url` flag is remote-registry surface: presence
+    // The `--index-url` flag is remote-publish surface: presence
     // without the feature is an error even on the (entirely local)
-    // dry-run path, matching how the registry `config.json` fields
-    // gate on presence rather than being silently ignored.
+    // dry-run path - silently ignoring it would let the same command
+    // line mean "stage locally" today and "upload" once the feature
+    // stabilizes.
     if args.index_url.is_some() && !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
-        bail!(cabin_core::registry::remote_registry_field_error(
+        bail!(cabin_core::registry::remote_registry_command_error(
             "cabin publish --index-url"
         ));
     }
@@ -108,7 +109,7 @@ pub(super) fn publish(
                 return Err(cabin_publish::PublishError::DryRunRequired.into());
             };
             if !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
-                bail!(cabin_core::registry::remote_registry_field_error(
+                bail!(cabin_core::registry::remote_registry_command_error(
                     "cabin publish --index-url"
                 ));
             }
@@ -118,7 +119,6 @@ pub(super) fn publish(
                 resolved_project,
                 &workspace_dep_requirements,
                 reporter,
-                features,
             )?;
             emit_remote_publish_output(&report, args.format, reporter)?;
         }
@@ -185,7 +185,6 @@ fn publish_to_remote_registry(
     resolved_project: Option<cabin_core::Package>,
     workspace_dep_requirements: &cabin_core::WorkspaceDepRequirements,
     reporter: Reporter,
-    features: &ExperimentalFeatures,
 ) -> Result<RemotePublishReport> {
     // Stage before touching the network so validation failures never
     // need a connection.
@@ -203,7 +202,8 @@ fn publish_to_remote_registry(
 
     // One credential lookup serves the reads and the API call alike.
     let origin = cabin_credentials::normalize_origin(index_url)?;
-    let lookup = cabin_credentials::lookup_token(&origin)?;
+    let lookup =
+        cabin_credentials::lookup_token(&origin, crate::cli::login::env_token_eligible(&origin)?)?;
     if let Some(warning) = lookup.permissions_warning {
         reporter.warning(format_args!("{warning}"));
     }
@@ -214,7 +214,7 @@ fn publish_to_remote_registry(
             index_url, token,
         )?);
     }
-    let index = cabin_index_http::HttpIndex::open_with_features(index_url, client, features)?;
+    let index = cabin_index_http::HttpIndex::open(index_url, client)?;
     let Some(api) = index.api() else {
         bail!(
             "registry `{origin}` does not declare an `api` URL in its config.json; publishing \

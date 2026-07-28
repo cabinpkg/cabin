@@ -362,7 +362,9 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 ```
 
-Resolution requires `--index-path` or `--index-url` when the manifest uses versioned dependencies.
+Resolving versioned dependencies uses `--index-path` / `--index-url`, the `[registry]` config
+setting, or - when none of those apply - Cabin's default hosted registry
+([`remote-registry.md`](remote-registry.md#the-default-registry)).
 
 ## Example - local path dependency
 

@@ -114,6 +114,44 @@ fn vendor_writes_deterministic_file_registry() {
     assert_eq!(summary, summary_again);
 }
 
+/// A local mirror of a *hosted* registry carries `auth-required` /
+/// `api` in its `config.json`.  Vendoring from such a mirror works
+/// without any experimental flag, and the vendored output stays
+/// consumable offline.
+#[test]
+fn vendor_from_a_hosted_registry_mirror_needs_no_flag() {
+    let dir = TempDir::new().unwrap();
+    let index = stage_fmt_index(dir.path());
+    assert_fs::fixture::ChildPath::new(index.join("config.json"))
+        .write_str(
+            "{\"schema\":1,\"kind\":\"file-registry\",\"packages\":\"packages\",\
+             \"artifacts\":\"artifacts\",\"auth-required\":true,\
+             \"api\":\"https://cabinpkg.com\"}\n",
+        )
+        .unwrap();
+    stage_consumer_project(&dir.path().join("proj"));
+    cabin()
+        .args(["vendor", "--manifest-path"])
+        .arg(dir.path().join("proj/cabin.toml"))
+        .arg("--vendor-dir")
+        .arg(dir.path().join("proj/vendor"))
+        .arg("--index-path")
+        .arg(&index)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    // The vendored registry resolves offline like any other.
+    cabin()
+        .args(["resolve", "--offline", "--manifest-path"])
+        .arg(dir.path().join("proj/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("proj/vendor"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fmt 10.2.1"));
+}
+
 #[test]
 fn vendor_then_offline_build_links_against_the_vendored_dependency() {
     require_cxx_build_tools();

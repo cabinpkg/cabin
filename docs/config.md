@@ -103,8 +103,11 @@ time with a clear error.
 
 ### `[registry]`
 
-Selects a default index source for the resolver / fetch family when neither `--index-path` nor
-`--index-url` is supplied on the CLI.
+Selects the index source for the resolver / fetch family when neither `--index-path` nor
+`--index-url` is supplied on the CLI.  When the config declares nothing either, commands that
+need an index fall back to Cabin's default hosted registry,
+`https://registry.cabinpkg.com` ([`remote-registry.md`](remote-registry.md#the-default-registry));
+the full precedence is CLI flag > config `[registry]` > built-in default.
 
 | Key          | Type    | Notes                                                                 |
 | ------------ | ------- | --------------------------------------------------------------------- |
@@ -264,7 +267,7 @@ These items are explicitly out of scope for the config layer and will not be add
 - **No credentials, tokens, registry authentication, or credential-helper integration.** Cabin's
   config file is not a secrets store.  Tables named `auth`, `credentials`, `tokens`, `token`, or
   `registries` are rejected with a dedicated error so a typo never silently smuggles a credential
-  into a published archive.  Registry tokens for the experimental remote-registry client live in a
+  into a published archive.  Registry tokens live in a
   separate `credentials.toml` next to the user-level `config.toml`; see
   [`remote-registry.md`](remote-registry.md#client-side-token-handling).
 - **No vendoring policy table.** `cabin vendor` may consume the configured registry/path defaults,

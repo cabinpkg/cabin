@@ -25,7 +25,7 @@ pub enum IndexHttpError {
 
     #[error(
         "authentication required by registry `{origin}`; run `cabin login --index-url {origin}` \
-         with `-Z remote-registry` to store a token"
+         to store a token"
     )]
     AuthRequired { origin: String },
 

@@ -1,8 +1,11 @@
-# Remote Registry Protocol (Experimental)
+# Remote Registry Protocol
 
-> **Everything in this document is experimental and gated behind `-Z remote-registry`.**  There is
-> no compatibility promise: any route, field, framing, or status code described here may change or
-> disappear between releases without a migration path.
+> **Reads are stable; mutations are experimental.**  Consuming hosted packages - the registry
+> `config.json`, authenticated index reads, artifact downloads, and `cabin login` / `cabin logout` -
+> is a normal client path with no flag.  The mutation surfaces (`cabin publish --index-url`,
+> `cabin yank`, and the admin API) stay gated behind `-Z remote-registry` and carry no
+> compatibility promise: those routes, framings, and status codes may change or disappear between
+> releases without a migration path.
 
 > **Names are scoped.** Registry packages are always `<scope>/<name>` (e.g. `fmtlib/fmt`): every
 > package route carries the `<scope>/<name>` pair, the artifact filename embeds the scope
@@ -18,12 +21,24 @@ itself - accounts, token issuance, hosted storage - is not part of the Cabin cra
 implementation lives under `registry/` in this repository, outside the OSS core boundary
 described in [`registry-design.md`](registry-design.md).
 
-Client status today: the [`config.json` fields](#registry-configuration) below are recognized
-behind the flag (presence without `-Z remote-registry` fails the index load), client-side token
-handling is implemented - `cabin login` / `cabin logout` plus
-[authenticated reads](#client-side-token-handling) - and so are
-[publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source) and
-[yanking](#yanking-from-the-client) (`cabin yank`).
+Client status today: the [`config.json` fields](#registry-configuration) below and client-side
+token handling - `cabin login` / `cabin logout` plus
+[authenticated reads](#client-side-token-handling) - are stable, and the hosted registry is the
+[default index origin](#the-default-registry) when no explicit override applies.
+[Publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source) and
+[yanking](#yanking-from-the-client) (`cabin yank`) are implemented behind `-Z remote-registry`.
+
+## The default registry
+
+When a command needs an index and neither the CLI (`--index-path` / `--index-url`) nor the
+config (`[registry]`, see [`config.md`](config.md#registry)) names one, Cabin uses its default
+hosted-registry index origin, `https://registry.cabinpkg.com`.  The default behaves exactly like
+a config-supplied URL: `[source-replacement]` applies to it, `--offline` refuses it (pass
+`--index-path`, e.g. a `cabin vendor` output), and `--frozen` refuses a URL terminal.  It only
+ever materializes when the selected closure actually has versioned dependencies, so dependency-free
+projects never observe it - and it never applies to `cabin publish`, `cabin yank`, or
+`cabin vendor`, which keep requiring an explicitly named source (`cabin login` / `cabin logout` do
+fall back to it, since a stored token is what makes the default usable at all).
 
 ## Registry configuration
 
@@ -46,10 +61,9 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 | `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`. |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
-Both index parsers (the local `--index-path` loader and the sparse HTTP client) parse the fields
-unconditionally, but *presence* of either field without `-Z remote-registry` fails the index load
-with an error naming the field and instructing `-Z remote-registry`.  Silently ignoring the field
-is forbidden: a client that ignored `auth-required` would surface it later as a confusing `401`.
+Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
+fields unconditionally: a vendored or mirrored copy of a hosted registry loads like any other
+file registry, and the read routes never consult `api` - only the gated mutation commands do.
 
 ## One role per hostname
 
@@ -98,19 +112,24 @@ nothing about package existence.
 
 ## Client-side token handling
 
-Everything in this section requires `-Z remote-registry`; without the flag, `cabin login` and
-`cabin logout` fail with the standard experimental-feature error and the sparse HTTP client never
-reads a credential.
+Token handling is part of the stable read path: whenever a credential is available for the index
+origin, the sparse HTTP client authenticates its reads with it, and `cabin login` /
+`cabin logout` manage the stored credential.
 
 ### `cabin login` and `cabin logout`
 
 `cabin login` resolves the registry from `--index-url` (or the `[registry] index-url` setting in
-[`config.md`](config.md#registry) - a local `index-path` is rejected, since tokens only apply to
-HTTP registries), discovers the token-creation page, and reads the token from stdin - without
-echo when stdin is a terminal, as a plain read otherwise so piping works:
+[`config.md`](config.md#registry), else the [default registry](#the-default-registry) - a local
+`index-path` is rejected, since tokens only apply to HTTP registries), names the resolved origin,
+discovers the token-creation page, and reads the token from stdin - without echo when stdin is a
+terminal, as a plain read otherwise so piping works.  The credential commands consult *user-level*
+config only: a checked-out project's `.cabin/config.toml` (registry selection or
+`[source-replacement]`) must not be able to steer where a pasted credential is stored.  The
+advisory probe is skipped entirely under [offline mode](vendoring-offline.md):
 
 ```console
-$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
+$ echo "$TOKEN" | cabin login
+logging in to `https://registry.cabinpkg.com`
 visit https://cabinpkg.com/settings/tokens to create a token
        Login token for `https://registry.cabinpkg.com` saved
 ```
@@ -147,8 +166,12 @@ never ride along in a published archive.
 ### Environment override
 
 When [`CABIN_REGISTRY_TOKEN`](environment-variables.md) is set and non-empty, its value wins over
-`credentials.toml` for **every** registry the invocation touches.  Useful for CI, where writing a
-credentials file is undesirable; the override also works when no user config home can be resolved
+`credentials.toml` for the origins it applies to: the [default registry](#the-default-registry)'s
+origin and loopback origins (local testing).  Any other registry always uses `credentials.toml` -
+the override carries no origin key of its own, and an invocation's index origin can come from
+project-level config or `[source-replacement]`, so an unrestricted override would let any built
+project route the credential to an origin of its choosing.  The override is useful for CI, where
+writing a credentials file is undesirable; it also works when no user config home can be resolved
 at all.  Cabin removes the variable from the environment of every child it spawns - `cabin run` /
 `cabin test` executables, the Ninja build backend (and the compile / wrapper commands it runs),
 the toolchain detection probes, `clang-format`, `run-clang-tidy`, and `pkg-config` - so spawned
@@ -164,8 +187,8 @@ where the mutation routes live - and nowhere else.  This mirrors Cargo, whose to
 api host named in `config.json`.  Neither destination ever sees the token over plain `http`
 except loopback hosts (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
 Client-side error mapping: a `401` without a stored credential advises
-`cabin login --index-url <origin>`; a `401` despite one reports the token as rejected (revoked
-or expired); a `403` reports a missing scope.  The token never appears in logs, error messages,
+`cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
+reports the token as rejected (revoked or expired); a `403` reports a missing scope.  The token never appears in logs, error messages,
 or debug output.
 
 ## Read routes
@@ -249,15 +272,15 @@ with `--dry-run`) and publishing against a config-supplied HTTP index both fail 
 experimental-feature error.  The flow is log in once, publish, then resolve like any consumer:
 
 ```console
-$ echo "$TOKEN" | cabin -Z remote-registry login --index-url https://registry.cabinpkg.com
+$ echo "$TOKEN" | cabin login --index-url https://registry.cabinpkg.com
+logging in to `https://registry.cabinpkg.com`
 visit https://cabinpkg.com/settings/tokens to create a token
        Login token for `https://registry.cabinpkg.com` saved
 $ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
     --index-url https://registry.cabinpkg.com
 Published fmt 10.2.1 to https://registry.cabinpkg.com
   checksum: sha256:...
-$ cabin -Z remote-registry resolve --manifest-path app/cabin.toml \
-    --index-url https://registry.cabinpkg.com
+$ cabin resolve --manifest-path app/cabin.toml
 ```
 
 Client-side behavior:
@@ -530,8 +553,9 @@ an authenticated `404`.
 
 `cabin yank` takes a strict `<scope>/<name>@<version>` spec - an exact scoped package name and an exact SemVer
 version, no ranges - and resolves the registry exactly like remote publish: `--index-url`, else the
-`[registry] index-url` setting in [`config.md`](config.md#registry); a local `index-path` is
-rejected, since yanked state lives in the remote registry's index.  The registry's `config.json`
+`[registry] index-url` setting in [`config.md`](config.md#registry) - never the
+[default registry](#the-default-registry); a mutation must not target a registry the user did not
+name.  A local `index-path` is rejected, since yanked state lives in the remote registry's index.  The registry's `config.json`
 must declare the [`api`](#registry-configuration) origin the request is sent to.
 
 ```console

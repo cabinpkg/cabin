@@ -5,10 +5,11 @@
 //! document: the version disappears from *new* resolution (the
 //! resolver already skips yanked versions), but the archive stays
 //! downloadable so existing lockfiles keep building.  The registry
-//! resolves like the other remote-registry commands (`--index-url`,
-//! else the `[registry] index-url` config setting), and the request
-//! goes to the API origin the registry's `config.json` declares,
-//! through `cabin-registry-api`.
+//! resolves from `--index-url`, else the `[registry] index-url`
+//! config setting - never the default registry: a mutation must not
+//! target a registry the user did not name.  The request goes to the
+//! API origin the registry's `config.json` declares, through
+//! `cabin-registry-api`.
 
 use anyhow::{Result, bail};
 use clap::Args;
@@ -40,7 +41,7 @@ pub(crate) fn yank(
     features: &ExperimentalFeatures,
 ) -> Result<()> {
     if !features.is_enabled(ExperimentalFeature::RemoteRegistry) {
-        bail!(cabin_core::registry::remote_registry_field_error(
+        bail!(cabin_core::registry::remote_registry_command_error(
             "cabin yank"
         ));
     }
@@ -57,15 +58,16 @@ pub(crate) fn yank(
     }
     let index_url = crate::cli::login::effective_registry_index_url(
         args.index_url.as_deref(),
-        features,
         "cabin yank",
         "yanked state lives in the remote registry's index",
+        false,
     )?;
 
     // Mirror the remote publish flow: one credential lookup serves
     // the config.json read and the API call alike.
     let origin = cabin_credentials::normalize_origin(&index_url)?;
-    let lookup = cabin_credentials::lookup_token(&origin)?;
+    let lookup =
+        cabin_credentials::lookup_token(&origin, crate::cli::login::env_token_eligible(&origin)?)?;
     if let Some(warning) = lookup.permissions_warning {
         reporter.warning(format_args!("{warning}"));
     }
@@ -76,7 +78,7 @@ pub(crate) fn yank(
             &index_url, token,
         )?);
     }
-    let index = cabin_index_http::HttpIndex::open_with_features(&index_url, client, features)?;
+    let index = cabin_index_http::HttpIndex::open(&index_url, client)?;
     let Some(api) = index.api() else {
         bail!(
             "registry `{origin}` does not declare an `api` URL in its config.json; yanking needs \

@@ -16,7 +16,6 @@ pub(super) fn build(
     reporter: Reporter,
     mode: BuildMode,
     color: cabin_core::ColorChoice,
-    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
     let prepared = prepare_workspace(
         &WorkspacePipelineArgs {
@@ -39,7 +38,6 @@ pub(super) fn build(
             dev: DevActivation::Disabled,
         },
         reporter,
-        experimental_features,
     )?;
     let plan_graph = plan_prepared(&prepared, None, matches!(mode, BuildMode::Check), color)?;
 

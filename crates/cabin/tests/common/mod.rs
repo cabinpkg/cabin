@@ -158,9 +158,14 @@ pub fn cabin() -> Command {
     // discovery on purpose explicitly re-enable it via
     // `.env_remove("CABIN_NO_CONFIG")` or a custom
     // `CABIN_CONFIG_HOME`.
-    cmd.env("CABIN_NO_CONFIG", "1")
-        .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME");
+    cmd.env("CABIN_NO_CONFIG", "1").env_remove("CABIN_CONFIG");
+    // `CABIN_CONFIG_HOME` must be *pinned*, not removed: the
+    // credential store resolves the platform config home when the
+    // variable is unset (`CABIN_NO_CONFIG` only disables config-file
+    // discovery), so an unpinned test could read the developer's real
+    // `credentials.toml` - or, for a `cabin login` under test, write
+    // into it.  Credential tests override this with their own home.
+    pin_test_user_config_home(&mut cmd);
     for key in [
         "CC",
         "CXX",
@@ -240,6 +245,31 @@ pub fn pin_test_cache_home(cmd: &mut Command) {
         "CABIN_CACHE_HOME",
         std::env::temp_dir().join("cabin-tests-cache-home"),
     );
+}
+
+/// Pin `CABIN_CONFIG_HOME` to a deterministic empty temp path so the
+/// credential store (which falls back to the *platform* config home
+/// when the variable is unset) can never observe or mutate a
+/// developer's real `credentials.toml`.  The directory is wiped once
+/// per `cargo test` invocation so state a misbehaving previous run
+/// left behind (a stray `credentials.toml`, say) cannot leak in;
+/// tests that exercise credentials or config discovery point the
+/// variable at their own fixture home instead.
+pub fn pin_test_user_config_home(cmd: &mut Command) {
+    static CLEAR_STALE: std::sync::Once = std::sync::Once::new();
+    let home = std::env::temp_dir().join("cabin-tests-config-home");
+    CLEAR_STALE.call_once(|| {
+        // Only an absent directory is fine to skip; any other
+        // removal failure would leave stale state behind while the
+        // create below still succeeds.
+        if let Err(err) = std::fs::remove_dir_all(&home)
+            && err.kind() != std::io::ErrorKind::NotFound
+        {
+            panic!("wipe the shared test config home: {err}");
+        }
+        std::fs::create_dir_all(&home).expect("create the shared empty test config home");
+    });
+    cmd.env("CABIN_CONFIG_HOME", home);
 }
 
 pub fn command_exists(name: &str) -> bool {

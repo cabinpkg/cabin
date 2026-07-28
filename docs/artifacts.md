@@ -216,6 +216,18 @@ cannot use --index-url with --frozen: there is no persistent HTTP index metadata
 so a frozen run would have to perform network fetches it is not allowed to perform
 ```
 
+With no index source configured at all, the default hosted registry
+([`remote-registry.md`](remote-registry.md#the-default-registry)) would apply.  Source replacement
+applies to it first, exactly like a config URL - a `[source-replacement]` entry that rewrites the
+default origin to a local path keeps `--frozen` working - and a default that still resolves to a
+URL is refused with its own wording:
+
+```
+cannot resolve versioned dependencies with --frozen: no index source is configured, and the
+default registry `https://registry.cabinpkg.com` would require network fetches; pass
+`--index-path <dir>` (e.g. a `cabin vendor` output)
+```
+
 Vendoring / offline workflows are separate and still require a local `--index-path`; they do not
 make frozen HTTP index URLs usable.
 
