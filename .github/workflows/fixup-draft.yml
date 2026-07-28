@@ -1,18 +1,33 @@
 # SECURITY INVARIANTS — read before editing:
-# This workflow runs on `pull_request_target`, so it executes with a
-# write-capable token even for PRs from forks. It is safe ONLY because:
+# This workflow needs a write-capable token: GitHub's
+# convertPullRequestToDraft mutation refuses the Actions token with
+# anything less than `pull-requests: write` PLUS `contents: write`
+# ("Resource not accessible by integration"; grant set established by
+# a permission bisect on PR #1576). It is safe because:
 #   1. It never checks out or executes PR code (no actions/checkout).
 #   2. It never expands untrusted event fields (title, body, branch name,
 #      commit messages) inside `${{ }}`. Untrusted data is fetched at
 #      runtime via `gh api` into quoted shell variables only.
 #   3. It uses no third-party actions.
+# `pull_request` (not `pull_request_target`) on purpose: the head
+# branch's copy runs, so changes to this workflow are testable on their
+# own PR, and no write token is minted for fork-authored events at all.
+# Fork PRs receive a read-only token and are skipped by the repo guard
+# below - the fixup-draft convention belongs to the same-repo
+# maintainer flow, not to forks.
+# Accepted gap: GitHub skips `pull_request` runs while a PR has a
+# merge conflict, so a conflicted PR gaining a fixup! commit stays
+# ready until the conflict resolves - harmless, because a conflicted
+# PR cannot merge either way, and the conflict-resolving push re-runs
+# this workflow and converts then.
 # Keep this workflow single-purpose. Do NOT add checkout, build steps, or
 # any `${{ github.event.* }}` interpolation beyond the PR number.
 name: Draft PR on fixup commits
 
 on:
-  # zizmor: ignore[dangerous-triggers] -- accepted: no checkout, no untrusted interpolation (see header)
-  pull_request_target:
+  # `ready_for_review` is deliberately absent so the author's Ready
+  # click sticks; the conversion is one-way by design.
+  pull_request:
     types: [opened, reopened, synchronize]
 
 # Deny-all by default; the job below requests only what it needs.
@@ -26,9 +41,14 @@ jobs:
   fixup-draft:
     name: Convert to draft if fixup commits exist
     runs-on: ubuntu-slim
-    if: ${{ !github.event.pull_request.draft }}
+    if: ${{ !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     permissions:
-      pull-requests: write # needed for convertPullRequestToDraft (gh pr ready --undo)
+      pull-requests: write
+      # Required by convertPullRequestToDraft alongside pull-requests
+      # write; the bisect on PR #1576 proved no lesser grant works.
+      # The token could push code, but invariants 1-3 above mean this
+      # job never runs anything that could be steered into doing so.
+      contents: write
     steps:
       - name: Check commit titles and convert
         env:
