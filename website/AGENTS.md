@@ -10,8 +10,13 @@ from 22.18).
 
 - Package pages are generated at build time from
   `../crates/cabin-port/ports/<name>/<version>/port.toml` (curated
-  foundation-port recipes) - no database or API. `src/lib/ports.ts` loads
-  one `PackageRecord` per `port.toml`; `src/lib/packages.ts` does grouping,
+  foundation-port recipes) - no database or API, and no live-registry build
+  dependency. `src/lib/ports.ts` loads one `PackageRecord` per `port.toml`,
+  mirroring the `cabin-port-publish` identity rules: the record name is the
+  scoped registry name `cabin-ports/<lowercase name>`, the version appends
+  `+cabin.<n>` when a `packaging-revision` sidecar sits next to the
+  `port.toml`, and the committed `[source]` pin (HTTPS URL + SHA-256)
+  surfaces as `upstream` provenance. `src/lib/packages.ts` does grouping,
   latest-version selection, route generation, and the search index (loader
   memoized: one disk read per build). `src/pages/packages.json.ts` is the
   search-index endpoint.
@@ -44,7 +49,7 @@ from 22.18).
    `astro build`, never during `astro check`. After any change to data
    loading or routes, run a full clean build and confirm the output:
    `/bin/rm -rf dist .astro && npm run build` (expect
-   `dist/packages/ports/<name>/index.html` and `dist/packages.json`).
+   `dist/packages/cabin-ports/<name>/index.html` and `dist/packages.json`).
 2. Never resolve repo paths via `import.meta.url`: under `astro build`,
    modules are bundled into `dist/.prerender/chunks/` at a different depth
    than `src/`, so relative offsets that work in `astro dev` break in the
@@ -56,17 +61,19 @@ from 22.18).
 
 - Routes: `/packages/<group>/<name>` (latest) and
   `/packages/<group>/<name>/<version>`. A package name is exactly two
-  non-empty slash-separated segments. Ports use a synthetic `ports/` group:
-  a `port.toml` named `zlib` becomes `PackageRecord.name = "ports/zlib"` ->
-  `/packages/ports/zlib`; the bare port name (group prefix stripped) is what
-  goes in a consumer's `cabin.toml`.
+  non-empty slash-separated segments. The ports' group is the real registry
+  scope: a `port.toml` named `zlib` becomes
+  `PackageRecord.name = "cabin-ports/zlib"` -> `/packages/cabin-ports/zlib`;
+  the full quoted scoped name is what goes in a consumer's `cabin.toml`.
 - Port pages have no README, edition, or publish date; those UI sections are
   conditionally hidden - don't render empty placeholders. The detail view
   lives in `src/components/package/`, routes in `src/pages/packages/`.
-- The install snippet must use the bundled-port form
-  `<name> = { port = true, version = "<v>" }` under `[dependencies]` (see
-  `../docs/foundation-ports.md`), not the old registry `"name" = "version"`
-  form.
+- The install snippet must use the quoted scoped registry form
+  `"cabin-ports/<name>" = "=<upstream version>"` under `[dependencies]`
+  (see `../docs/foundation-ports.md`, "Publishing ports as registry
+  packages"). The dependency key needs quotes (it contains `/`), and the
+  requirement never carries the `+cabin.<n>` packaging revision -
+  requirement matching ignores build metadata.
 
 ## Docs rendering
 

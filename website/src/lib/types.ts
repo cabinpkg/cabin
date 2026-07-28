@@ -8,6 +8,17 @@ export interface PackageRecord {
     published_at: string | null;
     readme: string | null;
     repository: string | null;
+    upstream: PackageUpstream | null;
+}
+
+// Committed provenance for a package that repackages an upstream
+// release (the cabin-ports packages): the upstream version without
+// Cabin's packaging-revision build metadata, plus the pinned source
+// archive.
+export interface PackageUpstream {
+    version: string;
+    archiveUrl: string;
+    sha256: string;
 }
 
 export interface PackageListItem {

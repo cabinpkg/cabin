@@ -155,6 +155,22 @@ zlib = { port = true, version = "^1.3" }  # bundled recipe
 zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
 
+The same libraries are also published to the Cabin registry as ordinary `cabin-ports/*` packages
+(see "Publishing ports as registry packages" below), which is the form the package pages on
+[cabinpkg.com](https://cabinpkg.com) show:
+
+```toml
+[dependencies]
+"cabin-ports/zlib" = "=1.3.1"
+```
+
+The dependency key needs quotes (scoped names contain `/`), and the requirement never carries a
+`+cabin.<n>` packaging revision - requirement matching ignores build metadata.  Resolving a
+registry dependency requires a configured index (`--index-url` / `--index-path` or the
+`[registry]` config table) and, while the registry is in private alpha, the
+`-Z remote-registry` gate (see [remote-registry.md](remote-registry.md)); the bundled
+`port = true` form works with no configuration on a stock `cabin` install.
+
 `port = true` requires a sibling `version = "<requirement>"` field (see "Bundled ports" above).
 `port-path` is mutually exclusive with `version` - the recipe at the path supplies the version.
 Both forms are mutually exclusive with `path`, `workspace`, and `system`.  Both **do** honor
