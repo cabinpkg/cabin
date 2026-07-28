@@ -155,6 +155,22 @@ zlib = { port = true, version = "^1.3" }  # bundled recipe
 zlib = { port-path = "../ports/zlib/1.3.1" }
 ```
 
+The same libraries are also published to the Cabin registry as ordinary `cabin-ports/*` packages
+(see "Publishing ports as registry packages" below), which is the form the package pages on
+[cabinpkg.com](https://cabinpkg.com) show:
+
+```toml
+[dependencies]
+"cabin-ports/zlib" = "=1.3.1"
+```
+
+The dependency key needs quotes (scoped names contain `/`), and the requirement never carries a
+`+cabin.<n>` packaging revision - requirement matching ignores build metadata.  Resolving a
+registry dependency requires a configured index (`--index-url` / `--index-path` or the
+`[registry]` config table) and, while the registry is in private alpha, the
+`-Z remote-registry` gate (see [remote-registry.md](remote-registry.md)); the bundled
+`port = true` form works with no configuration on a stock `cabin` install.
+
 `port = true` requires a sibling `version = "<requirement>"` field (see "Bundled ports" above).
 `port-path` is mutually exclusive with `version` - the recipe at the path supplies the version.
 Both forms are mutually exclusive with `path`, `workspace`, and `system`.  Both **do** honor
@@ -373,6 +389,27 @@ every package through the registry API in publication order.  It never skips a v
 the public index - pending (not yet verified) versions are hidden there - and instead relies on
 the registry's idempotency rule: re-publishing byte-identical bytes is a no-op, divergent bytes
 for an existing version are rejected (published versions are immutable).
+
+### Publish automation
+
+The workflow `.github/workflows/ports-publish.yml` automates the tool.  Pull requests that touch
+the recipes, the `cabin-port` pipeline, or the publisher run the complete `--dry-run` preflight
+with no secrets; pushes to `main` with such changes publish the converted set to
+`https://registry.cabinpkg.com`; manual dispatch from `main` republishes everything, which is
+the recovery path after a pre-launch registry wipe (dispatching the workflow on any other ref
+runs the dry-run instead, never a publish).  Publish runs are serialized and an active run is
+never cancelled; a run superseded by a newer matching commit on `main` skips its upload instead
+of immutably publishing an intermediate state.  The check runs immediately before the publish
+command, whose own preflight still takes minutes - a commit landing inside that residual window
+can make a stale run publish first, in which case the newer run fails against the registry's
+immutability and the fix is a packaging-revision bump (see below), never silent divergence.
+The publish job authenticates through the `CABIN_PORTS_TOKEN` repository secret (a registry
+token for the account owning the `cabin-ports` scope), exposed to `cabin publish` as
+`CABIN_REGISTRY_TOKEN`.  Upstream archives restored from the CI cache are never trusted: the
+tool re-hashes every cached archive against the recipe's pinned SHA-256 and re-downloads on a
+mismatch.  The recipes and the workflow live in the `cabinpkg/cabin` repository; the
+`cabin-ports` GitHub organization is the registry scope authority, not a separate source
+repository.
 
 ### Packaging revisions
 

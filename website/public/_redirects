@@ -1,0 +1,9 @@
+# Package pages moved from the synthetic ports/ group to the real
+# cabin-ports registry scope, and mixed-case recipe names lowercased;
+# keep the previously-advertised URLs resolving. Mixed-case rules must
+# precede the catch-all (first match wins).
+/packages/ports/cJSON /packages/cabin-ports/cjson 301
+/packages/ports/cJSON/* /packages/cabin-ports/cjson/:splat 301
+/packages/ports/CLI11 /packages/cabin-ports/cli11 301
+/packages/ports/CLI11/* /packages/cabin-ports/cli11/:splat 301
+/packages/ports/* /packages/cabin-ports/:splat 301

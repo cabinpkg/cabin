@@ -1,0 +1,193 @@
+name: Ports Publish
+
+# Converts the committed foundation-port recipes into `cabin-ports/*`
+# registry packages through the repository tool
+# (crates/cabin-port-publish). Pull requests run the complete
+# preflight as a dry-run with no secrets; pushes to main publish the
+# converted set; manual dispatch from main republishes everything (the
+# recovery path after a pre-launch registry wipe - dispatching any
+# other ref runs the dry-run instead, never a publish). The recipes
+# and this workflow live in cabinpkg/cabin - the cabin-ports GitHub
+# organization is the registry scope authority, not a separate source
+# repository.
+#
+# The publish-pipeline crate paths mirror registry.yml's filter: they
+# shape the archive + canonical-metadata bytes the converted packages
+# carry, and the registry rejects divergent bytes for an
+# already-published version - a change there must run the ports
+# preflight (and republish) too, or it surfaces weeks later as a
+# blocked publish on an unrelated recipe PR.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ports-publish.yml"
+      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
+      # lock-only bumps of byte-producing dependencies (zip, flate2)
+      # or workspace-manifest feature flips (which need no lockfile
+      # change) change the archive bytes the registry holds immutable.
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/cabin-artifact/**"
+      - "crates/cabin-port/**"
+      - "crates/cabin-port-publish/**"
+      - "crates/cabin-core/**"
+      - "crates/cabin-manifest/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+  pull_request:
+    paths:
+      - ".github/workflows/ports-publish.yml"
+      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
+      # lock-only bumps of byte-producing dependencies (zip, flate2)
+      # or workspace-manifest feature flips (which need no lockfile
+      # change) change the archive bytes the registry holds immutable.
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/cabin-artifact/**"
+      - "crates/cabin-port/**"
+      - "crates/cabin-port-publish/**"
+      - "crates/cabin-core/**"
+      - "crates/cabin-manifest/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  dry-run:
+    # Pull requests, plus manual dispatch from a non-main ref (which
+    # must never publish). --dry-run runs the identical preflight the
+    # publish path runs: convert every recipe, stage it into a
+    # temporary file registry, and build every port against it.
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++
+
+      # Restored archives are never trusted: the tool re-hashes every
+      # cached archive against the recipe's pinned SHA-256 before use
+      # and re-downloads on mismatch (cabin-port-publish::preflight),
+      # so this cache saves bandwidth without vouching for bytes. Only
+      # archives/ is cached - extracted sources/ trees are not
+      # integrity-checked on reuse and stay run-local.
+      - name: Cache upstream archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/cabin-cache/ports/archives
+          key: ports-archives-${{ hashFiles('crates/cabin-port/ports/**/port.toml') }}
+          restore-keys: ports-archives-
+
+      - name: Build cabin and the publisher
+        run: cargo build --locked -p cabinpkg -p cabinpkg-port-publish
+
+      - name: Run the publisher dry-run
+        run: |
+          cargo run --locked -p cabinpkg-port-publish -- \
+            --dry-run --cache-dir "$RUNNER_TEMP/cabin-cache"
+
+  publish:
+    # The repository guard keeps forks (which have no
+    # CABIN_PORTS_TOKEN) from spending a long preflight build on a
+    # publish that can only fail unauthenticated.
+    if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # Serialize publish runs without cancelling an active one. The
+    # group does not order runs; the freshness guard below keeps a
+    # stale run from mutating the registry.
+    concurrency:
+      group: ports-publish
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history so the freshness check below can walk
+          # $GITHUB_SHA..origin/main.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc g++
+
+      # Same checksum discipline as the dry-run job: restored bytes
+      # are re-hashed against the recipe-pinned SHA-256 before use, so
+      # a poisoned cache entry cannot alter what publishes.
+      - name: Cache upstream archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/cabin-cache/ports/archives
+          key: ports-archives-${{ hashFiles('crates/cabin-port/ports/**/port.toml') }}
+          restore-keys: ports-archives-
+
+      - name: Build cabin and the publisher
+        run: cargo build --locked -p cabinpkg -p cabinpkg-port-publish
+
+      # Checked immediately before the publish command, after the long
+      # build: the concurrency group serializes runs but does not
+      # order them, and an out-of-order stale run would immutably
+      # publish an intermediate state of a version, forcing an
+      # otherwise-unnecessary packaging revision. Skip instead when
+      # main already carries a newer commit matching this workflow's
+      # trigger paths - that commit's own run publishes the full set.
+      #
+      # Accepted residual window: the publish command below runs the
+      # tool's own preflight (minutes) before uploading, so a newer
+      # commit can land after this check and before the upload. That
+      # cannot be closed without a compare-and-swap the registry does
+      # not have - only shrunk by re-running the entire preflight or
+      # coupling the tool to git ordering. It needs two byte-divergent
+      # edits of one published version inside a single run's window,
+      # and the recovery (bump the packaging revision) is documented
+      # in docs/foundation-ports.md.
+      - name: Skip when superseded by a newer ports commit
+        id: freshness
+        run: |
+          git fetch --quiet origin main
+          if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
+              .github/workflows/ports-publish.yml Cargo.lock \
+              Cargo.toml crates/cabin-artifact/ \
+              crates/cabin-port/ crates/cabin-port-publish/ \
+              crates/cabin-core/ crates/cabin-manifest/ \
+              crates/cabin-package/ crates/cabin-publish/ \
+              crates/cabin-registry-api/)" ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to registry.cabinpkg.com
+        if: steps.freshness.outputs.superseded != 'true'
+        run: |
+          cargo run --locked -p cabinpkg-port-publish -- \
+            --publish --index-url https://registry.cabinpkg.com \
+            --cache-dir "$RUNNER_TEMP/cabin-cache"
+        env:
+          # The repository secret is named for the cabin-ports scope it
+          # publishes under; cabin's credential lookup reads
+          # CABIN_REGISTRY_TOKEN.
+          CABIN_REGISTRY_TOKEN: ${{ secrets.CABIN_PORTS_TOKEN }}

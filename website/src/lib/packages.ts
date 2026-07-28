@@ -1,13 +1,13 @@
 import semver from "semver";
-import { formatEdition, stringifyValue } from "./format";
-import { loadPortsAsPackageRecords } from "./ports";
+import { formatEdition, stringifyValue } from "./format.ts";
+import { loadPortsAsPackageRecords } from "./ports.ts";
 import type {
     NormalizedPackageMetadata,
     PackageLinks,
     PackageRecord,
     PackageSearchIndexItem,
-} from "./types";
-import { parseHttpUrl } from "./url";
+} from "./types.ts";
+import { parseHttpUrl } from "./url.ts";
 
 export type { PackageRecord };
 
@@ -70,6 +70,17 @@ export function comparePackageVersions(
         if (semverCompare !== 0) {
             return semverCompare;
         }
+        // semver comparison ignores build metadata, but packaging
+        // revisions live there and resolvers prefer the highest
+        // (docs/foundation-ports.md, "Packaging revisions") - break
+        // the tie numerically so +cabin.10 outranks +cabin.2.
+        const buildCompare = compareBuildMetadata(
+            semver.parse(first.version)?.build ?? [],
+            semver.parse(second.version)?.build ?? [],
+        );
+        if (buildCompare !== 0) {
+            return -buildCompare;
+        }
     }
 
     const publishedCompare =
@@ -86,6 +97,51 @@ export function comparePackageVersions(
     }
 
     return String(first.name).localeCompare(String(second.name));
+}
+
+// Mirror of `semver::BuildMetadata`'s ordering, which is what the
+// Rust resolver applies when it prefers the highest packaging
+// revision: numeric identifiers compare by significant-digit count,
+// then digit string, then original length (leading zeros rank
+// higher on ties); numeric ranks below alphanumeric; alphanumeric
+// compares bytewise (not locale collation); fewer identifiers rank
+// lower.  Diverging here would make the site's "latest" disagree
+// with what the resolver selects.
+export function compareBuildMetadata(
+    first: readonly string[],
+    second: readonly string[],
+): number {
+    const length = Math.max(first.length, second.length);
+    for (let index = 0; index < length; index++) {
+        const a = first[index];
+        const b = second[index];
+        if (a === undefined) {
+            return -1;
+        }
+        if (b === undefined) {
+            return 1;
+        }
+        const aNumeric = /^[0-9]+$/.test(a);
+        const bNumeric = /^[0-9]+$/.test(b);
+        if (aNumeric && bNumeric) {
+            const aDigits = a.replace(/^0+/, "");
+            const bDigits = b.replace(/^0+/, "");
+            if (aDigits.length !== bDigits.length) {
+                return aDigits.length < bDigits.length ? -1 : 1;
+            }
+            if (aDigits !== bDigits) {
+                return aDigits < bDigits ? -1 : 1;
+            }
+            if (a.length !== b.length) {
+                return a.length < b.length ? -1 : 1;
+            }
+        } else if (aNumeric !== bNumeric) {
+            return aNumeric ? -1 : 1;
+        } else if (a !== b) {
+            return a < b ? -1 : 1;
+        }
+    }
+    return 0;
 }
 
 export async function getLatestPackages(): Promise<PackageRecord[]> {
@@ -207,7 +263,16 @@ export function getPackageVersionHref(
         );
     }
 
-    return `/packages/${encodeURIComponent(parts.group)}/${encodeURIComponent(parts.name)}/${encodeURIComponent(version)}`;
+    return `/packages/${encodeURIComponent(parts.group)}/${encodeURIComponent(parts.name)}/${encodeVersionSegment(version)}`;
+}
+
+// Astro emits the [version] route with a literal `+` (its param
+// sanitizer only escapes `#` and `?`), and on a static host
+// /1.3.1+cabin.2 and /1.3.1%2Bcabin.2 name different resources - keep
+// the emitted spelling so hrefs, canonical URLs, and the sitemap
+// agree.
+function encodeVersionSegment(version: string): string {
+    return encodeURIComponent(version).replaceAll("%2B", "+");
 }
 
 export function normalizePackageMetadata(
