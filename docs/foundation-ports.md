@@ -325,6 +325,66 @@ For a bundled (`port = true`) dependency the shape is:
 | `foundation-port dependency <name> declared by package <parent> has not been prepared` | Internal invariant violation: the CLI orchestration layer did not run before the workspace loader. |
 | `foundation-port directory <port_dir> does not exist` | The consumer's `port-path = "..."` value does not resolve to an existing directory. |
 
+## Publishing ports as registry packages
+
+The repository tool `cabin-port-publish` (`crates/cabin-port-publish`, a `publish = false`
+workspace crate that is not part of the shipped `cabin` binary) converts every committed recipe
+into an ordinary registry package under the **`cabin-ports`** scope.  The committed recipes stay
+the source of truth and keep working as bundled ports; the tool rewrites a copy of each overlay:
+
+- **Identity.**  `cabin-ports/<lowercase name>` - the registry name grammar is lowercase, so the
+  mixed-case recipes normalize coherently (`cJSON` → `cabin-ports/cjson` with target `cjson`,
+  `CLI11` → `cabin-ports/cli11` with target `cli11`).  The published version is the upstream
+  version, verbatim.
+- **Target keys.**  A target key directly determines its artifact stem, so the conversion picks
+  the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
+  `libz.a` / `z.lib`), `libpng` publishes `png`, `googletest` publishes `gtest`, and every other
+  key lowercases.  No target mangling and no output-name mechanism exist; the key *is* the stem.
+- **Provenance.**  Each package carries `[package.upstream]` stamped from the recipe's pinned
+  `[source]` (URL, SHA-256, format, `strip_prefix`) and declared `[[copy]]` operations, so the
+  hosted registry's verifier can check the published tree against the upstream archive.
+- **Dependencies.**  Inter-port `{ port = true }` edges become scoped registry dependencies
+  (libpng's `zlib` becomes `"cabin-ports/zlib" = "^1.3"`), and target `deps` references use the
+  bare-package shorthand when the dependency exposes exactly one library-like target, or an
+  explicit `package:target` selector otherwise.
+- **Order.**  Publication order derives from the inter-port dependency edges (zlib publishes
+  before libpng).
+
+Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
+(SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
+preparation pipeline (extraction, `strip_prefix`, `[[copy]]`, overlay), package each conversion,
+publish it into a temporary file registry, and build every port against the generated packages in
+publication order.  Each port is built through a generated probe package that depends on the
+just-published version, so the build consumes the registry artifact itself - resolution, checksum,
+archived manifest, source materialization, and compilation of every compiled library target.  The
+probe deliberately stops there: exercising a port's *API* (including its headers, calling its
+symbols) needs per-library knowledge a generic converter does not have, and is what the
+per-port packages under `examples/` - covered by the CLI integration tests over the same
+upstream sources - are for.
+
+```console
+$ cargo build -p cabinpkg
+$ cargo run -p cabinpkg-port-publish -- --dry-run
+$ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.cabinpkg.com
+```
+
+`--dry-run` stops after the preflight.  `--publish` performs the same preflight and then uploads
+every package through the registry API in publication order.  It never skips a version based on
+the public index - pending (not yet verified) versions are hidden there - and instead relies on
+the registry's idempotency rule: re-publishing byte-identical bytes is a no-op, divergent bytes
+for an existing version are rejected (published versions are immutable).
+
+### Packaging revisions
+
+Published versions are immutable, and the published version preserves the upstream version.  When
+a recipe-only correction (an overlay fix, a `[[copy]]` addition) must reach the registry for an
+already-published upstream version, add the sidecar file
+`ports/<name>/<version>/packaging-revision` holding an integer of at least 1.  The tool then
+publishes `<version>+cabin.<n>` - SemVer build metadata, so version requirements like `^1.3`
+still match it, while resolvers prefer the highest packaging revision of otherwise-equal
+versions.  Bump the integer for every further correction; never reuse or remove a published
+revision.  The sidecar is repository-only metadata: the bundled-port layer does not read it.
+
 ## Retiring a foundation port
 
 When an upstream project ships and maintains a native `cabin.toml`, the corresponding foundation

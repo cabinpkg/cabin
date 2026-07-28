@@ -96,6 +96,23 @@ Read [`docs/architecture.md`](docs/architecture.md) before changing crate bounda
 ownership, scope, diagnostics, generated formats, or build / registry / resolver behavior.  When in
 doubt, the architecture document wins.
 
+## Foundation-port recipes
+
+Recipe policy and schema live in
+[`crates/cabin-port/ports/README.md`](crates/cabin-port/ports/README.md) and
+[`docs/foundation-ports.md`](docs/foundation-ports.md).  After changing a recipe, run the
+repository tool's local preflight, which converts every recipe into its `cabin-ports/<name>`
+registry package, publishes the set into a temporary file registry, and builds each port from it:
+
+```console
+cargo build -p cabinpkg
+cargo run -p cabinpkg-port-publish -- --dry-run
+```
+
+Maintainers publish the converted packages with `--publish --index-url <registry>`; recipe-only
+corrections to an already-published version bump the recipe's `packaging-revision` sidecar (see
+`docs/foundation-ports.md`, "Packaging revisions").
+
 ## Pull requests
 
 - **Keep PRs focused.** One change per PR is easier to review and to revert.

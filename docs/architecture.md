@@ -51,6 +51,7 @@ crates/
     ports/           curated foundation-port recipes, embedded at build time
       README.md      foundation-port policy + retirement plan
       <name>/<version>/  one recipe directory per bundled port
+  cabin-port-publish/ repository tool: converts port recipes into cabin-ports registry packages
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -438,6 +439,22 @@ directory the workspace loader treats as a normal path dependency.  The crate mu
 Foundation ports are local development policy, not published metadata: `cabin-package` rejects port
 deps in its validator and `cabin-publish` never archives them.  See
 [`foundation-ports.md`](foundation-ports.md) for the policy, the schema, and the zlib milestone.
+
+### `cabin-port-publish`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
+converts every committed foundation-port recipe into an ordinary registry package under the
+`cabin-ports` scope (see [`foundation-ports.md`](foundation-ports.md), "Publishing ports as
+registry packages").  It composes existing layers instead of duplicating them: `cabin-port` for
+recipe parsing and the archive/prepare pipeline, `cabin-package` + `cabin-publish` +
+`cabin-registry-file` for staging and the temporary preflight registry, the real `cabin` binary
+for the preflight builds, and `cabin-index-http` + `cabin-credentials` + `cabin-registry-api` for
+the remote upload.  The crate must:
+
+- never mutate the committed recipes or overlays - conversion rewrites a copy;
+- never bypass the local preflight before a remote mutation;
+- never skip uploads based on the public index (pending versions are hidden there); the registry's
+  byte-identical idempotency is the only dedupe.
 
 ### `cabin-publish`
 
