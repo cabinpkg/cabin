@@ -1,0 +1,38 @@
+name: Audit GitHub Actions workflows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/**"
+  pull_request:
+    paths:
+      - ".github/**"
+  workflow_dispatch:
+
+# Deny-all by default; the job below requests only what it needs.
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Run zizmor
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read # checkout of this repository only
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }} # enables online audits (e.g. known-vulnerable-actions)
+        # pipx ships preinstalled on ubuntu-slim; `pipx run` avoids the
+        # ~/.local/bin PATH gap that breaks `pip install --user` console
+        # scripts on this image.
+        run: pipx run zizmor==1.28.0 .
