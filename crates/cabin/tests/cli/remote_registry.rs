@@ -71,12 +71,12 @@ fn unknown_feature_error_lists_remote_registry() {
     );
 }
 
-/// End-to-end gating through the CLI: a registry `config.json` that
-/// carries the remote-registry fields fails to load without the
-/// flag - naming the field and instructing `-Z remote-registry` -
-/// and resolves normally with it.
+/// The hosted-registry `config.json` fields are ordinary
+/// configuration: a local mirror (or vendored copy) of a hosted
+/// registry that carries `auth-required` / `api` resolves without
+/// any experimental flag, and `-Z remote-registry` changes nothing.
 #[test]
-fn remote_registry_config_fields_gate_on_the_flag() {
+fn registry_config_fields_need_no_experimental_flag() {
     let dir = TempDir::new().unwrap();
     write_app_manifest(dir.path());
     let registry = dir.path().join("registry");
@@ -87,36 +87,29 @@ fn remote_registry_config_fields_gate_on_the_flag() {
     "api": "https://registry.cabinpkg.com""#,
     );
 
-    let denied = cabin()
-        .args(["resolve", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--index-path")
-        .arg(&registry)
-        .assert()
-        .failure();
-    // miette wraps long messages at a renderer-chosen width, so the
-    // assertion must be wrap-tolerant.
-    let stderr = String::from_utf8_lossy(&denied.get_output().stderr).to_string();
-    assert!(
-        flat_contains(
-            &stderr,
-            "`auth-required` requires the experimental remote-registry client; run with \
-             `-Z remote-registry` to enable it"
-        ),
-        "expected the gated-field error in: {stderr}"
+    let mut outputs = Vec::new();
+    for unstable in [None, Some(["-Z", "remote-registry"])] {
+        let mut cmd = cabin();
+        if let Some(flags) = unstable {
+            cmd.args(flags);
+        }
+        let assertion = cmd
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&registry)
+            .assert()
+            .success();
+        outputs.push(String::from_utf8_lossy(&assertion.get_output().stdout).to_string());
+    }
+    assert_eq!(
+        outputs[0], outputs[1],
+        "resolution output must be byte-identical with and without the flag"
     );
-
-    let allowed = cabin()
-        .args(["-Z", "remote-registry", "resolve", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--index-path")
-        .arg(&registry)
-        .assert()
-        .success();
-    let stdout = String::from_utf8_lossy(&allowed.get_output().stdout).to_string();
     assert!(
-        stdout.contains("fmt"),
-        "expected fmt in the resolution output: {stdout}"
+        outputs[0].contains("fmt"),
+        "expected fmt in the resolution output: {}",
+        outputs[0]
     );
 }
 
@@ -227,28 +220,182 @@ impl Drop for AuthRegistryServer {
     }
 }
 
-/// Both commands are gated: without `-Z remote-registry` they fail
-/// with the standard experimental-feature wording.
+/// The credential commands are part of the stable read path: login
+/// and logout work without any experimental flag.
 #[test]
-fn login_and_logout_require_the_feature() {
-    for sub in ["login", "logout"] {
-        let assertion = cabin()
-            .args([sub, "--index-url", "https://registry.example.com"])
-            .write_stdin(format!("{TEST_TOKEN}\n"))
-            .assert()
-            .failure();
-        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-        assert!(
-            flat_contains(
-                &stderr,
-                &format!(
-                    "`cabin {sub}` requires the experimental remote-registry client; run with \
-                     `-Z remote-registry` to enable it"
-                )
-            ),
-            "expected the gated-command error for {sub} in: {stderr}"
-        );
-    }
+fn login_and_logout_need_no_experimental_flag() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let base = dead_loopback_url();
+    cabin()
+        .args(["login", "--index-url", &base])
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "token for `{base}` saved"
+        )));
+    cabin()
+        .args(["logout", "--index-url", &base])
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "token for `{base}` removed"
+        )));
+}
+
+/// With no `--index-url` and no config, the credential commands
+/// target the default hosted registry.  `cabin logout` resolves the
+/// origin without any network traffic, so it is the hermetic probe
+/// for the default: it names `https://registry.cabinpkg.com`.
+#[test]
+fn bare_logout_targets_the_default_registry() {
+    let dir = TempDir::new().unwrap();
+    cabin()
+        .args(["logout"])
+        .env("CABIN_CONFIG_HOME", dir.path().join("empty-home"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "no token was stored for `https://registry.cabinpkg.com`",
+        ));
+}
+
+/// `cabin yank` never falls back to the default registry: a mutation
+/// must not target a registry the user did not name.  With nothing
+/// configured it fails before any credential or network work.
+#[test]
+fn yank_requires_an_explicit_index_source() {
+    let dir = TempDir::new().unwrap();
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "acme/demo@1.0.0"])
+        .current_dir(dir.path())
+        .env("CABIN_CONFIG_HOME", dir.path().join("empty-home"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "`cabin yank` requires --index-url or a `[registry] index-url` config setting"
+        ),
+        "expected the explicit-source requirement in: {stderr}"
+    );
+    assert!(
+        !stderr.contains("registry.cabinpkg.com"),
+        "yank must not mention (or target) the default registry: {stderr}"
+    );
+}
+
+/// Under `CABIN_NET_OFFLINE` the advisory login-URL probe is skipped
+/// outright: `cabin login` still succeeds, prints the generic hint,
+/// and the registry receives zero requests.
+#[test]
+fn login_skips_the_probe_when_offline() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    let server = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let addr = server.server_addr().to_ip().expect("loopback addr");
+    let url = format!("http://{addr}");
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let hits_for_thread = std::sync::Arc::clone(&hits);
+    let thread = std::thread::spawn(move || {
+        while let Ok(req) = server_for_thread.recv() {
+            hits_for_thread.fetch_add(1, Ordering::SeqCst);
+            let _ = req.respond(tiny_http::Response::empty(401));
+        }
+    });
+
+    cabin()
+        .args(["login", "--index-url", &url])
+        .env("CABIN_CONFIG_HOME", dir.path().join("config-home"))
+        .env("CABIN_NET_OFFLINE", "1")
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "create a token in the registry's web interface",
+        ))
+        .stdout(predicate::str::contains(format!("token for `{url}` saved")));
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "offline login must not touch the network"
+    );
+    server.unblock();
+    let _ = thread.join();
+}
+
+/// A checked-out project's `.cabin/config.toml` cannot steer where a
+/// pasted credential is stored: the credential commands resolve their
+/// registry from user-level config only, so a project-declared
+/// `[registry] index-url` is ignored and bare `cabin login` targets
+/// the default registry.  (`CABIN_NET_OFFLINE` keeps the run
+/// hermetic - the advisory probe is skipped.)
+#[test]
+fn login_ignores_project_config_when_choosing_the_registry() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    let attacker = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let attacker_addr = attacker.server_addr().to_ip().expect("loopback addr");
+    let attacker_url = format!("http://{attacker_addr}");
+    let hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let attacker_for_thread = std::sync::Arc::clone(&attacker);
+    let hits_for_thread = std::sync::Arc::clone(&hits);
+    let thread = std::thread::spawn(move || {
+        while let Ok(req) = attacker_for_thread.recv() {
+            hits_for_thread.fetch_add(1, Ordering::SeqCst);
+            let _ = req.respond(tiny_http::Response::empty(200));
+        }
+    });
+
+    // The "hostile checkout": a project whose workspace config points
+    // the registry at the attacker's server.
+    assert_fs::fixture::ChildPath::new(dir.path().join("proj/cabin.toml"))
+        .write_str("[package]\nname = \"proj\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("proj/.cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{attacker_url}\"\n"))
+        .unwrap();
+
+    let home = dir.path().join("config-home");
+    let mut cmd = cabin();
+    super::pin_test_user_config_home_to_empty(&mut cmd);
+    cmd.args(["login"])
+        .current_dir(dir.path().join("proj"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_NET_OFFLINE", "1")
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "logging in to `https://registry.cabinpkg.com`",
+        ))
+        .stdout(predicate::str::contains(
+            "token for `https://registry.cabinpkg.com` saved",
+        ));
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(
+        body.contains("https://registry.cabinpkg.com") && !body.contains(&attacker_url),
+        "the token must be stored for the default origin, never the project-picked one: {body}"
+    );
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "the project-picked registry must never be contacted"
+    );
+    attacker.unblock();
+    let _ = thread.join();
 }
 
 /// A loopback address whose port was just released: connecting fails
@@ -445,9 +592,11 @@ fn login_rejects_invalid_tokens_without_writing() {
     assert!(!home.join("credentials.toml").exists());
 }
 
-/// Without `--index-url` the `[registry] index-url` config default
-/// applies; a config-supplied local `index-path` (or no index at
-/// all) is rejected because a token has no local-path counterpart.
+/// Without `--index-url` the `[registry] index-url` config setting
+/// applies; a config-supplied local `index-path` is rejected because
+/// a token has no local-path counterpart; and with no index source
+/// at all, login targets the default hosted registry (here rerouted
+/// through `[source-replacement]` to stay hermetic).
 #[test]
 fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     let dir = TempDir::new().unwrap();
@@ -487,21 +636,29 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
         "expected the local-path rejection in: {stderr}"
     );
 
-    // No index source anywhere: a clear requirement error.
-    let assertion = cabin()
-        .args(["-Z", "remote-registry", "login"])
-        .env("CABIN_CONFIG_HOME", dir.path().join("empty-home"))
+    // No index source anywhere: login falls back to the default
+    // hosted registry.  A `[source-replacement]` entry for the
+    // default origin applies to it exactly like a config-supplied
+    // source, which also keeps this hermetic - the replacement wins
+    // before the login-URL probe could contact the real registry.
+    let mirror = dead_loopback_url();
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!(
+            "[source-replacement]\n\"https://registry.cabinpkg.com\" = \
+             {{ index-url = \"{mirror}/index\" }}\n",
+        ))
+        .unwrap();
+    let mut cmd = cabin();
+    super::pin_test_user_config_home_to_empty(&mut cmd);
+    cmd.args(["login"])
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
         .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
-    assert!(
-        flat_contains(
-            &stderr,
-            "requires --index-url or a `[registry] index-url` config setting"
-        ),
-        "expected the missing-index error in: {stderr}"
-    );
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "token for `{mirror}` saved"
+        )));
 }
 
 /// `cabin logout` removes exactly the effective origin's entry and
@@ -560,10 +717,11 @@ fn logout_removes_the_entry_and_reports_absence() {
         ));
 }
 
-/// End-to-end authenticated read path: an `auth-required` registry
-/// resolves only when a credential is available - via
-/// `CABIN_REGISTRY_TOKEN` or a prior `cabin login` - and the
-/// tokenless failure advises `cabin login` for the origin.
+/// End-to-end authenticated read path, with no experimental flag: an
+/// `auth-required` registry resolves only when a credential is
+/// available - via `CABIN_REGISTRY_TOKEN` or a prior `cabin login` -
+/// and the tokenless failure advises `cabin login` for the origin
+/// without mentioning any `-Z` flag.
 #[test]
 fn resolve_against_an_auth_required_registry_uses_the_credential() {
     let dir = TempDir::new().unwrap();
@@ -575,7 +733,7 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
     // Tokenless: the very first request (config.json) is refused and
     // the error advises `cabin login --index-url <origin>`.
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "resolve", "--manifest-path"])
+        .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--index-url")
         .arg(server.url())
@@ -593,11 +751,15 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
         ),
         "expected the login advice in: {stderr}"
     );
+    assert!(
+        !stderr.contains("-Z remote-registry"),
+        "the login advice must not name the experimental flag: {stderr}"
+    );
 
     // The env override authenticates every request this invocation
-    // makes.
+    // makes (a loopback origin, so the override is eligible).
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "resolve", "--manifest-path"])
+        .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--index-url")
         .arg(server.url())
@@ -610,19 +772,13 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
     // A stored credential (via `cabin login`) works the same way.
     let home = dir.path().join("config-home");
     cabin()
-        .args([
-            "-Z",
-            "remote-registry",
-            "login",
-            "--index-url",
-            server.url(),
-        ])
+        .args(["login", "--index-url", server.url()])
         .env("CABIN_CONFIG_HOME", &home)
         .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
         .success();
     cabin()
-        .args(["-Z", "remote-registry", "resolve", "--manifest-path"])
+        .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--index-url")
         .arg(server.url())
@@ -633,7 +789,7 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
 
     // A wrong stored token surfaces the revoked/expired wording.
     let assertion = cabin()
-        .args(["-Z", "remote-registry", "resolve", "--manifest-path"])
+        .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--index-url")
         .arg(server.url())
@@ -649,6 +805,141 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
         !stderr.contains("cabin_wrongToken12345"),
         "token bytes must never surface: {stderr}"
     );
+}
+
+/// A scoped package fetches end to end from an `auth-required`
+/// registry with no experimental flag: the credential rides the
+/// `config.json`, metadata, and artifact requests alike, and the
+/// verified archive lands extracted in the cache.
+#[test]
+fn fetch_scoped_package_from_an_auth_required_registry() {
+    let dir = TempDir::new().unwrap();
+    // Publish the scoped fixture into a local registry, then mark
+    // the registry auth-required like the hosted one.
+    let pkg_root = dir.path().join("pkg");
+    write_scoped_publishable_package(&pkg_root);
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let config = fs::read_to_string(registry.join("config.json")).unwrap();
+    fs::write(
+        registry.join("config.json"),
+        config.replace(
+            "\"kind\"",
+            "\"auth-required\": true, \"api\": \"https://cabinpkg.com\", \"kind\"",
+        ),
+    )
+    .unwrap();
+
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"acme/demo" = "0.1.0"
+"#,
+        )
+        .unwrap();
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+    let cache = dir.path().join("cache");
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .arg("--cache-dir")
+        .arg(&cache)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    // The extracted source tree is in the cache, manifest included.
+    let sources = cache.join("sources/sha256");
+    assert!(sources.is_dir());
+    let found_cabin_toml = fs::read_dir(&sources)
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|entry| entry.path().join("cabin.toml").is_file());
+    assert!(
+        found_cabin_toml,
+        "expected an extracted cabin.toml in cache"
+    );
+}
+
+/// The sparse read client never follows redirects, so a registry
+/// cannot bounce an authenticated read toward another server: the
+/// command fails on the 3xx and the redirect target receives zero
+/// requests - the credential is not forwarded because *nothing* is.
+#[test]
+fn redirecting_registry_fails_without_contacting_the_target() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    write_app_manifest(dir.path());
+
+    // Target: counts every request it receives.
+    let target = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let target_addr = target.server_addr().to_ip().expect("loopback addr");
+    let target_hits = std::sync::Arc::new(AtomicUsize::new(0));
+    let target_for_thread = std::sync::Arc::clone(&target);
+    let hits_for_thread = std::sync::Arc::clone(&target_hits);
+    let target_thread = std::thread::spawn(move || {
+        while let Ok(req) = target_for_thread.recv() {
+            hits_for_thread.fetch_add(1, Ordering::SeqCst);
+            let _ = req.respond(tiny_http::Response::empty(200));
+        }
+    });
+
+    // Redirector: answers every request with a 302 toward the target.
+    let redirector = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let redirector_addr = redirector.server_addr().to_ip().expect("loopback addr");
+    let redirector_url = format!("http://{redirector_addr}");
+    let redirector_for_thread = std::sync::Arc::clone(&redirector);
+    let location = format!("http://{target_addr}/config.json");
+    let redirector_thread = std::thread::spawn(move || {
+        while let Ok(req) = redirector_for_thread.recv() {
+            let header = tiny_http::Header::from_bytes(&b"Location"[..], location.as_bytes())
+                .expect("valid Location header");
+            let _ = req.respond(tiny_http::Response::empty(302).with_header(header));
+        }
+    });
+
+    // The credential makes the scenario adversarial: a client that
+    // followed the redirect could be steered off the credentialed
+    // origin.  (Loopback, so the env override is eligible.)
+    let assertion = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-url")
+        .arg(&redirector_url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "server returned 302"),
+        "expected the unfollowed-redirect error in: {stderr}"
+    );
+    assert_eq!(
+        target_hits.load(Ordering::SeqCst),
+        0,
+        "the redirect target must never be contacted"
+    );
+
+    redirector.unblock();
+    let _ = redirector_thread.join();
+    target.unblock();
+    let _ = target_thread.join();
 }
 
 /// A token for a plain-http, non-loopback origin would never be

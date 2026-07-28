@@ -133,7 +133,6 @@ pub(crate) fn run(
     args: &RunArgs,
     reporter: crate::cli::term_verbosity::Reporter,
     color: cabin_core::ColorChoice,
-    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<ExitCode> {
     let prepared = prepare_workspace(
         &WorkspacePipelineArgs {
@@ -156,7 +155,6 @@ pub(crate) fn run(
             dev: DevActivation::Disabled,
         },
         reporter,
-        experimental_features,
     )?;
 
     // Pick the run target. `--bin` narrows the search to a

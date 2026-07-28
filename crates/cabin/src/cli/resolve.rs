@@ -22,11 +22,7 @@ use super::{
     emit_fetch_output, enabled_features_by_package, resolve_invocation_manifest,
 };
 
-pub(super) fn resolve(
-    args: &ResolveArgs,
-    reporter: Reporter,
-    experimental_features: &cabin_core::ExperimentalFeatures,
-) -> Result<()> {
+pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
     let policy = LockPolicy::from_flags(args.locked, args.frozen);
     if args.frozen && args.index_url.is_some() {
         bail!(crate::cli::FROZEN_INDEX_URL_ERR);
@@ -46,17 +42,12 @@ pub(super) fn resolve(
             selection_request,
             no_patches: args.no_patches,
             offline: args.offline,
-            experimental_features,
         },
         reporter,
     )
 }
 
-pub(super) fn update(
-    args: &UpdateArgs,
-    reporter: Reporter,
-    experimental_features: &cabin_core::ExperimentalFeatures,
-) -> Result<()> {
+pub(super) fn update(args: &UpdateArgs, reporter: Reporter) -> Result<()> {
     let policy = match &args.package {
         Some(name) => LockPolicy::UpdatePackage(
             PackageName::new(name.clone())
@@ -80,7 +71,6 @@ pub(super) fn update(
             selection_request: cabin_core::SelectionRequest::default(),
             no_patches: args.no_patches,
             offline: args.offline,
-            experimental_features,
         },
         reporter,
     )
@@ -107,11 +97,7 @@ pub(super) fn build_update_workspace_selection(
     }
 }
 
-pub(super) fn fetch(
-    args: &FetchArgs,
-    reporter: Reporter,
-    experimental_features: &cabin_core::ExperimentalFeatures,
-) -> Result<()> {
+pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
@@ -180,11 +166,8 @@ pub(super) fn fetch(
     crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);
-    let Some(index_source) = resolved_index_source.as_ref() else {
-        bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX);
-    };
     let inputs = crate::cli::config::resolve_pipeline_inputs(
-        index_source,
+        resolved_index_source.as_ref(),
         &effective_config,
         args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
@@ -213,7 +196,6 @@ pub(super) fn fetch(
         )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
-        experimental_features,
     })?;
 
     emit_fetch_output(&pipeline.fetched, args.format, &manifest_path)?;
@@ -236,10 +218,6 @@ struct ResolutionRequest<'a> {
     no_patches: bool,
     /// Whether `--offline` was supplied for this command.
     offline: bool,
-    /// Experimental `-Z` features enabled for this invocation.
-    /// Consulted by index loading, which gates the remote-registry
-    /// `config.json` fields on `-Z remote-registry`.
-    experimental_features: &'a cabin_core::ExperimentalFeatures,
 }
 
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
@@ -425,18 +403,27 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         );
     }
 
+    // With versioned deps present and nothing configured, fall back
+    // to the default hosted registry (subject to the same source
+    // replacement and offline / frozen rules as a config-supplied
+    // URL).  The fallback sits after the empty-resolution early
+    // return above, so dep-less runs never observe it.
+    let effective_index_source = match effective_index_source {
+        Some(locator) => locator,
+        None => crate::cli::config::default_index_locator(
+            resolution_offline,
+            request.policy.frozen(),
+            &effective_config,
+            request.no_patches,
+        )?,
+    };
     let index = match &effective_index_source {
-        None => {
-            bail!(crate::cli::VERSIONED_DEPS_REQUIRE_INDEX)
-        }
-        Some(cabin_core::SourceLocator::IndexPath { path }) => {
-            load_local_index(path.as_std_path(), request.experimental_features)?
-        }
+        cabin_core::SourceLocator::IndexPath { path } => load_local_index(path.as_std_path())?,
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
         // dropped here.
-        Some(cabin_core::SourceLocator::IndexUrl { url }) => {
-            load_http_index(url, &root_deps, request.experimental_features, reporter)?.0
+        cabin_core::SourceLocator::IndexUrl { url } => {
+            load_http_index(url, &root_deps, reporter)?.0
         }
     };
 
@@ -808,10 +795,6 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     /// pipeline's resolution so `build` / `run` / `test` / `fetch`
     /// select the same versions `cabin resolve` / `cabin update` would.
     pub(crate) incompatible_standards: cabin_core::IncompatibleStandards,
-    /// Experimental `-Z` features enabled for this invocation.
-    /// Consulted by index loading, which gates the remote-registry
-    /// `config.json` fields on `-Z remote-registry`.
-    pub(crate) experimental_features: &'a cabin_core::ExperimentalFeatures,
 }
 
 pub(crate) struct ArtifactPipeline {
@@ -921,7 +904,6 @@ pub(crate) fn run_artifact_pipeline(
         request.index_source,
         request.policy.frozen(),
         &root_deps,
-        request.experimental_features,
         request.reporter,
     )?;
 
@@ -1041,19 +1023,17 @@ fn load_index_for_pipeline(
     index_source: &cabin_core::SourceLocator,
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
-    experimental_features: &cabin_core::ExperimentalFeatures,
     reporter: Reporter,
 ) -> Result<(PackageIndex, IndexAccess)> {
     match index_source {
-        cabin_core::SourceLocator::IndexPath { path } => Ok((
-            load_local_index(path.as_std_path(), experimental_features)?,
-            IndexAccess::Local,
-        )),
+        cabin_core::SourceLocator::IndexPath { path } => {
+            Ok((load_local_index(path.as_std_path())?, IndexAccess::Local))
+        }
         cabin_core::SourceLocator::IndexUrl { url } => {
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, client) = load_http_index(url, root_deps, experimental_features, reporter)?;
+            let (index, client) = load_http_index(url, root_deps, reporter)?;
             Ok((index, IndexAccess::Http(client)))
         }
     }
@@ -1063,13 +1043,10 @@ fn load_index_for_pipeline(
 /// user-supplied path first so error messages name the absolute
 /// location.  Shared by the resolve pipeline and the fetch / build
 /// pipeline so the two paths cannot drift.
-fn load_local_index(
-    path: &Path,
-    experimental_features: &cabin_core::ExperimentalFeatures,
-) -> Result<PackageIndex> {
+fn load_local_index(path: &Path) -> Result<PackageIndex> {
     let index_path =
         absolutise(path).with_context(|| format!("failed to resolve {}", path.display()))?;
-    cabin_index::load_index_with_features(&index_path, experimental_features)
+    cabin_index::load_index(&index_path)
         .with_context(|| format!("failed to load index at {}", index_path.display()))
 }
 
@@ -1078,28 +1055,20 @@ fn load_local_index(
 /// fetch / build pipeline can reuse the connection for downloads;
 /// the resolve pipeline discards it.
 ///
-/// Under `-Z remote-registry` the client carries the stored
-/// credential (env override or `credentials.toml`) for the index
-/// origin, so `config.json`, package metadata, and artifact
-/// downloads all authenticate; without the feature (or without a
-/// credential) the client is tokenless, exactly as before.
+/// The client carries the stored credential (env override or
+/// `credentials.toml`) for the index origin, so `config.json`,
+/// package metadata, and artifact downloads all authenticate;
+/// without a credential the client is tokenless.
 pub(crate) fn load_http_index(
     url: &str,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
-    experimental_features: &cabin_core::ExperimentalFeatures,
     reporter: Reporter,
 ) -> Result<(PackageIndex, cabin_index_http::HttpClient)> {
     let mut client = cabin_index_http::HttpClient::new();
-    if let Some(auth) =
-        crate::cli::login::registry_auth_for_index_url(url, experimental_features, reporter)?
-    {
+    if let Some(auth) = crate::cli::login::registry_auth_for_index_url(url, reporter)? {
         client = client.with_auth(auth);
     }
-    let http_index = cabin_index_http::HttpIndex::open_with_features(
-        url,
-        client.clone(),
-        experimental_features,
-    )?;
+    let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
     let names: Vec<PackageName> = root_deps.keys().cloned().collect();
     let index = http_index.load_package_index(&names)?;
     Ok((index, client))

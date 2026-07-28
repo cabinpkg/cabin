@@ -1,5 +1,5 @@
-//! Typed HTTP client for the experimental remote registry API
-//! (`-Z remote-registry`).
+//! Typed HTTP client for the remote registry API's mutation
+//! routes (experimental, `-Z remote-registry`).
 //!
 //! This crate owns the *mutating* half of the remote-registry
 //! protocol specified in `docs/remote-registry.md`.  Registry
@@ -555,7 +555,7 @@ pub enum RegistryApiError {
 
     #[error(
         "authentication required by registry API `{origin}`; run `cabin login --index-url <URL>` \
-         with `-Z remote-registry` to store a token for this registry"
+         to store a token for this registry"
     )]
     AuthRequired { origin: String },
 

@@ -209,6 +209,41 @@ fn resolve_via_index_url_finds_published_package() {
     );
 }
 
+/// A lockfile written by one resolve run is reused by the next:
+/// `--locked` succeeds against the same registry and the lockfile
+/// bytes do not change.
+#[test]
+fn resolve_reuses_the_lockfile_under_locked() {
+    let dir = TempDir::new().unwrap();
+    let registry = publish_scoped_fmt_to_registry(dir.path());
+    write_app_using_scoped_fmt(dir.path(), None);
+    let server = TestServer::serve(registry);
+
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .assert()
+        .success();
+    let lock_path = dir.path().join("app/cabin.lock");
+    let first = std::fs::read_to_string(&lock_path).unwrap();
+    assert!(first.contains("fmtlib/fmt"), "{first}");
+
+    cabin()
+        .args(["resolve", "--locked", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .assert()
+        .success();
+    assert_eq!(
+        first,
+        std::fs::read_to_string(&lock_path).unwrap(),
+        "--locked must not rewrite the lockfile"
+    );
+}
+
 /// Bare names stay legal in locally-produced file registries, and
 /// the sparse-HTTP client keeps reading their flat layout
 /// (`packages/<name>.json`, `../artifacts/<name>/...`) when one is
@@ -488,13 +523,19 @@ fn resolve_frozen_rejects_config_index_url() {
     assert_fs::fixture::ChildPath::new(dir.path().join("app/.cabin/config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
         .unwrap();
+    // `CABIN_CONFIG_HOME` points at an empty fixture home rather
+    // than being unset: unset, the credential store would fall back
+    // to the *platform* config home - the developer's real
+    // `credentials.toml` - which `pin_test_user_config_home_to_empty`
+    // (HOME / XDG only) does not cover on Windows.
+    let empty_home = dir.path().join("empty-config-home");
     let mut cmd = cabin();
     super::pin_test_user_config_home_to_empty(&mut cmd);
     cmd.args(["resolve", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .env_remove("CABIN_NO_CONFIG")
         .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME")
+        .env("CABIN_CONFIG_HOME", &empty_home)
         .assert()
         .success();
 
@@ -504,7 +545,7 @@ fn resolve_frozen_rejects_config_index_url() {
         .arg(dir.path().join("app/cabin.toml"))
         .env_remove("CABIN_NO_CONFIG")
         .env_remove("CABIN_CONFIG")
-        .env_remove("CABIN_CONFIG_HOME")
+        .env("CABIN_CONFIG_HOME", &empty_home)
         .assert()
         .failure()
         .stderr(predicate::str::contains("--index-url"))

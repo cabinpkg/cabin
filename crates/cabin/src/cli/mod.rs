@@ -70,12 +70,6 @@ use crate::cli::fetch_output::emit_fetch_output;
 use crate::cli::term_color::CliColorChoice;
 use crate::cli::term_verbosity::Reporter;
 
-/// Bail message shared by the build/run/test/resolve commands when a
-/// manifest declares versioned dependencies but no index source was
-/// provided.
-pub(crate) const VERSIONED_DEPS_REQUIRE_INDEX: &str =
-    "versioned dependencies require --index-path, --index-url, or a `[registry]` config setting";
-
 /// Bail message shared by the resolve paths when `--index-url` is
 /// combined with `--frozen`: there is no persistent HTTP index cache,
 /// so a frozen run cannot honor the URL without forbidden fetches.
@@ -422,20 +416,19 @@ pub(crate) enum Command {
     /// the `[registry] index-url` config setting) uploads the same
     /// staged bytes to the registry's API origin.
     Publish(PublishArgs),
-    /// Save a registry token for the experimental remote-registry client.
+    /// Save a registry token for authenticated registry access.
     ///
-    /// Requires `-Z remote-registry`.  Resolves the registry from
-    /// `--index-url` (or the `[registry] index-url` config setting),
-    /// prints where to create a token, reads the token from stdin
-    /// (without echo when stdin is a terminal), and stores it in the
-    /// user-level `credentials.toml`.
+    /// Resolves the registry from `--index-url` (or the
+    /// `[registry] index-url` config setting, defaulting to Cabin's
+    /// hosted registry), prints where to create a token, reads the
+    /// token from stdin (without echo when stdin is a terminal), and
+    /// stores it in the user-level `credentials.toml`.
     #[command(hide = true)]
     Login(crate::cli::login::LoginArgs),
     /// Remove the stored registry token for an index origin.
     ///
-    /// Requires `-Z remote-registry`.  The counterpart of
-    /// `cabin login`; reports whether a token was stored for the
-    /// effective registry origin.
+    /// The counterpart of `cabin login`; reports whether a token was
+    /// stored for the effective registry origin.
     #[command(hide = true)]
     Logout(crate::cli::login::LogoutArgs),
     /// Yank or un-yank a published version on a remote registry.
@@ -634,9 +627,8 @@ pub(crate) struct BuildArgs {
     pub profile: Option<String>,
 
     /// Path to a directory containing the local JSON package index.
-    /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given.  Mutually exclusive with
-    /// `--index-url`.
+    /// Overrides the `[registry]` config setting and the default
+    /// registry.  Mutually exclusive with `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
 
@@ -664,11 +656,11 @@ pub(crate) struct BuildArgs {
     pub frozen: bool,
 
     /// Forbid network access.  Cabin refuses to use an HTTP index URL
-    /// (`--index-url` or a `[registry] index-url` config setting) and
-    /// expects every needed artifact to be available from a local
-    /// index (`--index-path`) or already in the artifact cache.
-    /// Combine with `cabin vendor` to consume a self-contained vendor
-    /// directory.
+    /// (`--index-url`, a `[registry] index-url` config setting, or
+    /// the default registry) and expects every needed artifact to be
+    /// available from a local index (`--index-path`) or already in
+    /// the artifact cache.  Combine with `cabin vendor` to consume a
+    /// self-contained vendor directory.
     #[arg(long)]
     pub offline: bool,
 
@@ -839,9 +831,8 @@ pub(crate) struct FetchArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Path to a directory containing the local JSON package index.
-    /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given.  Mutually exclusive with
-    /// `--index-url`.
+    /// Overrides the `[registry]` config setting and the default
+    /// registry.  Mutually exclusive with `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
 
@@ -866,8 +857,9 @@ pub(crate) struct FetchArgs {
     pub frozen: bool,
 
     /// Forbid network access.  Cabin refuses to use an HTTP index
-    /// URL (`--index-url` or a `[registry] index-url` config setting)
-    /// and expects every needed input to be local or already cached.
+    /// URL (`--index-url`, a `[registry] index-url` config setting,
+    /// or the default registry) and expects every needed input to be
+    /// local or already cached.
     #[arg(long)]
     pub offline: bool,
 
@@ -963,9 +955,8 @@ pub(crate) struct ResolveArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Path to a directory containing the local JSON package index.
-    /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given.  Mutually exclusive with
-    /// `--index-url`.
+    /// Overrides the `[registry]` config setting and the default
+    /// registry.  Mutually exclusive with `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
 
@@ -991,8 +982,9 @@ pub(crate) struct ResolveArgs {
     pub frozen: bool,
 
     /// Forbid network access.  Cabin refuses to use an HTTP index
-    /// URL (`--index-url` or a `[registry] index-url` config setting)
-    /// and expects every needed input to be local or already cached.
+    /// URL (`--index-url`, a `[registry] index-url` config setting,
+    /// or the default registry) and expects every needed input to be
+    /// local or already cached.
     #[arg(long)]
     pub offline: bool,
 
@@ -1030,9 +1022,8 @@ pub(crate) struct UpdateArgs {
     pub manifest_path: Option<PathBuf>,
 
     /// Path to a directory containing the local JSON package index.
-    /// Required when the manifest declares any versioned dependencies
-    /// and `--index-url` is not given.  Mutually exclusive with
-    /// `--index-url`.
+    /// Overrides the `[registry]` config setting and the default
+    /// registry.  Mutually exclusive with `--index-url`.
     #[arg(long, value_name = "PATH")]
     pub index_path: Option<PathBuf>,
 
@@ -1060,8 +1051,9 @@ pub(crate) struct UpdateArgs {
     pub format: ResolveFormat,
 
     /// Forbid network access.  Cabin refuses to use an HTTP index
-    /// URL (`--index-url` or a `[registry] index-url` config setting)
-    /// and expects every needed input to be local or already cached.
+    /// URL (`--index-url`, a `[registry] index-url` config setting,
+    /// or the default registry) and expects every needed input to be
+    /// local or already cached.
     #[arg(long)]
     pub offline: bool,
 
@@ -1141,9 +1133,9 @@ pub(crate) fn run(
         return Ok(ExitCode::SUCCESS);
     };
     // The parsed `-Z` occurrences travel as one typed
-    // `ExperimentalFeatures` set so downstream index loading can ask
+    // `ExperimentalFeatures` set so the gated commands can ask
     // "is remote-registry enabled" without re-parsing argv.  Only
-    // the commands that reach an index source consume it today.
+    // the mutation surfaces (publish / yank) consume it today.
     let experimental_features: cabin_core::ExperimentalFeatures =
         cli.unstable.iter().copied().collect();
     match command {
@@ -1156,40 +1148,22 @@ pub(crate) fn run(
         Command::Metadata(args) => {
             crate::cli::metadata::metadata(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
-        Command::Build(args) => build(
-            &args,
-            reporter,
-            BuildMode::Build,
-            color,
-            &experimental_features,
-        )
-        .map(|()| ExitCode::SUCCESS),
-        Command::Check(args) => build(
-            &args,
-            reporter,
-            BuildMode::Check,
-            color,
-            &experimental_features,
-        )
-        .map(|()| ExitCode::SUCCESS),
+        Command::Build(args) => {
+            build(&args, reporter, BuildMode::Build, color).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Check(args) => {
+            build(&args, reporter, BuildMode::Check, color).map(|()| ExitCode::SUCCESS)
+        }
         Command::Clean(args) => clean(&args, reporter).map(|()| ExitCode::SUCCESS),
-        Command::Run(args) => crate::cli::run::run(&args, reporter, color, &experimental_features),
+        Command::Run(args) => crate::cli::run::run(&args, reporter, color),
         Command::Test(args) => {
-            crate::cli::test::test(&args, reporter, color, &experimental_features)
-                .map(|()| ExitCode::SUCCESS)
+            crate::cli::test::test(&args, reporter, color).map(|()| ExitCode::SUCCESS)
         }
-        Command::Resolve(args) => {
-            resolve(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
-        }
-        Command::Update(args) => {
-            update(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
-        }
-        Command::Fetch(args) => {
-            fetch(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
-        }
+        Command::Resolve(args) => resolve(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Update(args) => update(&args, reporter).map(|()| ExitCode::SUCCESS),
+        Command::Fetch(args) => fetch(&args, reporter).map(|()| ExitCode::SUCCESS),
         Command::Vendor(args) => {
-            crate::cli::vendor::vendor(&args, reporter, &experimental_features)
-                .map(|()| ExitCode::SUCCESS)
+            crate::cli::vendor::vendor(&args, reporter).map(|()| ExitCode::SUCCESS)
         }
         Command::Tree(args) => crate::cli::tree::tree(&args).map(|()| ExitCode::SUCCESS),
         Command::Explain(args) => {
@@ -1199,10 +1173,12 @@ pub(crate) fn run(
         Command::Publish(args) => {
             publish(&args, reporter, &experimental_features).map(|()| ExitCode::SUCCESS)
         }
-        Command::Login(args) => crate::cli::login::login(&args, reporter, &experimental_features)
-            .map(|()| ExitCode::SUCCESS),
-        Command::Logout(args) => crate::cli::login::logout(&args, reporter, &experimental_features)
-            .map(|()| ExitCode::SUCCESS),
+        Command::Login(args) => {
+            crate::cli::login::login(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
+        Command::Logout(args) => {
+            crate::cli::login::logout(&args, reporter).map(|()| ExitCode::SUCCESS)
+        }
         Command::Yank(args) => crate::cli::yank::yank(&args, reporter, &experimental_features)
             .map(|()| ExitCode::SUCCESS),
         Command::Fmt(args) => crate::cli::fmt::fmt(&args, reporter),

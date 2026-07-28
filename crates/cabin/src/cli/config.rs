@@ -204,6 +204,54 @@ pub(crate) fn resolve_index_source(
     }))
 }
 
+/// The built-in fallback index source: Cabin's default hosted
+/// registry.  Applied only at the points where a command needs an
+/// index and neither the CLI nor the config supplies one, so
+/// commands (and selections) without versioned dependencies never
+/// observe it - their offline / frozen behavior is unchanged.
+pub(crate) fn default_index_source() -> ResolvedIndexSource {
+    ResolvedIndexSource {
+        kind: IndexSourceKind::Url(cabin_core::registry::DEFAULT_INDEX_URL.to_owned()),
+    }
+}
+
+/// Materialize the default hosted-registry index source for a
+/// resolve / fetch pipeline, mirroring how a config-supplied URL
+/// behaves: refuse under `--offline` before source replacement (a
+/// configured URL is refused pre-replacement too), apply
+/// `[source-replacement]`, and refuse a URL terminal under
+/// `--frozen` (a replacement that rewrites the default origin to a
+/// local path keeps frozen runs working, exactly like a config URL).
+pub(crate) fn default_index_locator(
+    offline: bool,
+    frozen: bool,
+    effective_config: &EffectiveConfig,
+    no_patches: bool,
+) -> Result<cabin_core::SourceLocator> {
+    let default_url = cabin_core::registry::DEFAULT_INDEX_URL;
+    if offline {
+        bail!(
+            "--offline forbids network access, but no index source is configured, so versioned dependencies would resolve through the default registry `{default_url}`; pass `--index-path <dir>` and re-run with a local index (e.g. a `cabin vendor` output)"
+        );
+    }
+    let resolution = crate::cli::patch::apply_source_replacement(
+        index_source_kind_to_locator(&default_index_source().kind),
+        effective_config,
+        no_patches,
+    )?;
+    if frozen
+        && matches!(
+            resolution.resolved,
+            cabin_core::SourceLocator::IndexUrl { .. }
+        )
+    {
+        bail!(
+            "cannot resolve versioned dependencies with --frozen: no index source is configured, and the default registry `{default_url}` would require network fetches; pass `--index-path <dir>` (e.g. a `cabin vendor` output)"
+        );
+    }
+    Ok(resolution.resolved)
+}
+
 /// Apply Cabin's CLI-vs-env precedence for the `--offline`
 /// flag.  Returns `true` when the user passed `--offline` *or*
 /// when [`cabin_env::CABIN_NET_OFFLINE`] is set to a truthy
@@ -325,19 +373,20 @@ pub(crate) struct PipelineInputs {
 
 /// Turn a resolved index source into [`PipelineInputs`] - the inner
 /// band that `build` / `run` / `test` / `fetch` / `vendor` all run
-/// once they hold a concrete `index_source`: derive the lock policy,
-/// resolve the cache dir (preferring the config-resolved value),
-/// convert the source to a [`cabin_core::SourceLocator`], apply
-/// source-replacement, and enforce the post-replacement offline rule
-/// (and, for `vendor`, the local-index rule).
+/// once versioned dependencies force an index: derive the lock
+/// policy, resolve the cache dir (preferring the config-resolved
+/// value), convert the source to a [`cabin_core::SourceLocator`],
+/// apply source-replacement, and enforce the post-replacement
+/// offline rule (and, for `vendor`, the local-index rule).  A `None`
+/// source falls back to the default hosted registry via
+/// [`default_index_locator`].
 ///
 /// Callers keep their own `resolve_index_source` /
 /// `enforce_offline_index_source` / `resolve_cache_dir` preamble
-/// (which runs unconditionally, before the has-versioned gate) and
-/// their own "no index source" bail with command-specific wording.
+/// (which runs unconditionally, before the has-versioned gate).
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn resolve_pipeline_inputs(
-    index_source: &ResolvedIndexSource,
+    index_source: Option<&ResolvedIndexSource>,
     effective_config: &EffectiveConfig,
     cache_dir_arg: Option<&Path>,
     resolved_cache_dir: Option<&(PathBuf, ConfigValueSource)>,
@@ -352,17 +401,26 @@ pub(crate) fn resolve_pipeline_inputs(
         Some((path, _)) => path.clone(),
         None => crate::cli::cache_dir_for(cache_dir_arg)?,
     };
-    let initial_locator = index_source_kind_to_locator(&index_source.kind);
-    let resolved_locator =
-        crate::cli::patch::apply_source_replacement(initial_locator, effective_config, no_patches)?;
-    enforce_offline_post_replacement(offline, &resolved_locator)?;
-    if vendor_local_index {
-        enforce_vendor_local_index_post_replacement(&resolved_locator)?;
-    }
+    let index_source = match index_source {
+        Some(source) => {
+            let initial_locator = index_source_kind_to_locator(&source.kind);
+            let resolved_locator = crate::cli::patch::apply_source_replacement(
+                initial_locator,
+                effective_config,
+                no_patches,
+            )?;
+            enforce_offline_post_replacement(offline, &resolved_locator)?;
+            if vendor_local_index {
+                enforce_vendor_local_index_post_replacement(&resolved_locator)?;
+            }
+            resolved_locator.resolved
+        }
+        None => default_index_locator(offline, frozen, effective_config, no_patches)?,
+    };
     Ok(PipelineInputs {
         policy,
         cache_dir,
-        index_source: resolved_locator.resolved,
+        index_source,
     })
 }
 

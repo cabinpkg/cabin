@@ -570,11 +570,11 @@ index-path = "/definitely/not/a/real/path"
 }
 
 #[test]
-fn no_index_anywhere_for_a_versioned_dep_mentions_config() {
-    // When versioned deps require an index source and neither
-    // CLI nor config supplies one, the error wording should
-    // mention all three escapes (CLI flag, env, config) so
-    // the user knows the config layer is an option.
+fn no_index_anywhere_for_a_versioned_dep_uses_the_default_registry() {
+    // When versioned deps need an index source and neither CLI nor
+    // config supplies one, the default hosted registry applies.
+    // `--offline` observes that without network traffic: the refusal
+    // names the default URL and the `--index-path` escape.
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml")
         .write_str(
@@ -589,16 +589,65 @@ fmt = ">=10.0.0 <11.0.0"
         .unwrap();
     let user_home = TempDir::new().unwrap();
     let assertion = cabin_with_config()
-        .args(["resolve", "--manifest-path"])
+        .args(["resolve", "--offline", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .env("CABIN_CONFIG_HOME", user_home.path())
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        stderr.contains("--index-path") && stderr.contains("[registry]"),
-        "expected index-source error to mention CLI flag and config, got: {stderr}"
+        stderr.contains("default registry `https://registry.cabinpkg.com`")
+            && stderr.contains("--index-path"),
+        "expected the offline refusal to name the default registry, got: {stderr}"
     );
+}
+
+#[test]
+fn source_replacement_applies_to_the_default_registry() {
+    // The default hosted registry behaves like a config-supplied
+    // URL: a `[source-replacement]` entry for its origin reroutes
+    // the whole pipeline, so a project with nothing but versioned
+    // deps resolves entirely from the local mirror.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "demo"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+        )
+        .unwrap();
+    let user_home = TempDir::new().unwrap();
+    user_home
+        .child("mirror/fmt.json")
+        .write_str(
+            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {} } } }"#,
+        )
+        .unwrap();
+    // Absolute path with forward slashes: TOML-safe on every
+    // platform (Windows accepts `/` separators).
+    let mirror = user_home
+        .path()
+        .join("mirror")
+        .display()
+        .to_string()
+        .replace('\\', "/");
+    user_home
+        .child("config.toml")
+        .write_str(&format!(
+            "[source-replacement]\n\"https://registry.cabinpkg.com\" = {{ index-path = \"{mirror}\" }}\n",
+        ))
+        .unwrap();
+    cabin_with_config()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .env("CABIN_CONFIG_HOME", user_home.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fmt 10.2.1"));
 }
 
 #[cfg(unix)]

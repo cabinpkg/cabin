@@ -18,8 +18,9 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExperimentalFeature {
     /// `-Z remote-registry`: the experimental remote-registry
-    /// client.  Gates the `auth-required` / `api` registry
-    /// `config.json` fields; see `docs/remote-registry.md`.
+    /// *mutation* surfaces (`cabin publish --index-url`,
+    /// `cabin yank`); see `docs/remote-registry.md`.  Reads are
+    /// stable and unaffected by the flag.
     RemoteRegistry,
 }
 

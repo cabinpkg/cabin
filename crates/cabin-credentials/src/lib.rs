@@ -1,5 +1,4 @@
-//! Registry credential storage for Cabin's experimental
-//! remote-registry client (`-Z remote-registry`).
+//! Registry credential storage for Cabin's remote-registry client.
 //!
 //! Tokens live in `credentials.toml` inside the user config home -
 //! the same directory resolution as the user-level `config.toml`
@@ -395,45 +394,36 @@ impl CredentialStore {
         Ok(())
     }
 
-    /// Resolve the token to use for `origin`: the
-    /// `CABIN_REGISTRY_TOKEN` environment override when set and
-    /// non-empty, else the file entry for `origin`.
+    /// Resolve the stored token for `origin`.  Deliberately blind to
+    /// the `CABIN_REGISTRY_TOKEN` environment override: the override
+    /// requires the caller's origin-trust decision, which only
+    /// [`lookup_token`] carries - a store-level API that consulted
+    /// the environment for every origin would reopen the
+    /// hostile-project bypass the gate exists to close.
     ///
     /// # Errors
-    /// Propagates [`CredentialStore::load`] errors and rejects a
-    /// malformed environment override with
-    /// [`CredentialsError::InvalidToken`] rather than sending
-    /// garbage bytes in an `Authorization` header.
+    /// Propagates [`CredentialStore::load`] errors.
     pub fn token_for_origin(&self, origin: &str) -> Result<TokenLookup, CredentialsError> {
-        self.token_for_origin_with_env(
-            std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).as_deref(),
-            origin,
-        )
-    }
-
-    /// [`CredentialStore::token_for_origin`] with the environment
-    /// value injected, so tests can drive the precedence without
-    /// mutating the process environment.
-    ///
-    /// # Errors
-    /// Same as [`CredentialStore::token_for_origin`].
-    pub fn token_for_origin_with_env(
-        &self,
-        env_value: Option<&OsStr>,
-        origin: &str,
-    ) -> Result<TokenLookup, CredentialsError> {
-        if let Some(token) = token_from_env_value(env_value)? {
-            return Ok(TokenLookup {
-                token: Some(token),
-                permissions_warning: None,
-            });
-        }
         let loaded = self.load()?;
         Ok(TokenLookup {
             token: loaded.credentials.token_for(origin).cloned(),
             permissions_warning: loaded.permissions_warning,
         })
     }
+}
+
+/// The environment override under the caller's origin-trust
+/// decision: disallowed means the value is not consulted at all - a
+/// malformed value is irrelevant to an origin the override does not
+/// apply to.
+fn gated_env_token(
+    env_value: Option<&OsStr>,
+    allow_env_override: bool,
+) -> Result<Option<Token>, CredentialsError> {
+    if !allow_env_override {
+        return Ok(None);
+    }
+    token_from_env_value(env_value)
 }
 
 /// Parse a raw `CABIN_REGISTRY_TOKEN` environment value: unset and
@@ -449,7 +439,7 @@ fn token_from_env_value(env_value: Option<&OsStr>) -> Result<Option<Token>, Cred
 }
 
 /// Read-path token lookup for one origin: the `CABIN_REGISTRY_TOKEN`
-/// environment override when set and non-empty, else the
+/// environment override when `allow_env_override` is set, else the
 /// `credentials.toml` entry.  The override is consulted *before* the
 /// store is even located, so it keeps working in home-less
 /// environments (CI containers) where no user config home can be
@@ -457,16 +447,29 @@ fn token_from_env_value(env_value: Option<&OsStr>) -> Result<Option<Token>, Cred
 /// credential" rather than an error, so unauthenticated flows never
 /// fail either.
 ///
+/// `allow_env_override` is the caller's origin-trust decision: the
+/// environment override is a single credential with no origin key of
+/// its own, and an invocation's index origin can come from
+/// project-level config or `[source-replacement]` - inputs a checked
+/// out project controls.  Callers must only allow the override for
+/// origins the *user* chose (Cabin's default registry, loopback
+/// testing); `credentials.toml` entries are origin-keyed by
+/// construction and are always consulted.
+///
 /// # Errors
 /// Rejects a malformed environment override with
 /// [`CredentialsError::InvalidToken`] rather than sending garbage
 /// bytes in an `Authorization` header, and propagates
 /// [`CredentialStore::load`] errors for an unreadable or invalid
 /// credentials file.
-pub fn lookup_token(origin: &str) -> Result<TokenLookup, CredentialsError> {
+pub fn lookup_token(
+    origin: &str,
+    allow_env_override: bool,
+) -> Result<TokenLookup, CredentialsError> {
     lookup_token_with_env(
         std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).as_deref(),
         origin,
+        allow_env_override,
     )
 }
 
@@ -477,15 +480,16 @@ pub fn lookup_token(origin: &str) -> Result<TokenLookup, CredentialsError> {
 pub fn lookup_token_with_env(
     env_value: Option<&OsStr>,
     origin: &str,
+    allow_env_override: bool,
 ) -> Result<TokenLookup, CredentialsError> {
-    if let Some(token) = token_from_env_value(env_value)? {
+    if let Some(token) = gated_env_token(env_value, allow_env_override)? {
         return Ok(TokenLookup {
             token: Some(token),
             permissions_warning: None,
         });
     }
     match CredentialStore::from_env() {
-        Ok(store) => store.token_for_origin_with_env(None, origin),
+        Ok(store) => store.token_for_origin(origin),
         Err(CredentialsError::NoConfigHome) => Ok(TokenLookup {
             token: None,
             permissions_warning: None,
@@ -844,44 +848,28 @@ mod tests {
         }
     }
 
+    /// The store API is environment-blind: even with the override
+    /// set in the process environment, only the file entry answers.
     #[test]
-    fn env_override_wins_over_the_file_for_every_origin() {
+    fn store_lookup_never_consults_the_environment() {
         let dir = TempDir::new().unwrap();
         let store = CredentialStore::at(dir.path().join("credentials.toml"));
         let mut credentials = Credentials::default();
         credentials.set_token("https://example.com".to_owned(), token());
         store.save(&credentials).unwrap();
 
-        let env = OsStr::new("cabin_envToken12345");
-        // Even an origin with a stored file entry sees the override...
-        let lookup = store
-            .token_for_origin_with_env(Some(env), "https://example.com")
-            .unwrap();
-        assert_eq!(lookup.token.unwrap().expose(), "cabin_envToken12345");
-        // ...and so does an origin the file knows nothing about.
-        let lookup = store
-            .token_for_origin_with_env(Some(env), "https://other.example")
-            .unwrap();
-        assert_eq!(lookup.token.unwrap().expose(), "cabin_envToken12345");
+        let lookup = store.token_for_origin("https://example.com").unwrap();
+        assert_eq!(lookup.token.unwrap().expose(), token().expose());
+        let lookup = store.token_for_origin("https://other.example").unwrap();
+        assert!(lookup.token.is_none());
     }
 
+    /// Unset and empty environment values are "no override", so an
+    /// allowed lookup still answers from parsing alone.
     #[test]
-    fn empty_or_absent_env_falls_back_to_the_file() {
-        let dir = TempDir::new().unwrap();
-        let store = CredentialStore::at(dir.path().join("credentials.toml"));
-        let mut credentials = Credentials::default();
-        credentials.set_token("https://example.com".to_owned(), token());
-        store.save(&credentials).unwrap();
-
+    fn empty_or_absent_env_is_no_override() {
         for env in [None, Some(OsStr::new(""))] {
-            let lookup = store
-                .token_for_origin_with_env(env, "https://example.com")
-                .unwrap();
-            assert_eq!(lookup.token.unwrap().expose(), SECRET);
-            let lookup = store
-                .token_for_origin_with_env(env, "https://other.example")
-                .unwrap();
-            assert!(lookup.token.is_none());
+            assert!(gated_env_token(env, true).unwrap().is_none());
         }
     }
 
@@ -890,19 +878,44 @@ mod tests {
     /// user config home resolves.
     #[test]
     fn lookup_token_env_override_applies_before_the_store_is_located() {
-        let lookup =
-            lookup_token_with_env(Some(OsStr::new("cabin_envToken12345")), "https://x.example")
-                .unwrap();
+        let lookup = lookup_token_with_env(
+            Some(OsStr::new("cabin_envToken12345")),
+            "https://x.example",
+            true,
+        )
+        .unwrap();
         assert_eq!(lookup.token.unwrap().expose(), "cabin_envToken12345");
+    }
+
+    /// The caller's origin-trust decision is binding: with the
+    /// override disallowed, the env token is never returned - not
+    /// even validated.
+    #[test]
+    fn gated_env_token_ignores_the_override_when_disallowed() {
+        for env in [
+            Some(OsStr::new("cabin_envToken12345")),
+            // A malformed value is irrelevant to an origin the
+            // override does not apply to.
+            Some(OsStr::new("not-a-token")),
+        ] {
+            assert!(gated_env_token(env, false).unwrap().is_none());
+        }
+        // Allowed, the same values keep their original semantics.
+        assert_eq!(
+            gated_env_token(Some(OsStr::new("cabin_envToken12345")), true)
+                .unwrap()
+                .unwrap()
+                .expose(),
+            "cabin_envToken12345"
+        );
+        assert!(gated_env_token(Some(OsStr::new("not-a-token")), true).is_err());
     }
 
     #[test]
     fn malformed_env_override_is_rejected_not_sent() {
-        let dir = TempDir::new().unwrap();
-        let store = CredentialStore::at(dir.path().join("credentials.toml"));
-        let err = store
-            .token_for_origin_with_env(Some(OsStr::new("not-a-token")), "https://example.com")
-            .unwrap_err();
+        let err =
+            lookup_token_with_env(Some(OsStr::new("not-a-token")), "https://example.com", true)
+                .unwrap_err();
         assert!(matches!(err, CredentialsError::InvalidToken { .. }));
     }
 

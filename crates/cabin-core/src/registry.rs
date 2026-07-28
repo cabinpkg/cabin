@@ -17,16 +17,22 @@ pub const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 /// Required `config.json` `kind` discriminant for a file registry.
 pub const REGISTRY_KIND: &str = "file-registry";
 
-/// Error message for a remote-registry `config.json` field
-/// (`auth-required` / `api`) encountered while the experimental
-/// remote-registry client is disabled.  Shared so the local and
-/// HTTP readers reject a gated field with identical wording.
-/// Silently ignoring the field is not an option: dropping
-/// `auth-required` would surface later as a confusing `401`.
+/// Cabin's default hosted-registry index origin: the sparse HTTP
+/// index a command falls back to when it needs an index and neither
+/// the CLI (`--index-path` / `--index-url`) nor the config
+/// (`[registry]`) names one.  Lives beside the other registry
+/// contract constants so the CLI and any future consumer agree on
+/// one spelling.
+pub const DEFAULT_INDEX_URL: &str = "https://registry.cabinpkg.com";
+
+/// Error message for a registry *mutation* surface (`cabin publish
+/// --index-url` / `cabin yank`) used while the experimental
+/// remote-registry client is disabled.  Shared so every gated
+/// command rejects with identical wording.
 #[must_use]
-pub fn remote_registry_field_error(field: &str) -> String {
+pub fn remote_registry_command_error(command: &str) -> String {
     format!(
-        "`{field}` requires the experimental remote-registry client; run with `-Z remote-registry` \
+        "`{command}` requires the experimental remote-registry client; run with `-Z remote-registry` \
          to enable it"
     )
 }
@@ -93,9 +99,9 @@ mod tests {
     }
 
     #[test]
-    fn gated_field_error_names_field_and_flag() {
-        let message = remote_registry_field_error("auth-required");
-        assert!(message.contains("`auth-required`"), "{message}");
+    fn gated_command_error_names_command_and_flag() {
+        let message = remote_registry_command_error("cabin yank");
+        assert!(message.contains("`cabin yank`"), "{message}");
         assert!(message.contains("-Z remote-registry"), "{message}");
     }
 

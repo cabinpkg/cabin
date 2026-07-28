@@ -119,7 +119,6 @@ pub(crate) struct VendorArgs {
 pub(crate) fn vendor(
     args: &VendorArgs,
     reporter: crate::cli::term_verbosity::Reporter,
-    experimental_features: &cabin_core::ExperimentalFeatures,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
@@ -217,7 +216,7 @@ pub(crate) fn vendor(
     }
 
     let inputs = crate::cli::config::resolve_pipeline_inputs(
-        index_source,
+        Some(index_source),
         &effective_config,
         args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
@@ -245,7 +244,6 @@ pub(crate) fn vendor(
         )?,
         no_patches: args.no_patches,
         dev_for: &dev_for,
-        experimental_features,
     })?;
 
     // Vendoring copies `packages/<name>.json` files verbatim

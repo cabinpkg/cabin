@@ -124,10 +124,14 @@ pub const CABIN_TIDY: &str = "CABIN_TIDY";
 /// `system = true` entry.
 pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 
-/// Bearer token override for the experimental remote-registry
-/// client (`-Z remote-registry`).  When set to a non-empty value it
-/// wins over any `credentials.toml` entry for every registry the
-/// invocation touches.  Read by the `cabin-credentials` crate.
+/// Bearer token override for the remote-registry client.  When set
+/// to a non-empty value it wins over any `credentials.toml` entry
+/// for the origins it applies to: the default hosted registry and
+/// loopback origins.  Other registries always use `credentials.toml`,
+/// because the override carries no origin key of its own, so serving
+/// it to an origin a checked-out project can pick (project config,
+/// `[source-replacement]`) would hand the credential to that
+/// project.  Read by the `cabin-credentials` crate.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
 /// Number of parallel jobs the build backend should use.

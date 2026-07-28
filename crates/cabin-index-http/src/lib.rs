@@ -21,10 +21,9 @@
 //!   `Cabin login_url` challenge;
 //! - it never POSTs, PUTs, or otherwise mutates a remote registry;
 //! - it attaches `Authorization: Bearer <token>` only when the caller
-//!   supplies a credential ([`HttpClient::with_auth`], part of the
-//!   experimental `-Z remote-registry` client), only to the exact
-//!   origin the credential is scoped to, and never over cleartext
-//!   `http` beyond loopback hosts;
+//!   supplies a credential ([`HttpClient::with_auth`]), only to the
+//!   exact origin the credential is scoped to, and never over
+//!   cleartext `http` beyond loopback hosts;
 //! - it never honors redirects to alternate registries, never
 //!   persists a metadata cache;
 //! - it produces the same [`cabin_index::IndexEntry`] / [`cabin_index::PackageIndex`]

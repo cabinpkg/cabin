@@ -1865,17 +1865,84 @@ spdlog = "*"
         .stderr(predicate::str::contains("dependency resolution failed"));
 }
 
+/// With versioned deps and no index source configured, resolution
+/// targets the default hosted registry.  `--offline` makes that
+/// observable without network traffic: the refusal names the default
+/// URL and the `--index-path` escape.
 #[test]
-fn resolve_without_index_path_fails_clearly() {
+fn resolve_without_index_source_defaults_to_the_hosted_registry() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = "^10""#);
 
+    let assertion = cabin()
+        .args(["resolve", "--offline", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("default registry `https://registry.cabinpkg.com`"),
+        "expected the default registry in the offline refusal: {stderr}"
+    );
+    assert!(stderr.contains("--index-path"), "{stderr}");
+}
+
+/// `--frozen` with versioned deps and no index source refuses the
+/// default registry: a frozen run may not perform the network
+/// fetches the default would need.  (The lockfile is created first
+/// from a local index - without one, the missing-lockfile error
+/// fires before index selection.)
+#[test]
+fn resolve_frozen_without_index_source_refuses_the_default_registry() {
+    let dir = TempDir::new().unwrap();
+    write_app_with_dep(dir.path(), r#"fmt = "^10""#);
+    dir.child("index/fmt.json")
+        .write_str(
+            r#"{ "schema": 1, "name": "fmt", "versions": { "10.2.1": { "dependencies": {} } } }"#,
+        )
+        .unwrap();
     cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("--index-path"));
+        .success();
+
+    let assertion = cabin()
+        .args(["resolve", "--frozen", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("--frozen") && stderr.contains("https://registry.cabinpkg.com"),
+        "expected the frozen refusal to name the default registry: {stderr}"
+    );
+}
+
+/// The default registry only materializes when versioned deps force
+/// an index: a dep-less project keeps working offline (and frozen)
+/// with nothing configured, exactly as before.
+#[test]
+fn offline_and_frozen_stay_usable_without_versioned_deps() {
+    let dir = TempDir::new().unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+    for flag in ["--offline", "--frozen"] {
+        cabin()
+            .args(["resolve", flag, "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("no versioned dependencies"));
+    }
 }
 
 #[test]
@@ -1896,8 +1963,11 @@ fn resolve_missing_package_fails_clearly() {
         .stderr(predicate::str::contains("missing-pkg"));
 }
 
+/// The build pipeline shares the default-registry fallback: with a
+/// versioned dep and no index source, `cabin build --offline`
+/// refuses the default registry with the same actionable wording.
 #[test]
-fn build_with_versioned_dependency_requires_index_path() {
+fn build_with_versioned_dependency_defaults_to_the_hosted_registry() {
     let dir = TempDir::new().unwrap();
     write_app_with_dep(dir.path(), r#"fmt = "^10""#);
     dir.child("app/src/main.cc")
@@ -1919,14 +1989,19 @@ sources = ["src/main.cc"]
     dir.child("app/cabin.toml").write_str(manifest).unwrap();
 
     let build_dir = dir.path().join("build");
-    cabin()
-        .args(["build", "--manifest-path"])
+    let assertion = cabin()
+        .args(["build", "--offline", "--manifest-path"])
         .arg(dir.path().join("app/cabin.toml"))
         .arg("--build-dir")
         .arg(&build_dir)
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("--index-path"));
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("default registry `https://registry.cabinpkg.com`"),
+        "expected the default registry in the offline refusal: {stderr}"
+    );
+    assert!(stderr.contains("--index-path"), "{stderr}");
 }
 
 #[test]
