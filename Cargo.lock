@@ -232,6 +232,7 @@ dependencies = [
  "cabinpkg-ninja",
  "cabinpkg-package",
  "cabinpkg-port",
+ "cabinpkg-port-publish",
  "cabinpkg-publish",
  "cabinpkg-registry-api",
  "cabinpkg-resolver",

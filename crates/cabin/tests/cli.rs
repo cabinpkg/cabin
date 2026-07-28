@@ -2547,6 +2547,9 @@ mod resolver_incompatible_standards;
 #[path = "cli/sparse_http.rs"]
 mod sparse_http;
 
+#[path = "cli/registry_ports.rs"]
+mod registry_ports;
+
 // ---------------------------------------------------------------------------
 // features foundation
 // ---------------------------------------------------------------------------
