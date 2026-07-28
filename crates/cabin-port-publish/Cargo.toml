@@ -21,28 +21,24 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
-cabin-credentials = { workspace = true }
 cabin-env = { workspace = true }
 cabin-index-http = { workspace = true }
 cabin-manifest = { workspace = true }
-cabin-package = { workspace = true }
 cabin-port = { workspace = true }
 cabin-publish = { workspace = true }
-cabin-registry-api = { workspace = true }
-camino = { workspace = true }
 etcetera = { workspace = true }
 semver = { workspace = true }
 toml_edit = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2"
 assert_fs = { workspace = true }
+camino = { workspace = true }
 flate2 = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tiny_http = { workspace = true }
+url = { workspace = true }
 
 [lints]
 workspace = true

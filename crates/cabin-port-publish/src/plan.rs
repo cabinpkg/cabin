@@ -42,6 +42,11 @@ pub struct PortConversion {
     /// wait for a *satisfying* version, not just any version of the
     /// name.
     pub dependencies: Vec<PortDependencyEdge>,
+    /// Converted keys of the package's library-like targets; the
+    /// preflight probe references the sole one through the
+    /// bare-package shorthand and several through explicit
+    /// `package:target` selectors (the shorthand is ambiguous then).
+    pub library_like_target_keys: Vec<String>,
 }
 
 /// One rewritten inter-port dependency edge.
@@ -134,7 +139,9 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
                     .ok_or_else(|| anyhow!("unknown port dependency `{}`", dep.name.as_str()))
             })
             .collect::<Result<Vec<_>>>()?;
-        let scoped_name = summaries[descriptor.name.as_str()].scoped.clone();
+        let summary = &summaries[descriptor.name.as_str()];
+        let scoped_name = summary.scoped.clone();
+        let library_like_target_keys = summary.library_like_target_keys.clone();
         let published_version = published_version(&descriptor.version, revision)?;
         conversions.push(PortConversion {
             recipe_dir,
@@ -143,6 +150,7 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
             published_version,
             manifest,
             dependencies,
+            library_like_target_keys,
         });
     }
 
