@@ -257,8 +257,18 @@ fn read_revision(recipe_dir: &Path) -> Result<Option<u32>> {
         return Ok(None);
     }
     let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let revision: u32 = text
-        .trim()
+    // ASCII-only trim on purpose: Rust and JavaScript disagree on
+    // Unicode whitespace (U+0085 vs U+FEFF), and the website mirrors
+    // this parse - an explicit shared grammar keeps the two from
+    // diverging.
+    let trimmed = text.trim_matches(|c: char| c.is_ascii_whitespace());
+    // `u32` parsing alone would also accept a leading `+`; the sidecar
+    // grammar is plain digits so this parse and the website's mirror
+    // (website/src/lib/ports.ts) can never disagree on what publishes.
+    if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_digit()) {
+        bail!("{} must hold an integer >= 1", path.display());
+    }
+    let revision: u32 = trimmed
         .parse()
         .with_context(|| format!("{} must hold an integer >= 1", path.display()))?;
     if revision == 0 {
@@ -460,7 +470,20 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let ports = dir.child("ports");
         write_recipe(&ports, "zlib", "1.3.1", "");
-        for bad in ["0", "one", "-1", ""] {
+        // `\u{B}` (vertical tab): not in `is_ascii_whitespace`, so a
+        // VT-wrapped revision is rejected here exactly as the
+        // website's mirror rejects it.
+        for bad in [
+            "0",
+            "one",
+            "-1",
+            "",
+            "+1",
+            "1.5",
+            "\u{0085}1",
+            "\u{FEFF}1",
+            "\u{B}1",
+        ] {
             ports
                 .child("zlib/1.3.1")
                 .child(REVISION_FILENAME)
