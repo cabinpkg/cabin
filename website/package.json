@@ -47,7 +47,7 @@
         "rehype-autolink-headings": "^7.1.0",
         "rehype-slug": "^6.0.0",
         "tailwindcss": "4.3.3",
-        "typescript": "^6.0.3",
+        "typescript": "^7.0.2",
         "wrangler": "^4.112.0"
     },
     "packageManager": "npm@11.17.0"
