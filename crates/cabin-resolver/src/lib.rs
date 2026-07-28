@@ -502,6 +502,89 @@ mod tests {
         assert_eq!(out.packages[1].version, version("10.2.1"));
     }
 
+    /// Versions differing only in build metadata are distinct index
+    /// entries that all satisfy the same requirements (`matches`
+    /// ignores build metadata), and the newest under the total
+    /// order, i.e. the highest packaging revision, wins.  This is
+    /// what makes `cabin-ports` packaging revisions
+    /// (`1.3.1+cabin.N`) supersede the unrevised publication.
+    #[test]
+    fn build_metadata_revisions_supersede_the_unrevised_version() {
+        let index = build_index(vec![entry(
+            "cabin-ports/zlib",
+            vec![
+                ("1.3.1", vec![], false),
+                ("1.3.1+cabin.1", vec![], false),
+                ("1.3.1+cabin.2", vec![], false),
+            ],
+        )]);
+        for req_str in ["^1.3", "=1.3.1", ">=1.3.1, <1.4.0"] {
+            let out = resolve(&make_input(vec![("cabin-ports/zlib", req_str)]), &index).unwrap();
+            assert_eq!(
+                out.packages[1].version,
+                version("1.3.1+cabin.2"),
+                "requirement `{req_str}` must pick the highest packaging revision"
+            );
+        }
+    }
+
+    /// Two parents constraining the same dependency with different
+    /// comparator shapes (`=` and `^`): `PubGrub` intersects the
+    /// ranges, and the intersection still admits the build-metadata
+    /// revisions of the named version.
+    #[test]
+    fn build_metadata_revisions_survive_multi_parent_intersection() {
+        let index = build_index(vec![
+            entry(
+                "a",
+                vec![("1.0.0", vec![("cabin-ports/zlib", "=1.3.1")], false)],
+            ),
+            entry(
+                "b",
+                vec![("1.0.0", vec![("cabin-ports/zlib", "^1.3")], false)],
+            ),
+            entry(
+                "cabin-ports/zlib",
+                vec![("1.3.1", vec![], false), ("1.3.1+cabin.1", vec![], false)],
+            ),
+        ]);
+        let out = resolve(&make_input(vec![("a", "^1"), ("b", "^1")]), &index).unwrap();
+        let zlib = out
+            .packages
+            .iter()
+            .find(|p| p.name.as_str() == "cabin-ports/zlib")
+            .expect("zlib resolves");
+        assert_eq!(zlib.version, version("1.3.1+cabin.1"));
+    }
+
+    /// Lockfile stability across packaging revisions: a locked
+    /// version that still satisfies the constraints is kept, so a
+    /// newly published revision never churns an existing lockfile.
+    #[test]
+    fn locked_versions_survive_newer_build_metadata_revisions() {
+        let index = build_index(vec![entry(
+            "cabin-ports/zlib",
+            vec![
+                ("1.3.1", vec![], false),
+                ("1.3.1+cabin.1", vec![], false),
+                ("1.3.1+cabin.2", vec![], false),
+            ],
+        )]);
+        for locked_ver in ["1.3.1", "1.3.1+cabin.1"] {
+            let input = input_with_locked(
+                vec![("cabin-ports/zlib", "^1.3")],
+                vec![("cabin-ports/zlib", locked_ver)],
+                ResolveMode::PreferLocked,
+            );
+            let out = resolve(&input, &index).unwrap();
+            assert_eq!(
+                out.packages[1].version,
+                version(locked_ver),
+                "locked `{locked_ver}` must be kept"
+            );
+        }
+    }
+
     /// A scoped name and a bare name sharing the base part are
     /// simply distinct packages: the resolver keys on the full
     /// `PackageName` and never splits or normalizes the scope, so

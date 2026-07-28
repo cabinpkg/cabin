@@ -97,3 +97,26 @@ entry.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,
   version 0.8.3.
 - [`zlib/1.3.1/`](zlib/1.3.1/) - the zlib compression library, version 1.3.1.
+
+## Publishing recipes as `cabin-ports/*` registry packages
+
+The repository tool `cabin-port-publish` (`crates/cabin-port-publish`; not part of the shipped
+`cabin` binary) converts every recipe in this directory into an ordinary registry package under
+the `cabin-ports` scope: `cabin-ports/<lowercase name>` at the upstream version, with
+`[package.upstream]` provenance stamped from `port.toml`, target keys renamed to the intended
+native artifact stems (zlib's sole library target publishes as `z`), and inter-port dependencies
+rewritten to scoped registry dependencies.  The committed recipe is never mutated - the
+conversion rewrites a copy - and the bundled-port layer keeps working unchanged.
+
+```console
+$ cargo build -p cabinpkg
+$ cargo run -p cabinpkg-port-publish -- --dry-run     # full local preflight, no remote mutation
+$ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.cabinpkg.com
+```
+
+Published versions are immutable.  For a recipe-only correction to an already-published upstream
+version, add the sidecar file `<name>/<version>/packaging-revision` holding an integer of at
+least 1 and bump it for each further correction; the tool then publishes
+`<version>+cabin.<n>` (build metadata: `^x.y` requirements still match, resolvers prefer the
+highest revision).  See `docs/foundation-ports.md`, "Publishing ports as registry packages", for
+the full behavior.

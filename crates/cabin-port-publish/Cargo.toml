@@ -1,0 +1,44 @@
+[package]
+name = "cabinpkg-port-publish"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool that publishes foundation-port recipes as cabin-ports registry packages"
+# Repository-owned maintainer tooling: the tool reads the committed
+# `crates/cabin-port/ports/` recipes, so a published copy would have
+# nothing to operate on.
+publish = false
+
+[lib]
+name = "cabin_port_publish"
+
+[[bin]]
+name = "cabin-port-publish"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+cabin-core = { workspace = true }
+cabin-env = { workspace = true }
+cabin-index-http = { workspace = true }
+cabin-manifest = { workspace = true }
+cabin-port = { workspace = true }
+cabin-publish = { workspace = true }
+etcetera = { workspace = true }
+semver = { workspace = true }
+toml_edit = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+camino = { workspace = true }
+flate2 = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+tiny_http = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true

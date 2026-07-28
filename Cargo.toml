@@ -21,6 +21,7 @@ members = [
   "crates/cabin-ninja",
   "crates/cabin-package",
   "crates/cabin-port",
+  "crates/cabin-port-publish",
   "crates/cabin-publish",
   "crates/cabin-registry-api",
   "crates/cabin-registry-file",
