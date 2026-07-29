@@ -36,7 +36,6 @@ const PORTS_DIR = resolvePortsDir();
 // present exactly the names and versions the registry serves, without a
 // live-registry build dependency.
 const REGISTRY_SCOPE = "cabin-ports";
-const REVISION_FILENAME = "packaging-revision";
 
 interface PortTomlPort {
     name: string;
@@ -67,8 +66,8 @@ export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
 }
 
 // Exported with an explicit directory so tests can exercise the
-// loader (packaging-revision sidecars in particular) against fixture
-// trees; the site itself always loads the committed recipes.
+// loader against fixture trees; the site itself always loads the
+// committed recipes.
 export async function loadPortsFromDir(
     portsDir: string,
 ): Promise<PackageRecord[]> {
@@ -175,8 +174,11 @@ async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {
         );
     }
 
-    const revision = await readPackagingRevision(dirname(portTomlPath));
-    const version = publishedVersion(port.version, revision, portTomlPath);
+    // The published version is the upstream version, verbatim:
+    // packaging corrections republish it as a new registry revision
+    // derived from the archive bytes, never as a version-string
+    // suffix.
+    const version = port.version;
     const dependencies = await overlayDependencies(
         parsed.overlay,
         portTomlPath,
@@ -281,77 +283,6 @@ export function scopedPackageName(portName: string, context: string): string {
         );
     }
     return `${REGISTRY_SCOPE}/${lower}`;
-}
-
-// The published version: the upstream version verbatim, or
-// `<version>+cabin.<n>` when the recipe carries a packaging-revision
-// sidecar (mirroring cabin-port-publish::plan).  A revision on top of
-// upstream build metadata is rejected, as the publisher rejects it.
-export function publishedVersion(
-    upstreamVersion: string,
-    revision: number | null,
-    context: string,
-): string {
-    if (revision === null) {
-        return upstreamVersion;
-    }
-    if (upstreamVersion.includes("+")) {
-        throw new Error(
-            `${context} declares a packaging revision, but upstream version "${upstreamVersion}" already carries build metadata.`,
-        );
-    }
-    return `${upstreamVersion}+cabin.${revision}`;
-}
-
-// The sidecar must hold an integer >= 1; the unrevised publication is
-// revision zero and is spelled by removing the file.  The digits-only
-// grammar and the u32 ceiling mirror the publisher's parse
-// (cabin-port-publish::plan::read_revision), so a sidecar this loader
-// accepts can never be one the tool refuses to publish.
-export function parsePackagingRevision(text: string, context: string): number {
-    // ASCII-only trim on purpose: String.trim would also strip
-    // U+FEFF, which the publisher's Rust trim does not - the explicit
-    // shared grammar keeps the two parsers agreeing.
-    const trimmed = text
-        .replace(/^[\t\n\f\r ]+/, "")
-        .replace(/[\t\n\f\r ]+$/, "");
-    if (!/^[0-9]+$/.test(trimmed)) {
-        throw new Error(`${context} must hold an integer >= 1.`);
-    }
-    const revision = Number.parseInt(trimmed, 10);
-    if (revision > 4294967295) {
-        throw new Error(`${context} must hold an integer that fits in u32.`);
-    }
-    if (revision < 1) {
-        throw new Error(
-            `${context} must hold an integer >= 1; the unrevised publication is revision zero.`,
-        );
-    }
-    return revision;
-}
-
-async function readPackagingRevision(
-    recipeDir: string,
-): Promise<number | null> {
-    const path = join(recipeDir, REVISION_FILENAME);
-    let text: string;
-    try {
-        text = await readFile(path, "utf-8");
-    } catch (error) {
-        if (isNotFound(error)) {
-            return null;
-        }
-        throw new Error(`Failed to read ${path}: ${errorMessage(error)}`);
-    }
-    return parsePackagingRevision(text, path);
-}
-
-function isNotFound(error: unknown): boolean {
-    return (
-        typeof error === "object" &&
-        error !== null &&
-        (error as NodeJS.ErrnoException).code === "ENOENT"
-    );
 }
 
 async function listDirectories(parent: string): Promise<string[]> {

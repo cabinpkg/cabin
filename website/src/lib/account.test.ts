@@ -9,6 +9,7 @@ import {
     createToken,
     type FetchLike,
     getUser,
+    packageDownloads,
     resolveAuth,
     revokeToken,
     signOut,
@@ -197,4 +198,33 @@ test("the create flow settles created, signed-out, or failed", async () => {
         state: "failed",
         message: "csrf detail",
     });
+});
+
+test("packageDownloads counts each version once across its revisions", () => {
+    const version = (
+        version: string,
+        revision: string,
+        current: boolean,
+        verification: "pending" | "verified" | "rejected",
+        downloads: number,
+    ) => ({
+        version,
+        revision,
+        current,
+        verification,
+        yanked: false,
+        published_at: "2026-07-01T00:00:00.000Z",
+        downloads,
+    });
+    // A verified version with a pending respin repeats its
+    // version-level count on both rows; the total must not double it.
+    const pkg = {
+        name: "acme/demo",
+        versions: [
+            version("1.0.0", "aa00000000000000", true, "verified", 100),
+            version("1.0.0", "bb00000000000000", false, "pending", 100),
+            version("0.9.0", "cc00000000000000", true, "verified", 7),
+        ],
+    };
+    assert.equal(packageDownloads(pkg), 107);
 });

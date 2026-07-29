@@ -54,6 +54,11 @@ function renderVersions(root: HTMLElement, detail: PackageDetail): void {
         if (number instanceof HTMLElement) {
             number.textContent = version.version;
         }
+        // The served (current) packaging revision of this version.
+        const revision = row.querySelector('[data-slot="revision"]');
+        if (revision instanceof HTMLElement) {
+            revision.textContent = version.revision;
+        }
         const yanked = row.querySelector('[data-slot="yanked"]');
         if (yanked instanceof HTMLElement) {
             yanked.hidden = !version.yanked;

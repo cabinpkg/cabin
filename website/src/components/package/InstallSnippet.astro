@@ -10,10 +10,8 @@ interface Props {
 
 const { package: pack } = Astro.props;
 // Scoped registry names contain "/", so the dependency key must be quoted to
-// stay a single TOML key.  Requirement matching ignores build metadata, so the
-// packaging revision (+cabin.N) never appears in the requirement.
-const requirement = pack.version.split("+")[0];
-const installSnippet = `[dependencies]\n"${pack.name}" = "=${requirement}"`;
+// stay a single TOML key.
+const installSnippet = `[dependencies]\n"${pack.name}" = "=${pack.version}"`;
 ---
 
 <Card class="p-6">

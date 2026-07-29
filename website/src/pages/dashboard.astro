@@ -155,9 +155,11 @@ const searchInputClass =
                 class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5 first:border-t-0 first:pt-1"
             >
                 <code class="font-mono text-sm" data-slot="version"></code>
+                <code class="font-mono text-xs text-ink-faint" data-slot="revision"></code>
                 <Badge tone="success" data-slot="verified" hidden>verified</Badge>
                 <Badge tone="muted" data-slot="pending" hidden>pending</Badge>
                 <Badge tone="warning" data-slot="rejected" hidden>rejected</Badge>
+                <Badge tone="muted" data-slot="current" hidden>serving</Badge>
                 <Badge tone="warning" data-slot="yanked" hidden>yanked</Badge>
                 <a
                     class="ml-auto text-xs text-steel hover:underline"

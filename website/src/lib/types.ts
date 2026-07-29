@@ -12,9 +12,8 @@ export interface PackageRecord {
 }
 
 // Committed provenance for a package that repackages an upstream
-// release (the cabin-ports packages): the upstream version without
-// Cabin's packaging-revision build metadata, plus the pinned source
-// archive.
+// release (the cabin-ports packages): the upstream version, plus the
+// pinned source archive.
 export interface PackageUpstream {
     version: string;
     archiveUrl: string;
