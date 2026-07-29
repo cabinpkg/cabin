@@ -282,6 +282,10 @@ pub(crate) struct RawTarget {
     /// `false`).
     #[serde(default, rename = "gnu-extensions")]
     pub(crate) gnu_extensions: Option<bool>,
+    /// Native-library identity claim; validated (grammar, kind,
+    /// per-package uniqueness) by `cabin_core::Package`.
+    #[serde(default)]
+    pub(crate) links: Option<String>,
 }
 
 /// Cabin package dependency entry, e.g. one row of

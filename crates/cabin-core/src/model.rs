@@ -236,6 +236,27 @@ fn validate_path_safe_name(
     Ok(value)
 }
 
+/// Grammar for a `links` native-library identity: non-empty ASCII
+/// letters, digits, `.`, `_`, `+`, and `-`.  Deliberately not the
+/// path-safe target-name grammar - a `links` value never becomes a
+/// filesystem path component, and real identities need `+`
+/// (`stdc++`-style names) that artifact stems reject.  The hosted
+/// registry mirrors this rule lexically in its publish validation.
+///
+/// # Errors
+/// Returns [`ValidationError::InvalidLinksValue`] echoing the
+/// offending value.
+pub fn validate_links_identity(value: &str) -> Result<(), ValidationError> {
+    if value.is_empty()
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
+    {
+        return Err(ValidationError::InvalidLinksValue(value.to_owned()));
+    }
+    Ok(())
+}
+
 impl AsRef<str> for PackageName {
     fn as_ref(&self) -> &str {
         &self.0
@@ -616,6 +637,18 @@ pub struct Target {
     /// executable-like targets.
     #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
+    /// Native-library identity this target claims (`links = "z"`).
+    /// An explicit opt-in, never derived from the target name:
+    /// target names are artifact stems, while a `links` value names
+    /// the native library the target embodies (a target `ssl` may
+    /// link `"openssl"`).  Post-resolution validation refuses a
+    /// graph in which two distinct packages claim the same identity,
+    /// because duplicate native symbols fail at the final link
+    /// regardless of dependency visibility.  Only `library` targets
+    /// may claim one; `Package` validation enforces the grammar,
+    /// the kind gate, and per-package claim uniqueness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<String>,
 }
 
 impl Target {
@@ -1187,6 +1220,32 @@ impl Package {
                 ));
             }
         }
+        let mut claimed: BTreeMap<&str, &str> = BTreeMap::new();
+        for target in targets {
+            let Some(links) = &target.links else {
+                continue;
+            };
+            validate_links_identity(links)?;
+            // Only compiled libraries produce a linkable artifact.
+            // Header-only targets emit no symbols of their own, so a
+            // claim there would make two wrappers of the same headers
+            // falsely conflict; executables have no consumers to
+            // collide in.
+            if target.kind != TargetKind::Library {
+                return Err(ValidationError::LinksOnNonLibraryTarget {
+                    target: target.name.as_str().to_owned(),
+                    kind: target.kind.as_str().to_owned(),
+                    links: links.clone(),
+                });
+            }
+            if let Some(first) = claimed.insert(links.as_str(), target.name.as_str()) {
+                return Err(ValidationError::DuplicateTargetLinks {
+                    links: links.clone(),
+                    first: first.to_owned(),
+                    second: target.name.as_str().to_owned(),
+                });
+            }
+        }
         Ok(())
     }
 
@@ -1264,7 +1323,94 @@ mod tests {
             deps: deps.iter().map(|d| TargetDep::from(*d)).collect(),
             required_features: Vec::new(),
             language: LanguageStandardSettings::default(),
+            links: None,
         }
+    }
+
+    #[test]
+    fn links_identity_grammar_accepts_real_native_names() {
+        for good in ["z", "png16", "sqlite3", "stdc++", "gtest_main", "SDL2-2.0"] {
+            assert!(
+                validate_links_identity(good).is_ok(),
+                "expected {good:?} to satisfy the links grammar"
+            );
+        }
+        for bad in ["", " ", "lib z", "z/1", "z:1", "z\u{e9}"] {
+            assert!(
+                matches!(
+                    validate_links_identity(bad),
+                    Err(ValidationError::InvalidLinksValue(_))
+                ),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    /// The three package-level `links` rules: grammar, library-only
+    /// kinds, and per-package claim uniqueness.  Distinct claims on
+    /// distinct library targets pass.
+    #[test]
+    fn package_validates_target_links_claims() {
+        let with_links = |name: &str, kind: TargetKind, links: &str| {
+            let mut t = target(name, kind, &[]);
+            t.links = Some(links.to_owned());
+            t
+        };
+        let ok = Package::new(
+            pkg("demo"),
+            version(),
+            vec![
+                with_links("one", TargetKind::Library, "z"),
+                with_links("two", TargetKind::Library, "png"),
+            ],
+            Vec::new(),
+        );
+        assert!(ok.is_ok());
+
+        let dup = Package::new(
+            pkg("demo"),
+            version(),
+            vec![
+                with_links("one", TargetKind::Library, "z"),
+                with_links("two", TargetKind::Library, "z"),
+            ],
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            dup,
+            ValidationError::DuplicateTargetLinks { links, first, second }
+                if links == "z" && first == "one" && second == "two"
+        ));
+
+        for kind in [
+            TargetKind::Executable,
+            TargetKind::Test,
+            TargetKind::Example,
+            TargetKind::HeaderOnly,
+        ] {
+            let err = Package::new(
+                pkg("demo"),
+                version(),
+                vec![with_links("app", kind, "z")],
+                Vec::new(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&err, ValidationError::LinksOnNonLibraryTarget { kind: k, .. }
+                    if k == kind.as_str()),
+                "expected LinksOnNonLibraryTarget for {kind:?}, got {err:?}"
+            );
+        }
+
+        let bad_value = Package::new(
+            pkg("demo"),
+            version(),
+            vec![with_links("one", TargetKind::Library, "lib z")],
+            Vec::new(),
+        )
+        .unwrap_err();
+        assert!(matches!(bad_value, ValidationError::InvalidLinksValue(_)));
     }
 
     #[test]

@@ -573,6 +573,7 @@ mod tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language: Default::default(),
+            links: None,
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

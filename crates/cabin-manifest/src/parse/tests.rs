@@ -1681,6 +1681,196 @@ fn target_required_features_parse_into_model() {
 }
 
 #[test]
+fn target_links_parses_into_model() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.zlib]
+            type = "library"
+            sources = ["src/z.c"]
+            links = "z"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.targets[0].links.as_deref(), Some("z"));
+}
+
+/// `links` values that pass the identity grammar include the `+` and
+/// `.` forms real native libraries use; a target without the key has
+/// no claim.
+#[test]
+fn target_links_accepts_identity_grammar_and_defaults_to_none() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            cxx-standard = "c++17"
+
+            [target.wrap]
+            type = "library"
+            sources = ["src/wrap.cc"]
+            links = "stdc++.v6"
+
+            [target.plain]
+            type = "library"
+            sources = ["src/plain.cc"]
+        "#;
+    let package = parse_project(manifest);
+    let links: Vec<_> = package
+        .targets
+        .iter()
+        .map(|t| (t.name.as_str(), t.links.as_deref()))
+        .collect();
+    // `Package::targets` is name-sorted, never declaration-ordered.
+    assert_eq!(links, vec![("plain", None), ("wrap", Some("stdc++.v6"))]);
+}
+
+#[test]
+fn target_links_rejects_invalid_values() {
+    for bad in ["", "lib z", "z/1", "z:1", "z\u{e9}"] {
+        // TOML literal strings take the value verbatim, so no escape
+        // dialect mismatch can leak into the case under test.
+        let manifest = format!(
+            r#"
+                [package]
+                name = "demo"
+                version = "0.1.0"
+                c-standard = "c11"
+
+                [target.zlib]
+                type = "library"
+                sources = ["src/z.c"]
+                links = '{bad}'
+            "#
+        );
+        match parse_manifest_str(&manifest).unwrap_err() {
+            ManifestError::Validation(ValidationError::InvalidLinksValue(value)) => {
+                assert_eq!(value, bad);
+            }
+            other => panic!("expected InvalidLinksValue for {bad:?}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn target_links_rejected_on_non_library_kinds() {
+    for kind in ["executable", "test", "example", "header-only"] {
+        // Header-only targets must declare an interface standard, so
+        // give that case one; the links gate must still fire.
+        let sources = if kind == "header-only" {
+            "interface-c-standard = \"c11\"".to_owned()
+        } else {
+            "sources = [\"src/main.c\"]".to_owned()
+        };
+        let manifest = format!(
+            r#"
+                [package]
+                name = "demo"
+                version = "0.1.0"
+                c-standard = "c11"
+
+                [target.app]
+                type = "{kind}"
+                {sources}
+                links = "z"
+            "#
+        );
+        match parse_manifest_str(&manifest).unwrap_err() {
+            ManifestError::Validation(ValidationError::LinksOnNonLibraryTarget {
+                target,
+                kind: got,
+                links,
+            }) => {
+                assert_eq!(target, "app");
+                assert_eq!(got, kind);
+                assert_eq!(links, "z");
+            }
+            other => panic!("expected LinksOnNonLibraryTarget for {kind}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn duplicate_links_across_targets_is_rejected() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.one]
+            type = "library"
+            sources = ["src/one.c"]
+            links = "z"
+
+            [target.two]
+            type = "library"
+            sources = ["src/two.c"]
+            links = "z"
+        "#;
+    match parse_manifest_str(manifest).unwrap_err() {
+        ManifestError::Validation(ValidationError::DuplicateTargetLinks {
+            links,
+            first,
+            second,
+        }) => {
+            assert_eq!(links, "z");
+            assert_eq!(first, "one");
+            assert_eq!(second, "two");
+        }
+        other => panic!("expected DuplicateTargetLinks, got {other:?}"),
+    }
+}
+
+/// Distinct identities across targets of one package are fine - the
+/// per-package rule is uniqueness of the claimed value, not a cap of
+/// one claim per package.
+#[test]
+fn distinct_links_across_targets_are_accepted() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.one]
+            type = "library"
+            sources = ["src/one.c"]
+            links = "z"
+
+            [target.two]
+            type = "library"
+            sources = ["src/two.c"]
+            links = "png"
+        "#;
+    let package = parse_project(manifest);
+    assert_eq!(package.targets.len(), 2);
+}
+
+/// A `links` key inside a `[target.'cfg(...)']` table falls through
+/// the generic conditional-table rejection - cfg tables are not
+/// buildable targets and gain no feature-specific arm.
+#[test]
+fn links_under_cfg_target_table_is_rejected_generically() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.'cfg(family = "unix")']
+            links = "z"
+        "#;
+    let err = parse_manifest_str(manifest).unwrap_err();
+    assert!(
+        matches!(err, ManifestError::InvalidConditionalTargetTable { .. }),
+        "expected the generic conditional-table rejection, got {err:?}"
+    );
+}
+
+#[test]
 fn target_required_features_reject_undeclared_feature() {
     let manifest = r#"
             [package]

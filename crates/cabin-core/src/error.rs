@@ -44,6 +44,29 @@ pub enum ValidationError {
     #[error("duplicate target name: {0:?}")]
     DuplicateTargetName(String),
 
+    #[error(
+        "invalid `links` value {0:?}; a native-library identity must be non-empty and consist only of ASCII letters, ASCII digits, `.`, `_`, `+`, and `-`"
+    )]
+    InvalidLinksValue(String),
+
+    #[error(
+        "target {target:?} ({kind}) cannot claim `links` {links:?}; only `library` targets produce a linkable artifact that can embody a native-library identity"
+    )]
+    LinksOnNonLibraryTarget {
+        target: String,
+        kind: String,
+        links: String,
+    },
+
+    #[error(
+        "targets {first:?} and {second:?} both claim the native-library identity {links:?}; a package may claim each `links` value at most once"
+    )]
+    DuplicateTargetLinks {
+        links: String,
+        first: String,
+        second: String,
+    },
+
     #[error("duplicate dependency {name:?} in {section}", section = kind.manifest_section())]
     DuplicateDependency { name: String, kind: DependencyKind },
 

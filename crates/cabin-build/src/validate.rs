@@ -629,6 +629,7 @@ mod tests {
                     cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx17)),
                     ..Default::default()
                 },
+                links: None,
             };
             let package = Package::new(
                 PackageName::new(name).unwrap(),
@@ -703,6 +704,7 @@ mod tests {
                 cxx_standard: Some(StandardDeclaration::Declared(CxxStandard::Cxx20)),
                 ..Default::default()
             },
+            links: None,
         };
         let package = Package::new(
             PackageName::new("demo").unwrap(),

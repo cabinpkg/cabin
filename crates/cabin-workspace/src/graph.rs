@@ -354,6 +354,7 @@ mod consumer_standards_tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language,
+            links: None,
         }
     }
 
