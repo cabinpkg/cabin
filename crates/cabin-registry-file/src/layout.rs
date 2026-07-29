@@ -416,7 +416,8 @@ mod tests {
         );
         assert_eq!(
             registry.artifact_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
-            dir.path().join("artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
+            dir.path()
+                .join("artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
             registry.relative_source_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
@@ -441,7 +442,8 @@ mod tests {
         );
         assert_eq!(
             registry.artifact_path(&name, &v, "aaaaaaaaaaaaaaaa"),
-            dir.path().join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
+            dir.path()
+                .join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
             registry.relative_source_path(&name, &v, "aaaaaaaaaaaaaaaa"),
@@ -464,11 +466,19 @@ mod tests {
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            registry.relative_source_path(
+                &PackageName::new("fmt").unwrap(),
+                &v,
+                "aaaaaaaaaaaaaaaa"
+            ),
             "../../blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            registry.relative_source_path(
+                &PackageName::new("fmtlib/fmt").unwrap(),
+                &v,
+                "aaaaaaaaaaaaaaaa"
+            ),
             "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }
@@ -488,7 +498,11 @@ mod tests {
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            registry.relative_source_path(
+                &PackageName::new("fmt").unwrap(),
+                &v,
+                "aaaaaaaaaaaaaaaa"
+            ),
             "../blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
 
@@ -500,11 +514,19 @@ mod tests {
         // Index docs sit at the registry root: no climb at all for a
         // bare name, one level for a scoped one.
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            registry.relative_source_path(
+                &PackageName::new("fmt").unwrap(),
+                &v,
+                "aaaaaaaaaaaaaaaa"
+            ),
             "blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            registry.relative_source_path(
+                &PackageName::new("fmtlib/fmt").unwrap(),
+                &v,
+                "aaaaaaaaaaaaaaaa"
+            ),
             "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }

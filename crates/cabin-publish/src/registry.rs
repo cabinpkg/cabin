@@ -291,7 +291,10 @@ mod tests {
         assert!(!report.dry_run);
         assert!(report.package_index_path.is_file());
         assert!(report.artifact_path.is_file());
-        assert_eq!(report.revision, report.checksum["sha256:".len()..][..16].to_owned());
+        assert_eq!(
+            report.revision,
+            report.checksum["sha256:".len()..][..16].to_owned()
+        );
         assert_eq!(
             report.source_path,
             format!(

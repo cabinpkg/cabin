@@ -167,7 +167,11 @@ impl RegistryApi {
     ) -> Result<PublishReceipt, RegistryApiError> {
         // The `--new-revision` opt-in rides as a query parameter so
         // the route itself stays the immutable-unit address.
-        let suffix = if new_revision { "?new-revision=true" } else { "" };
+        let suffix = if new_revision {
+            "?new-revision=true"
+        } else {
+            ""
+        };
         let url = self.package_route(name, version, suffix)?;
         let body = encode_publish_body(metadata_json, archive)?;
         let request = self

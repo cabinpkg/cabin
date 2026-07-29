@@ -209,10 +209,7 @@ pub(crate) fn insert_version(
                 .and_then(serde_json::Value::as_object)
                 .ok_or_else(|| RegistryError::PackageIndexInvalid {
                     path: PathBuf::from(format!("packages/{}.json", metadata.name)),
-                    message: format!(
-                        "version {:?} carries no `revisions` map",
-                        metadata.version
-                    ),
+                    message: format!("version {:?} carries no `revisions` map", metadata.version),
                 })?;
             if let Some(prior) = revisions.get(revision.as_str()) {
                 let prior_checksum = prior.get("checksum").and_then(serde_json::Value::as_str);
@@ -295,10 +292,11 @@ fn projected_resolver_metadata(
     metadata: &PackageMetadata,
 ) -> Result<[(&'static str, serde_json::Value); 3], RegistryError> {
     let dependencies = serde_json::to_value(&metadata.dependencies)?;
-    let features = (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
-        .then(|| serde_json::to_value(&metadata.features))
-        .transpose()?
-        .unwrap_or(serde_json::Value::Null);
+    let features = (!metadata.features.default.is_empty()
+        || !metadata.features.features.is_empty())
+    .then(|| serde_json::to_value(&metadata.features))
+    .transpose()?
+    .unwrap_or(serde_json::Value::Null);
     let standards = (!metadata.standards.is_empty())
         .then(|| serde_json::to_value(&metadata.standards))
         .transpose()?
@@ -506,9 +504,13 @@ mod tests {
     #[test]
     fn identical_republication_is_a_no_op() {
         let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
-        let (index, disposition) =
-            insert_version(Some(initial.clone()), &metadata("fmt", "10.2.1"), STAMP, false)
-                .unwrap();
+        let (index, disposition) = insert_version(
+            Some(initial.clone()),
+            &metadata("fmt", "10.2.1"),
+            STAMP,
+            false,
+        )
+        .unwrap();
         assert_eq!(disposition, InsertDisposition::NoOp);
         assert_eq!(index, initial);
         // The opt-in flag makes no difference to a byte-identical

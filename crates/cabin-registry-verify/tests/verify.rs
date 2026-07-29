@@ -991,7 +991,10 @@ fn a_revision_contradicting_the_checksum_is_an_operational_failure() {
     let (archive, mut pending) = benign(&dir);
     pending.revision = "0".repeat(16);
     let err = inspect(&archive, &pending, &Limits::default(), None).unwrap_err();
-    assert!(matches!(err, VerifyError::RevisionMismatch { .. }), "{err:?}");
+    assert!(
+        matches!(err, VerifyError::RevisionMismatch { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]

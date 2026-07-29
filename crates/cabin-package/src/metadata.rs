@@ -339,7 +339,8 @@ pub fn render_canonical_json(metadata: &PackageMetadata) -> Result<String, Packa
 mod tests {
     /// A digest-shaped checksum so `canonical_metadata` can derive
     /// the packaging revision (`0011223344556677`).
-    const TEST_CHECKSUM: &str = "sha256:00112233445566778899aabbccddeeff8899aabbccddeeff8899aabbccddeeff";
+    const TEST_CHECKSUM: &str =
+        "sha256:00112233445566778899aabbccddeeff8899aabbccddeeff8899aabbccddeeff";
 
     use super::*;
     use cabin_core::{

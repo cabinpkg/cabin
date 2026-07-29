@@ -62,7 +62,9 @@ pub enum RegistryError {
         field: &'static str,
     },
 
-    #[error("staged metadata for `{name} {version}` carries a malformed checksum claim {checksum:?}")]
+    #[error(
+        "staged metadata for `{name} {version}` carries a malformed checksum claim {checksum:?}"
+    )]
     InvalidChecksum {
         name: String,
         version: String,

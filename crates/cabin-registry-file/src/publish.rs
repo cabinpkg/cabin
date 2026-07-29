@@ -303,12 +303,8 @@ fn plan_publish(
     let artifact_path = registry.artifact_path(&staged.name, &version, &revision);
 
     let existing = read_optional(&package_index_path)?;
-    let (new_index, disposition) = insert_version(
-        existing,
-        metadata,
-        &publish_stamp(),
-        request.new_revision,
-    )?;
+    let (new_index, disposition) =
+        insert_version(existing, metadata, &publish_stamp(), request.new_revision)?;
 
     if disposition == InsertDisposition::Inserted && artifact_path.exists() {
         // Artifact present but index does not record this revision:
@@ -346,8 +342,7 @@ fn staged_metadata_for_registry(
 ) -> Result<PackageMetadata, RegistryError> {
     let mut metadata = staged.metadata.clone();
     let revision = crate::index::revision_of(&metadata)?.to_owned();
-    metadata.source.path =
-        registry.relative_source_path(&staged.name, &staged.version, &revision);
+    metadata.source.path = registry.relative_source_path(&staged.name, &staged.version, &revision);
     Ok(metadata)
 }
 
@@ -590,7 +585,8 @@ mod tests {
         assert!(!outcome.no_op);
         assert_eq!(outcome.revision, rev_of(&second));
 
-        let body = fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
+        let body =
+            fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let entry = &value["versions"]["10.2.1"];
         assert_eq!(entry["revision"], rev_of(&second));
@@ -682,7 +678,10 @@ mod tests {
             new_revision: false,
         })
         .unwrap_err();
-        assert!(matches!(err, RegistryError::NewRevisionRequiresOptIn { .. }));
+        assert!(matches!(
+            err,
+            RegistryError::NewRevisionRequiresOptIn { .. }
+        ));
         // The dry run reports the respin outcome without writing when
         // the opt-in is given.
         let outcome = validate_publish(&RegistryPublishRequest {

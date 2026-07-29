@@ -66,7 +66,10 @@ pub(crate) fn validate_locked_metadata(
     // at all, so there is no revision to pin.
     match (&locked.checksum, &meta.checksum) {
         (Some(locked_ck), Some(current_ck))
-            if !meta.revisions.values().any(|rev| &rev.checksum == locked_ck) =>
+            if !meta
+                .revisions
+                .values()
+                .any(|rev| &rev.checksum == locked_ck) =>
         {
             return Err(ResolveError::LockedChecksumMismatch {
                 name: name.as_str().to_owned(),

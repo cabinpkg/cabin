@@ -29,7 +29,9 @@ pub const PACKAGING_REVISION_HEX_LEN: usize = 16;
 #[must_use]
 pub fn is_valid_packaging_revision(value: &str) -> bool {
     value.len() == PACKAGING_REVISION_HEX_LEN
-        && value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        && value
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// Derive the packaging-revision identifier from a canonical archive's

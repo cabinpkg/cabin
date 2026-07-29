@@ -81,7 +81,11 @@ fn published_package_index_is_well_formed() {
     assert!(checksum.starts_with("sha256:"));
     // The revision id is the checksum's 16-hex prefix.
     assert_eq!(&checksum["sha256:".len()..][..16], revision);
-    assert!(rev_entry["published-at"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        rev_entry["published-at"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
     assert_eq!(rev_entry["source"]["type"], "archive");
     assert_eq!(rev_entry["source"]["format"], "zip");
     assert_eq!(

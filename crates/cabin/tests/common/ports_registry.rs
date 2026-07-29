@@ -110,14 +110,21 @@ fn stage(ports_dir: &Path, cache_dir: &Path, work_dir: &Path, fetch: ArchiveFetc
     let sources_dir = work_dir.join("src");
     let port_cache = PortCache::new(cache_dir.join("ports"));
     for conversion in &conversions {
-        stage_conversion(conversion, &port_cache, &sources_dir, &registry_dir, fetch, false)
-            .unwrap_or_else(|err| {
-                panic!(
-                    "staging {} {} into the fixture registry: {err:#}",
-                    conversion.scoped_name.as_str(),
-                    conversion.published_version
-                )
-            });
+        stage_conversion(
+            conversion,
+            &port_cache,
+            &sources_dir,
+            &registry_dir,
+            fetch,
+            false,
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "staging {} {} into the fixture registry: {err:#}",
+                conversion.scoped_name.as_str(),
+                conversion.published_version
+            )
+        });
     }
     registry_dir
 }

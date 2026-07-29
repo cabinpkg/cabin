@@ -1059,8 +1059,7 @@ mod tests {
             ResolveMode::Locked,
         );
         // The lockfile pins a checksum no published revision carries.
-        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
-            Some(format!("sha256:{REV_B}"));
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum = Some(format!("sha256:{REV_B}"));
 
         let err = resolve(&input, &index).unwrap_err();
         assert!(matches!(
@@ -1103,8 +1102,7 @@ mod tests {
             vec![("fmt", "10.2.1")],
             ResolveMode::Locked,
         );
-        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
-            Some(format!("sha256:{REV_A}"));
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum = Some(format!("sha256:{REV_A}"));
 
         let out = resolve(&input, &index).unwrap();
         assert_eq!(out.packages[1].version, version("10.2.1"));

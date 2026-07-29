@@ -818,7 +818,10 @@ mod tests {
         let (ver, meta) = entry.versions.iter().next().unwrap();
         assert_eq!(ver, &semver::Version::parse("10.2.1").unwrap());
         assert!(!meta.yanked);
-        assert_eq!(meta.checksum.as_deref(), Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        assert_eq!(
+            meta.checksum.as_deref(),
+            Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
         assert_eq!(meta.revision.as_deref(), Some("aaaaaaaaaaaaaaaa"));
     }
 
@@ -1234,7 +1237,11 @@ mod tests {
         // Relative path resolved against the index file's directory.
         match source {
             SourceLocation::LocalPath(p) => {
-                assert_eq!(p, &dir.path().join("../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"));
+                assert_eq!(
+                    p,
+                    &dir.path()
+                        .join("../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
+                );
             }
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
         }
@@ -1627,7 +1634,9 @@ mod tests {
         let source = meta.source.as_ref().unwrap();
         // `../artifacts/...` resolves against `packages/` to the
         // registry's artifacts directory.
-        let expected = dir.path().join("packages/../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip");
+        let expected = dir
+            .path()
+            .join("packages/../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip");
         match source {
             SourceLocation::LocalPath(p) => assert_eq!(p, &expected),
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
