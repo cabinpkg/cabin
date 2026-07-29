@@ -341,9 +341,11 @@ case "$command" in
     # wipe) could still land a put after the emptiness check below.
     # The freshly-wiped database normally holds no publish-capable
     # token at all - proving that (or blocked writes) closes the race.
+    # Revoked tokens do not count: the auth lookup refuses them
+    # (`revoked_at IS NULL`), so they cannot admit a publisher.
     step "evidence: no publish-capable token exists, or writes are blocked"
     publishers="$(wrangler d1 execute DB --remote --json --command \
-      "SELECT COUNT(*) AS n FROM tokens WHERE scopes LIKE '%publish%'" |
+      "SELECT COUNT(*) AS n FROM tokens WHERE scopes LIKE '%publish%' AND revoked_at IS NULL" |
       node -e '
         const out = JSON.parse(require("fs").readFileSync(0, "utf8"));
         console.log(out[0].results[0].n);
