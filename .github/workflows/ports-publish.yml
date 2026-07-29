@@ -112,6 +112,11 @@ jobs:
     # publish that can only fail unauthenticated.
     if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The registry-deploy wait below reads this repository's
+      # workflow runs.
+      actions: read
     # Serialize publish runs without cancelling an active one. The
     # group does not order runs; the freshness guard below keeps a
     # stale run from mutating the registry.
@@ -179,6 +184,104 @@ jobs:
               crates/cabin-registry-api/)" ]; then
             echo "superseded=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # A commit can change both the publish client and the Worker's
+      # accepted metadata schema (registry/src mirrors the canonical
+      # document under deny_unknown_fields), and registry.yml deploys
+      # independently of this workflow. Publishing before the same-SHA
+      # deploy lands would 400 every upload against the old Worker, so
+      # wait for that run when one exists - and require the Deploy
+      # *step* to have run: the deploy-registry job goes green with the
+      # step skipped when the run is superseded or a D1 migration
+      # awaits its by-hand apply, and both cases leave the old Worker
+      # live. The gate is therefore satisfied by ANY successful main
+      # Deploy whose head CONTAINS this SHA (ancestor check): when a
+      # newer registry commit supersedes this SHA's run, its deploy
+      # carries this SHA's schema changes, and inspecting only the
+      # same-SHA run would deadlock every rerun on the permanently
+      # skipped step. A commit that triggers no Registry run publishes
+      # against the already-deployed Worker unchanged (residual: an
+      # *earlier* registry commit whose deploy was skipped is not
+      # detected here; that commit's own failure surfaces are the
+      # alert). Transient API errors retry on the next iteration; the
+      # ceiling covers registry.yml's cold-cache gate.
+      - name: Wait for a registry deploy containing this SHA
+        if: steps.freshness.outputs.superseded != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deploy_step() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$1/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "deploy-registry") | .steps[] | select(.name == "Deploy") | .conclusion][0]'
+          }
+          for _ in $(seq 1 90); do
+            git fetch --quiet origin main || true
+            # Satisfied: a successful main run containing this SHA
+            # whose Deploy step actually ran and succeeded.
+            # per_page=100: successive skipped-Deploy successes (a
+            # migration awaiting its by-hand apply green-lights every
+            # subsequent run) must not push the qualifying run out of
+            # the scanned window - the same-SHA fallback below cannot
+            # break the tie for a merely-successful run, so a buried
+            # candidate would idle the loop into its ceiling.
+            if candidates=$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs?branch=main&status=success&per_page=100" \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"'); then
+              while read -r rid rsha; do
+                [ -n "$rid" ] || continue
+                git merge-base --is-ancestor "$GITHUB_SHA" "$rsha" 2>/dev/null || continue
+                if [ "$(deploy_step "$rid" || echo transient)" = "success" ]; then
+                  echo "registry deploy $rid (head $rsha) contains this SHA"
+                  exit 0
+                fi
+              done <<< "$candidates"
+            fi
+            if ! runs=$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs?head_sha=$GITHUB_SHA" \
+              --jq '.workflow_runs'); then
+              echo "transient API error listing Registry runs; retrying"
+              sleep 40
+              continue
+            fi
+            if [ "$(printf '%s' "$runs" | jq 'length')" -eq 0 ]; then
+              echo "no Registry run for this SHA; the deployed worker is already current"
+              exit 0
+            fi
+            conclusion=$(printf '%s' "$runs" | jq -r '.[0].conclusion')
+            if [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
+              # Terminal only when nothing pending could still satisfy
+              # the ancestor gate: a queued or in-progress run whose
+              # head contains this SHA (a rerun, or main already
+              # carrying the fix) delivers the deploy on a later
+              # iteration, while failing here would strand this run -
+              # registry-only pushes never retrigger ports-publish.
+              if ! pending=$(gh api \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs?branch=main&per_page=100" \
+                --jq '.workflow_runs[] | select(.status != "completed") | .head_sha'); then
+                echo "transient API error listing pending Registry runs; retrying"
+                sleep 40
+                continue
+              fi
+              descendant_pending=false
+              while read -r psha; do
+                [ -n "$psha" ] || continue
+                if git merge-base --is-ancestor "$GITHUB_SHA" "$psha" 2>/dev/null; then
+                  descendant_pending=true
+                  break
+                fi
+              done <<< "$pending"
+              if [ "$descendant_pending" = true ]; then
+                echo "Registry run for this SHA concluded '$conclusion'; a pending run containing it may still deploy; waiting"
+                sleep 40
+                continue
+              fi
+              echo "Registry run for this SHA concluded '$conclusion' and no deploy containing it has landed; not publishing against a stale worker" >&2
+              exit 1
+            fi
+            sleep 40
+          done
+          echo "timed out waiting for a registry deploy containing this SHA" >&2
+          exit 1
 
       - name: Publish to registry.cabinpkg.com
         if: steps.freshness.outputs.superseded != 'true'

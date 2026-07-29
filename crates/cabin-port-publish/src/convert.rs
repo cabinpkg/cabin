@@ -603,6 +603,7 @@ type = "library"
 sources = ["adler32.c"]
 include-dirs = ["."]
 c-standard = "c11"
+links = "z"
 
 [target.'cfg(family = "unix")'.profile]
 defines = ["HAVE_UNISTD_H=1"]
@@ -688,6 +689,9 @@ deps = ["zlib"]
         );
         assert!(converted.contains("[target.z]"), "{converted}");
         assert!(!converted.contains("[target.zlib]"), "{converted}");
+        // The links identity is independent of the target key: the
+        // rename to `z` must carry the claim through unchanged.
+        assert!(converted.contains("links = \"z\""), "{converted}");
         // The explanatory comment stays attached to the renamed target.
         assert!(
             converted.contains(

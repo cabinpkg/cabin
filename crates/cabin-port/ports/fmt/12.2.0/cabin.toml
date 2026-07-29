@@ -21,3 +21,4 @@ include-dirs = ["include"]
 # c++11 / c++14 projects.
 cxx-standard = "c++17"
 interface-cxx-standard = "c++11"
+links = "fmt"
