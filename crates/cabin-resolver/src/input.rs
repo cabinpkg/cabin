@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cabin_core::standard_compatibility::ConsumerStandards;
 use cabin_core::{IncompatibleStandards, PackageName};
@@ -36,6 +36,23 @@ pub struct ResolveInput {
     /// default) makes every candidate rank as undeclared, so
     /// `Fallback` reduces to `Allow`.
     pub consumer_standards: ConsumerStandards,
+    /// Declared `links` claims of the packages the index never sees:
+    /// the selected workspace members, path dependencies, and
+    /// patched manifests.  The post-resolution uniqueness check
+    /// validates these together with the resolved registry packages'
+    /// index claims, because native symbol collisions ignore where a
+    /// package came from.  Empty (the default) means the local side
+    /// claims nothing.
+    pub local_links: Vec<LinksClaim>,
+    /// Names whose package the build takes from a local source
+    /// (workspace member, path dependency, `[patch]`) even when
+    /// resolution selects a same-named index candidate through a
+    /// transitive registry edge.  The links check skips these
+    /// candidates' index claims - the local replacement is what
+    /// links, and its claims (if any) arrive via `local_links` -
+    /// so a patched-away upstream cannot report a collision the
+    /// final link can never have.
+    pub locally_supplied: BTreeSet<PackageName>,
 }
 
 impl ResolveInput {
@@ -54,8 +71,25 @@ impl ResolveInput {
             mode: ResolveMode::PreferLocked,
             incompatible_standards: IncompatibleStandards::default(),
             consumer_standards: ConsumerStandards { c: None, cxx: None },
+            local_links: Vec::new(),
+            locally_supplied: BTreeSet::new(),
         }
     }
+}
+
+/// One target's declared native-library identity claim, attributed
+/// to the package and version that declares it.  The resolver builds
+/// these from index metadata for resolved registry packages; callers
+/// supply them via [`ResolveInput::local_links`] for packages the
+/// index never sees.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LinksClaim {
+    pub package: PackageName,
+    pub version: semver::Version,
+    /// Name of the claiming target inside `package`.
+    pub target: String,
+    /// The claimed native-library identity (`links = "z"`).
+    pub links: String,
 }
 
 /// A previously-resolved version copied out of the lockfile.  Kept

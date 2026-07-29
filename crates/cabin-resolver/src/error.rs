@@ -133,6 +133,23 @@ pub enum ResolveError {
         package: String,
         requirement: String,
     },
+
+    #[error(
+        "native library {links:?} is claimed by multiple packages in the dependency graph: {}",
+        format_claimants(.claimants)
+    )]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help(
+            "each `links` identity may appear at most once in a resolution graph, because duplicate native symbols fail at the final link even through private dependencies; keep exactly one of the claimants - drop or replace the other dependencies, or move them behind features or platform conditions so they never resolve together"
+        )
+    )]
+    LinksCollision {
+        links: String,
+        /// Every claimant of `links`, sorted by package, version,
+        /// then target, so the rendered list is deterministic.
+        claimants: Vec<crate::input::LinksClaim>,
+    },
 }
 /// One constraint observed by the resolver, carrying the requirement and
 /// the package that imposed it.  Surfaced inside
@@ -152,4 +169,22 @@ fn format_constraints(constraints: &[ResolverConstraint]) -> String {
         .collect();
     parts.sort();
     parts.join("; ")
+}
+
+/// `zlib v1.3.1 (target `z`); miniz v3.1.2 (target `miniz`)` - the
+/// claimant list of [`ResolveError::LinksCollision`].  The variant
+/// stores claimants pre-sorted; rendering preserves that order.
+fn format_claimants(claimants: &[crate::input::LinksClaim]) -> String {
+    claimants
+        .iter()
+        .map(|c| {
+            format!(
+                "{} v{} (target `{}`)",
+                c.package.as_str(),
+                c.version,
+                c.target
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
