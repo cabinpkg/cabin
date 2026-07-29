@@ -146,15 +146,30 @@ include-dirs = ["include"]
         .success();
     let staged: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dist.join("fmt-10.2.1.json")).unwrap()).unwrap();
+    let revision = staged["checksum"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("sha256:")
+        .unwrap()[..16]
+        .to_owned();
+    let mut revisions = serde_json::Map::new();
+    revisions.insert(
+        revision.clone(),
+        serde_json::json!({
+            "checksum": staged["checksum"],
+            "published-at": "2026-01-01T00:00:00Z",
+            "source": {
+                "type": "archive",
+                "path": "../artifacts/fmt/fmt-10.2.1.zip",
+                "format": "zip"
+            }
+        }),
+    );
     let mut version_entry = serde_json::json!({
         "dependencies": {},
         "yanked": false,
-        "checksum": staged["checksum"],
-        "source": {
-            "type": "archive",
-            "path": "../artifacts/fmt/fmt-10.2.1.zip",
-            "format": "zip"
-        }
+        "revision": revision,
+        "revisions": revisions
     });
     if let Some(standards) = staged.get("standards") {
         version_entry["standards"] = standards.clone();
@@ -419,7 +434,11 @@ fn cross_origin_http_artifact_url_is_rejected() {
     let pkg_index = registry.join("packages/fmtlib/fmt.json");
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
-    value["versions"]["10.2.1"]["source"]["path"] =
+    let revision = value["versions"]["10.2.1"]["revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    value["versions"]["10.2.1"]["revisions"][&revision]["source"]["path"] =
         serde_json::Value::String("http://127.0.0.1/artifacts/fmt.zip".into());
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
@@ -446,8 +465,15 @@ fn http_artifact_checksum_mismatch_fails() {
     let pkg_index = registry.join("packages/fmtlib/fmt.json");
     let mut value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&pkg_index).unwrap()).unwrap();
-    value["versions"]["10.2.1"]["checksum"] =
-        serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
+    let revision = value["versions"]["10.2.1"]["revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Tamper only the digest's tail: the revision id stays the
+    // checksum's prefix (the loader validates that pairing), so the
+    // mismatch surfaces at fetch time, not at load time.
+    value["versions"]["10.2.1"]["revisions"][&revision]["checksum"] =
+        serde_json::Value::String(format!("sha256:{revision}{}", "0".repeat(48)));
     assert_fs::fixture::ChildPath::new(&pkg_index)
         .write_str(&(serde_json::to_string_pretty(&value).unwrap() + "\n"))
         .unwrap();
@@ -469,7 +495,7 @@ fn http_artifact_checksum_mismatch_fails() {
 #[test]
 fn relative_artifact_path_resolves_correctly() {
     // A successful resolve confirms the HTTP loader resolves the
-    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`
+    // scoped `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
     // source path against the nested package metadata URL.
     let dir = TempDir::new().unwrap();
     let registry = publish_scoped_fmt_to_registry(dir.path());

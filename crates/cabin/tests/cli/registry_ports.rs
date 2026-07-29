@@ -6,8 +6,8 @@
 //! overlays, so these tests consume the same canonical packages the
 //! hosted `cabin-ports` scope serves: scoped lowercase names,
 //! native-artifact target keys (`zlib`'s sole library target
-//! publishes as `z`), rewritten inter-port dependencies, `+cabin.<n>`
-//! packaging revisions, and stamped `[package.upstream]` provenance.
+//! publishes as `z`), rewritten inter-port dependencies, and stamped
+//! `[package.upstream]` provenance.
 //! Every upstream archive is a fake seeded into the port cache under
 //! an unreachable `https://` pin, so nothing here touches the
 //! network.  Builtin-port (`port = true` / `port-path`) mechanics
@@ -104,9 +104,8 @@ impl StagedPorts {
 /// upstream sources under each recipe's real layout), convert it
 /// with the publisher pipeline, and publish it into a file registry:
 ///
-/// - `zlib` 1.3.1 - C library; a `packaging-revision` sidecar makes
-///   the published version `1.3.1+cabin.1`, and the target key
-///   renames to the native stem `z`;
+/// - `zlib` 1.3.1 - C library; the target key renames to the native
+///   stem `z`;
 /// - `libpng` 1.6.50 - depends on zlib (`{ port = true }` in the
 ///   committed overlay, rewritten to the scoped edge) and places
 ///   `pnglibconf.h` via the recipe's `[[copy]]` step;
@@ -128,7 +127,6 @@ fn stage_fixture_ports() -> StagedPorts {
         .file("zutil.c", FAKE_ZLIB_C)
         .overlay_manifest(ZLIB_OVERLAY)
         .build();
-    fs::write(zlib.port_dir.join("packaging-revision"), "1\n").unwrap();
 
     let libpng = repo
         .port("libpng", "1.6.50")
@@ -228,8 +226,7 @@ fn build_and_run(staged: &StagedPorts, manifest: &Path, build_dir: &Path) -> Str
 
 /// `deps = ["cabin-ports/zlib"]` resolves to the package's sole
 /// library target even though it publishes under the native stem
-/// `z`, and the `=1.3.1` requirement matches the `1.3.1+cabin.1`
-/// packaging revision (requirement matching ignores build metadata).
+/// `z`.
 #[test]
 fn bare_scoped_dep_builds_and_runs_against_renamed_target() {
     require_c_and_cxx_build_tools();
@@ -321,9 +318,9 @@ fn feature_flows_through_registry_dependency_edge() {
 
 /// The consumer declares only `cabin-ports/libpng`; zlib arrives
 /// transitively through libpng's converted `"cabin-ports/zlib" =
-/// "^1.3"` edge (matching the `+cabin.1` revision), the
-/// `[[copy]]`-placed `pnglibconf.h` is part of the published
-/// package, and both published archives land on the link.
+/// "^1.3"` edge, the `[[copy]]`-placed `pnglibconf.h` is part of
+/// the published package, and both published archives land on the
+/// link.
 #[test]
 fn transitive_scoped_dep_builds_and_links_both_archives() {
     require_c_and_cxx_build_tools();
@@ -357,9 +354,9 @@ fn transitive_scoped_dep_builds_and_links_both_archives() {
 }
 
 /// `cabin resolve` records scoped registry dependencies in the
-/// lockfile - the full scoped name, the published version with its
-/// packaging revision verbatim, `source = "index"`, and the index
-/// checksum - and a `--locked` re-resolve leaves the file
+/// lockfile - the full scoped name, the plain upstream version,
+/// `source = "index"`, and the index checksum (which pins the
+/// packaging revision) - and a `--locked` re-resolve leaves the file
 /// byte-identical.
 #[test]
 fn lockfile_round_trips_scoped_registry_dependencies() {
@@ -388,7 +385,7 @@ fn lockfile_round_trips_scoped_registry_dependencies() {
         "name = \"cabin-ports/libpng\"",
         "version = \"1.6.50\"",
         "name = \"cabin-ports/zlib\"",
-        "version = \"1.3.1+cabin.1\"",
+        "version = \"1.3.1\"",
         "source = \"index\"",
         "checksum = \"sha256:",
     ] {
@@ -504,21 +501,38 @@ fn vendor_reconstructs_offline_builds_from_scoped_registry() {
         .assert()
         .success();
 
-    // The vendor directory is itself a scoped file registry.
+    // The vendor directory is itself a scoped file registry, its
+    // artifact filenames revision-qualified.
     assert!(vendor_dir.join("packages/cabin-ports/zlib.json").is_file());
     assert!(
         vendor_dir
             .join("packages/cabin-ports/libpng.json")
             .is_file()
     );
+    let vendored_revision = |package: &str, version: &str| -> String {
+        let body =
+            fs::read_to_string(vendor_dir.join(format!("packages/cabin-ports/{package}.json")))
+                .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        value["versions"][version]["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let zlib_rev = vendored_revision("zlib", "1.3.1");
+    let libpng_rev = vendored_revision("libpng", "1.6.50");
     assert!(
         vendor_dir
-            .join("artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1+cabin.1.zip")
+            .join(format!(
+                "artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{zlib_rev}.zip"
+            ))
             .is_file()
     );
     assert!(
         vendor_dir
-            .join("artifacts/cabin-ports/libpng/cabin-ports-libpng-1.6.50.zip")
+            .join(format!(
+                "artifacts/cabin-ports/libpng/cabin-ports-libpng-1.6.50-{libpng_rev}.zip"
+            ))
             .is_file()
     );
 

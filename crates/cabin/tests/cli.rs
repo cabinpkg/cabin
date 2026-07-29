@@ -270,8 +270,10 @@ fn make_archive(path: &std::path::Path, entries: &[(&str, &str)]) -> String {
 /// Write a local index entry at `index_dir/{package}.json` for
 /// `package`@`version`, with the given dependencies JSON, checksum (a
 /// bare hex digest; the `sha256:` prefix is added here), and an archive
-/// `source.path`.  Centralizes the index schema so the registry /
-/// resolver / vendor tests share one definition.
+/// `source.path`.  The version carries one packaging revision - the
+/// checksum's 16-hex prefix - as its current one.  Centralizes the
+/// index schema so the registry / resolver / vendor tests share one
+/// definition.
 fn write_index_entry(
     index_dir: &std::path::Path,
     package: &str,
@@ -280,6 +282,7 @@ fn write_index_entry(
     checksum: &str,
     source_path: &str,
 ) {
+    let revision = &checksum[..16];
     let body = format!(
         r#"{{
   "schema": 1,
@@ -288,8 +291,14 @@ fn write_index_entry(
     "{version}": {{
       "dependencies": {deps_json},
       "yanked": false,
-      "checksum": "sha256:{checksum}",
-      "source": {{ "type": "archive", "path": "{source_path}", "format": "zip" }}
+      "revision": "{revision}",
+      "revisions": {{
+        "{revision}": {{
+          "checksum": "sha256:{checksum}",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": {{ "type": "archive", "path": "{source_path}", "format": "zip" }}
+        }}
+      }}
     }}
   }}
 }}"#
@@ -380,14 +389,17 @@ version = "0.1.0"
     }
 }
 
-/// Like [`write_index_entry`] but without a `source` block, for index
-/// entries whose archive is never fetched (resolver-only tests).
+/// Like [`write_index_entry`] but with a source path no test ever
+/// fetches, for index entries that only need to resolve and lock (a
+/// revision entry always names its archive, even when nothing reads
+/// it).
 fn write_index_entry_no_source(
     index_dir: &std::path::Path,
     package: &str,
     version: &str,
     checksum: &str,
 ) {
+    let revision = &checksum[..16];
     let body = format!(
         r#"{{
   "schema": 1,
@@ -396,7 +408,14 @@ fn write_index_entry_no_source(
     "{version}": {{
       "dependencies": {{}},
       "yanked": false,
-      "checksum": "sha256:{checksum}"
+      "revision": "{revision}",
+      "revisions": {{
+        "{revision}": {{
+          "checksum": "sha256:{checksum}",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": {{ "type": "archive", "path": "unfetched.zip", "format": "zip" }}
+        }}
+      }}
     }}
   }}
 }}"#
@@ -1706,8 +1725,8 @@ const FMT_INDEX: &str = r#"{
   "schema": 1,
   "name": "fmt",
   "versions": {
-    "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
-    "10.1.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210" }
+    "10.2.1": { "dependencies": {}, "yanked": false, "revision": "0123456789abcdef", "revisions": { "0123456789abcdef": { "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } },
+    "10.1.0": { "dependencies": {}, "yanked": false, "revision": "fedcba9876543210", "revisions": { "fedcba9876543210": { "checksum": "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
   }
 }"#;
 
@@ -1718,7 +1737,14 @@ const SPDLOG_INDEX: &str = r#"{
     "1.13.0": {
       "dependencies": { "fmt": ">=10.0.0 <11.0.0" },
       "yanked": false,
-      "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "revision": "aaaaaaaaaaaaaaaa",
+      "revisions": {
+        "aaaaaaaaaaaaaaaa": {
+          "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" }
+        }
+      }
     }
   }
 }"#;
@@ -2052,8 +2078,8 @@ const FMT_INDEX_TWO_VERSIONS: &str = r#"{
   "schema": 1,
   "name": "fmt",
   "versions": {
-    "10.2.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-    "10.1.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+    "10.2.0": { "dependencies": {}, "yanked": false, "revision": "bbbbbbbbbbbbbbbb", "revisions": { "bbbbbbbbbbbbbbbb": { "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } },
+    "10.1.0": { "dependencies": {}, "yanked": false, "revision": "cccccccccccccccc", "revisions": { "cccccccccccccccc": { "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
   }
 }"#;
 
@@ -2061,7 +2087,7 @@ const FMT_INDEX_OLDER_ONLY: &str = r#"{
   "schema": 1,
   "name": "fmt",
   "versions": {
-    "10.1.0": { "dependencies": {}, "yanked": false, "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+    "10.1.0": { "dependencies": {}, "yanked": false, "revision": "cccccccccccccccc", "revisions": { "cccccccccccccccc": { "checksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
   }
 }"#;
 

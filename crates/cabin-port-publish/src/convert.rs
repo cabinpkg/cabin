@@ -567,7 +567,6 @@ mod tests {
     use cabin_port::model::CopyStep;
     use cabin_port::{ArchiveSource, OverlayManifest, PortChecksum, PortMetadata};
     use camino::Utf8PathBuf;
-    use semver::VersionReq;
     use url::Url;
 
     const SHA: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";

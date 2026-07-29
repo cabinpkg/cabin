@@ -437,9 +437,17 @@ fn fetch_rejects_unsafe_archive() {
 fn fetch_fails_when_index_has_no_source() {
     let dir = TempDir::new().unwrap();
     write_app_using_fmt(dir.path(), Some(APP_MAIN));
-    let archive = dir.path().join("artifacts/fmt-10.2.1.zip");
-    let hex = make_archive(&archive, &fmt_archive_entries());
-    write_index_entry_no_source(&dir.path().join("index"), "fmt", "10.2.1", &hex);
+    // A resolver-only entry (no `revisions` map at all) resolves but
+    // cannot be materialized.
+    assert_fs::fixture::ChildPath::new(dir.path().join("index/fmt.json"))
+        .write_str(
+            r#"{
+  "schema": 1,
+  "name": "fmt",
+  "versions": { "10.2.1": { "dependencies": {}, "yanked": false } }
+}"#,
+        )
+        .unwrap();
 
     let cache = dir.path().join("cache");
     cabin()
