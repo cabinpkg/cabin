@@ -445,6 +445,8 @@ mod tests {
                     dev_dependencies: BTreeMap::new(),
                     system_dependencies: BTreeMap::new(),
                     yanked,
+                    revision: None,
+                    revisions: BTreeMap::new(),
                     checksum: None,
                     source: None,
                     features: None,
@@ -500,89 +502,6 @@ mod tests {
         assert_eq!(out.packages[1].source, ResolvedSource::Index);
         assert_eq!(out.packages[1].name.as_str(), "fmt");
         assert_eq!(out.packages[1].version, version("10.2.1"));
-    }
-
-    /// Versions differing only in build metadata are distinct index
-    /// entries that all satisfy the same requirements (`matches`
-    /// ignores build metadata), and the newest under the total
-    /// order, i.e. the highest packaging revision, wins.  This is
-    /// what makes `cabin-ports` packaging revisions
-    /// (`1.3.1+cabin.N`) supersede the unrevised publication.
-    #[test]
-    fn build_metadata_revisions_supersede_the_unrevised_version() {
-        let index = build_index(vec![entry(
-            "cabin-ports/zlib",
-            vec![
-                ("1.3.1", vec![], false),
-                ("1.3.1+cabin.1", vec![], false),
-                ("1.3.1+cabin.2", vec![], false),
-            ],
-        )]);
-        for req_str in ["^1.3", "=1.3.1", ">=1.3.1, <1.4.0"] {
-            let out = resolve(&make_input(vec![("cabin-ports/zlib", req_str)]), &index).unwrap();
-            assert_eq!(
-                out.packages[1].version,
-                version("1.3.1+cabin.2"),
-                "requirement `{req_str}` must pick the highest packaging revision"
-            );
-        }
-    }
-
-    /// Two parents constraining the same dependency with different
-    /// comparator shapes (`=` and `^`): `PubGrub` intersects the
-    /// ranges, and the intersection still admits the build-metadata
-    /// revisions of the named version.
-    #[test]
-    fn build_metadata_revisions_survive_multi_parent_intersection() {
-        let index = build_index(vec![
-            entry(
-                "a",
-                vec![("1.0.0", vec![("cabin-ports/zlib", "=1.3.1")], false)],
-            ),
-            entry(
-                "b",
-                vec![("1.0.0", vec![("cabin-ports/zlib", "^1.3")], false)],
-            ),
-            entry(
-                "cabin-ports/zlib",
-                vec![("1.3.1", vec![], false), ("1.3.1+cabin.1", vec![], false)],
-            ),
-        ]);
-        let out = resolve(&make_input(vec![("a", "^1"), ("b", "^1")]), &index).unwrap();
-        let zlib = out
-            .packages
-            .iter()
-            .find(|p| p.name.as_str() == "cabin-ports/zlib")
-            .expect("zlib resolves");
-        assert_eq!(zlib.version, version("1.3.1+cabin.1"));
-    }
-
-    /// Lockfile stability across packaging revisions: a locked
-    /// version that still satisfies the constraints is kept, so a
-    /// newly published revision never churns an existing lockfile.
-    #[test]
-    fn locked_versions_survive_newer_build_metadata_revisions() {
-        let index = build_index(vec![entry(
-            "cabin-ports/zlib",
-            vec![
-                ("1.3.1", vec![], false),
-                ("1.3.1+cabin.1", vec![], false),
-                ("1.3.1+cabin.2", vec![], false),
-            ],
-        )]);
-        for locked_ver in ["1.3.1", "1.3.1+cabin.1"] {
-            let input = input_with_locked(
-                vec![("cabin-ports/zlib", "^1.3")],
-                vec![("cabin-ports/zlib", locked_ver)],
-                ResolveMode::PreferLocked,
-            );
-            let out = resolve(&input, &index).unwrap();
-            assert_eq!(
-                out.packages[1].version,
-                version(locked_ver),
-                "locked `{locked_ver}` must be kept"
-            );
-        }
     }
 
     /// A scoped name and a bare name sharing the base part are
@@ -1068,6 +987,8 @@ mod tests {
                 dev_dependencies: BTreeMap::new(),
                 system_dependencies: BTreeMap::new(),
                 yanked: false,
+                revision: None,
+                revisions: BTreeMap::new(),
                 checksum: None,
                 source: None,
                 features: None,
@@ -1101,27 +1022,73 @@ mod tests {
         assert!(!out.packages.iter().any(|p| p.name.as_str() == "forbidden"));
     }
 
+    /// Give one version of an already-built index entry a packaging
+    /// revision per checksum, with the last one current - the shape
+    /// the loader produces for a published version.
+    fn inject_revisions(index: &mut cabin_index::PackageIndex, name: &str, checksums: &[&str]) {
+        let entry = index.packages.get_mut(&pkg_name(name)).unwrap();
+        let meta = entry.versions.values_mut().next().unwrap();
+        for hex in checksums {
+            meta.revisions.insert(
+                hex[..16].to_owned(),
+                cabin_index::RevisionMetadata {
+                    checksum: format!("sha256:{hex}"),
+                    published_at: "2026-07-28T00:00:00Z".to_owned(),
+                    source: cabin_index::SourceLocation::LocalPath(std::path::PathBuf::from(
+                        "unused.zip",
+                    )),
+                },
+            );
+        }
+        let current = checksums.last().unwrap();
+        meta.revision = Some(current[..16].to_owned());
+        meta.checksum = Some(format!("sha256:{current}"));
+    }
+
+    const REV_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const REV_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
     #[test]
     fn locked_mode_fails_on_checksum_mismatch() {
         let mut index = build_index(vec![entry("fmt", vec![("10.2.1", vec![], false)])]);
-        // Inject a checksum on the index entry.
-        let entry = index.packages.get_mut(&pkg_name("fmt")).unwrap();
-        entry.versions.get_mut(&version("10.2.1")).unwrap().checksum =
-            Some("sha256:newvalue".into());
+        inject_revisions(&mut index, "fmt", &[REV_A]);
 
         let mut input = input_with_locked(
             vec![("fmt", "*")],
             vec![("fmt", "10.2.1")],
             ResolveMode::Locked,
         );
-        // Lockfile thinks the checksum is something else.
-        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum = Some("sha256:oldvalue".into());
+        // The lockfile pins a checksum no published revision carries.
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
+            Some(format!("sha256:{REV_B}"));
 
         let err = resolve(&input, &index).unwrap_err();
         assert!(matches!(
             err,
             ResolveError::LockedChecksumMismatch { name, .. } if name == "fmt"
         ));
+    }
+
+    /// The lockfile checksum pins a packaging revision, and a
+    /// superseded revision stays valid: published revisions remain
+    /// fetchable, so a respin must never break `--locked` builds
+    /// that pin the older bytes.
+    #[test]
+    fn locked_checksum_matching_a_superseded_revision_resolves() {
+        let mut index = build_index(vec![entry("fmt", vec![("10.2.1", vec![], false)])]);
+        // Two revisions; REV_B is current, REV_A superseded.
+        inject_revisions(&mut index, "fmt", &[REV_A, REV_B]);
+
+        let mut input = input_with_locked(
+            vec![("fmt", "*")],
+            vec![("fmt", "10.2.1")],
+            ResolveMode::Locked,
+        );
+        input.locked.get_mut(&pkg_name("fmt")).unwrap().checksum =
+            Some(format!("sha256:{REV_A}"));
+
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(out.packages[1].version, version("10.2.1"));
     }
 
     // -----------------------------------------------------------------
@@ -1365,6 +1332,8 @@ mod tests {
                 dev_dependencies: BTreeMap::new(),
                 system_dependencies: BTreeMap::new(),
                 yanked: false,
+                revision: None,
+                revisions: BTreeMap::new(),
                 checksum: None,
                 source: None,
                 features: None,

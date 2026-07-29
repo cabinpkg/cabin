@@ -100,7 +100,7 @@ pub enum ResolveError {
     },
 
     #[error(
-        "checksum mismatch for locked package {name:?} {version}: lockfile says {expected:?}, index says {actual:?}"
+        "checksum mismatch for locked package {name:?} {version}: the lockfile pins {expected:?} but no packaging revision of that version in the index carries it (the current revision is {actual:?})"
     )]
     #[diagnostic(
         code(cabin::resolver::error),

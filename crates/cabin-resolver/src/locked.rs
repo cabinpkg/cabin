@@ -58,14 +58,19 @@ pub(crate) fn validate_locked_metadata(
             version: locked.version.to_string(),
         });
     }
-    if let (Some(locked_ck), Some(index_ck)) = (&locked.checksum, &meta.checksum)
-        && locked_ck != index_ck
+    // The lockfile checksum pins a packaging revision; a superseded
+    // revision is still valid (published revisions stay fetchable),
+    // so the pin must match *some* revision, not the current one.
+    // Checksum-free entries (resolver-only fixtures) skip the check,
+    // as does a checksum-free lockfile record.
+    if let (Some(locked_ck), Some(current_ck)) = (&locked.checksum, &meta.checksum)
+        && !meta.revisions.values().any(|rev| &rev.checksum == locked_ck)
     {
         return Err(ResolveError::LockedChecksumMismatch {
             name: name.as_str().to_owned(),
             version: locked.version.to_string(),
             expected: locked_ck.clone(),
-            actual: index_ck.clone(),
+            actual: current_ck.clone(),
         });
     }
     Ok(())
