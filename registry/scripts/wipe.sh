@@ -178,13 +178,21 @@ wrangler deploy
 cat <<EOF
 wipe OK (generation $old_generation -> $new_generation)
 
-Follow-ups (docs/runbook.md):
-  - commit the wrangler.jsonc database-id change and the refreshed
-    migrations-applied stamp
-  - tokens are gone: re-issue REGISTRY_VERIFY_TOKEN on /settings/tokens
-    and update the GitHub secret (gh secret set REGISTRY_VERIFY_TOKEN)
-  - users sign in again and re-issue their tokens
-  - the governor ledger still accounts for the deleted blobs: with the
-    fresh verify token, run scripts/governor.sh wipe (refused once
-    launched; docs/runbook.md, "The cost governor")
+Follow-ups, IN THIS ORDER (docs/runbook.md, "Post-wipe re-provisioning"):
+  1. commit the wrangler.jsonc database-id change and the refreshed
+     migrations-applied stamp
+  2. sign in again and re-claim scopes (/claim/<scope>; a GitHub org's
+     OAuth app grant survives the wipe, so re-claims grant immediately)
+  3. mint a verify-scoped token FIRST and update the GitHub secret
+     (gh secret set REGISTRY_VERIFY_TOKEN)
+  4. run scripts/governor.sh wipe with it BEFORE minting any
+     publish-capable token - its no-delayed-publisher evidence gate
+     requires zero live publish tokens (refused once launched)
+  5. only then mint publish tokens and update their secrets
+     (gh secret set CABIN_PORTS_TOKEN)
+  6. re-promote the operator quota class - the wipe reset every user to
+     'default', and a 17-package ports run exhausts the default daily
+     new-package quota (registry/docs/architecture.md, "Quota classes")
+  7. rerun whatever main CI went red against the old registry
+     (gh run rerun <id> --failed)
 EOF

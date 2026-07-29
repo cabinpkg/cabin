@@ -280,6 +280,29 @@ A browser still holding a pre-wipe session cookie recovers by visiting
 session whose user row is gone until then). Re-provisioning also always
 includes re-issuing the verifier's token (see "Verification pipeline").
 
+### Post-wipe re-provisioning
+
+Do the whole sequence in one sitting, in this order - two of the steps
+gate on each other and doing them out of order costs a revoke-and-remint
+round trip (drilled 2026-07-29):
+
+1. Commit the `wrangler.jsonc` database-id change and the refreshed
+   `migrations-applied` stamp; the deploy gate opens on that push.
+2. Sign in and re-claim scopes (`/claim/<scope>`). A GitHub org's OAuth
+   app grant survives the wipe, so an org-backed re-claim grants
+   immediately - no third-party-access dance the second time.
+3. Mint a **verify** token and `gh secret set REGISTRY_VERIFY_TOKEN`.
+4. Run `scripts/governor.sh wipe` with it **before any publish-capable
+   token exists**: its no-delayed-publisher evidence gate requires zero
+   live publish tokens (revoked ones no longer count).
+5. Only then mint publish tokens (`gh secret set CABIN_PORTS_TOKEN`).
+6. Re-promote the operator quota class ("Quota classes",
+   `docs/architecture.md`): the wipe resets every user to `default`,
+   whose daily new-package quota a full ports run exhausts mid-flight.
+7. Rerun whatever main CI went red against the old registry
+   (`gh run rerun <id> --failed`); byte-identical republication of the
+   already-landed packages no-ops, so a partial run resumes cleanly.
+
 ## Launch checklist
 
 Launch contains **no infrastructure work** - the Worker, domain, database,
