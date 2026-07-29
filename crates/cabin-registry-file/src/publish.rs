@@ -5,7 +5,7 @@ use cabin_package::{PackageMetadata, StagedPackage};
 
 use crate::atomic::atomically_write;
 use crate::error::RegistryError;
-use crate::index::{insert_version, read_optional, render};
+use crate::index::{InsertDisposition, insert_version, read_optional, render};
 use crate::layout::FileRegistry;
 use crate::lock::RegistryLock;
 
@@ -15,6 +15,12 @@ use crate::lock::RegistryLock;
 pub struct RegistryPublishRequest<'a> {
     pub registry_dir: &'a Path,
     pub staged: &'a StagedPackage,
+    /// The `--new-revision` opt-in: allow different bytes for an
+    /// already-published version to land as a new packaging revision
+    /// of it.  Without it such a publish fails with a diagnostic
+    /// explaining the revision mechanism, so a forgotten version
+    /// bump can never respin a version by accident.
+    pub new_revision: bool,
 }
 
 /// What [`publish_to_registry`] (and its dry-run sibling) decided
@@ -22,7 +28,8 @@ pub struct RegistryPublishRequest<'a> {
 ///
 /// `registry_modified` is `true` only when [`publish_to_registry`]
 /// wrote bytes; [`validate_publish`] always returns `false`
-/// here.
+/// here.  `no_op` reports a byte-identical republication that mapped
+/// onto the already-recorded revision.
 #[derive(Debug, Clone)]
 pub struct RegistryPublishOutcome {
     pub registry_dir: PathBuf,
@@ -32,6 +39,8 @@ pub struct RegistryPublishOutcome {
     pub registry_initialized: bool,
     pub source_path: String,
     pub checksum: String,
+    pub revision: String,
+    pub no_op: bool,
 }
 
 /// Mutate the file registry: place the artifact, then update the
@@ -41,21 +50,30 @@ pub struct RegistryPublishOutcome {
 /// orphaned binary.
 ///
 /// # Errors
-/// Returns [`RegistryError::BarePackageName`] for an unscoped name
-/// and [`RegistryError::StagedMetadataNameMismatch`] when the staged
-/// metadata disagrees with the typed staged name,
+/// Returns [`RegistryError::BarePackageName`] for an unscoped name,
+/// [`RegistryError::StagedMetadataNameMismatch`] /
+/// [`RegistryError::StagedMetadataVersionMismatch`] when the staged
+/// metadata disagrees with the typed staged identity,
+/// [`RegistryError::VersionBuildMetadata`] for a version carrying
+/// `SemVer` build metadata,
+/// [`RegistryError::StagedChecksumMismatch`] when a staged checksum
+/// claim does not name the staged archive bytes,
 /// [`RegistryError::Io`] if the registry directory
 /// cannot be created, and [`RegistryError::Locked`] if another process
 /// holds the lock.  Once locked, propagates every error from the write
 /// path, including registry initialization
 /// ([`RegistryError::InvalidConfig`], [`RegistryError::ConfigJson`],
-/// [`RegistryError::Json`]), [`RegistryError::DuplicateVersion`],
+/// [`RegistryError::Json`]), the revision rules
+/// ([`RegistryError::NewRevisionRequiresOptIn`],
+/// [`RegistryError::RevisionCollision`],
+/// [`RegistryError::RevisionChangesResolverMetadata`]),
 /// [`RegistryError::OrphanedArtifact`], index parse/render failures,
 /// and [`RegistryError::Io`] from the atomic writes.
 pub fn publish_to_registry(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     ensure_publishable_registry_name(request.staged)?;
+    ensure_staged_checksum_matches(request.staged)?;
     let registry_dir = request.registry_dir;
     fs::create_dir_all(registry_dir).map_err(|source| RegistryError::Io {
         path: registry_dir.to_path_buf(),
@@ -70,16 +88,23 @@ pub fn publish_to_registry(
 }
 
 /// Read-only counterpart to [`publish_to_registry`]: validate every
-/// pre-write check (registry config, package-index name, duplicate
-/// version, orphaned artifact) without writing anything.
+/// pre-write check (registry config, package-index name, revision
+/// rules, orphaned artifact) without writing anything.
 ///
 /// # Errors
-/// Returns [`RegistryError::BarePackageName`] for an unscoped name
-/// and [`RegistryError::StagedMetadataNameMismatch`] when the staged
-/// metadata disagrees with the typed staged name, propagates the
+/// Returns [`RegistryError::BarePackageName`] for an unscoped name,
+/// [`RegistryError::StagedMetadataNameMismatch`] /
+/// [`RegistryError::StagedMetadataVersionMismatch`] when the staged
+/// metadata disagrees with the typed staged identity,
+/// [`RegistryError::VersionBuildMetadata`] for a version carrying
+/// `SemVer` build metadata,
+/// [`RegistryError::StagedChecksumMismatch`] when a staged checksum
+/// claim does not name the staged archive bytes, propagates the
 /// registry-open errors of
 /// [`FileRegistry::inspect`], and propagates the pre-write checks
-/// (`plan_publish`): [`RegistryError::DuplicateVersion`],
+/// (`plan_publish`): [`RegistryError::NewRevisionRequiresOptIn`],
+/// [`RegistryError::RevisionCollision`],
+/// [`RegistryError::RevisionChangesResolverMetadata`],
 /// [`RegistryError::OrphanedArtifact`],
 /// [`RegistryError::PackageIndexInvalid`] for a non-SemVer metadata
 /// version, and the existing-index read errors of [`read_optional`].
@@ -87,12 +112,13 @@ pub fn validate_publish(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     ensure_publishable_registry_name(request.staged)?;
+    ensure_staged_checksum_matches(request.staged)?;
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
-    let metadata = staged_metadata_for_registry(&registry, request.staged);
-    plan_publish(&registry, request.staged, &metadata).map(|mut plan| {
-        plan.registry_modified = false;
-        plan
+    let metadata = staged_metadata_for_registry(&registry, request.staged)?;
+    plan_publish(&registry, request, &metadata).map(|mut plan| {
+        plan.outcome.registry_modified = false;
+        plan.outcome
     })
 }
 
@@ -118,6 +144,52 @@ fn ensure_publishable_registry_name(staged: &StagedPackage) -> Result<(), Regist
             metadata: staged.metadata.name.clone(),
         });
     }
+    // The same location/document agreement holds for the version: the
+    // artifact and index paths derive from the typed staged version
+    // while the metadata's string lands in the index document.
+    if staged.metadata.version != staged.version.to_string() {
+        return Err(RegistryError::StagedMetadataVersionMismatch {
+            staged: staged.version.to_string(),
+            metadata: staged.metadata.version.clone(),
+        });
+    }
+    // Registry versions are plain upstream versions - the loader
+    // rejects build-metadata version keys outright, so writing one
+    // here would wedge the package index for every later read.
+    // `cabin publish` refuses this earlier (`validate_publishable`);
+    // this is the boundary for tooling that skips that flow.
+    if !staged.version.build.is_empty() {
+        return Err(RegistryError::VersionBuildMetadata {
+            version: staged.version.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Defense-in-depth beside [`ensure_publishable_registry_name`], for
+/// the same reason: the packaging revision and the index checksum
+/// both derive from the staged checksum claims, and the whole
+/// revision contract (byte-identical no-ops, collision detection,
+/// the immutable triple) assumes those claims name the archive bytes
+/// actually written.  The staging path computes them from the bytes,
+/// but tooling can construct a [`StagedPackage`] directly, so
+/// recompute the digest and refuse a lying claim before anything
+/// derives from it.
+fn ensure_staged_checksum_matches(staged: &StagedPackage) -> Result<(), RegistryError> {
+    use sha2::{Digest, Sha256};
+    let computed = format!(
+        "sha256:{}",
+        cabin_core::hash::hex_digest(&Sha256::digest(&staged.archive_bytes))
+    );
+    for claimed in [&staged.checksum, &staged.metadata.checksum] {
+        if claimed != &computed {
+            return Err(RegistryError::StagedChecksumMismatch {
+                name: staged.name.as_str().to_owned(),
+                claimed: claimed.clone(),
+                computed,
+            });
+        }
+    }
     Ok(())
 }
 
@@ -125,49 +197,48 @@ fn publish_locked(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
-    let metadata = staged_metadata_for_registry(&registry, request.staged);
-    let plan = plan_publish(&registry, request.staged, &metadata)?;
+    let metadata = staged_metadata_for_registry(&registry, request.staged)?;
+    let plan = plan_publish(&registry, request, &metadata)?;
 
-    // Both paths come from `FileRegistry::artifact_path` /
-    // `package_index_path`, which always nest at least one
-    // directory below the registry root.  Use `if let` rather
-    // than `.expect(...)` so a future change that returns a
-    // bare filename surfaces as a clean skip rather than a panic
-    // in a recoverable function.
-    if let Some(parent) = plan.artifact_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| RegistryError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
+    if plan.disposition == InsertDisposition::NoOp {
+        // Byte-identical republication: the index already records
+        // this revision.  The no-op is also the self-heal path:
+        // re-place a missing artifact file, and rewrite one whose
+        // bytes drifted from the staged archive (truncation or
+        // corruption would fail checksum verification on every
+        // fetch, and republishing is the natural repair).
+        let mut outcome = plan.outcome;
+        let stored = fs::read(&outcome.artifact_path).ok();
+        if stored.as_deref() != Some(request.staged.archive_bytes.as_slice()) {
+            ensure_parent_dir(&outcome.artifact_path)?;
+            atomically_write(&outcome.artifact_path, &request.staged.archive_bytes)?;
+            outcome.registry_modified = true;
+        }
+        return Ok(outcome);
     }
-    if let Some(parent) = plan.package_index_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| RegistryError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
+
+    ensure_parent_dir(&plan.outcome.artifact_path)?;
+    ensure_parent_dir(&plan.outcome.package_index_path)?;
 
     // Phase 1: place the artifact via atomic rename.
-    atomically_write(&plan.artifact_path, &request.staged.archive_bytes)?;
+    atomically_write(&plan.outcome.artifact_path, &request.staged.archive_bytes)?;
 
     // Phase 2: update the index.  If anything goes wrong, undo the
     // artifact placement so the registry never carries an orphaned
     // file.
     let write_index = || -> Result<(), RegistryError> {
-        let existing = read_optional(&plan.package_index_path)?;
-        let new_index = insert_version(existing, &metadata)?;
-        let body = render(&new_index, &plan.package_index_path)?;
-        atomically_write(&plan.package_index_path, body.as_bytes())
+        let body = render(&plan.new_index, &plan.outcome.package_index_path)?;
+        atomically_write(&plan.outcome.package_index_path, body.as_bytes())
     };
     if let Err(err) = write_index() {
         // If the rollback itself fails the registry is left with an
         // orphaned artifact; surface that now (with the remedy)
         // instead of letting the *next* publish fail with a bare
         // `OrphanedArtifact` whose cause is long gone.
-        if let Err(cleanup) = fs::remove_file(&plan.artifact_path) {
+        if let Err(cleanup) = fs::remove_file(&plan.outcome.artifact_path) {
             return Err(RegistryError::PublishRollback {
                 index_error: Box::new(err),
-                artifact_path: plan.artifact_path.clone(),
+                artifact_path: plan.outcome.artifact_path.clone(),
                 cleanup,
             });
         }
@@ -176,24 +247,45 @@ fn publish_locked(
 
     Ok(RegistryPublishOutcome {
         registry_modified: true,
-        ..plan
+        ..plan.outcome
     })
 }
 
-/// Build a [`RegistryPublishOutcome`] without writing anything.
-/// Validates every pre-write rule:
-///
-/// - if the package index already lists this version, fail with
-///   [`RegistryError::DuplicateVersion`];
-/// - if an artifact file already exists for `(name, version)` but
-///   the index does *not* yet record that version, fail with
-///   [`RegistryError::OrphanedArtifact`];
-/// - load and validate the existing index file (if any).
+/// Both registry paths always nest at least one directory below the
+/// registry root.  Use `if let` rather than `.expect(...)` so a
+/// future change that returns a bare filename surfaces as a clean
+/// skip rather than a panic in a recoverable function.
+fn ensure_parent_dir(path: &Path) -> Result<(), RegistryError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|source| RegistryError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
+/// Everything [`publish_locked`] needs decided before it writes:
+/// the reported outcome, whether the write phase runs at all, and
+/// the fully-spliced index document to render when it does.
+struct PublishPlan {
+    outcome: RegistryPublishOutcome,
+    disposition: InsertDisposition,
+    new_index: crate::index::PackageIndex,
+}
+
+/// Build a [`PublishPlan`] without writing anything.  Validates
+/// every pre-write rule: the revision semantics of
+/// [`insert_version`] (no-op / opt-in / collision / resolver-
+/// metadata invariance), and the per-revision orphaned-artifact
+/// check (an artifact file present on disk for a revision the index
+/// does not record is refused rather than silently overwritten).
 fn plan_publish(
     registry: &FileRegistry,
-    staged: &StagedPackage,
+    request: &RegistryPublishRequest<'_>,
     metadata: &PackageMetadata,
-) -> Result<RegistryPublishOutcome, RegistryError> {
+) -> Result<PublishPlan, RegistryError> {
+    let staged = request.staged;
     // Paths derive from the *typed* staged identity;
     // `ensure_publishable_registry_name` already pinned the
     // metadata's name to it.
@@ -207,36 +299,41 @@ fn plan_publish(
             ),
         }
     })?;
-    let artifact_path = registry.artifact_path(&staged.name, &version);
+    let revision = crate::index::revision_of(metadata)?.to_owned();
+    let artifact_path = registry.artifact_path(&staged.name, &version, &revision);
 
     let existing = read_optional(&package_index_path)?;
-    let already_in_index = existing
-        .as_ref()
-        .is_some_and(|index| index.versions.contains_key(&metadata.version));
+    let (new_index, disposition) = insert_version(
+        existing,
+        metadata,
+        &publish_stamp(),
+        request.new_revision,
+    )?;
 
-    if already_in_index {
-        return Err(RegistryError::DuplicateVersion {
-            name: metadata.name.clone(),
-            version: metadata.version.clone(),
-        });
-    }
-    if artifact_path.exists() {
-        // Artifact present but index does not record this version: refuse
-        // to silently overwrite.
+    if disposition == InsertDisposition::Inserted && artifact_path.exists() {
+        // Artifact present but index does not record this revision:
+        // refuse to silently overwrite.
         return Err(RegistryError::OrphanedArtifact {
             name: metadata.name.clone(),
             version: metadata.version.clone(),
+            revision,
         });
     }
 
-    Ok(RegistryPublishOutcome {
-        registry_dir: registry.root().to_path_buf(),
-        package_index_path,
-        artifact_path,
-        registry_modified: true,
-        registry_initialized: registry.was_initialized_now(),
-        source_path: registry.relative_source_path(&staged.name, &version),
-        checksum: metadata.checksum.clone(),
+    Ok(PublishPlan {
+        outcome: RegistryPublishOutcome {
+            registry_dir: registry.root().to_path_buf(),
+            package_index_path,
+            artifact_path,
+            registry_modified: false,
+            registry_initialized: registry.was_initialized_now(),
+            source_path: registry.relative_source_path(&staged.name, &version, &revision),
+            checksum: metadata.checksum.clone(),
+            no_op: disposition == InsertDisposition::NoOp,
+            revision,
+        },
+        disposition,
+        new_index,
     })
 }
 
@@ -246,10 +343,44 @@ fn plan_publish(
 fn staged_metadata_for_registry(
     registry: &FileRegistry,
     staged: &StagedPackage,
-) -> PackageMetadata {
+) -> Result<PackageMetadata, RegistryError> {
     let mut metadata = staged.metadata.clone();
-    metadata.source.path = registry.relative_source_path(&staged.name, &staged.version);
-    metadata
+    let revision = crate::index::revision_of(&metadata)?.to_owned();
+    metadata.source.path =
+        registry.relative_source_path(&staged.name, &staged.version, &revision);
+    Ok(metadata)
+}
+
+/// UTC `YYYY-MM-DDTHH:MM:SSZ` stamp for a freshly published
+/// revision.  Publish time is genuinely new information, so this is
+/// the one wall-clock read in the crate; everything else in the
+/// written registry stays a pure function of its inputs.
+fn publish_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (days, tod) = (secs / 86_400, secs % 86_400);
+    // Civil-from-days (Howard Hinnant's algorithm), valid for every
+    // date this code will ever stamp.
+    let (year, month, day) = {
+        let z = days as i64 + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z.rem_euclid(146_097);
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = era * 400 + yoe + i64::from(m <= 2);
+        (y, m, d)
+    };
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        tod / 3600,
+        (tod % 3600) / 60,
+        tod % 60
+    )
 }
 
 #[cfg(test)]
@@ -268,6 +399,12 @@ mod tests {
 
     fn ver(s: &str) -> semver::Version {
         semver::Version::parse(s).unwrap()
+    }
+
+    /// The packaging-revision id a staged package will publish under.
+    fn rev_of(staged: &StagedPackage) -> &str {
+        let hex = staged.checksum.strip_prefix("sha256:").unwrap();
+        &hex[..cabin_core::registry::PACKAGING_REVISION_HEX_LEN]
     }
 
     fn staged(name: &str, version: &str, body: &[u8]) -> StagedPackage {
@@ -330,6 +467,7 @@ mod tests {
         let outcome = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &staged,
+            new_revision: false,
         })
         .unwrap();
         assert!(outcome.registry_modified);
@@ -340,10 +478,13 @@ mod tests {
         registry_dir
             .child(".cabin-registry.lock")
             .assert(predicate::path::missing());
-        // Source path is registry-relative.
+        // Source path is registry-relative and revision-qualified.
         assert_eq!(
             outcome.source_path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+            format!(
+                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                rev_of(&staged)
+            )
         );
     }
 
@@ -355,6 +496,7 @@ mod tests {
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &s,
+            new_revision: false,
         })
         .unwrap();
 
@@ -362,37 +504,126 @@ mod tests {
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &again,
+            new_revision: false,
         })
         .unwrap_err();
         match err {
-            RegistryError::DuplicateVersion { name, version } => {
+            RegistryError::NewRevisionRequiresOptIn { name, version } => {
                 assert_eq!(name, "fmtlib/fmt");
                 assert_eq!(version, "10.2.1");
             }
-            other => panic!("expected DuplicateVersion, got {other:?}"),
+            other => panic!("expected NewRevisionRequiresOptIn, got {other:?}"),
         }
         // Original artifact still present, unchanged.
-        let body = fs::read(
-            registry_dir
-                .path()
-                .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
-        )
+        let body = fs::read(registry_dir.path().join(format!(
+            "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+            rev_of(&s)
+        )))
         .unwrap();
         assert_eq!(body, b"first");
+    }
+
+    /// Republishing byte-identical content maps onto the recorded
+    /// revision: success, `no_op`, and no bytes rewritten.
+    #[test]
+    fn identical_republication_no_ops() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+        let s = staged("fmtlib/fmt", "10.2.1", b"same bytes");
+        let request = RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &s,
+            new_revision: false,
+        };
+        let first = publish_to_registry(&request).unwrap();
+        assert!(!first.no_op);
+        let index_before = fs::read_to_string(&first.package_index_path).unwrap();
+
+        let second = publish_to_registry(&request).unwrap();
+        assert!(second.no_op);
+        assert!(!second.registry_modified);
+        assert_eq!(second.revision, rev_of(&s));
+        assert_eq!(
+            fs::read_to_string(&second.package_index_path).unwrap(),
+            index_before
+        );
+
+        // A missing artifact file is re-placed by the no-op path.
+        fs::remove_file(&first.artifact_path).unwrap();
+        let healed = publish_to_registry(&request).unwrap();
+        assert!(healed.no_op);
+        assert!(healed.registry_modified);
+        assert_eq!(fs::read(&healed.artifact_path).unwrap(), b"same bytes");
+
+        // So is one whose bytes drifted from the recorded revision:
+        // every fetch would fail checksum verification, and the
+        // byte-identical republish is the natural repair.
+        fs::write(&first.artifact_path, b"corrupted").unwrap();
+        let healed = publish_to_registry(&request).unwrap();
+        assert!(healed.no_op);
+        assert!(healed.registry_modified);
+        assert_eq!(fs::read(&healed.artifact_path).unwrap(), b"same bytes");
+    }
+
+    /// The `--new-revision` opt-in publishes changed bytes as a new
+    /// current revision; the superseded revision's artifact and index
+    /// entry stay in place.
+    #[test]
+    fn opt_in_publishes_a_new_revision_beside_the_old_one() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+        let first = staged("fmtlib/fmt", "10.2.1", b"first");
+        publish_to_registry(&RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &first,
+            new_revision: false,
+        })
+        .unwrap();
+
+        let second = staged("fmtlib/fmt", "10.2.1", b"second");
+        let outcome = publish_to_registry(&RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &second,
+            new_revision: true,
+        })
+        .unwrap();
+        assert!(!outcome.no_op);
+        assert_eq!(outcome.revision, rev_of(&second));
+
+        let body = fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let entry = &value["versions"]["10.2.1"];
+        assert_eq!(entry["revision"], rev_of(&second));
+        let revisions = entry["revisions"].as_object().unwrap();
+        assert_eq!(revisions.len(), 2);
+        assert_eq!(revisions[rev_of(&first)]["checksum"], first.checksum);
+        assert_eq!(revisions[rev_of(&second)]["checksum"], second.checksum);
+        // Both revisions' bytes remain fetchable.
+        for (staged, bytes) in [(&first, b"first".as_slice()), (&second, b"second")] {
+            let path = registry_dir.path().join(format!(
+                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                rev_of(staged)
+            ));
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
     }
 
     #[test]
     fn second_version_is_appended_not_replaced() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
+        let v1 = staged("fmtlib/fmt", "10.1.0", b"v1");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmtlib/fmt", "10.1.0", b"v1"),
+            staged: &v1,
+            new_revision: false,
         })
         .unwrap();
+        let v2 = staged("fmtlib/fmt", "10.2.1", b"v2");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmtlib/fmt", "10.2.1", b"v2"),
+            staged: &v2,
+            new_revision: false,
         })
         .unwrap();
         let body =
@@ -400,10 +631,16 @@ mod tests {
         assert!(body.contains("10.1.0"));
         assert!(body.contains("10.2.1"));
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0.zip")
+            .child(format!(
+                "artifacts/fmtlib/fmt/fmtlib-fmt-10.1.0-{}.zip",
+                rev_of(&v1)
+            ))
             .assert(predicate::path::is_file());
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
+            .child(format!(
+                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                rev_of(&v2)
+            ))
             .assert(predicate::path::is_file());
     }
 
@@ -415,6 +652,7 @@ mod tests {
         let outcome = validate_publish(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &s,
+            new_revision: false,
         })
         .unwrap();
         assert!(!outcome.registry_modified);
@@ -429,37 +667,55 @@ mod tests {
     }
 
     #[test]
-    fn validate_publish_detects_duplicate_against_existing_registry() {
+    fn validate_publish_detects_missing_opt_in_against_existing_registry() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &staged("fmtlib/fmt", "10.2.1", b"v1"),
+            new_revision: false,
         })
         .unwrap();
         let err = validate_publish(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &staged("fmtlib/fmt", "10.2.1", b"v2"),
+            new_revision: false,
         })
         .unwrap_err();
-        assert!(matches!(err, RegistryError::DuplicateVersion { .. }));
+        assert!(matches!(err, RegistryError::NewRevisionRequiresOptIn { .. }));
+        // The dry run reports the respin outcome without writing when
+        // the opt-in is given.
+        let outcome = validate_publish(&RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &staged("fmtlib/fmt", "10.2.1", b"v2"),
+            new_revision: true,
+        })
+        .unwrap();
+        assert!(!outcome.registry_modified);
+        assert!(!outcome.no_op);
     }
 
     #[test]
     fn orphaned_artifact_is_reported() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        // Initialize registry, then drop an artifact directly without
-        // updating the index - that's the "orphan" state.
+        // Initialize registry, then drop an artifact directly (at the
+        // revision-qualified path the incoming publish will target)
+        // without updating the index - that's the "orphan" state.
         FileRegistry::open_or_initialize(registry_dir.path()).unwrap();
+        let incoming = staged("fmtlib/fmt", "10.2.1", b"new bytes");
         registry_dir
-            .child("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
+            .child(format!(
+                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                rev_of(&incoming)
+            ))
             .write_binary(b"orphan")
             .unwrap();
 
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmtlib/fmt", "10.2.1", b"new bytes"),
+            staged: &incoming,
+            new_revision: false,
         })
         .unwrap_err();
         assert!(matches!(err, RegistryError::OrphanedArtifact { .. }));
@@ -479,6 +735,7 @@ mod tests {
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &staged("fmtlib/fmt", "10.2.1", b"x"),
+            new_revision: false,
         })
         .unwrap_err();
         assert!(matches!(err, RegistryError::Locked));
@@ -488,20 +745,25 @@ mod tests {
     fn published_metadata_uses_registry_relative_source_path() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
+        let s = staged("fmtlib/fmt", "10.2.1", b"x");
         publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
-            staged: &staged("fmtlib/fmt", "10.2.1", b"x"),
+            staged: &s,
+            new_revision: false,
         })
         .unwrap();
         let body =
             fs::read_to_string(registry_dir.path().join("packages/fmtlib/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-        let source = &value["versions"]["10.2.1"]["source"];
+        let source = &value["versions"]["10.2.1"]["revisions"][rev_of(&s)]["source"];
         assert_eq!(source["type"], "archive");
         assert_eq!(source["format"], "zip");
         assert_eq!(
             source["path"],
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+            format!(
+                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                rev_of(&s)
+            )
         );
     }
 
@@ -516,6 +778,7 @@ mod tests {
             let err = run(&RegistryPublishRequest {
                 registry_dir: registry_dir.path(),
                 staged: &staged("fmt", "10.2.1", b"x"),
+                new_revision: false,
             })
             .unwrap_err();
             match err {
@@ -540,11 +803,94 @@ mod tests {
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),
             staged: &s,
+            new_revision: false,
         })
         .unwrap_err();
         assert!(matches!(
             err,
             RegistryError::StagedMetadataNameMismatch { .. }
         ));
+    }
+
+    /// The staged identity check covers the version like the name:
+    /// paths derive from the typed version, the index document
+    /// carries the metadata string, and a build-metadata version
+    /// would wedge the index (the loader rejects such keys), so all
+    /// three shapes are refused before anything is written.
+    #[test]
+    fn mismatched_or_build_metadata_versions_are_refused() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+
+        let mut version_mismatch = staged("fmtlib/fmt", "10.2.1", b"x");
+        version_mismatch.metadata.version = "10.2.2".to_owned();
+        let err = publish_to_registry(&RegistryPublishRequest {
+            registry_dir: registry_dir.path(),
+            staged: &version_mismatch,
+            new_revision: false,
+        })
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            RegistryError::StagedMetadataVersionMismatch { .. }
+        ));
+
+        let with_build = staged("fmtlib/fmt", "10.2.1+cabin.1", b"x");
+        for outcome in [
+            publish_to_registry(&RegistryPublishRequest {
+                registry_dir: registry_dir.path(),
+                staged: &with_build,
+                new_revision: false,
+            }),
+            validate_publish(&RegistryPublishRequest {
+                registry_dir: registry_dir.path(),
+                staged: &with_build,
+                new_revision: false,
+            }),
+        ] {
+            assert!(matches!(
+                outcome.unwrap_err(),
+                RegistryError::VersionBuildMetadata { .. }
+            ));
+        }
+        registry_dir
+            .child("config.json")
+            .assert(predicate::path::missing());
+    }
+
+    /// The revision id and index checksum derive from the staged
+    /// claims, so a claim that does not name the staged archive bytes
+    /// is refused before anything derives from it - a lying triple
+    /// would be immutable and permanently unverifiable.  Both claim
+    /// fields are checked, and the dry-run path refuses identically.
+    #[test]
+    fn lying_staged_checksum_is_refused() {
+        let dir = TempDir::new().unwrap();
+        let registry_dir = dir.child("registry");
+        let honest = staged("fmtlib/fmt", "10.2.1", b"real bytes");
+        let lying_claim = staged("fmtlib/fmt", "10.2.1", b"other bytes").checksum;
+        let mut top_level = honest.clone();
+        top_level.checksum.clone_from(&lying_claim);
+        let mut in_metadata = honest.clone();
+        in_metadata.metadata.checksum.clone_from(&lying_claim);
+        for lying in [&top_level, &in_metadata] {
+            let err = publish_to_registry(&RegistryPublishRequest {
+                registry_dir: registry_dir.path(),
+                staged: lying,
+                new_revision: false,
+            })
+            .unwrap_err();
+            assert!(matches!(err, RegistryError::StagedChecksumMismatch { .. }));
+            let err = validate_publish(&RegistryPublishRequest {
+                registry_dir: registry_dir.path(),
+                staged: lying,
+                new_revision: false,
+            })
+            .unwrap_err();
+            assert!(matches!(err, RegistryError::StagedChecksumMismatch { .. }));
+        }
+        registry_dir
+            .child("config.json")
+            .assert(predicate::path::missing());
     }
 }

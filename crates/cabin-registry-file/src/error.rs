@@ -39,13 +39,53 @@ pub enum RegistryError {
     #[error("invalid package index at {}: {message}", path.display())]
     PackageIndexInvalid { path: PathBuf, message: String },
 
-    #[error("package `{name} {version}` already exists in the file registry")]
-    DuplicateVersion { name: String, version: String },
+    #[error(
+        "`{name} {version}` is already published to this registry with different bytes; published revisions are immutable - pass `--new-revision` to publish the changed bytes as a new packaging revision of the same version"
+    )]
+    NewRevisionRequiresOptIn { name: String, version: String },
 
     #[error(
-        "artifact already exists for `{name} {version}` but the package index does not contain that version"
+        "packaging revision `{revision}` of `{name} {version}` already exists with a different checksum; two archives whose digests share a revision id cannot coexist"
     )]
-    OrphanedArtifact { name: String, version: String },
+    RevisionCollision {
+        name: String,
+        version: String,
+        revision: String,
+    },
+
+    #[error(
+        "a new packaging revision of `{name} {version}` must not change `{field}`; revisions carry packaging corrections only - publish a new version for changes resolution can observe"
+    )]
+    RevisionChangesResolverMetadata {
+        name: String,
+        version: String,
+        field: &'static str,
+    },
+
+    #[error("staged metadata for `{name} {version}` carries a malformed checksum claim {checksum:?}")]
+    InvalidChecksum {
+        name: String,
+        version: String,
+        checksum: String,
+    },
+
+    #[error(
+        "staged package `{name}` claims checksum `{claimed}` but its archive bytes hash to `{computed}`; the packaging revision derives from the archive contents, so a mismatched claim would publish an immutable revision that can never verify"
+    )]
+    StagedChecksumMismatch {
+        name: String,
+        claimed: String,
+        computed: String,
+    },
+
+    #[error(
+        "artifact already exists for `{name} {version}` (revision `{revision}`) but the package index does not record that revision"
+    )]
+    OrphanedArtifact {
+        name: String,
+        version: String,
+        revision: String,
+    },
 
     #[error(
         "{index_error}; additionally, rolling back the just-written artifact `{}` failed ({cleanup}); remove the file manually before retrying, otherwise the next publish reports an orphaned artifact",
@@ -72,4 +112,14 @@ pub enum RegistryError {
         "staged package name `{staged}` does not match its metadata name `{metadata}`; refusing to write an index document that disagrees with its location"
     )]
     StagedMetadataNameMismatch { staged: String, metadata: String },
+
+    #[error(
+        "staged package version `{staged}` does not match its metadata version `{metadata}`; refusing to write an artifact whose path disagrees with its index entry"
+    )]
+    StagedMetadataVersionMismatch { staged: String, metadata: String },
+
+    #[error(
+        "version `{version}` carries SemVer build metadata, which registry versions never do (packaging revisions replaced it); publish the plain upstream version"
+    )]
+    VersionBuildMetadata { version: String },
 }

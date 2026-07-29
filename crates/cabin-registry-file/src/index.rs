@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cabin_core::{PackageName, StandardsMetadata};
 use cabin_package::PackageMetadata;
@@ -138,14 +138,52 @@ pub fn read_published_standards(
     Ok(published)
 }
 
-/// Insert `metadata` as a new version into `existing` (or build a
-/// fresh index if `existing` is `None`).  Errors out on duplicate
-/// versions and on package-name mismatches.
+/// What [`insert_version`] decided about the incoming revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertDisposition {
+    /// The version (or the revision) did not exist before; the
+    /// returned index carries it and must be written.
+    Inserted,
+    /// The exact revision is already recorded with the same
+    /// checksum; the returned index is the unmodified input and
+    /// nothing needs writing.
+    NoOp,
+}
+
+/// Derive the packaging-revision id from a `sha256:<hex>` checksum
+/// claim, mapping a malformed claim to a clear error.
+pub(crate) fn revision_of(metadata: &PackageMetadata) -> Result<&str, RegistryError> {
+    metadata
+        .checksum
+        .strip_prefix("sha256:")
+        .and_then(cabin_core::registry::packaging_revision_from_sha256_hex)
+        .ok_or_else(|| RegistryError::InvalidChecksum {
+            name: metadata.name.clone(),
+            version: metadata.version.clone(),
+            checksum: metadata.checksum.clone(),
+        })
+}
+
+/// Insert `metadata` as a packaging revision of its version into
+/// `existing` (or build a fresh index if `existing` is `None`),
+/// stamping `published_at` on the new revision.
+///
+/// Revision semantics ([`crate::publish`] module docs have the full
+/// contract): a byte-identical republication is a no-op; different
+/// bytes for an existing version require `allow_new_revision` (the
+/// `--new-revision` opt-in) and must keep the resolver-consumed
+/// metadata - dependencies, features, standards - unchanged, so a
+/// respin can never alter what resolution already decided.  The new
+/// revision becomes the version's current one (a file registry has
+/// no verification lifecycle); superseded revisions stay listed and
+/// fetchable.
 pub(crate) fn insert_version(
     existing: Option<PackageIndex>,
     metadata: &PackageMetadata,
-) -> Result<PackageIndex, RegistryError> {
-    let value = version_value_from_metadata(metadata)?;
+    published_at: &str,
+    allow_new_revision: bool,
+) -> Result<(PackageIndex, InsertDisposition), RegistryError> {
+    let revision = revision_of(metadata)?.to_owned();
     let mut index = match existing {
         Some(index) => {
             if index.name != metadata.name {
@@ -162,14 +200,114 @@ pub(crate) fn insert_version(
             versions: BTreeMap::new(),
         },
     };
-    if index.versions.contains_key(&metadata.version) {
-        return Err(RegistryError::DuplicateVersion {
-            name: metadata.name.clone(),
-            version: metadata.version.clone(),
-        });
-    }
+
+    let previous_revisions = match index.versions.get(&metadata.version) {
+        None => serde_json::Map::new(),
+        Some(entry) => {
+            let revisions = entry
+                .get("revisions")
+                .and_then(serde_json::Value::as_object)
+                .ok_or_else(|| RegistryError::PackageIndexInvalid {
+                    path: PathBuf::from(format!("packages/{}.json", metadata.name)),
+                    message: format!(
+                        "version {:?} carries no `revisions` map",
+                        metadata.version
+                    ),
+                })?;
+            if let Some(prior) = revisions.get(revision.as_str()) {
+                let prior_checksum = prior.get("checksum").and_then(serde_json::Value::as_str);
+                if prior_checksum == Some(metadata.checksum.as_str()) {
+                    // Byte-identical republication maps onto the
+                    // existing revision.
+                    return Ok((index, InsertDisposition::NoOp));
+                }
+                // Different bytes whose digests share the revision
+                // prefix: astronomically unlikely, and silently
+                // replacing either side would break immutability -
+                // fail loudly.
+                return Err(RegistryError::RevisionCollision {
+                    name: metadata.name.clone(),
+                    version: metadata.version.clone(),
+                    revision,
+                });
+            }
+            if !allow_new_revision {
+                return Err(RegistryError::NewRevisionRequiresOptIn {
+                    name: metadata.name.clone(),
+                    version: metadata.version.clone(),
+                });
+            }
+            ensure_resolver_metadata_unchanged(entry, metadata)?;
+            revisions.clone()
+        }
+    };
+
+    // `yanked` is version-level registry state the staged metadata
+    // knows nothing about (staging always writes `false`), so a
+    // respin carries the recorded value forward - `--new-revision`
+    // must never quietly un-yank a version.
+    let yanked = index
+        .versions
+        .get(&metadata.version)
+        .and_then(|entry| entry.get("yanked"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(metadata.yanked);
+    let value = version_value_from_metadata(
+        metadata,
+        &revision,
+        published_at,
+        previous_revisions,
+        yanked,
+    )?;
     index.versions.insert(metadata.version.clone(), value);
-    Ok(index)
+    Ok((index, InsertDisposition::Inserted))
+}
+
+/// A packaging revision must not change what resolution consumes:
+/// `dependencies`, `features`, and `standards` are compared against
+/// the version's existing entry (all recorded revisions agree on
+/// them by induction, so one comparison covers the set).  Everything
+/// else in the document - sources, profiles, provenance, future
+/// packaging metadata - is free to change across revisions.
+fn ensure_resolver_metadata_unchanged(
+    entry: &serde_json::Value,
+    metadata: &PackageMetadata,
+) -> Result<(), RegistryError> {
+    let incoming = projected_resolver_metadata(metadata)?;
+    for (field, incoming_value) in incoming {
+        let existing_value = entry.get(field).cloned().unwrap_or(serde_json::Value::Null);
+        if existing_value != incoming_value {
+            return Err(RegistryError::RevisionChangesResolverMetadata {
+                name: metadata.name.clone(),
+                version: metadata.version.clone(),
+                field,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The resolver-consumed projection of a metadata document, in the
+/// exact wire encoding [`version_value_from_metadata`] emits (an
+/// omitted-when-empty field projects as `Null`, matching a missing
+/// key on the stored entry).
+fn projected_resolver_metadata(
+    metadata: &PackageMetadata,
+) -> Result<[(&'static str, serde_json::Value); 3], RegistryError> {
+    let dependencies = serde_json::to_value(&metadata.dependencies)?;
+    let features = (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
+        .then(|| serde_json::to_value(&metadata.features))
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
+    let standards = (!metadata.standards.is_empty())
+        .then(|| serde_json::to_value(&metadata.standards))
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
+    Ok([
+        ("dependencies", dependencies),
+        ("features", features),
+        ("standards", standards),
+    ])
 }
 
 /// In-memory representation of one `<registry>/packages/<name>.json`
@@ -207,8 +345,13 @@ pub struct PackageIndex {
 struct IndexVersionWire<'a, D: Serialize> {
     dependencies: &'a D,
     yanked: bool,
-    checksum: &'a str,
-    source: IndexSourceWire<'a>,
+    /// Current packaging revision (in a file registry: the one
+    /// published last; there is no verification lifecycle).
+    revision: &'a str,
+    /// Every published revision, the current one included.  The map
+    /// value is carried opaquely so previously recorded revisions
+    /// round-trip byte-for-byte.
+    revisions: serde_json::Map<String, serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     features: Option<&'a cabin_core::Features>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -237,18 +380,39 @@ struct IndexSourceWire<'a> {
     format: &'a str,
 }
 
+/// One entry of a version's `revisions` map as this writer emits it.
+#[derive(Serialize)]
+struct RevisionWire<'a> {
+    checksum: &'a str,
+    #[serde(rename = "published-at")]
+    published_at: &'a str,
+    source: IndexSourceWire<'a>,
+}
+
 fn version_value_from_metadata(
     metadata: &PackageMetadata,
+    revision: &str,
+    published_at: &str,
+    mut revisions: serde_json::Map<String, serde_json::Value>,
+    yanked: bool,
 ) -> Result<serde_json::Value, RegistryError> {
+    revisions.insert(
+        revision.to_owned(),
+        serde_json::to_value(RevisionWire {
+            checksum: &metadata.checksum,
+            published_at,
+            source: IndexSourceWire {
+                kind: &metadata.source.kind,
+                path: &metadata.source.path,
+                format: &metadata.source.format,
+            },
+        })?,
+    );
     let wire = IndexVersionWire {
         dependencies: &metadata.dependencies,
-        yanked: metadata.yanked,
-        checksum: &metadata.checksum,
-        source: IndexSourceWire {
-            kind: &metadata.source.kind,
-            path: &metadata.source.path,
-            format: &metadata.source.format,
-        },
+        yanked,
+        revision,
+        revisions,
         features: (!metadata.features.default.is_empty() || !metadata.features.features.is_empty())
             .then_some(&metadata.features),
         profiles: (!metadata.profiles.is_empty()).then_some(&metadata.profiles),
@@ -268,7 +432,14 @@ mod tests {
     use cabin_package::SourceMetadata;
     use std::collections::BTreeMap;
 
-    fn metadata(name: &str, version: &str) -> PackageMetadata {
+    const STAMP: &str = "2026-01-01T00:00:00Z";
+
+    /// Metadata whose checksum is derived from `seed`, so two calls
+    /// with different seeds model different archive bytes (distinct
+    /// revisions) and equal seeds model byte-identical ones.
+    fn metadata_with_bytes(name: &str, version: &str, seed: char) -> PackageMetadata {
+        let hex: String = std::iter::repeat_n(seed, 64).collect();
+        let revision = &hex[..16];
         PackageMetadata {
             schema: PACKAGE_INDEX_SCHEMA,
             name: name.to_owned(),
@@ -285,45 +456,189 @@ mod tests {
             standards: Default::default(),
             upstream: None,
             yanked: false,
-            checksum: format!("sha256:{}", "a".repeat(64)),
+            checksum: format!("sha256:{hex}"),
             source: SourceMetadata {
                 kind: "archive".to_owned(),
-                path: format!("../artifacts/{name}/{name}-{version}.zip"),
+                path: format!("../artifacts/{name}/{name}-{version}-{revision}.zip"),
                 format: "zip".to_owned(),
             },
         }
     }
 
+    fn metadata(name: &str, version: &str) -> PackageMetadata {
+        metadata_with_bytes(name, version, 'a')
+    }
+
+    fn insert_new(
+        existing: Option<PackageIndex>,
+        metadata: &PackageMetadata,
+    ) -> Result<PackageIndex, RegistryError> {
+        let (index, disposition) = insert_version(existing, metadata, STAMP, false)?;
+        assert_eq!(disposition, InsertDisposition::Inserted);
+        Ok(index)
+    }
+
     #[test]
     fn creates_new_index_from_first_version() {
         let meta = metadata("fmt", "10.2.1");
-        let index = insert_version(None, &meta).unwrap();
+        let index = insert_new(None, &meta).unwrap();
         assert_eq!(index.schema, 1);
         assert_eq!(index.name, "fmt");
-        assert!(index.versions.contains_key("10.2.1"));
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["revision"], "aaaaaaaaaaaaaaaa");
+        let revision = &entry["revisions"]["aaaaaaaaaaaaaaaa"];
+        assert_eq!(revision["checksum"], meta.checksum);
+        assert_eq!(revision["published-at"], STAMP);
+        assert_eq!(revision["source"]["path"], meta.source.path);
     }
 
     #[test]
     fn appends_new_version_to_existing_index() {
-        let initial = insert_version(None, &metadata("fmt", "10.1.0")).unwrap();
-        let updated = insert_version(Some(initial), &metadata("fmt", "10.2.1")).unwrap();
+        let initial = insert_new(None, &metadata("fmt", "10.1.0")).unwrap();
+        let updated = insert_new(Some(initial), &metadata("fmt", "10.2.1")).unwrap();
         assert_eq!(updated.versions.len(), 2);
         assert!(updated.versions.contains_key("10.1.0"));
         assert!(updated.versions.contains_key("10.2.1"));
     }
 
+    /// Byte-identical republication maps onto the recorded revision
+    /// and changes nothing.
     #[test]
-    fn duplicate_version_fails() {
-        let initial = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
-        let err = insert_version(Some(initial), &metadata("fmt", "10.2.1")).unwrap_err();
-        assert!(matches!(err, RegistryError::DuplicateVersion { .. }));
+    fn identical_republication_is_a_no_op() {
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let (index, disposition) =
+            insert_version(Some(initial.clone()), &metadata("fmt", "10.2.1"), STAMP, false)
+                .unwrap();
+        assert_eq!(disposition, InsertDisposition::NoOp);
+        assert_eq!(index, initial);
+        // The opt-in flag makes no difference to a byte-identical
+        // republication.
+        let (_, disposition) =
+            insert_version(Some(index), &metadata("fmt", "10.2.1"), STAMP, true).unwrap();
+        assert_eq!(disposition, InsertDisposition::NoOp);
+    }
+
+    /// `yanked` is version-level registry state, not staged
+    /// metadata: a respin (whose staged document always carries
+    /// `yanked: false`) must not quietly un-yank the version.
+    #[test]
+    fn a_respin_preserves_the_versions_yanked_state() {
+        let mut initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let entry = initial.versions.get_mut("10.2.1").unwrap();
+        entry["yanked"] = serde_json::Value::Bool(true);
+        let (index, disposition) = insert_version(
+            Some(initial),
+            &metadata_with_bytes("fmt", "10.2.1", 'b'),
+            STAMP,
+            true,
+        )
+        .unwrap();
+        assert_eq!(disposition, InsertDisposition::Inserted);
+        assert_eq!(index.versions["10.2.1"]["yanked"], true);
+        assert_eq!(
+            index.versions["10.2.1"]["revisions"]
+                .as_object()
+                .unwrap()
+                .len(),
+            2,
+            "the respin itself must still land"
+        );
+    }
+
+    /// Different bytes for a published version demand the explicit
+    /// `--new-revision` opt-in; the diagnostic explains the
+    /// mechanism.
+    #[test]
+    fn different_bytes_require_the_new_revision_opt_in() {
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let err = insert_version(
+            Some(initial),
+            &metadata_with_bytes("fmt", "10.2.1", 'b'),
+            STAMP,
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::NewRevisionRequiresOptIn { name, version }
+                if name == "fmt" && version == "10.2.1"),
+            "{err}"
+        );
+        assert!(err.to_string().contains("--new-revision"), "{err}");
+    }
+
+    /// With the opt-in, changed bytes become a new packaging revision
+    /// that supersedes the old one; the superseded revision stays
+    /// recorded.
+    #[test]
+    fn opt_in_appends_a_new_current_revision() {
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let (index, disposition) = insert_version(
+            Some(initial),
+            &metadata_with_bytes("fmt", "10.2.1", 'b'),
+            STAMP,
+            true,
+        )
+        .unwrap();
+        assert_eq!(disposition, InsertDisposition::Inserted);
+        let entry = &index.versions["10.2.1"];
+        assert_eq!(entry["revision"], "bbbbbbbbbbbbbbbb");
+        let revisions = entry["revisions"].as_object().unwrap();
+        assert_eq!(revisions.len(), 2);
+        assert!(revisions.contains_key("aaaaaaaaaaaaaaaa"));
+        assert!(revisions.contains_key("bbbbbbbbbbbbbbbb"));
+    }
+
+    /// Two different archives whose digests share the 16-hex revision
+    /// prefix cannot coexist; the writer fails loudly instead of
+    /// replacing either side.
+    #[test]
+    fn shared_revision_prefix_with_different_bytes_is_a_collision() {
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let mut colliding = metadata("fmt", "10.2.1");
+        colliding.checksum = format!("sha256:{}{}", "a".repeat(16), "c".repeat(48));
+        let err = insert_version(Some(initial), &colliding, STAMP, true).unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::RevisionCollision { revision, .. }
+                if revision == "aaaaaaaaaaaaaaaa"),
+            "{err}"
+        );
+    }
+
+    /// A packaging revision must not change what resolution consumes.
+    #[test]
+    fn revisions_must_not_change_resolver_metadata() {
+        use cabin_package::metadata::PackageDependencyEntry;
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let mut changed = metadata_with_bytes("fmt", "10.2.1", 'b');
+        changed.dependencies.insert(
+            "acme/dep".to_owned(),
+            PackageDependencyEntry::Bare("^1".to_owned()),
+        );
+        let err = insert_version(Some(initial.clone()), &changed, STAMP, true).unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
+                if *field == "dependencies"),
+            "{err}"
+        );
+
+        let mut changed = metadata_with_bytes("fmt", "10.2.1", 'b');
+        changed.features = cabin_core::Features {
+            default: vec!["simd".to_owned()],
+            features: BTreeMap::from([("simd".to_owned(), Vec::new())]),
+        };
+        let err = insert_version(Some(initial), &changed, STAMP, true).unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
+                if *field == "features"),
+            "{err}"
+        );
     }
 
     #[test]
     fn name_mismatch_fails() {
-        let initial = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
         // Existing index says "fmt" but caller hands us spdlog.
-        let err = insert_version(Some(initial), &metadata("spdlog", "1.13.0")).unwrap_err();
+        let err = insert_new(Some(initial), &metadata("spdlog", "1.13.0")).unwrap_err();
         assert!(matches!(
             err,
             RegistryError::PackageIndexNameMismatch { .. }
@@ -332,9 +647,9 @@ mod tests {
 
     #[test]
     fn render_is_deterministic() {
-        let first = insert_version(None, &metadata("fmt", "10.2.1"))
+        let first = insert_new(None, &metadata("fmt", "10.2.1"))
             .expect("insert_version failed during test setup");
-        let index = insert_version(Some(first), &metadata("fmt", "10.1.0")).unwrap();
+        let index = insert_new(Some(first), &metadata("fmt", "10.1.0")).unwrap();
         let a = render(&index, Path::new("packages/fmt.json")).unwrap();
         let b = render(&index, Path::new("packages/fmt.json")).unwrap();
         assert_eq!(a, b);
@@ -343,11 +658,11 @@ mod tests {
 
     #[test]
     fn render_orders_versions_by_semver() {
-        let first = insert_version(None, &metadata("fmt", "9.9.9"))
+        let first = insert_new(None, &metadata("fmt", "9.9.9"))
             .expect("insert_version failed during test setup");
-        let second = insert_version(Some(first), &metadata("fmt", "10.1.0"))
+        let second = insert_new(Some(first), &metadata("fmt", "10.1.0"))
             .expect("insert_version failed during test setup");
-        let index = insert_version(Some(second), &metadata("fmt", "10.2.1")).unwrap();
+        let index = insert_new(Some(second), &metadata("fmt", "10.2.1")).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let pos_9 = body.find("\"9.9.9\"").unwrap();
         let pos_101 = body.find("\"10.1.0\"").unwrap();
@@ -360,7 +675,7 @@ mod tests {
 
     #[test]
     fn render_round_trips() {
-        let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let index = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let parsed: PackageIndex = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, index);
@@ -396,7 +711,7 @@ mod tests {
         );
         meta.standards = StandardsMetadata { targets };
 
-        let index = insert_version(None, &meta).unwrap();
+        let index = insert_new(None, &meta).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let standards = &value["versions"]["10.2.1"]["standards"]["targets"];
@@ -416,7 +731,7 @@ mod tests {
     /// existing entries stay byte-identical.
     #[test]
     fn render_omits_empty_standards() {
-        let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let index = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("standards").is_none());
@@ -440,7 +755,7 @@ mod tests {
             .unwrap(),
         );
 
-        let index = insert_version(None, &meta).unwrap();
+        let index = insert_new(None, &meta).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let upstream = &value["versions"]["10.2.1"]["upstream"];
@@ -456,7 +771,7 @@ mod tests {
     /// entries stay byte-identical.
     #[test]
     fn render_omits_absent_upstream() {
-        let index = insert_version(None, &metadata("fmt", "10.2.1")).unwrap();
+        let index = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("upstream").is_none());

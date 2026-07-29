@@ -220,14 +220,20 @@ impl FileRegistry {
             .fold(self.artifacts_dir(), |dir, c| dir.join(c))
     }
 
-    /// Absolute path of the artifact for one resolved
-    /// (name, version).  The filename flattens a scoped name to
-    /// `<scope>-<name>` so a downloaded archive stays
-    /// self-identifying outside the registry tree - the same shape
-    /// the hosted registry serves.
-    pub fn artifact_path(&self, name: &PackageName, version: &semver::Version) -> PathBuf {
+    /// Absolute path of the artifact for one immutable
+    /// (name, version, revision) unit.  The filename flattens a
+    /// scoped name to `<scope>-<name>` and embeds the packaging
+    /// revision, so a downloaded archive stays self-identifying
+    /// outside the registry tree and superseded revisions keep their
+    /// own files - the same shape the hosted registry serves.
+    pub fn artifact_path(
+        &self,
+        name: &PackageName,
+        version: &semver::Version,
+        revision: &str,
+    ) -> PathBuf {
         self.artifact_dir_for(name)
-            .join(format!("{}-{version}.zip", name.artifact_stem()))
+            .join(format!("{}-{version}-{revision}.zip", name.artifact_stem()))
     }
 
     /// `source.path` value to embed in package index metadata, given
@@ -245,9 +251,15 @@ impl FileRegistry {
     /// `packages/`, platform separators) climb and render exactly
     /// where the index document really sits.  For the default config
     /// this yields the same canonical shapes the hosted registry
-    /// validates: `../artifacts/<name>/<name>-<version>.zip` and
-    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`.
-    pub fn relative_source_path(&self, name: &PackageName, version: &semver::Version) -> String {
+    /// validates: `../artifacts/<name>/<name>-<version>-<revision>.zip`
+    /// and
+    /// `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`.
+    pub fn relative_source_path(
+        &self,
+        name: &PackageName,
+        version: &semver::Version,
+        revision: &str,
+    ) -> String {
         let climb =
             subdir_normal_components(&self.config.packages).count() + usize::from(name.is_scoped());
         let mut out = String::new();
@@ -258,7 +270,7 @@ impl FileRegistry {
             .chain(name.path_components())
             .collect();
         out.push_str(&descent.join("/"));
-        let _ = write!(out, "/{}-{version}.zip", name.artifact_stem());
+        let _ = write!(out, "/{}-{version}-{revision}.zip", name.artifact_stem());
         out
     }
 }
@@ -403,12 +415,12 @@ mod tests {
             dir.path().join("packages/fmt.json")
         );
         assert_eq!(
-            registry.artifact_path(&fmt, &v),
-            dir.path().join("artifacts/fmt/fmt-10.2.1.zip")
+            registry.artifact_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
+            dir.path().join("artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
-            registry.relative_source_path(&fmt, &v),
-            "../artifacts/fmt/fmt-10.2.1.zip"
+            registry.relative_source_path(&fmt, &v, "aaaaaaaaaaaaaaaa"),
+            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
@@ -428,12 +440,12 @@ mod tests {
             dir.path().join("packages/fmtlib/fmt.json")
         );
         assert_eq!(
-            registry.artifact_path(&name, &v),
-            dir.path().join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip")
+            registry.artifact_path(&name, &v, "aaaaaaaaaaaaaaaa"),
+            dir.path().join("artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
         );
         assert_eq!(
-            registry.relative_source_path(&name, &v),
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
+            registry.relative_source_path(&name, &v, "aaaaaaaaaaaaaaaa"),
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
@@ -452,12 +464,12 @@ mod tests {
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "../../blobs/fmt/fmt-1.0.0.zip"
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            "../../blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
-            "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
+            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            "../../../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
@@ -476,8 +488,8 @@ mod tests {
         let registry = FileRegistry::open_or_initialize(dir.path()).unwrap();
         let v = semver::Version::parse("1.0.0").unwrap();
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "../blobs/fmt/fmt-1.0.0.zip"
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            "../blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
 
         let dir = TempDir::new().unwrap();
@@ -488,12 +500,12 @@ mod tests {
         // Index docs sit at the registry root: no climb at all for a
         // bare name, one level for a scoped one.
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v),
-            "blobs/fmt/fmt-1.0.0.zip"
+            registry.relative_source_path(&PackageName::new("fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            "blobs/fmt/fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
         assert_eq!(
-            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v),
-            "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
+            registry.relative_source_path(&PackageName::new("fmtlib/fmt").unwrap(), &v, "aaaaaaaaaaaaaaaa"),
+            "../blobs/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
