@@ -45,8 +45,12 @@ fn validate_pair(
 ) -> Result<(), &'static str> {
     let body = frame(metadata, archive);
     let frame = decode_frame(&body)?;
-    let parsed = validate_metadata(scope, name, version, frame.metadata)?;
-    verify_checksum(&parsed, &sha256_hex(frame.archive))
+    // The digest comes first, exactly as in the glue: the packaging
+    // revision is its leading hex prefix, and the canonical source
+    // path the metadata must carry embeds it.
+    let computed_hex = sha256_hex(frame.archive);
+    let parsed = validate_metadata(scope, name, version, &computed_hex[..16], frame.metadata)?;
+    verify_checksum(&parsed, &computed_hex)
 }
 
 #[test]
@@ -71,12 +75,36 @@ fn frozen_fixture_under_a_different_scope_is_rejected() {
 }
 
 #[test]
-fn frozen_fixture_with_a_flipped_archive_byte_fails_the_checksum() {
+fn frozen_fixture_with_a_flipped_archive_byte_is_rejected() {
+    // Corrupted bytes change the digest, so the derived packaging
+    // revision no longer matches the one the metadata's source path
+    // embeds: the identity check fires before the checksum
+    // comparison ever runs.
     let mut archive = FROZEN_ARCHIVE.to_vec();
     let last = archive.len() - 1;
     archive[last] ^= 0x01;
     assert_eq!(
         validate_pair("smoke", "withdep", "0.2.0", FROZEN_METADATA, &archive),
+        Err(IDENTITY_MISMATCH)
+    );
+}
+
+#[test]
+fn frozen_fixture_with_a_lying_checksum_claim_fails_the_checksum() {
+    // A metadata document whose checksum *tail* lies (the 16-hex
+    // revision prefix stays honest, so the identity check passes)
+    // must still fall to the digest comparison.
+    let text = std::str::from_utf8(FROZEN_METADATA).unwrap();
+    let claim_start = text.find("sha256:").unwrap() + "sha256:".len();
+    let claim = &text[claim_start..claim_start + 64];
+    let last = claim.chars().last().unwrap();
+    let flipped = if last == '0' { '1' } else { '0' };
+    let mut lying_claim = claim[..63].to_owned();
+    lying_claim.push(flipped);
+    let lying = text.replace(claim, &lying_claim);
+    assert_ne!(text, lying, "the mutation must have applied");
+    assert_eq!(
+        validate_pair("smoke", "withdep", "0.2.0", lying.as_bytes(), FROZEN_ARCHIVE),
         Err(CHECKSUM_MISMATCH)
     );
 }

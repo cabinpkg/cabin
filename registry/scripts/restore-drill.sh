@@ -108,8 +108,8 @@ done <<<"$tables"
   || fail "row counts differ (drift since the dump, or an incomplete restore - compare timestamps)"
 
 step "spot-checking one version's metadata JSON"
-spot_sql="SELECT scope || '/' || name || '@' || version AS pin, metadata_json
-  FROM versions ORDER BY scope, name, version LIMIT 1"
+spot_sql="SELECT scope || '/' || name || '@' || version || '#' || revision AS pin, metadata_json
+  FROM revisions ORDER BY scope, name, version, revision LIMIT 1"
 live_pin="$(live_column "$spot_sql" pin)"
 if [[ -z "$live_pin" ]]; then
   echo "    no versions in the live database; nothing to spot-check"

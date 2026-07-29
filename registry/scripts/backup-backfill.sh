@@ -54,7 +54,7 @@ wrangler d1 execute DB --remote --command "
   INSERT INTO backup_pending (key, bytes, enqueued_at)
     SELECT 'blobs/sha256/' || checksum, MAX(archive_size),
            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    FROM versions WHERE verification = 'verified' GROUP BY checksum
+    FROM revisions WHERE verification = 'verified' GROUP BY checksum
   ON CONFLICT (key) DO NOTHING" >/dev/null
 
 step "copying verified blobs missing from $backup"
@@ -66,7 +66,7 @@ trap 'rm -f "$blob"' EXIT
 # backup set holds exactly the content the registry serves as verified
 # (docs/architecture.md, "Backups"); pending uploads are not backed up
 # until their verdict, and rejected blobs are reclaimed.
-checksums="$(d1_column "SELECT DISTINCT checksum FROM versions
+checksums="$(d1_column "SELECT DISTINCT checksum FROM revisions
   WHERE verification = 'verified'" checksum)"
 copied=0
 present=0

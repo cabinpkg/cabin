@@ -91,24 +91,15 @@ CREATE TABLE packages (
 );
 CREATE INDEX packages_created_by ON packages (created_by);
 
+-- The resolution-level unit: one row per published version string.
+-- Yank state and the download counter are version-level concepts
+-- (resolution excludes yanked versions; downloads aggregate across
+-- revisions); everything byte-addressed lives in `revisions`.
 CREATE TABLE versions (
     scope TEXT NOT NULL,
     name TEXT NOT NULL,
     version TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    metadata_json TEXT NOT NULL,
     yanked INTEGER NOT NULL DEFAULT 0,
-    published_at TEXT NOT NULL,
-    archive_size INTEGER NOT NULL,
-    published_by INTEGER NOT NULL REFERENCES users,
-    -- The asynchronous verification lifecycle (docs/architecture.md,
-    -- "The verification lifecycle"): 'pending' (published, not yet
-    -- resolvable), 'verified' (part of the registry, immutable), or
-    -- 'rejected' (never became part of the registry; its blob is
-    -- reclaimed and the pair may be republished).
-    verification TEXT NOT NULL DEFAULT 'pending',
-    verification_reason TEXT,
-    verified_at TEXT,
     -- Cumulative download counter for the artifact read plane
     -- (docs/architecture.md, "Download counts"): one approximate,
     -- monotonically increasing total per version, incremented
@@ -117,11 +108,57 @@ CREATE TABLE versions (
     PRIMARY KEY (scope, name, version),
     FOREIGN KEY (scope, name) REFERENCES packages (scope, name)
 );
-CREATE INDEX versions_published_by ON versions (published_by);
+
+-- The immutable unit: one row per (scope, name, version, revision).
+-- `revision` is the leading 16 hex characters of the archive's
+-- SHA-256 (`checksum`), so byte-identical republication maps onto the
+-- existing row; bytes for a given key never change once the row is
+-- pending or verified.
+CREATE TABLE revisions (
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    archive_size INTEGER NOT NULL,
+    published_by INTEGER NOT NULL REFERENCES users,
+    -- The asynchronous verification lifecycle (docs/architecture.md,
+    -- "The verification lifecycle"): 'pending' (published, not yet
+    -- resolvable), 'verified' (part of the registry, immutable), or
+    -- 'rejected' (never became part of the registry; its blob is
+    -- reclaimed and the revision may be republished).
+    verification TEXT NOT NULL DEFAULT 'pending',
+    verification_reason TEXT,
+    verified_at TEXT,
+    PRIMARY KEY (scope, name, version, revision),
+    FOREIGN KEY (scope, name, version) REFERENCES versions (scope, name, version)
+);
+CREATE INDEX revisions_published_by ON revisions (published_by);
 -- The checksum index serves the storage self-accounting's
 -- first-reference check at publish.
-CREATE INDEX versions_checksum ON versions (checksum);
-CREATE INDEX versions_verification ON versions (verification);
+CREATE INDEX revisions_checksum ON revisions (checksum);
+CREATE INDEX revisions_verification ON revisions (verification);
+
+-- The single definition of "the revision the read plane serves": per
+-- verified version, the verified revision with the newest
+-- published_at (revision id as the deterministic tie-break).  Every
+-- read projection - package documents, search, package detail,
+-- reverse dependencies, the source viewer, stats - selects through
+-- this view, so "current" can never mean different things on
+-- different routes.  Pending and rejected rows are invisible here by
+-- construction.
+CREATE VIEW current_revisions AS
+SELECT r.* FROM revisions r
+WHERE r.verification = 'verified'
+AND NOT EXISTS (
+    SELECT 1 FROM revisions s
+    WHERE s.scope = r.scope AND s.name = r.name AND s.version = r.version
+    AND s.verification = 'verified'
+    AND (s.published_at > r.published_at
+         OR (s.published_at = r.published_at AND s.revision > r.revision))
+);
 
 -- The verified-artifact backup queue (see docs/runbook.md, "Disaster
 -- recovery"). The verdict batch that marks a version verified enqueues

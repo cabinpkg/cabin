@@ -33,10 +33,20 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "tokens",
     "packages",
     "versions",
+    "revisions",
     "meta",
     "backup_pending",
     "d1_migrations",
 ];
+
+/// Views whose `CREATE VIEW` statement a valid dump must contain.
+/// Views are schema like tables - the D1 exporter dumps them and a
+/// restored `d1_migrations` table keeps migration 0001 from ever
+/// recreating one that is missing - but they hold no rows, so only
+/// the statement check can catch a dump that lost one.  Every read
+/// projection resolves served revisions through `current_revisions`,
+/// so a restore without it serves nothing.
+pub const EXPECTED_VIEWS: &[&str] = &["current_revisions"];
 
 /// Tables a valid dump must carry at least one `INSERT INTO` row for.
 /// Both are populated by the migrations themselves, so even a
@@ -135,6 +145,7 @@ pub struct DumpScanner {
     bytes: u64,
     carry: Vec<u8>,
     seen: Vec<bool>,
+    seen_views: Vec<bool>,
     seen_rows: Vec<bool>,
 }
 
@@ -148,6 +159,18 @@ fn table_patterns(table: &str) -> [String; 4] {
         format!("CREATE TABLE \"{table}\""),
         format!("CREATE TABLE IF NOT EXISTS {table}"),
         format!("CREATE TABLE IF NOT EXISTS \"{table}\""),
+    ]
+}
+
+/// `CREATE VIEW <name>` in the spellings of [`table_patterns`]: the
+/// migrations and the D1 exporter both write the bare form today, and
+/// the quoted / `IF NOT EXISTS` forms cost nothing to accept.
+fn view_patterns(view: &str) -> [String; 4] {
+    [
+        format!("CREATE VIEW {view}"),
+        format!("CREATE VIEW \"{view}\""),
+        format!("CREATE VIEW IF NOT EXISTS {view}"),
+        format!("CREATE VIEW IF NOT EXISTS \"{view}\""),
     ]
 }
 
@@ -167,6 +190,7 @@ impl DumpScanner {
             bytes: 0,
             carry: Vec::new(),
             seen: vec![false; EXPECTED_TABLES.len()],
+            seen_views: vec![false; EXPECTED_VIEWS.len()],
             seen_rows: vec![false; EXPECTED_ROWS.len()],
         }
     }
@@ -186,6 +210,14 @@ impl DumpScanner {
                 longest = longest.max(pattern.len());
                 if !self.seen[index] && contains(&haystack, pattern.as_bytes()) {
                     self.seen[index] = true;
+                }
+            }
+        }
+        for (index, view) in EXPECTED_VIEWS.iter().enumerate() {
+            for pattern in view_patterns(view) {
+                longest = longest.max(pattern.len());
+                if !self.seen_views[index] && contains(&haystack, pattern.as_bytes()) {
+                    self.seen_views[index] = true;
                 }
             }
         }
@@ -211,6 +243,11 @@ impl DumpScanner {
                 .zip(self.seen)
                 .filter_map(|(table, seen)| (!seen).then_some(*table))
                 .collect(),
+            missing_views: EXPECTED_VIEWS
+                .iter()
+                .zip(self.seen_views)
+                .filter_map(|(view, seen)| (!seen).then_some(*view))
+                .collect(),
             missing_rows: EXPECTED_ROWS
                 .iter()
                 .zip(self.seen_rows)
@@ -232,6 +269,7 @@ pub struct DumpCheck {
     pub sha256_hex: String,
     pub bytes: u64,
     pub missing_tables: Vec<&'static str>,
+    pub missing_views: Vec<&'static str>,
     pub missing_rows: Vec<&'static str>,
 }
 
@@ -246,6 +284,12 @@ impl DumpCheck {
             return Some(format!(
                 "the dump is missing CREATE TABLE statements for: {}",
                 self.missing_tables.join(", ")
+            ));
+        }
+        if !self.missing_views.is_empty() {
+            return Some(format!(
+                "the dump is missing CREATE VIEW statements for: {}",
+                self.missing_views.join(", ")
             ));
         }
         if !self.missing_rows.is_empty() {
@@ -531,12 +575,16 @@ mod tests {
 
     fn schema_text() -> String {
         use std::fmt::Write as _;
-        EXPECTED_TABLES
+        let mut out = EXPECTED_TABLES
             .iter()
             .fold(String::new(), |mut out, table| {
                 let _ = writeln!(out, "CREATE TABLE {table} (x TEXT);");
                 out
-            })
+            });
+        for view in EXPECTED_VIEWS {
+            let _ = writeln!(out, "CREATE VIEW {view} AS SELECT 1;");
+        }
+        out
     }
 
     fn dump_text() -> String {
@@ -581,12 +629,30 @@ mod tests {
                 let _ = writeln!(out, "CREATE TABLE \"{table}\" (x TEXT);");
                 out
             });
+        for view in EXPECTED_VIEWS {
+            let _ = writeln!(dump, "CREATE VIEW \"{view}\" AS SELECT 1;");
+        }
         for table in EXPECTED_ROWS {
             let _ = writeln!(dump, "INSERT INTO \"{table}\" VALUES('x');");
         }
         let mut scanner = DumpScanner::new();
         scanner.update(dump.as_bytes());
         assert_eq!(scanner.finish().error(), None);
+    }
+
+    #[test]
+    fn scanner_rejects_dumps_missing_the_served_revision_view() {
+        // Views hold no rows, so only the statement check can catch a
+        // dump that lost one - and a restored dump also restores
+        // `d1_migrations`, so nothing would ever recreate the view.
+        let dump = dump_text().replace("CREATE VIEW current_revisions AS SELECT 1;\n", "");
+        assert!(!dump.contains("CREATE VIEW"), "the strip must apply");
+        let mut scanner = DumpScanner::new();
+        scanner.update(dump.as_bytes());
+        let check = scanner.finish();
+        assert_eq!(check.missing_views, vec!["current_revisions"]);
+        let error = check.error().unwrap();
+        assert!(error.contains("CREATE VIEW"), "{error}");
     }
 
     #[test]
@@ -635,6 +701,7 @@ mod tests {
                 "tokens",
                 "packages",
                 "versions",
+                "revisions",
                 "backup_pending",
                 "d1_migrations"
             ]

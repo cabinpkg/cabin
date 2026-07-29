@@ -217,6 +217,7 @@ if [[ -n "$token" ]]; then
       VALUES ('smoke', 1, 'smoke', '${hash}', 'publish,yank', '1970-01-01T00:00:00Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
       VALUES ('smoke-verify', 1, 'smoke-verify', '${verify_hash}', 'verify', '1970-01-01T00:00:00Z');
+    DELETE FROM revisions WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
     DELETE FROM scope_members WHERE scope_name IN

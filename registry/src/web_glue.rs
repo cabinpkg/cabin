@@ -640,10 +640,12 @@ struct PackageVersionRecord {
     scope: String,
     name: String,
     version: String,
+    revision: String,
     verification: String,
     yanked: i64,
     published_at: String,
     downloads: i64,
+    is_current: i64,
 }
 
 /// `GET /api/v1/user/packages`: the packages the user created, every
@@ -663,10 +665,12 @@ async fn list_packages(db: &D1Database, user_id: i64) -> worker::Result<Response
         .map(|record| user_api::PackageVersionRow {
             name: format!("{}/{}", record.scope, record.name),
             version: record.version,
+            revision: record.revision,
             verification: record.verification,
             yanked: record.yanked != 0,
             published_at: record.published_at,
             downloads: non_negative(record.downloads),
+            is_current: record.is_current != 0,
         })
         .collect();
     json_response(&user_api::packages_json(&rows))
@@ -733,6 +737,7 @@ async fn package_visible(db: &D1Database, scope: &str, name: &str) -> worker::Re
 #[derive(Deserialize)]
 struct PackageDetailRecord {
     version: String,
+    revision: String,
     metadata_json: String,
     yanked: i64,
     published_at: String,
@@ -756,6 +761,7 @@ async fn package_detail(db: &D1Database, scope: &str, name: &str) -> worker::Res
         .into_iter()
         .map(|record| user_api::PackageDetailRow {
             version: record.version,
+            revision: record.revision,
             metadata_json: record.metadata_json,
             yanked: record.yanked != 0,
             published_at: record.published_at,

@@ -29,8 +29,8 @@ my %allow = (
     'src/glue.rs' => {
         artifact_response           => 1,
         charged_blob_read           => 1,
-        persist_new_version         => 1,
-        replace_rejected_version    => 1,
+        persist_new_revision        => 1,
+        revive_rejected_revision    => 1,
         delete_blob_if_unreferenced => 1,
         heal_blobs_on_retry         => 1,
     },
