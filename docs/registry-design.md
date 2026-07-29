@@ -34,23 +34,25 @@ that the resolver can read back through `--index-path <dir>`.
   artifacts/
     fmtlib/
       fmt/
-        fmtlib-fmt-10.2.1.zip
+        fmtlib-fmt-10.2.1-0123456789abcdef.zip
     gabime/
       spdlog/
-        gabime-spdlog-1.13.0.zip
+        gabime-spdlog-1.13.0-9a93b2b7dfdac77c.zip
 ```
 
 `config.json` identifies the registry layout and the relative `packages`
 and `artifacts` directories.  Registry packages are always scoped
 (`<scope>/<name>`), so each package's index file nests one scope
-directory deep and its artifact filename embeds the scope
-(`<scope>-<name>-<version>.zip`, self-identifying outside the tree).
+directory deep and its artifact filename embeds the scope and the
+[packaging revision](package-index.md#packaging-revisions)
+(`<scope>-<name>-<version>-<revision>.zip`, self-identifying outside the
+tree, and one file per revision).
 Each `packages/<scope>/<name>.json` file contains the deterministic
-per-package version list.  Each version points at its source archive by
+per-package version list.  Each revision points at its source archive by
 a registry-relative path such as
-`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip`.  Legacy
+`../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0123456789abcdef.zip`.  Legacy
 bare-name registries (`packages/<name>.json`,
-`artifacts/<name>/<name>-<version>.zip`) remain readable and
+`artifacts/<name>/<name>-<version>-<revision>.zip`) remain readable and
 vendorable; only new publication requires a scope.
 
 The file-registry writer:
@@ -59,15 +61,22 @@ The file-registry writer:
   package code used by `cabin package`;
 - requires a scoped name and validates each name component before it
   becomes a path component;
-- rejects duplicate versions;
+- treats `(name, version, revision)` as the immutable unit: republishing
+  byte-identical bytes is a no-op onto the recorded revision; different
+  bytes for a version that already has one require the `--new-revision`
+  opt-in and must leave the resolver-consumed metadata
+  (`dependencies`, `features`, `standards`) unchanged; and two different
+  archives whose digests share a revision id fail loudly;
+- makes the newly written revision the version's current one while
+  keeping superseded revisions listed and their artifacts in place;
 - writes version entries in deterministic semver order;
 - replaces the artifact and the per-package index atomically: each
   file is staged in a sibling temporary file and only renamed onto
   its destination after a successful write, so an interrupted
   publish leaves the previous artifact and index in place;
 - uses a simple registry lock file to avoid concurrent mutation;
-- keeps archive checksums in the index so the artifact pipeline can
-  verify bytes before extraction.
+- keeps each revision's archive checksum in the index so the artifact
+  pipeline can verify bytes before extraction.
 
 The existing read path (`cabin resolve`, `cabin fetch`,
 `cabin build --index-path`) accepts either a registry root with
@@ -92,12 +101,13 @@ The sparse HTTP client reads the same file-registry shape over plain
 
 - `GET <url>/config.json`
 - `GET <url>/packages/<scope>/<name>.json`
-- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`
+- `GET <url>/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`
 
 A bare name (legal only in locally-produced file registries) reads
 from the flat `packages/<name>.json` /
-`artifacts/<name>/<name>-<version>.zip` shape; the hosted registry
-serves scoped routes only.
+`artifacts/<name>/<name>-<version>-<revision>.zip` shape; the hosted
+registry serves scoped routes only.  Which revision a read requests
+comes from the lockfile's checksum pin, not from resolution.
 
 The client is read-only.  It does not publish packages, mutate registry
 state, or persist HTTP metadata for offline use.  Commands that need an
@@ -106,7 +116,7 @@ or - when none of those apply - Cabin's default hosted index origin
 ([`remote-registry.md`](remote-registry.md#the-default-registry)).
 
 HTTP archive bytes still flow through the artifact cache.  Cabin hashes
-the bytes, checks them against the index's `sha256:<hex>` value, stores
+the bytes, checks them against the revision's `sha256:<hex>` value, stores
 the archive under the content-addressed cache path, and extracts it with
 the same path-traversal protections used for local archives.
 

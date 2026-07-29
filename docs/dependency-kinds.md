@@ -154,7 +154,10 @@ The on-disk shape is:
 Empty kind tables are omitted, so manifests that only use `[dependencies]` produce the exact
 byte-for-byte metadata they always did.
 
-The local file index and the sparse HTTP index use the same shape.
+The local file index and the sparse HTTP index carry the same dependency tables.  They differ only
+in where the archive identity sits: an index version entry replaces the document's top-level
+`checksum` / `source` with the per-revision map described in
+[`package-index.md`](package-index.md#packaging-revisions).
 
 ## Optional dependencies
 

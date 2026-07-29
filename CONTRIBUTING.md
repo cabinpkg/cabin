@@ -109,9 +109,10 @@ cargo build -p cabinpkg
 cargo run -p cabinpkg-port-publish -- --dry-run
 ```
 
-Maintainers publish the converted packages with `--publish --index-url <registry>`; recipe-only
-corrections to an already-published version bump the recipe's `packaging-revision` sidecar (see
-`docs/foundation-ports.md`, "Packaging revisions").  CI runs the same dry-run on pull requests
+Maintainers publish the converted packages with `--publish --index-url <registry>`; a recipe-only
+correction to an already-published version reaches the registry as a new packaging revision of the
+same version, with nothing extra to edit (see `docs/foundation-ports.md`, "Packaging
+revisions").  CI runs the same dry-run on pull requests
 that touch the recipes or the publisher, and publishes on `main`
 (`.github/workflows/ports-publish.yml`).
 

@@ -29,16 +29,22 @@ vendor/
   config.json                                 # {"schema":1, "kind":"file-registry", ...}
   packages/<scope>/<name>.json                # per-package version index
   artifacts/<scope>/<name>/                   # verified source archives
-    <scope>-<name>-<version>.zip
+    <scope>-<name>-<version>-<revision>.zip
   cabin-vendor.json                           # deterministic summary of this run
 ```
 
 A bare-name package (from a legacy source registry) keeps the flat shape: `packages/<name>.json`
-and `artifacts/<name>/<name>-<version>.zip`.
+and `artifacts/<name>/<name>-<version>-<revision>.zip`.
 
 `cabin-vendor.json` records the `(name, version, checksum, artifact)` set this invocation wrote, in
 stable `(name, version)` order.  Re-running `cabin vendor` against the same inputs produces a
 byte-identical summary.
+
+A vendor directory reproduces **exactly the [packaging revision](package-index.md#packaging-revisions)
+the lockfile pins**, including one that has since been superseded upstream.  Each vendored version
+entry therefore lists only the fetched revision, as its current one, with `source.path` rewritten to
+the vendored artifact; the superseded siblings' archives are not in the directory, so nothing there
+can silently resolve to different bytes.
 
 Every archive is re-verified against the checksum recorded in the source index before the byte
 stream is written; a checksum mismatch surfaces as an explicit error and never overwrites the
@@ -150,6 +156,6 @@ environment policy.
 | `--offline forbids network access, but the resolved index source is the URL …` | A `[registry] index-url` config setting is active.                         | Pass `--index-path <vendor-dir>` or remove the URL setting from the active config.        |
 | `--offline forbids network access, but no index source is configured, so versioned dependencies would resolve through the default registry …` | Nothing names an index, so the default hosted registry applies.            | Pass `--index-path <vendor-dir>` (a `cabin vendor` output) and re-run.                     |
 | `cabin vendor requires a local --index-path source …`                          | The resolved index source is a URL (config or `[source-replacement]`).      | Switch to a local `--index-path` source or adjust the offending config entry.             |
-| `vendor directory already contains <path> with checksum sha256:… which does not match …` | A previous run left a stale archive on disk.                               | Delete the offending file (or the whole `vendor/artifacts/<name>/` subdir) and re-run.    |
+| `vendor directory already contains <path> with checksum sha256:… which does not match …` | A previous run left a stale archive on disk.                               | Delete the offending file (or the whole `vendor/artifacts/<scope>/<name>/` subdir) and re-run. |
 | `checksum mismatch while vendoring …`                                           | The artifact in the cache no longer matches the index's recorded checksum. | Clear the cache (`--cache-dir <new-dir>`) or refresh the index, then re-run `cabin vendor`. |
 | `vendoring requires the source index to expose packages/<name>.json at …`       | The local `--index-path` is missing per-package metadata.                  | Re-publish the package with `cabin publish --registry-dir <dir>` so the file appears.       |

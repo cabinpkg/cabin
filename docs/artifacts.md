@@ -14,12 +14,14 @@ Every registry package source archive must be a `.zip` whose root contains the p
 `cabin.toml`.  `cabin package` produces archives in exactly this shape.  See
 [`package-format.md`](package-format.md) for the producer contract, including the determinism rules
 and the include / exclude policy.  `cabin publish --registry-dir` writes those archives into a local
-file registry under `<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>.zip` (publish
-requires a scoped name), matching what the artifact fetcher reads back; see
-[`registry-design.md`](registry-design.md).
+file registry under
+`<registry>/artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` (publish
+requires a scoped name; the trailing segment is the
+[packaging revision](package-index.md#packaging-revisions)), matching what the artifact fetcher
+reads back; see [`registry-design.md`](registry-design.md).
 
 ```
-fmt-10.2.1.zip
+fmt-10.2.1-0123456789abcdef.zip
 |-- cabin.toml
 |-- include/
 |   `-- fmt.h
@@ -40,13 +42,13 @@ cabin.toml at its root` or `source archive for `fmt 10.2.1` contains package `fm
 
 ## Index reference
 
-In the local JSON index, each version that should be materialisable carries a `source` block
-alongside its `checksum`:
+In the local JSON index, each [packaging revision](package-index.md#packaging-revisions) of a
+version carries a `source` block alongside its `checksum`:
 
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt-10.2.1.zip",
+  "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
   "format": "zip"
 }
 ```
@@ -57,8 +59,10 @@ alongside its `checksum`:
 | `format` | `"zip"` | Zip archive. |
 | `path` | non-empty string | Absolute or relative filesystem path.  Relative paths resolve against the directory containing the `<package>.json` index file. |
 
-`checksum` is the `sha256:<hex>` digest of the archive's bytes.  It is required for any version
-`cabin fetch` or `cabin build` is asked to materialize; it is optional for resolver-only fixtures.
+`checksum` is the `sha256:<hex>` digest of that revision's archive bytes, and its leading 16 hex
+characters are the revision id.  A version `cabin fetch` or `cabin build` is asked to materialize
+must carry at least one revision; resolver-only fixtures may omit the axis entirely.  Which revision
+is fetched comes from the lockfile's pin, falling back to the version's current one.
 
 ## Cache layout
 
@@ -131,7 +135,7 @@ differs only in how archive bytes arrive at `cabin-artifact`:
    result unless it stays on the same origin as the package metadata URL and contains no `userinfo`
    credentials.
 2. `cabin` calls `cabin_index_http::HttpClient::download` to fetch the archive bytes once per
-   `(name, version)` that the resolved set requires.
+   `(name, version, revision)` triple that the resolved set requires.
 3. The bytes are handed to `cabin-artifact` as a [`FetchSource::InMemoryArchive`].  From there, the
    existing artifact path verifies SHA-256, atomic-renames the bytes into
    `<cache>/archives/sha256/<hex>.zip`, and safely extracts into `<cache>/sources/sha256/<hex>/`.
@@ -193,7 +197,8 @@ Behavior:
 1. Load manifest / workspace.
 2. Resolve versioned dependencies with the same lockfile-aware semantics as `cabin resolve`.
 3. Write or update `cabin.lock` unless `--locked` or `--frozen` forbids it.
-4. For each resolved registry package, build a fetch entry from the index's `source` and `checksum`.
+4. For each resolved registry package, build a fetch entry from the pinned revision's `source` and
+   `checksum` in the index.
 5. Verify checksums and copy archives into the cache.
 6. Safely extract sources into the cache and validate each extracted package's `cabin.toml`.
 7. Print the fetched packages.

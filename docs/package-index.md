@@ -2,7 +2,8 @@
 
 Cabin resolves versioned dependencies against a tiny on-disk JSON index.  This is **not** a real
 registry - it has no network protocol, no append-only structure, and no signing.  The format carries
-resolver metadata, checksum data for `cabin.lock`, and a source block so `cabin fetch` and `cabin
+resolver metadata plus, per version, one archive record per [packaging
+revision](#packaging-revisions), so `cabin.lock` can pin exact bytes and `cabin fetch` / `cabin
 build` can materialize registry packages.
 
 For `--index-path` local file indexes, HTTP, OCI, Git, and remote source paths are **not**
@@ -49,21 +50,25 @@ registry/
     spdlog.json
   artifacts/
     fmt/
-      fmt-10.2.1.zip
+      fmt-10.2.1-0123456789abcdef.zip
+      fmt-10.2.1-9a93b2b7dfdac77c.zip
     spdlog/
-      spdlog-1.13.0.zip
+      spdlog-1.13.0-9a93b2b7dfdac77c.zip
 ```
 
 When a `config.json` is present at the index root the loader uses the registry-root layout:
 `config.packages` (default `"packages"`) points at the directory holding `<name>.json` files, and
 source paths in those files resolve relative to that directory - i.e.
-`"../artifacts/fmt/fmt-10.2.1.zip"` lands at `registry/artifacts/fmt/fmt-10.2.1.zip`.
+`"../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip"` lands at
+`registry/artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip`.  The trailing segment of every artifact
+filename is the [packaging revision](#packaging-revisions), so each revision of a version keeps its
+own file.
 
 In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper as
 `<scope>/<name>.json` (e.g. `packages/fmtlib/fmt.json`); its declared `name` must be the full
 `<scope>/<name>`, and its source paths resolve relative to the scope directory, matching the
-published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` form.  Anything nested
-deeper than one scope directory is ignored.
+published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` form.  Anything
+nested deeper than one scope directory is ignored.
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
 absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
 the full layout contract.
@@ -90,11 +95,26 @@ field.  Mismatches produce a clear error.
     "10.2.1": {
       "dependencies": {},
       "yanked": false,
-      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      "source": {
-        "type": "archive",
-        "path": "../artifacts/fmt-10.2.1.zip",
-        "format": "zip"
+      "revision": "9a93b2b7dfdac77c",
+      "revisions": {
+        "0123456789abcdef": {
+          "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "published-at": "2026-01-14T09:12:33Z",
+          "source": {
+            "type": "archive",
+            "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
+            "format": "zip"
+          }
+        },
+        "9a93b2b7dfdac77c": {
+          "checksum": "sha256:9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c",
+          "published-at": "2026-02-02T18:40:07Z",
+          "source": {
+            "type": "archive",
+            "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
+            "format": "zip"
+          }
+        }
       }
     }
   }
@@ -105,7 +125,7 @@ field.  Mismatches produce a clear error.
 | --- | --- | --- |
 | `schema` | yes | Schema version.  Only `1` is supported; other values produce a clear error. |
 | `name` | yes | Package name.  Must equal the file's stem. |
-| `versions` | yes | Map from SemVer version string to version metadata.  May be empty. |
+| `versions` | yes | Map from SemVer version string to version metadata.  May be empty.  Keys are plain upstream versions; a key carrying SemVer build metadata (`10.2.1+anything`) is rejected. |
 
 Each version's metadata:
 
@@ -113,22 +133,60 @@ Each version's metadata:
 | --- | --- | --- | --- |
 | `dependencies` | no | `{}` | Map from package name to version requirement string.  The same requirement subset as `cabin.toml` (see [`docs/manifest.md`](manifest.md)). |
 | `yanked` | no | `false` | When `true`, the resolver excludes this version from candidate sets. |
-| `checksum` | no | `null` | `sha256:<hex>` digest of the source archive's bytes.  Optional in the schema so resolver-only fixtures can omit it; required by `cabin fetch` and `cabin build` when the version must be materialized. |
-| `source` | no | `null` | Source archive metadata.  Optional in the schema; required by `cabin fetch` and `cabin build`.  See [Source artifact](#source-artifact) below. |
+| `revision` | no | `null` | The version's **current** packaging revision: the one a fetch uses when no lockfile pins another.  Must name a key of `revisions`. |
+| `revisions` | no | `{}` | Every fetchable packaging revision of this version, keyed by revision id.  See [Packaging revisions](#packaging-revisions). |
 | `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 | `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, `sha256`, `format`, optional `strip-prefix`, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
 
 Unknown fields anywhere in the file are rejected.
 
+## Packaging revisions
+
+The immutable unit of a registry is the triple **`(name, version, revision)`**.  A version is a
+plain upstream version and never changes meaning; a *packaging revision* is one set of archive bytes
+published under it, so a correction to how a version is packaged lands as a new revision rather than
+as a new version or as replaced bytes.
+
+A revision id is the **first 16 lowercase hex characters of the archive's SHA-256 digest**, which
+has two consequences the whole system leans on: republishing the identical archive maps onto the
+revision that already exists, and a revision id can always be re-derived from a `sha256:<hex>`
+checksum by taking its prefix.  Resolution never looks at revisions - it picks a version - and the
+revision is selected at *fetch* time, from the lockfile's `checksum` where there is one.
+
+Each entry of a version's `revisions` map takes this exact shape:
+
+```json
+"9a93b2b7dfdac77c": {
+  "checksum": "sha256:9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c",
+  "published-at": "2026-02-02T18:40:07Z",
+  "source": {
+    "type": "archive",
+    "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
+    "format": "zip"
+  }
+}
+```
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `checksum` | yes | `sha256:<hex>` digest of this revision's archive bytes.  The revision id must be this digest's leading hex prefix. |
+| `published-at` | yes | Non-empty timestamp recorded by the registry that accepted this revision.  Carried verbatim; Cabin never orders revisions by it (the `revision` pointer names the current one). |
+| `source` | yes | Where this revision's archive lives.  See [Source artifact](#source-artifact). |
+
+Superseded revisions stay listed, and their archives stay in place, so a lockfile that pins one
+keeps building.  `revision` and `revisions` may be **absent together** - a resolver-only fixture that
+carries no archives at all.  Such a version resolves, but any command that has to materialize it
+fails.
+
 ## Source artifact
 
-Each `source` block must take this exact shape:
+Each revision's `source` block must take this exact shape:
 
 ```json
 "source": {
   "type": "archive",
-  "path": "../artifacts/fmt-10.2.1.zip",
+  "path": "../artifacts/fmt/fmt-10.2.1-9a93b2b7dfdac77c.zip",
   "format": "zip"
 }
 ```
@@ -139,9 +197,13 @@ Each `source` block must take this exact shape:
 | `path` | non-empty string | Absolute or relative filesystem path to the `.zip` archive.  Relative paths are resolved against the directory containing the `<package>.json` file at load time. |
 | `format` | `"zip"` | Zip archives. |
 
+Published artifact filenames are `<scope>-<name>-<version>-<revision>.zip` for a scoped package and
+`<name>-<version>-<revision>.zip` for a bare one, inside a per-package directory.  Embedding the
+revision keeps a downloaded archive self-identifying and lets superseded revisions coexist.
+
 `cabin fetch` and `cabin build` copy each archive into the artifact cache, hashing as they go, and
-reject any archive whose bytes do not match the entry's `checksum`.  The cache layout is documented
-in [`artifacts.md`](artifacts.md).
+reject any archive whose bytes do not match the revision's `checksum`.  The cache layout is
+documented in [`artifacts.md`](artifacts.md).
 
 ## Standard metadata
 
@@ -186,13 +248,26 @@ compose requirements across dependency edges, is in
     "1.13.0": {
       "dependencies": { "fmt": ">=10.0.0 <11.0.0" },
       "yanked": false,
-      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      "revision": "9a93b2b7dfdac77c",
+      "revisions": {
+        "9a93b2b7dfdac77c": {
+          "checksum": "sha256:9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c9a93b2b7dfdac77c",
+          "published-at": "2026-02-02T18:40:07Z",
+          "source": {
+            "type": "archive",
+            "path": "../artifacts/spdlog/spdlog-1.13.0-9a93b2b7dfdac77c.zip",
+            "format": "zip"
+          }
+        }
+      }
     }
   }
 }
 ```
 
 ## Yanked version
+
+Yanking is version-level: it covers every revision of the version at once.
 
 ```json
 {
@@ -206,7 +281,9 @@ compose requirements across dependency edges, is in
 ```
 
 `cabin resolve` will pick `10.1.0` from this index.  If every matching version is yanked, the
-resolver returns "all matching versions of `fmt` are yanked".
+resolver returns "all matching versions of `fmt` are yanked".  Neither entry here carries
+`revision` / `revisions`, so both are resolver-only: this fixture exercises candidate selection and
+cannot be fetched.
 
 ## Validation
 
@@ -216,8 +293,12 @@ Loading rejects an index when:
 - a `*.json` file has unknown fields
 - `schema` is not `1`
 - the declared `name` doesn't equal the filename stem
-- a version key is not a valid SemVer string
+- a version key is not a valid SemVer string, or carries SemVer build metadata
 - a dependency requirement is not parseable
+- a revision id is not exactly 16 lowercase hex characters
+- a revision id is not the leading hex prefix of its own `checksum`
+- a revision's `published-at` is empty
+- `revisions` is present without a `revision` pointer, or the pointer does not name a listed revision
 - a `source.type` is anything other than `"archive"`
 - a `source.format` is anything other than `"zip"`
 - a `source.path` is empty
@@ -256,22 +337,22 @@ Request shape:
 | --- | --- | --- |
 | 1 | `GET <url>/config.json` | Validates `schema = 1`, `kind = "file-registry"`, and the configured `packages` / `artifacts` subdirectories. |
 | 2 | `GET <url>/<config.packages>/<name>.json` (bare name) or `GET <url>/<config.packages>/<scope>/<name>.json` (scoped name) | One request per package referenced by the manifest's versioned dependencies (and their transitive closure). |
-| 3 | `GET <artifact-url>` | Source-archive download for each `(name, version)` `cabin fetch` / `cabin build` needs. |
+| 3 | `GET <artifact-url>` | Source-archive download for each `(name, version, revision)` triple `cabin fetch` / `cabin build` needs. |
 
 The `config.json` fetched in step 1 recognizes the same optional `auth-required` / `api` fields
 as the local loader (see [Registry-root layout](#registry-root-layout)); on an `auth-required`
 registry every request in the table carries the stored bearer credential
 ([`remote-registry.md`](remote-registry.md#client-side-token-handling)).
 
-Source-path resolution for each version:
+Source-path resolution for each revision:
 
 - `source.path` is resolved against the package metadata URL using RFC 3986 rules.  The standard
-  `"../artifacts/<name>/<name>-<version>.zip"` therefore resolves to
-  `<url>/artifacts/<name>/<name>-<version>.zip` - the literal path components are joined per RFC
-  3986; the `config.artifacts` field is not substituted into the URL.  A scoped package's document
-  sits one directory deeper, so its canonical
-  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` climbs one extra level and
-  lands on the same registry root.
+  `"../artifacts/<name>/<name>-<version>-<revision>.zip"` therefore resolves to
+  `<url>/artifacts/<name>/<name>-<version>-<revision>.zip` - the literal path components are joined
+  per RFC 3986; the `config.artifacts` field is not substituted into the URL.  A scoped package's
+  document sits one directory deeper, so its canonical
+  `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` climbs one extra level
+  and lands on the same registry root.
 - Absolute or scheme-relative `http://` / `https://` values are accepted only when the final
   artifact URL has the same origin (scheme, host, and effective port) as the package metadata URL.
   Cross-origin artifact URLs and URLs containing `userinfo` credentials are rejected before any
@@ -330,8 +411,10 @@ cabin resolve --manifest-path app/cabin.toml --index-url http://localhost:8000
 
 ## Relationship to `cabin package`
 
-`cabin package` and `cabin publish --dry-run` produce a canonical per-version metadata document next
-to the archive.  The generated document mirrors the shape of one entry inside this index file (same
-`schema`, `dependencies`, `yanked`, `checksum`, `source`, and `standards` shape) so file-registry
-publish can splice it into a `<package>.json` without re-deriving anything.  Packaging and dry-run publishing do
-**not** modify any index - see [`package-format.md`](package-format.md).
+`cabin package` and `cabin publish --dry-run` produce a canonical metadata document next to the
+archive.  That document describes exactly **one packaging revision**: it carries the archive's
+`checksum` and a `source.path` whose filename already embeds the revision derived from that
+checksum, alongside the same `schema`, `dependencies`, `yanked`, and `standards` shape as an index
+entry.  File-registry publish splices it into a `<package>.json` - adding it to the version's
+`revisions` map and stamping `published-at` - without re-deriving anything.  Packaging and dry-run
+publishing do **not** modify any index - see [`package-format.md`](package-format.md).

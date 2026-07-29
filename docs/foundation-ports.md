@@ -164,8 +164,9 @@ The same libraries are also published to the Cabin registry as ordinary `cabin-p
 "cabin-ports/zlib" = "=1.3.1"
 ```
 
-The dependency key needs quotes (scoped names contain `/`), and the requirement never carries a
-`+cabin.<n>` packaging revision - requirement matching ignores build metadata.  Registry
+The dependency key needs quotes (scoped names contain `/`), and the requirement names the plain
+upstream version: [packaging revisions](package-index.md#packaging-revisions) are not part of the
+version string, and consumers pin them through the lockfile's checksum instead.  Registry
 dependencies resolve through the hosted registry by default (no flag; see
 [remote-registry.md](remote-registry.md#the-default-registry)) - while the registry is in
 private alpha its reads are authenticated, so a `cabin login` token is required; the bundled
@@ -386,9 +387,11 @@ $ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.c
 
 `--dry-run` stops after the preflight.  `--publish` performs the same preflight and then uploads
 every package through the registry API in publication order.  It never skips a version based on
-the public index - pending (not yet verified) versions are hidden there - and instead relies on
-the registry's idempotency rule: re-publishing byte-identical bytes is a no-op, divergent bytes
-for an existing version are rejected (published versions are immutable).
+the public index - pending (not yet verified) revisions are hidden there - and instead relies on
+the registry's idempotency rule: re-publishing byte-identical bytes is a no-op.  Every upload
+passes `--new-revision`, because a changed recipe that has been merged to `main` *is* the
+deliberate respin (see [Packaging revisions](#packaging-revisions)); unchanged recipes still
+produce byte-identical archives, so a rerun stays a no-op either way.
 
 ### Publish automation
 
@@ -401,8 +404,8 @@ runs the dry-run instead, never a publish).  Publish runs are serialized and an 
 never cancelled; a run superseded by a newer matching commit on `main` skips its upload instead
 of immutably publishing an intermediate state.  The check runs immediately before the publish
 command, whose own preflight still takes minutes - a commit landing inside that residual window
-can make a stale run publish first, in which case the newer run fails against the registry's
-immutability and the fix is a packaging-revision bump (see below), never silent divergence.
+can make a stale run publish first, in which case the newer run's differing bytes land as a new
+packaging revision (see below) rather than overwriting anything, never silent divergence.
 The publish job authenticates through the `CABIN_PORTS_TOKEN` repository secret (a registry
 token for the account owning the `cabin-ports` scope), exposed to `cabin publish` as
 `CABIN_REGISTRY_TOKEN`.  Upstream archives restored from the CI cache are never trusted: the
@@ -413,14 +416,22 @@ repository.
 
 ### Packaging revisions
 
-Published versions are immutable, and the published version preserves the upstream version.  When
-a recipe-only correction (an overlay fix, a `[[copy]]` addition) must reach the registry for an
-already-published upstream version, add the sidecar file
-`ports/<name>/<version>/packaging-revision` holding an integer of at least 1.  The tool then
-publishes `<version>+cabin.<n>` - SemVer build metadata, so version requirements like `^1.3`
-still match it, while resolvers prefer the highest packaging revision of otherwise-equal
-versions.  Bump the integer for every further correction; never reuse or remove a published
-revision.  The sidecar is repository-only metadata: the bundled-port layer does not read it.
+A published version always preserves the upstream version, and the bytes published under it are
+immutable.  A recipe-only correction - an overlay fix, a `[[copy]]` addition - therefore reaches the
+registry as a new [packaging revision](package-index.md#packaging-revisions) of the same version:
+the archive's changed bytes give it a new revision id, and both revisions stay listed and
+fetchable.  There is no version-string marker and no sidecar file to maintain; edit the recipe and
+merge it.
+
+Consumers are unaffected until they ask to be.  A lockfile that already pins the old revision keeps
+resolving and fetching exactly those bytes; a fresh resolution, or an explicit `cabin update`, picks
+up the corrected revision.
+
+Because the publisher always passes `--new-revision`, the merged recipe change *is* the intent
+signal: a correction landing on `main` is by construction a deliberate respin, and a rerun over
+unchanged recipes still produces byte-identical archives and stays a no-op.  A revision may not
+change what resolution consumes, so a correction that alters the converted package's
+`dependencies`, `features`, or `standards` is not a respin - it needs a new upstream version.
 
 ## Retiring a foundation port
 
