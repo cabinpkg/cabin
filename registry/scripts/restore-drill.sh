@@ -107,6 +107,20 @@ done <<<"$tables"
 [[ "$mismatch" -eq 0 ]] \
   || fail "row counts differ (drift since the dump, or an incomplete restore - compare timestamps)"
 
+step "comparing views against the live database"
+# Views carry no rows, so the count loop above cannot notice a dump
+# that lost one - and the restored d1_migrations table keeps migration
+# 0001 from ever recreating it.  Every read projection resolves served
+# revisions through current_revisions, so enumerate the live views and
+# require each in the restore.
+views_sql="SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name"
+live_views="$(live_column "$views_sql" name)"
+scratch_views="$(scratch_column "$views_sql" name)"
+[[ -n "$live_views" ]] || fail "the live database contains no views (current_revisions is required)"
+[[ "$live_views" == "$scratch_views" ]] \
+  || fail "views differ: live [$live_views], restored [$scratch_views]"
+printf '    views match: %s\n' "$(tr '\n' ' ' <<<"$live_views")"
+
 step "spot-checking one version's metadata JSON"
 spot_sql="SELECT scope || '/' || name || '@' || version || '#' || revision AS pin, metadata_json
   FROM revisions ORDER BY scope, name, version, revision LIMIT 1"
