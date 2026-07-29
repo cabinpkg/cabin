@@ -5,14 +5,14 @@ use std::thread::JoinHandle;
 
 /// Tiny static HTTP server backed by `tiny_http`.  Serves files
 /// from a directory; missing files yield 404.
-struct TestServer {
+pub(crate) struct TestServer {
     server: Arc<tiny_http::Server>,
     thread: Option<JoinHandle<()>>,
     url: String,
 }
 
 impl TestServer {
-    fn serve(root: PathBuf) -> Self {
+    pub(crate) fn serve(root: PathBuf) -> Self {
         let server =
             Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
         let addr = server.server_addr().to_ip().expect("loopback addr");
@@ -56,7 +56,7 @@ impl TestServer {
         }
     }
 
-    fn url(&self) -> &str {
+    pub(crate) fn url(&self) -> &str {
         &self.url
     }
 }

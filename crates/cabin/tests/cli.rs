@@ -2546,6 +2546,13 @@ mod distribution_artifacts;
 mod file_registry;
 
 // ---------------------------------------------------------------------------
+// packaging revisions across consumer flows
+// ---------------------------------------------------------------------------
+
+#[path = "cli/registry_revisions.rs"]
+mod registry_revisions;
+
+// ---------------------------------------------------------------------------
 // experimental remote-registry gating (`-Z remote-registry`)
 // ---------------------------------------------------------------------------
 
