@@ -24,7 +24,7 @@
   "checksum": "sha256:3b9fa6436e10431a674324a25fed1626400f79c5d0fc5bc968e1fb0ce7ebde54",
   "source": {
     "type": "archive",
-    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0.zip",
+    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0-3b9fa6436e10431a.zip",
     "format": "zip"
   }
 }

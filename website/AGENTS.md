@@ -13,10 +13,10 @@ from 22.18).
   foundation-port recipes) - no database or API, and no live-registry build
   dependency. `src/lib/ports.ts` loads one `PackageRecord` per `port.toml`,
   mirroring the `cabin-port-publish` identity rules: the record name is the
-  scoped registry name `cabin-ports/<lowercase name>`, the version appends
-  `+cabin.<n>` when a `packaging-revision` sidecar sits next to the
-  `port.toml`, and the committed `[source]` pin (HTTPS URL + SHA-256)
-  surfaces as `upstream` provenance. `src/lib/packages.ts` does grouping,
+  scoped registry name `cabin-ports/<lowercase name>`, the version is the
+  upstream version verbatim (packaging corrections are registry revisions,
+  never a version-string suffix), and the committed `[source]` pin (HTTPS
+  URL + SHA-256) surfaces as `upstream` provenance. `src/lib/packages.ts` does grouping,
   latest-version selection, route generation, and the search index (loader
   memoized: one disk read per build). `src/pages/packages.json.ts` is the
   search-index endpoint.
@@ -71,9 +71,9 @@ from 22.18).
 - The install snippet must use the quoted scoped registry form
   `"cabin-ports/<name>" = "=<upstream version>"` under `[dependencies]`
   (see `../docs/foundation-ports.md`, "Publishing ports as registry
-  packages"). The dependency key needs quotes (it contains `/`), and the
-  requirement never carries the `+cabin.<n>` packaging revision -
-  requirement matching ignores build metadata.
+  packages"). The dependency key needs quotes (it contains `/`); versions
+  are plain upstream versions - the packaging-revision axis never appears
+  in a requirement.
 
 ## Docs rendering
 

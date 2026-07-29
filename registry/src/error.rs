@@ -31,8 +31,17 @@ pub const VERIFY_SCOPE_REQUIRED: &str = "the token does not have the verify scop
 pub const INVALID_VERDICT_BODY: &str =
     r#"the verdict body must be {"verdict": "verified" | "rejected", "reason": <string>}"#;
 pub const VERDICT_REASON_REQUIRED: &str = "a rejection verdict requires a non-empty reason";
-pub const VERDICT_BINDING_REQUIRED: &str =
-    "a verified verdict requires the checksum and published_at the admin listing reported";
+pub const VERDICT_BINDING_REQUIRED: &str = "a verdict requires the checksum and published_at the admin listing reported; the checksum \
+     names the revision and published_at pins the publish event a revival would regenerate";
+pub const NEW_REVISION_REQUIRED: &str = "the version is already published with different bytes; published revisions are immutable - \
+     pass `--new-revision` to publish the changed bytes as a new packaging revision of this \
+     version, or bump the version";
+pub const REVISION_COLLISION: &str =
+    "a packaging revision with this id already exists with different bytes";
+pub const REVISION_CHANGES_RESOLVER_METADATA: &str = "a packaging revision must not change dependencies, features, or standards; publish a new \
+     version for changes resolution can observe";
+pub const INVALID_NEW_REVISION_QUERY: &str =
+    "the new-revision query parameter accepts only the value \"true\"";
 pub const VERSION_REJECTED_REVERDICT: &str =
     "the version was rejected; republishing it is the recovery path";
 pub const VERDICT_TARGET_CHANGED: &str =

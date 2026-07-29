@@ -126,6 +126,7 @@ jobs:
             entry=$(jq -c ".versions[$i]" <<<"$list")
             name=$(jq -r '.name' <<<"$entry")
             version=$(jq -r '.version' <<<"$entry")
+            revision=$(jq -r '.revision' <<<"$entry")
             checksum=$(jq -r '.checksum' <<<"$entry")
             published_at=$(jq -r '.published_at' <<<"$entry")
 
@@ -164,13 +165,16 @@ jobs:
 
             # The scoped name `<scope>/<name>` nests the artifact
             # directory (`artifacts/<scope>/<name>/`) while the
-            # filename flattens the `/` to `-`
-            # (`<scope>-<name>-<version>.zip`), matching the
-            # registry's read route.
+            # filename flattens the `/` to `-` and ends in the row's
+            # packaging revision
+            # (`<scope>-<name>-<version>-<revision>.zip`), matching the
+            # registry's read route: each revision of a version has its
+            # own URL, so this downloads exactly the bytes the listing
+            # entry names.
             stem=${name//\//-}
             if ! curl -fsS -H "authorization: Bearer $REGISTRY_VERIFY_TOKEN" \
               -o "$workdir/archive.zip" \
-              "$REGISTRY_ORIGIN/artifacts/$name/$stem-$version.zip"; then
+              "$REGISTRY_ORIGIN/artifacts/$name/$stem-$version-$revision.zip"; then
               echo "$name@$version: archive download failed; leaving it pending" >&2
               failures=$((failures + 1))
               rm -rf "$workdir"

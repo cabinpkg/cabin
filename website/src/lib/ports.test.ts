@@ -1,8 +1,6 @@
 // node:test suite for the foundation-port loader (`npm test`).  The
 // committed-tree tests pin that the website presents exactly the
-// identities the cabin-port-publish tool would publish; the fixture
-// tests cover the packaging-revision sidecar wiring, which no
-// committed recipe exercises.
+// identities the cabin-port-publish tool would publish.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,8 +9,6 @@ import { test } from "node:test";
 import {
     loadPortsAsPackageRecords,
     loadPortsFromDir,
-    parsePackagingRevision,
-    publishedVersion,
     scopedPackageName,
 } from "./ports.ts";
 
@@ -26,8 +22,9 @@ test("every committed recipe loads as a canonical cabin-ports identity", async (
     for (const record of records) {
         assert.match(record.name, /^cabin-ports\/[a-z0-9][a-z0-9_-]*$/);
         assert.ok(record.upstream, `${record.name} has no upstream provenance`);
-        // No committed recipe carries a packaging-revision sidecar, so
-        // every published version is the upstream version verbatim.
+        // The published version is the upstream version, verbatim:
+        // packaging corrections are registry revisions, never a
+        // version-string suffix.
         assert.equal(record.version, record.upstream.version);
         assert.ok(record.upstream.archiveUrl.startsWith("https://"));
         assert.match(record.upstream.sha256, /^[0-9a-f]{64}$/);
@@ -60,7 +57,7 @@ test("overlay port dependencies surface as scoped registry dependencies", async 
     ]);
 });
 
-test("a packaging-revision sidecar appends +cabin.N to the published version", async () => {
+test("recipes publish the upstream version verbatim, sidecars ignored", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
     try {
         const recipeDir = join(dir, "zlib", "1.3.1");
@@ -92,14 +89,12 @@ manifest = "cabin.toml"
             "https://example.com/zlib-1.3.1.tar.gz",
         );
 
+        // A stray sidecar from the removed mechanism is just an
+        // unknown file: the published version stays the upstream one.
         await writeFile(join(recipeDir, "packaging-revision"), "2\n");
-        const revised = await loadPortsFromDir(dir);
-        assert.equal(revised[0].name, "cabin-ports/zlib");
-        assert.equal(revised[0].version, "1.3.1+cabin.2");
-        assert.equal(revised[0].upstream?.version, "1.3.1");
-
-        await writeFile(join(recipeDir, "packaging-revision"), "0");
-        await assert.rejects(() => loadPortsFromDir(dir));
+        const withStray = await loadPortsFromDir(dir);
+        assert.equal(withStray[0].name, "cabin-ports/zlib");
+        assert.equal(withStray[0].version, "1.3.1");
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
@@ -114,30 +109,4 @@ test("scopedPackageName rejects names outside the registry grammar", () => {
     assert.throws(() => scopedPackageName("-leading-dash", "test"));
     assert.throws(() => scopedPackageName("dotted.name", "test"));
     assert.throws(() => scopedPackageName("", "test"));
-});
-
-test("publishedVersion appends the packaging revision as build metadata", () => {
-    assert.equal(publishedVersion("1.3.1", null, "test"), "1.3.1");
-    assert.equal(publishedVersion("1.3.1", 2, "test"), "1.3.1+cabin.2");
-    assert.throws(() => publishedVersion("1.3.1+build", 1, "test"));
-});
-
-test("parsePackagingRevision accepts integers >= 1 and rejects the rest", () => {
-    assert.equal(parsePackagingRevision("1", "test"), 1);
-    assert.equal(parsePackagingRevision("12\n", "test"), 12);
-    assert.throws(() => parsePackagingRevision("0", "test"));
-    assert.throws(() => parsePackagingRevision("-1", "test"));
-    assert.throws(() => parsePackagingRevision("+1", "test"));
-    assert.throws(() => parsePackagingRevision("4294967296", "test"));
-    // The explicit ASCII whitespace grammar shared with the publisher:
-    // neither JS-only (U+FEFF) nor Rust-only (U+0085) whitespace is
-    // trimmed.
-    assert.throws(() => parsePackagingRevision("\uFEFF1", "test"));
-    assert.throws(() => parsePackagingRevision("\u00851", "test"));
-    // Vertical tab is outside Rust's is_ascii_whitespace and outside
-    // this trim class: both parsers reject a VT-wrapped revision.
-    assert.throws(() => parsePackagingRevision("\u000B1", "test"));
-    assert.throws(() => parsePackagingRevision("1.5", "test"));
-    assert.throws(() => parsePackagingRevision("one", "test"));
-    assert.throws(() => parsePackagingRevision("", "test"));
 });

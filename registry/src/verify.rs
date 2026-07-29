@@ -64,10 +64,12 @@ pub enum Verdict {
 /// one listing must never land on a replacement published meanwhile
 /// (the checksum names the archive bytes; `published_at` changes on
 /// every replacement, catching even a same-bytes republish with new
-/// metadata). Both are **required** for verified verdicts (the
-/// direction that exposes content: fail safe means naming what was
-/// inspected) and optional for rejections (the conservative
-/// direction).
+/// metadata). Both are **required** for both verdicts: the checksum
+/// names the revision the verdict targets, and `published_at` names
+/// the publish event - a byte-identical revival regenerates the row
+/// under the same checksum, so without the generation bind a delayed
+/// rejection computed against the rejected generation's listing
+/// would land on the revived one.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VerdictBody {
@@ -86,12 +88,16 @@ pub struct ParsedVerdict {
     pub verdict: Verdict,
     /// The recorded rejection reason; always present for rejections.
     pub reason: Option<String>,
-    /// When present, the verdict applies only while the row stores
-    /// exactly these bytes.
-    pub checksum: Option<String>,
-    /// When present, the verdict applies only to the row generation
-    /// the listing reported.
-    pub published_at: Option<String>,
+    /// The bytes the verdict targets.  Always present: the checksum
+    /// is what names the revision row (`revision` is its leading hex
+    /// prefix), so a verdict without one would be ambiguous the
+    /// moment a pending respin sits beside the version's other
+    /// revisions.
+    pub checksum: String,
+    /// The publish event the verdict targets.  Always present: a
+    /// byte-identical revival regenerates the row under the same
+    /// checksum, so only the pair pins one generation.
+    pub published_at: String,
 }
 
 /// Parses and validates a verdict request body.
@@ -99,8 +105,8 @@ pub struct ParsedVerdict {
 /// # Errors
 ///
 /// The fixed `400` detail string for a malformed body, an unknown
-/// verdict value, a rejection without a reason, or a verified verdict
-/// without its checksum + `published_at` binding.
+/// verdict value, a rejection without a reason, or a missing checksum
+/// (both verdicts) and `published_at` (both verdicts) binding.
 pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
     let Ok(VerdictBody {
         verdict,
@@ -123,12 +129,18 @@ pub fn parse_verdict(body: &[u8]) -> Result<ParsedVerdict, &'static str> {
             None => return Err(error::VERDICT_REASON_REQUIRED),
         },
     };
-    if verdict == Verdict::Verified
-        && (checksum.as_deref().is_none_or(str::is_empty)
-            || published_at.as_deref().is_none_or(str::is_empty))
-    {
+    // Both bindings are required for both verdicts.  The checksum
+    // names the revision; `published_at` names the publish event.
+    // Rejections need the pair as much as verifications do: a
+    // byte-identical revival regenerates the row under the same
+    // checksum, and a delayed rejection bound only by bytes would
+    // land on the revived generation instead of the one it judged.
+    let Some(checksum) = checksum.filter(|checksum| !checksum.is_empty()) else {
         return Err(error::VERDICT_BINDING_REQUIRED);
-    }
+    };
+    let Some(published_at) = published_at.filter(|stamp| !stamp.is_empty()) else {
+        return Err(error::VERDICT_BINDING_REQUIRED);
+    };
     Ok(ParsedVerdict {
         verdict,
         reason,
@@ -241,8 +253,8 @@ mod tests {
             Ok(ParsedVerdict {
                 verdict: Verdict::Verified,
                 reason: None,
-                checksum: Some("aa12".to_owned()),
-                published_at: Some("2026-07-10T00:00:00.000Z".to_owned()),
+                checksum: "aa12".to_owned(),
+                published_at: "2026-07-10T00:00:00.000Z".to_owned(),
             })
         );
         // A reason on a verified verdict is accepted and ignored.
@@ -253,42 +265,40 @@ mod tests {
             Ok(ParsedVerdict {
                 verdict: Verdict::Verified,
                 reason: None,
-                checksum: Some("aa12".to_owned()),
-                published_at: Some("t".to_owned()),
+                checksum: "aa12".to_owned(),
+                published_at: "t".to_owned(),
             })
         );
+        // A rejection carries both bindings too.
         assert_eq!(
-            parse_verdict(br#"{"verdict":"rejected","reason":"malware"}"#),
+            parse_verdict(
+                br#"{"verdict":"rejected","reason":"malware","checksum":"aa12","published_at":"t"}"#
+            ),
             Ok(ParsedVerdict {
                 verdict: Verdict::Rejected,
                 reason: Some("malware".to_owned()),
-                checksum: None,
-                published_at: None,
-            })
-        );
-        assert_eq!(
-            parse_verdict(br#"{"verdict":"rejected","reason":"malware","checksum":"aa12"}"#),
-            Ok(ParsedVerdict {
-                verdict: Verdict::Rejected,
-                reason: Some("malware".to_owned()),
-                checksum: Some("aa12".to_owned()),
-                published_at: None,
+                checksum: "aa12".to_owned(),
+                published_at: "t".to_owned(),
             })
         );
     }
 
     #[test]
-    fn parse_verdict_requires_the_listing_binding_to_verify() {
-        // Verifying is the direction that exposes content, so the
-        // verdict must name the exact row generation it inspected -
-        // both the archive checksum and the listing's published_at;
-        // rejections (above) stay valid without either.
+    fn parse_verdict_requires_the_listing_binding_for_both_verdicts() {
+        // The verdict must name the exact row generation it judged -
+        // the archive checksum and the listing's published_at.  For
+        // rejections the generation bind is what keeps a delayed
+        // verdict off a byte-identical revival.
         for body in [
             br#"{"verdict":"verified"}"#.as_slice(),
             br#"{"verdict":"verified","checksum":"aa12"}"#,
             br#"{"verdict":"verified","published_at":"t"}"#,
             br#"{"verdict":"verified","checksum":"","published_at":"t"}"#,
             br#"{"verdict":"verified","checksum":"aa12","published_at":""}"#,
+            br#"{"verdict":"rejected","reason":"malware"}"#,
+            br#"{"verdict":"rejected","reason":"malware","checksum":"aa12"}"#,
+            br#"{"verdict":"rejected","reason":"malware","published_at":"t"}"#,
+            br#"{"verdict":"rejected","reason":"malware","checksum":"aa12","published_at":""}"#,
         ] {
             assert_eq!(
                 parse_verdict(body),

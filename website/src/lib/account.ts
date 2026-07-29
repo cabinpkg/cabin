@@ -37,17 +37,40 @@ export interface Usage {
 
 export interface PackageVersion {
     version: string;
+    // The packaging-revision id this row describes (the archive
+    // checksum's 16-hex prefix); the owner listing carries one row
+    // per revision, pending respins included.
+    revision: string;
     verification: "pending" | "verified" | "rejected";
     yanked: boolean;
     published_at: string;
-    // Approximate served-download count; always 0 for pending and
-    // rejected versions.
+    // Approximate served-download count, version-level; always 0 for
+    // versions with no verified revision.
     downloads: number;
+    // Whether this revision is the one the read plane currently
+    // serves for its version.
+    current: boolean;
 }
 
 export interface AccountPackage {
     name: string;
     versions: PackageVersion[];
+}
+
+// The owner listing is per-revision while `downloads` is
+// version-level, so a lifetime total must count each version once,
+// not once per revision row - a pending respin must not double a
+// version's figure.
+export function packageDownloads(pkg: AccountPackage): number {
+    const seen = new Set<string>();
+    let total = 0;
+    for (const version of pkg.versions) {
+        if (!seen.has(version.version)) {
+            seen.add(version.version);
+            total += version.downloads;
+        }
+    }
+    return total;
 }
 
 export interface SearchHit {
@@ -62,6 +85,8 @@ export interface SearchHit {
 
 export interface PackageDetailVersion {
     version: string;
+    // The served (current) packaging revision's id.
+    revision: string;
     yanked: boolean;
     published_at: string;
     downloads: number;

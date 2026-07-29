@@ -73,6 +73,7 @@ spdlog = "^1"
             ("src/fmt.cc", FMT_SRC),
         ],
     );
+    let rev = &hex[..16];
     let index_body = format!(
         r#"{{
   "schema": 1,
@@ -81,8 +82,14 @@ spdlog = "^1"
     "10.2.1": {{
       "dependencies": {{}},
       "yanked": false,
-      "checksum": "sha256:{hex}",
-      "source": {{ "type": "archive", "path": "../artifacts/fmt-10.2.1.zip", "format": "zip" }}
+      "revision": "{rev}",
+      "revisions": {{
+        "{rev}": {{
+          "checksum": "sha256:{hex}",
+          "published-at": "2026-01-01T00:00:00Z",
+          "source": {{ "type": "archive", "path": "../artifacts/fmt-10.2.1.zip", "format": "zip" }}
+        }}
+      }}
     }}
   }}
 }}"#

@@ -18,6 +18,7 @@ pub enum Route<'a> {
         scope: &'a str,
         name: &'a str,
         version: &'a str,
+        revision: &'a str,
     },
 }
 
@@ -41,23 +42,31 @@ pub fn match_route(path: &str) -> Option<Route<'_>> {
         let (scope, rest) = rest.split_once('/')?;
         let (name, file) = rest.split_once('/')?;
         // The filename embeds the scope (a downloaded archive stays
-        // self-identifying outside the directory tree). Stripping the
-        // literal `<scope>-<name>-` prefix stays unambiguous even though
-        // scopes and names may themselves contain hyphens, because both
-        // strings are already fixed by the directory segments; a filename
-        // disagreeing with them fails parsing here.
-        let version = file
+        // self-identifying outside the directory tree) and ends in the
+        // packaging revision, so every published revision has its own
+        // stable URL. Stripping the literal `<scope>-<name>-` prefix
+        // stays unambiguous even though scopes and names may themselves
+        // contain hyphens, because both strings are already fixed by
+        // the directory segments; the trailing revision split stays
+        // unambiguous because a revision is exactly 16 hex characters
+        // while lookups are exact-string either way.
+        let stem = file
             .strip_prefix(scope)?
             .strip_prefix('-')?
             .strip_prefix(name)?
             .strip_prefix('-')?
             .strip_suffix(".zip")?;
-        return (is_valid_scope(scope) && is_valid_name(name) && is_valid_version(version))
-            .then_some(Route::Artifact {
-                scope,
-                name,
-                version,
-            });
+        let (version, revision) = stem.rsplit_once('-')?;
+        return (is_valid_scope(scope)
+            && is_valid_name(name)
+            && is_valid_version(version)
+            && is_valid_revision(revision))
+        .then_some(Route::Artifact {
+            scope,
+            name,
+            version,
+            revision,
+        });
     }
     None
 }
@@ -412,12 +421,26 @@ pub fn is_valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
-/// A valid version is full `SemVer`, the grammar publish enforces
-/// (`crate::publish::validate_metadata`), so the read plane accepts
-/// exactly the versions the write plane can create. `SemVer`'s charset
-/// (`[0-9A-Za-z.+-]`) keeps every accepted version path- and key-safe.
+/// A valid version is `SemVer` without build metadata, the grammar
+/// publish enforces (`crate::publish::validate_metadata`), so the read
+/// plane accepts exactly the versions the write plane can create:
+/// registry versions are plain upstream versions - the packaging axis
+/// is the revision id, never a `+` suffix. `SemVer`'s charset
+/// (`[0-9A-Za-z.-]` once `+` is refused) keeps every accepted version
+/// path- and key-safe.
 pub fn is_valid_version(version: &str) -> bool {
-    semver::Version::parse(version).is_ok()
+    semver::Version::parse(version).is_ok_and(|parsed| parsed.build.is_empty())
+}
+
+/// A valid packaging-revision id is exactly 16 lowercase hex
+/// characters - the leading prefix of the archive checksum. Mirrors
+/// the client's `cabin_core::registry::is_valid_packaging_revision`
+/// (this workspace deliberately does not depend on the Cabin crates).
+pub fn is_valid_revision(revision: &str) -> bool {
+    revision.len() == 16
+        && revision
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 #[cfg(test)]
@@ -436,23 +459,43 @@ mod tests {
             })
         );
         assert_eq!(
-            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-00112233aabbccdd.zip"),
             Some(Route::Artifact {
                 scope: "fmtlib",
                 name: "fmt",
-                version: "10.2.1"
+                version: "10.2.1",
+                revision: "00112233aabbccdd"
             })
         );
-        // Hyphens in the scope and the name stay unambiguous: the
-        // filename prefix is matched against the directory segments,
-        // never re-split.
+        // Hyphens in the scope, the name, and a pre-release version
+        // stay unambiguous: the filename prefix is matched against the
+        // directory segments, and the revision is the fixed-width
+        // hex tail.
         assert_eq!(
-            match_route("/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1+build.5.zip"),
+            match_route(
+                "/artifacts/my-org/my_pkg-2/my-org-my_pkg-2-1.0.0-rc.1-00112233aabbccdd.zip"
+            ),
             Some(Route::Artifact {
                 scope: "my-org",
                 name: "my_pkg-2",
-                version: "1.0.0-rc.1+build.5"
+                version: "1.0.0-rc.1",
+                revision: "00112233aabbccdd"
             })
+        );
+        // The removed build-metadata shape fails ordinary validation:
+        // registry versions are plain upstream versions.
+        assert_eq!(
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"),
+            None
+        );
+        // A missing or malformed revision tail never parses.
+        assert_eq!(
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
+            None
+        );
+        assert_eq!(
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-ABCD.zip"),
+            None
         );
     }
 
@@ -646,12 +689,18 @@ mod tests {
             })
         );
         assert_eq!(
-            match_session_route("/api/v1/user/source/my-org/my_pkg-2/1.0.0-rc.1+b.5"),
+            match_session_route("/api/v1/user/source/my-org/my_pkg-2/1.0.0-rc.1"),
             Some(SessionRoute::PackageSource {
                 scope: "my-org",
                 name: "my_pkg-2",
-                version: "1.0.0-rc.1+b.5"
+                version: "1.0.0-rc.1"
             })
+        );
+        // The removed build-metadata version shape fails ordinary
+        // validation here too.
+        assert_eq!(
+            match_session_route("/api/v1/user/source/my-org/my_pkg-2/1.0.0-rc.1+b.5"),
+            None
         );
         assert_eq!(
             match_session_route("/api/v1/user/search"),
@@ -951,24 +1000,49 @@ mod tests {
     }
 
     #[test]
-    fn version_validation_accepts_semver_shapes_only() {
-        for version in [
-            "0.0.0",
-            "10.2.1",
-            "1.0.0-rc.1",
-            "1.0.0+build",
-            "1.0.0-rc.1+b-2",
-        ] {
+    fn version_validation_accepts_plain_semver_shapes_only() {
+        for version in ["0.0.0", "10.2.1", "1.0.0-rc.1", "1.0.0-rc.1.2"] {
             assert!(is_valid_version(version), "version: {version:?}");
         }
         for version in [
-            "", "1", "1.0", "1.0.0.0", "v1.0.0", "1..0", "1.0.a", "1.0.0/x", "1.0.0-ü",
+            "",
+            "1",
+            "1.0",
+            "1.0.0.0",
+            "v1.0.0",
+            "1..0",
+            "1.0.a",
+            "1.0.0/x",
+            "1.0.0-ü",
             // Full SemVer, not just charset safety: leading zeros,
             // empty pre-release / build suffixes, and zero-padded
             // numeric pre-release identifiers are all invalid.
-            "01.2.3", "1.2.3-", "1.0.0+", "1.0.0-01",
+            "01.2.3",
+            "1.2.3-",
+            "1.0.0+",
+            "1.0.0-01",
+            // Build metadata is the removed packaging-revision shape:
+            // registry versions are plain upstream versions.
+            "1.0.0+build",
+            "1.0.0-rc.1+b-2",
+            "1.3.1+cabin.1",
         ] {
             assert!(!is_valid_version(version), "version: {version:?}");
+        }
+    }
+
+    #[test]
+    fn revision_validation_requires_sixteen_lowercase_hex() {
+        assert!(is_valid_revision("00112233aabbccdd"));
+        for revision in [
+            "",
+            "0011",
+            "00112233AABBCCDD",
+            "00112233aabbccdd0",
+            "0011223_aabbccdd",
+            "ghijklmnopqrstuv",
+        ] {
+            assert!(!is_valid_revision(revision), "revision: {revision:?}");
         }
     }
 }

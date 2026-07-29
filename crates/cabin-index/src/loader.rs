@@ -9,8 +9,8 @@ use serde::Deserialize;
 
 use crate::error::IndexError;
 use crate::model::{
-    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, SourceLocation,
-    VersionMetadata,
+    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, RevisionMetadata,
+    SourceLocation, VersionMetadata,
 };
 
 /// How to interpret a `source.path` value when parsing one
@@ -53,8 +53,8 @@ impl std::fmt::Debug for SourceContext<'_> {
 ///    index files are read from `path/<config.packages>/`.  Source
 ///    paths recorded in those package files resolve relative to the
 ///    package files' parent directory, so the published
-///    `"../artifacts/<name>/<name>-<version>.zip"` form lands at
-///    `path/artifacts/<name>/<name>-<version>.zip`.
+///    `"../artifacts/<name>/<name>-<version>-<revision>.zip"` form
+///    lands at `path/artifacts/<name>/<name>-<version>-<revision>.zip`.
 ///    The `config.artifacts` field is accepted for schema
 ///    compatibility but is not consulted during resolution.
 /// 2. **Flat layout**.  Used by hand-written
@@ -310,17 +310,29 @@ pub fn parse_package_entry(
                 value: ver_str.clone(),
                 source,
             })?;
+        // Registry versions are plain upstream versions; the packaging
+        // axis lives in `revisions`, never in the version string.
+        if !version.build.is_empty() {
+            return Err(IndexError::VersionBuildMetadata {
+                package: raw.name.clone(),
+                value: ver_str,
+            });
+        }
         let dependencies = parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dependencies)?;
         let dev_dependencies =
             parse_kinded_dependencies(&raw.name, &ver_str, raw_ver.dev_dependencies)?;
         let system_dependencies =
             parse_system_dependencies(&raw.name, &ver_str, raw_ver.system_dependencies)?;
-        let source = match raw_ver.source {
-            None => None,
-            Some(raw_source) => Some(parse_source_location(
-                raw_source, &raw.name, &ver_str, context,
-            )?),
-        };
+        let (revision, revisions) = parse_revisions(
+            &raw.name,
+            &ver_str,
+            raw_ver.revision,
+            raw_ver.revisions,
+            context,
+        )?;
+        let current = revision.as_ref().and_then(|id| revisions.get(id));
+        let checksum = current.map(|rev| rev.checksum.clone());
+        let source = current.map(|rev| rev.source.clone());
         versions.insert(
             version,
             VersionMetadata {
@@ -328,7 +340,9 @@ pub fn parse_package_entry(
                 dev_dependencies,
                 system_dependencies,
                 yanked: raw_ver.yanked,
-                checksum: raw_ver.checksum,
+                revision,
+                revisions,
+                checksum,
                 source,
                 features: raw_ver.features,
                 profiles: raw_ver.profiles,
@@ -463,6 +477,73 @@ fn reject_compiler_condition(
     Ok(())
 }
 
+/// Parse and validate one version entry's packaging-revision axis:
+/// the `revision` pointer plus the `revisions` map.  Both are absent
+/// together (a resolver-only fixture that cannot be materialized) or
+/// present together; each revision id must be the leading hex prefix
+/// of its own `sha256:<hex>` checksum, so an id and the bytes it
+/// names can never disagree in a loaded index.
+fn parse_revisions(
+    package: &str,
+    version: &str,
+    raw_revision: Option<String>,
+    raw_revisions: BTreeMap<String, RawRevision>,
+    context: &SourceContext<'_>,
+) -> Result<(Option<String>, BTreeMap<String, RevisionMetadata>), IndexError> {
+    let invalid = |message: String| IndexError::InvalidRevision {
+        package: package.to_owned(),
+        version: version.to_owned(),
+        message,
+    };
+    let Some(current) = raw_revision else {
+        if raw_revisions.is_empty() {
+            return Ok((None, BTreeMap::new()));
+        }
+        return Err(invalid(
+            "`revisions` requires a `revision` field naming the current entry".to_owned(),
+        ));
+    };
+    if !raw_revisions.contains_key(&current) {
+        return Err(invalid(format!(
+            "`revision` {current:?} does not name an entry in `revisions`"
+        )));
+    }
+    let mut revisions: BTreeMap<String, RevisionMetadata> = BTreeMap::new();
+    for (id, raw) in raw_revisions {
+        if !cabin_core::registry::is_valid_packaging_revision(&id) {
+            return Err(invalid(format!(
+                "revision id {id:?} is not {len} lowercase hex characters",
+                len = cabin_core::registry::PACKAGING_REVISION_HEX_LEN
+            )));
+        }
+        let derived = raw
+            .checksum
+            .strip_prefix("sha256:")
+            .and_then(cabin_core::registry::packaging_revision_from_sha256_hex);
+        if derived != Some(id.as_str()) {
+            return Err(invalid(format!(
+                "revision id {id:?} is not the prefix of its checksum {checksum:?}",
+                checksum = raw.checksum
+            )));
+        }
+        if raw.published_at.is_empty() {
+            return Err(invalid(format!(
+                "revision {id:?} has an empty `published-at`"
+            )));
+        }
+        let source = parse_source_location(raw.source, package, version, context)?;
+        revisions.insert(
+            id,
+            RevisionMetadata {
+                checksum: raw.checksum,
+                published_at: raw.published_at,
+                source,
+            },
+        );
+    }
+    Ok((Some(current), revisions))
+}
+
 /// Parse and resolve a `source` block on an index version entry.
 ///
 /// Validates `type` and `format` (`archive` / `zip` only), then
@@ -539,10 +620,14 @@ struct RawVersion {
     system_dependencies: BTreeMap<String, RawIndexSystemDependency>,
     #[serde(default)]
     yanked: bool,
+    /// Current packaging-revision id; must name a `revisions` key.
+    /// Absent (with an empty `revisions`) only in resolver-only
+    /// fixtures.
     #[serde(default)]
-    checksum: Option<String>,
+    revision: Option<String>,
+    /// Every fetchable packaging revision, keyed by revision id.
     #[serde(default)]
-    source: Option<RawSourceArtifact>,
+    revisions: BTreeMap<String, RawRevision>,
     /// Declared `[features]`.  Optional; older registry
     /// entries that omit the field continue to load.
     #[serde(default)]
@@ -584,6 +669,17 @@ struct RawVersion {
     /// supported format, safe paths).
     #[serde(default)]
     upstream: Option<cabin_core::UpstreamProvenance>,
+}
+
+/// On-disk shape of one packaging revision inside a version entry's
+/// `revisions` map.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRevision {
+    checksum: String,
+    #[serde(rename = "published-at")]
+    published_at: String,
+    source: RawSourceArtifact,
 }
 
 #[derive(Debug, Deserialize)]
@@ -693,7 +789,22 @@ mod tests {
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
-                    "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:x" }
+                    "10.2.1": {
+                        "dependencies": {},
+                        "yanked": false,
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {
+                                    "type": "archive",
+                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "format": "zip"
+                                }
+                            }
+                        }
+                    }
                 }
             }"#,
             )
@@ -707,7 +818,11 @@ mod tests {
         let (ver, meta) = entry.versions.iter().next().unwrap();
         assert_eq!(ver, &semver::Version::parse("10.2.1").unwrap());
         assert!(!meta.yanked);
-        assert_eq!(meta.checksum.as_deref(), Some("sha256:x"));
+        assert_eq!(
+            meta.checksum.as_deref(),
+            Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(meta.revision.as_deref(), Some("aaaaaaaaaaaaaaaa"));
     }
 
     /// A scoped package nests one level (`packages/<scope>/<name>.json`),
@@ -731,11 +846,17 @@ mod tests {
                 "versions": {
                     "1.0.0": {
                         "dependencies": {},
-                        "checksum": "sha256:x",
-                        "source": {
-                            "type": "archive",
-                            "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
-                            "format": "zip"
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {
+                                    "type": "archive",
+                                    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip",
+                                    "format": "zip"
+                                }
+                            }
                         }
                     }
                 }
@@ -752,7 +873,7 @@ mod tests {
             SourceLocation::LocalPath(p) => assert_eq!(
                 p,
                 &dir.path()
-                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip")
+                    .join("packages/fmtlib/../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-aaaaaaaaaaaaaaaa.zip")
             ),
             other @ SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {other:?}"),
         }
@@ -1089,11 +1210,17 @@ mod tests {
                     "10.2.1": {
                         "dependencies": {},
                         "yanked": false,
-                        "checksum": "sha256:abc",
-                        "source": {
-                            "type": "archive",
-                            "path": "../artifacts/fmt-10.2.1.zip",
-                            "format": "zip"
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {
+                                    "type": "archive",
+                                    "path": "../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "format": "zip"
+                                }
+                            }
                         }
                     }
                 }
@@ -1110,7 +1237,11 @@ mod tests {
         // Relative path resolved against the index file's directory.
         match source {
             SourceLocation::LocalPath(p) => {
-                assert_eq!(p, &dir.path().join("../artifacts/fmt-10.2.1.zip"));
+                assert_eq!(
+                    p,
+                    &dir.path()
+                        .join("../artifacts/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip")
+                );
             }
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
         }
@@ -1132,8 +1263,14 @@ mod tests {
                     "10.2.1": {{
                         "dependencies": {{}},
                         "yanked": false,
-                        "checksum": "sha256:abc",
-                        "source": {{ "type": "archive", "path": "{abs}", "format": "zip" }}
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {{
+                            "aaaaaaaaaaaaaaaa": {{
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {{ "type": "archive", "path": "{abs}", "format": "zip" }}
+                            }}
+                        }}
                     }}
                 }}
             }}"#
@@ -1162,7 +1299,14 @@ mod tests {
                 "name": "fmt",
                 "versions": {
                     "10.2.1": {
-                        "source": { "type": "http", "path": "x", "format": "zip" }
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": { "type": "http", "path": "x", "format": "zip" }
+                            }
+                        }
                     }
                 }
             }"#,
@@ -1193,7 +1337,14 @@ mod tests {
                 "name": "fmt",
                 "versions": {
                     "10.2.1": {
-                        "source": { "type": "archive", "path": "x", "format": "tar.zst" }
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": { "type": "archive", "path": "x", "format": "tar.zst" }
+                            }
+                        }
                     }
                 }
             }"#,
@@ -1216,7 +1367,14 @@ mod tests {
                 "name": "fmt",
                 "versions": {
                     "10.2.1": {
-                        "source": { "type": "archive", "path": "", "format": "zip" }
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": { "type": "archive", "path": "", "format": "zip" }
+                            }
+                        }
                     }
                 }
             }"#,
@@ -1224,6 +1382,204 @@ mod tests {
             .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         assert!(matches!(err, IndexError::MissingSourcePath { .. }));
+    }
+
+    // -------------------------------------------------------------------
+    // packaging revisions
+    // -------------------------------------------------------------------
+
+    fn load_single_version_entry(version_body: &str) -> Result<PackageIndex, IndexError> {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(&format!(
+                r#"{{
+                "schema": 1,
+                "name": "fmt",
+                "versions": {{ "10.2.1": {version_body} }}
+            }}"#
+            ))
+            .unwrap();
+        load_index(dir.path())
+    }
+
+    /// Registry versions are plain upstream versions: a version key
+    /// carrying build metadata (the removed `+cabin.N` shape) fails
+    /// ordinary validation.
+    #[test]
+    fn version_key_with_build_metadata_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        dir.child("fmt.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "fmt",
+                "versions": { "10.2.1+cabin.1": { "dependencies": {} } }
+            }"#,
+            )
+            .unwrap();
+        let err = load_index(dir.path()).unwrap_err();
+        assert!(
+            matches!(&err, IndexError::VersionBuildMetadata { value, .. } if value == "10.2.1+cabin.1"),
+            "{err}"
+        );
+    }
+
+    /// The previous release's version-entry shape - top-level
+    /// `checksum` / `source` instead of the `revision` / `revisions`
+    /// fields - fails ordinary unknown-field validation.  Deliberate,
+    /// per the pre-1.0 convention: no compatibility shim and no
+    /// migration diagnostic; such a registry is republished with a
+    /// current cabin, not translated on read.
+    #[test]
+    fn previous_release_version_entries_are_rejected() {
+        let err = load_single_version_entry(
+            r#"{
+                "dependencies": {},
+                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "source": { "type": "archive", "path": "a.zip", "format": "zip" }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, IndexError::Json { .. }),
+            "the legacy fields must fail as ordinary unknown fields: {err}"
+        );
+    }
+
+    #[test]
+    fn revisions_without_a_current_pointer_are_rejected() {
+        let err = load_single_version_entry(
+            r#"{
+                "revisions": {
+                    "aaaaaaaaaaaaaaaa": {
+                        "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "published-at": "2026-01-01T00:00:00Z",
+                        "source": { "type": "archive", "path": "a.zip", "format": "zip" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, IndexError::InvalidRevision { message, .. } if message.contains("requires a `revision`")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn current_pointer_must_name_a_listed_revision() {
+        let err = load_single_version_entry(r#"{ "revision": "aaaaaaaaaaaaaaaa" }"#).unwrap_err();
+        assert!(
+            matches!(&err, IndexError::InvalidRevision { message, .. } if message.contains("does not name an entry")),
+            "{err}"
+        );
+    }
+
+    /// A revision id must be the leading hex prefix of its own
+    /// checksum - an id that names different bytes is corrupt, not
+    /// loadable.
+    #[test]
+    fn revision_id_must_prefix_its_checksum() {
+        let err = load_single_version_entry(
+            r#"{
+                "revision": "bbbbbbbbbbbbbbbb",
+                "revisions": {
+                    "bbbbbbbbbbbbbbbb": {
+                        "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "published-at": "2026-01-01T00:00:00Z",
+                        "source": { "type": "archive", "path": "a.zip", "format": "zip" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, IndexError::InvalidRevision { message, .. } if message.contains("not the prefix")),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn malformed_revision_ids_and_publish_stamps_are_rejected() {
+        // Uppercase / short ids fail the grammar.
+        let err = load_single_version_entry(
+            r#"{
+                "revision": "AAAAAAAAAAAAAAAA",
+                "revisions": {
+                    "AAAAAAAAAAAAAAAA": {
+                        "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "published-at": "2026-01-01T00:00:00Z",
+                        "source": { "type": "archive", "path": "a.zip", "format": "zip" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, IndexError::InvalidRevision { message, .. } if message.contains("lowercase hex")),
+            "{err}"
+        );
+
+        let err = load_single_version_entry(
+            r#"{
+                "revision": "aaaaaaaaaaaaaaaa",
+                "revisions": {
+                    "aaaaaaaaaaaaaaaa": {
+                        "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "published-at": "",
+                        "source": { "type": "archive", "path": "a.zip", "format": "zip" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&err, IndexError::InvalidRevision { message, .. } if message.contains("published-at")),
+            "{err}"
+        );
+    }
+
+    /// Superseded revisions load alongside the current one, and the
+    /// version-level checksum / source conveniences mirror the entry
+    /// the `revision` pointer names.
+    #[test]
+    fn superseded_revisions_load_beside_the_current_one() {
+        let index = load_single_version_entry(
+            r#"{
+                "revision": "bbbbbbbbbbbbbbbb",
+                "revisions": {
+                    "aaaaaaaaaaaaaaaa": {
+                        "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "published-at": "2026-01-01T00:00:00Z",
+                        "source": { "type": "archive", "path": "old.zip", "format": "zip" }
+                    },
+                    "bbbbbbbbbbbbbbbb": {
+                        "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "published-at": "2026-02-01T00:00:00Z",
+                        "source": { "type": "archive", "path": "new.zip", "format": "zip" }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let entry = index.package(&PackageName::new("fmt").unwrap()).unwrap();
+        let (_, meta) = entry.versions.iter().next().unwrap();
+        assert_eq!(meta.revisions.len(), 2);
+        assert_eq!(meta.revision.as_deref(), Some("bbbbbbbbbbbbbbbb"));
+        assert_eq!(
+            meta.checksum.as_deref(),
+            Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
+        match meta.source.as_ref().unwrap() {
+            SourceLocation::LocalPath(p) => assert!(p.ends_with("new.zip"), "{p:?}"),
+            other @ SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {other:?}"),
+        }
+        let superseded = meta.revisions.get("aaaaaaaaaaaaaaaa").unwrap();
+        assert_eq!(
+            superseded.checksum,
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+        assert_eq!(superseded.published_at, "2026-01-01T00:00:00Z");
     }
 
     // -------------------------------------------------------------------
@@ -1252,11 +1608,17 @@ mod tests {
                     "10.2.1": {
                         "dependencies": {},
                         "yanked": false,
-                        "checksum": "sha256:abc",
-                        "source": {
-                            "type": "archive",
-                            "path": "../artifacts/fmt/fmt-10.2.1.zip",
-                            "format": "zip"
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {
+                                    "type": "archive",
+                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "format": "zip"
+                                }
+                            }
                         }
                     }
                 }
@@ -1272,7 +1634,9 @@ mod tests {
         let source = meta.source.as_ref().unwrap();
         // `../artifacts/...` resolves against `packages/` to the
         // registry's artifacts directory.
-        let expected = dir.path().join("packages/../artifacts/fmt/fmt-10.2.1.zip");
+        let expected = dir
+            .path()
+            .join("packages/../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip");
         match source {
             SourceLocation::LocalPath(p) => assert_eq!(p, &expected),
             SourceLocation::HttpUrl(_) => panic!("expected LocalPath, got {source:?}"),
@@ -1451,7 +1815,22 @@ mod tests {
                 "schema": 1,
                 "name": "fmt",
                 "versions": {
-                    "10.2.1": { "dependencies": {}, "yanked": false, "checksum": "sha256:x" }
+                    "10.2.1": {
+                        "dependencies": {},
+                        "yanked": false,
+                        "revision": "aaaaaaaaaaaaaaaa",
+                        "revisions": {
+                            "aaaaaaaaaaaaaaaa": {
+                                "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                                "published-at": "2026-01-01T00:00:00Z",
+                                "source": {
+                                    "type": "archive",
+                                    "path": "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
+                                    "format": "zip"
+                                }
+                            }
+                        }
+                    }
                 }
             }"#,
             )
@@ -1476,7 +1855,6 @@ mod tests {
                     "10.2.1": {
                         "dependencies": {},
                         "yanked": false,
-                        "checksum": "sha256:x",
                         "features": { "default": ["simd"], "features": { "simd": [], "ssl": [] } }
                     }
                 }
@@ -1505,7 +1883,6 @@ mod tests {
                     "10.2.1": {
                         "dependencies": {},
                         "yanked": false,
-                        "checksum": "sha256:x",
                         "compiler_wrapper": {
                             "general": { "kind": "use", "wrapper": "ccache" }
                         }

@@ -143,6 +143,16 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     // the registry verifier can keep re-running these checks on
     // already-published bare archives.
 
+    // Registry versions are plain upstream versions: the packaging
+    // axis is the revision id derived from the archive bytes, so a
+    // version string carrying build metadata has no home in the
+    // registry model and is refused before any bytes are staged.
+    if !package.version.build.is_empty() {
+        return Err(PackageError::VersionBuildMetadataNotPublishable {
+            version: package.version.to_string(),
+        });
+    }
+
     // Patches are local development policy.  Including a `[patch]`
     // table in a published archive would silently leak local
     // override state into every consumer, so we reject the

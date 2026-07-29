@@ -232,6 +232,7 @@ fn write_pending(
     let pending = PendingVersion {
         name: staged.name.as_str().to_owned(),
         version: staged.version.to_string(),
+        revision: revision_of(&hex),
         checksum: hex,
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::to_value(&staged.metadata).unwrap(),
@@ -249,9 +250,11 @@ fn hostile_pending(dir: &TempDir, bytes: &[u8]) -> (PathBuf, PendingVersion) {
     let archive = dir.child("hostile.zip");
     archive.write_binary(bytes).unwrap();
     let hex = cabin_core::hash::hash_reader(bytes).unwrap();
+    let revision = revision_of(&hex);
     let pending = PendingVersion {
         name: "demo".to_owned(),
         version: "1.2.3".to_owned(),
+        revision: revision.clone(),
         checksum: hex.clone(),
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::json!({
@@ -263,7 +266,7 @@ fn hostile_pending(dir: &TempDir, bytes: &[u8]) -> (PathBuf, PendingVersion) {
             "checksum": format!("sha256:{hex}"),
             "source": {
                 "type": "archive",
-                "path": "../artifacts/demo/demo-1.2.3.zip",
+                "path": format!("../artifacts/demo/demo-1.2.3-{revision}.zip"),
                 "format": "zip",
             },
         }),
@@ -287,11 +290,21 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
     let pending = PendingVersion {
         name: package.name.as_str().to_owned(),
         version: package.version.to_string(),
+        revision: revision_of(&hex),
         checksum: hex,
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::to_value(metadata).unwrap(),
     };
     (archive.to_path_buf(), pending)
+}
+
+/// The revision id the registry records beside a checksum: its
+/// leading hex prefix, derived through the same helper the registry
+/// and the client use.
+fn revision_of(checksum_hex: &str) -> String {
+    cabin_core::registry::packaging_revision_from_sha256_hex(checksum_hex)
+        .expect("test checksums are sha256 hex")
+        .to_owned()
 }
 
 fn assert_rejected(archive: &std::path::Path, pending: &PendingVersion, reason: Reason) {
@@ -949,7 +962,10 @@ fn language_standard_mismatch_is_rejected() {
 fn checksum_mismatch_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (archive, mut pending) = benign(&dir);
+    // The row stays self-consistent (revision derived from the
+    // checksum it carries); it just names bytes this archive is not.
     let wrong = "0".repeat(64);
+    pending.revision = revision_of(&wrong);
     pending.checksum = wrong.clone();
     pending.metadata["checksum"] = serde_json::json!(format!("sha256:{wrong}"));
     assert_rejected(&archive, &pending, Reason::ChecksumMismatch);
@@ -964,6 +980,44 @@ fn metadata_checksum_mismatch_alone_is_rejected() {
     let (archive, mut pending) = benign(&dir);
     pending.metadata["checksum"] = serde_json::json!(format!("sha256:{}", "0".repeat(64)));
     assert_rejected(&archive, &pending, Reason::ChecksumMismatch);
+}
+
+#[test]
+fn a_revision_contradicting_the_checksum_is_an_operational_failure() {
+    // The registry derives the revision from the checksum, so a
+    // listing row where they disagree is corrupt state, never a
+    // publisher's fault: no verdict, the version stays pending.
+    let dir = TempDir::new().unwrap();
+    let (archive, mut pending) = benign(&dir);
+    pending.revision = "0".repeat(16);
+    let err = inspect(&archive, &pending, &Limits::default(), None).unwrap_err();
+    assert!(
+        matches!(err, VerifyError::RevisionMismatch { .. }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn a_revisionless_source_path_is_rejected() {
+    // The canonical `source.path` embeds the packaging revision; a
+    // stored document carrying the pre-revision filename no longer
+    // matches what the archived manifest derives.
+    let dir = TempDir::new().unwrap();
+    let (archive, mut pending) = benign(&dir);
+    pending.metadata["source"]["path"] = serde_json::json!("../artifacts/demo/demo-1.2.3.zip");
+    assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+}
+
+#[test]
+fn a_build_metadata_version_is_rejected_as_unpublishable() {
+    // `+cabin.N` was the old packaging axis; the revision id replaced
+    // it, so such a manifest is no longer publishable and an archive
+    // carrying one can never verify.
+    let dir = TempDir::new().unwrap();
+    let manifest = "[package]\nname = \"demo\"\nversion = \"1.2.3+cabin.1\"\n";
+    let entries = [Entry::deflated("cabin.toml", manifest.as_bytes())];
+    let (archive, pending) = hand_pending(&dir, &entries, manifest);
+    assert_rejected(&archive, &pending, Reason::ManifestInvalid);
 }
 
 #[test]
@@ -1011,6 +1065,7 @@ mod binary {
                 &serde_json::json!({
                     "name": pending.name,
                     "version": pending.version,
+                    "revision": pending.revision,
                     "checksum": pending.checksum,
                     "published_by": 1,
                     "published_at": pending.published_at,

@@ -133,7 +133,12 @@ standard-compatibility core of `docs/design/standard-compatibility/spec.md` live
 `cabin_core::standard_compatibility` (the requirement chain and join, `ReqOf`, edge compatibility,
 and package-version viability, each item citing the spec identifier it implements; the
 graph-composition recursion `R_L` is a graph algorithm and therefore lives in
-`cabin_workspace::standards`, not here).  Manifest, index, lockfile,
+`cabin_workspace::standards`, not here).  The registry contract constants and predicates every
+client and server surface must agree on live in `cabin_core::registry`: the file-registry
+`config.json` discriminants, the default index origin, and the packaging-revision grammar
+(`PACKAGING_REVISION_HEX_LEN`, `is_valid_packaging_revision`,
+`packaging_revision_from_sha256_hex`), so index loading, publishing, fetching, and vendoring all
+derive a revision id from a checksum the same way.  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
 
@@ -217,7 +222,11 @@ The crate must:
 
 ### `cabin-index`
 
-Owns the local-filesystem JSON package index format and its loader.  The crate must:
+Owns the local-filesystem JSON package index format and its loader, including the per-version
+packaging-revision map: it validates that every revision id is the leading hex prefix of its own
+checksum and that the version's `revision` pointer names a listed one, and it derives the
+convenience version-level `checksum` / `source` of the current revision so consumers that do not
+care about the axis never touch the map.  The crate must:
 
 - not run the resolver;
 - not fetch artifacts;
@@ -240,8 +249,9 @@ preferences, optional / conditional edges, and candidate ordering.
 `ResolveError` implements `miette::Diagnostic` directly so dependency resolution failures are
 rendered through Cabin's miette-based diagnostics layer.  Lockfile errors stay specific - the
 resolver preserves `LockfileMissingPackage`, `LockedVersionMissing`, `LockedVersionYanked`,
-`LockedVersionViolatesConstraint`, and `LockedChecksumMismatch` so users can tell whether to update
-the lockfile, fix constraints, or investigate a checksum mismatch.  Conflict cases collapse
+`LockedVersionViolatesConstraint`, `LockedChecksumMismatch`, and `LockedChecksumMissing` so users
+can tell whether to update the lockfile, fix constraints, or investigate a packaging-revision pin
+that no longer matches what the index publishes.  Conflict cases collapse
 PubGrub's derivation tree into a human-readable explanation embedded in `ResolveError::Conflict {
 package, detail }`.  The stable diagnostic code [`cabin_diagnostics::code::RESOLVER_ERROR`] is
 attached to every variant.
@@ -478,7 +488,11 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 - creates the registry layout (`config.json`, `packages/`, `artifacts/`) on first publish;
 - validates `config.json` (`schema = 1`, `kind = "file-registry"`, no `..` in `packages` /
   `artifacts`);
-- detects duplicate versions and orphaned artifacts before any bytes are written;
+- applies the packaging-revision rules before any bytes are written: byte-identical republication
+  is a no-op onto the recorded revision, different bytes for an existing version need the
+  `--new-revision` opt-in and must leave `dependencies` / `features` / `standards` unchanged, and a
+  revision-id collision between different bytes fails loudly;
+- detects orphaned artifacts before any bytes are written;
 - places the artifact and updates the per-package index file via atomic write + rename, rolling back
   the artifact if the index update fails;
 - guards concurrent runs with a simple `<registry>/.cabin-registry.lock` lock file (best-effort -
@@ -934,7 +948,7 @@ never reads the lockfile itself; the lockfile crate never runs the solver.  They
 | Mode | Locked map effect | Writes lockfile |
 | --- | --- | --- |
 | `PreferLocked` (default `cabin resolve`) | Tries the locked version first; falls back to newest compatible if locked no longer satisfies constraints. | yes |
-| `Locked` (`cabin resolve --locked` / `--frozen`) | Restricts each candidate set to `[locked.version]`; surfaces precise errors when missing / yanked / constraint-violating / checksum-mismatched. | no |
+| `Locked` (`cabin resolve --locked` / `--frozen`) | Restricts each candidate set to `[locked.version]`; surfaces precise errors when missing / yanked / constraint-violating, when the locked checksum names no published packaging revision, and when a locked entry carries no checksum at all while the index entry has revisions. | no |
 | `UpdateAll` (`cabin update`) | Ignores the locked map entirely. | yes |
 | `UpdatePackage(name)` (`cabin update --package <name>`) | Drops one entry from the locked map. | yes |
 
@@ -945,10 +959,13 @@ populated.  Already-cached and already-extracted artifacts may still be reused.
 ### Artifact fetch + registry-aware build
 
 ```
-ResolveOutput + PackageIndex
+ResolveOutput + PackageIndex + Lockfile
    |
-   |  cabin builds a FetchPlan: per resolved registry package,
-   |  pull `source.path` + `checksum` straight off the index entry.
+   |  cabin builds a FetchPlan: per resolved registry package, the
+   |  lockfile's `checksum` names the packaging revision to
+   |  materialize, and `source.path` + `checksum` come off that
+   |  revision's entry (a version with no pin falls back to the
+   |  index entry's current revision).
    |
    v
 cabin_artifact::fetch
@@ -1011,15 +1028,18 @@ dist/<stem>-<version>.json
 ```
 
 The filename stem flattens a scoped name (`fmtlib/fmt` -> `fmtlib-fmt`) so the staged files stay
-self-identifying and land flat in the output directory; a bare name is its own stem.
+self-identifying and land flat in the output directory; a bare name is its own stem.  The archive's
+digest also fixes the packaging revision the document describes - the leading 16 hex characters of
+the same `sha256:<hex>` - which is what the `source.path` filename embeds.
 
 `cabin-publish::dry_run` calls into the same pipeline and returns a `DryRunReport` whose
 `registry_modified` flag is always `false`.  No registry, no network, no server is involved in the
 dry-run flow - though it does require a scoped name, because a dry run rehearses a publish.  The
 canonical metadata's `source` block matches the existing index `source` shape
-(`type = "archive"`, `format = "zip"`, `path = "../artifacts/<name>/<name>-<version>.zip"`
-for a bare name, `path = "../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip"` for a
-scoped one - the shape the hosted registry validates verbatim).
+(`type = "archive"`, `format = "zip"`,
+`path = "../artifacts/<name>/<name>-<version>-<revision>.zip"`
+for a bare name, `path = "../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"`
+for a scoped one - the shape the hosted registry validates verbatim).
 
 ### Local file-registry publish
 
@@ -1041,8 +1061,10 @@ cabin_registry_file::publish_to_registry
    |  RegistryLock::acquire(<registry>/.cabin-registry.lock)
    |  FileRegistry::open_or_initialize (writes config.json on first run)
    |
-   |  Read the existing package index (if any), reject duplicate
-   |  versions and orphaned artifacts.
+   |  Read the existing package index (if any), apply the packaging-
+   |  revision rules (no-op on identical bytes, `--new-revision` for
+   |  changed bytes, resolver metadata unchanged), reject orphaned
+   |  artifacts.
    |
    |  Phase 1: write artifact through `atomic-write-file` (sibling
    |           temp + rename)
@@ -1055,12 +1077,13 @@ cabin_registry_file::publish_to_registry
 RegistryPublishReport
    {
      registry_dir, package_index_path, artifact_path,
-     checksum, source_path, registry_modified, registry_initialized
+     checksum, revision, source_path, no_op,
+     registry_modified, registry_initialized
    }
 ```
 
 `cabin_publish::dry_run_against_file_registry` runs the same validation (`FileRegistry::inspect` +
-the duplicate / orphan checks) without acquiring a lock or writing anything; the `registry_modified`
+the revision / orphan checks) without acquiring a lock or writing anything; the `registry_modified`
 flag in the returned report is always `false`.
 
 The registry written by this flow lands at:
@@ -1069,12 +1092,12 @@ The registry written by this flow lands at:
 <registry>/
   config.json
   packages/<scope>/<name>.json
-  artifacts/<scope>/<name>/<scope>-<name>-<version>.zip
+  artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip
 ```
 
 Publishing requires scoped names, so new entries always nest one scope directory deep; legacy
-bare-name registries (`packages/<name>.json`, `artifacts/<name>/<name>-<version>.zip`) stay
-readable and vendorable.  `cabin-index::load_index` detects `config.json` and reads packages out of
+bare-name registries (`packages/<name>.json`,
+`artifacts/<name>/<name>-<version>-<revision>.zip`) stay readable and vendorable.  `cabin-index::load_index` detects `config.json` and reads packages out of
 the configured `packages/` subdirectory - flat `<name>.json` files as bare names, one-level
 `<scope>/<name>.json` nesting as scoped names - so the same path that publish wrote to is consumable
 by `cabin resolve`, `cabin fetch`, and `cabin build --index-path` without any repackaging step.
@@ -1113,7 +1136,7 @@ ResolveOutput
    v
 cabin_artifact::fetch
    |  Same checksum + cache + extraction as the local-file path:
-   |  bytes are hashed against the index's sha256, written into
+   |  bytes are hashed against the pinned revision's sha256, written into
    |  <cache>/archives/sha256/<hex>.zip, and extracted into
    |  <cache>/sources/sha256/<hex>/.
    v

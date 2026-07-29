@@ -34,14 +34,30 @@ pub fn config_json(api_origin: &str) -> String {
     .expect("config document serializes")
 }
 
-/// One row of the `versions` table, as the glue hands it over.
+/// One composed version: the **current** revision the read plane
+/// serves (`current_revisions`), as the glue hands it over.
 #[derive(Debug)]
 pub struct VersionRow {
     pub version: String,
-    /// The canonical per-version index entry stored verbatim at publish time.
+    /// The served packaging revision's id.
+    pub revision: String,
+    /// The current revision's canonical index entry, stored verbatim
+    /// at publish time.
     pub metadata_json: String,
     /// Current yanked state - overrides whatever the stored entry says.
     pub yanked: bool,
+}
+
+/// One **verified** revision of the package, for the per-version
+/// `revisions` maps: superseded revisions stay listed so pinned
+/// lockfiles keep fetching them.
+#[derive(Debug)]
+pub struct RevisionRow {
+    pub version: String,
+    pub revision: String,
+    /// Lowercase SHA-256 hex, as stored (no `sha256:` prefix).
+    pub checksum: String,
+    pub published_at: String,
 }
 
 #[derive(Serialize)]
@@ -51,14 +67,18 @@ struct PackageDoc<'a> {
     versions: Map<String, Value>,
 }
 
-/// Composes `packages/<scope>/<name>.json` from the stored canonical
-/// version entries; `name` is the package's canonical `<scope>/<name>`
-/// string. The canonical document's `schema` / `name` / `version` envelope
-/// is stripped - those are document-level fields, and the client's index
-/// parser rejects unknown fields in version entries (`package-index.md`) -
-/// and each entry's `yanked` field is overwritten from its row so the
-/// document always reflects current D1 state. Deterministic: versions are
-/// emitted in lexicographic order.
+/// Composes `packages/<scope>/<name>.json` from each verified version's
+/// current revision plus the package's full verified-revision set.
+/// The stored canonical document's `schema` / `name` / `version`
+/// envelope **and** its per-revision `checksum` / `source` fields are
+/// stripped - the served entry carries them inside its `revisions` map
+/// instead, and the client's index parser rejects unknown fields in
+/// version entries (`package-index.md`).  Each entry's `yanked` field
+/// is overwritten from its version row, its `revision` field names the
+/// served revision, and its `revisions` map lists every verified
+/// revision with its checksum, publish time, and canonical source
+/// path.  Deterministic: versions in lexicographic order, revisions in
+/// revision-id order.
 ///
 /// # Errors
 ///
@@ -68,7 +88,13 @@ struct PackageDoc<'a> {
 // as a map; switch to semver ordering if a consumer ever compares bytes with
 // the local file registry.
 #[allow(clippy::missing_panics_doc)] // serializing a `PackageDoc` cannot fail
-pub fn package_json(name: &str, rows: &[VersionRow]) -> Result<String, String> {
+pub fn package_json(
+    scope: &str,
+    package: &str,
+    rows: &[VersionRow],
+    revisions: &[RevisionRow],
+) -> Result<String, String> {
+    let name = format!("{scope}/{package}");
     let mut rows: Vec<&VersionRow> = rows.iter().collect();
     rows.sort_by(|a, b| a.version.cmp(&b.version));
     let mut versions = Map::new();
@@ -85,17 +111,44 @@ pub fn package_json(name: &str, rows: &[VersionRow]) -> Result<String, String> {
                 row.version
             ));
         };
-        for envelope in ["schema", "name", "version"] {
+        for stripped in ["schema", "name", "version", "checksum", "source"] {
             // shift_remove: plain `remove` is a swap_remove under
             // `preserve_order` and would scramble the entry's key order.
-            fields.shift_remove(envelope);
+            fields.shift_remove(stripped);
         }
         fields.insert("yanked".to_owned(), Value::Bool(row.yanked));
+        fields.insert("revision".to_owned(), Value::String(row.revision.clone()));
+        let mut revision_map = Map::new();
+        for revision in revisions.iter().filter(|r| r.version == row.version) {
+            // The canonical per-revision source path, the same grammar
+            // publish validates (`crate::publish::validate_metadata`)
+            // and the local file registry writes.
+            let path = format!(
+                "../../artifacts/{scope}/{package}/{scope}-{package}-{version}-{rev}.zip",
+                version = revision.version,
+                rev = revision.revision,
+            );
+            revision_map.insert(
+                revision.revision.clone(),
+                serde_json::json!({
+                    "checksum": format!("sha256:{}", revision.checksum),
+                    "published-at": revision.published_at,
+                    "source": { "type": "archive", "path": path, "format": "zip" },
+                }),
+            );
+        }
+        if !revision_map.contains_key(&row.revision) {
+            return Err(format!(
+                "current revision {} of {name}@{} is missing from the verified revision set",
+                row.revision, row.version
+            ));
+        }
+        fields.insert("revisions".to_owned(), Value::Object(revision_map));
         versions.insert(row.version.clone(), entry);
     }
     Ok(serde_json::to_string(&PackageDoc {
         schema: 1,
-        name,
+        name: &name,
         versions,
     })
     .expect("package document serializes"))
@@ -114,34 +167,55 @@ mod tests {
         );
     }
 
-    fn row(version: &str, metadata_json: &str, yanked: bool) -> VersionRow {
+    const REV_A: &str = "aaaaaaaaaaaaaaaa";
+    const REV_B: &str = "bbbbbbbbbbbbbbbb";
+
+    fn row(version: &str, revision: &str, metadata_json: &str, yanked: bool) -> VersionRow {
         VersionRow {
             version: version.to_owned(),
+            revision: revision.to_owned(),
             metadata_json: metadata_json.to_owned(),
             yanked,
         }
     }
 
-    #[test]
-    fn package_json_overrides_yanked_from_the_row_state() {
-        let stored = r#"{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}"#;
-        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, true)]).unwrap();
-        assert_eq!(
-            body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}}}"#
-        );
+    fn revision(version: &str, revision: &str, seed: char) -> RevisionRow {
+        RevisionRow {
+            version: version.to_owned(),
+            revision: revision.to_owned(),
+            checksum: std::iter::repeat_n(seed, 64).collect(),
+            published_at: format!("2026-01-01T00:00:0{seed}Z"),
+        }
     }
 
     #[test]
-    fn package_json_overrides_a_stale_stored_yanked_after_unyank() {
-        // Un-yanking only flips the row column; the stored entry still
-        // says `yanked: true` and must lose.
-        let stored = r#"{"dependencies":{},"yanked":true,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}"#;
-        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
+    fn package_json_overrides_yanked_and_composes_the_revision_map() {
+        let stored = r#"{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"x.zip","format":"zip"}}"#;
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_A, stored, true)],
+            &[revision("1.0.0", REV_A, 'a')],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let entry = &value["versions"]["1.0.0"];
+        // The row state wins over the stored `yanked`, and the stored
+        // per-revision `checksum` / `source` fields are stripped in
+        // favor of the composed `revisions` map.
+        assert_eq!(entry["yanked"], true);
+        assert!(entry.get("checksum").is_none(), "{body}");
+        assert!(entry.get("source").is_none(), "{body}");
+        assert_eq!(entry["revision"], REV_A);
+        let rev = &entry["revisions"][REV_A];
+        assert_eq!(rev["checksum"], format!("sha256:{}", "a".repeat(64)));
+        assert_eq!(rev["published-at"], "2026-01-01T00:00:0aZ");
         assert_eq!(
-            body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":"../artifacts/fmt/fmt-1.0.0.zip"}}}"#
+            rev["source"]["path"],
+            format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV_A}.zip")
         );
+        assert_eq!(rev["source"]["type"], "archive");
+        assert_eq!(rev["source"]["format"], "zip");
     }
 
     #[test]
@@ -150,35 +224,77 @@ mod tests {
         // stored entries carry the `schema`/`name`/`version` envelope; the
         // served version entry must not (the client's index parser rejects
         // unknown fields in version entries).
-        let stored = r#"{"schema":1,"name":"fmtlib/fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip","format":"zip"}}"#;
-        let body = package_json("fmtlib/fmt", &[row("1.0.0", stored, false)]).unwrap();
+        let stored = r#"{"schema":1,"name":"fmtlib/fmt","version":"1.0.0","dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"x.zip","format":"zip"}}"#;
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_A, stored, false)],
+            &[revision("1.0.0", REV_A, 'a')],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let entry = &value["versions"]["1.0.0"];
+        for stripped in ["schema", "name", "version", "checksum", "source"] {
+            assert!(entry.get(stripped).is_none(), "{stripped} leaked: {body}");
+        }
+        assert_eq!(entry["dependencies"], serde_json::json!({}));
+    }
+
+    /// A superseded verified revision stays listed beside the current
+    /// one - that is the fetchability guarantee for pinned lockfiles -
+    /// while pending/rejected rows never reach this function at all
+    /// (the queries filter them).
+    #[test]
+    fn package_json_lists_superseded_revisions_beside_the_current_one() {
+        let stored = r#"{"dependencies":{}}"#;
+        let body = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_B, stored, false)],
+            &[revision("1.0.0", REV_A, 'a'), revision("1.0.0", REV_B, 'b')],
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let entry = &value["versions"]["1.0.0"];
+        assert_eq!(entry["revision"], REV_B);
+        let revisions = entry["revisions"].as_object().unwrap();
+        assert_eq!(revisions.len(), 2);
         assert_eq!(
-            body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"dependencies":{},"yanked":false,"checksum":"sha256:aa","source":{"type":"archive","path":"../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip","format":"zip"}}}}"#
+            revisions[REV_A]["checksum"],
+            format!("sha256:{}", "a".repeat(64))
         );
     }
 
+    /// A current revision missing from the verified set is an internal
+    /// invariant break, reported as an error (the caller 500s).
     #[test]
-    fn package_json_adds_yanked_when_the_stored_entry_lacks_it() {
-        let body = package_json(
-            "fmtlib/fmt",
-            &[row("1.0.0", r#"{"checksum":"sha256:aa"}"#, false)],
+    fn package_json_rejects_a_current_revision_outside_the_verified_set() {
+        let err = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_B, r#"{"dependencies":{}}"#, false)],
+            &[revision("1.0.0", REV_A, 'a')],
         )
-        .unwrap();
-        assert_eq!(
-            body,
-            r#"{"schema":1,"name":"fmtlib/fmt","versions":{"1.0.0":{"checksum":"sha256:aa","yanked":false}}}"#
+        .unwrap_err();
+        assert!(
+            err.contains("missing from the verified revision set"),
+            "{err}"
         );
     }
 
     #[test]
     fn package_json_orders_versions_deterministically() {
         let rows = [
-            row("2.0.0", r#"{"a":1}"#, false),
-            row("1.0.0", r#"{"a":2}"#, false),
-            row("1.0.0-rc.1", r#"{"a":3}"#, false),
+            row("2.0.0", REV_A, r#"{"a":1}"#, false),
+            row("1.0.0", REV_A, r#"{"a":2}"#, false),
+            row("1.0.0-rc.1", REV_A, r#"{"a":3}"#, false),
         ];
-        let body = package_json("fmtlib/fmt", &rows).unwrap();
+        let revisions = [
+            revision("2.0.0", REV_A, 'a'),
+            revision("1.0.0", REV_A, 'a'),
+            revision("1.0.0-rc.1", REV_A, 'a'),
+        ];
+        let body = package_json("fmtlib", "fmt", &rows, &revisions).unwrap();
         let expected_order = ["1.0.0", "1.0.0-rc.1", "2.0.0"];
         let positions: Vec<usize> = expected_order
             .iter()
@@ -189,9 +305,21 @@ mod tests {
 
     #[test]
     fn package_json_rejects_non_object_metadata() {
-        let err = package_json("fmtlib/fmt", &[row("1.0.0", "[1,2]", false)]).unwrap_err();
+        let err = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_A, "[1,2]", false)],
+            &[revision("1.0.0", REV_A, 'a')],
+        )
+        .unwrap_err();
         assert!(err.contains("fmt@1.0.0"), "err: {err}");
-        let err = package_json("fmtlib/fmt", &[row("1.0.0", "not json", false)]).unwrap_err();
+        let err = package_json(
+            "fmtlib",
+            "fmt",
+            &[row("1.0.0", REV_A, "not json", false)],
+            &[revision("1.0.0", REV_A, 'a')],
+        )
+        .unwrap_err();
         assert!(err.contains("not valid JSON"), "err: {err}");
     }
 }

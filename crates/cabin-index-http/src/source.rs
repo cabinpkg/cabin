@@ -1189,11 +1189,17 @@ mod tests {
             "versions": {
                 "10.2.1": {
                     "dependencies": {},
-                    "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-                    "source": {
-                        "type": "archive",
-                        "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
-                        "format": "zip"
+                    "revision": "0000000000000000",
+                    "revisions": {
+                        "0000000000000000": {
+                            "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                            "published-at": "2026-01-01T00:00:00Z",
+                            "source": {
+                                "type": "archive",
+                                "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
+                                "format": "zip"
+                            }
+                        }
                     }
                 }
             }
@@ -1210,7 +1216,10 @@ mod tests {
         };
         assert_eq!(
             url,
-            &format!("{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip", server.url)
+            &format!(
+                "{}artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-0000000000000000.zip",
+                server.url
+            )
         );
     }
 }

@@ -64,6 +64,8 @@ pub const RESERVED_NAME: &str = "package name is reserved";
 pub const NAME_TWIN_CONFLICT: &str =
     "package name conflicts with an existing package in this scope (differs only in '-' vs '_')";
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
+pub const VERSION_BUILD_METADATA: &str = "package version must not carry build metadata; packaging corrections are published as \
+     revisions of the same version";
 pub const INVALID_DEPENDENCY_NAME: &str =
     "dependency keys in dependencies and dev-dependencies must be canonical <scope>/<name> names";
 pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
@@ -279,10 +281,13 @@ fn is_valid_publish_name(scope: &str, name: &str) -> bool {
 }
 
 /// Validates the metadata frame against the request URL's `scope` /
-/// `name` / `version` segments, in the documented order: parse (unknown
+/// `name` / `version` segments and the archive's computed
+/// `revision` (its digest's leading hex prefix - the caller hashes
+/// the archive first), in the documented order: parse (unknown
 /// fields rejected), schema, URL identity (the document's `name` is the
 /// full `<scope>/<name>`, and the archive path its `source` block
-/// implies embeds the scope twice - directory and filename), scope and
+/// implies embeds the scope twice - directory and filename - plus the
+/// packaging revision), scope and
 /// name charsets, the reserved-name list (`crate::names`, package
 /// part only), `SemVer`, dependency keys (the `dependencies` and
 /// `dev-dependencies` maps key on canonical `<scope>/<name>` names -
@@ -299,6 +304,7 @@ pub fn validate_metadata(
     url_scope: &str,
     url_name: &str,
     url_version: &str,
+    revision: &str,
     metadata: &[u8],
 ) -> Result<VersionMetadata, &'static str> {
     let parsed: VersionMetadata = match serde_json::from_slice(metadata) {
@@ -313,8 +319,9 @@ pub fn validate_metadata(
         return Err(UNSUPPORTED_SCHEMA);
     }
     let canonical_name = format!("{url_scope}/{url_name}");
-    let canonical_source_path =
-        format!("../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}.zip");
+    let canonical_source_path = format!(
+        "../../artifacts/{url_scope}/{url_name}/{url_scope}-{url_name}-{url_version}-{revision}.zip"
+    );
     if parsed.name != canonical_name
         || parsed.version != url_version
         || parsed.source.kind != "archive"
@@ -332,8 +339,14 @@ pub fn validate_metadata(
     if crate::names::is_reserved(url_name) {
         return Err(RESERVED_NAME);
     }
-    if semver::Version::parse(url_version).is_err() {
-        return Err(INVALID_VERSION);
+    match semver::Version::parse(url_version) {
+        Err(_) => return Err(INVALID_VERSION),
+        // Registry versions are plain upstream versions: the
+        // packaging axis is the revision id, so the removed
+        // `+cabin.N` shape (and any other build metadata) fails
+        // through ordinary validation.
+        Ok(parsed) if !parsed.build.is_empty() => return Err(VERSION_BUILD_METADATA),
+        Ok(_) => {}
     }
     // Registry dependency maps key on canonical scoped names: a bare
     // key could never resolve against this registry (the read plane
@@ -360,6 +373,35 @@ pub fn validate_metadata(
         return Err(YANKED_AT_PUBLISH);
     }
     Ok(parsed)
+}
+
+/// The resolver-consumed fields every packaging revision of a version
+/// must agree on, compared as parsed JSON (structural equality;
+/// absent fields compare equal to absent).  Returns the first field
+/// that differs.  [`crate::sql::INSERT_REVISION`] enforces the same
+/// rule transactionally via serialized-JSON equality - strictly
+/// tighter, which is the safe direction: this check only shapes the
+/// preflight diagnostic.
+///
+/// # Errors
+///
+/// The generic non-canonical `400` detail when either document fails
+/// to parse - the stored side is registry-written, so in practice
+/// only a corrupt row can trigger it.
+pub fn resolver_metadata_conflict(
+    stored_json: &str,
+    incoming_json: &str,
+) -> Result<Option<&'static str>, &'static str> {
+    let stored: serde_json::Value =
+        serde_json::from_str(stored_json).map_err(|_| METADATA_NOT_JSON)?;
+    let incoming: serde_json::Value =
+        serde_json::from_str(incoming_json).map_err(|_| METADATA_NOT_JSON)?;
+    for field in ["dependencies", "features", "standards"] {
+        if stored.get(field) != incoming.get(field) {
+            return Ok(Some(field));
+        }
+    }
+    Ok(None)
 }
 
 /// Compares the metadata's claimed checksum against the lowercase
@@ -441,6 +483,10 @@ mod tests {
         body
     }
 
+    /// The fixture revision every test document embeds in its source
+    /// path; `validate_metadata` receives the same value.
+    const REV: &str = "0011223344556677";
+
     fn metadata_json(scope: &str, name: &str, version: &str) -> String {
         format!(
             r#"{{
@@ -452,7 +498,7 @@ mod tests {
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}.zip",
+    "path": "../../artifacts/{scope}/{name}/{scope}-{name}-{version}-{REV}.zip",
     "format": "zip"
   }}
 }}"#
@@ -499,7 +545,7 @@ mod tests {
     #[test]
     fn validate_metadata_accepts_the_canonical_document() {
         let body = metadata_json("fmtlib", "fmt", "10.2.1");
-        let parsed = validate_metadata("fmtlib", "fmt", "10.2.1", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "10.2.1", REV, body.as_bytes()).unwrap();
         assert_eq!(parsed.name, "fmtlib/fmt");
         assert_eq!(parsed.checksum, "sha256:aa");
         assert!(parsed.dependencies.is_empty());
@@ -523,9 +569,9 @@ mod tests {
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
   "yanked": false,
   "checksum": "sha256:bb",
-  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip", "format": "zip"}
+  "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
 }"#;
-        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
     }
@@ -542,7 +588,7 @@ mod tests {
   "checksum": "sha256:aa",
   "source": {{
     "type": "archive",
-    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip",
+    "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-{REV}.zip",
     "format": "zip"
   }}
 }}"#
@@ -562,7 +608,7 @@ mod tests {
     "copy": [{{"from": "support/config.h.in", "to": "config.h"}}]
   }}"#
         ));
-        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         let upstream = parsed.upstream.expect("upstream parsed");
         assert_eq!(upstream.url, "https://example.com/fmt-1.0.0.tar.gz");
         assert_eq!(upstream.strip_prefix.as_deref(), Some("fmt-1.0.0"));
@@ -574,7 +620,7 @@ mod tests {
         let body = upstream_metadata_json(&format!(
             r#"{{"url": "https://example.com/fmt.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
         ));
-        validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
     }
 
     #[test]
@@ -590,7 +636,7 @@ mod tests {
                 r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz"}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_URL,
                 "url: {url}"
             );
@@ -607,7 +653,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{sha}", "format": "zip"}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_SHA256,
                 "sha: {sha}"
             );
@@ -621,7 +667,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "{format}"}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 UNSUPPORTED_UPSTREAM_FORMAT,
                 "format: {format}"
             );
@@ -637,7 +683,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "strip-prefix": "{prefix}"}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_STRIP_PREFIX,
                 "prefix: {prefix}"
             );
@@ -656,7 +702,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_COPY_PATH,
                 "copy: {from} -> {to}"
             );
@@ -677,7 +723,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_COPY_PATH,
                 "copy: {from} -> {to}"
             );
@@ -694,7 +740,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{path}", "to": "b"}}]}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_COPY_PATH,
                 "path len {}",
                 path.len()
@@ -709,7 +755,7 @@ mod tests {
             r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
         ));
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
             INVALID_UPSTREAM_URL
         );
     }
@@ -722,7 +768,7 @@ mod tests {
             r#"{{"url": "https://example.com/a.tar.gz", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz", "strip-prefix": "{prefix}", "copy": [{{"from": "{from}", "to": "b"}}]}}"#
         ));
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
             INVALID_UPSTREAM_COPY_PATH
         );
     }
@@ -738,7 +784,7 @@ mod tests {
                 r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": {copies}}}"#
             ));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 INVALID_UPSTREAM_COPY_PATH,
                 "copies: {copies}"
             );
@@ -755,7 +801,7 @@ mod tests {
             copies = steps.join(",")
         ));
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
             TOO_MANY_UPSTREAM_COPIES
         );
     }
@@ -768,7 +814,7 @@ mod tests {
             r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "mirror": "x"}}"#
         ));
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
             METADATA_NOT_CANONICAL
         );
     }
@@ -781,7 +827,7 @@ mod tests {
             let body = metadata_json("fmtlib", "fmt", "10.2.1")
                 .replace("\"schema\": 1,", &format!("\"schema\": {schema},"));
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "10.2.1", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "10.2.1", REV, body.as_bytes()).unwrap_err(),
                 UNSUPPORTED_SCHEMA,
                 "schema: {schema}"
             );
@@ -791,13 +837,13 @@ mod tests {
     #[test]
     fn validate_metadata_rejects_unknown_fields_and_non_json() {
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", b"not json").unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, b"not json").unwrap_err(),
             METADATA_NOT_JSON,
         );
         let with_extra = metadata_json("fmtlib", "fmt", "1.0.0")
             .replace("\"schema\": 1,", "\"schema\": 1,\n  \"extra-key\": true,");
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_extra.as_bytes()).unwrap_err(),
             METADATA_NOT_CANONICAL,
         );
         // Unknown fields inside `source` are rejected too.
@@ -806,7 +852,7 @@ mod tests {
             "\"type\": \"archive\",\n    \"mirror\": \"x\",",
         );
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", with_extra.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_extra.as_bytes()).unwrap_err(),
             METADATA_NOT_CANONICAL,
         );
     }
@@ -816,40 +862,40 @@ mod tests {
         let body = metadata_json("fmtlib", "fmt", "10.2.1");
         // URL scope / name / version disagree with the document.
         assert_eq!(
-            validate_metadata("other", "fmt", "10.2.1", body.as_bytes()).unwrap_err(),
+            validate_metadata("other", "fmt", "10.2.1", REV, body.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         assert_eq!(
-            validate_metadata("fmtlib", "other", "10.2.1", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "other", "10.2.1", REV, body.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "9.0.0", body.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "9.0.0", REV, body.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         // A bare (unscoped) document name never matches the URL pair.
         let bare = body.replace("\"name\": \"fmtlib/fmt\"", "\"name\": \"fmt\"");
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "10.2.1", bare.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "10.2.1", REV, bare.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         // A source path pointing at some other artifact.
         let moved = body.replace(
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
+            &format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
             "../elsewhere.zip",
         );
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "10.2.1", moved.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "10.2.1", REV, moved.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
         // The pre-scopes source path shape (bare directory, bare
         // filename) is not the canonical path any more.
         let unscoped = body.replace(
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip",
-            "../artifacts/fmt/fmt-10.2.1.zip",
+            &format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{REV}.zip"),
+            &format!("../artifacts/fmt/fmt-10.2.1-{REV}.zip"),
         );
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "10.2.1", unscoped.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "10.2.1", REV, unscoped.as_bytes()).unwrap_err(),
             IDENTITY_MISMATCH,
         );
     }
@@ -870,7 +916,7 @@ mod tests {
             // so identity passes and the charset / SemVer checks fire.
             let body = metadata_json(scope, name, version);
             assert_eq!(
-                validate_metadata(scope, name, version, body.as_bytes()).unwrap_err(),
+                validate_metadata(scope, name, version, REV, body.as_bytes()).unwrap_err(),
                 detail,
                 "scope: {scope}, name: {name}, version: {version}"
             );
@@ -878,7 +924,7 @@ mod tests {
         let yanked = metadata_json("fmtlib", "fmt", "1.0.0")
             .replace("\"yanked\": false", "\"yanked\": true");
         assert_eq!(
-            validate_metadata("fmtlib", "fmt", "1.0.0", yanked.as_bytes()).unwrap_err(),
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, yanked.as_bytes()).unwrap_err(),
             YANKED_AT_PUBLISH,
         );
     }
@@ -888,7 +934,7 @@ mod tests {
         for name in ["con", "nul", "com1", "lpt9", "cabin", "std", "core"] {
             let body = metadata_json("fmtlib", name, "1.0.0");
             assert_eq!(
-                validate_metadata("fmtlib", name, "1.0.0", body.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", name, "1.0.0", REV, body.as_bytes()).unwrap_err(),
                 RESERVED_NAME,
                 "name: {name:?}"
             );
@@ -897,10 +943,10 @@ mod tests {
         // no membership can exist there and publish never sees it - the
         // name check must not shadow that refusal path.
         let body = metadata_json("con", "fmt", "1.0.0");
-        assert!(validate_metadata("con", "fmt", "1.0.0", body.as_bytes()).is_ok());
+        assert!(validate_metadata("con", "fmt", "1.0.0", REV, body.as_bytes()).is_ok());
         // Reserved stems match whole names, never prefixes.
         let body = metadata_json("fmtlib", "console", "1.0.0");
-        assert!(validate_metadata("fmtlib", "console", "1.0.0", body.as_bytes()).is_ok());
+        assert!(validate_metadata("fmtlib", "console", "1.0.0", REV, body.as_bytes()).is_ok());
     }
 
     #[test]
@@ -921,7 +967,7 @@ mod tests {
                 &format!("\"dependencies\": {{\"{key}\": \"^1\"}}"),
             );
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", with_dep.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_dep.as_bytes()).unwrap_err(),
                 INVALID_DEPENDENCY_NAME,
                 "dependencies key: {key:?}"
             );
@@ -930,7 +976,8 @@ mod tests {
                 &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {{\"{key}\": \"^1\"}}"),
             );
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", with_dev_dep.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_dev_dep.as_bytes())
+                    .unwrap_err(),
                 INVALID_DEPENDENCY_NAME,
                 "dev-dependencies key: {key:?}"
             );
@@ -945,7 +992,7 @@ mod tests {
              \"dev-dependencies\": {\"catchorg/catch2\": \"^3\"},\n  \
              \"system-dependencies\": {\"openssl\": {\"version\": \">=3\"}}",
         );
-        assert!(validate_metadata("fmtlib", "fmt", "1.0.0", scoped.as_bytes()).is_ok());
+        assert!(validate_metadata("fmtlib", "fmt", "1.0.0", REV, scoped.as_bytes()).is_ok());
         // The dev-dependencies map is typed for the key check, so a
         // non-object value is not canonical - and an explicit `null`
         // must not alias the omitted-when-empty form.
@@ -955,7 +1002,8 @@ mod tests {
                 &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {value}"),
             );
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", non_object.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, non_object.as_bytes())
+                    .unwrap_err(),
                 METADATA_NOT_CANONICAL,
                 "value: {value}"
             );
@@ -965,12 +1013,12 @@ mod tests {
     #[test]
     fn verify_checksum_requires_the_exact_sha256_claim() {
         let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "sha256:0011");
-        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         assert_eq!(verify_checksum(&parsed, "0011"), Ok(()));
         assert_eq!(verify_checksum(&parsed, "0012"), Err(CHECKSUM_MISMATCH));
         // A claim without the scheme prefix never matches.
         let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "0011");
-        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", body.as_bytes()).unwrap();
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         assert_eq!(verify_checksum(&parsed, "0011"), Err(CHECKSUM_MISMATCH));
     }
 
@@ -1068,5 +1116,45 @@ mod tests {
         let len = bad_layout.len();
         bad_layout[len - 6] = bad_layout[len - 6].wrapping_add(1);
         assert_eq!(sanity_check_zip(&bad_layout), Err(NOT_ZIP));
+    }
+
+    #[test]
+    fn resolver_metadata_conflict_names_the_changed_field() {
+        let stored = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
+                         "standards":{"cxx":"c++17"},"checksum":"sha256:aa"}"#;
+        // Packaging-only differences (any non-resolver field) are fine.
+        let respun = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
+                        "standards":{"cxx":"c++17"},"checksum":"sha256:bb"}"#;
+        assert_eq!(resolver_metadata_conflict(stored, respun), Ok(None));
+        // Each resolver-facing field is compared structurally, first
+        // difference wins.
+        for (field, mutated) in [
+            (
+                "dependencies",
+                r#"{"features":{"default":[]},"standards":{"cxx":"c++17"}}"#,
+            ),
+            (
+                "features",
+                r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":["simd"]},
+                   "standards":{"cxx":"c++17"}}"#,
+            ),
+            (
+                "standards",
+                r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
+                   "standards":{"cxx":"c++20"}}"#,
+            ),
+        ] {
+            assert_eq!(resolver_metadata_conflict(stored, mutated), Ok(Some(field)));
+        }
+        // The comparison is structural, not textual: key order and
+        // whitespace differences are not conflicts.
+        let reordered = r#"{"standards":{"cxx":"c++17"},"features":{"default":[]},
+                           "dependencies":{"acme/dep":"^1"}}"#;
+        assert_eq!(resolver_metadata_conflict(stored, reordered), Ok(None));
+        // Malformed stored documents surface as an error, never a pass.
+        assert_eq!(
+            resolver_metadata_conflict("not json", respun),
+            Err(METADATA_NOT_JSON)
+        );
     }
 }

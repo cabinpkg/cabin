@@ -79,7 +79,7 @@ printf '    %s object(s)\n' "$(wc -l <"$work/listing" | tr -d ' ')"
 
 step "reading the verified checksums and queue depth from D1"
 wrangler d1 execute DB --remote --json --command "
-  SELECT checksum, MAX(archive_size) AS size FROM versions
+  SELECT checksum, MAX(archive_size) AS size FROM revisions
   WHERE verification = 'verified' GROUP BY checksum" >"$work/verified.json" \
   || fail "the verified-checksum query failed"
 wrangler d1 execute DB --remote --json --command \

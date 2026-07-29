@@ -42,8 +42,17 @@ struct TokenRecord {
 #[derive(Deserialize)]
 struct VersionRecord {
     version: String,
+    revision: String,
     metadata_json: String,
     yanked: i64,
+}
+
+#[derive(Deserialize)]
+struct RevisionListRecord {
+    version: String,
+    revision: String,
+    checksum: String,
+    published_at: String,
 }
 
 #[derive(Deserialize)]
@@ -58,8 +67,13 @@ struct MetaRecord {
 }
 
 #[derive(Deserialize)]
-struct StoredVersionRecord {
+struct MetadataRecord {
     metadata_json: String,
+}
+
+#[derive(Deserialize)]
+struct StoredRevisionRecord {
+    revision: String,
     checksum: String,
     verification: String,
 }
@@ -67,7 +81,10 @@ struct StoredVersionRecord {
 #[derive(Deserialize)]
 struct YankedRecord {
     yanked: i64,
-    verification: String,
+    /// Whether any revision of the version is verified (the
+    /// `EXISTS(...) AS verified` column): yank applies to versions
+    /// the registry actually serves.
+    verified: i64,
 }
 
 /// The yank request body, exactly `{"yanked": <bool>}`.
@@ -240,7 +257,10 @@ async fn handle_registry(
                     scope,
                     name,
                     version,
-                } => artifact_response(env, &db, ctx, &auth, scope, name, version).await?,
+                    revision,
+                } => {
+                    artifact_response(env, &db, ctx, &auth, scope, name, version, revision).await?
+                }
                 // Answered above before the auth gate.
                 Route::Healthz => Response::empty()?,
             }
@@ -412,13 +432,16 @@ fn bucket_from_columns(tokens: Option<f64>, updated_at: Option<&str>) -> Option<
 }
 
 /// `GET /packages/<scope>/<name>.json`: composed from **verified**
-/// versions only - the filter is in the query, so pending and rejected
-/// rows never reach composition, and a package with no verified versions
-/// is indistinguishable from an unknown one (fail safe: if the verifier
-/// never runs, nothing new ever becomes resolvable).
+/// revisions only - each version's entry carries its current
+/// revision's metadata plus the full verified `revisions` map, so
+/// pending and rejected rows never reach composition (a pending respin
+/// leaves the served revision untouched) and a package with no
+/// verified revisions is indistinguishable from an unknown one (fail
+/// safe: if the verifier never runs, nothing new ever becomes
+/// resolvable).
 async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::Result<Response> {
     let records: Vec<VersionRecord> = db
-        .prepare(sql::VERIFIED_VERSIONS_BY_PACKAGE)
+        .prepare(sql::CURRENT_REVISIONS_BY_PACKAGE)
         .bind(&[scope.into(), name.into()])?
         .all()
         .await?
@@ -426,19 +449,34 @@ async fn package_response(db: &D1Database, scope: &str, name: &str) -> worker::R
     if records.is_empty() {
         return error_response(404, error::NOT_FOUND);
     }
+    let revision_records: Vec<RevisionListRecord> = db
+        .prepare(sql::VERIFIED_REVISIONS_BY_PACKAGE)
+        .bind(&[scope.into(), name.into()])?
+        .all()
+        .await?
+        .results()?;
     let rows: Vec<VersionRow> = records
         .into_iter()
         .map(|record| VersionRow {
             version: record.version,
+            revision: record.revision,
             metadata_json: record.metadata_json,
             yanked: record.yanked != 0,
         })
         .collect();
-    let full_name = format!("{scope}/{name}");
-    match documents::package_json(&full_name, &rows) {
+    let revisions: Vec<documents::RevisionRow> = revision_records
+        .into_iter()
+        .map(|record| documents::RevisionRow {
+            version: record.version,
+            revision: record.revision,
+            checksum: record.checksum,
+            published_at: record.published_at,
+        })
+        .collect();
+    match documents::package_json(scope, name, &rows, &revisions) {
         Ok(body) => json_response(&body),
         Err(detail) => {
-            console_error!("package document for {full_name}: {detail}");
+            console_error!("package document for {scope}/{name}: {detail}");
             error_response(500, error::INTERNAL)
         }
     }
@@ -495,6 +533,22 @@ async fn publish_response(
         return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
 
+    // The `new-revision` opt-in rides as a query parameter; any other
+    // value than the literal `true` is a malformed request, so a typo
+    // can never silently drop the opt-in.
+    let new_revision = {
+        let url = req.url()?;
+        let mut flag = false;
+        for (key, value) in url.query_pairs() {
+            if key == "new-revision" {
+                if value != "true" {
+                    return error_response(400, error::INVALID_NEW_REVISION_QUERY);
+                }
+                flag = true;
+            }
+        }
+        flag
+    };
     let Some(body) = bounded_body(req, publish::MAX_BODY_BYTES).await? else {
         return error_response(400, publish::BODY_TOO_LARGE);
     };
@@ -503,16 +557,21 @@ async fn publish_response(
         Err(detail) => return error_response(400, detail),
     };
     let archive_bytes = frame.archive.len() as u64;
-    let metadata = match publish::validate_metadata(scope, name, version, frame.metadata) {
-        Ok(metadata) => metadata,
-        Err(detail) => return error_response(400, detail),
-    };
     // Reject a body that cannot be a profile zip before hashing it; the
     // full profile is checked later by the async verifier.
     if let Err(detail) = publish::sanity_check_zip(frame.archive) {
         return error_response(400, detail);
     }
+    // The digest comes before metadata validation: the revision id is
+    // its leading hex prefix, and the canonical source path the
+    // metadata must carry embeds it.
     let computed_hex = sha256_hex(frame.archive).await?;
+    let revision = &computed_hex[..16];
+    let metadata = match publish::validate_metadata(scope, name, version, revision, frame.metadata)
+    {
+        Ok(metadata) => metadata,
+        Err(detail) => return error_response(400, detail),
+    };
     if let Err(detail) = publish::verify_checksum(&metadata, &computed_hex) {
         return error_response(400, detail);
     }
@@ -522,20 +581,31 @@ async fn publish_response(
         return error_response(400, publish::METADATA_NOT_JSON);
     };
 
-    let replaced = match existing_version(db, scope, name, version, metadata_text).await? {
-        Some(ExistingVersion::Answered(response)) => {
+    let revive = match revision_disposition(
+        db,
+        scope,
+        name,
+        version,
+        revision,
+        &computed_hex,
+        new_revision,
+        metadata_text,
+    )
+    .await?
+    {
+        RevisionDisposition::Answered(response) => {
             // The idempotent no-op (200) is a retry of a committed
             // publish that still holds the row's exact bytes, so it is
             // the one chance to self-heal a primary blob a reclaim
-            // race deleted. The 409 arm gets no heal: its uploaded
-            // bytes were rejected.
+            // race deleted. The 409 arms get no heal: their uploaded
+            // bytes were refused.
             if response.status_code() == 200 {
                 heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
             }
             return Ok(response);
         }
-        Some(ExistingVersion::Rejected { old_checksum }) => Some(old_checksum),
-        None => None,
+        RevisionDisposition::Revive => true,
+        RevisionDisposition::New { .. } => false,
     };
 
     // The archive-size cap and the per-user quotas gate genuinely new
@@ -573,50 +643,70 @@ async fn publish_response(
         return denial_response(env, &denial, None);
     }
 
-    let new = NewVersion {
+    let new = NewRevision {
         scope,
         name,
         version,
+        revision,
         checksum_hex: &computed_hex,
         metadata_text,
         published_at: &now,
         archive: frame.archive,
         user_id: auth.user_id,
+        opt_in: new_revision,
     };
-    match &replaced {
-        Some(old_checksum) => {
-            match replace_rejected_version(env, db, &new, old_checksum).await? {
-                Persist::Done => {}
-                Persist::Refused(response) => return Ok(response),
-                Persist::Lost => {
-                    // A concurrent replacement or verdict moved the
-                    // rejected row first; answer for the row's new
-                    // state exactly as if this request had arrived
-                    // after the winner.
-                    return match existing_version(db, scope, name, version, metadata_text).await? {
-                        Some(ExistingVersion::Answered(response)) => {
-                            if response.status_code() == 200 {
-                                heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
-                            }
-                            Ok(response)
-                        }
-                        // Rejected again (a third racer) or gone: the
-                        // conservative refusal; a retry resolves it.
-                        _ => error_response(409, error::VERSION_IMMUTABLE),
-                    };
+    let persisted = if revive {
+        revive_rejected_revision(env, db, &new).await?
+    } else {
+        persist_new_revision(env, db, &new).await?
+    };
+    match persisted {
+        Persist::Done => {}
+        Persist::Refused(response) => return Ok(response),
+        Persist::Lost => {
+            // The batch's own guards suppressed the write: a twin
+            // publish, a concurrent revision, or a verdict moved
+            // first. Re-read and answer exactly as if this request
+            // had arrived after the winner; a vanished version row
+            // (the twin case) answers the twin `400` the preflight
+            // would have.
+            return match revision_disposition(
+                db,
+                scope,
+                name,
+                version,
+                revision,
+                &computed_hex,
+                new_revision,
+                metadata_text,
+            )
+            .await?
+            {
+                RevisionDisposition::Answered(response) => {
+                    if response.status_code() == 200 {
+                        heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
+                    }
+                    Ok(response)
                 }
-            }
+                RevisionDisposition::Revive => {
+                    // Rejected again (a third racer): the conservative
+                    // refusal; a retry resolves it.
+                    error_response(409, error::VERSION_IMMUTABLE)
+                }
+                // No revision rows at all means the twin guard
+                // suppressed the package; rows without a blocking
+                // sibling mean the losing guard's cause (a concurrent
+                // revision or verdict) has already moved on - a
+                // transient the conservative refusal covers, and a
+                // retry resolves cleanly.
+                RevisionDisposition::New {
+                    version_has_revisions: false,
+                } => error_response(400, publish::NAME_TWIN_CONFLICT),
+                RevisionDisposition::New {
+                    version_has_revisions: true,
+                } => error_response(409, error::VERSION_IMMUTABLE),
+            };
         }
-        None => match persist_new_version(env, db, &new).await? {
-            Persist::Done => {}
-            Persist::Refused(response) => return Ok(response),
-            Persist::Lost => {
-                // A twin publish won the race between this request's
-                // preflight and its batch; answer exactly like the
-                // preflight would have.
-                return error_response(400, publish::NAME_TWIN_CONFLICT);
-            }
-        },
     }
 
     json_response_with_status(
@@ -626,6 +716,7 @@ async fn publish_response(
             "name": format!("{scope}/{name}"),
             "version": version,
             "checksum": metadata.checksum,
+            "revision": revision,
             "verification": "pending",
         })
         .to_string(),
@@ -689,7 +780,7 @@ async fn yank_response(
     let Some(existing) = existing else {
         return error_response(404, error::NOT_FOUND);
     };
-    if verify::Status::parse(&existing.verification) != Some(verify::Status::Verified) {
+    if existing.verified == 0 {
         return error_response(404, error::NOT_FOUND);
     }
     let changed = (existing.yanked != 0) != yanked;
@@ -721,6 +812,7 @@ struct AdminVersionRecord {
     scope: String,
     name: String,
     version: String,
+    revision: String,
     checksum: String,
     published_by: i64,
     published_at: String,
@@ -749,7 +841,7 @@ async fn admin_versions_response(
         return error_response(400, error::INVALID_STATUS_QUERY);
     };
     let records: Vec<AdminVersionRecord> = db
-        .prepare(sql::VERSIONS_BY_VERIFICATION_STATUS)
+        .prepare(sql::REVISIONS_BY_VERIFICATION_STATUS)
         .bind(&[status.as_str().into()])?
         .all()
         .await?
@@ -768,6 +860,7 @@ async fn admin_versions_response(
         versions.push(serde_json::json!({
             "name": format!("{}/{}", record.scope, record.name),
             "version": record.version,
+            "revision": record.revision,
             "checksum": record.checksum,
             "published_by": record.published_by,
             "published_at": record.published_at,
@@ -819,8 +912,9 @@ struct VerdictTargetRecord {
 /// scope): the verifier's verdict. Pending versions accept either verdict; a
 /// repeat of the verdict a verified version already carries is the
 /// idempotent 200; anything else is the 409 matrix in
-/// [`verify::transition`]. The body's optional `checksum` binds the
-/// verdict to the bytes the verifier actually inspected, and the
+/// [`verify::transition`]. The body's required `checksum` binds the
+/// verdict to the bytes the verifier actually inspected (and so to
+/// the revision those bytes name), and the
 /// applying updates are themselves guarded on the row still being
 /// pending with the bytes this request read - a verdict racing a
 /// conflicting verdict or a replacement answers 409 instead of landing
@@ -858,9 +952,19 @@ async fn verdict_response(
         Err(detail) => return error_response(400, detail),
     };
 
+    // The body's checksum names the revision the verdict targets (its
+    // id is the digest's leading hex prefix); `parse_verdict` requires
+    // it for both verdicts, so the lookup is never ambiguous when a
+    // pending respin sits beside the version's other revisions.
+    let revision = parsed.checksum.get(..16).unwrap_or_default().to_owned();
     let target: Option<VerdictTargetRecord> = db
         .prepare(sql::VERDICT_TARGET)
-        .bind(&[scope.into(), name.into(), version.into()])?
+        .bind(&[
+            scope.into(),
+            name.into(),
+            version.into(),
+            revision.as_str().into(),
+        ])?
         .first(None)
         .await?;
     let Some(target) = target else {
@@ -868,22 +972,17 @@ async fn verdict_response(
     };
     let Some(current) = verify::Status::parse(&target.verification) else {
         console_error!(
-            "stored verification for {scope}/{name}@{version} is invalid: {}",
+            "stored verification for {scope}/{name}@{version}#{revision} is invalid: {}",
             target.verification
         );
         return error_response(500, error::INTERNAL);
     };
     // The listing binding: the row must still be the generation the
     // verifier listed, both its bytes and its publish event (a
-    // same-bytes replacement changes published_at but not checksum).
-    let target_changed = parsed
-        .checksum
-        .as_deref()
-        .is_some_and(|expected| expected != target.checksum)
-        || parsed
-            .published_at
-            .as_deref()
-            .is_some_and(|expected| expected != target.published_at);
+    // byte-identical revival changes published_at but not checksum,
+    // which is why `parse_verdict` requires both for both verdicts).
+    let target_changed =
+        parsed.checksum != target.checksum || parsed.published_at != target.published_at;
     if target_changed {
         return error_response(409, error::VERDICT_TARGET_CHANGED);
     }
@@ -892,7 +991,7 @@ async fn verdict_response(
         verify::Transition::Conflict(detail) => return error_response(409, detail),
         verify::Transition::NoOp => false,
         verify::Transition::Apply => {
-            if !apply_verdict(env, db, scope, name, version, &parsed, &target).await? {
+            if !apply_verdict(env, db, scope, name, version, &revision, &parsed, &target).await? {
                 // The row moved between this request's read and its
                 // guarded update: a concurrent conflicting verdict or a
                 // replacement won the race.
@@ -919,6 +1018,7 @@ async fn verdict_response(
             "ok": true,
             "name": format!("{scope}/{name}"),
             "version": version,
+            "revision": revision,
             "verification": resulting.as_str(),
             "changed": changed,
         })
@@ -1030,13 +1130,14 @@ fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
 /// Applies a verdict to a pending row under the transactional guards
 /// (still pending, still the checksum and `published_at` this request
 /// read); `false` means the row moved first and nothing was changed.
-#[allow(clippy::too_many_arguments)] // the route triple plus the verdict plumbing
+#[allow(clippy::too_many_arguments)] // the revision quad plus the verdict plumbing
 async fn apply_verdict(
     env: &Env,
     db: &D1Database,
     scope: &str,
     name: &str,
     version: &str,
+    revision: &str,
     parsed: &verify::ParsedVerdict,
     target: &VerdictTargetRecord,
 ) -> worker::Result<bool> {
@@ -1050,13 +1151,14 @@ async fn apply_verdict(
             // transition applied (`sql::ENQUEUE_VERIFIED_BACKUP`).
             let results = db
                 .batch(vec![
-                    db.prepare(sql::MARK_VERSION_VERIFIED).bind(&[
+                    db.prepare(sql::MARK_REVISION_VERIFIED).bind(&[
                         now.as_str().into(),
                         scope.into(),
                         name.into(),
                         version.into(),
                         target.checksum.as_str().into(),
                         target.published_at.as_str().into(),
+                        revision.into(),
                     ])?,
                     db.prepare(sql::ENQUEUE_VERIFIED_BACKUP).bind(&[
                         scope.into(),
@@ -1065,6 +1167,7 @@ async fn apply_verdict(
                         target.checksum.as_str().into(),
                         target.published_at.as_str().into(),
                         now.as_str().into(),
+                        revision.into(),
                     ])?,
                 ])
                 .await?;
@@ -1079,6 +1182,7 @@ async fn apply_verdict(
                 scope,
                 name,
                 version,
+                revision,
                 parsed.reason.as_deref().unwrap_or_default(),
                 target,
             )
@@ -1102,11 +1206,13 @@ async fn apply_verdict(
 /// means it lost such a race and nothing changed. `MAX(..., 0)` keeps
 /// the counter integer-parseable even under drift; the breaker treats a
 /// non-numeric value as unavailable and fails closed.
+#[allow(clippy::too_many_arguments)] // the revision quad plus the verdict plumbing
 async fn apply_rejection(
     db: &D1Database,
     scope: &str,
     name: &str,
     version: &str,
+    revision: &str,
     reason: &str,
     target: &VerdictTargetRecord,
 ) -> worker::Result<bool> {
@@ -1120,14 +1226,16 @@ async fn apply_rejection(
                 version.into(),
                 archive_size,
                 target.published_at.as_str().into(),
+                revision.into(),
             ])?,
-            db.prepare(sql::MARK_VERSION_REJECTED).bind(&[
+            db.prepare(sql::MARK_REVISION_REJECTED).bind(&[
                 reason.into(),
                 scope.into(),
                 name.into(),
                 version.into(),
                 target.checksum.as_str().into(),
                 target.published_at.as_str().into(),
+                revision.into(),
             ])?,
         ])
         .await?;
@@ -1196,6 +1304,7 @@ thread_local! {
     static INFLIGHT_BLOB_READS: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
+#[allow(clippy::too_many_arguments)] // the revision quad plus the request plumbing
 async fn artifact_response(
     env: &Env,
     db: &D1Database,
@@ -1204,10 +1313,11 @@ async fn artifact_response(
     scope: &str,
     name: &str,
     version: &str,
+    revision: &str,
 ) -> worker::Result<Response> {
     let record: Option<ArtifactRecord> = db
-        .prepare(sql::ARTIFACT_BY_PACKAGE_VERSION)
-        .bind(&[scope.into(), name.into(), version.into()])?
+        .prepare(sql::ARTIFACT_BY_REVISION)
+        .bind(&[scope.into(), name.into(), version.into(), revision.into()])?
         .first(None)
         .await?;
     let Some(record) = record else {
@@ -1526,15 +1636,19 @@ pub(crate) struct CountRecord {
 
 /// Everything the write phase of a validated, quota-cleared publish
 /// needs.
-struct NewVersion<'a> {
+struct NewRevision<'a> {
     scope: &'a str,
     name: &'a str,
     version: &'a str,
+    /// The packaging-revision id: `checksum_hex`'s leading 16 chars.
+    revision: &'a str,
     checksum_hex: &'a str,
     metadata_text: &'a str,
     published_at: &'a str,
     archive: &'a [u8],
     user_id: i64,
+    /// The `new-revision` opt-in, re-enforced inside the batch guards.
+    opt_in: bool,
 }
 
 /// The write phase's outcome: persisted, lost its guarded race, or
@@ -1581,10 +1695,10 @@ enum Persist {
 /// behind exactly like a crash between the two writes: an orphan the
 /// ledger keeps conservatively represented); the caller answers the
 /// twin `400`.
-async fn persist_new_version(
+async fn persist_new_revision(
     env: &Env,
     db: &D1Database,
-    new: &NewVersion<'_>,
+    new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
     let key = format!("blobs/sha256/{}", new.checksum_hex);
     let bucket = env.bucket("BLOBS")?;
@@ -1625,6 +1739,7 @@ async fn persist_new_version(
     }
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
+    let opt_in = js_int(i64::from(new.opt_in));
     let results = db
         .batch(vec![
             db.prepare(sql::INSERT_PACKAGE).bind(&[
@@ -1633,35 +1748,47 @@ async fn persist_new_version(
                 new.published_at.into(),
                 js_int(new.user_id),
             ])?,
-            db.prepare(sql::INSERT_VERSION).bind(&[
+            db.prepare(sql::INSERT_VERSION_ROW).bind(&[
                 new.scope.into(),
                 new.name.into(),
                 new.version.into(),
-                new.checksum_hex.into(),
-                new.metadata_text.into(),
-                new.published_at.into(),
-                archive_size.clone(),
-                js_int(new.user_id),
             ])?,
             db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
                 new.checksum_hex.into(),
                 archive_size.clone(),
-                new.checksum_hex.into(),
-                archive_size,
                 new.scope.into(),
                 new.name.into(),
                 new.version.into(),
+                new.revision.into(),
+                new.metadata_text.into(),
+                opt_in.clone(),
+            ])?,
+            db.prepare(sql::INSERT_REVISION).bind(&[
+                new.scope.into(),
+                new.name.into(),
+                new.version.into(),
+                new.revision.into(),
+                new.checksum_hex.into(),
+                new.metadata_text.into(),
+                new.published_at.into(),
+                archive_size,
+                js_int(new.user_id),
+                opt_in,
             ])?,
         ])
         .await?;
-    // The version insert changes zero rows only under the twin guard
-    // (a duplicate `(scope, name, version)` fails the primary key and
-    // rolls the batch back instead); the accounting statement is
-    // gated on this exact row existing, so it added nothing then.
-    let version_insert = results
-        .get(1)
-        .ok_or_else(|| worker::Error::RustError("missing batch result 1".to_owned()))?;
-    if changed_rows(version_insert.meta()?) == 0 {
+    // The revision insert changes zero rows under the in-batch guards
+    // - the twin guard suppressed the package (and so the version
+    // row), a racing byte-identical publish committed the same
+    // revision key first, or the opt-in guard refused an unflagged
+    // respin racing a live sibling; the accounting statement ran
+    // just before it against the same pre-insert state under the
+    // same guards, so it added nothing then either.  The caller
+    // re-reads to tell the cases apart.
+    let revision_insert = results
+        .get(3)
+        .ok_or_else(|| worker::Error::RustError("missing batch result 3".to_owned()))?;
+    if changed_rows(revision_insert.meta()?) == 0 {
         return Ok(Persist::Lost);
     }
 
@@ -1728,31 +1855,27 @@ async fn heal_blob_if_reclaimed(
     Ok(())
 }
 
-/// The write phase for a publish over a **rejected** row
+/// The write phase for a publish that revives a **rejected** revision
 /// (`docs/remote-registry.md`, "Verification lifecycle"): the rejected
-/// version never became part of the registry, so any bytes replace the
-/// row in place - new checksum, metadata, size, publisher, and
-/// timestamp, verification back to `pending` with the old verdict
-/// cleared. R2 first, like [`persist_new_version`]. Both statements are
-/// guarded on the row still being the rejected row this request read -
-/// `false` means a concurrent replacement or verdict moved it first and
-/// nothing was changed (a stale replacement must never rewrite a live
-/// row, least of all drag a verified one back to pending). The
-/// accounting is decided **before** the row flips, mirroring
-/// [`apply_rejection`]: the counter gains the new archive's bytes
-/// exactly when the guards will let the flip apply and no other live
-/// row already references the new checksum - so this row is about to
-/// become its sole live reference, including the same-bytes republish,
-/// where the reclaimed blob is re-counted exactly once. The rejected
-/// row's own bytes were already refunded when the verdict landed
-/// ([`verdict_response`]), so the only old-blob work here is retrying
-/// the conditional delete, which heals a reclaim whose best-effort R2
-/// delete failed.
-async fn replace_rejected_version(
+/// revision never became part of the registry, and the revision id
+/// derives from the bytes, so a revival is always byte-identical -
+/// fresh metadata, publisher, and timestamp, verification back to
+/// `pending` with the old verdict cleared. R2 first, like
+/// [`persist_new_revision`]. Both statements are guarded on the row
+/// still being the rejected generation this request read (plus the
+/// in-batch `new-revision` opt-in guard) - `false` means a concurrent
+/// revival or verdict moved it first and nothing was changed (a stale
+/// revival must never rewrite a live row, least of all drag a
+/// verified one back to pending). The accounting is decided **before**
+/// the row flips, mirroring [`apply_rejection`]: the counter regains
+/// the archive's bytes exactly when the guards will let the flip apply
+/// and no other live row references the checksum - the rejection
+/// refunded them, so the revived row is about to become the blob's
+/// sole live reference and is re-counted exactly once.
+async fn revive_rejected_revision(
     env: &Env,
     db: &D1Database,
-    new: &NewVersion<'_>,
-    old_checksum: &str,
+    new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
     let key = format!("blobs/sha256/{}", new.checksum_hex);
     let bucket = env.bucket("BLOBS")?;
@@ -1783,8 +1906,8 @@ async fn replace_rejected_version(
             )?));
         }
     }
-    // Unconditional put, unlike persist_new_version's head-first skip:
-    // when the replacement re-uses the rejected bytes, the rejecting
+    // Unconditional put, unlike persist_new_revision's head-first skip:
+    // the revival re-uses the rejected bytes, so the rejecting
     // verdict's reclaim delete may still be in flight, and a head could
     // observe the object right before that delete lands - skipping the
     // upload would then leave a pending row whose blob is gone.
@@ -1797,26 +1920,30 @@ async fn replace_rejected_version(
     bucket.put(&key, new.archive.to_vec()).execute().await?;
 
     let archive_size = js_int(i64::try_from(new.archive.len()).unwrap_or(i64::MAX));
+    let opt_in = js_int(i64::from(new.opt_in));
     let results = db
         .batch(vec![
-            db.prepare(sql::COUNT_STORED_BYTES_ON_REPLACEMENT).bind(&[
+            db.prepare(sql::COUNT_STORED_BYTES_ON_REVIVAL).bind(&[
                 new.scope.into(),
                 new.name.into(),
                 new.version.into(),
-                old_checksum.into(),
                 new.checksum_hex.into(),
-                archive_size.clone(),
+                new.checksum_hex.into(),
+                archive_size,
+                new.revision.into(),
+                opt_in.clone(),
+                new.metadata_text.into(),
             ])?,
-            db.prepare(sql::REPLACE_REJECTED_VERSION).bind(&[
-                new.checksum_hex.into(),
+            db.prepare(sql::REVIVE_REJECTED_REVISION).bind(&[
                 new.metadata_text.into(),
                 new.published_at.into(),
-                archive_size,
                 js_int(new.user_id),
                 new.scope.into(),
                 new.name.into(),
+                opt_in,
                 new.version.into(),
-                old_checksum.into(),
+                new.revision.into(),
+                new.checksum_hex.into(),
             ])?,
         ])
         .await?;
@@ -1836,11 +1963,9 @@ async fn replace_rejected_version(
     )
     .await;
 
-    // Same self-heal as persist_new_version: repair the blob if a
+    // Same self-heal as persist_new_revision: repair the blob if a
     // reclaim delete landed between the put above and the batch commit.
     heal_blob_if_reclaimed(env, &bucket, &key, new.archive).await?;
-
-    delete_blob_if_unreferenced(env, db, old_checksum).await?;
     Ok(Persist::Done)
 }
 
@@ -2004,68 +2129,165 @@ async fn push_live_set_to_governor(
     Ok(governor_client::reconcile(env, &request).await)
 }
 
-/// What the publish handler found for an already-existing
-/// `(scope, name, version)` row.
-enum ExistingVersion {
-    /// The request is answered directly: byte-identical metadata means
-    /// a byte-identical archive too (the metadata embeds the checksum
-    /// and both uploads passed the digest check), so over a pending or
-    /// verified row a re-publish is the `200` no-op reporting the row's
-    /// current verification status, and different bytes hit the `409`
-    /// immutability wall.
+/// What the publish handler decided from the version's existing
+/// revision rows.
+enum RevisionDisposition {
+    /// The request is answered directly: a byte-identical
+    /// republication of a pending or verified revision is the `200`
+    /// no-op reporting that revision's verification status (the
+    /// revision id derives from the bytes, so equal checksums are the
+    /// whole test - stored metadata is preserved, never overwritten);
+    /// a same-prefix different-bytes collision and a different-bytes
+    /// publish without the `new-revision` opt-in are `409`s.
     Answered(Response),
-    /// A rejected row never became part of the registry: any bytes are
-    /// an accepted replacement ([`replace_rejected_version`]). The old
-    /// checksum drives the self-healing blob cleanup.
-    Rejected { old_checksum: String },
+    /// A rejected revision with exactly these bytes exists: revive it
+    /// in place ([`revive_rejected_revision`]); the guarded update
+    /// re-checks the rejected state inside the batch.
+    Revive,
+    /// No revision with these bytes exists and the rules allow a new
+    /// one: insert it ([`persist_new_revision`]).  Whether the
+    /// version already carries revision rows disambiguates a lost
+    /// in-batch race afterwards: with none, the loss was the twin
+    /// guard; with some, it was a concurrent revision or verdict
+    /// (transient - a retry resolves it).
+    New { version_has_revisions: bool },
 }
 
-/// Idempotency, immutability, and the rejected-replacement carve-out
-/// for an already-published `(scope, name, version)`. `None` means the
-/// version is new.
-async fn existing_version(
+/// Idempotency, immutability, the `new-revision` opt-in, and the
+/// rejected-revival carve-out for the existing revisions of
+/// `(scope, name, version)`.  The same checks are enforced *inside*
+/// the write batches ([`sql::INSERT_REVISION`] /
+/// [`sql::REVIVE_REJECTED_REVISION`]), so this preflight only shapes
+/// responses - a racer that slips between the read and the batch loses
+/// the guarded write, and the caller re-runs this function against the
+/// winner's state.
+#[allow(clippy::too_many_arguments)] // the revision quad plus the request plumbing
+async fn revision_disposition(
+    db: &D1Database,
+    scope: &str,
+    name: &str,
+    version: &str,
+    revision: &str,
+    checksum_hex: &str,
+    new_revision: bool,
+    metadata_text: &str,
+) -> worker::Result<RevisionDisposition> {
+    let existing: Vec<StoredRevisionRecord> = db
+        .prepare(sql::EXISTING_REVISIONS)
+        .bind(&[scope.into(), name.into(), version.into()])?
+        .all()
+        .await?
+        .results()?;
+    let live_other_bytes = existing.iter().any(|row| {
+        row.checksum != checksum_hex
+            && matches!(
+                verify::Status::parse(&row.verification),
+                Some(verify::Status::Pending | verify::Status::Verified)
+            )
+    });
+    if let Some(row) = existing.iter().find(|row| row.revision == revision) {
+        let Some(status) = verify::Status::parse(&row.verification) else {
+            // An invariant break (the schema never writes other
+            // values); fail safe by refusing rather than guessing a
+            // transition.
+            console_error!(
+                "stored verification for {scope}/{name}@{version}#{revision} is invalid: {}",
+                row.verification
+            );
+            return error_response(500, error::INTERNAL).map(RevisionDisposition::Answered);
+        };
+        if row.checksum != checksum_hex {
+            // Two different archives whose digests share the 16-hex
+            // prefix: astronomically unlikely, and silently replacing
+            // either side would break immutability - fail loudly.
+            return error_response(409, error::REVISION_COLLISION)
+                .map(RevisionDisposition::Answered);
+        }
+        if status == verify::Status::Rejected {
+            // Byte-identical revival of a rejected revision - but a
+            // live sibling with different bytes still demands the
+            // opt-in, or an unflagged retry could sneak a superseded
+            // respin back beside what is currently served.
+            if live_other_bytes && !new_revision {
+                return error_response(409, error::NEW_REVISION_REQUIRED)
+                    .map(RevisionDisposition::Answered);
+            }
+            // A revival re-enters the live set, so the invariance
+            // check applies exactly as for a new revision: the
+            // rejected document never constrained anyone, and a
+            // sibling published since the rejection may carry
+            // different resolver metadata this revival must not
+            // contradict.
+            if live_other_bytes
+                && let Some(response) =
+                    live_metadata_conflict(db, scope, name, version, metadata_text).await?
+            {
+                return Ok(RevisionDisposition::Answered(response));
+            }
+            return Ok(RevisionDisposition::Revive);
+        }
+        return json_response_with_status(
+            200,
+            &serde_json::json!({
+                "ok": true,
+                "no_op": true,
+                "revision": revision,
+                "verification": status.as_str(),
+            })
+            .to_string(),
+        )
+        .map(RevisionDisposition::Answered);
+    }
+    if live_other_bytes && !new_revision {
+        return error_response(409, error::NEW_REVISION_REQUIRED)
+            .map(RevisionDisposition::Answered);
+    }
+    if live_other_bytes
+        && let Some(response) =
+            live_metadata_conflict(db, scope, name, version, metadata_text).await?
+    {
+        return Ok(RevisionDisposition::Answered(response));
+    }
+    Ok(RevisionDisposition::New {
+        version_has_revisions: !existing.is_empty(),
+    })
+}
+
+/// The revision contract's preflight: a respin (or a revival) must
+/// not change what resolution consumes.  One live sibling represents
+/// the set (they agree by induction), and [`sql::INSERT_REVISION`] /
+/// [`sql::REVIVE_REJECTED_REVISION`] re-enforce the rule inside their
+/// transactions - this read only shapes the diagnostic.  `None` means
+/// no conflict.
+async fn live_metadata_conflict(
     db: &D1Database,
     scope: &str,
     name: &str,
     version: &str,
     metadata_text: &str,
-) -> worker::Result<Option<ExistingVersion>> {
-    let existing: Option<StoredVersionRecord> = db
-        .prepare(sql::EXISTING_VERSION)
+) -> worker::Result<Option<Response>> {
+    let sibling: Option<MetadataRecord> = db
+        .prepare(sql::LIVE_REVISION_METADATA)
         .bind(&[scope.into(), name.into(), version.into()])?
         .first(None)
         .await?;
-    let Some(existing) = existing else {
+    let Some(sibling) = sibling else {
         return Ok(None);
     };
-    let Some(status) = verify::Status::parse(&existing.verification) else {
-        // An invariant break (the schema never writes other values);
-        // fail safe by refusing rather than guessing a transition.
-        console_error!(
-            "stored verification for {scope}/{name}@{version} is invalid: {}",
-            existing.verification
-        );
-        return error_response(500, error::INTERNAL)
-            .map(ExistingVersion::Answered)
-            .map(Some);
-    };
-    if status == verify::Status::Rejected {
-        return Ok(Some(ExistingVersion::Rejected {
-            old_checksum: existing.checksum,
-        }));
+    match publish::resolver_metadata_conflict(&sibling.metadata_json, metadata_text) {
+        Ok(None) => Ok(None),
+        Ok(Some(_field)) => {
+            error_response(409, error::REVISION_CHANGES_RESOLVER_METADATA).map(Some)
+        }
+        Err(_) => {
+            // A stored document that no longer parses is an
+            // invariant break; refuse rather than guess.
+            console_error!(
+                "stored metadata for a live revision of {scope}/{name}@{version} is invalid"
+            );
+            error_response(500, error::INTERNAL).map(Some)
+        }
     }
-    if existing.metadata_json == metadata_text {
-        return json_response_with_status(
-            200,
-            &serde_json::json!({ "ok": true, "no_op": true, "verification": status.as_str() })
-                .to_string(),
-        )
-        .map(ExistingVersion::Answered)
-        .map(Some);
-    }
-    error_response(409, error::VERSION_IMMUTABLE)
-        .map(ExistingVersion::Answered)
-        .map(Some)
 }
 
 /// The publish token bucket (`429`), charged per publish attempt - valid

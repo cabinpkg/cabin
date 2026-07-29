@@ -54,6 +54,18 @@ pub enum IndexError {
     },
 
     #[error(
+        "invalid index entry for package {package:?}: version {value:?} carries build metadata; registry versions are plain upstream versions, and packaging corrections are published as revisions of the same version"
+    )]
+    VersionBuildMetadata { package: String, value: String },
+
+    #[error("invalid index entry for package {package:?} version {version}: {message}")]
+    InvalidRevision {
+        package: String,
+        version: String,
+        message: String,
+    },
+
+    #[error(
         "invalid index entry for package {package:?} version {version}: dependency {dep:?} declares a compiler-conditioned `target` ({condition:?}); compiler identity is detected from the local toolchain, so index dependency gates must stay platform-only"
     )]
     CompilerConditionedDependency {

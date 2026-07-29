@@ -1171,7 +1171,9 @@ impl RemoteRegistryServer {
                     let body = put_body.unwrap_or(match status {
                         200 => r#"{"ok":true,"no_op":true}"#,
                         201 => r#"{"ok":true}"#,
-                        409 => r#"{"errors":[{"detail":"version exists with different bytes"}]}"#,
+                        409 => {
+                            r#"{"errors":[{"detail":"the version is already published with different bytes; published revisions are immutable - pass `--new-revision` to publish the changed bytes as a new packaging revision of this version, or bump the version"}]}"#
+                        }
                         _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
                     });
                     let _ = req
@@ -1546,9 +1548,15 @@ fn publish_reports_no_op_and_conflict_outcomes() {
         flat_contains(&stderr, "already published with different bytes"),
         "expected the conflict explanation in: {stderr}"
     );
+    // The diagnostic explains the packaging-revision mechanism: the
+    // opt-in is the intended path for recipe-only corrections.
     assert!(
-        flat_contains(&stderr, "published versions are immutable"),
+        flat_contains(&stderr, "published revisions are immutable"),
         "expected the immutability explanation in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "--new-revision"),
+        "expected the opt-in guidance in: {stderr}"
     );
 }
 

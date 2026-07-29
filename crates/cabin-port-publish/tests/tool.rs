@@ -133,10 +133,8 @@ fn write_recipe(
     dir.child("cabin.toml").write_str(overlay).unwrap();
 }
 
-/// Two fake ports: `zlib` (exercises the `z` native target key and,
-/// via a `packaging-revision` sidecar, the `+cabin.1` build-metadata
-/// revision through registry paths, resolution, and upload routes)
-/// and `libpng` depending on it (exercises the scoped dependency
+/// Two fake ports: `zlib` (exercises the `z` native target key) and
+/// `libpng` depending on it (exercises the scoped dependency
 /// rewrite and publication ordering).  Returns the ports dir and the
 /// seeded cache dir.
 fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
@@ -162,11 +160,6 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
         "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \
          \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\n",
     );
-    ports
-        .child("zlib/1.3.1/packaging-revision")
-        .write_str("1\n")
-        .unwrap();
-
     let (libpng_bytes, libpng_hex) = make_tar_gz(&[
         (
             "libpng-1.6.50/png.h",
@@ -276,12 +269,9 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 
-    // Publication order: the dependency before the dependent; the
-    // packaging revision rides the published version.
+    // Publication order: the dependency before the dependent.
     assert!(
-        stdout.contains(
-            "publication order: cabin-ports/zlib 1.3.1+cabin.1, cabin-ports/libpng 1.6.50"
-        ),
+        stdout.contains("publication order: cabin-ports/zlib 1.3.1, cabin-ports/libpng 1.6.50"),
         "{stdout}"
     );
 
@@ -292,7 +282,7 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         serde_json::from_str(&fs::read_to_string(registry.join(SCOPE_ZLIB_INDEX)).unwrap())
             .unwrap();
     assert_eq!(zlib_index["name"], "cabin-ports/zlib");
-    let version = &zlib_index["versions"]["1.3.1+cabin.1"];
+    let version = &zlib_index["versions"]["1.3.1"];
     assert_eq!(
         version["upstream"]["url"],
         "https://ports.invalid/zlib-1.3.1.tar.gz"
@@ -307,9 +297,23 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         libpng_index["versions"]["1.6.50"]["dependencies"]["cabin-ports/zlib"],
         "^1.3"
     );
+    // The artifact filename embeds the packaging revision the index
+    // points at (the archive checksum's leading hex prefix).
+    let revision = version["revision"].as_str().expect("revision recorded");
+    assert_eq!(
+        version["revisions"][revision]["checksum"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("sha256:")
+            .unwrap()
+            .get(..16),
+        Some(revision)
+    );
     assert!(
         registry
-            .join("artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1+cabin.1.zip")
+            .join(format!(
+                "artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{revision}.zip"
+            ))
             .is_file()
     );
 
@@ -322,8 +326,7 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         zlib_probe.display()
     );
     // libpng's probe resolved cabin-ports/libpng (and transitively
-    // cabin-ports/zlib, `^1.3` matching the `+cabin.1` revision)
-    // from the generated registry.
+    // cabin-ports/zlib) from the generated registry.
     let libpng_probe = work.join("run").join("probes").join("libpng");
     assert!(
         tree_contains(&libpng_probe, "libpng.a") || tree_contains(&libpng_probe, "png.lib"),
@@ -440,7 +443,7 @@ impl FakeRegistry {
                             request,
                             200,
                             "{\"schema\":1,\"name\":\"cabin-ports/zlib\",\"versions\":\
-                             {\"1.3.1+cabin.1\":{\"yanked\":false}}}",
+                             {\"1.3.1\":{\"yanked\":false}}}",
                         );
                     } else if method == "PUT" && path.starts_with("/api/v1/packages/") {
                         if !authorized {
@@ -543,22 +546,23 @@ fn publish_uploads_every_package_in_dependency_order() {
         .filter(|(method, _, _)| method == "PUT")
         .map(|(_, path, len)| (path, len))
         .collect();
-    // Dependency order: zlib (with its packaging revision spelled
-    // literally in the route) uploads before libpng, both framed
-    // bodies non-trivial (metadata JSON + zip archive).
+    // Dependency order: zlib uploads before libpng, both framed
+    // bodies non-trivial (metadata JSON + zip archive).  Every upload
+    // opts into new revisions: a changed committed recipe IS the
+    // deliberate intent to respin its published version.
     assert_eq!(
         puts.iter()
             .map(|(path, _)| path.as_str())
             .collect::<Vec<_>>(),
         [
-            "/api/v1/packages/cabin-ports/zlib/1.3.1+cabin.1",
-            "/api/v1/packages/cabin-ports/libpng/1.6.50",
+            "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
+            "/api/v1/packages/cabin-ports/libpng/1.6.50?new-revision=true",
         ]
     );
     assert!(puts.iter().all(|(_, len)| *len > 500), "{puts:?}");
     // The upload runs through `cabin publish` itself.
     assert!(
-        stdout.contains("Published cabin-ports/zlib 1.3.1+cabin.1"),
+        stdout.contains("Published cabin-ports/zlib 1.3.1"),
         "{stdout}"
     );
     assert!(stdout.contains("verification: pending"), "{stdout}");
@@ -616,9 +620,9 @@ fn publish_retries_a_rate_limited_package() {
     assert_eq!(
         puts,
         [
-            "/api/v1/packages/cabin-ports/zlib/1.3.1+cabin.1",
-            "/api/v1/packages/cabin-ports/zlib/1.3.1+cabin.1",
-            "/api/v1/packages/cabin-ports/libpng/1.6.50",
+            "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
+            "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
+            "/api/v1/packages/cabin-ports/libpng/1.6.50?new-revision=true",
         ]
     );
 }

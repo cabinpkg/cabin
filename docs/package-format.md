@@ -229,7 +229,7 @@ would not contain cabin.toml`.
   "checksum": "sha256:<archive-sha256>",
   "source": {
     "type": "archive",
-    "path": "../artifacts/fmt/fmt-10.2.1.zip",
+    "path": "../artifacts/fmt/fmt-10.2.1-0123456789abcdef.zip",
     "format": "zip"
   }
 }
@@ -249,10 +249,10 @@ would not contain cabin.toml`.
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), `sha256`, `format`, optional `strip-prefix`, and the `copy` steps (omitted when there are none).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
 | `yanked` | Always `false` from `cabin package`. |
-| `checksum` | `sha256:<hex>` digest of the archive bytes the run produced. |
+| `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |
 | `source.format` | Always `"zip"`. |
-| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>.zip` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip` for a scoped one (the index document nests one scope directory deeper and the filename embeds the scope).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
+| `source.path` | File-registry relative reference: `../artifacts/<name>/<name>-<version>-<revision>.zip` for a bare name, `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` for a scoped one (the index document nests one scope directory deeper, and the filename embeds the scope and the packaging revision).  Dry-run staging records this value for parity with the package-index `source` block.  It does not publish that path. |
 
 The metadata document is rendered with `serde_json::to_string_pretty` in struct-declaration order,
 dependencies sorted by name, and a trailing newline.  Repeated runs over the same input produce the
@@ -314,7 +314,10 @@ Behavioral notes specific to registry publish:
 - `source.path` in the registry's package index file is the registry-relative reference described
   above, regardless of what the dry-run metadata happened to carry.  The registry crate normalizes
   this so static sparse-HTTP serving can read the same layout without rewriting.
-- Duplicate `(name, version)` publishes fail with a clear error.
+- The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
+  onto the recorded revision; changed bytes for an already-published version require
+  `--new-revision`, and even then must not change `dependencies`, `features`, or `standards`.  See
+  [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a
   matching index entry, the publish run refuses.
 

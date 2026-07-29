@@ -467,10 +467,12 @@ fn seed_scope_collision(conn: &rusqlite::Connection) {
          INSERT INTO packages (scope, name, created_at, created_by)
            VALUES ('alpha', 'pkg', '2026-07-15T00:00:00.000Z', 1),
                   ('beta', 'pkg', '2026-07-15T00:00:00.000Z', 1);
-         INSERT INTO versions (scope, name, version, checksum, metadata_json, \
-                               published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'pkg', '1.0.0', 'aa', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'verified'),
-                  ('beta', 'pkg', '1.0.0', 'bb', '{}', '2026-07-15T00:00:00.000Z', 20, 1, 'pending');
+         INSERT INTO versions (scope, name, version) VALUES ('alpha', 'pkg', '1.0.0'),
+                  ('beta', 'pkg', '1.0.0');
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
+                                published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'pkg', '1.0.0', 'aa', 'aa', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'verified'),
+                  ('beta', 'pkg', '1.0.0', 'bb', 'bb', '{}', '2026-07-15T00:00:00.000Z', 20, 1, 'pending');
          UPDATE meta SET value = '30' WHERE key = 'total_stored_bytes';",
     )
     .expect("seed the cross-scope collision");
@@ -482,6 +484,7 @@ fn seed_scope_collision(conn: &rusqlite::Connection) {
 /// scopes. (The wasm glue's end-to-end flow is `scripts/smoke.sh`'s
 /// job; this covers the SQL itself.)
 #[test]
+#[allow(clippy::too_many_lines)] // one seeded scenario walked through every scoped statement
 fn scoped_statements_never_cross_scopes() {
     let conn = migrated_connection();
     seed_scope_collision(&conn);
@@ -489,8 +492,8 @@ fn scoped_statements_never_cross_scopes() {
     // Reads address exactly one scope's row.
     let checksum: String = conn
         .query_row(
-            sql::ARTIFACT_BY_PACKAGE_VERSION,
-            rusqlite::params!["alpha", "pkg", "1.0.0"],
+            sql::ARTIFACT_BY_REVISION,
+            rusqlite::params!["alpha", "pkg", "1.0.0", "aa"],
             |row| row.get(0),
         )
         .expect("alpha artifact row");
@@ -499,7 +502,7 @@ fn scoped_statements_never_cross_scopes() {
         .query_row(
             &format!(
                 "SELECT COUNT(*) FROM ({})",
-                sql::VERIFIED_VERSIONS_BY_PACKAGE
+                sql::CURRENT_REVISIONS_BY_PACKAGE
             ),
             rusqlite::params!["beta", "pkg"],
             |row| row.get(0),
@@ -546,14 +549,15 @@ fn scoped_statements_never_cross_scopes() {
     assert_eq!(beta_yanked, 0, "yanking alpha/pkg must not touch beta/pkg");
     let changed = conn
         .execute(
-            sql::MARK_VERSION_VERIFIED,
+            sql::MARK_REVISION_VERIFIED,
             rusqlite::params![
                 "2026-07-15T01:00:00.000Z",
                 "beta",
                 "pkg",
                 "1.0.0",
                 "bb",
-                "2026-07-15T00:00:00.000Z"
+                "2026-07-15T00:00:00.000Z",
+                "bb"
             ],
         )
         .expect("verify beta");
@@ -563,7 +567,7 @@ fn scoped_statements_never_cross_scopes() {
     // with the wrong scope bound must be a no-op even though the other
     // scope holds the same (name, version).
     conn.execute(
-        "UPDATE versions SET verification = 'pending' WHERE scope = 'beta'",
+        "UPDATE revisions SET verification = 'pending' WHERE scope = 'beta'",
         [],
     )
     .expect("reset beta to pending");
@@ -575,7 +579,8 @@ fn scoped_statements_never_cross_scopes() {
             "pkg",
             "1.0.0",
             20,
-            "2026-07-15T00:00:00.000Z"
+            "2026-07-15T00:00:00.000Z",
+            "bb"
         ],
     )
     .expect("refund bound to the wrong scope");
@@ -585,7 +590,15 @@ fn scoped_statements_never_cross_scopes() {
     assert_eq!(stored, "30", "a wrong-scope refund must not fire");
     conn.execute(
         sql::REFUND_STORED_BYTES_ON_REJECTION,
-        rusqlite::params!["bb", "beta", "pkg", "1.0.0", 20, "2026-07-15T00:00:00.000Z"],
+        rusqlite::params![
+            "bb",
+            "beta",
+            "pkg",
+            "1.0.0",
+            20,
+            "2026-07-15T00:00:00.000Z",
+            "bb"
+        ],
     )
     .expect("refund bound to the right scope");
     let stored: String = conn
@@ -674,37 +687,49 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
                   ('acme', 'rejected-dep', '2026-07-18T00:00:00.000Z', 1),
                   ('acme', 'bare-dep', '2026-07-18T00:00:00.000Z', 1),
                   ('acme', 'dev-dep', '2026-07-18T00:00:00.000Z', 1);
-         INSERT INTO versions (scope, name, version, checksum, metadata_json, yanked,
-                               published_at, archive_size, published_by, verification, downloads)
+         INSERT INTO versions (scope, name, version, yanked, downloads)
+           VALUES ('alpha', 'target', '1.0.0', 1, 3),
+                  ('alpha', 'target', '1.1.0', 0, 4),
+                  ('beta', 'target-pending', '1.0.0', 0, 100),
+                  ('alpha', 'my_pkg', '1.0.0', 0, 0),
+                  ('alpha', 'myxpkg', '1.0.0', 0, 0),
+                  ('gabime', 'spdlog', '1.13.0', 1, 0),
+                  ('gabime', 'spdlog', '1.14.0', 0, 0),
+                  ('acme', 'pending-dep', '1.0.0', 0, 0),
+                  ('acme', 'rejected-dep', '1.0.0', 0, 0),
+                  ('acme', 'bare-dep', '1.0.0', 0, 0),
+                  ('acme', 'dev-dep', '1.0.0', 0, 0);
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
            VALUES
-           ('alpha', 'target', '1.0.0', 'c01', '{\"dependencies\":{}}', 1,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 3),
-           ('alpha', 'target', '1.1.0', 'c02', '{\"dependencies\":{}}', 0,
-            '2026-07-18T01:00:00.000Z', 10, 1, 'verified', 4),
-           ('beta', 'target-pending', '1.0.0', 'c03', '{\"dependencies\":{}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'pending', 100),
-           ('alpha', 'my_pkg', '1.0.0', 'c04', '{\"dependencies\":{}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
-           ('alpha', 'myxpkg', '1.0.0', 'c05', '{\"dependencies\":{}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
-           ('gabime', 'spdlog', '1.13.0', 'c06',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 1,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
-           ('gabime', 'spdlog', '1.14.0', 'c07',
-            '{\"dependencies\":{\"alpha/target\":{\"version\":\"^1\",\"optional\":true}}}', 0,
-            '2026-07-18T01:00:00.000Z', 10, 1, 'verified', 0),
-           ('acme', 'pending-dep', '1.0.0', 'c08',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'pending', 0),
-           ('acme', 'rejected-dep', '1.0.0', 'c09',
-            '{\"dependencies\":{\"alpha/target\":\"^1\"}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'rejected', 0),
-           ('acme', 'bare-dep', '1.0.0', 'c10',
-            '{\"dependencies\":{\"target\":\"^1\"}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0),
-           ('acme', 'dev-dep', '1.0.0', 'c11',
-            '{\"dependencies\":{},\"dev-dependencies\":{\"alpha/target\":\"^1\"}}', 0,
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified', 0);",
+           ('alpha', 'target', '1.0.0', 'c01', 'c01', '{\"dependencies\":{}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+           ('alpha', 'target', '1.1.0', 'c02', 'c02', '{\"dependencies\":{}}',
+            '2026-07-18T01:00:00.000Z', 10, 1, 'verified'),
+           ('beta', 'target-pending', '1.0.0', 'c03', 'c03', '{\"dependencies\":{}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'pending'),
+           ('alpha', 'my_pkg', '1.0.0', 'c04', 'c04', '{\"dependencies\":{}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+           ('alpha', 'myxpkg', '1.0.0', 'c05', 'c05', '{\"dependencies\":{}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+           ('gabime', 'spdlog', '1.13.0', 'c06', 'c06',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+           ('gabime', 'spdlog', '1.14.0', 'c07', 'c07',
+            '{\"dependencies\":{\"alpha/target\":{\"version\":\"^1\",\"optional\":true}}}',
+            '2026-07-18T01:00:00.000Z', 10, 1, 'verified'),
+           ('acme', 'pending-dep', '1.0.0', 'c08', 'c08',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'pending'),
+           ('acme', 'rejected-dep', '1.0.0', 'c09', 'c09',
+            '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'rejected'),
+           ('acme', 'bare-dep', '1.0.0', 'c10', 'c10',
+            '{\"dependencies\":{\"target\":\"^1\"}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+           ('acme', 'dev-dep', '1.0.0', 'c11', 'c11',
+            '{\"dependencies\":{},\"dev-dependencies\":{\"alpha/target\":\"^1\"}}',
+            '2026-07-18T00:00:00.000Z', 10, 1, 'verified');",
     )
     .expect("seed the search corpus");
 }
@@ -858,10 +883,12 @@ fn registry_stats_totals_are_verified_only_and_name_distinct() {
     // nonzero counter written directly, so a dropped verified filter
     // would surface in every one of the three totals.
     conn.execute_batch(
-        "INSERT INTO versions (scope, name, version, checksum, metadata_json, \
-                               published_at, archive_size, published_by, verification, downloads)
-           VALUES ('alpha', 'pkg', '1.1.0', 'cc', '{}', '2026-07-15T01:00:00.000Z', 10, 1, 'verified', 5),
-                  ('beta', 'pkg', '2.0.0', 'dd', '{}', '2026-07-15T02:00:00.000Z', 10, 1, 'verified', 7);
+        "INSERT INTO versions (scope, name, version, downloads)
+           VALUES ('alpha', 'pkg', '1.1.0', 5), ('beta', 'pkg', '2.0.0', 7);
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
+                                published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'pkg', '1.1.0', 'cc', 'cc', '{}', '2026-07-15T01:00:00.000Z', 10, 1, 'verified'),
+                  ('beta', 'pkg', '2.0.0', 'dd', 'dd', '{}', '2026-07-15T02:00:00.000Z', 10, 1, 'verified');
          UPDATE versions SET downloads = 100 WHERE scope = 'beta' AND version = '1.0.0';",
     )
     .expect("seed verified versions and a pending counter");
@@ -922,21 +949,31 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
         )
         .expect("guarded package insert")
     };
+    // The version-row + revision pair, exactly as one publish batch
+    // runs them; the returned count is the revision insert's (the
+    // twin signal).
     let insert_version = |scope: &str, name: &str, version: &str| -> usize {
         conn.execute(
-            sql::INSERT_VERSION,
+            sql::INSERT_VERSION_ROW,
+            rusqlite::params![scope, name, version],
+        )
+        .expect("guarded version-row insert");
+        conn.execute(
+            sql::INSERT_REVISION,
             rusqlite::params![
                 scope,
                 name,
                 version,
                 "ee",
+                "ee",
                 "{}",
                 "2026-07-15T01:00:00.000Z",
                 10,
-                1
+                1,
+                0
             ],
         )
-        .expect("guarded version insert")
+        .expect("guarded revision insert")
     };
     assert_eq!(insert_package("alpha", "foo_bar"), 0);
     assert_eq!(insert_version("alpha", "foo_bar", "1.0.0"), 0);
@@ -963,12 +1000,16 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     assert_eq!(insert_version("alpha", "foo_bar", "3.0.0"), 1);
 }
 
-/// The accounting statement's row-exists conjunct: a twin publish
-/// whose guarded inserts were suppressed must not re-count the racing
-/// winner's identical archive - invisible to `prepare`, so the losing
-/// batch's statements are executed here in order.
+/// The publish accounting decides before the insert, against the same
+/// pre-insert state and under the same guards - invisible to
+/// `prepare`, so the batches' statements are executed here in glue
+/// order.  Three losing shapes must add nothing: a suppressed twin, a
+/// racing byte-identical publish of the same revision key (which must
+/// lose by zero changed rows, not by aborting the batch on the
+/// primary key), and a shared blob already counted by another live
+/// row.
 #[test]
-fn a_suppressed_twin_batch_never_recounts_the_winners_blob() {
+fn publish_accounting_mirrors_the_insert_guards() {
     let conn = migrated_connection();
     seed_scope_collision(&conn);
     let stored = |conn: &rusqlite::Connection| -> String {
@@ -982,69 +1023,89 @@ fn a_suppressed_twin_batch_never_recounts_the_winners_blob() {
     let account = |scope: &str, name: &str, version: &str, checksum: &str, size: i64| {
         conn.execute(
             sql::COUNT_STORED_BYTES_ON_PUBLISH,
-            rusqlite::params![checksum, size, checksum, size, scope, name, version],
+            rusqlite::params![checksum, size, scope, name, version, checksum, "{}", 0],
         )
         .expect("accounting upsert");
     };
+    let insert = |scope: &str, name: &str, version: &str, stamp: &str| -> usize {
+        conn.execute(
+            sql::INSERT_REVISION,
+            rusqlite::params![scope, name, version, "ee", "ee", "{}", stamp, 40, 1, 0],
+        )
+        .expect("guarded revision insert")
+    };
 
-    // The winner's batch: package + version land, the sole live
-    // reference to checksum 'ee' is the row just inserted, and its
-    // bytes are counted.
+    // The winner's batch: package + version land, no live reference
+    // to checksum 'ee' exists yet, so the accounting counts the bytes
+    // and the insert applies.
     conn.execute(
         sql::INSERT_PACKAGE,
         rusqlite::params!["alpha", "foo-bar", "2026-07-15T01:00:00.000Z", 1],
     )
     .expect("winner package");
+    conn.execute(
+        sql::INSERT_VERSION_ROW,
+        rusqlite::params!["alpha", "foo-bar", "1.0.0"],
+    )
+    .expect("winner version row");
+    account("alpha", "foo-bar", "1.0.0", "ee", 40);
     assert_eq!(
-        conn.execute(
-            sql::INSERT_VERSION,
-            rusqlite::params![
-                "alpha",
-                "foo-bar",
-                "1.0.0",
-                "ee",
-                "{}",
-                "2026-07-15T01:00:00.000Z",
-                40,
-                1
-            ],
-        )
-        .expect("winner version"),
+        insert("alpha", "foo-bar", "1.0.0", "2026-07-15T01:00:00.000Z"),
         1
     );
-    account("alpha", "foo-bar", "1.0.0", "ee", 40);
     assert_eq!(stored(&conn), "70", "30 seeded + the winner's 40");
 
-    // The loser's batch, same archive bytes: both inserts suppressed,
-    // and the accounting statement - which still sees exactly one live
-    // 'ee' reference - must not count the winner's bytes again.
+    // A racing byte-identical publish of the same version: its
+    // preflight raced the winner's commit, so its batch still runs -
+    // the same-key guard suppresses the insert cleanly (zero rows, no
+    // primary-key abort) and the mirrored accounting adds nothing.
+    account("alpha", "foo-bar", "1.0.0", "ee", 40);
+    assert_eq!(
+        insert("alpha", "foo-bar", "1.0.0", "2026-07-15T01:00:01.000Z"),
+        0,
+        "the same-key race must lose by the guard, not the primary key"
+    );
+    assert_eq!(stored(&conn), "70", "the racing loser must add nothing");
+
+    // The twin's batch: package and version row suppressed, so the
+    // version-exists conjunct refuses both the count and the insert.
     assert_eq!(
         conn.execute(
             sql::INSERT_PACKAGE,
             rusqlite::params!["alpha", "foo_bar", "2026-07-15T01:00:01.000Z", 1],
         )
-        .expect("loser package"),
+        .expect("twin package"),
         0
     );
     assert_eq!(
         conn.execute(
-            sql::INSERT_VERSION,
-            rusqlite::params![
-                "alpha",
-                "foo_bar",
-                "1.0.0",
-                "ee",
-                "{}",
-                "2026-07-15T01:00:01.000Z",
-                40,
-                1
-            ],
+            sql::INSERT_VERSION_ROW,
+            rusqlite::params!["alpha", "foo_bar", "1.0.0"],
         )
-        .expect("loser version"),
+        .expect("twin version row"),
         0
     );
     account("alpha", "foo_bar", "1.0.0", "ee", 40);
+    assert_eq!(
+        insert("alpha", "foo_bar", "1.0.0", "2026-07-15T01:00:01.000Z"),
+        0
+    );
     assert_eq!(stored(&conn), "70", "the suppressed twin must add nothing");
+
+    // A different version publishing the same bytes: the insert lands
+    // (its own revision key), but the blob is already a live row's -
+    // no double count.
+    conn.execute(
+        sql::INSERT_VERSION_ROW,
+        rusqlite::params!["alpha", "foo-bar", "2.0.0"],
+    )
+    .expect("second version row");
+    account("alpha", "foo-bar", "2.0.0", "ee", 40);
+    assert_eq!(
+        insert("alpha", "foo-bar", "2.0.0", "2026-07-15T01:00:02.000Z"),
+        1
+    );
+    assert_eq!(stored(&conn), "70", "a shared blob is counted once");
 }
 
 /// The corpus listing's vetted flag and deterministic order are
@@ -1062,9 +1123,10 @@ fn admin_packages_reports_names_and_vetted_flags_deterministically() {
         "INSERT INTO packages (scope, name, created_at, created_by)
            VALUES ('alpha', 'zed', '2026-07-15T00:00:00.000Z', 1),
                   ('beta', 'arc', '2026-07-15T00:00:00.000Z', 1);
-         INSERT INTO versions (scope, name, version, checksum, metadata_json,
-                               published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'zed', '1.0.0', 'ff', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'rejected');",
+         INSERT INTO versions (scope, name, version) VALUES ('alpha', 'zed', '1.0.0');
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'zed', '1.0.0', 'ff', 'ff', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'rejected');",
     )
     .expect("seed the rejected-only and versionless packages");
 
@@ -1097,4 +1159,378 @@ fn scope_names_list_in_order() {
         .collect::<Result<_, _>>()
         .expect("scope names");
     assert_eq!(names, ["alpha", "beta"]);
+}
+
+/// The `new-revision` opt-in guard lives inside [`sql::INSERT_REVISION`]
+/// itself, so two concurrent publishes cannot both slip past a stale
+/// preflight read: without the flag, an insert beside a live
+/// different-bytes revision changes zero rows; with it, the respin
+/// lands and the superseded revision stays.
+#[test]
+fn revision_opt_in_guard_is_enforced_inside_the_insert() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    let insert = |revision: &str, checksum: &str, opt_in: i64| -> usize {
+        conn.execute(
+            sql::INSERT_REVISION,
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                revision,
+                checksum,
+                "{}",
+                "2026-07-15T02:00:00.000Z",
+                10,
+                1,
+                opt_in
+            ],
+        )
+        .expect("guarded revision insert")
+    };
+
+    // alpha/pkg@1.0.0 already has verified revision 'aa': different
+    // bytes without the opt-in are suppressed by the guard.
+    assert_eq!(insert("a2", "a2", 0), 0);
+    // The opt-in lands the respin; the original revision remains.
+    assert_eq!(insert("a2", "a2", 1), 1);
+    let revisions: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM revisions WHERE scope = 'alpha' AND name = 'pkg'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("revision count");
+    assert_eq!(revisions, 2);
+
+    // Once every live sibling shares the incoming bytes... it cannot:
+    // distinct revisions imply distinct bytes. But a version whose only
+    // revisions are rejected accepts a fresh one without the flag - the
+    // recovery path.
+    conn.execute(
+        "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha'",
+        [],
+    )
+    .expect("reject both revisions");
+    assert_eq!(insert("a3", "a3", 0), 1);
+
+    // The revival guard mirrors the insert's: an unflagged revival of a
+    // rejected revision beside the now-live different-bytes 'a3' row is
+    // suppressed; the flag lets it through.
+    let revive = |revision: &str, checksum: &str, opt_in: i64| -> usize {
+        conn.execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                "{}",
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                opt_in,
+                "1.0.0",
+                revision,
+                checksum
+            ],
+        )
+        .expect("guarded revival")
+    };
+    assert_eq!(revive("aa", "aa", 0), 0);
+    assert_eq!(revive("aa", "aa", 1), 1);
+}
+
+/// `current_revisions` is the single served-revision definition: per
+/// verified version, the newest `published_at` wins (revision id as
+/// the deterministic tie-break), pending respins never surface, and a
+/// version with no verified revision has no row at all.
+#[test]
+fn current_revisions_view_serves_the_newest_verified_revision() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    let current = || -> Option<(String, String)> {
+        conn.query_row(
+            "SELECT revision, checksum FROM current_revisions
+             WHERE scope = 'alpha' AND name = 'pkg' AND version = '1.0.0'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map(Some)
+        .or_else(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+        .expect("current revision")
+    };
+    assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
+
+    // A pending respin must not disturb what is served.
+    conn.execute(
+        "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
+         VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{}',
+                 '2026-07-15T02:00:00.000Z', 10, 1, 'pending')",
+        [],
+    )
+    .expect("pending respin");
+    assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
+
+    // Once verified, the newer publish time takes over, and both
+    // revisions stay listed for the composed document.
+    conn.execute(
+        "UPDATE revisions SET verification = 'verified' WHERE revision = 'a2'",
+        [],
+    )
+    .expect("verify the respin");
+    assert_eq!(current(), Some(("a2".to_owned(), "a2".to_owned())));
+    let listed: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM ({})",
+                sql::VERIFIED_REVISIONS_BY_PACKAGE
+            ),
+            rusqlite::params!["alpha", "pkg"],
+            |row| row.get(0),
+        )
+        .expect("verified revision listing");
+    assert_eq!(listed, 2, "the superseded revision stays fetchable");
+
+    // Equal publish times fall back to the revision id: the greater id
+    // wins, deterministically (`aa` > `a2` byte-wise).
+    conn.execute(
+        "UPDATE revisions SET published_at = '2026-07-15T02:00:00.000Z'",
+        [],
+    )
+    .expect("collapse publish times");
+    assert_eq!(current(), Some(("aa".to_owned(), "aa".to_owned())));
+}
+
+/// The yank-state read's result columns are a deserialization
+/// contract: the wasm glue's `YankedRecord` names them field-for-
+/// field, and `prepare` alone cannot catch a renamed result column
+/// (the serde mismatch only surfaces at runtime, as a 500 on every
+/// yank).  Executing the read pins both names and the verified bit's
+/// semantics.
+#[test]
+fn version_yank_state_serves_the_yanked_and_verified_columns() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let mut statement = conn
+        .prepare(sql::VERSION_YANK_STATE)
+        .expect("prepare yank state");
+    assert_eq!(statement.column_names(), ["yanked", "verified"]);
+    let (yanked, verified): (i64, i64) = statement
+        .query_row(rusqlite::params!["alpha", "pkg", "1.0.0"], |row| {
+            Ok((row.get("yanked")?, row.get("verified")?))
+        })
+        .expect("alpha yank state");
+    assert_eq!((yanked, verified), (0, 1), "alpha's revision is verified");
+    let (_, verified): (i64, i64) = conn
+        .query_row(
+            sql::VERSION_YANK_STATE,
+            rusqlite::params!["beta", "pkg", "1.0.0"],
+            |row| Ok((row.get("yanked")?, row.get("verified")?)),
+        )
+        .expect("beta yank state");
+    assert_eq!(verified, 0, "a pending-only version is not yankable");
+}
+
+/// The revival accounting's guards mirror the revival flip's - the
+/// opt-in conjunct included - so a batch whose flip the opt-in guard
+/// refuses adds nothing to `total_stored_bytes` even though both
+/// statements commit in the same transaction.
+#[test]
+fn a_refused_revival_never_counts_its_bytes() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // Reject alpha's revision, refund its 10 bytes, then land a live
+    // different-bytes sibling: the revival of 'aa' now needs the
+    // opt-in.
+    conn.execute_batch(
+        "UPDATE revisions SET verification = 'rejected' WHERE scope = 'alpha';
+         UPDATE meta SET value = '20' WHERE key = 'total_stored_bytes';
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{}',
+                   '2026-07-15T02:00:00.000Z', 10, 1, 'pending');",
+    )
+    .expect("reject alpha and land a live sibling");
+    let stored = || -> String {
+        conn.query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
+            .expect("stored bytes")
+    };
+
+    // The losing batch, statement order as in the glue: accounting
+    // first, then the guarded flip - both with opt-in 0.
+    conn.execute(
+        sql::COUNT_STORED_BYTES_ON_REVIVAL,
+        rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 0, "{}"],
+    )
+    .expect("revival accounting");
+    let flipped = conn
+        .execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                "{}",
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                0,
+                "1.0.0",
+                "aa",
+                "aa"
+            ],
+        )
+        .expect("guarded revival");
+    assert_eq!(flipped, 0, "the opt-in guard must refuse the flip");
+    assert_eq!(stored(), "20", "a refused revival must add nothing");
+
+    // With the opt-in both fire together and the bytes are re-counted.
+    conn.execute(
+        sql::COUNT_STORED_BYTES_ON_REVIVAL,
+        rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, "{}"],
+    )
+    .expect("revival accounting");
+    let flipped = conn
+        .execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                "{}",
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                1,
+                "1.0.0",
+                "aa",
+                "aa"
+            ],
+        )
+        .expect("guarded revival");
+    assert_eq!(flipped, 1);
+    assert_eq!(stored(), "30");
+}
+
+/// A revival re-enters the live set, so the resolver-metadata
+/// invariance inside [`sql::REVIVE_REJECTED_REVISION`] must hold
+/// against the live siblings of today - the rejected document never
+/// constrained anyone, and the opt-in must not bypass the rule.  The
+/// accounting mirrors the refusal.
+#[test]
+fn revival_invariance_guard_is_enforced_inside_the_update() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // Reject 'aa' (it declared a dependency), then land a live
+    // different-bytes sibling that dropped it.
+    conn.execute_batch(
+        "UPDATE revisions SET verification = 'rejected',
+                              metadata_json = '{\"dependencies\":{\"acme/dep\":\"^1\"}}'
+         WHERE scope = 'alpha';
+         INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
+                                published_at, archive_size, published_by, verification)
+           VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{\"dependencies\":{}}',
+                   '2026-07-15T02:00:00.000Z', 10, 1, 'verified');",
+    )
+    .expect("reject alpha and land a conflicting live sibling");
+    let stored = || -> String {
+        conn.query_row(sql::META_VALUE, ["total_stored_bytes"], |row| row.get(0))
+            .expect("stored bytes")
+    };
+    let baseline = stored();
+    let revive = |metadata: &str| -> usize {
+        conn.execute(
+            sql::COUNT_STORED_BYTES_ON_REVIVAL,
+            rusqlite::params!["alpha", "pkg", "1.0.0", "aa", "aa", 10, "aa", 1, metadata],
+        )
+        .expect("revival accounting");
+        conn.execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                metadata,
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                1,
+                "1.0.0",
+                "aa",
+                "aa"
+            ],
+        )
+        .expect("guarded revival")
+    };
+    // The rejected document contradicts the live sibling: refused
+    // even with the opt-in, and no bytes re-counted.
+    assert_eq!(revive("{\"dependencies\":{\"acme/dep\":\"^1\"}}"), 0);
+    assert_eq!(stored(), baseline);
+    // A document agreeing with the live sibling revives.
+    assert_eq!(revive("{\"dependencies\":{}}"), 1);
+    assert_eq!(
+        stored(),
+        baseline
+            .parse::<i64>()
+            .unwrap()
+            .checked_add(10)
+            .unwrap()
+            .to_string()
+    );
+}
+
+/// The resolver-metadata invariance lives inside [`sql::INSERT_REVISION`]
+/// itself and is deliberately NOT bypassed by the opt-in: a respin
+/// that changes `dependencies`, `features`, or `standards` is refused
+/// even when the publisher passed `new-revision=true`, while a
+/// packaging-only change (any other field) lands.
+#[test]
+fn revision_inserts_enforce_resolver_metadata_invariance() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    // Give alpha's live revision a concrete document.
+    conn.execute(
+        "UPDATE revisions SET metadata_json =
+           '{\"dependencies\":{\"acme/dep\":\"^1\"},\"features\":{\"default\":[]}}'
+         WHERE scope = 'alpha'",
+        [],
+    )
+    .expect("seed the live document");
+    let insert = |revision: &str, metadata: &str| -> usize {
+        conn.execute(
+            sql::INSERT_REVISION,
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                revision,
+                revision,
+                metadata,
+                "2026-07-15T02:00:00.000Z",
+                10,
+                1,
+                1 // opted in - the invariance must hold regardless
+            ],
+        )
+        .expect("guarded revision insert")
+    };
+    // Changed dependencies: refused.
+    assert_eq!(
+        insert("a2", r#"{"dependencies":{},"features":{"default":[]}}"#),
+        0
+    );
+    // Changed features: refused.
+    assert_eq!(
+        insert(
+            "a3",
+            r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":["simd"]}}"#
+        ),
+        0
+    );
+    // A packaging-only difference (an added upstream block) lands.
+    assert_eq!(
+        insert(
+            "a4",
+            r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},"upstream":{"url":"https://example.com/a.zip"}}"#
+        ),
+        1
+    );
 }

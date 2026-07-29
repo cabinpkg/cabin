@@ -1,8 +1,9 @@
 # `cabin.lock` Reference
 
 Cabin uses a deterministic on-disk lockfile that records the package versions chosen by the
-resolver.  Artifact fetching reuses the same schema and uses the recorded `checksum` to verify each
-fetched source archive in `cabin fetch` and `cabin build`.
+resolver.  Artifact fetching reuses the same schema: the recorded `checksum` selects which
+[packaging revision](package-index.md#packaging-revisions) of the locked version to materialize, and
+verifies the fetched source archive in `cabin fetch` and `cabin build`.
 
 The lockfile is **generated** - Cabin owns its content.  Tracking it in version control is
 recommended so collaborators and CI converge on the same resolution and on the same archive bytes.
@@ -69,7 +70,7 @@ dependencies = ["fmt"]
 | `name` | package | yes | Package name. |
 | `version` | package | yes | Resolved SemVer version. |
 | `source` | package | yes | Where the package came from.  Cabin supports `"index"` plus local provenance records for patches and vendoring. |
-| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes.  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value is used to verify the archive's content as it is copied into the cache. |
+| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes, and thereby the packaging-revision pin - the revision id is this digest's leading 16 hex characters.  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value selects the revision to fetch and verifies the archive's content as it is copied into the cache. |
 | `dependencies` | package | no (only emitted when non-empty) | The package's transitive dependency names, sorted alphabetically. |
 
 Local path packages are deliberately **not** recorded in `cabin.lock`; they are resolved
@@ -136,12 +137,33 @@ renderer emits, so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
+## Packaging revisions
+
+A registry version can be published more than once - a corrected recipe for the same upstream
+release lands as a new [packaging revision](package-index.md#packaging-revisions) of it, never as
+replaced bytes.  There is no separate lockfile field for this: **`checksum` is the pin**, because a
+revision id is its digest's first 16 hex characters.
+
+- Plain `cabin resolve` **keeps** a recorded checksum as long as the index still lists that
+  revision.  Someone else's respin therefore never churns your lockfile: re-resolving after one
+  rewrites nothing.
+- `cabin update` (and `cabin update --package <name>`) is the deliberate move to the version's
+  current revision, exactly as it is the deliberate move to a newer version.
+- A first resolution, or a package whose pinned revision the index no longer lists, locks the
+  version's current revision.
+- `--locked`, `--frozen`, `--offline`, and a vendored index all reproduce the pinned revision
+  exactly, including a revision that has since been superseded: published revisions stay fetchable.
+  A pin no revision in the index carries is an error naming both the pinned and the current
+  checksum - never a silent substitution of different bytes.
+- In `--locked` / `--frozen` mode a locked entry with **no** `checksum` is a hard error when the
+  index entry does carry revisions - it pins no revision, so it cannot be reproduced.
+
 ## Version pins only
 
-`cabin.lock` records the resolver's version choices and the local override policy above - nothing
-else.  No language standards, no toolchain information, and no build fingerprints are written.
-Resolution inputs are manifest-declared values only, so one lockfile stays shareable across
-platforms and toolchains.
+Beyond the version choices, the revision pins above, and the local override policy, `cabin.lock`
+records nothing else.  No language standards, no toolchain information, and no build fingerprints
+are written.  Resolution inputs are manifest-declared values only, so one lockfile stays shareable
+across platforms and toolchains.
 
 The post-resolution standard-compatibility check (see
 [`language-standards.md`](language-standards.md)) validates manifest-declared standards over the

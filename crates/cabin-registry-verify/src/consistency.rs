@@ -109,7 +109,12 @@ pub(crate) fn check(
     // omit-when-empty rules, so absence must match absence; a
     // different value, a missing field, or an extra field is a
     // rejection.  Textual canonicalization (key order, whitespace)
-    // is not required - JSON object equality is key-based.
+    // is not required - JSON object equality is key-based.  The
+    // document's `source.path` embeds the packaging revision, which
+    // `canonical_metadata` derives from the checksum it is handed; the
+    // equality gate above pins that checksum to the archive bytes, so
+    // an honest document compares equal without the listing's
+    // `revision` being threaded in separately.
     let expected = serde_json::to_value(canonical_metadata(
         &package,
         &format!("sha256:{archive_hex}"),

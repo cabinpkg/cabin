@@ -61,6 +61,7 @@ pub(super) fn publish(
                     registry_dir: &registry_dir,
                     resolved_project,
                     workspace_dep_requirements,
+                    new_revision: args.new_revision,
                 },
             )?;
             emit_registry_publish_output(&report, args.format, reporter)?;
@@ -74,6 +75,7 @@ pub(super) fn publish(
                     registry_dir: &registry_dir,
                     resolved_project,
                     workspace_dep_requirements,
+                    new_revision: args.new_revision,
                 })?;
             emit_registry_publish_output(&report, args.format, reporter)?;
         }
@@ -118,6 +120,7 @@ pub(super) fn publish(
                 &manifest_path,
                 resolved_project,
                 &workspace_dep_requirements,
+                args.new_revision,
                 reporter,
             )?;
             emit_remote_publish_output(&report, args.format, reporter)?;
@@ -167,6 +170,9 @@ struct RemotePublishReport {
     /// a registry with the asynchronous verification lifecycle, `None`
     /// on one without it.
     verification: Option<String>,
+    /// The response's optional `"revision"` field: the packaging
+    /// revision the archive published under.
+    revision: Option<String>,
     warnings: Vec<String>,
 }
 
@@ -184,6 +190,7 @@ fn publish_to_remote_registry(
     manifest_path: &Path,
     resolved_project: Option<cabin_core::Package>,
     workspace_dep_requirements: &cabin_core::WorkspaceDepRequirements,
+    new_revision: bool,
     reporter: Reporter,
 ) -> Result<RemotePublishReport> {
     // Stage before touching the network so validation failures never
@@ -243,6 +250,7 @@ fn publish_to_remote_registry(
         &staged.version,
         metadata_json.as_bytes(),
         &staged.archive_bytes,
+        new_revision,
     )?;
     Ok(RemotePublishReport {
         name: staged.name,
@@ -251,6 +259,7 @@ fn publish_to_remote_registry(
         checksum: staged.checksum,
         created: matches!(receipt.outcome, cabin_registry_api::PublishOutcome::Created),
         verification: receipt.verification,
+        revision: receipt.revision,
         warnings,
     })
 }
@@ -290,6 +299,9 @@ fn print_remote_publish_human(report: &RemotePublishReport) {
         );
     }
     println!("  checksum: {}", report.checksum);
+    if let Some(revision) = &report.revision {
+        println!("  revision: {revision}");
+    }
     // A registry with the asynchronous verification lifecycle accepts
     // the upload as pending; say when it becomes resolvable.
     if report.verification.as_deref() == Some("pending") {
@@ -308,6 +320,7 @@ fn print_remote_publish_json(report: &RemotePublishReport) -> Result<()> {
         "version": report.version.to_string(),
         "registry": report.registry,
         "checksum": report.checksum,
+        "revision": report.revision,
         "verification": report.verification,
         "warnings": report.warnings,
     });
@@ -425,6 +438,15 @@ pub(super) fn print_registry_publish_human(report: &cabin_publish::RegistryPubli
             report.name.as_str(),
             report.version
         );
+    } else if report.no_op {
+        // Mirror the remote flow's idempotent wording: the bytes are
+        // already recorded under this revision, so the run succeeds
+        // without rewriting anything.
+        println!(
+            "{} {} is already published to the file registry with identical bytes; nothing to do",
+            report.name.as_str(),
+            report.version
+        );
     } else {
         println!(
             "Published {} {} to file registry",
@@ -436,6 +458,7 @@ pub(super) fn print_registry_publish_human(report: &cabin_publish::RegistryPubli
     println!("  package index: {}", report.package_index_path.display());
     println!("  artifact: {}", report.artifact_path.display());
     println!("  checksum: {}", report.checksum);
+    println!("  revision: {}", report.revision);
     if report.dry_run {
         println!();
         if report.registry_initialized {
@@ -460,6 +483,8 @@ pub(super) fn print_registry_publish_json(
         "package_index_path": report.package_index_path,
         "artifact_path": report.artifact_path,
         "checksum": report.checksum,
+        "revision": report.revision,
+        "no_op": report.no_op,
         "source_path": report.source_path,
         "registry_modified": report.registry_modified,
         "registry_initialized": report.registry_initialized,

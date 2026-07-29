@@ -13,15 +13,7 @@ use cabin_core::{DependencySource, PackageName};
 use cabin_port::PortDescriptor;
 use semver::Version;
 
-use crate::convert::{
-    ConvertRequest, RecipeSummary, convert_overlay, published_version, summarize,
-};
-
-/// Sidecar file a recipe directory may carry to publish a packaging
-/// revision (`ports/<name>/<version>/packaging-revision`, an
-/// integer of at least 1).  Repository-only: `cabin-port`'s
-/// embedding ignores it, so the builtin port layer is unaffected.
-pub const REVISION_FILENAME: &str = "packaging-revision";
+use crate::convert::{ConvertRequest, RecipeSummary, convert_overlay, summarize};
 
 /// One recipe, converted and ready to materialize.
 #[derive(Debug)]
@@ -32,8 +24,10 @@ pub struct PortConversion {
     pub descriptor: PortDescriptor,
     /// Scoped registry name (`cabin-ports/<lowercase>`).
     pub scoped_name: PackageName,
-    /// Version the conversion publishes (upstream version plus any
-    /// packaging revision).
+    /// Version the conversion publishes: the upstream version,
+    /// verbatim.  Packaging corrections republish the same version as
+    /// a new registry revision (derived from the archive bytes), so
+    /// no version-string axis exists here.
     pub published_version: Version,
     /// Converted manifest text.
     pub manifest: String,
@@ -102,8 +96,7 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
         } else {
             summaries.insert(port_name.clone(), summary);
         }
-        let revision = read_revision(&recipe_dir)?;
-        loaded.push((recipe_dir, descriptor, overlay_text, revision, package));
+        loaded.push((recipe_dir, descriptor, overlay_text, package));
     }
 
     ensure_distinct_scoped_names(&summaries)?;
@@ -111,11 +104,10 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
 
     // Second pass: convert.
     let mut conversions = Vec::new();
-    for (recipe_dir, descriptor, overlay_text, revision, package) in loaded {
+    for (recipe_dir, descriptor, overlay_text, package) in loaded {
         let request = ConvertRequest {
             descriptor: &descriptor,
             overlay_text: &overlay_text,
-            revision,
             summaries: &summaries,
         };
         let manifest = convert_overlay(&request)
@@ -142,7 +134,7 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
         let summary = &summaries[descriptor.name.as_str()];
         let scoped_name = summary.scoped.clone();
         let library_like_target_keys = summary.library_like_target_keys.clone();
-        let published_version = published_version(&descriptor.version, revision)?;
+        let published_version = descriptor.version.clone();
         conversions.push(PortConversion {
             recipe_dir,
             descriptor,
@@ -159,14 +151,8 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
 }
 
 /// One first-pass recipe: directory, descriptor, overlay text,
-/// optional packaging revision, parsed overlay package.
-type LoadedRecipe = (
-    PathBuf,
-    PortDescriptor,
-    String,
-    Option<u32>,
-    cabin_core::Package,
-);
+/// parsed overlay package.
+type LoadedRecipe = (PathBuf, PortDescriptor, String, cabin_core::Package);
 
 /// Two distinct recipe names must not fold onto one scoped name
 /// (`cJSON/` next to `cjson/` would silently merge under
@@ -190,13 +176,13 @@ fn ensure_distinct_scoped_names(summaries: &BTreeMap<String, RecipeSummary>) -> 
 /// would fail resolution later with a worse error.
 fn ensure_port_requirements_satisfiable(loaded: &[LoadedRecipe]) -> Result<()> {
     let mut versions_by_port: BTreeMap<String, Vec<Version>> = BTreeMap::new();
-    for (_, descriptor, _, _, _) in loaded {
+    for (_, descriptor, _, _) in loaded {
         versions_by_port
             .entry(descriptor.name.as_str().to_owned())
             .or_default()
             .push(descriptor.version.clone());
     }
-    for (recipe_dir, _, _, _, package) in loaded {
+    for (recipe_dir, _, _, package) in loaded {
         for dep in &package.dependencies {
             let DependencySource::Port(cabin_core::PortDepSource::Builtin { version_req, .. }) =
                 &dep.source
@@ -246,40 +232,6 @@ fn read_sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-/// Read the optional packaging-revision sidecar.
-///
-/// # Errors
-/// Returns an error when the file exists but does not hold an
-/// integer >= 1.
-fn read_revision(recipe_dir: &Path) -> Result<Option<u32>> {
-    let path = recipe_dir.join(REVISION_FILENAME);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    // ASCII-only trim on purpose: Rust and JavaScript disagree on
-    // Unicode whitespace (U+0085 vs U+FEFF), and the website mirrors
-    // this parse - an explicit shared grammar keeps the two from
-    // diverging.
-    let trimmed = text.trim_matches(|c: char| c.is_ascii_whitespace());
-    // `u32` parsing alone would also accept a leading `+`; the sidecar
-    // grammar is plain digits so this parse and the website's mirror
-    // (website/src/lib/ports.ts) can never disagree on what publishes.
-    if trimmed.is_empty() || !trimmed.bytes().all(|b| b.is_ascii_digit()) {
-        bail!("{} must hold an integer >= 1", path.display());
-    }
-    let revision: u32 = trimmed
-        .parse()
-        .with_context(|| format!("{} must hold an integer >= 1", path.display()))?;
-    if revision == 0 {
-        bail!(
-            "{} must hold an integer >= 1; the unrevised publication is revision zero",
-            path.display()
-        );
-    }
-    Ok(Some(revision))
-}
-
 fn ensure_unique_identities(conversions: &[PortConversion]) -> Result<()> {
     let mut seen = BTreeSet::new();
     for conversion in conversions {
@@ -321,8 +273,6 @@ fn order_by_dependencies(conversions: Vec<PortConversion>) -> Result<Vec<PortCon
         // waits until a *satisfying* version of each dependency has
         // published (a name may convert several versions, and a
         // dependent may require one that publishes in a later rank).
-        // Requirement matching ignores build metadata, so packaging
-        // revisions never affect readiness.
         let ready: Vec<(String, Version)> = remaining
             .iter()
             .filter(|(_, c)| {
@@ -447,54 +397,21 @@ mod tests {
         assert!(position("cabin-ports/zlib 1.3.1") < position("cabin-ports/zlib 2.0.0"));
     }
 
+    /// A stray `packaging-revision` sidecar (the removed mechanism)
+    /// is just an unknown file in the recipe directory: discovery
+    /// ignores it and the published version stays the upstream one.
     #[test]
-    fn reads_the_packaging_revision_sidecar() {
+    fn stray_packaging_revision_sidecars_are_ignored() {
         let dir = TempDir::new().unwrap();
         let ports = dir.child("ports");
         write_recipe(&ports, "zlib", "1.3.1", "");
         ports
             .child("zlib/1.3.1")
-            .child(REVISION_FILENAME)
+            .child("packaging-revision")
             .write_str("2\n")
             .unwrap();
         let conversions = load_conversions(ports.path()).unwrap();
-        assert_eq!(
-            conversions[0].published_version.to_string(),
-            "1.3.1+cabin.2"
-        );
-        assert_eq!(conversions[0].descriptor.version.to_string(), "1.3.1");
-    }
-
-    #[test]
-    fn rejects_a_malformed_revision_sidecar() {
-        let dir = TempDir::new().unwrap();
-        let ports = dir.child("ports");
-        write_recipe(&ports, "zlib", "1.3.1", "");
-        // `\u{B}` (vertical tab): not in `is_ascii_whitespace`, so a
-        // VT-wrapped revision is rejected here exactly as the
-        // website's mirror rejects it.
-        for bad in [
-            "0",
-            "one",
-            "-1",
-            "",
-            "+1",
-            "1.5",
-            "\u{0085}1",
-            "\u{FEFF}1",
-            "\u{B}1",
-        ] {
-            ports
-                .child("zlib/1.3.1")
-                .child(REVISION_FILENAME)
-                .write_str(bad)
-                .unwrap();
-            let err = load_conversions(ports.path()).unwrap_err();
-            assert!(
-                format!("{err:#}").contains(REVISION_FILENAME),
-                "{bad:?}: {err:#}"
-            );
-        }
+        assert_eq!(conversions[0].published_version.to_string(), "1.3.1");
     }
 
     #[test]

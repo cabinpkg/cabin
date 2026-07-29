@@ -40,9 +40,16 @@ fn publish_creates_registry_layout() {
 
     assert!(registry.join("config.json").is_file());
     assert!(registry.join("packages/fmtlib/fmt.json").is_file());
+    // The artifact filename embeds the packaging revision the index
+    // records for the version.
+    let body = fs::read_to_string(registry.join("packages/fmtlib/fmt.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let revision = value["versions"]["10.2.1"]["revision"].as_str().unwrap();
     assert!(
         registry
-            .join("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip")
+            .join(format!(
+                "artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip"
+            ))
             .is_file()
     );
 }
@@ -68,12 +75,22 @@ fn published_package_index_is_well_formed() {
     assert_eq!(value["name"], "fmtlib/fmt");
     let entry = &value["versions"]["10.2.1"];
     assert_eq!(entry["yanked"], false);
-    assert!(entry["checksum"].as_str().unwrap().starts_with("sha256:"));
-    assert_eq!(entry["source"]["type"], "archive");
-    assert_eq!(entry["source"]["format"], "zip");
+    let revision = entry["revision"].as_str().unwrap();
+    let rev_entry = &entry["revisions"][revision];
+    let checksum = rev_entry["checksum"].as_str().unwrap();
+    assert!(checksum.starts_with("sha256:"));
+    // The revision id is the checksum's 16-hex prefix.
+    assert_eq!(&checksum["sha256:".len()..][..16], revision);
+    assert!(
+        rev_entry["published-at"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
+    assert_eq!(rev_entry["source"]["type"], "archive");
+    assert_eq!(rev_entry["source"]["format"], "zip");
     assert_eq!(
-        entry["source"]["path"],
-        "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+        rev_entry["source"]["path"],
+        format!("../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{revision}.zip")
     );
 }
 
@@ -212,8 +229,13 @@ fn published_index_carries_per_target_standards_table() {
     assert!(targets.get("app").is_none());
 }
 
+/// The file registry's revision semantics end to end: a byte-identical
+/// republish is an idempotent no-op, different bytes demand the
+/// `--new-revision` opt-in with a diagnostic explaining the mechanism,
+/// and the opt-in publishes the changed bytes as a new current
+/// revision while the superseded revision's artifact stays fetchable.
 #[test]
-fn duplicate_publish_fails_clearly() {
+fn republishing_a_version_follows_the_revision_rules() {
     let dir = TempDir::new().unwrap();
     let pkg_root = dir.path().join("pkg");
     write_simple_package(&pkg_root);
@@ -226,7 +248,30 @@ fn duplicate_publish_fails_clearly() {
         .arg(&registry)
         .assert()
         .success();
+    let index_path = registry.join("packages/fmtlib/fmt.json");
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&index_path).unwrap()).unwrap();
+    let first_rev = value["versions"]["10.2.1"]["revision"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
+    // Byte-identical republish: no-op success, index unchanged.
+    let before = fs::read_to_string(&index_path).unwrap();
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("identical bytes; nothing to do"));
+    assert_eq!(fs::read_to_string(&index_path).unwrap(), before);
+
+    // Change the source tree: different bytes for the same version.
+    assert_fs::fixture::ChildPath::new(pkg_root.join("src/fmt.cc"))
+        .write_str("#include \"fmt.h\"\nint fmt_value() { return 43; }\n")
+        .unwrap();
     cabin()
         .args(["publish", "--manifest-path"])
         .arg(pkg_root.join("cabin.toml"))
@@ -234,7 +279,33 @@ fn duplicate_publish_fails_clearly() {
         .arg(&registry)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("already exists"));
+        .stderr(predicate::str::contains("--new-revision"));
+
+    // The opt-in publishes the respin as the new current revision.
+    cabin()
+        .args(["publish", "--new-revision", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&index_path).unwrap()).unwrap();
+    let entry = &value["versions"]["10.2.1"];
+    let second_rev = entry["revision"].as_str().unwrap().to_owned();
+    assert_ne!(first_rev, second_rev);
+    let revisions = entry["revisions"].as_object().unwrap();
+    assert_eq!(revisions.len(), 2);
+    // Both revisions' artifacts remain on disk - superseded revisions
+    // stay fetchable for pinned lockfiles.
+    for rev in [&first_rev, &second_rev] {
+        assert!(
+            registry
+                .join(format!("artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{rev}.zip"))
+                .is_file(),
+            "revision {rev} artifact must exist"
+        );
+    }
 }
 
 #[test]
@@ -257,11 +328,16 @@ fn publish_json_format_emits_machine_readable_summary() {
     assert_eq!(value["registry_modified"], true);
     assert_eq!(value["name"], "fmtlib/fmt");
     assert_eq!(value["version"], "10.2.1");
+    assert_eq!(value["no_op"], false);
+    let revision = value["revision"].as_str().unwrap();
+    let checksum = value["checksum"].as_str().unwrap();
+    assert!(checksum.starts_with("sha256:"));
+    assert_eq!(&checksum["sha256:".len()..][..16], revision);
     assert!(
         value["artifact_path"]
             .as_str()
             .unwrap()
-            .ends_with("fmtlib-fmt-10.2.1.zip")
+            .ends_with(&format!("fmtlib-fmt-10.2.1-{revision}.zip"))
     );
     assert!(
         value["package_index_path"]
@@ -269,7 +345,6 @@ fn publish_json_format_emits_machine_readable_summary() {
             .unwrap()
             .ends_with("fmt.json")
     );
-    assert!(value["checksum"].as_str().unwrap().starts_with("sha256:"));
 }
 
 #[test]

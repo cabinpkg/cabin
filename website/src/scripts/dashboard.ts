@@ -7,6 +7,7 @@ import {
     type FetchLike,
     getPackages,
     getUsage,
+    packageDownloads,
     type SearchHit,
     searchPackages,
     type Usage,
@@ -82,10 +83,6 @@ function renderUsage(root: HTMLElement, usage: Usage): void {
     setText(root, "[data-usage-rejected]", String(usage.versions.rejected));
 }
 
-function packageDownloads(pkg: AccountPackage): number {
-    return pkg.versions.reduce((sum, version) => sum + version.downloads, 0);
-}
-
 // The usage payload carries no download figure; the packages payload is
 // complete (unpaginated), so the dashboard total is summed client-side.
 // That payload is the created-packages list, so the card is labeled
@@ -137,11 +134,22 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
                 if (number instanceof HTMLElement) {
                     number.textContent = version.version;
                 }
+                const revision = row.querySelector('[data-slot="revision"]');
+                if (revision instanceof HTMLElement) {
+                    revision.textContent = version.revision;
+                }
                 const badge = row.querySelector(
                     `[data-slot="${version.verification}"]`,
                 );
                 if (badge instanceof HTMLElement) {
                     badge.hidden = false;
+                }
+                // The listing carries one row per revision; mark the
+                // one the read plane currently serves so a pending
+                // respin is distinguishable from what consumers get.
+                const current = row.querySelector('[data-slot="current"]');
+                if (current instanceof HTMLElement) {
+                    current.hidden = !version.current;
                 }
                 const yanked = row.querySelector('[data-slot="yanked"]');
                 if (yanked instanceof HTMLElement) {
@@ -150,18 +158,27 @@ function renderPackages(root: HTMLElement, packages: AccountPackage[]): void {
                 const downloads = row.querySelector('[data-slot="downloads"]');
                 // Pending and rejected versions were never downloadable;
                 // a "0 downloads" there would read as a lifetime figure.
+                // The count is version-level, so a superseded revision
+                // row repeating it would claim downloads it never
+                // served - only the current row shows it.
                 if (
                     downloads instanceof HTMLElement &&
-                    version.verification === "verified"
+                    version.verification === "verified" &&
+                    version.current
                 ) {
                     downloads.textContent = `${formatCount(version.downloads)} downloads`;
                 }
                 const source = row.querySelector('[data-slot="source"]');
                 // Only verified versions are browsable (the source route
-                // gates on verified exactly like the artifact route).
+                // gates on verified exactly like the artifact route),
+                // and the route resolves name+version through the
+                // served revision - a superseded row's link would show
+                // the current revision's bytes under the wrong label,
+                // so only the current row links.
                 if (
                     source instanceof HTMLAnchorElement &&
-                    version.verification === "verified"
+                    version.verification === "verified" &&
+                    version.current
                 ) {
                     source.href =
                         `${ACCOUNT_URLS.source}?name=${encodeURIComponent(pkg.name)}` +

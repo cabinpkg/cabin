@@ -9,8 +9,9 @@
 //!
 //! The conversion:
 //! - renames `[package].name` to `cabin-ports/<lowercase-name>`;
-//! - appends an optional packaging revision to the version as
-//!   `+cabin.<n>` build metadata (see [`published_version`]);
+//! - keeps `[package].version` at the upstream version verbatim
+//!   (packaging corrections republish it as a new registry
+//!   revision derived from the archive bytes);
 //! - stamps `[package.upstream]` provenance from the recipe's
 //!   `[source]` + `[[copy]]` tables;
 //! - renames target keys to the intended native artifact stems
@@ -26,7 +27,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, anyhow, bail};
 use cabin_core::{DependencySource, PackageName, PortDepSource, UpstreamCopy, UpstreamProvenance};
 use cabin_port::{ArchiveKind, PortDescriptor};
-use semver::{BuildMetadata, Version};
+use semver::Version;
 use toml_edit::{DocumentMut, Item, Key, Table, value};
 
 /// Registry scope every converted port publishes under.
@@ -80,33 +81,6 @@ pub fn scoped_package_name(port_name: &str) -> Result<PackageName> {
         .map_err(|err| anyhow!("scoped name for port `{port_name}` is invalid: {err}"))
 }
 
-/// The version a conversion publishes: the upstream version verbatim,
-/// with an optional packaging revision spelled as `+cabin.<n>` build
-/// metadata.  Build metadata is ignored by version-requirement
-/// matching (`^1.3` still matches `1.3.1+cabin.2`) but participates
-/// in the resolver's total order, so a revision supersedes the
-/// unrevised publication without inventing an upstream version.
-///
-/// # Errors
-/// Returns an error when the upstream version already carries build
-/// metadata (the revision channel would be ambiguous) or when the
-/// revision is `0` (the unrevised publication *is* revision zero).
-pub fn published_version(upstream: &Version, revision: Option<u32>) -> Result<Version> {
-    let Some(revision) = revision else {
-        return Ok(upstream.clone());
-    };
-    if !upstream.build.is_empty() {
-        bail!("upstream version `{upstream}` already carries build metadata");
-    }
-    if revision == 0 {
-        bail!("packaging revision must be >= 1; the unrevised publication is revision zero");
-    }
-    let mut version = upstream.clone();
-    version.build = BuildMetadata::new(&format!("cabin.{revision}"))
-        .context("packaging revision does not form valid build metadata")?;
-    Ok(version)
-}
-
 /// Cross-port facts one conversion needs about every other port:
 /// the scoped name to rewrite dependencies to, and the converted
 /// library-like target keys that decide between the bare-package
@@ -143,8 +117,6 @@ pub struct ConvertRequest<'a> {
     pub descriptor: &'a PortDescriptor,
     /// Committed overlay `cabin.toml` text.
     pub overlay_text: &'a str,
-    /// Optional packaging revision (see [`published_version`]).
-    pub revision: Option<u32>,
     /// Summaries of every committed port, keyed by original port
     /// name — used to rewrite inter-port dependencies.
     pub summaries: &'a BTreeMap<String, RecipeSummary>,
@@ -164,7 +136,10 @@ pub fn convert_overlay(request: &ConvertRequest<'_>) -> Result<String> {
         .summaries
         .get(port_name)
         .ok_or_else(|| anyhow!("no summary for port `{port_name}`"))?;
-    let published = published_version(&request.descriptor.version, request.revision)?;
+    // The published version is the upstream version, verbatim: a
+    // recipe correction republishes it as a new registry revision
+    // derived from the changed archive bytes.
+    let published = request.descriptor.version.clone();
 
     let overlay = cabin_manifest::parse_manifest_str(request.overlay_text)
         .with_context(|| format!("parsing committed overlay for port `{port_name}`"))?;
@@ -592,7 +567,6 @@ mod tests {
     use cabin_port::model::CopyStep;
     use cabin_port::{ArchiveSource, OverlayManifest, PortChecksum, PortMetadata};
     use camino::Utf8PathBuf;
-    use semver::VersionReq;
     use url::Url;
 
     const SHA: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
@@ -699,37 +673,11 @@ deps = ["zlib"]
     }
 
     #[test]
-    fn published_version_appends_cabin_build_metadata() {
-        let upstream = Version::parse("1.3.1").unwrap();
-        assert_eq!(published_version(&upstream, None).unwrap(), upstream);
-        let revised = published_version(&upstream, Some(2)).unwrap();
-        assert_eq!(revised.to_string(), "1.3.1+cabin.2");
-        // Requirement matching ignores the revision; the resolver's
-        // total order ranks revisions above the unrevised version and
-        // numerically among themselves.
-        assert!(VersionReq::parse("^1.3").unwrap().matches(&revised));
-        let rev1 = published_version(&upstream, Some(1)).unwrap();
-        let rev10 = published_version(&upstream, Some(10)).unwrap();
-        assert!(upstream < rev1);
-        assert!(rev1 < revised);
-        assert!(revised < rev10);
-    }
-
-    #[test]
-    fn published_version_rejects_zero_and_existing_build_metadata() {
-        let upstream = Version::parse("1.3.1").unwrap();
-        assert!(published_version(&upstream, Some(0)).is_err());
-        let with_build = Version::parse("1.3.1+other").unwrap();
-        assert!(published_version(&with_build, Some(1)).is_err());
-    }
-
-    #[test]
     fn converts_a_sole_library_port() {
         let descriptor = zlib_descriptor();
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: ZLIB_OVERLAY,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -784,7 +732,6 @@ deps = ["zlib"]
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: LIBPNG_OVERLAY,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -818,7 +765,6 @@ deps = ["zlib"]
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: LIBPNG_OVERLAY,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -860,28 +806,11 @@ c-standard = "c11"
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries,
         })
         .unwrap();
         assert!(converted.contains("format = \"zip\""), "{converted}");
         assert!(!converted.contains("strip-prefix"), "{converted}");
-    }
-
-    #[test]
-    fn packaging_revision_lands_in_the_manifest_version() {
-        let descriptor = zlib_descriptor();
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: ZLIB_OVERLAY,
-            revision: Some(1),
-            summaries: &summaries(),
-        })
-        .unwrap();
-        assert!(
-            converted.contains("version = \"1.3.1+cabin.1\""),
-            "{converted}"
-        );
     }
 
     #[test]
@@ -907,7 +836,6 @@ c-standard = "c11"
         let err = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap_err();
@@ -928,7 +856,6 @@ c-standard = "c11"
         let err = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &only_libpng,
         })
         .unwrap_err();
@@ -975,7 +902,6 @@ c-standard = "c11"
         let err = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: LIBPNG_OVERLAY,
-            revision: None,
             summaries: &summaries,
         })
         .unwrap_err();
@@ -1007,7 +933,6 @@ deps = ["zlib"]
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -1052,7 +977,6 @@ c-standard = "c11"
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -1084,7 +1008,6 @@ deps = ["zlib:zlib"]
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -1128,7 +1051,6 @@ deps = ["zlib"]
         let converted = convert_overlay(&ConvertRequest {
             descriptor: &descriptor,
             overlay_text: overlay,
-            revision: None,
             summaries: &summaries(),
         })
         .unwrap();
@@ -1147,7 +1069,6 @@ deps = ["zlib"]
         let request = ConvertRequest {
             descriptor: &descriptor,
             overlay_text: ZLIB_OVERLAY,
-            revision: None,
             summaries: &summaries(),
         };
         assert_eq!(

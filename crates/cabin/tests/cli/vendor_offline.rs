@@ -28,8 +28,9 @@ fn stage_fmt_index(root: &Path) -> PathBuf {
             ("src/fmt.cc", body),
         ],
     );
+    let revision = &checksum[..16];
     let entry = format!(
-        "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"checksum\": \"sha256:{checksum}\",\n      \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.zip\", \"format\": \"zip\"}}\n    }}\n  }}\n}}\n",
+        "{{\n  \"schema\": 1,\n  \"name\": \"fmt\",\n  \"versions\": {{\n    \"10.2.1\": {{\n      \"dependencies\": {{}},\n      \"yanked\": false,\n      \"revision\": \"{revision}\",\n      \"revisions\": {{\n        \"{revision}\": {{\n          \"checksum\": \"sha256:{checksum}\",\n          \"published-at\": \"2026-01-01T00:00:00Z\",\n          \"source\": {{\"type\": \"archive\", \"path\": \"../artifacts/fmt/fmt-10.2.1.zip\", \"format\": \"zip\"}}\n        }}\n      }}\n    }}\n  }}\n}}\n",
     );
     assert_fs::fixture::ChildPath::new(index.join("packages/fmt.json"))
         .write_str(&entry)
@@ -84,18 +85,24 @@ fn vendor_writes_deterministic_file_registry() {
     // vendor summary.
     assert!(vendor.join("config.json").is_file());
     assert!(vendor.join("packages/fmt.json").is_file());
-    assert!(vendor.join("artifacts/fmt/fmt-10.2.1.zip").is_file());
     assert!(vendor.join("cabin-vendor.json").is_file());
 
-    // The vendored per-package index points at the *vendor's*
-    // relative archive path, not at the source index's.  This
-    // is what makes the directory portable.
+    // The vendored per-package index keeps exactly the fetched
+    // revision, pointing at the *vendor's* relative archive path
+    // (revision-qualified), not at the source index's.  This is what
+    // makes the directory portable.
     let body = fs::read_to_string(vendor.join("packages/fmt.json")).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
-    let path = parsed["versions"]["10.2.1"]["source"]["path"]
+    let revision = parsed["versions"]["10.2.1"]["revision"].as_str().unwrap();
+    let path = parsed["versions"]["10.2.1"]["revisions"][revision]["source"]["path"]
         .as_str()
         .unwrap();
-    assert_eq!(path, "../artifacts/fmt/fmt-10.2.1.zip");
+    assert_eq!(path, format!("../artifacts/fmt/fmt-10.2.1-{revision}.zip"));
+    assert!(
+        vendor
+            .join(format!("artifacts/fmt/fmt-10.2.1-{revision}.zip"))
+            .is_file()
+    );
 
     // Re-running with the same inputs must be byte-identical.
     let summary = fs::read(vendor.join("cabin-vendor.json")).unwrap();

@@ -116,19 +116,6 @@ const editionLabel = formatEdition(pack.edition);
                             {pack.upstream.version}
                         </dd>
                     </div>
-                    {
-                        pack.version !== pack.upstream.version && (
-                            <div class="flex items-center justify-between gap-4">
-                                <dt class="flex items-center gap-2 text-ink-muted">
-                                    <Icon name="box" class="h-4 w-4" />
-                                    Cabin packaging
-                                </dt>
-                                <dd class="font-mono text-sm font-semibold text-ink">
-                                    {pack.version}
-                                </dd>
-                            </div>
-                        )
-                    }
                     <div>
                         <dt class="mb-1 flex items-center gap-2 text-ink-muted">
                             <Icon name="download" class="h-4 w-4" />

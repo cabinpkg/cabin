@@ -50,9 +50,10 @@ wrangler d1 execute DB --remote --json --command "
     (SELECT COUNT(*) FROM scopes) AS scopes,
     (SELECT COUNT(*) FROM packages) AS packages,
     (SELECT COUNT(*) FROM versions) AS versions,
-    (SELECT COUNT(*) FROM versions WHERE verification = 'pending') AS pending,
-    (SELECT COUNT(*) FROM versions WHERE verification = 'verified') AS verified,
-    (SELECT COUNT(*) FROM versions WHERE verification = 'rejected') AS rejected,
+    (SELECT COUNT(*) FROM revisions) AS revisions,
+    (SELECT COUNT(*) FROM revisions WHERE verification = 'pending') AS pending,
+    (SELECT COUNT(*) FROM revisions WHERE verification = 'verified') AS verified,
+    (SELECT COUNT(*) FROM revisions WHERE verification = 'rejected') AS rejected,
     (SELECT COUNT(*) FROM versions WHERE yanked = 1) AS yanked,
     (SELECT COUNT(*) FROM tokens) AS tokens,
     (SELECT COUNT(*) FROM backup_pending) AS backup_pending" |

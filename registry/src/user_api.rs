@@ -63,14 +63,21 @@ pub struct PackageVersionRow {
     /// The package's canonical `<scope>/<name>` name.
     pub name: String,
     pub version: String,
+    /// The packaging-revision id this row describes; the owner
+    /// dashboard lists every revision, pending respins included.
+    pub revision: String,
     /// The verification lifecycle state: `pending`, `verified`, or
     /// `rejected`.
     pub verification: String,
     pub yanked: bool,
     pub published_at: String,
     /// The approximate served-download count (`docs/architecture.md`,
-    /// "Download counts"); always 0 for pending and rejected versions.
+    /// "Download counts"), version-level; always 0 for versions with
+    /// no verified revision.
     pub downloads: u64,
+    /// Whether this revision is the one the read plane currently
+    /// serves for its version.
+    pub is_current: bool,
 }
 
 /// `GET /api/v1/user/packages`: the user's packages with every version's
@@ -82,10 +89,12 @@ pub fn packages_json(rows: &[PackageVersionRow]) -> String {
     for row in rows {
         let version = serde_json::json!({
             "version": row.version,
+            "revision": row.revision,
             "verification": row.verification,
             "yanked": row.yanked,
             "published_at": row.published_at,
             "downloads": row.downloads,
+            "current": row.is_current,
         });
         match groups.last_mut() {
             Some((name, versions)) if *name == row.name => versions.push(version),
@@ -277,6 +286,8 @@ pub fn reverse_dependencies_json(rows: &[DependentVersionRow]) -> String {
 /// order).
 pub struct PackageDetailRow {
     pub version: String,
+    /// The served (current) packaging revision's id.
+    pub revision: String,
     pub metadata_json: String,
     pub yanked: bool,
     pub published_at: String,
@@ -344,6 +355,7 @@ pub fn package_detail_json(
         .map(|row| {
             serde_json::json!({
                 "version": row.version,
+                "revision": row.revision,
                 "yanked": row.yanked,
                 "published_at": row.published_at,
                 "downloads": row.downloads,
@@ -590,10 +602,12 @@ mod tests {
             PackageVersionRow {
                 name: name.to_owned(),
                 version: version.to_owned(),
+                revision: "aaaaaaaaaaaaaaaa".to_owned(),
                 verification: verification.to_owned(),
                 yanked,
                 published_at: "2026-07-10T00:00:00.000Z".to_owned(),
                 downloads,
+                is_current: verification == "verified",
             }
         };
         // `mine/fmt` and `fmtlib/fmt` share a package part; the full
@@ -606,7 +620,7 @@ mod tests {
         ];
         assert_eq!(
             packages_json(&rows),
-            r#"{"packages":[{"name":"fmtlib/fmt","versions":[{"version":"10.2.1","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":42},{"version":"10.2.0","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]},{"name":"madler/zlib","versions":[{"version":"1.3.1","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]},{"name":"mine/fmt","versions":[{"version":"0.1.0","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0}]}]}"#
+            r#"{"packages":[{"name":"fmtlib/fmt","versions":[{"version":"10.2.1","revision":"aaaaaaaaaaaaaaaa","verification":"verified","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":42,"current":true},{"version":"10.2.0","revision":"aaaaaaaaaaaaaaaa","verification":"rejected","yanked":true,"published_at":"2026-07-10T00:00:00.000Z","downloads":0,"current":false}]},{"name":"madler/zlib","versions":[{"version":"1.3.1","revision":"aaaaaaaaaaaaaaaa","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0,"current":false}]},{"name":"mine/fmt","versions":[{"version":"0.1.0","revision":"aaaaaaaaaaaaaaaa","verification":"pending","yanked":false,"published_at":"2026-07-10T00:00:00.000Z","downloads":0,"current":false}]}]}"#
         );
     }
 
@@ -836,6 +850,7 @@ mod tests {
     ) -> PackageDetailRow {
         PackageDetailRow {
             version: version.to_owned(),
+            revision: "aaaaaaaaaaaaaaaa".to_owned(),
             metadata_json: metadata_json.to_owned(),
             yanked,
             published_at: published_at.to_owned(),
@@ -867,7 +882,7 @@ mod tests {
         ];
         assert_eq!(
             package_detail_json("gabime", "spdlog", &rows).unwrap(),
-            r#"{"scope":"gabime","name":"spdlog","versions":[{"version":"10.2.1","yanked":false,"published_at":"2026-07-02T00:00:00.000Z","downloads":12},{"version":"10.2.0","yanked":true,"published_at":"2026-07-01T00:00:00.000Z","downloads":30}],"newest_version":"10.2.1","dependencies":{"fmtlib/fmt":"^10","madler/zlib":"^1.3"}}"#
+            r#"{"scope":"gabime","name":"spdlog","versions":[{"version":"10.2.1","revision":"aaaaaaaaaaaaaaaa","yanked":false,"published_at":"2026-07-02T00:00:00.000Z","downloads":12},{"version":"10.2.0","revision":"aaaaaaaaaaaaaaaa","yanked":true,"published_at":"2026-07-01T00:00:00.000Z","downloads":30}],"newest_version":"10.2.1","dependencies":{"fmtlib/fmt":"^10","madler/zlib":"^1.3"}}"#
         );
     }
 

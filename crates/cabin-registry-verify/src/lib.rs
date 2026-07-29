@@ -75,6 +75,11 @@ pub use limits::{Limits, LimitsError, limits_from_env};
 pub struct PendingVersion {
     pub name: String,
     pub version: String,
+    /// The packaging-revision id of the row: the checksum's leading
+    /// [`cabin_core::registry::PACKAGING_REVISION_HEX_LEN`] hex
+    /// characters, and the last segment of the artifact filename the
+    /// workflow downloads.
+    pub revision: String,
     /// Raw lowercase SHA-256 hex of the archive bytes (no `sha256:`
     /// prefix) - the `versions.checksum` column, echoed back to bind
     /// the verdict.
@@ -291,6 +296,12 @@ pub enum VerifyError {
     /// infrastructure fault, not a hostile archive).
     #[error("the canonical metadata is not the shape the registry stores: missing {0}")]
     MalformedMetadata(&'static str),
+    /// The listing entry's revision id is not its checksum's leading
+    /// hex prefix.  The registry derives one from the other, so a row
+    /// that disagrees with itself is corrupt registry state and no
+    /// verdict could name which bytes it judged.
+    #[error("listing revision {revision} is not the leading hex of checksum {checksum}")]
+    RevisionMismatch { revision: String, checksum: String },
     /// The metadata declares upstream provenance but the caller
     /// supplied no downloaded upstream archive - the workflow's
     /// download step failed or is out of date.  No verdict can be
@@ -325,6 +336,18 @@ pub fn inspect(
     limits: &Limits,
     upstream_archive: Option<&Path>,
 ) -> Result<Verdict, VerifyError> {
+    // The registry mints the revision id from the checksum, so a row
+    // where the two disagree is corrupt state, not a hostile archive:
+    // refuse before inspecting anything (the version stays pending).
+    if cabin_core::registry::packaging_revision_from_sha256_hex(&pending.checksum)
+        != Some(pending.revision.as_str())
+    {
+        return Err(VerifyError::RevisionMismatch {
+            revision: pending.revision.clone(),
+            checksum: pending.checksum.clone(),
+        });
+    }
+
     let (manifest, files) = match scan::scan_archive(archive, limits)? {
         scan::ScanOutcome::Manifest { bytes, files } => (bytes, files),
         scan::ScanOutcome::Reject(reason) => return Ok(Verdict::Rejected(vec![reason])),

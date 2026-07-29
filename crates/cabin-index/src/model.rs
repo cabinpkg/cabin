@@ -44,15 +44,26 @@ pub struct VersionMetadata {
     /// Whether this version has been yanked.  Yanked versions are
     /// excluded from resolver candidate sets.
     pub yanked: bool,
-    /// `sha256:<hex>` digest of the source archive.  Optional in the
-    /// schema so pure-resolution fixtures can omit it; required for
-    /// `cabin fetch` and `cabin build` to materialize a registry
-    /// package.
+    /// The current packaging revision's id: the entry the registry
+    /// serves when no lockfile pins another revision.  `None` for
+    /// resolver-only fixtures that carry no `revisions` map (such a
+    /// version cannot be materialized).
+    pub revision: Option<String>,
+    /// Every fetchable packaging revision of this version, keyed by
+    /// revision id (the leading
+    /// [`cabin_core::registry::PACKAGING_REVISION_HEX_LEN`] hex chars
+    /// of the archive's SHA-256).  Superseded revisions stay listed so
+    /// lockfiles that pin them keep building.
+    pub revisions: BTreeMap<String, RevisionMetadata>,
+    /// `sha256:<hex>` digest of the *current* revision's archive -
+    /// derived by the loader from [`Self::revisions`] for the many
+    /// consumers that only ever want the served revision.  `None`
+    /// exactly when `revisions` is empty.  Revision-aware consumers
+    /// (locked validation, fetch-by-pin, vendor) consult the map.
     pub checksum: Option<String>,
-    /// Where this version's source archive lives.  Optional so
-    /// existing resolver-only fixtures keep working; required to
-    /// fetch the version's source tree.  Already resolved by the
-    /// loader: callers receive a path or a URL they can act on
+    /// Where the *current* revision's source archive lives - the same
+    /// loader-derived convenience as [`Self::checksum`].  Already
+    /// resolved: callers receive a path or a URL they can act on
     /// without further resolution.
     pub source: Option<SourceLocation>,
     /// Declared `[features]`, preserved as-is from the registry.
@@ -99,6 +110,26 @@ pub struct VersionMetadata {
     /// URL; the registry's external verifier consumes it.  `None`
     /// for entries that declare none.
     pub upstream: Option<cabin_core::UpstreamProvenance>,
+}
+
+/// One packaging revision of a published version: the immutable
+/// `(name, version, revision)` unit's archive identity plus its
+/// publish time.  Resolution never reads these - revisions are
+/// selected at fetch time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevisionMetadata {
+    /// `sha256:<hex>` digest of this revision's archive bytes.  The
+    /// revision id is this digest's leading hex prefix, so the pair
+    /// can never disagree in a loaded index.
+    pub checksum: String,
+    /// When this revision was published, as recorded by the registry
+    /// that accepted it.  Carried verbatim; Cabin never orders
+    /// revisions by it client-side (the `revision` pointer names the
+    /// current one).
+    pub published_at: String,
+    /// Where this revision's source archive lives, already resolved
+    /// by the loader.
+    pub source: SourceLocation,
 }
 
 /// One `system = true` dependency entry as it appears in an index

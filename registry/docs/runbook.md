@@ -769,8 +769,9 @@ archive, and PATCHes the verdict back. The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
 nests the directory (`artifacts/<scope>/<name>/`) and flattens the
-filename (`<scope>-<name>-<version>.zip`), and the verdict PATCH
-carries the `<scope>/<name>/<version>` triple.
+filename (`<scope>-<name>-<version>-<revision>.zip`), and the verdict
+PATCH carries the `<scope>/<name>/<version>` triple plus the listing's
+`checksum`, which is what names the revision.
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. GitHub cron schedules are **best-effort** and
@@ -820,7 +821,11 @@ verification for over an hour") is the summons. To resolve one:
   With a verified version on record the name counts as accepted, and
   every later version of the package skips the advisories.
 - Name is not fine: PATCH `{"verdict":"rejected","reason":
-  "name_advisory: <rule>"}`. Rejection frees the bytes and the
+  "name_advisory: <rule>","checksum":"<the listing's checksum>",
+  "published_at":"<the listing's published_at>"}`.
+  Both bindings are required on a rejection too - the checksum selects
+  the revision, the publish stamp pins the generation. Rejection frees
+  the bytes and the
   publisher can republish under a better name. A rejection never
   vets the name: republishing the same name abstains again and
   re-summons you - by design, not a loop to "fix".
@@ -1010,7 +1015,7 @@ blobs with the wrangler loop, less with an S3-compatible bulk tool.
 **Rehearsal.** `scripts/restore-drill.sh` downloads the latest
 dump, verifies the sidecar checksum, imports it into a scratch D1
 database (`cabin-registry-drill`), compares per-table row counts against
-the live database, spot-checks one version's `metadata_json`
+the live database, spot-checks one revision's `metadata_json`
 byte-for-byte, and deletes the scratch database. Run it after enabling
 backups, after changing the dump machinery, and periodically before
 launch milestones; record runs in
@@ -1050,14 +1055,14 @@ counter tracks referenced blobs only, by design ("never analytics"), and
 the storage budget's headroom below the free limit absorbs the bounded
 drift. If the dashboard's bucket size ever diverges noticeably from
 `meta.total_stored_bytes`, delete the orphans and recompute the counter
-from D1 alone - every version row carries `archive_size`, and the
+from D1 alone - every revision row carries `archive_size`, and the
 counter is one size per distinct live checksum:
 
 ```sh
 wrangler d1 execute DB --remote --command "
   INSERT INTO meta (key, value) SELECT 'total_stored_bytes',
     CAST(COALESCE(SUM(size), 0) AS TEXT) FROM (
-      SELECT MAX(archive_size) AS size FROM versions
+      SELECT MAX(archive_size) AS size FROM revisions
       WHERE verification != 'rejected' GROUP BY checksum)
     WHERE true
   ON CONFLICT (key) DO UPDATE SET value = excluded.value;"

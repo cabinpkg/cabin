@@ -8,11 +8,14 @@ use assert_cmd::Command;
 use assert_fs::TempDir;
 use assert_fs::prelude::*;
 
+const CHECKSUM: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+
 fn entry_json(name: &str) -> String {
     serde_json::json!({
         "name": name,
         "version": "1.0.0",
-        "checksum": "aa",
+        "revision": &CHECKSUM[..16],
+        "checksum": CHECKSUM,
         "published_at": "2026-07-18T00:00:00.000Z",
         "metadata": {},
     })

@@ -248,10 +248,17 @@ pub struct SourceMetadata {
 /// referring to a freshly-archived source tree by `checksum`.
 ///
 /// `source.path` is the file-registry relative reference
-/// (`../artifacts/<name>/<name>-<version>.zip`).  Dry-run staging
-/// records the same shape as a package-index `source` block, without
-/// publishing that path, so registry publish can reuse the
-/// metadata without re-deriving it.
+/// (`../artifacts/<name>/<name>-<version>-<revision>.zip`, the
+/// packaging revision being the checksum's leading hex prefix).
+/// Dry-run staging records the same shape as a package-index
+/// `source` block, without publishing that path, so registry publish
+/// can reuse the metadata without re-deriving it.
+///
+/// # Panics
+///
+/// When `checksum` is not a `sha256:<64 lowercase hex>` claim - an
+/// internal invariant: staging always passes the digest it just
+/// computed.
 pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata {
     let mut dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     let mut dev_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
@@ -274,21 +281,28 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
 
     let name = package.name.as_str().to_owned();
     let version = package.version.to_string();
+    // The packaging-revision id is the checksum's leading hex prefix,
+    // so it exists as soon as the archive bytes are hashed - staging
+    // always passes the `sha256:<hex>` it just computed.
+    let revision = checksum
+        .strip_prefix("sha256:")
+        .and_then(cabin_core::registry::packaging_revision_from_sha256_hex)
+        .expect("staging computes a sha256:<hex> archive checksum");
     // Canonical relative link from the package's index document to
     // its artifact.  A bare index doc lives at `packages/<name>.json`
     // (one level up to the root), a scoped one at
     // `packages/<scope>/<name>.json` (two levels), and the artifact
-    // filename embeds the scope.  The scoped shape must byte-match
-    // the hosted registry's canonical source path
-    // (`registry/src/publish.rs`) - it is validated verbatim at
-    // publish time.
+    // filename embeds the scope and the packaging revision.  The
+    // scoped shape must byte-match the hosted registry's canonical
+    // source path (`registry/src/publish.rs`) - it is validated
+    // verbatim at publish time.
     let source_path = match package.name.scope() {
         Some(scope) => format!(
-            "../../artifacts/{scope}/{base}/{stem}-{version}.zip",
+            "../../artifacts/{scope}/{base}/{stem}-{version}-{revision}.zip",
             base = package.name.base_name(),
             stem = package.name.artifact_stem(),
         ),
-        None => format!("../artifacts/{name}/{name}-{version}.zip"),
+        None => format!("../artifacts/{name}/{name}-{version}-{revision}.zip"),
     };
 
     PackageMetadata {
@@ -330,6 +344,11 @@ pub fn render_canonical_json(metadata: &PackageMetadata) -> Result<String, Packa
 
 #[cfg(test)]
 mod tests {
+    /// A digest-shaped checksum so `canonical_metadata` can derive
+    /// the packaging revision (`0011223344556677`).
+    const TEST_CHECKSUM: &str =
+        "sha256:00112233445566778899aabbccddeeff8899aabbccddeeff8899aabbccddeeff";
+
     use super::*;
     use cabin_core::{
         CompilerWrapperRequest, Dependency, DependencySource, Package, PackageName,
@@ -378,12 +397,12 @@ mod tests {
     #[test]
     fn metadata_carries_schema_name_version_and_checksum() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, "sha256:deadbeef");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         assert_eq!(meta.schema, 1);
         assert_eq!(meta.name, "fmt");
         assert_eq!(meta.version, "10.2.1");
         assert!(!meta.yanked);
-        assert_eq!(meta.checksum, "sha256:deadbeef");
+        assert_eq!(meta.checksum, TEST_CHECKSUM);
     }
 
     #[test]
@@ -412,7 +431,7 @@ mod tests {
                     ..Default::default()
                 },
             });
-        let meta = canonical_metadata(&proj, "sha256:abc");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         let json = serde_json::to_string(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(
@@ -437,7 +456,7 @@ mod tests {
             "1.13.0",
             vec![version_dep("fmt", ">=10.0.0, <11.0.0")],
         );
-        let meta = canonical_metadata(&proj, "sha256:abc");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         assert_eq!(meta.dependencies.len(), 1);
         assert!(meta.dependencies.contains_key("fmt"));
     }
@@ -452,7 +471,7 @@ mod tests {
             "0.1.0",
             vec![path_dep("local", "../local"), version_dep("fmt", "^10")],
         );
-        let meta = canonical_metadata(&proj, "sha256:abc");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         assert_eq!(meta.dependencies.len(), 1);
         assert!(meta.dependencies.contains_key("fmt"));
         assert!(!meta.dependencies.contains_key("local"));
@@ -461,25 +480,29 @@ mod tests {
     #[test]
     fn metadata_source_path_is_file_registry_relative() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, "sha256:x");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         assert_eq!(meta.source.kind, "archive");
         assert_eq!(meta.source.format, "zip");
-        assert_eq!(meta.source.path, "../artifacts/fmt/fmt-10.2.1.zip");
+        assert_eq!(
+            meta.source.path,
+            "../artifacts/fmt/fmt-10.2.1-0011223344556677.zip"
+        );
     }
 
     /// The scoped shape climbs two levels (the index doc lives at
     /// `packages/<scope>/<name>.json`) and embeds the scope in both
-    /// the artifact directory and the filename.  It must byte-match
-    /// the hosted registry's canonical source path
+    /// the artifact directory and the filename, plus the packaging
+    /// revision derived from the checksum.  It must byte-match the
+    /// hosted registry's canonical source path
     /// (`registry/src/publish.rs`), which validates it verbatim.
     #[test]
     fn scoped_metadata_source_path_embeds_the_scope_twice() {
         let proj = package("fmtlib/fmt", "1.0.0", Vec::new());
-        let meta = canonical_metadata(&proj, "sha256:x");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         assert_eq!(meta.name, "fmtlib/fmt");
         assert_eq!(
             meta.source.path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0.zip"
+            "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip"
         );
     }
 
@@ -490,7 +513,7 @@ mod tests {
                 wrapper: ToolSpec::Name("ccache".into()),
             },
         ));
-        let meta = canonical_metadata(&proj, "sha256:x");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
@@ -508,7 +531,7 @@ mod tests {
             kind: cabin_core::DependencyKind::Dev,
             condition: None,
         });
-        let meta = canonical_metadata(&proj, "sha256:x");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
@@ -524,7 +547,7 @@ mod tests {
             "1.13.0",
             vec![version_dep("fmt", ">=10.0.0, <11.0.0")],
         );
-        let meta = canonical_metadata(&proj, "sha256:abc");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         let a = render_canonical_json(&meta).unwrap();
         let b = render_canonical_json(&meta).unwrap();
         assert_eq!(a, b);
@@ -546,7 +569,7 @@ mod tests {
     #[test]
     fn render_ends_with_newline() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let meta = canonical_metadata(&proj, "sha256:x");
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
         let body = render_canonical_json(&meta).unwrap();
         assert!(body.ends_with('\n'));
     }
@@ -566,7 +589,7 @@ mod tests {
         )
         .unwrap();
         let proj = package("fmt", "10.2.1", Vec::new()).with_upstream(Some(upstream));
-        let body = render_canonical_json(&canonical_metadata(&proj, "sha256:x")).unwrap();
+        let body = render_canonical_json(&canonical_metadata(&proj, TEST_CHECKSUM)).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
             value["upstream"],
@@ -588,14 +611,14 @@ mod tests {
     #[test]
     fn metadata_omits_absent_upstream() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&proj, "sha256:x")).unwrap();
+        let body = render_canonical_json(&canonical_metadata(&proj, TEST_CHECKSUM)).unwrap();
         assert!(!body.contains("\"upstream\""));
     }
 
     #[test]
     fn metadata_omits_empty_declarations() {
         let proj = package("fmt", "10.2.1", Vec::new());
-        let body = render_canonical_json(&canonical_metadata(&proj, "sha256:x")).unwrap();
+        let body = render_canonical_json(&canonical_metadata(&proj, TEST_CHECKSUM)).unwrap();
         assert!(!body.contains("\"features\""));
     }
 
@@ -618,7 +641,7 @@ mod tests {
             features,
         })
         .unwrap();
-        let meta = canonical_metadata(&package, "sha256:abc");
+        let meta = canonical_metadata(&package, TEST_CHECKSUM);
         let body = render_canonical_json(&meta).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["features"]["default"][0], "simd");

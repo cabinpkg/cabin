@@ -316,9 +316,19 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
     let parsed_version =
         semver::Version::parse(&version).map_err(|source| LockfileError::InvalidVersion {
             name: name.clone(),
-            value: version,
+            value: version.clone(),
             source,
         })?;
+    // Registry versions are plain upstream versions; the packaging
+    // axis is pinned by the checksum, never by the version string, so
+    // a locked `+`-carrying version (the removed `+cabin.N` shape)
+    // fails through ordinary validation.
+    if !parsed_version.build.is_empty() {
+        return Err(LockfileError::VersionBuildMetadata {
+            name: name.clone(),
+            value: version,
+        });
+    }
     if source != PACKAGE_SOURCE_INDEX {
         return Err(LockfileError::UnknownSource {
             name,
@@ -501,6 +511,25 @@ mod tests {
         "#;
         let err = parse_lockfile_str(body).unwrap_err();
         assert!(matches!(err, LockfileError::Toml(_)));
+    }
+
+    /// The removed `+cabin.N` shape fails through ordinary
+    /// validation: a locked version must be a plain upstream version.
+    #[test]
+    fn build_metadata_version_errors() {
+        let body = r#"
+            version = 1
+
+            [[package]]
+            name = "cabin-ports/zlib"
+            version = "1.3.1+cabin.1"
+            source = "index"
+        "#;
+        let err = parse_lockfile_str(body).unwrap_err();
+        assert!(matches!(
+            err,
+            LockfileError::VersionBuildMetadata { name, .. } if name == "cabin-ports/zlib"
+        ));
     }
 
     #[test]

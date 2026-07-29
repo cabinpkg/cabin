@@ -8,30 +8,39 @@ the service.
 ## Storage
 
 - **D1 is canonical.** Users and their external identities, scopes and
-  their members, tokens, packages, versions, and the `meta` key-value
-  table all live in one D1 database (`migrations/`).
-  Everything the read routes serve is composed from D1 rows; in particular
-  each version's canonical index entry is stored verbatim at publish time in
-  `versions.metadata_json`, and only its `yanked` field is overwritten from
-  the row on the way out, so yank state has exactly one home.
+  their members, tokens, packages, versions, revisions, the
+  `backup_pending` queue, and the `meta` key-value table all live in one
+  D1 database (`migrations/`).
+  Everything the read routes serve is composed from D1 rows. The
+  resolution-level unit is a `versions` row (`yanked`, `downloads`); the
+  immutable byte-level unit is a `revisions` row, whose `revision` id is
+  the leading 16 hex characters of its `checksum`. Each revision's
+  canonical index entry is stored verbatim at publish time in
+  `revisions.metadata_json`; composition strips its `schema`, `name`,
+  `version`, `checksum`, and `source` fields and injects `yanked` from the
+  version row plus the `revision` pointer and `revisions` map, so yank state
+  has exactly one home and revision identity is never duplicated.
 - **R2 holds immutable, content-addressed blobs.** Archive bytes live at
-  `blobs/sha256/<checksum-hex>` (the lowercase hex in `versions.checksum`).
+  `blobs/sha256/<checksum-hex>` (the lowercase hex in `revisions.checksum`).
   Blobs are never mutated; the one deletion path is the verification
-  lifecycle's reclaim of a **rejected** version's blob when no live
+  lifecycle's reclaim of a **rejected** revision's blob when no live
   (non-rejected) row references its checksum. Yanking is a D1 row
-  update, and the artifact route deliberately keeps serving yanked
-  versions so locked-in consumers keep building.
-- **Verified versions are immutable.** Every `versions` row carries a
+  update on `versions`, and the artifact route deliberately keeps serving
+  yanked versions so locked-in consumers keep building.
+- **Verified revisions are immutable.** Every `revisions` row carries a
   verification status (`pending` | `verified` | `rejected`; see "The
   verification lifecycle"). Re-publishing
   byte-identical metadata (which embeds the archive checksum, so
   identical metadata means an identical archive) over a pending or
   verified row is an idempotent
-  `200 {"ok":true,"no_op":true,"verification":"<status>"}` that touches
-  neither store; different bytes are
-  `409 published versions are immutable`. A rejected row is the one
-  exception: it never became part of the registry, so any bytes replace
-  it and return it to `pending`. There is no unpublish or delete.
+  `200 {"ok":true,"no_op":true,"revision":"<16 hex>","verification":"<status>"}`
+  that touches neither store. Different bytes for a version that has a live
+  revision need the `?new-revision=true` opt-in on the publish PUT: without it
+  they are `409 the version is already published with different bytes;
+  published revisions are immutable - pass `--new-revision` ...`, with
+  it they create a new `pending` revision beside the existing ones. A rejected
+  revision never became part of the registry, so identical bytes revive it in
+  place back to `pending`. There is no unpublish or delete.
 - **No KV.** The data is relational and small; a second store would only add
   consistency questions. Two Cache API surfaces exist: the public stats
   summary's fixed-key entry ("Download counts") and the immutable
@@ -391,7 +400,8 @@ verbatim; `cabin publish` rejects bare names outright; the sparse
 reads, the publish/yank routes, and the external verifier
 (`crates/cabin-registry-verify` and its workflow) all address the
 scoped routes, with the artifact filename flattening the `/` to `-`
-(`<scope>-<name>-<version>.zip`). The same grammar covers dependency
+and appending the packaging revision
+(`<scope>-<name>-<version>-<revision>.zip`). The same grammar covers dependency
 references: the registry dependency maps (`dependencies`,
 `dev-dependencies`) key on canonical `<scope>/<name>` names -
 enforced client-side before any network work and server-side in the
@@ -417,8 +427,11 @@ Publish validates in a fixed order, stopping at the first failure:
 5. the URL's segments equal the document's `name` (the full
    `<scope>/<name>`) and `version`, and the archive path its `source`
    block implies -
-   `../../artifacts/<scope>/<name>/<scope>-<name>-<version>.zip`, the
-   filename embedding the scope like the artifact route (`400`);
+   `../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip`,
+   the filename embedding the scope and the packaging revision like the
+   artifact route (the revision is derived from the digest of the uploaded
+   bytes, computed before metadata validation so it can be checked here)
+   (`400`);
 6. the scope and name match the grammars in "Scopes", the name is not
    on the reserved list ("Name fidelity"; the package part only - a
    reserved scope can never be claimed, so the membership `403`
@@ -467,12 +480,17 @@ The check sits after the rate limit (probing is throttled like any
 publish attempt) and consults only `scope_members`, never a live
 provider call.
 
-Only then storage is consulted: an existing pending or verified row answers
-with the idempotent `200` no-op (reporting its verification status) or the
-`409` immutability conflict, a rejected row is replaced in place (any
-bytes; back to `pending`), and a new version writes the R2 blob first
-(skipped when the content-addressed key already exists), then one atomic
-D1 batch for the `packages` and `versions` rows. A publish that would
+Only then storage is consulted, keyed on the revision the uploaded bytes
+name: an existing pending or verified row with the same checksum answers
+with the idempotent `200` no-op (reporting its revision and verification
+status); the same revision id with a different checksum is a loud `409`
+collision; different bytes for a version that still has a live revision
+need the `?new-revision=true` opt-in and are otherwise the `409`
+new-revision-required conflict; a rejected revision is revived in place by
+its identical bytes (back to `pending`); and a new revision writes the R2
+blob first (skipped when the content-addressed key already exists), then
+one atomic D1 batch for the `packages`, `versions`, and `revisions` rows
+plus the stored-bytes meta bump. A publish that would
 create a **new** package additionally refuses (`400`, after the size cap
 and before the quota `403`s - name validity does not depend on quota
 state) when the name collides with an existing same-scope package under
@@ -495,22 +513,29 @@ mutates.
 ## The verification lifecycle
 
 Publish stores content; an external verifier (a later step; it runs in
-GitHub Actions) decides what becomes part of the registry. The status
-lives in `versions.verification` with `verification_reason` /
-`verified_at` alongside; the pure transition rules, the artifact read
-gate, and the verdict body live in `src/verify.rs`.
+GitHub Actions) decides what becomes part of the registry. The status is
+per revision: it lives in `revisions.verification` with
+`verification_reason` / `verified_at` alongside; the pure transition
+rules, the artifact read gate, and the verdict body live in
+`src/verify.rs`.
 
 - **Reads are gated on `verified`.** `/packages/<scope>/<name>.json`
   composes
-  verified versions only (the filter sits in the SQL query, so a package
+  verified revisions only (the filter sits in the SQL query, so a package
   with none is an ordinary 404), and the artifact route serves verified
-  versions to ordinary tokens. The `verify` scope may additionally list
-  pending versions (`GET /api/v1/admin/versions?status=...`, each
-  entry's `name` the canonical `<scope>/<name>`), fetch the package
+  revisions to ordinary tokens. Each served version's `revision` pointer
+  comes from the `current_revisions` view - the verified revision with the
+  greatest `published_at`, breaking ties on the greater revision id - and
+  its `revisions` map carries every verified revision, so a superseded one
+  stays fetchable by pin and a pending respin never disturbs what is
+  served. The `verify` scope may additionally list
+  pending revisions (`GET /api/v1/admin/versions?status=...`, one entry per
+  revision, each carrying `revision` and its `name` the canonical
+  `<scope>/<name>`), fetch the package
   corpus its name advisories compare against
   (`GET /api/v1/admin/packages` - "Name fidelity"), and
   download their artifacts - the verifier has to fetch what it inspects.
-  Rejected versions are served to no one.
+  Rejected revisions are served to no one.
 - **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>`,
   scope `verify` - the admin plane is registry infrastructure, so it
   needs no scope membership, and verdicts are deliberately exempt from
@@ -527,10 +552,13 @@ gate, and the verdict body live in `src/verify.rs`.
   releases it, the replacement path retries the delete, and publishes
   re-check their blob after their batch commits, so a reclaim racing a
   deduplicating publish of the same bytes is self-healed. The body's
-  `checksum` and `published_at` (required to verify, optional to
-  reject - exposure must name the inspected row generation, and
-  `published_at` catches even a same-bytes replacement with new
-  metadata) bind the verdict to what the verifier listed,
+  `checksum` and `published_at` bind the verdict to what the verifier
+  listed, and both are required for **both** verdicts: `checksum` names
+  the revision under the route's `(scope, name, version)` triple, and
+  `published_at` names the publish event - a byte-identical revival
+  regenerates the row under the same checksum, so without the pair a
+  delayed verdict of either direction could land on a generation it
+  never judged,
   and the applying updates are guarded on the row still being pending
   with the bytes the request read, so a verdict racing a conflicting
   verdict or a replacement answers 409 instead of applying - the
@@ -607,7 +635,7 @@ three layers, each calibrated by what a false positive costs:
    invisible to readers - the fail-safe state), and the stuck-pending
    alert summons the operator, who resolves it with a manual verdict
    ([`runbook.md`](runbook.md), "Verification pipeline"). Abstain is a
-   workflow outcome, not a fourth `versions.verification` state and
+   workflow outcome, not a fourth `revisions.verification` state and
    not a wire state - clients only ever see `pending`. Advisories run
    only for versions that would introduce a **new** name: once any
    version of the package is **verified**, the name was accepted -
@@ -748,7 +776,7 @@ storage admission (`503`) - so a byte-identical re-publish, including
 one grandfathered above a later cap, never consumes quota. The
 per-package quota counts key on the full `(scope, name)` pair, so equal
 package parts under two scopes never share a bucket. Attribution rides on
-`versions.published_by`, `versions.archive_size`, and `packages.created_by`,
+`revisions.published_by`, `revisions.archive_size`, and `packages.created_by`,
 keyed by the registry-native `users.id` (never a provider account
 id). The bucket take is persisted as a compare-and-swap on the token
 row (retried up to a burst's worth of lost races), so concurrent requests
@@ -1171,7 +1199,7 @@ pinned to a single narrow profile. The full normative spec is
   disagreement - is banned outright, so the format the verifier must reason
   about is small. Idempotent re-publish rides on content-addressing: same
   source bytes, same checksum, `200 no_op`. This must land before launch;
-  afterwards a format change would collide with version immutability and the
+  afterwards a format change would collide with revision immutability and the
   stored checksums.
 - **Hand-rolled container parsing.** The verifier parses the container by
   hand rather than through a general-purpose zip library. A library's

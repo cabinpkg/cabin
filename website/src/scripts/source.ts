@@ -29,7 +29,9 @@ import {
 // server's charset checks).
 const NAME_PATTERN =
     /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/[a-z0-9][a-z0-9_-]*$/;
-const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.+-]*)?$/;
+// Registry versions are plain upstream versions (pre-releases legal,
+// build metadata is the removed packaging-revision shape).
+const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]*)?$/;
 
 const params = new URLSearchParams(window.location.search);
 const packageName = params.get("name") ?? "";

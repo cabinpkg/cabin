@@ -21,7 +21,8 @@ A package-level summary is listed only as a fallback if index size ever becomes 
 ## 2. Schema
 
 The metadata is one optional field, `standards`, inside each version's metadata in
-`packages/<name>.json` - a sibling of `dependencies`, `yanked`, `checksum`, and `source`.  The
+`packages/<name>.json` - a sibling of `dependencies`, `yanked`, and the packaging-revision
+fields (`revision` / `revisions`).  The
 same document shape serves the local file index and the sparse HTTP read path, per the transport
 boundary of `docs/registry-design.md`.
 

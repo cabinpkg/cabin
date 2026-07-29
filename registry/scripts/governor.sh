@@ -175,14 +175,14 @@ case "$command" in
     step "D1's authoritative view (live and verified blob totals)"
     wrangler d1 execute DB --remote --json --command "
       SELECT
-        (SELECT COUNT(*) FROM (SELECT checksum FROM versions
+        (SELECT COUNT(*) FROM (SELECT checksum FROM revisions
           WHERE verification != 'rejected' GROUP BY checksum)) AS live_objects,
         (SELECT COALESCE(SUM(size), 0) FROM (SELECT MAX(archive_size) AS size
-          FROM versions WHERE verification != 'rejected' GROUP BY checksum)) AS live_bytes,
-        (SELECT COUNT(*) FROM (SELECT checksum FROM versions
+          FROM revisions WHERE verification != 'rejected' GROUP BY checksum)) AS live_bytes,
+        (SELECT COUNT(*) FROM (SELECT checksum FROM revisions
           WHERE verification = 'verified' GROUP BY checksum)) AS verified_objects,
         (SELECT COALESCE(SUM(size), 0) FROM (SELECT MAX(archive_size) AS size
-          FROM versions WHERE verification = 'verified' GROUP BY checksum)) AS verified_bytes
+          FROM revisions WHERE verification = 'verified' GROUP BY checksum)) AS verified_bytes
     " >"$body.d1" || fail "the D1 totals query failed"
     node -e '
       const fs = require("fs");
@@ -276,9 +276,9 @@ case "$command" in
       fail "$key still exists in $bucket; a release for a live object would make the ledger understate reality"
     fi
     if [[ "$pool" == "primary" ]]; then
-      step "evidence: no non-rejected D1 version references the checksum"
+      step "evidence: no non-rejected D1 revision references the checksum"
       refs="$(wrangler d1 execute DB --remote --json --command "
-        SELECT COUNT(*) AS n FROM versions
+        SELECT COUNT(*) AS n FROM revisions
         WHERE verification != 'rejected'
           AND checksum = '${key#blobs/sha256/}'" |
         node -e '
@@ -286,7 +286,7 @@ case "$command" in
           console.log(out[0].results[0].n);
         ')" || fail "the D1 reference check failed"
       [[ "$refs" == "0" ]] \
-        || fail "$refs live D1 version(s) still reference this checksum; reconciliation would re-add the entry"
+        || fail "$refs live D1 revision(s) still reference this checksum; reconciliation would re-add the entry"
     fi
     if [[ "$pool" == "primary" ]]; then
       # The breaker cron overwrites a manual service-mode override

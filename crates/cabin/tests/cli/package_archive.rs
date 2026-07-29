@@ -79,14 +79,18 @@ fn package_creates_archive_and_metadata() {
     assert_eq!(value["name"], "fmt");
     assert_eq!(value["version"], "10.2.1");
     assert_eq!(value["yanked"], false);
-    assert!(value["checksum"].as_str().unwrap().starts_with("sha256:"));
+    let checksum = value["checksum"].as_str().unwrap();
+    assert!(checksum.starts_with("sha256:"));
     assert_eq!(value["source"]["type"], "archive");
     assert_eq!(value["source"]["format"], "zip");
+    // The canonical source path embeds the packaging revision (the
+    // checksum's 16-hex prefix), derived from the archive bytes.
+    let revision = &checksum["sha256:".len()..][..16];
     assert!(
         value["source"]["path"]
             .as_str()
             .unwrap()
-            .ends_with("fmt-10.2.1.zip")
+            .ends_with(&format!("fmt-10.2.1-{revision}.zip"))
     );
 }
 

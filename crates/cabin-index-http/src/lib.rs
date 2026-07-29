@@ -8,8 +8,8 @@
 //! config.json
 //! packages/<name>.json                                     (bare name)
 //! packages/<scope>/<name>.json                             (scoped name)
-//! artifacts/<name>/<name>-<version>.zip                 (bare name)
-//! artifacts/<scope>/<name>/<scope>-<name>-<version>.zip (scoped name)
+//! artifacts/<name>/<name>-<version>-<revision>.zip                 (bare name)
+//! artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip (scoped name)
 //! ```
 //!
 //! The crate is intentionally narrow:

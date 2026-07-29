@@ -119,9 +119,13 @@ recipes or the publisher run the complete `--dry-run` preflight, pushes to `main
 `https://registry.cabinpkg.com`, and manual dispatch from `main` republishes the full set (the
 recovery path after a pre-launch registry wipe; dispatching any other ref runs the dry-run).
 
-Published versions are immutable.  For a recipe-only correction to an already-published upstream
-version, add the sidecar file `<name>/<version>/packaging-revision` holding an integer of at
-least 1 and bump it for each further correction; the tool then publishes
-`<version>+cabin.<n>` (build metadata: `^x.y` requirements still match, resolvers prefer the
-highest revision).  See `docs/foundation-ports.md`, "Publishing ports as registry packages", for
-the full behavior.
+Published bytes are immutable, and the published version is always the upstream version.  A
+recipe-only correction to an already-published version therefore reaches the registry as a new
+*packaging revision* of that version: edit the recipe and merge it - the changed archive bytes give
+the revision its identity, and both revisions stay listed and fetchable.  There is no sidecar file
+and no version-string marker.  Consumers keep their existing pin until they run `cabin update`.
+
+A revision must not change what resolution consumes, so a correction that alters the converted
+package's dependencies, features, or language-standard table is not a respin - it needs a new
+upstream version.  See `docs/foundation-ports.md`, "Publishing ports as registry packages", for the
+full behavior.
