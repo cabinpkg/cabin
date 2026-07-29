@@ -138,7 +138,8 @@ pub fn read_published_standards(
     Ok(published)
 }
 
-/// What [`insert_version`] decided about the incoming revision.
+/// What the publish path's index insertion decided about the
+/// incoming revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertDisposition {
     /// The version (or the revision) did not exist before; the
