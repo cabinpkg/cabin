@@ -152,4 +152,9 @@ pub enum PackageError {
         "package `{name}` declares a `[patch]` table; patches are local development policy and not publishable. Remove the [patch] table from this manifest before packaging, or move the patches to a .cabin/config.toml file."
     )]
     PatchTableNotPublishable { name: String },
+
+    #[error(
+        "package version `{version}` carries build metadata; registry versions are plain upstream versions - drop the `+...` suffix (packaging corrections are published as revisions of the same version)"
+    )]
+    VersionBuildMetadataNotPublishable { version: String },
 }
