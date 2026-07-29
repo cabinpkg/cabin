@@ -82,6 +82,10 @@ pub enum PublishOutcome {
 pub struct PublishReceipt {
     pub outcome: PublishOutcome,
     pub verification: Option<String>,
+    /// The response body's optional `"revision"` field: the
+    /// packaging-revision id the archive published under, read as
+    /// tolerantly as `verification`.
+    pub revision: Option<String>,
 }
 
 impl RegistryApi {
@@ -159,8 +163,12 @@ impl RegistryApi {
         version: &semver::Version,
         metadata_json: &[u8],
         archive: &[u8],
+        new_revision: bool,
     ) -> Result<PublishReceipt, RegistryApiError> {
-        let url = self.package_route(name, version, "")?;
+        // The `--new-revision` opt-in rides as a query parameter so
+        // the route itself stays the immutable-unit address.
+        let suffix = if new_revision { "?new-revision=true" } else { "" };
+        let url = self.package_route(name, version, suffix)?;
         let body = encode_publish_body(metadata_json, archive)?;
         let request = self
             .request("PUT", &url)
@@ -176,9 +184,11 @@ impl RegistryApi {
                 });
             }
         };
+        let body = success_body(response);
         Ok(PublishReceipt {
             outcome,
-            verification: verification_field(response),
+            verification: body.as_ref().and_then(|b| b.verification.clone()),
+            revision: body.and_then(|b| b.revision),
         })
     }
 
@@ -235,6 +245,14 @@ impl RegistryApi {
         if !safe {
             return Err(RegistryApiError::UnsafePackageName {
                 name: name.to_owned(),
+            });
+        }
+        // Registry versions are plain upstream versions; the hosted
+        // routes reject build metadata, so refuse it before any
+        // request (and before a `+` lands un-encoded in a URL).
+        if !version.build.is_empty() {
+            return Err(RegistryApiError::VersionBuildMetadata {
+                version: version.to_string(),
             });
         }
         let relative = format!("api/v1/packages/{name}/{version}{suffix}");
@@ -333,6 +351,7 @@ impl RegistryApi {
                     409 => RegistryApiError::VersionConflict {
                         name: name.to_owned(),
                         version: version.to_string(),
+                        detail,
                     },
                     413 => RegistryApiError::ArchiveTooLarge { detail },
                     429 => RegistryApiError::RateLimited { retry_after_secs },
@@ -429,21 +448,21 @@ struct ErrorEntry {
 struct PublishSuccessBody {
     #[serde(default)]
     verification: Option<String>,
+    #[serde(default)]
+    revision: Option<String>,
 }
 
-/// Read a publish success body (capped like the error envelope) and
-/// extract its optional `"verification"` field tolerantly: a missing,
-/// oversized, or malformed body yields `None` rather than an error.
-fn verification_field(response: ureq::Response) -> Option<String> {
+/// Read a publish success body (capped like the error envelope)
+/// tolerantly: a missing, oversized, or malformed body yields `None`
+/// rather than an error.
+fn success_body(response: ureq::Response) -> Option<PublishSuccessBody> {
     let mut body = Vec::new();
     response
         .into_reader()
         .take(MAX_ERROR_BODY_BYTES as u64)
         .read_to_end(&mut body)
         .ok()?;
-    serde_json::from_slice::<PublishSuccessBody>(&body)
-        .ok()?
-        .verification
+    serde_json::from_slice::<PublishSuccessBody>(&body).ok()
 }
 
 /// Read a non-2xx response body (capped) and extract the first error
@@ -495,6 +514,23 @@ fn is_bidi_control(ch: char) -> bool {
         ch,
         '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
     )
+}
+
+/// The publish `409` explanation: the server's envelope detail
+/// verbatim when present - the refusal has several distinct causes
+/// (missing `--new-revision`, a resolver-metadata change, a
+/// revision-id collision, a racing conflict), and only the server
+/// knows which fired - with the opt-in guidance as the fallback for
+/// an envelope-less response.
+fn version_conflict_message(name: &str, version: &str, detail: Option<&String>) -> String {
+    match detail {
+        Some(detail) => format!("cannot publish `{name} {version}`: {detail}"),
+        None => format!(
+            "`{name} {version}` is already published with different bytes; published revisions \
+             are immutable - pass `--new-revision` to publish the changed bytes as a new \
+             packaging revision of this version, or bump the version"
+        ),
+    }
 }
 
 /// Append the server's envelope `detail` to a base message when one
@@ -592,11 +628,17 @@ pub enum RegistryApiError {
     #[error("`{name}@{version}` is not published on this registry")]
     NotFound { name: String, version: String },
 
+    #[error("{}", version_conflict_message(name, version, .detail.as_ref()))]
+    VersionConflict {
+        name: String,
+        version: String,
+        detail: Option<String>,
+    },
+
     #[error(
-        "`{name} {version}` is already published with different bytes; published versions are \
-         immutable - bump the version and publish again"
+        "version `{version}` carries build metadata; registry versions are plain upstream versions - drop the `+...` suffix"
     )]
-    VersionConflict { name: String, version: String },
+    VersionBuildMetadata { version: String },
 
     #[error("{}", with_detail(format!("registry API request failed: server returned {status}"), .detail.as_ref()))]
     ServerError { status: u16, detail: Option<String> },
@@ -725,7 +767,7 @@ mod tests {
             "acme/_foo",
         ] {
             let err = api
-                .publish(name, &version("1.0.0"), b"{}", b"")
+                .publish(name, &version("1.0.0"), b"{}", b"", false)
                 .unwrap_err();
             assert!(
                 matches!(err, RegistryApiError::UnsafePackageName { .. }),
@@ -737,6 +779,26 @@ mod tests {
                 "{name}: {err:?}"
             );
         }
+    }
+
+    /// Registry versions are plain upstream versions: a `+`-bearing
+    /// version is refused before any request on both mutation routes.
+    #[test]
+    fn build_metadata_versions_never_reach_the_wire() {
+        let api = RegistryApi::new("http://127.0.0.1:9", Some(token())).unwrap();
+        let versioned = version("1.3.1+cabin.1");
+        let err = api
+            .publish("fmtlib/fmt", &versioned, b"{}", b"", false)
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::VersionBuildMetadata { .. }),
+            "{err:?}"
+        );
+        let err = api.set_yanked("fmtlib/fmt", &versioned, true).unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::VersionBuildMetadata { .. }),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -853,7 +915,7 @@ mod tests {
 
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), metadata, archive)
+            .publish("fmtlib/fmt", &version("10.2.1"), metadata, archive, false)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         // No "verification" field: a registry without the lifecycle.
@@ -875,13 +937,34 @@ mod tests {
         assert_eq!(decoded_archive, archive);
     }
 
+    /// The `--new-revision` opt-in travels as a query parameter, and
+    /// the success body's `"revision"` field is read tolerantly.
+    #[test]
+    fn publish_new_revision_sends_the_query_parameter() {
+        let mock = MockApi::respond_with(
+            201,
+            r#"{"ok":true,"revision":"0011223344556677","verification":"pending"}"#,
+        );
+        let receipt = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", true)
+            .unwrap();
+        assert_eq!(receipt.outcome, PublishOutcome::Created);
+        assert_eq!(receipt.revision.as_deref(), Some("0011223344556677"));
+        let captured = mock.captured();
+        assert_eq!(
+            captured.path,
+            "/api/v1/packages/fmtlib/fmt/10.2.1?new-revision=true"
+        );
+    }
+
     /// The 200 path: byte-identical re-publish reports the no-op.
     #[test]
     fn publish_maps_200_to_already_published() {
         let mock = MockApi::respond_with(200, r#"{"ok":true,"no_op":true}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification, None);
@@ -899,7 +982,7 @@ mod tests {
         );
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification.as_deref(), Some("pending"));
@@ -908,7 +991,7 @@ mod tests {
             MockApi::respond_with(200, r#"{"ok":true,"no_op":true,"verification":"verified"}"#);
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::AlreadyPublished);
         assert_eq!(receipt.verification.as_deref(), Some("verified"));
@@ -918,31 +1001,64 @@ mod tests {
         let mock = MockApi::respond_with(201, "not json at all");
         let receipt = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap();
         assert_eq!(receipt.outcome, PublishOutcome::Created);
         assert_eq!(receipt.verification, None);
     }
 
-    /// 409: the version exists with different bytes and stays
-    /// immutable.
+    /// 409: the server's envelope detail is authoritative - the
+    /// refusal has several distinct causes and only the server knows
+    /// which fired, so the client must not paper over (say) an
+    /// invariance refusal with `--new-revision` advice.
     #[test]
     fn publish_maps_409_to_version_conflict() {
-        let mock = MockApi::respond_with(409, r#"{"errors":[{"detail":"checksum mismatch"}]}"#);
+        let mock = MockApi::respond_with(
+            409,
+            r#"{"errors":[{"detail":"a packaging revision must not change dependencies"}]}"#,
+        );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
-            RegistryApiError::VersionConflict { name, version } => {
+            RegistryApiError::VersionConflict {
+                name,
+                version,
+                detail,
+            } => {
                 assert_eq!(name, "fmtlib/fmt");
                 assert_eq!(version, "10.2.1");
+                assert_eq!(
+                    detail.as_deref(),
+                    Some("a packaging revision must not change dependencies")
+                );
             }
             other => panic!("expected VersionConflict, got {other:?}"),
         }
         let message = err.to_string();
+        assert!(
+            message.contains("must not change dependencies"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("--new-revision"),
+            "the fallback advice must not override the server's reason: {message}"
+        );
+    }
+
+    /// 409 without an envelope: the opt-in guidance fallback.
+    #[test]
+    fn publish_maps_an_envelope_less_409_to_the_opt_in_guidance() {
+        let mock = MockApi::respond_with(409, "conflict");
+        let err = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .unwrap_err();
+        let message = err.to_string();
         assert!(message.contains("different bytes"), "{message}");
         assert!(message.contains("immutable"), "{message}");
+        assert!(message.contains("--new-revision"), "{message}");
     }
 
     /// 401 without a token asks for a login; 401 despite one reports
@@ -953,7 +1069,7 @@ mod tests {
             MockApi::respond_with(401, r#"{"errors":[{"detail":"authentication required"}]}"#);
         let err = mock
             .client(None)
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::AuthRequired { .. }),
@@ -963,7 +1079,7 @@ mod tests {
 
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         assert!(
             matches!(err, RegistryApiError::TokenRejected { .. }),
@@ -992,7 +1108,7 @@ mod tests {
             let mock = MockApi::respond_with(403, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
                 .unwrap_err();
             match &err {
                 RegistryApiError::Forbidden {
@@ -1010,7 +1126,7 @@ mod tests {
         let mock = MockApi::respond_with(403, "no envelope here");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::Forbidden { detail: None, .. } => {}
@@ -1031,7 +1147,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
 
         let rendered = err.to_string();
@@ -1070,7 +1186,7 @@ mod tests {
             let mock = MockApi::respond_with(403, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
                 .unwrap_err();
             match &err {
                 RegistryApiError::QuotaExceeded { detail } => {
@@ -1106,7 +1222,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {
@@ -1125,7 +1241,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: Some(_) } => {}
@@ -1146,7 +1262,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -1169,7 +1285,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget {
@@ -1184,7 +1300,7 @@ mod tests {
         let mock = MockApi::respond_with(503, padded_envelope(MAX_ERROR_BODY_BYTES));
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::RegistryOverBudget { .. } => {}
@@ -1243,7 +1359,7 @@ mod tests {
             let mock = MockApi::respond_with(status, body);
             let err = mock
                 .client(Some(token()))
-                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+                .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
                 .unwrap_err();
             match &err {
                 RegistryApiError::ServerError { status: got, .. } => {
@@ -1291,7 +1407,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -1312,7 +1428,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::RateLimited {
@@ -1334,7 +1450,7 @@ mod tests {
         );
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: Some(_) } => {}
@@ -1350,7 +1466,7 @@ mod tests {
         let mock = MockApi::respond_with(413, "not an envelope");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::ArchiveTooLarge { detail: None } => {}
@@ -1367,7 +1483,7 @@ mod tests {
             MockApi::respond_with(400, r#"{"errors":[{"detail":"metadata name mismatch"}]}"#);
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         assert!(
             err.to_string().contains("metadata name mismatch"),
@@ -1377,7 +1493,7 @@ mod tests {
         let mock = MockApi::respond_with(400, "<html>not the envelope</html>");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::BadRequest { detail: None } => {}
@@ -1391,7 +1507,7 @@ mod tests {
         let mock = MockApi::respond_with(500, "garbage");
         let err = mock
             .client(Some(token()))
-            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes")
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
             .unwrap_err();
         match &err {
             RegistryApiError::ServerError {

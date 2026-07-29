@@ -465,7 +465,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     let output = cabin_resolver::resolve(&input, &index).context("dependency resolution failed")?;
 
-    let mut new_lockfile = lockfile_from_resolution(&output, &index);
+    let mut new_lockfile =
+        lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -957,7 +958,8 @@ pub(crate) fn run_artifact_pipeline(
     let output =
         cabin_resolver::resolve_packages(&input, &index).context("dependency resolution failed")?;
 
-    let mut new_lockfile = lockfile_from_resolution(&output, &index);
+    let mut new_lockfile =
+        lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -980,7 +982,7 @@ pub(crate) fn run_artifact_pipeline(
         }
     }
 
-    let plan = build_fetch_plan(&output, &index, &access)?;
+    let plan = build_fetch_plan(&output, &index, &access, &new_lockfile)?;
     let cache = ArtifactCache::new(request.cache_dir);
     let result = cabin_artifact::fetch(
         &plan,
@@ -1074,10 +1076,17 @@ pub(crate) fn load_http_index(
     Ok((index, client))
 }
 
-/// Build a [`FetchPlan`] from a resolver output and the index it ran
-/// against.  Each resolved registry package contributes exactly one
-/// fetch entry; the index is the source of truth for `source` and
-/// `checksum`.
+/// Build a [`FetchPlan`] from a resolver output, the index it ran
+/// against, and the lockfile the run just settled on.  Each resolved
+/// registry package contributes exactly one fetch entry.
+///
+/// The lockfile is the revision authority: its checksum names the
+/// packaging revision to materialize, and a pinned-but-superseded
+/// revision is fetched from its own `revisions` entry - that is the
+/// fetchability guarantee that keeps existing lockfiles building
+/// across respins.  A lockfile entry without a checksum (an index
+/// without revisions) falls back to the version-level fields and
+/// fails with the same missing-checksum error as before.
 ///
 /// `access` decides whether HTTP-resolved sources get downloaded
 /// here (so `cabin-artifact` stays HTTP-free) or whether the source
@@ -1086,6 +1095,7 @@ fn build_fetch_plan(
     output: &ResolveOutput,
     index: &PackageIndex,
     access: &IndexAccess,
+    lockfile: &Lockfile,
 ) -> Result<FetchPlan> {
     let mut entries = Vec::new();
     for resolved in &output.packages {
@@ -1106,20 +1116,45 @@ fn build_fetch_plan(
                 resolved.version
             )
         })?;
-        let source = meta.source.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "package `{} {}` has no source artifact in the index",
-                resolved.name.as_str(),
-                resolved.version
-            )
-        })?;
-        let checksum = meta.checksum.clone().ok_or_else(|| {
-            anyhow::anyhow!(
-                "missing checksum for `{} {}`; cabin fetch requires a sha256:<hex> entry in the index",
-                resolved.name.as_str(),
-                resolved.version
-            )
-        })?;
+        let pinned_checksum = lockfile
+            .find(&resolved.name)
+            .filter(|locked| locked.version == resolved.version)
+            .and_then(|locked| locked.checksum.clone());
+        let (source, checksum) = match pinned_checksum {
+            Some(pinned) => {
+                let revision = meta
+                    .revisions
+                    .values()
+                    .find(|rev| rev.checksum == pinned)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "the lockfile pins `{} {}` to a packaging revision with checksum \
+                             {pinned} which the index no longer lists; run `cabin update` if the \
+                             index is the intended source",
+                            resolved.name.as_str(),
+                            resolved.version
+                        )
+                    })?;
+                (&revision.source, pinned)
+            }
+            None => {
+                let source = meta.source.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "package `{} {}` has no source artifact in the index",
+                        resolved.name.as_str(),
+                        resolved.version
+                    )
+                })?;
+                let checksum = meta.checksum.clone().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing checksum for `{} {}`; cabin fetch requires a sha256:<hex> entry in the index",
+                        resolved.name.as_str(),
+                        resolved.version
+                    )
+                })?;
+                (source, checksum)
+            }
+        };
         let fetch_source = match (source, access) {
             (cabin_index::SourceLocation::LocalPath(p), _) => {
                 cabin_artifact::FetchSource::LocalArchive(p.clone())
@@ -1177,7 +1212,12 @@ pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lock
     }
 }
 
-fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::PackageIndex) -> Lockfile {
+fn lockfile_from_resolution(
+    output: &ResolveOutput,
+    index: &cabin_index::PackageIndex,
+    previous: Option<&Lockfile>,
+    mode: &cabin_resolver::ResolveMode,
+) -> Lockfile {
     // We need each resolved package's transitive deps to write the
     // lockfile's `dependencies = [...]` field.  The resolver doesn't
     // surface the dep edges directly, so we read them off the index
@@ -1208,10 +1248,26 @@ fn lockfile_from_resolution(output: &ResolveOutput, index: &cabin_index::Package
             .cloned()
             .collect();
         deps.sort();
+        // A previously pinned packaging revision is kept while it is
+        // still published, exactly like a locked version: someone
+        // else's respin must never churn this lockfile.  The update
+        // modes deliberately move to the current revision - that is
+        // what `cabin update` is for - and a pin the index no longer
+        // lists falls back to the current revision the same way a
+        // vanished version falls back to a fresh selection.
+        let kept_pin = match mode {
+            cabin_resolver::ResolveMode::UpdateAll => None,
+            cabin_resolver::ResolveMode::UpdatePackage(updated) if updated == &pkg.name => None,
+            _ => previous
+                .and_then(|prev| prev.find(&pkg.name))
+                .filter(|locked| locked.version == pkg.version)
+                .and_then(|locked| locked.checksum.clone())
+                .filter(|pin| meta.revisions.values().any(|rev| &rev.checksum == pin)),
+        };
         packages.push(LockedPackage {
             name: pkg.name.clone(),
             version: pkg.version.clone(),
-            checksum: meta.checksum.clone(),
+            checksum: kept_pin.or_else(|| meta.checksum.clone()),
             dependencies: deps,
         });
     }

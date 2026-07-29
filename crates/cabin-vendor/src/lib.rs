@@ -6,8 +6,9 @@
 //! materialized vendor directory is an existing
 //! [`cabin_registry_file::FileRegistry`] layout
 //! (`<vendor>/config.json`, `<vendor>/packages/<name>.json`,
-//! `<vendor>/artifacts/<name>/<name>-<version>.zip`),
-//! populated only with the versions the build needs.
+//! `<vendor>/artifacts/<name>/<name>-<version>-<revision>.zip`),
+//! populated only with the versions - at exactly the lockfile-pinned
+//! packaging revisions - the build needs.
 //!
 //! This means an offline workflow needs no new resolver, no new
 //! registry protocol, and no new on-disk format:
@@ -287,8 +288,15 @@ pub fn materialize(
                 });
             }
 
-            let artifact_path = registry.artifact_path(&entry.name, &entry.version);
-            let artifact_relative = registry.relative_source_path(&entry.name, &entry.version);
+            // The vendored revision is the one the plan's checksum
+            // names - the lockfile-pinned revision the fetch
+            // materialized.
+            let revision = cabin_core::registry::packaging_revision_from_sha256_hex(expected_hex)
+                .expect("a parsed sha256 digest always yields a revision id")
+                .to_owned();
+            let artifact_path = registry.artifact_path(&entry.name, &entry.version, &revision);
+            let artifact_relative =
+                registry.relative_source_path(&entry.name, &entry.version, &revision);
             let written = copy_archive_if_changed(
                 &entry.archive_source,
                 &artifact_path,
@@ -297,19 +305,20 @@ pub fn materialize(
                 &entry.version,
             )?;
 
-            // Build the per-version JSON: copy the source's
-            // entry verbatim, then rewrite `source.path` so it
-            // points at the new vendor-relative artifact path.
+            // Build the per-version JSON: copy the source's entry
+            // verbatim, then reduce its revision axis to exactly the
+            // vendored revision (a vendor directory reproduces the
+            // pinned revision; other revisions' artifacts are not
+            // here) and point that revision's `source.path` at the
+            // vendor-relative artifact path.
             let mut version_value = entry.index_entry.clone();
-            rewrite_source_path(
+            rewrite_vendored_revision(
                 &mut version_value,
+                &revision,
                 &artifact_relative,
                 &entry.name,
                 &entry.version,
             )?;
-            // Only the vendor's own relative source path is
-            // meaningful to the file-registry reader; the
-            // remaining fields are kept as-is.
             version_entries.insert(entry.version.to_string(), version_value);
 
             summary_entries.push(VendorSummaryEntry {
@@ -380,7 +389,8 @@ pub struct VendorSummaryEntry {
     pub name: String,
     pub version: String,
     pub checksum: String,
-    /// Vendor-root-relative path to the artifact (`artifacts/<name>/<name>-<version>.zip`).
+    /// Vendor-root-relative path to the artifact
+    /// (`artifacts/<name>/<name>-<version>-<revision>.zip`).
     pub source: String,
 }
 
@@ -604,37 +614,47 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
 /// written).  A structurally malformed entry is an error: copying
 /// it through verbatim would leave the vendored index pointing at
 /// the original location, silently breaking offline use.
-fn rewrite_source_path(
+fn rewrite_vendored_revision(
     value: &mut serde_json::Value,
+    revision: &str,
     relative: &str,
     name: &PackageName,
     version: &semver::Version,
 ) -> Result<(), VendorError> {
-    let malformed = |reason: &str| VendorError::MalformedIndexEntry {
+    let malformed = |reason: String| VendorError::MalformedIndexEntry {
         name: name.as_str().to_owned(),
         version: version.to_string(),
-        reason: reason.to_owned(),
+        reason,
     };
     let obj = value
         .as_object_mut()
-        .ok_or_else(|| malformed("the version entry is not a JSON object"))?;
-    // The placeholder `path` keeps the created block's key order
-    // canonical (`type`, `path`, `format`): serde_json runs with
-    // `preserve_order`, and the insert below replaces the value
-    // in place.
-    let source = obj.entry("source").or_insert_with(|| {
-        serde_json::json!({
-            "type": "archive",
-            "path": "",
-            "format": "zip",
-        })
-    });
-    let source = source
+        .ok_or_else(|| malformed("the version entry is not a JSON object".to_owned()))?;
+    let mut kept = obj
+        .get("revisions")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|revisions| revisions.get(revision))
+        .cloned()
+        .ok_or_else(|| {
+            malformed(format!(
+                "the version entry does not list vendored revision `{revision}` in `revisions`"
+            ))
+        })?;
+    let source = kept
         .as_object_mut()
-        .ok_or_else(|| malformed("`source` is not a JSON object"))?;
+        .and_then(|rev| rev.get_mut("source"))
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| malformed(format!("revision `{revision}` has no `source` object")))?;
     source.insert(
         "path".to_owned(),
         serde_json::Value::String(relative.to_owned()),
+    );
+    obj.insert(
+        "revision".to_owned(),
+        serde_json::Value::String(revision.to_owned()),
+    );
+    obj.insert(
+        "revisions".to_owned(),
+        serde_json::json!({ revision: kept }),
     );
     Ok(())
 }
@@ -669,59 +689,107 @@ mod tests {
         (file.to_path_buf(), format!("sha256:{hex}"))
     }
 
+    fn rev(checksum: &str) -> &str {
+        &checksum.strip_prefix("sha256:").unwrap()[..16]
+    }
+
     fn entry(name: &str, version: &str, archive: PathBuf, checksum: String) -> VendorEntry {
+        // Malformed checksums (the invalid-checksum test) still get a
+        // fixture revision id; materialize rejects them first.
+        let revision = checksum
+            .strip_prefix("sha256:")
+            .and_then(|hex| hex.get(..16))
+            .unwrap_or("aaaaaaaaaaaaaaaa")
+            .to_owned();
         VendorEntry {
             name: pkg(name),
             version: ver(version),
-            checksum,
             archive_source: archive,
             index_entry: serde_json::json!({
                 "dependencies": {},
                 "yanked": false,
-                "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                "source": {
-                    "type": "archive",
-                    "path": "/abs/host/leak/path.zip",
-                    "format": "zip",
+                "revision": revision,
+                "revisions": {
+                    revision: {
+                        "checksum": checksum,
+                        "published-at": "2026-01-01T00:00:00Z",
+                        "source": {
+                            "type": "archive",
+                            "path": "/abs/host/leak/path.zip",
+                            "format": "zip",
+                        },
+                    },
                 },
             }),
+            checksum,
         }
     }
 
+    /// The vendored entry keeps exactly the fetched revision (other
+    /// revisions' artifacts are not in the vendor directory) with its
+    /// `source.path` rewritten to the vendor-relative artifact.
     #[test]
-    fn rewrite_source_path_creates_missing_source_block() {
-        // Index entries without a `source` block are schema-legal
-        // (resolver-only entries); the vendored copy must still
-        // point at the archive vendor just wrote.
-        let mut value = serde_json::json!({"dependencies": {}, "yanked": false});
-        rewrite_source_path(
+    fn rewrite_keeps_only_the_vendored_revision() {
+        let revision = "aaaaaaaaaaaaaaaa";
+        let other = "bbbbbbbbbbbbbbbb";
+        let mut value = serde_json::json!({
+            "dependencies": {},
+            "yanked": false,
+            "revision": other,
+            "revisions": {
+                revision: {
+                    "checksum": format!("sha256:{}", "a".repeat(64)),
+                    "published-at": "2026-01-01T00:00:00Z",
+                    "source": {"type": "archive", "path": "/leak.zip", "format": "zip"},
+                },
+                other: {
+                    "checksum": format!("sha256:{}", "b".repeat(64)),
+                    "published-at": "2026-02-01T00:00:00Z",
+                    "source": {"type": "archive", "path": "/leak2.zip", "format": "zip"},
+                },
+            },
+        });
+        rewrite_vendored_revision(
             &mut value,
-            "../artifacts/fmt/fmt-10.2.1.zip",
+            revision,
+            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip",
             &pkg("fmt"),
             &ver("10.2.1"),
         )
         .unwrap();
+        assert_eq!(value["revision"], revision);
+        let revisions = value["revisions"].as_object().unwrap();
+        assert_eq!(revisions.len(), 1);
         assert_eq!(
-            value["source"],
-            serde_json::json!({
-                "type": "archive",
-                "path": "../artifacts/fmt/fmt-10.2.1.zip",
-                "format": "zip",
-            })
+            revisions[revision]["source"]["path"],
+            "../artifacts/fmt/fmt-10.2.1-aaaaaaaaaaaaaaaa.zip"
         );
     }
 
+    /// An index entry that does not list the fetched revision cannot
+    /// be vendored coherently; refuse rather than invent one.
     #[test]
-    fn rewrite_source_path_rejects_non_object_source() {
-        let mut value = serde_json::json!({"source": "not-an-object"});
-        let err =
-            rewrite_source_path(&mut value, "../a.zip", &pkg("fmt"), &ver("10.2.1")).unwrap_err();
-        match err {
-            VendorError::MalformedIndexEntry { name, version, .. } => {
-                assert_eq!(name, "fmt");
-                assert_eq!(version, "10.2.1");
+    fn rewrite_rejects_entries_without_the_vendored_revision() {
+        for value in [
+            serde_json::json!({"dependencies": {}, "yanked": false}),
+            serde_json::json!({"revisions": {"aaaaaaaaaaaaaaaa": "not-an-object"}}),
+        ] {
+            let mut value = value;
+            let err = rewrite_vendored_revision(
+                &mut value,
+                "aaaaaaaaaaaaaaaa",
+                "../a.zip",
+                &pkg("fmt"),
+                &ver("10.2.1"),
+            )
+            .unwrap_err();
+            match err {
+                VendorError::MalformedIndexEntry { name, version, .. } => {
+                    assert_eq!(name, "fmt");
+                    assert_eq!(version, "10.2.1");
+                }
+                other => panic!("expected MalformedIndexEntry, got {other:?}"),
             }
-            other => panic!("expected MalformedIndexEntry, got {other:?}"),
         }
     }
 
@@ -775,6 +843,7 @@ mod tests {
         let vendor = assert_fs::TempDir::new().unwrap();
         let (a1, c1) = write_archive(&cache, "fmt", "10.1.0", b"hello");
         let (a2, c2) = write_archive(&cache, "fmt", "10.2.1", b"world");
+        let (r1, r2) = (rev(&c1).to_owned(), rev(&c2).to_owned());
         let plan = VendorPlan::new(vec![
             entry("fmt", "10.2.1", a2, c2),
             entry("fmt", "10.1.0", a1, c1),
@@ -801,13 +870,13 @@ mod tests {
         assert!(
             report
                 .vendor_dir
-                .join("artifacts/fmt/fmt-10.1.0.zip")
+                .join(format!("artifacts/fmt/fmt-10.1.0-{r1}.zip"))
                 .is_file()
         );
         assert!(
             report
                 .vendor_dir
-                .join("artifacts/fmt/fmt-10.2.1.zip")
+                .join(format!("artifacts/fmt/fmt-10.2.1-{r2}.zip"))
                 .is_file()
         );
         assert!(report.vendor_dir.join(VENDOR_SUMMARY_FILENAME).is_file());
@@ -816,8 +885,8 @@ mod tests {
         // vendor-relative form and never leaks the original
         // `/abs/host/leak/path.zip` value.
         let body = fs::read_to_string(report.vendor_dir.join("packages/fmt.json")).unwrap();
-        assert!(body.contains("../artifacts/fmt/fmt-10.1.0.zip"));
-        assert!(body.contains("../artifacts/fmt/fmt-10.2.1.zip"));
+        assert!(body.contains(&format!("../artifacts/fmt/fmt-10.1.0-{r1}.zip")));
+        assert!(body.contains(&format!("../artifacts/fmt/fmt-10.2.1-{r2}.zip")));
         assert!(!body.contains("/abs/host/leak"));
         // SemVer order: 10.1.0 before 10.2.1 in the rendered
         // JSON, so a future on-disk diff stays scannable.
@@ -869,7 +938,12 @@ mod tests {
             }
             other => panic!("expected ChecksumMismatch, got {other:?}"),
         }
-        assert!(!vendor.path().join("artifacts/fmt/fmt-10.2.1.zip").exists());
+        assert!(
+            !vendor
+                .path()
+                .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", "0".repeat(16)))
+                .exists()
+        );
     }
 
     #[test]
@@ -891,7 +965,9 @@ mod tests {
         // Pre-populate the vendor directory with the *correct*
         // archive byte stream - this is what a re-run after a
         // partial earlier vendor invocation looks like.
-        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.zip");
+        let target = vendor
+            .path()
+            .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::copy(&archive, &target).unwrap();
 
@@ -907,7 +983,9 @@ mod tests {
         let (archive, checksum) = write_archive(&cache, "fmt", "10.2.1", b"new");
         // Pre-seed a stale artifact whose hash differs from
         // what the plan requires.  Vendor must refuse.
-        let target = vendor.path().join("artifacts/fmt/fmt-10.2.1.zip");
+        let target = vendor
+            .path()
+            .join(format!("artifacts/fmt/fmt-10.2.1-{}.zip", rev(&checksum)));
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, b"stale").unwrap();
 
@@ -918,9 +996,11 @@ mod tests {
                 // Match by suffix because the vendor canonicalizes
                 // its root, which on macOS turns `/var/...` into
                 // `/private/var/...`.  The relative tail is what
-                // matters for the diagnostic.
+                // matters for the diagnostic; normalize separators
+                // so the Windows legs compare the same tail.
+                let rendered = path.to_string_lossy().replace('\\', "/");
                 assert!(
-                    path.ends_with("artifacts/fmt/fmt-10.2.1.zip"),
+                    rendered.contains("artifacts/fmt/fmt-10.2.1-"),
                     "stale-artifact path should point at the destination archive, got: {}",
                     path.display()
                 );

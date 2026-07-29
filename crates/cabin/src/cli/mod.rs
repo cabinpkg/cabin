@@ -937,6 +937,14 @@ pub(crate) struct PublishArgs {
     #[arg(long, value_name = "URL", conflicts_with = "registry_dir")]
     pub index_url: Option<String>,
 
+    /// Publish changed bytes for an already-published version as a
+    /// new packaging revision of that version.  Without this flag,
+    /// republishing a version with different bytes fails - published
+    /// revisions are immutable, and an accidental respin usually
+    /// means a forgotten version bump.
+    #[arg(long)]
+    pub new_revision: bool,
+
     /// Output format for the publish or dry-run report.
     #[arg(long, value_name = "FORMAT", default_value = "human")]
     pub format: ResolveFormat,

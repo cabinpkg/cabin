@@ -115,6 +115,15 @@ pub enum ResolveError {
         actual: String,
     },
 
+    #[error(
+        "locked package {name:?} {version} has no checksum, so it pins no packaging revision of the version in the index"
+    )]
+    #[diagnostic(
+        code(cabin::resolver::error),
+        help("run `cabin resolve` to re-lock the package with its revision checksum")
+    )]
+    LockedChecksumMissing { name: String, version: String },
+
     #[error("unsupported version requirement for package {package:?}: {requirement}")]
     #[diagnostic(
         code(cabin::resolver::error),

@@ -61,17 +61,33 @@ pub(crate) fn validate_locked_metadata(
     // The lockfile checksum pins a packaging revision; a superseded
     // revision is still valid (published revisions stay fetchable),
     // so the pin must match *some* revision, not the current one.
-    // Checksum-free entries (resolver-only fixtures) skip the check,
-    // as does a checksum-free lockfile record.
-    if let (Some(locked_ck), Some(current_ck)) = (&locked.checksum, &meta.checksum)
-        && !meta.revisions.values().any(|rev| &rev.checksum == locked_ck)
-    {
-        return Err(ResolveError::LockedChecksumMismatch {
-            name: name.as_str().to_owned(),
-            version: locked.version.to_string(),
-            expected: locked_ck.clone(),
-            actual: current_ck.clone(),
-        });
+    // Entries for an index version without revisions (resolver-only
+    // fixtures) skip both checks - such a version cannot be fetched
+    // at all, so there is no revision to pin.
+    match (&locked.checksum, &meta.checksum) {
+        (Some(locked_ck), Some(current_ck))
+            if !meta.revisions.values().any(|rev| &rev.checksum == locked_ck) =>
+        {
+            return Err(ResolveError::LockedChecksumMismatch {
+                name: name.as_str().to_owned(),
+                version: locked.version.to_string(),
+                expected: locked_ck.clone(),
+                actual: current_ck.clone(),
+            });
+        }
+        // A checksum-free lockfile record cannot name a revision of a
+        // version that has them: falling back to the current revision
+        // would silently break the locked-reproduction guarantee, so
+        // this path (only reachable via a hand-edited lockfile) is a
+        // hard error in `Locked` mode - the only mode that runs this
+        // validation.
+        (None, Some(_)) => {
+            return Err(ResolveError::LockedChecksumMissing {
+                name: name.as_str().to_owned(),
+                version: locked.version.to_string(),
+            });
+        }
+        _ => {}
     }
     Ok(())
 }

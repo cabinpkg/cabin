@@ -24,6 +24,10 @@ pub struct RegistryPublishWorkflow<'a> {
     /// Raw `[workspace.<kind>-dependencies]` strings for archive
     /// normalization.  Standalone callers pass the empty default.
     pub workspace_dep_requirements: cabin_core::WorkspaceDepRequirements,
+    /// The `--new-revision` opt-in, threaded to the file-registry
+    /// writer: allow changed bytes for an already-published version
+    /// to land as a new packaging revision.
+    pub new_revision: bool,
 }
 
 /// What [`publish_to_file_registry`] / its dry-run sibling decided
@@ -41,6 +45,12 @@ pub struct RegistryPublishReport {
     pub registry_modified: bool,
     pub registry_initialized: bool,
     pub dry_run: bool,
+    /// The packaging-revision id the archive published under (the
+    /// checksum's leading hex prefix).
+    pub revision: String,
+    /// Whether the publish was a byte-identical republication that
+    /// mapped onto the already-recorded revision.
+    pub no_op: bool,
     /// Non-rejecting standard-compatibility lint messages (PL2, PL3)
     /// the CLI prints to stderr; the publish proceeded regardless.
     /// Deterministically ordered (by target, then `c` before `c++`).
@@ -54,7 +64,7 @@ pub struct RegistryPublishReport {
 /// (propagated from `stage_with_project`), or
 /// [`PublishError::Registry`] when the registry write fails -
 /// propagated from `publish_to_registry` (unsafe package name,
-/// duplicate version, registry config/index problems, or I/O).
+/// a respin without the opt-in, registry config/index problems, or I/O).
 pub fn publish_to_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
@@ -72,6 +82,7 @@ pub fn publish_to_file_registry(
     let outcome = publish_to_registry(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
+        new_revision: workflow.new_revision,
     })?;
     Ok(into_report(staged, outcome, false, warnings))
 }
@@ -85,7 +96,7 @@ pub fn publish_to_file_registry(
 /// (propagated from `stage_with_project`), or
 /// [`PublishError::Registry`] when a pre-write check fails -
 /// propagated from `validate_publish` (unsafe package name,
-/// duplicate version, or registry config/index problems).
+/// a respin without the opt-in, or registry config/index problems).
 pub fn dry_run_against_file_registry(
     workflow: RegistryPublishWorkflow<'_>,
 ) -> Result<RegistryPublishReport, PublishError> {
@@ -101,6 +112,7 @@ pub fn dry_run_against_file_registry(
     let outcome = validate_publish(&RegistryPublishRequest {
         registry_dir: workflow.registry_dir,
         staged: &staged,
+        new_revision: workflow.new_revision,
     })?;
     Ok(into_report(staged, outcome, true, warnings))
 }
@@ -244,6 +256,8 @@ fn into_report(
         registry_modified: outcome.registry_modified,
         registry_initialized: outcome.registry_initialized,
         dry_run,
+        revision: outcome.revision,
+        no_op: outcome.no_op,
         warnings,
     }
 }
@@ -267,6 +281,7 @@ mod tests {
             registry_dir: registry.path(),
             resolved_project: None,
             workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+            new_revision: false,
         })
         .unwrap();
         assert_eq!(report.name.as_str(), "fmtlib/fmt");
@@ -276,9 +291,13 @@ mod tests {
         assert!(!report.dry_run);
         assert!(report.package_index_path.is_file());
         assert!(report.artifact_path.is_file());
+        assert_eq!(report.revision, report.checksum["sha256:".len()..][..16].to_owned());
         assert_eq!(
             report.source_path,
-            "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"
+            format!(
+                "../../artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-{}.zip",
+                report.revision
+            )
         );
     }
 
@@ -295,6 +314,7 @@ mod tests {
             registry_dir: registry.path(),
             resolved_project: None,
             workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+            new_revision: false,
         })
         .unwrap();
         assert!(!report.registry_modified);
@@ -320,6 +340,7 @@ mod tests {
             registry_dir: registry.path(),
             resolved_project: None,
             workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+            new_revision: false,
         };
         let err = publish_to_file_registry(workflow()).unwrap_err();
         assert!(matches!(err, PublishError::BarePackageName { .. }));
@@ -346,6 +367,7 @@ mod tests {
                 registry_dir: registry.path(),
                 resolved_project: None,
                 workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+                new_revision: false,
             }
         };
         // Bare, and scoped-but-local spellings the hosted grammar

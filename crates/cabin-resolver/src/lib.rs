@@ -1069,6 +1069,25 @@ mod tests {
         ));
     }
 
+    /// A locked entry without a checksum cannot pin a revision of a
+    /// version that has them; `--locked` refuses rather than falling
+    /// back to the current revision.
+    #[test]
+    fn locked_mode_requires_a_checksum_when_the_version_has_revisions() {
+        let mut index = build_index(vec![entry("fmt", vec![("10.2.1", vec![], false)])]);
+        inject_revisions(&mut index, "fmt", &[REV_A]);
+        let input = input_with_locked(
+            vec![("fmt", "*")],
+            vec![("fmt", "10.2.1")],
+            ResolveMode::Locked,
+        );
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(matches!(
+            err,
+            ResolveError::LockedChecksumMissing { name, .. } if name == "fmt"
+        ));
+    }
+
     /// The lockfile checksum pins a packaging revision, and a
     /// superseded revision stays valid: published revisions remain
     /// fetchable, so a respin must never break `--locked` builds
