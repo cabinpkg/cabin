@@ -93,6 +93,15 @@ pub struct ResolvedPackageFeatures {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FeatureResolution {
     pub per_package: BTreeMap<usize, ResolvedPackageFeatures>,
+    /// The packages actually included in resolution: the selected
+    /// roots plus every package reached through active dependency
+    /// edges (non-optional or feature-enabled, platform-matching,
+    /// dev edges only where activated).  `per_package` is seeded
+    /// for every graph index, so this - not its key set - is the
+    /// exact reachable set; consumers that must not observe
+    /// disabled optional path dependencies (the `links` uniqueness
+    /// check) scope to it.
+    pub included: BTreeSet<usize>,
 }
 
 impl FeatureResolution {
@@ -300,6 +309,45 @@ pub fn resolve_features(
     }
 
     Ok(state.finalize())
+}
+
+/// Feature resolution over patch-fork islands: roots the ordinary
+/// selection never reaches, so no selected package carries a
+/// feature request onto them.
+///
+/// The pass deliberately under-approximates by seeding the islands
+/// with no request at all (defaults off, nothing explicit, dev
+/// edges inactive), so only mandatory members - the roots and the
+/// non-optional dependencies reached under *every* possible
+/// incoming edge request - are `included`.  The real request
+/// belongs to the dependents' edges (`features` /
+/// `default-features`), which the callers' resolution layer does
+/// not interpret for index edges - and assuming any particular
+/// request (defaults, say) would include packages the real edges
+/// disable.  Exact, edge-aware consumers must re-resolve over the
+/// final graph once those edges are known.
+///
+/// # Errors
+/// Propagates [`resolve_features`]'s worklist errors.  The empty
+/// request cannot raise `UnknownRootFeature`, but the islands'
+/// own feature tables still drain: a fork's manifest can carry
+/// any of the other [`FeatureResolverError`] variants.
+pub fn resolve_fork_island_features(
+    graph: &PackageGraph,
+    fork_roots: &[usize],
+    platform: &TargetPlatform,
+) -> Result<FeatureResolution, FeatureResolverError> {
+    resolve_features(
+        graph,
+        fork_roots,
+        &RootFeatureRequest {
+            include_defaults: false,
+            all_features: false,
+            explicit_features: BTreeSet::new(),
+        },
+        platform,
+        &BTreeSet::new(),
+    )
 }
 
 #[derive(Debug)]
@@ -704,6 +752,7 @@ impl ResolverState {
     fn finalize(self) -> FeatureResolution {
         FeatureResolution {
             per_package: self.per_package,
+            included: self.included,
         }
     }
 }

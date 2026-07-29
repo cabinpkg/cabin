@@ -41,8 +41,8 @@ use cabin_workspace::collect_patched_versioned_deps;
 
 use crate::cli::{
     ArtifactPipelineRequest, WorkspaceSelectionArgs, absolutise, build_selection_request,
-    build_workspace_selection, closure_has_versioned_deps_excluding_patches,
-    compute_feature_resolution, resolve_invocation_manifest, run_artifact_pipeline,
+    build_workspace_selection, compute_feature_resolution, resolve_invocation_manifest,
+    run_artifact_pipeline,
 };
 use crate::plural;
 
@@ -154,18 +154,31 @@ pub(crate) fn vendor(
         &selection_request,
         &BTreeSet::new(),
     )?;
-
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let patched_root_deps_preview =
-        collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    let has_versioned = !patched_root_deps_preview.is_empty()
-        || closure_has_versioned_deps_excluding_patches(
+    let closure_deps_preview =
+        crate::cli::resolve::collect_closure_versioned_deps_excluding_patches(
             &initial_graph,
             &resolved_selection,
             &initial_features,
             &patched_names,
             &dev_for,
-        );
+        )?;
+    let patched_root_deps_preview = collect_patched_versioned_deps(
+        &active_patches,
+        &patched_names,
+        &closure_deps_preview.referenced_excluded,
+    )?;
+    // The empty-plan arm below never reaches the artifact pipeline,
+    // so validate local claims - activated patch forks' included -
+    // before it can short-circuit.
+    crate::cli::resolve::enforce_seed_links_uniqueness(
+        &initial_graph,
+        &initial_features,
+        &active_patches,
+        &patched_root_deps_preview.activated,
+    )?;
+    let has_versioned =
+        !patched_root_deps_preview.deps.is_empty() || !closure_deps_preview.deps.is_empty();
 
     let vendor_dir = resolve_vendor_dir(args, &manifest_path)?;
 

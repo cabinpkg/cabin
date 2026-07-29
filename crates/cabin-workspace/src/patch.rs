@@ -160,6 +160,14 @@ fn active_versioned_req<'a>(
 /// resolver can prove them enabled, target predicates are evaluated
 /// against the host, and patched names are excluded.
 ///
+/// Only patches in `referenced_names` contribute - the names the
+/// closure walk actually reached on active edges.  A `[patch]`
+/// entry for a package this invocation never depends on is dormant
+/// and must not inject dependencies (phantom fetches, lockfile
+/// entries, false `links` collisions).  A referenced patch whose
+/// own deps reach another patched name activates that patch too
+/// (chains resolve to a fixed point).
+///
 /// # Errors
 /// Returns [`crate::WorkspaceError::IncompatibleWorkspaceRequirements`]
 /// when the requirements collected for a single dependency name
@@ -168,16 +176,29 @@ fn active_versioned_req<'a>(
 pub fn collect_patched_versioned_deps(
     active_patches: &ActivePatchSet,
     excluded_names: &BTreeSet<String>,
-) -> Result<BTreeMap<PackageName, semver::VersionReq>, crate::WorkspaceError> {
+    referenced_names: &BTreeSet<String>,
+) -> Result<PatchedVersionedDeps, crate::WorkspaceError> {
     let host_platform = cabin_core::TargetPlatform::current();
     let mut combined: BTreeMap<PackageName, Vec<String>> = BTreeMap::new();
 
-    for patch in active_patches {
+    let mut worklist: Vec<&ActivePatch> = active_patches
+        .into_iter()
+        .filter(|patch| referenced_names.contains(patch.name.as_str()))
+        .collect();
+    let mut folded: BTreeSet<&str> = worklist.iter().map(|patch| patch.name.as_str()).collect();
+    while let Some(patch) = worklist.pop() {
         for dep in &patch.package.dependencies {
             let Some(req) = active_versioned_req(dep, &host_platform) else {
                 continue;
             };
             if excluded_names.contains(dep.name.as_str()) {
+                if folded.insert(dep.name.as_str())
+                    && let Some(chained) = active_patches
+                        .into_iter()
+                        .find(|candidate| candidate.name.as_str() == dep.name.as_str())
+                {
+                    worklist.push(chained);
+                }
                 continue;
             }
             combined
@@ -186,7 +207,19 @@ pub fn collect_patched_versioned_deps(
                 .push(req.to_string());
         }
     }
+    let activated: BTreeSet<String> = folded.into_iter().map(str::to_owned).collect();
 
+    Ok(PatchedVersionedDeps {
+        deps: combine_folded_reqs(combined)?,
+        activated,
+    })
+}
+
+/// Combine the per-name requirement lists a fold collected into
+/// single [`semver::VersionReq`]s.
+fn combine_folded_reqs(
+    combined: BTreeMap<PackageName, Vec<String>>,
+) -> Result<BTreeMap<PackageName, semver::VersionReq>, crate::WorkspaceError> {
     let mut out = BTreeMap::new();
     for (name, mut reqs) in combined {
         reqs.sort();
@@ -202,6 +235,133 @@ pub fn collect_patched_versioned_deps(
         out.insert(name, parsed);
     }
     Ok(out)
+}
+
+/// Versioned dependencies declared across an activated fork island -
+/// the `included` graph indices of a fork-island feature pass.
+///
+/// [`collect_patched_versioned_deps`] reads the fork manifests
+/// alone, so a registry dependency declared by a fork's *path
+/// dependency* is invisible to it - and for a solution-discovered
+/// fork the ordinary selection-closure pass ran before the fork was
+/// reachable, so nothing else folds such a dependency and the final
+/// reload would drop its edge without a diagnostic.  The caller
+/// supplies `included` from a fork-island feature resolution (this
+/// crate sits below the feature resolver), which keeps the fold on
+/// the same policy as fork `links` claims: feature-disabled optional
+/// members never build, so their registry dependencies stay out.
+///
+/// A dependency naming an `excluded_names` (patched) package chains
+/// that patch into `activated` instead of folding a requirement,
+/// and a patched fork whose graph index already sits in `included`
+/// (the loader stitches chained forks behind resolved edges) is
+/// reported as activated too; callers iterate island passes to a
+/// fixed point.
+///
+/// # Errors
+/// Same as [`collect_patched_versioned_deps`].
+pub fn collect_island_versioned_deps(
+    graph: &PackageGraph,
+    active_patches: &ActivePatchSet,
+    included: &BTreeSet<usize>,
+    excluded_names: &BTreeSet<String>,
+) -> Result<PatchedVersionedDeps, crate::WorkspaceError> {
+    let host_platform = cabin_core::TargetPlatform::current();
+    let mut combined: BTreeMap<PackageName, Vec<String>> = BTreeMap::new();
+    let mut activated: BTreeSet<String> = active_patches
+        .into_iter()
+        .filter(|patch| {
+            graph
+                .index_of(patch.name.as_str())
+                .is_some_and(|idx| included.contains(&idx))
+        })
+        .map(|patch| patch.name.as_str().to_owned())
+        .collect();
+    for &idx in included {
+        for dep in &graph.packages[idx].package.dependencies {
+            let Some(req) = active_versioned_req(dep, &host_platform) else {
+                continue;
+            };
+            if excluded_names.contains(dep.name.as_str()) {
+                activated.insert(dep.name.as_str().to_owned());
+                continue;
+            }
+            combined
+                .entry(dep.name.clone())
+                .or_default()
+                .push(req.to_string());
+        }
+    }
+    Ok(PatchedVersionedDeps {
+        deps: combine_folded_reqs(combined)?,
+        activated,
+    })
+}
+
+/// [`collect_patched_versioned_deps`]'s result: the folded
+/// requirements plus every patch the fold actually reached - the
+/// referenced seed AND the patches discovered through fork
+/// dependency chains.  Consumers that attribute per-patch state
+/// (fork `links` claims, upstream-claim suppression) must use
+/// `activated`, not the seed, or a chained fork's claims vanish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatchedVersionedDeps {
+    pub deps: BTreeMap<PackageName, semver::VersionReq>,
+    pub activated: BTreeSet<String>,
+}
+
+/// Graph indices of the `activated` patches' fork packages - the
+/// seed both [`activated_patch_closure`] and the CLI's feature-aware
+/// fork claim pass grow from, extracted so "which forks count as
+/// activated" is decided once.
+#[must_use]
+pub fn activated_fork_indices(
+    graph: &PackageGraph,
+    active_patches: &ActivePatchSet,
+    activated: &BTreeSet<String>,
+) -> Vec<usize> {
+    active_patches
+        .into_iter()
+        .filter(|patch| activated.contains(patch.name.as_str()))
+        .filter_map(|patch| graph.index_of(patch.name.as_str()))
+        .collect()
+}
+
+/// Graph indices reachable from the `activated` patches' forks
+/// along resolved dependency edges: the fork packages themselves
+/// plus the local closure each fork's manifest pulls in (path
+/// dependencies, prepared ports).  The loader stitches every active
+/// patch manifest into the graph and resolves its edges, so
+/// activation only walks indices - no manifests are re-read.
+///
+/// Every loaded edge is followed deliberately - feature-disabled
+/// optional edges included - because this is the *load* set, not
+/// the link set: the reload stitches each of these packages into
+/// the graph regardless of feature state, so a same-named index
+/// selection must be suppressed (and never fetched) for every one
+/// of them or the reload sees two packages with one name.  `links`
+/// claims are the opposite - only what actually links may claim -
+/// so claim collection runs a feature-resolution pass over the
+/// forks instead of using this closure.
+#[must_use]
+pub fn activated_patch_closure(
+    graph: &PackageGraph,
+    active_patches: &ActivePatchSet,
+    activated: &BTreeSet<String>,
+) -> BTreeSet<usize> {
+    let mut stack: Vec<usize> = activated_fork_indices(graph, active_patches, activated);
+    let mut closure = BTreeSet::new();
+    while let Some(idx) = stack.pop() {
+        if !closure.insert(idx) {
+            continue;
+        }
+        for edge in &graph.packages[idx].deps {
+            if !closure.contains(&edge.index) {
+                stack.push(edge.index);
+            }
+        }
+    }
+    closure
 }
 
 /// Inputs to [`resolve_active_patches`].  Bundling them keeps the
@@ -660,8 +820,11 @@ fmt = { path = "../fmt" }
         let patches = resolve_with(&graph).unwrap();
         let excluded = patches.owned_patched_names();
 
-        let deps = collect_patched_versioned_deps(&patches, &excluded).unwrap();
-        let rendered: BTreeMap<_, _> = deps
+        let referenced = BTreeSet::from(["fmt".to_owned()]);
+        let collected = collect_patched_versioned_deps(&patches, &excluded, &referenced).unwrap();
+        assert_eq!(collected.activated, referenced);
+        let rendered: BTreeMap<_, _> = collected
+            .deps
             .iter()
             .map(|(name, req)| (name.as_str().to_owned(), req.to_string()))
             .collect();

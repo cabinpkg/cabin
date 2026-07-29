@@ -107,6 +107,42 @@ pub(crate) fn discover_and_prepare(inputs: PortPrepInputs<'_>) -> Result<Vec<Pre
     Ok(result.ports)
 }
 
+/// Refuse versioned registry dependencies in late-prepared port
+/// overlays.  A port first discovered through a transitively-
+/// activated `[patch]` fork joins after the artifact pipeline has
+/// already resolved and fetched, so a versioned dependency in its
+/// overlay can never enter the resolver: the scoped reload would
+/// drop the edge silently (the port is outside the strict set), and
+/// making the port strict by name would accept any same-named
+/// package the pipeline fetched for another edge without checking
+/// the requirement.  Until the pipeline can re-enter resolution for
+/// late discoveries, fail loudly.  Callers pass only genuinely new
+/// ports: one the original selected closure also reaches resolved
+/// its versioned deps through the ordinary pre-resolution walk, so
+/// a fork sharing it must not fail the build.  The dependency-kind
+/// policy lives in [`cabin_port::prepare::active_versioned_registry_dep`].
+pub(crate) fn refuse_late_versioned_port_deps<'a>(
+    prepared: impl Iterator<Item = &'a PreparedPort>,
+) -> Result<()> {
+    let host_platform = TargetPlatform::current();
+    for port in prepared {
+        if let Some(dep) = cabin_port::prepare::active_versioned_registry_dep(port, &host_platform)?
+        {
+            return Err(anyhow!(
+                "foundation port {} v{} declares registry dependency {:?}, but the port was \
+                 discovered through a transitively-activated `[patch]` fork after dependency \
+                 resolution already ran; ports discovered after resolution cannot resolve \
+                 registry dependencies. Reference the patched package from a local dependency \
+                 so its ports join resolution, or drop the port's registry dependency",
+                port.name,
+                port.version,
+                dep.as_str(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Classify a port-preparation error as a fetch/cache-miss failure
 /// that read-only introspection (e.g. `cabin metadata`) can swallow
 /// to keep a fresh checkout usable.  Structural failures - version
@@ -171,6 +207,30 @@ pub(crate) struct WorkspacePrep {
     /// edges (ports included) the command itself operates on.
     pub active_patches: cabin_workspace::ActivePatchSet,
     pub graph: PackageGraph,
+    /// The cache the discovery pass prepared into, handed back so
+    /// the build pipeline can prepare late-discovered ports (a
+    /// transitively-activated patch fork's) into the same store.
+    pub port_cache: PortCache,
+}
+
+/// Resolve the port cache location for `manifest_path`, consulting
+/// the same precedence chain the rest of the pipeline uses: CLI
+/// override ▶ `CABIN_CACHE_DIR` env ▶ `[paths] cache-dir` from the
+/// merged config files ▶ the user-global XDG fallback.  Without the
+/// config layer, foundation ports would miss a cache the artifact
+/// pipeline subsequently honors, defeating `--frozen`
+/// reproducibility.  Deliberately keyed on the manifest, not the
+/// graph: this runs before any graph exists.
+pub(crate) fn port_cache_for(
+    manifest_path: &Path,
+    cache_dir_override: Option<&Path>,
+) -> Result<PortCache> {
+    let cfg = crate::cli::config::load_effective_config_for_manifest(manifest_path)?;
+    let cache_dir = match crate::cli::config::resolve_cache_dir(cache_dir_override, &cfg) {
+        Some((p, _)) => p,
+        None => crate::cli::cache_dir_for(cache_dir_override)?,
+    };
+    Ok(PortCache::new(cache_dir.join("ports")))
 }
 
 /// Convenience helper used by every command that loads a workspace:
@@ -201,19 +261,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
     // pass `None` so their stdout stays clean.
     download_reporter: Option<Reporter>,
 ) -> Result<WorkspacePrep> {
-    // Resolve the cache directory consulting the same precedence
-    // chain the rest of the pipeline uses: CLI override ▶
-    // `CABIN_CACHE_DIR` env ▶ `[paths] cache-dir` from the merged
-    // config files ▶ the user-global XDG fallback.  Without the
-    // config layer, foundation ports would miss a cache the
-    // artifact pipeline subsequently honors, defeating
-    // `--frozen` reproducibility.
-    let cfg = crate::cli::config::load_effective_config_for_manifest(manifest_path)?;
-    let cache_dir = match crate::cli::config::resolve_cache_dir(cache_dir_override, &cfg) {
-        Some((p, _)) => p,
-        None => crate::cli::cache_dir_for(cache_dir_override)?,
-    };
-    let port_cache = PortCache::new(cache_dir.join("ports"));
+    let port_cache = port_cache_for(manifest_path, cache_dir_override)?;
 
     // Light-load a port-less skeleton so we can resolve the
     // caller's selection without first preparing ports - which
@@ -325,6 +373,7 @@ pub(crate) fn prepare_ports_and_load_initial_graph(
         effective_config,
         active_patches,
         graph,
+        port_cache,
     })
 }
 

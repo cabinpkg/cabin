@@ -11,7 +11,8 @@ use cabin_core::PackageName;
 use cabin_index::PackageIndex;
 use cabin_lockfile::{LockedPackage, Lockfile};
 use cabin_resolver::{
-    LockedVersion, ResolveInput, ResolveMode, ResolveOutput, ResolvedPackage, ResolvedSource,
+    LinksClaim, LockedVersion, ResolveInput, ResolveMode, ResolveOutput, ResolvedPackage,
+    ResolvedSource,
 };
 use cabin_workspace::{PackageGraph, RegistryPackageSource};
 
@@ -21,6 +22,486 @@ use super::{
     build_workspace_selection, collect_patched_versioned_deps, compute_feature_resolution,
     emit_fetch_output, enabled_features_by_package, resolve_invocation_manifest,
 };
+
+/// Declared `links` claims of the local packages a command's
+/// resolution actually includes - the feature resolver's exact
+/// reachable set, so a disabled optional path dependency never
+/// contributes a claim it could not collide with.  Patched packages
+/// are graph packages like any local, so an included patch's claims
+/// participate; what never participates is the patched *name*'s
+/// index metadata - stripped from root deps, and skipped by the
+/// resolver for transitive selections via
+/// [`ResolveInput::locally_supplied`].
+///
+/// Callers validate the returned claims against each other with
+/// [`enforce_local_links_uniqueness`] *before* any
+/// no-versioned-deps fast path, then hand the same claims to
+/// [`ResolveInput::local_links`] so the resolver's post-solve check
+/// sees local and registry claims together.
+pub(crate) fn local_links_claims(
+    graph: &PackageGraph,
+    features: &cabin_feature::FeatureResolution,
+) -> Vec<LinksClaim> {
+    let mut claims = links_claims_of(graph, &features.included);
+    claims.sort();
+    claims.dedup();
+    claims
+}
+
+/// The declared `links` claims of the given graph packages, in
+/// index order (callers sort/dedup the combined seed themselves).
+fn links_claims_of(graph: &PackageGraph, indices: &BTreeSet<usize>) -> Vec<LinksClaim> {
+    let mut claims = Vec::new();
+    for &idx in indices {
+        let package = &graph.packages[idx].package;
+        for target in &package.targets {
+            if let Some(links) = &target.links {
+                claims.push(LinksClaim {
+                    package: package.name.clone(),
+                    version: package.version.clone(),
+                    target: target.name.as_str().to_owned(),
+                    links: links.clone(),
+                });
+            }
+        }
+    }
+    claims
+}
+
+/// Local-vs-local `links` uniqueness, run unconditionally before a
+/// command's fast paths: a workspace with no versioned dependencies
+/// must reject duplicate claims exactly like a resolved graph.
+pub(crate) fn enforce_local_links_uniqueness(claims: &[LinksClaim]) -> Result<()> {
+    cabin_resolver::detect_links_collision(claims).context("dependency resolution failed")?;
+    Ok(())
+}
+
+/// [`enforce_local_links_uniqueness`] over the full pre-resolution
+/// seed: the included local packages' claims plus the activated
+/// patch forks' - a purely-local patched chain still links its
+/// forks, so their claims cannot wait for a resolution that never
+/// runs.
+pub(crate) fn enforce_seed_links_uniqueness(
+    graph: &PackageGraph,
+    features: &cabin_feature::FeatureResolution,
+    active_patches: &cabin_workspace::ActivePatchSet,
+    activated: &BTreeSet<String>,
+) -> Result<()> {
+    let mut claims = local_links_claims(graph, features);
+    claims.extend(activated_fork_claims(graph, active_patches, activated)?);
+    claims.sort();
+    claims.dedup();
+    enforce_local_links_uniqueness(&claims)
+}
+
+/// Everything the iterative patch activation below needs from the
+/// call site.  Both resolution pipelines build one of these so the
+/// activation policy cannot drift between `cabin resolve` and the
+/// artifact pipeline.
+pub(crate) struct PatchActivationContext<'a> {
+    pub graph: &'a PackageGraph,
+    pub features: &'a cabin_feature::FeatureResolution,
+    pub active_patches: &'a cabin_workspace::ActivePatchSet,
+    pub patched_names: &'a BTreeSet<String>,
+    /// Closure-collected versioned deps, patched names excluded.
+    pub base_root_deps: &'a BTreeMap<PackageName, semver::VersionReq>,
+    /// Patched names the local closure walk reached on active edges.
+    pub closure_referenced: &'a BTreeSet<String>,
+    /// Declared claims of the included local packages.
+    pub local_links: &'a [LinksClaim],
+}
+
+/// Resolve with iterative patch activation.  A patch referenced only
+/// through a transitive registry edge (`app -> indexed A -> patched
+/// B`) is invisible to the local closure until resolution surfaces
+/// its name, so: resolve, activate every patched name the solution
+/// reached (fold the fork island's versioned deps - the fork's own
+/// plus its path dependencies' - into the root set, extend a sparse
+/// index with fork-dep names its pre-activation crawl never
+/// fetched, contribute the fork's `links` claims, and suppress the
+/// upstream index claims via [`ResolveInput::locally_supplied`]), and
+/// re-resolve until the activation set is stable.  The set grows
+/// monotonically and is bounded by the patch count, so the loop
+/// terminates; a dormant patch's name never appears in any solution
+/// and never activates.  Claims and suppression then follow the
+/// *final* selection: an activation whose injected deps flipped its
+/// parent away from the patched name is pruned before the checked
+/// solve (the pruning site explains why its root deps remain).
+///
+/// Returns the final activated set alongside the output: the
+/// patched names whose forks participated in resolution, which is
+/// exactly the set the build pipeline's strict workspace reload may
+/// require dependencies for (a dormant patch's deps were
+/// deliberately never resolved).
+pub(crate) fn resolve_with_patch_activation(
+    input: &mut ResolveInput,
+    index: &mut PackageIndex,
+    sparse: Option<&cabin_index_http::HttpIndex>,
+    ctx: &PatchActivationContext<'_>,
+    lean: bool,
+) -> Result<(ResolveOutput, BTreeSet<String>)> {
+    let included_names: BTreeSet<PackageName> = ctx
+        .features
+        .included
+        .iter()
+        .map(|&idx| ctx.graph.packages[idx].package.name.clone())
+        .collect();
+    // The whole loader-stitch closure joins the suppression set -
+    // feature-disabled optional path deps included - for the same
+    // reason the forks do: the reload loads those packages locally
+    // whatever their feature state, so a same-named index selection
+    // must never be fetched alongside.  Claims stay narrower
+    // (feature-included only) - see `activated_fork_claims`.
+    let supplied_for = |activated: &BTreeSet<String>| -> BTreeSet<PackageName> {
+        let closure =
+            cabin_workspace::activated_patch_closure(ctx.graph, ctx.active_patches, activated);
+        included_names
+            .iter()
+            .cloned()
+            .chain(
+                activated
+                    .iter()
+                    .filter_map(|name| PackageName::new(name.clone()).ok()),
+            )
+            .chain(
+                closure
+                    .iter()
+                    .map(|&idx| ctx.graph.packages[idx].package.name.clone()),
+            )
+            .collect()
+    };
+    let claims_and_supplied =
+        |activated: &BTreeSet<String>| -> Result<(Vec<LinksClaim>, BTreeSet<PackageName>)> {
+            let mut local_links = ctx.local_links.to_vec();
+            local_links.extend(activated_fork_claims(
+                ctx.graph,
+                ctx.active_patches,
+                activated,
+            )?);
+            local_links.sort();
+            local_links.dedup();
+            Ok((local_links, supplied_for(activated)))
+        };
+    // For liveness walks every patched selection is a boundary,
+    // activated or not: once a patched name activates its upstream
+    // index edges die (the fork replaces them), so a walk expanding
+    // through a not-yet-activated patched selection would admit
+    // names only those doomed edges reach.  Chains re-enter through
+    // the fork's folded deps, which join the walk roots.
+    let patched_package_names: BTreeSet<PackageName> = ctx
+        .patched_names
+        .iter()
+        .filter_map(|name| PackageName::new(name.clone()).ok())
+        .collect();
+    let mut activated = ctx.closure_referenced.clone();
+    let mut solution_discovered = false;
+    loop {
+        let mut root_deps = ctx.base_root_deps.clone();
+        let patched =
+            collect_patched_versioned_deps(ctx.active_patches, ctx.patched_names, &activated)?;
+        // The fold reaches chained patches (a fork depending on
+        // another patched name) the solution alone never surfaces;
+        // their forks link too, so they claim and suppress like any
+        // activated patch.
+        activated.extend(patched.activated);
+        merge_versioned_deps(&mut root_deps, patched.deps)?;
+        let island = activated_fork_island_versioned_deps(ctx, &activated)?;
+        activated.extend(island.activated.iter().cloned());
+        merge_versioned_deps(&mut root_deps, island.deps)?;
+        // A sparse index was crawled from the pre-activation root
+        // set, so a fork dependency folded in here may name a
+        // package that walk never fetched.  Extend the index before
+        // solving; a local index loads its whole directory and is
+        // never missing a name it could supply.
+        if let Some(http) = sparse {
+            let missing: Vec<PackageName> = root_deps
+                .keys()
+                .filter(|name| !index.packages.contains_key(*name))
+                .cloned()
+                .collect();
+            if !missing.is_empty() {
+                let extra = http
+                    .load_package_index(&missing)
+                    .context("failed to extend the sparse index with patched dependencies")?;
+                for (name, entry) in extra.packages {
+                    index.packages.entry(name).or_insert(entry);
+                }
+            }
+        }
+        input.root_dependencies = root_deps;
+        let (local_links, locally_supplied) = claims_and_supplied(&activated)?;
+        input.local_links = local_links;
+        input.locally_supplied = locally_supplied;
+        // While un-activated patched names remain, probe with the
+        // unchecked solve first: activation must see the selection
+        // even when a stale upstream claim would fail the checked
+        // path (the exact claim activation is about to suppress).
+        // After any solution-driven activation the probe keeps
+        // running so the pruning below sees the post-activation
+        // selection.  Patch-free resolutions skip it entirely.
+        if solution_discovered
+            || ctx
+                .patched_names
+                .iter()
+                .any(|name| !activated.contains(name))
+        {
+            let probe = cabin_resolver::resolve_packages_unchecked(input, index)
+                .context("dependency resolution failed")?;
+            // Activation follows the same live boundary as claims: a
+            // patched name selected only behind a locally-supplied
+            // (or patched) selection's dead upstream edges never
+            // links, so its fork must stay dormant rather than
+            // inject deps, claims, or late ports into a build that
+            // never reaches it.
+            let mut stop = input.locally_supplied.clone();
+            stop.extend(patched_package_names.iter().cloned());
+            let dead = cabin_resolver::unreachable_index_selections(
+                &probe.packages,
+                index,
+                &input.root_dependencies.keys().cloned().collect(),
+                &stop,
+            );
+            let discovered: Vec<String> = probe
+                .packages
+                .iter()
+                .filter(|package| {
+                    package.source == ResolvedSource::Index && !dead.contains(&package.name)
+                })
+                .map(|package| package.name.as_str().to_owned())
+                .filter(|name| ctx.patched_names.contains(name) && !activated.contains(name))
+                .collect();
+            if !discovered.is_empty() {
+                activated.extend(discovered);
+                solution_discovered = true;
+                continue;
+            }
+            // A dormant patched name selected only behind dead edges
+            // must not be fetched either: the reload stitches every
+            // patch manifest, so a fetched same-named upstream would
+            // collide with the dormant fork.
+            input.locally_supplied.extend(
+                dead.iter()
+                    .filter(|name| ctx.patched_names.contains(name.as_str()))
+                    .cloned(),
+            );
+            // A solution-driven activation can also unselect itself:
+            // the fork deps it injected may flip its parent to a
+            // version that no longer reaches the patched name.  A
+            // fork absent from the final graph never links, so its
+            // claims and suppression are dropped before the checked
+            // solve, and the pruned set is what this function
+            // returns - the build pipeline must not port-prep or
+            // strict-load a fork the graph never reaches.  The
+            // injected root deps stay - withdrawing them re-selects
+            // the parent that reached the patch and oscillates - but
+            // the orphaned selections they pull in never link
+            // either, so their index claims are suppressed
+            // alongside; the residue is an unused fetched package,
+            // never a claim.
+            //
+            // Membership in the probe is not liveness: that residue
+            // can itself select a patched name (a pruned fork's
+            // injected dep with a back-edge onto one), and keeping
+            // such a fork activated would claim and port-prep for a
+            // package the final graph never links.  A patched name is
+            // live only when reachable from the original roots or a
+            // live fork's injected deps - the same reachability the
+            // residue suppression below uses - and liveness feeds the
+            // root set, so iterate to a fixed point (monotone in
+            // `kept`, bounded by the patch count).
+            if solution_discovered {
+                let mut kept = ctx.closure_referenced.clone();
+                let roots = loop {
+                    let refolded = collect_patched_versioned_deps(
+                        ctx.active_patches,
+                        ctx.patched_names,
+                        &kept,
+                    )?;
+                    let mut grown = kept.clone();
+                    grown.extend(refolded.activated.iter().cloned());
+                    let island = activated_fork_island_versioned_deps(ctx, &grown)?;
+                    grown.extend(island.activated.iter().cloned());
+                    let roots: BTreeSet<PackageName> = ctx
+                        .base_root_deps
+                        .keys()
+                        .chain(refolded.deps.keys())
+                        .chain(island.deps.keys())
+                        .cloned()
+                        .collect();
+                    let mut stop = supplied_for(&grown);
+                    stop.extend(patched_package_names.iter().cloned());
+                    let orphaned = cabin_resolver::unreachable_index_selections(
+                        &probe.packages,
+                        index,
+                        &roots,
+                        &stop,
+                    );
+                    grown.extend(
+                        probe
+                            .packages
+                            .iter()
+                            .filter(|package| package.source == ResolvedSource::Index)
+                            .filter(|package| !orphaned.contains(&package.name))
+                            .map(|package| package.name.as_str().to_owned())
+                            .filter(|name| ctx.patched_names.contains(name)),
+                    );
+                    if grown == kept {
+                        break roots;
+                    }
+                    kept = grown;
+                };
+                if kept != activated {
+                    let (local_links, mut locally_supplied) = claims_and_supplied(&kept)?;
+                    let mut stop = locally_supplied.clone();
+                    stop.extend(patched_package_names.iter().cloned());
+                    let orphaned = cabin_resolver::unreachable_index_selections(
+                        &probe.packages,
+                        index,
+                        &roots,
+                        &stop,
+                    );
+                    locally_supplied.extend(orphaned);
+                    input.local_links = local_links;
+                    input.locally_supplied = locally_supplied;
+                    activated = kept;
+                }
+            }
+        }
+        let output = if lean {
+            cabin_resolver::resolve_packages(input, index)
+        } else {
+            cabin_resolver::resolve(input, index)
+        }
+        .context("dependency resolution failed")?;
+        enforce_activated_fork_versions(&output, index, ctx, &activated, &input.locally_supplied)?;
+        return Ok((output, activated));
+    }
+}
+
+/// The docs-promised version validation (`patch-overrides.md`,
+/// "validates each entry") for the edges the local layer cannot
+/// see: an index dependency edge onto a patched name surfaces only
+/// in the solution, after `resolve_active_patches` already ran over
+/// the local graph alone.  This assembles the inputs the typed
+/// check needs - fork versions from the stitched graph, walk roots
+/// from the base closure plus both patched-dep folds - and defers
+/// the validation itself to
+/// [`cabin_resolver::enforce_fork_version_requirements`].
+fn enforce_activated_fork_versions(
+    output: &ResolveOutput,
+    index: &PackageIndex,
+    ctx: &PatchActivationContext<'_>,
+    activated: &BTreeSet<String>,
+    locally_supplied: &BTreeSet<PackageName>,
+) -> Result<()> {
+    if activated.is_empty() {
+        return Ok(());
+    }
+    let fork_versions: BTreeMap<PackageName, semver::Version> =
+        cabin_workspace::activated_fork_indices(ctx.graph, ctx.active_patches, activated)
+            .into_iter()
+            .map(|idx| {
+                let package = &ctx.graph.packages[idx].package;
+                (package.name.clone(), package.version.clone())
+            })
+            .collect();
+    let refolded =
+        collect_patched_versioned_deps(ctx.active_patches, ctx.patched_names, activated)?;
+    let island = activated_fork_island_versioned_deps(ctx, activated)?;
+    let roots: BTreeSet<PackageName> = ctx
+        .base_root_deps
+        .keys()
+        .chain(refolded.deps.keys())
+        .chain(island.deps.keys())
+        .cloned()
+        .collect();
+    cabin_resolver::enforce_fork_version_requirements(
+        &output.packages,
+        index,
+        &fork_versions,
+        &roots,
+        locally_supplied,
+    )?;
+    Ok(())
+}
+
+/// The declared `links` claims of the activated patches' forks and
+/// of everything the forks' manifests pull into the graph (path
+/// dependencies, prepared ports) - the local packages the final
+/// reload will link in place of, or alongside, the upstream
+/// packages the activation suppressed.  Feature resolution never
+/// included any of them (nothing selected reaches a
+/// transitively-activated fork locally), so
+/// [`cabin_feature::resolve_fork_island_features`] runs a dedicated
+/// under-approximating pass over the fork islands - see it for why
+/// only mandatory members claim here; the exact, edge-aware check
+/// runs in the build pipeline over the final reloaded graph, whose
+/// feature resolution applies the fetched manifests' real edge
+/// requests.  Scoping to the pass's `included` set - not the
+/// loader-stitch closure - matches [`local_links_claims`]: a
+/// feature-disabled optional path dependency is loaded into the
+/// graph but never linked, so its claims must not participate.
+fn activated_fork_claims(
+    graph: &PackageGraph,
+    active_patches: &cabin_workspace::ActivePatchSet,
+    activated: &BTreeSet<String>,
+) -> Result<Vec<LinksClaim>> {
+    let fork_roots = cabin_workspace::activated_fork_indices(graph, active_patches, activated);
+    if fork_roots.is_empty() {
+        return Ok(Vec::new());
+    }
+    let resolution = cabin_feature::resolve_fork_island_features(
+        graph,
+        &fork_roots,
+        &cabin_core::TargetPlatform::current(),
+    )?;
+    Ok(links_claims_of(graph, &resolution.included))
+}
+
+/// Versioned dependencies across the activated forks' islands - the
+/// forks plus the feature-included local packages their path edges
+/// pull in.  Complements [`collect_patched_versioned_deps`] (fork
+/// manifests only): a solution-discovered fork's path dependency
+/// declaring a registry dependency is invisible both to that fold
+/// and to the pre-resolve selection-closure pass, so without this
+/// pass the dependency never resolves and the final reload drops
+/// the edge without a diagnostic.  Runs island feature passes to a
+/// fixed point because a fold can chain-activate further patches
+/// whose islands then contribute deps of their own; the returned
+/// `activated` is the fixed-point set.
+fn activated_fork_island_versioned_deps(
+    ctx: &PatchActivationContext<'_>,
+    activated: &BTreeSet<String>,
+) -> Result<cabin_workspace::PatchedVersionedDeps> {
+    let host = cabin_core::TargetPlatform::current();
+    let mut folded = activated.clone();
+    loop {
+        let fork_roots =
+            cabin_workspace::activated_fork_indices(ctx.graph, ctx.active_patches, &folded);
+        if fork_roots.is_empty() {
+            return Ok(cabin_workspace::PatchedVersionedDeps {
+                deps: BTreeMap::new(),
+                activated: folded,
+            });
+        }
+        let islands = cabin_feature::resolve_fork_island_features(ctx.graph, &fork_roots, &host)?;
+        let island = cabin_workspace::collect_island_versioned_deps(
+            ctx.graph,
+            ctx.active_patches,
+            &islands.included,
+            ctx.patched_names,
+        )?;
+        let mut grown = folded.clone();
+        grown.extend(island.activated.iter().cloned());
+        if grown == folded {
+            return Ok(cabin_workspace::PatchedVersionedDeps {
+                deps: island.deps,
+                activated: folded,
+            });
+        }
+        folded = grown;
+    }
+}
 
 pub(super) fn resolve(args: &ResolveArgs, reporter: Reporter) -> Result<()> {
     let policy = LockPolicy::from_flags(args.locked, args.frozen);
@@ -135,6 +616,8 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         &cabin_core::SelectionRequest::default(),
         &BTreeSet::new(),
     )?;
+    // Checked below, after the patched-deps preview computes the
+    // activated patch set, so fork claims join the local ones.
 
     // scope the index requirement to the selected
     // closure.  Unrelated members' versioned deps no longer force a
@@ -143,17 +626,25 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     // versioned deps too, so a workspace whose only versioned
     // edge comes from `[patch]` still needs the index.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let patched_root_deps_preview =
-        collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    if patched_root_deps_preview.is_empty()
-        && !closure_has_versioned_deps_excluding_patches(
-            &initial_graph,
-            &resolved_selection,
-            &initial_features,
-            &patched_names,
-            &dev_for,
-        )
-    {
+    let closure_deps_preview = collect_closure_versioned_deps_excluding_patches(
+        &initial_graph,
+        &resolved_selection,
+        &initial_features,
+        &patched_names,
+        &dev_for,
+    )?;
+    let patched_root_deps_preview = collect_patched_versioned_deps(
+        &active_patches,
+        &patched_names,
+        &closure_deps_preview.referenced_excluded,
+    )?;
+    enforce_seed_links_uniqueness(
+        &initial_graph,
+        &initial_features,
+        &active_patches,
+        &patched_root_deps_preview.activated,
+    )?;
+    if patched_root_deps_preview.deps.is_empty() && closure_deps_preview.deps.is_empty() {
         emit_fetch_output(&[], args.format, &manifest_path)?;
         return Ok(());
     }
@@ -288,20 +779,39 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         &request.selection_request,
         &BTreeSet::new(),
     )?;
+    let local_links = local_links_claims(&graph, &features);
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let mut root_deps = collect_closure_versioned_deps_excluding_patches(
+    let closure_deps = collect_closure_versioned_deps_excluding_patches(
         &graph,
         &resolved_selection,
         &features,
         &patched_names,
         &dev_for,
     )?;
+    let base_root_deps = closure_deps.deps;
+    let mut root_deps = base_root_deps.clone();
     // Patched manifests live outside the workspace graph, so
     // their own versioned deps never reached the closure walk.
-    // Fold them in so `cabin resolve` (and `--package` validation
-    // below) sees the same root set the artifact pipeline does.
-    let patched_root_deps = collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    merge_versioned_deps(&mut root_deps, patched_root_deps)?;
+    // Fold in the *referenced* patches' deps so `cabin resolve`
+    // (and `--package` validation below) sees the same root set
+    // the artifact pipeline does; dormant patches contribute
+    // nothing, and transitively-referenced patches join through
+    // the activation loop inside `resolve_with_patch_activation`.
+    let patched_root_deps = collect_patched_versioned_deps(
+        &active_patches,
+        &patched_names,
+        &closure_deps.referenced_excluded,
+    )?;
+    // Checked before the no-versioned-deps fast path below returns
+    // without resolving: a purely-local patched chain still links
+    // its forks.
+    enforce_seed_links_uniqueness(
+        &graph,
+        &features,
+        &active_patches,
+        &patched_root_deps.activated,
+    )?;
+    merge_versioned_deps(&mut root_deps, patched_root_deps.deps)?;
     let (root_name, root_version) = match graph.root_package {
         Some(idx) => (
             graph.packages[idx].package.name.clone(),
@@ -417,13 +927,17 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
             request.no_patches,
         )?,
     };
-    let index = match &effective_index_source {
-        cabin_core::SourceLocator::IndexPath { path } => load_local_index(path.as_std_path())?,
+    let (mut index, sparse_index) = match &effective_index_source {
+        cabin_core::SourceLocator::IndexPath { path } => {
+            (load_local_index(path.as_std_path())?, None)
+        }
         // The resolve pipeline performs no artifact downloads, so the
         // HTTP client the helper returns for connection reuse is
-        // dropped here.
+        // dropped here; the opened index is kept so patch activation
+        // can extend the crawl.
         cabin_core::SourceLocator::IndexUrl { url } => {
-            load_http_index(url, &root_deps, reporter)?.0
+            let (index, http_index, _client) = load_http_index(url, &root_deps, reporter)?;
+            (index, Some(http_index))
         }
     };
 
@@ -463,7 +977,21 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     input.incompatible_standards =
         crate::cli::config::resolve_incompatible_standards(&effective_config)?;
 
-    let output = cabin_resolver::resolve(&input, &index).context("dependency resolution failed")?;
+    let (output, _activated_patches) = resolve_with_patch_activation(
+        &mut input,
+        &mut index,
+        sparse_index.as_ref(),
+        &PatchActivationContext {
+            graph: &graph,
+            features: &features,
+            active_patches: &active_patches,
+            patched_names: &patched_names,
+            base_root_deps: &base_root_deps,
+            closure_referenced: &closure_deps.referenced_excluded,
+            local_links: &local_links,
+        },
+        false,
+    )?;
 
     let mut new_lockfile =
         lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
@@ -598,12 +1126,25 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
 /// `Fn(usize, &str) -> bool` optional-dep filter the workspace
 /// versioned-dep helpers consume.  Shared by the collect / has shims
 /// below so the closure build + filter adapter live in one place.
+///
+/// The edge closure is intersected with the feature resolver's
+/// `included` set: the raw closure follows optional path edges even
+/// when disabled, and a package reachable only through a disabled
+/// optional dependency must contribute nothing to resolution - its
+/// registry deps would otherwise resolve (over-fetching) and their
+/// index `links` claims would hard-fail graphs the build never
+/// links.
 fn closure_and_optional_filter<'a>(
     graph: &PackageGraph,
     selection: &cabin_workspace::ResolvedSelection,
     features: &'a cabin_feature::FeatureResolution,
 ) -> (BTreeSet<usize>, impl Fn(usize, &str) -> bool + 'a) {
-    (selection.closure(graph), move |idx, name| {
+    let closure: BTreeSet<usize> = selection
+        .closure(graph)
+        .intersection(&features.included)
+        .copied()
+        .collect();
+    (closure, move |idx, name| {
         features.is_optional_dep_enabled(idx, name)
     })
 }
@@ -617,7 +1158,7 @@ pub(crate) fn collect_closure_versioned_deps_excluding_patches(
     features: &cabin_feature::FeatureResolution,
     patched_names: &BTreeSet<String>,
     dev_for: &BTreeSet<String>,
-) -> Result<BTreeMap<PackageName, semver::VersionReq>> {
+) -> Result<cabin_workspace::ClosureVersionedDeps> {
     let (closure, is_optional_dep_enabled) =
         closure_and_optional_filter(graph, selection, features);
     cabin_workspace::collect_closure_versioned_deps_excluding_with_dev(
@@ -644,6 +1185,12 @@ fn merge_versioned_deps(
                 slot.insert(req);
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
+                // The manifest-level and island folds overlap on the
+                // forks' own deps; an identical requirement adds
+                // nothing and must not grow into ">=1, >=1".
+                if slot.get() == &req {
+                    continue;
+                }
                 let parsed = cabin_workspace::combine_version_reqs(&[
                     slot.get().to_string(),
                     req.to_string(),
@@ -661,28 +1208,6 @@ fn merge_versioned_deps(
         }
     }
     Ok(())
-}
-
-/// Whether the selected closure carries any versioned
-/// (registry-bound) dependency that the artifact pipeline would
-/// need to fetch.  Thin shim around the typed API in
-/// `cabin-workspace`.
-pub(crate) fn closure_has_versioned_deps_excluding_patches(
-    graph: &PackageGraph,
-    selection: &cabin_workspace::ResolvedSelection,
-    features: &cabin_feature::FeatureResolution,
-    patched_names: &BTreeSet<String>,
-    dev_for: &BTreeSet<String>,
-) -> bool {
-    let (closure, is_optional_dep_enabled) =
-        closure_and_optional_filter(graph, selection, features);
-    cabin_workspace::closure_has_versioned_deps_excluding_with_dev(
-        graph,
-        &closure,
-        is_optional_dep_enabled,
-        patched_names,
-        dev_for,
-    )
 }
 
 /// Pick the primary packages that contribute versioned
@@ -807,6 +1332,12 @@ pub(crate) struct ArtifactPipeline {
     /// the resolver re-resolved past a stale pin.  Drives the
     /// lockfile-staleness note on standard-compat violations.
     pub(crate) lockfile_pinned: BTreeSet<(String, String)>,
+    /// Patched names whose forks participated in resolution: the
+    /// closure-referenced set plus every transitively-discovered
+    /// activation, chains included.  Dormant patches are absent -
+    /// their versioned deps were deliberately never resolved, so
+    /// the strict workspace reload must not require them.
+    pub(crate) activated_patches: BTreeSet<String>,
 }
 
 impl ArtifactPipeline {
@@ -849,21 +1380,39 @@ pub(crate) fn run_artifact_pipeline(
         request.selection_request,
         request.dev_for,
     )?;
-    let mut root_deps = collect_closure_versioned_deps_excluding_patches(
+    let local_links = local_links_claims(graph, &features);
+    let closure_deps = collect_closure_versioned_deps_excluding_patches(
         graph,
         &resolved_selection,
         &features,
         request.patched_names,
         request.dev_for,
     )?;
+    let base_root_deps = closure_deps.deps;
+    let mut root_deps = base_root_deps.clone();
     // Patched manifests are not part of the workspace graph at
     // this point, so their own `[dependencies]` never appeared
-    // in the closure walk.  Fold them in so a workspace whose only
-    // versioned dep is patched still resolves and fetches the
-    // patched manifest's transitive registry edges.
-    let patched_root_deps =
-        collect_patched_versioned_deps(request.active_patches, request.patched_names)?;
-    merge_versioned_deps(&mut root_deps, patched_root_deps)?;
+    // in the closure walk.  Fold the *referenced* patches' deps in
+    // so a workspace whose only versioned dep is patched still
+    // resolves and fetches the patched manifest's transitive
+    // registry edges; dormant patches contribute nothing, and
+    // transitively-referenced patches join through the activation
+    // loop inside `resolve_with_patch_activation`.
+    let patched_root_deps = collect_patched_versioned_deps(
+        request.active_patches,
+        request.patched_names,
+        &closure_deps.referenced_excluded,
+    )?;
+    // Checked before the no-versioned-deps short-circuit below
+    // skips resolution: a purely-local patched chain still links
+    // its forks.
+    enforce_seed_links_uniqueness(
+        graph,
+        &features,
+        request.active_patches,
+        &patched_root_deps.activated,
+    )?;
+    merge_versioned_deps(&mut root_deps, patched_root_deps.deps)?;
     // short-circuit when neither the selected closure nor the
     // active patch set introduces a versioned dependency.
     // Loading an index, walking the lockfile, and downloading
@@ -872,6 +1421,7 @@ pub(crate) fn run_artifact_pipeline(
         return Ok(ArtifactPipeline {
             fetched: Vec::new(),
             lockfile_pinned: BTreeSet::new(),
+            activated_patches: patched_root_deps.activated,
         });
     }
     // pick a stable synthetic root identity for pure
@@ -901,7 +1451,7 @@ pub(crate) fn run_artifact_pipeline(
         None
     };
 
-    let (index, access) = load_index_for_pipeline(
+    let (mut index, access, sparse_index) = load_index_for_pipeline(
         request.index_source,
         request.policy.frozen(),
         &root_deps,
@@ -955,8 +1505,21 @@ pub(crate) fn run_artifact_pipeline(
     // Build/run/test/vendor consume only the resolved graph (into the
     // lockfile) and never render `held_back`, so use the lean resolve
     // that skips the second `Allow`-mode solve behind the report.
-    let output =
-        cabin_resolver::resolve_packages(&input, &index).context("dependency resolution failed")?;
+    let (output, activated_patches) = resolve_with_patch_activation(
+        &mut input,
+        &mut index,
+        sparse_index.as_ref(),
+        &PatchActivationContext {
+            graph,
+            features: &features,
+            active_patches: request.active_patches,
+            patched_names: request.patched_names,
+            base_root_deps: &base_root_deps,
+            closure_referenced: &closure_deps.referenced_excluded,
+            local_links: &local_links,
+        },
+        true,
+    )?;
 
     let mut new_lockfile =
         lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
@@ -982,7 +1545,13 @@ pub(crate) fn run_artifact_pipeline(
         }
     }
 
-    let plan = build_fetch_plan(&output, &index, &access, &new_lockfile)?;
+    let plan = build_fetch_plan(
+        &output,
+        &index,
+        &access,
+        &new_lockfile,
+        &input.locally_supplied,
+    )?;
     let cache = ArtifactCache::new(request.cache_dir);
     let result = cabin_artifact::fetch(
         &plan,
@@ -993,6 +1562,7 @@ pub(crate) fn run_artifact_pipeline(
     )?;
     Ok(ArtifactPipeline {
         fetched: result.packages,
+        activated_patches,
         // `PreferLocked` falls back to a fresh selection when a pin
         // no longer satisfies its constraint, so membership is
         // checked selection by selection - a re-resolved package
@@ -1026,17 +1596,23 @@ fn load_index_for_pipeline(
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     reporter: Reporter,
-) -> Result<(PackageIndex, IndexAccess)> {
+) -> Result<(
+    PackageIndex,
+    IndexAccess,
+    Option<cabin_index_http::HttpIndex>,
+)> {
     match index_source {
-        cabin_core::SourceLocator::IndexPath { path } => {
-            Ok((load_local_index(path.as_std_path())?, IndexAccess::Local))
-        }
+        cabin_core::SourceLocator::IndexPath { path } => Ok((
+            load_local_index(path.as_std_path())?,
+            IndexAccess::Local,
+            None,
+        )),
         cabin_core::SourceLocator::IndexUrl { url } => {
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, client) = load_http_index(url, root_deps, reporter)?;
-            Ok((index, IndexAccess::Http(client)))
+            let (index, http_index, client) = load_http_index(url, root_deps, reporter)?;
+            Ok((index, IndexAccess::Http(client), Some(http_index)))
         }
     }
 }
@@ -1053,9 +1629,10 @@ fn load_local_index(path: &Path) -> Result<PackageIndex> {
 }
 
 /// Load a [`PackageIndex`] over sparse HTTP for the given root
-/// dependencies.  Returns the client alongside the index so the
+/// dependencies.  Returns the opened index so patch activation can
+/// extend the crawl with fork-dep names, and the client so the
 /// fetch / build pipeline can reuse the connection for downloads;
-/// the resolve pipeline discards it.
+/// the resolve pipeline discards the client.
 ///
 /// The client carries the stored credential (env override or
 /// `credentials.toml`) for the index origin, so `config.json`,
@@ -1065,7 +1642,11 @@ pub(crate) fn load_http_index(
     url: &str,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     reporter: Reporter,
-) -> Result<(PackageIndex, cabin_index_http::HttpClient)> {
+) -> Result<(
+    PackageIndex,
+    cabin_index_http::HttpIndex,
+    cabin_index_http::HttpClient,
+)> {
     let mut client = cabin_index_http::HttpClient::new();
     if let Some(auth) = crate::cli::login::registry_auth_for_index_url(url, reporter)? {
         client = client.with_auth(auth);
@@ -1073,7 +1654,7 @@ pub(crate) fn load_http_index(
     let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;
     let names: Vec<PackageName> = root_deps.keys().cloned().collect();
     let index = http_index.load_package_index(&names)?;
-    Ok((index, client))
+    Ok((index, http_index, client))
 }
 
 /// Build a [`FetchPlan`] from a resolver output, the index it ran
@@ -1096,10 +1677,20 @@ fn build_fetch_plan(
     index: &PackageIndex,
     access: &IndexAccess,
     lockfile: &Lockfile,
+    locally_supplied: &BTreeSet<PackageName>,
 ) -> Result<FetchPlan> {
     let mut entries = Vec::new();
     for resolved in &output.packages {
         if resolved.source != ResolvedSource::Index {
+            continue;
+        }
+        // A locally-supplied name (an activated `[patch]` fork the
+        // resolver selected through a transitive registry edge, or a
+        // pruned activation's orphaned residue) builds from a local
+        // working copy or not at all: fetching the upstream bytes
+        // would waste the download and hand the workspace reload a
+        // second package with the fork's name.
+        if locally_supplied.contains(&resolved.name) {
             continue;
         }
         let entry = index.package(&resolved.name).ok_or_else(|| {

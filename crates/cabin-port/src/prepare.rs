@@ -519,6 +519,47 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
     Ok(())
 }
 
+/// First versioned registry dependency a prepared port's overlay
+/// manifest declares on an edge that could load, if any.  Dev
+/// dependencies stay declaration-only for ports and
+/// platform-inactive edges never load, so both are skipped;
+/// optional dependencies count - features are decided only at the
+/// final workspace load, by which point a caller that discovered
+/// this port after dependency resolution can no longer re-enter it.
+///
+/// # Errors
+/// [`PortError::OverlayManifestParse`] when the overlay manifest
+/// fails to load, [`PortError::OverlayMissingPackage`] when it
+/// carries no `[package]` table.
+pub fn active_versioned_registry_dep(
+    prepared: &PreparedPort,
+    host: &cabin_core::TargetPlatform,
+) -> Result<Option<PackageName>, PortError> {
+    let overlay_manifest = prepared.source_dir.join("cabin.toml");
+    let parsed = cabin_manifest::load_manifest(&overlay_manifest).map_err(|source| {
+        PortError::OverlayManifestParse {
+            name: prepared.name.as_str().to_owned(),
+            version: prepared.version.to_string(),
+            source: Box::new(source),
+        }
+    })?;
+    let package = parsed
+        .package
+        .ok_or_else(|| PortError::OverlayMissingPackage {
+            name: prepared.name.as_str().to_owned(),
+            version: prepared.version.to_string(),
+        })?;
+    Ok(package.dependencies.iter().find_map(|dep| {
+        if dep.kind == cabin_core::DependencyKind::Dev || !dep.matches_platform(host) {
+            return None;
+        }
+        match &dep.source {
+            cabin_core::DependencySource::Version(_) => Some(dep.name.clone()),
+            _ => None,
+        }
+    }))
+}
+
 fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     let overlay_manifest = source_dir.join("cabin.toml");
     let parsed = cabin_manifest::load_manifest(&overlay_manifest).map_err(|source| {

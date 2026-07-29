@@ -350,7 +350,7 @@ pub fn collect_closure_versioned_deps_excluding_with_dev<F>(
     is_optional_dep_enabled: F,
     excluded_names: &BTreeSet<String>,
     dev_active_for: &BTreeSet<String>,
-) -> Result<BTreeMap<cabin_core::PackageName, semver::VersionReq>, WorkspaceError>
+) -> Result<ClosureVersionedDeps, WorkspaceError>
 where
     F: Fn(usize, &str) -> bool,
 {
@@ -358,6 +358,13 @@ where
     // platform - Cabin does not yet support cross-compilation.
     let host_platform = cabin_core::TargetPlatform::current();
     let mut combined: BTreeMap<cabin_core::PackageName, Vec<String>> = BTreeMap::new();
+    let mut referenced_excluded: BTreeSet<String> = BTreeSet::new();
+    // Exclusion is applied here, not inside the eligibility
+    // predicate, so an otherwise-active edge onto an excluded
+    // (patched) name is still *observed*: callers use the
+    // referenced set to fold in only the patches this invocation
+    // actually reaches.
+    let no_exclusions = BTreeSet::new();
     for &idx in closure {
         let pkg = &graph.packages[idx];
         // Skip registry packages - their declared deps are already
@@ -374,8 +381,12 @@ where
                 dev_active_here,
                 &host_platform,
                 &is_optional_dep_enabled,
-                excluded_names,
+                &no_exclusions,
             ) {
+                if excluded_names.contains(dep.name.as_str()) {
+                    referenced_excluded.insert(dep.name.as_str().to_owned());
+                    continue;
+                }
                 combined
                     .entry(dep.name.clone())
                     .or_default()
@@ -396,7 +407,20 @@ where
         })?;
         out.insert(name, parsed);
     }
-    Ok(out)
+    Ok(ClosureVersionedDeps {
+        deps: out,
+        referenced_excluded,
+    })
+}
+
+/// [`collect_closure_versioned_deps_excluding_with_dev`]'s result:
+/// the combined requirements plus the excluded (patched) names the
+/// walk actually reached on active edges - the set that decides
+/// which patches' own dependencies join resolution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureVersionedDeps {
+    pub deps: BTreeMap<cabin_core::PackageName, semver::VersionReq>,
+    pub referenced_excluded: BTreeSet<String>,
 }
 
 /// Whether the supplied closure carries any versioned
@@ -691,7 +715,11 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
+        let keys: Vec<&str> = deps
+            .deps
+            .keys()
+            .map(cabin_core::PackageName::as_str)
+            .collect();
         assert_eq!(keys, vec!["fmt"], "expected only fmt, got {keys:?}");
     }
 
@@ -717,7 +745,9 @@ spdlog = "^1"
         )
         .unwrap();
         assert!(
-            !deps.contains_key(&cabin_core::PackageName::new("spdlog").unwrap()),
+            !deps
+                .deps
+                .contains_key(&cabin_core::PackageName::new("spdlog").unwrap()),
             "unrelated spdlog leaked into closure deps"
         );
     }
@@ -768,7 +798,11 @@ gtest = "^1.14"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
+        let keys: Vec<&str> = deps
+            .deps
+            .keys()
+            .map(cabin_core::PackageName::as_str)
+            .collect();
         assert_eq!(keys, vec!["fmt"]);
     }
 
@@ -814,7 +848,11 @@ spdlog = "^1"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
+        let keys: Vec<&str> = deps
+            .deps
+            .keys()
+            .map(cabin_core::PackageName::as_str)
+            .collect();
         assert_eq!(keys, vec!["spdlog"]);
     }
 
@@ -911,10 +949,16 @@ gtest = "^1.14"
             &BTreeSet::new(),
         )
         .unwrap();
-        let keys: Vec<&str> = deps.keys().map(cabin_core::PackageName::as_str).collect();
+        let keys: Vec<&str> = deps
+            .deps
+            .keys()
+            .map(cabin_core::PackageName::as_str)
+            .collect();
         assert_eq!(keys, vec!["fmt"]);
         assert!(
-            !deps.contains_key(&cabin_core::PackageName::new("gtest").unwrap()),
+            !deps
+                .deps
+                .contains_key(&cabin_core::PackageName::new("gtest").unwrap()),
             "dev-dep gtest must not enter ordinary resolution"
         );
     }
