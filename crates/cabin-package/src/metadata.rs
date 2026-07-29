@@ -99,6 +99,16 @@ pub struct PackageMetadata {
     /// `docs/design/standard-compatibility/registry-index.md`.
     #[serde(default, skip_serializing_if = "StandardsMetadata::is_empty")]
     pub standards: StandardsMetadata,
+    /// Declared per-target native-library identity claims
+    /// (`[target.<name>] links = "z"`), keyed by target name, so the
+    /// post-resolution uniqueness check can read a version's claims
+    /// from the index without downloading its archive.  Only
+    /// `library` targets may claim (manifest validation), so keys
+    /// are a subset of the `standards` table's rows.  Omitted when
+    /// no target declares one so older documents stay byte-identical
+    /// (absence = no claims).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub links: BTreeMap<String, String>,
     /// Manifest-declared `[package.upstream]` provenance (the URL in
     /// its normalized `url`-crate serialization), preserved so the
     /// registry's external verifier can check the published tree
@@ -319,6 +329,7 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
         compiler_wrapper: package.compiler_wrapper.clone(),
         language: package.language,
         standards: StandardsMetadata::from_package(package),
+        links: links_from_package(package),
         upstream: package.upstream.clone(),
         yanked: false,
         checksum: checksum.to_owned(),
@@ -328,6 +339,23 @@ pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata 
             format: "zip".to_owned(),
         },
     }
+}
+
+/// The `links` table of the canonical document: target name ->
+/// declared native-library identity, for every target that claims
+/// one.  A pure projection of the validated manifest so the
+/// verifier's re-derivation matches byte-for-byte.
+fn links_from_package(package: &Package) -> BTreeMap<String, String> {
+    package
+        .targets
+        .iter()
+        .filter_map(|target| {
+            target
+                .links
+                .clone()
+                .map(|links| (target.name.as_str().to_owned(), links))
+        })
+        .collect()
 }
 
 /// Render the metadata document as deterministic, pretty-printed
@@ -620,6 +648,40 @@ mod tests {
         let proj = package("fmt", "10.2.1", Vec::new());
         let body = render_canonical_json(&canonical_metadata(&proj, TEST_CHECKSUM)).unwrap();
         assert!(!body.contains("\"features\""));
+    }
+
+    /// Declared `links` claims land in the document keyed by target
+    /// name; a package with no claims omits the field entirely so
+    /// pre-`links` documents stay byte-identical.
+    #[test]
+    fn metadata_carries_target_links_and_omits_when_absent() {
+        use cabin_core::{LanguageStandardSettings, Target, TargetKind, TargetName};
+        let target = |name: &str, links: Option<&str>| Target {
+            name: TargetName::new(name).unwrap(),
+            kind: TargetKind::Library,
+            sources: vec![Utf8PathBuf::from(format!("src/{name}.c"))],
+            include_dirs: Vec::new(),
+            defines: Vec::new(),
+            deps: Vec::new(),
+            required_features: Vec::new(),
+            language: LanguageStandardSettings::default(),
+            links: links.map(str::to_owned),
+        };
+        let proj = Package::new(
+            pkg("zlib"),
+            ver("1.3.1"),
+            vec![target("z", Some("z")), target("extras", None)],
+            Vec::new(),
+        )
+        .unwrap();
+        let meta = canonical_metadata(&proj, TEST_CHECKSUM);
+        let body = render_canonical_json(&meta).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["links"], serde_json::json!({ "z": "z" }));
+
+        let bare = package("fmt", "10.2.1", Vec::new());
+        let body = render_canonical_json(&canonical_metadata(&bare, TEST_CHECKSUM)).unwrap();
+        assert!(!body.contains("\"links\""));
     }
 
     #[test]

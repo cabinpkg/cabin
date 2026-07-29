@@ -430,6 +430,7 @@ mod tests {
                 compiler_wrapper: Default::default(),
                 language: Default::default(),
                 standards: Default::default(),
+                links: Default::default(),
                 upstream: None,
                 yanked: false,
                 checksum,
