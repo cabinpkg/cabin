@@ -90,13 +90,13 @@
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
-        "D1_DATABASE_ID": "79fdc953-09b6-42bd-a941-fa271280930a"
+        "D1_DATABASE_ID": "61c6b514-e91b-47a5-8898-00a3cd981c70"
     },
     "d1_databases": [
         {
             "binding": "DB",
             "database_name": "cabin-registry",
-            "database_id": "79fdc953-09b6-42bd-a941-fa271280930a",
+            "database_id": "61c6b514-e91b-47a5-8898-00a3cd981c70",
             "migrations_dir": "migrations"
         }
     ],
