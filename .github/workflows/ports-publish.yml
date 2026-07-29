@@ -151,9 +151,9 @@ jobs:
 
       # Checked immediately before the publish command, after the long
       # build: the concurrency group serializes runs but does not
-      # order them, and an out-of-order stale run would immutably
-      # publish an intermediate state of a version, forcing an
-      # otherwise-unnecessary packaging revision. Skip instead when
+      # order them, and an out-of-order stale run would publish an
+      # intermediate state of a version as an otherwise-unnecessary
+      # packaging revision. Skip instead when
       # main already carries a newer commit matching this workflow's
       # trigger paths - that commit's own run publishes the full set.
       #
@@ -164,8 +164,8 @@ jobs:
       # not have - only shrunk by re-running the entire preflight or
       # coupling the tool to git ordering. It needs two byte-divergent
       # edits of one published version inside a single run's window,
-      # and the recovery (bump the packaging revision) is documented
-      # in docs/foundation-ports.md.
+      # and the recovery is the newer commit's own run: its upload
+      # supersedes the stale revision (docs/foundation-ports.md).
       - name: Skip when superseded by a newer ports commit
         id: freshness
         run: |
