@@ -14,6 +14,40 @@ use std::path::{Component, Path};
 /// Supported `config.json` `schema` version.
 pub const REGISTRY_CONFIG_SCHEMA: u32 = 1;
 
+/// Length, in lowercase hex characters, of a packaging-revision
+/// identifier: the leading prefix of the canonical archive's SHA-256.
+/// Deriving the id from the archive bytes is what makes byte-identical
+/// republication map onto the already-existing revision; 16 hex chars
+/// (64 bits) keep filenames and display short while a same-version
+/// collision of *different* archives stays negligible - and writers
+/// detect that case loudly because the full checksum stored next to
+/// the id would disagree.
+pub const PACKAGING_REVISION_HEX_LEN: usize = 16;
+
+/// Whether `value` is a well-formed packaging-revision identifier
+/// (exactly [`PACKAGING_REVISION_HEX_LEN`] lowercase hex characters).
+#[must_use]
+pub fn is_valid_packaging_revision(value: &str) -> bool {
+    value.len() == PACKAGING_REVISION_HEX_LEN
+        && value.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Derive the packaging-revision identifier from a canonical archive's
+/// lowercase SHA-256 hex digest (the same digest every checksum field
+/// records as `sha256:<hex>`).  Returns `None` when the input is not
+/// shaped like such a digest - the whole 64 characters, not just the
+/// prefix, or a truncated / tail-corrupted checksum could mint an id
+/// that only fails much later, at artifact fetch - so callers surface
+/// a validation error instead.
+#[must_use]
+pub fn packaging_revision_from_sha256_hex(sha256_hex: &str) -> Option<&str> {
+    let digest_shaped = sha256_hex.len() == 64
+        && sha256_hex
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    digest_shaped.then(|| &sha256_hex[..PACKAGING_REVISION_HEX_LEN])
+}
+
 /// Required `config.json` `kind` discriminant for a file registry.
 pub const REGISTRY_KIND: &str = "file-registry";
 
@@ -82,6 +116,37 @@ pub fn relative_subdir_is_safe(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packaging_revision_is_the_checksum_prefix() {
+        let hex = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        assert_eq!(
+            packaging_revision_from_sha256_hex(hex),
+            Some("9a93b2b7dfdac77c")
+        );
+        assert!(is_valid_packaging_revision("9a93b2b7dfdac77c"));
+    }
+
+    #[test]
+    fn packaging_revision_rejects_short_and_non_hex_digests() {
+        // The whole input must be digest-shaped: a valid 16-hex
+        // prefix on a truncated, overlong, or tail-corrupted value
+        // must not mint an id.
+        for value in [
+            "",
+            "9a93",
+            "9A93B2B7DFDAC77Ceba5a558a580e746",
+            "sha256:9a93b2b7dfdac77c",
+            "9a93b2b7dfdac77c",
+            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72dfZZ",
+            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23ff",
+        ] {
+            assert_eq!(packaging_revision_from_sha256_hex(value), None, "{value}");
+        }
+        assert!(!is_valid_packaging_revision("9a93b2b7dfdac77")); // 15 chars
+        assert!(!is_valid_packaging_revision("9a93b2b7dfdac77cf")); // 17 chars
+        assert!(!is_valid_packaging_revision("9A93B2B7DFDAC77C")); // uppercase
+    }
 
     #[test]
     fn accepts_simple_relative_subdirs() {

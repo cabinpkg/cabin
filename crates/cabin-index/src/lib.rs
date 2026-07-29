@@ -4,8 +4,9 @@
 //! containing one `<package>.json` file per published package,
 //! each enumerating the package's published versions, their
 //! dependencies on other registry packages, and a `yanked` flag.
-//! Optional `source` and `checksum` fields point at downloadable
-//! archives.
+//! Each version's `revisions` map points at its downloadable
+//! packaging revisions; the `revision` field names the one currently
+//! served.
 //!
 //! This crate owns that format.  It loads the JSON files,
 //! validates them, and exposes a typed [`PackageIndex`].
@@ -18,8 +19,8 @@ pub mod model;
 pub use error::IndexError;
 pub use loader::{SourceContext, load_index, parse_package_entry};
 pub use model::{
-    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, SourceLocation,
-    VersionMetadata,
+    IndexEntry, IndexPackageDependency, IndexSystemDependency, PackageIndex, RevisionMetadata,
+    SourceLocation, VersionMetadata,
 };
 // Re-exported so index consumers (the resolver's preference mode and
 // publish lints) can name the standard-metadata types reachable on
