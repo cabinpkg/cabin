@@ -208,7 +208,8 @@ fn benign_staged(dir: &TempDir) -> cabin_package::StagedPackage {
              [target.demo]\n\
              type = \"library\"\n\
              sources = [\"src/lib.cc\"]\n\
-             interface-cxx-standard = \"c++17\"\n",
+             interface-cxx-standard = \"c++17\"\n\
+             links = \"demo-native\"\n",
         )
         .unwrap();
     dir.child("pkg/src/lib.cc").write_str("int f();\n").unwrap();
@@ -329,6 +330,31 @@ fn benign_archive_verifies() {
     let (archive, pending) = benign(&dir);
     let verdict = inspect(&archive, &pending, &Limits::default(), None).unwrap();
     assert_eq!(verdict, Verdict::Verified);
+}
+
+/// A stored `links` table that disagrees with the one re-derived
+/// from the archived manifest - value, extra key, or absence - is a
+/// metadata mismatch: identities the index advertises must be
+/// exactly the identities the archive declares.
+#[test]
+fn tampered_links_metadata_rejects() {
+    let dir = TempDir::new().unwrap();
+    let (archive, mut pending) = benign(&dir);
+    pending.metadata["links"] = serde_json::json!({ "demo": "z" });
+    assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+
+    let (archive, mut pending) = benign(&dir);
+    pending.metadata["links"] = serde_json::json!({ "demo": "demo-native", "ghost": "z" });
+    assert_rejected(&archive, &pending, Reason::MetadataMismatch);
+
+    let (archive, mut pending) = benign(&dir);
+    pending
+        .metadata
+        .as_object_mut()
+        .unwrap()
+        .remove("links")
+        .expect("the benign package declares links");
+    assert_rejected(&archive, &pending, Reason::MetadataMismatch);
 }
 
 /// A hosted package is always scoped: the full `<scope>/<name>` string

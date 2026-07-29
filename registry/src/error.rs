@@ -38,8 +38,9 @@ pub const NEW_REVISION_REQUIRED: &str = "the version is already published with d
      version, or bump the version";
 pub const REVISION_COLLISION: &str =
     "a packaging revision with this id already exists with different bytes";
-pub const REVISION_CHANGES_RESOLVER_METADATA: &str = "a packaging revision must not change dependencies, features, or standards; publish a new \
-     version for changes resolution can observe";
+pub const REVISION_CHANGES_RESOLVER_METADATA: &str = "a packaging revision must not change dependencies, features, standards, or an existing links \
+     table (links may only be added where a version had none); publish a new version for changes \
+     resolution can observe";
 pub const INVALID_NEW_REVISION_QUERY: &str =
     "the new-revision query parameter accepts only the value \"true\"";
 pub const VERSION_REJECTED_REVERDICT: &str =

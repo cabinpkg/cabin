@@ -20,11 +20,14 @@
       }
     }
   },
+  "links": {
+    "withdep": "withdep-native"
+  },
   "yanked": false,
-  "checksum": "sha256:3b9fa6436e10431a674324a25fed1626400f79c5d0fc5bc968e1fb0ce7ebde54",
+  "checksum": "sha256:1ca5e59a7e30f792fc32a833252dbbd18ae617298082905aa6e4c27699bcc8ea",
   "source": {
     "type": "archive",
-    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0-3b9fa6436e10431a.zip",
+    "path": "../../artifacts/smoke/withdep/smoke-withdep-0.2.0-1ca5e59a7e30f792.zip",
     "format": "zip"
   }
 }

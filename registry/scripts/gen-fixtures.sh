@@ -10,7 +10,7 @@
 # Produces three pairs in <out-dir> (scoped names, so the filenames carry
 # the flattened `<scope>-<name>` stem):
 #   smoke-nodep-0.1.0.zip        / smoke-nodep-0.1.0.json         no dependencies
-#   smoke-withdep-0.2.0.zip      / smoke-withdep-0.2.0.json       a dependency + a standards block
+#   smoke-withdep-0.2.0.zip      / smoke-withdep-0.2.0.json       a dependency + standards + links blocks
 #   smoke-withupstream-0.3.0.zip / smoke-withupstream-0.3.0.json  a [package.upstream] block
 #
 # The frozen pair under tests/fixtures/ is a checked-in copy of the
@@ -60,6 +60,7 @@ cxx-standard = "c++20"
 type = "library"
 sources = ["src/withdep.cc"]
 interface-cxx-standard = "c++17"
+links = "withdep-native"
 EOF
 printf 'void withdep() {}\n' >"$src/withdep/src/withdep.cc"
 

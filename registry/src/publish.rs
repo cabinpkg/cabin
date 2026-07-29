@@ -80,6 +80,13 @@ pub const INVALID_UPSTREAM_STRIP_PREFIX: &str =
 pub const INVALID_UPSTREAM_COPY_PATH: &str =
     "upstream copy paths must be plain forward-slash relative paths naming two different files";
 pub const TOO_MANY_UPSTREAM_COPIES: &str = "too many upstream copy steps";
+pub const INVALID_LINKS: &str = "links entries must map valid target names to non-empty \
+     native-library identities built from ASCII letters, digits, `.`, `_`, `+`, and `-`, \
+     with each identity claimed at most once";
+pub const LINKS_TARGET_NOT_LIBRARY: &str = "links claims must name library targets: each \
+     claimed target needs a `standards` row that is not header-only";
+pub const LINKS_NOT_SORTED: &str = "links targets must be listed in ascending order; the \
+     canonical package metadata document renders the table name-sorted";
 
 /// Mirror of the client-side `cabin_core::MAX_COPY_STEPS` cap.
 const MAX_UPSTREAM_COPY_STEPS: usize = 16;
@@ -117,7 +124,23 @@ pub struct VersionMetadata {
     pub build: Option<serde_json::Value>,
     pub compiler_wrapper: Option<serde_json::Value>,
     pub language: Option<serde_json::Value>,
+    /// Stored and served back verbatim, but no longer fully opaque:
+    /// [`validate_metadata`] looks up each `links` target's row (and
+    /// its `header-only` flag) to mirror the client's library-only
+    /// rule.  Row values are otherwise uninterpreted.
     pub standards: Option<serde_json::Value>,
+    /// Per-target `links` native-library identity claims.  Typed as
+    /// a map so [`validate_metadata`] can mirror the client's
+    /// grammar and per-package uniqueness rules synchronously.
+    /// `default` (not `Option`) like `dev-dependencies`: the
+    /// canonical document omits the empty map, so an explicit `null`
+    /// must stay non-canonical rather than alias the omission (a
+    /// stored `null` would break every index consumer's loader).
+    /// An explicit `{}` is rejected too: stored verbatim it would
+    /// read as *present* to the one-way revision guards and block
+    /// honest respins that correctly omit the field.
+    #[serde(default, deserialize_with = "non_empty_links_map")]
+    pub links: serde_json::Map<String, serde_json::Value>,
     /// Optional `[package.upstream]` provenance.  Typed (unlike the
     /// opaque blocks above) so [`validate_metadata`] can gatekeep the
     /// declared URL / digest / format shape synchronously; the
@@ -366,6 +389,7 @@ pub fn validate_metadata(
             }
         }
     }
+    validate_links(&parsed.links, parsed.standards.as_ref())?;
     if let Some(upstream) = &parsed.upstream {
         validate_upstream(upstream)?;
     }
@@ -373,6 +397,105 @@ pub fn validate_metadata(
         return Err(YANKED_AT_PUBLISH);
     }
     Ok(parsed)
+}
+
+/// The canonical document omits `links` when no target claims, so a
+/// present-but-empty map can never be canonical - and must not be
+/// stored, or the presence-keyed one-way revision guards would treat
+/// it as a declared table.
+fn non_empty_links_map<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<serde_json::Map<String, serde_json::Value>, D::Error> {
+    let map = serde_json::Map::deserialize(deserializer)?;
+    if map.is_empty() {
+        return Err(serde::de::Error::custom(
+            "links must be omitted when no target claims an identity",
+        ));
+    }
+    Ok(map)
+}
+
+/// Lexical mirror of the client's `links` rules
+/// (`cabin_core::validate_links_identity` plus the target-name
+/// grammar and `Package`-level claim uniqueness), like
+/// [`validate_upstream`]: a strict subset, so an honest client is
+/// never rejected here, and a hand-crafted document cannot park an
+/// entry that could only fail at verification time.
+///
+/// The library-only rule is mirrored through the document's own
+/// `standards` table: publish writes a row there for every
+/// library-like target, so each claim must name a row that is not
+/// `header-only`.  Without this, a hand-crafted document could
+/// store a claim every client-side index loader then refuses to
+/// load - the registry must never serve an entry its consumers
+/// reject.  Row *values* stay otherwise uninterpreted; deep shape
+/// validation remains with the client parser and the verifier.
+///
+/// # Errors
+///
+/// [`INVALID_LINKS`] for a non-string value, a malformed target key
+/// or identity, or a repeated identity.
+/// [`LINKS_NOT_SORTED`] when the targets are not in ascending order.
+/// [`LINKS_TARGET_NOT_LIBRARY`] for a claim whose target has no
+/// `standards` row or is header-only.
+fn validate_links(
+    links: &serde_json::Map<String, serde_json::Value>,
+    standards: Option<&serde_json::Value>,
+) -> Result<(), &'static str> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for (target, value) in links {
+        let valid_target = !target.is_empty()
+            && target != "."
+            && target != ".."
+            && !target.starts_with('.')
+            && !target.starts_with('-')
+            && target
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+        if !valid_target {
+            return Err(INVALID_LINKS);
+        }
+        let Some(identity) = value.as_str() else {
+            return Err(INVALID_LINKS);
+        };
+        let valid_identity = !identity.is_empty()
+            && identity
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'));
+        if !valid_identity || !seen.insert(identity) {
+            return Err(INVALID_LINKS);
+        }
+    }
+    // Canonical key order is part of the accepted shape: the one-way
+    // revision guards compare a stored `links` table textually
+    // (`json_extract` preserves key order), so an unordered table
+    // would verify structurally yet block every later canonical
+    // respin with a spurious metadata conflict.  The canonical
+    // document renders the map name-sorted; `preserve_order` keeps
+    // the wire order observable here.  After the grammar pass, so a
+    // table violating both reports the grammar error first.
+    let mut previous: Option<&str> = None;
+    for target in links.keys() {
+        if previous.is_some_and(|earlier| earlier.as_bytes() >= target.as_bytes()) {
+            return Err(LINKS_NOT_SORTED);
+        }
+        previous = Some(target);
+    }
+    // Cross-table pass last, so a table violating both reports
+    // the grammar/uniqueness error it always did - matching the
+    // client loader's ordering.
+    for target in links.keys() {
+        let row = standards
+            .and_then(|s| s.get("targets"))
+            .and_then(|targets| targets.get(target));
+        let library_row = row.is_some_and(|row| {
+            row.get("header-only").and_then(serde_json::Value::as_bool) != Some(true)
+        });
+        if !library_row {
+            return Err(LINKS_TARGET_NOT_LIBRARY);
+        }
+    }
+    Ok(())
 }
 
 /// The resolver-consumed fields every packaging revision of a version
@@ -400,6 +523,11 @@ pub fn resolver_metadata_conflict(
         if stored.get(field) != incoming.get(field) {
             return Ok(Some(field));
         }
+    }
+    // `links` is one-way: a revision may add a table where the
+    // stored version has none; an existing table is immutable.
+    if stored.get("links").is_some() && stored.get("links") != incoming.get("links") {
+        return Ok(Some("links"));
     }
     Ok(None)
 }
@@ -567,6 +695,7 @@ mod tests {
   "compiler_wrapper": {"kind": "use", "wrapper": "ccache"},
   "language": {"cxx-standard": "c++20"},
   "standards": {"targets": {"fmt": {"interface": {"c++": {"min": "c++17"}}}}},
+  "links": {"fmt": "fmt"},
   "yanked": false,
   "checksum": "sha256:bb",
   "source": {"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}
@@ -574,6 +703,98 @@ mod tests {
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         assert!(parsed.standards.is_some());
         assert!(parsed.features.is_some());
+        assert_eq!(parsed.links["fmt"], "fmt");
+    }
+
+    /// The lexical `links` mirror: malformed target keys, malformed
+    /// or non-string identities, duplicate identities, an explicit
+    /// `null` (which can never be canonical), and claims naming a
+    /// target without a non-header-only `standards` row are all
+    /// `400`s, so a document that could only fail at verification
+    /// time never enters the pending queue.
+    #[test]
+    fn validate_metadata_rejects_malformed_links() {
+        // The grammar cases keep an empty `standards` table: their
+        // errors fire before the cross-table row check runs.
+        const NO_ROWS: &str = r#"{"targets": {}}"#;
+        let body_with = |standards: &str, links: &str| {
+            format!(
+                r#"{{
+  "schema": 1,
+  "name": "fmtlib/fmt",
+  "version": "1.0.0",
+  "dependencies": {{}},
+  "standards": {standards},
+  "links": {links},
+  "yanked": false,
+  "checksum": "sha256:bb",
+  "source": {{"type": "archive", "path": "../../artifacts/fmtlib/fmt/fmtlib-fmt-1.0.0-0011223344556677.zip", "format": "zip"}}
+}}"#
+            )
+        };
+        for (label, standards, links, expected) in [
+            ("bad key", NO_ROWS, r#"{"..": "z"}"#, INVALID_LINKS),
+            ("leading dash key", NO_ROWS, r#"{"-z": "z"}"#, INVALID_LINKS),
+            ("empty identity", NO_ROWS, r#"{"z": ""}"#, INVALID_LINKS),
+            (
+                "identity with space",
+                NO_ROWS,
+                r#"{"z": "lib z"}"#,
+                INVALID_LINKS,
+            ),
+            ("non-string identity", NO_ROWS, r#"{"z": 1}"#, INVALID_LINKS),
+            (
+                "duplicate identity",
+                NO_ROWS,
+                r#"{"a": "z", "b": "z"}"#,
+                INVALID_LINKS,
+            ),
+            ("explicit null", NO_ROWS, "null", METADATA_NOT_CANONICAL),
+            ("explicit empty map", NO_ROWS, "{}", METADATA_NOT_CANONICAL),
+            (
+                "no standards row",
+                NO_ROWS,
+                r#"{"z": "z"}"#,
+                LINKS_TARGET_NOT_LIBRARY,
+            ),
+            (
+                "header-only claimant",
+                r#"{"targets": {"z": {"header-only": true}}}"#,
+                r#"{"z": "z"}"#,
+                LINKS_TARGET_NOT_LIBRARY,
+            ),
+            // Structurally valid but not name-sorted: the textual
+            // one-way revision guards would refuse every later
+            // canonical respin, so the door refuses the document.
+            (
+                "unsorted targets",
+                r#"{"targets": {"png": {}, "z": {}}}"#,
+                r#"{"z": "z", "png": "png"}"#,
+                LINKS_NOT_SORTED,
+            ),
+        ] {
+            let err = validate_metadata(
+                "fmtlib",
+                "fmt",
+                "1.0.0",
+                REV,
+                body_with(standards, links).as_bytes(),
+            )
+            .unwrap_err();
+            assert_eq!(err, expected, "case: {label}");
+        }
+        let ok = validate_metadata(
+            "fmtlib",
+            "fmt",
+            "1.0.0",
+            REV,
+            body_with(
+                r#"{"targets": {"z": {}, "png": {}}}"#,
+                r#"{"png": "png", "z": "z"}"#,
+            )
+            .as_bytes(),
+        );
+        assert!(ok.is_ok(), "distinct valid claims must pass: {ok:?}");
     }
 
     fn upstream_metadata_json(upstream: &str) -> String {
@@ -1151,6 +1372,22 @@ mod tests {
         let reordered = r#"{"standards":{"cxx":"c++17"},"features":{"default":[]},
                            "dependencies":{"acme/dep":"^1"}}"#;
         assert_eq!(resolver_metadata_conflict(stored, reordered), Ok(None));
+        // `links` is one-way: adding a table where the stored version
+        // has none is a legal respin; changing or removing a stored
+        // one is not.
+        let stamped = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
+                         "standards":{"cxx":"c++17"},"links":{"z":"z"}}"#;
+        assert_eq!(resolver_metadata_conflict(stored, stamped), Ok(None));
+        assert_eq!(
+            resolver_metadata_conflict(stamped, stored),
+            Ok(Some("links"))
+        );
+        let restamped = r#"{"dependencies":{"acme/dep":"^1"},"features":{"default":[]},
+                           "standards":{"cxx":"c++17"},"links":{"z":"zlib"}}"#;
+        assert_eq!(
+            resolver_metadata_conflict(stamped, restamped),
+            Ok(Some("links"))
+        );
         // Malformed stored documents surface as an error, never a pass.
         assert_eq!(
             resolver_metadata_conflict("not json", respun),

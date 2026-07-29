@@ -247,15 +247,18 @@ statements! {
          WHERE scope = ?1 AND name = ?2 AND version = ?3 ORDER BY revision";
 
     /// One live (pending or verified) sibling's stored document, for
-    /// the publish preflight's resolver-metadata invariance check
-    /// (every live sibling agrees on those fields by induction, so
-    /// one row represents the set).  [`INSERT_REVISION`] re-enforces
-    /// the same rule inside the transaction; this read only shapes
-    /// the diagnostic.
+    /// the publish preflight's resolver-metadata invariance check.
+    /// Live siblings agree on the symmetric fields by induction, but
+    /// `links` is one-way (a revision may add a table where the
+    /// version had none), so siblings can legitimately differ on it -
+    /// prefer a links-bearing row, which is authoritative once one
+    /// exists.  [`INSERT_REVISION`] re-enforces the same rule inside
+    /// the transaction; this read only shapes the diagnostic.
     LIVE_REVISION_METADATA =
         "SELECT metadata_json FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 \
-         AND verification IN ('pending', 'verified') ORDER BY revision LIMIT 1";
+         AND verification IN ('pending', 'verified') \
+         ORDER BY (json_extract(metadata_json, '$.links') IS NULL), revision LIMIT 1";
 
     /// Whether the token's user is a member (any role) of the scope: the
     /// write plane's authorization read. A scope that does not exist has
@@ -301,7 +304,11 @@ statements! {
     /// can never alter what resolution already decided (the canonical
     /// document renders deterministically, so serialized-JSON
     /// equality via `json_extract` is exact for every honest client;
-    /// `IS NOT` keeps the absent-field `NULL`s comparable).  Zero
+    /// `IS NOT` keeps the absent-field `NULL`s comparable).  `links`
+    /// is one-way: a sibling without a table never constrains, but a
+    /// links-bearing sibling must be matched exactly - identities
+    /// may be stamped onto a published version once, then never
+    /// changed or removed by a respin.  Zero
     /// changed rows sends the glue back to [`EXISTING_REVISIONS`] to
     /// answer no-op, opt-in conflict, invariance conflict, or twin
     /// `400` from what it re-reads.
@@ -324,7 +331,10 @@ statements! {
                    OR json_extract(metadata_json, '$.features') \
                        IS NOT json_extract(?6, '$.features') \
                    OR json_extract(metadata_json, '$.standards') \
-                       IS NOT json_extract(?6, '$.standards')))";
+                       IS NOT json_extract(?6, '$.standards') \
+                   OR (json_extract(metadata_json, '$.links') IS NOT NULL \
+                       AND json_extract(metadata_json, '$.links') \
+                           IS NOT json_extract(?6, '$.links'))))";
 
     /// Revives a rejected revision in place (back to `pending`),
     /// guarded on the row still being the rejected generation this
@@ -354,7 +364,10 @@ statements! {
                    OR json_extract(metadata_json, '$.features') \
                        IS NOT json_extract(?1, '$.features') \
                    OR json_extract(metadata_json, '$.standards') \
-                       IS NOT json_extract(?1, '$.standards')))";
+                       IS NOT json_extract(?1, '$.standards') \
+                   OR (json_extract(metadata_json, '$.links') IS NOT NULL \
+                       AND json_extract(metadata_json, '$.links') \
+                           IS NOT json_extract(?1, '$.links'))))";
 
     /// How many versions have sat `pending` for over an hour (the
     /// stuck-verifier alert).
@@ -545,7 +558,10 @@ statements! {
                         OR json_extract(metadata_json, '$.features') \
                             IS NOT json_extract(?7, '$.features') \
                         OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?7, '$.standards'))) \
+                            IS NOT json_extract(?7, '$.standards') \
+                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
+                            AND json_extract(metadata_json, '$.links') \
+                                IS NOT json_extract(?7, '$.links')))) \
               THEN CAST(?2 AS INTEGER) ELSE 0 END) \
          ON CONFLICT (key) DO UPDATE SET \
          value = CAST(value AS INTEGER) + \
@@ -569,7 +585,10 @@ statements! {
                         OR json_extract(metadata_json, '$.features') \
                             IS NOT json_extract(?7, '$.features') \
                         OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?7, '$.standards'))) \
+                            IS NOT json_extract(?7, '$.standards') \
+                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
+                            AND json_extract(metadata_json, '$.links') \
+                                IS NOT json_extract(?7, '$.links')))) \
               THEN CAST(?2 AS INTEGER) ELSE 0 END";
 
     /// Refunds a rejected archive's bytes exactly when the row - still
@@ -620,7 +639,10 @@ statements! {
                         OR json_extract(metadata_json, '$.features') \
                             IS NOT json_extract(?9, '$.features') \
                         OR json_extract(metadata_json, '$.standards') \
-                            IS NOT json_extract(?9, '$.standards'))) \
+                            IS NOT json_extract(?9, '$.standards') \
+                        OR (json_extract(metadata_json, '$.links') IS NOT NULL \
+                            AND json_extract(metadata_json, '$.links') \
+                                IS NOT json_extract(?9, '$.links')))) \
               THEN CAST(?6 AS INTEGER) ELSE 0 END \
          WHERE key = 'total_stored_bytes'";
 
