@@ -247,6 +247,7 @@ would not contain cabin.toml`.
 | `toolchain` *(optional)* | The workspace root's `[toolchain]` plus any `[target.'cfg(...)'.toolchain]` overrides, exactly as written in the manifest.  Environment- or CLI-derived selections are deliberately not written here.  Omitted when no `[toolchain]` table was declared.  See [`toolchains.md`](toolchains.md). |
 | `build` *(optional)* | The package's `[profile]` plus any general `[target.'cfg(...)'.profile]` and named `[target.'cfg(...)'.profile.<name>]` overrides.  Named entries carry an optional profile-name discriminator.  Omitted when empty. |
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
+| `links` *(optional)* | Declared per-target [`links`](manifest.md#links) claims, as a `{ "<target>": "<identity>" }` map sorted by target name.  A pure projection of the manifest so index consumers can run the post-resolution uniqueness check without downloading the archive.  Omitted when no target declares one. |
 | `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), `sha256`, `format`, optional `strip-prefix`, and the `copy` steps (omitted when there are none).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
@@ -316,7 +317,9 @@ Behavioral notes specific to registry publish:
   this so static sparse-HTTP serving can read the same layout without rewriting.
 - The immutable unit is `(name, version, revision)`.  Republishing byte-identical bytes is a no-op
   onto the recorded revision; changed bytes for an already-published version require
-  `--new-revision`, and even then must not change `dependencies`, `features`, or `standards`.  See
+  `--new-revision`, and even then must not change `dependencies`, `features`, or `standards`.
+  `links` is one-way: a revision may add a claim table to a version published without one, but an
+  existing table can never be changed or removed by a respin.  See
   [`package-index.md`](package-index.md#packaging-revisions).
 - Existing artifact bytes are never silently overwritten; if an artifact file is present without a
   matching index entry, the publish run refuses.

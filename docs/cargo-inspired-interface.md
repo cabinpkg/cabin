@@ -144,6 +144,16 @@ on the changed inputs.
 feature / configuration in the resolved state?" without re-deriving it by hand.  See
 [`metadata-tree-explain.md`](metadata-tree-explain.md).
 
+### `links` is per-target and uniqueness-only
+
+Cargo's `links` is a package-level key coupled to build scripts: it feeds `DEP_<LINKS>_*` metadata
+between build scripts and gates who may wrap a native library.  Cabin's [`links`](manifest.md#links)
+is declared on the `library` target that embodies the native library (a package may carry several
+libraries) and enforces exactly one thing: no two packages in a resolution graph may claim the same
+identity.  There is no metadata passing and no build-hook integration - Cabin has no build scripts -
+so the key exists purely to turn a duplicate-symbol failure deep in the final link into a clear
+post-resolution diagnostic.
+
 ## What Cabin intentionally does not have
 
 These are Cargo / Rust concepts that do not (yet) translate to Cabin's C/C++ scope:

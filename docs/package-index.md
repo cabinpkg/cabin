@@ -137,6 +137,7 @@ Each version's metadata:
 | `revisions` | no | `{}` | Every fetchable packaging revision of this version, keyed by revision id.  See [Packaging revisions](#packaging-revisions). |
 | `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
+| `links` | no | omitted | Declared per-target [`links`](manifest.md#links) claims, keyed by target name.  Absence means the version claims nothing, so older entries that omit the field continue to load.  See [Links metadata](#links-metadata). |
 | `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, `sha256`, `format`, optional `strip-prefix`, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
 
 Unknown fields anywhere in the file are rejected.
@@ -238,6 +239,26 @@ The stored value is each target's **own** declared requirement, not a transitive
 compose requirements across dependency edges, is in
 [`design/standard-compatibility/registry-index.md`](design/standard-compatibility/registry-index.md).
 
+## Links metadata
+
+The optional `links` block records each target's declared native-library identity claim
+([`manifest.md`](manifest.md#links)), so the post-resolution uniqueness check can read a version's
+claims without downloading the source archive:
+
+```json
+"links": { "z": "z" }
+```
+
+- Keys are target names (only `library` targets may claim); values are the claimed identities.
+  Keys satisfy the target-name grammar, values the links identity grammar, and each identity
+  appears at most once - the manifest and publish rules, re-validated on load.
+- Each claimed target must also have a [standard metadata](#standard-metadata) row that is not
+  `header-only`.  Publishing writes a row for every library-like target, so a missing row (or a
+  header-only one) marks a claim the manifest's library-only rule would have rejected; the loader
+  refuses such entries.
+- A missing `links` block means the version claims nothing, so every pre-`links` entry stays valid
+  unchanged.  An empty block is never written - absence is the empty encoding.
+
 ## Package with dependencies
 
 ```json
@@ -305,6 +326,9 @@ Loading rejects an index when:
 - a `standards` interface cell carries an empty range (`max` older than `min`), or is a bare
   standard string (`"c++17"`) rather than `"none"` or a `{ "min": "<level>", "max": "<level>" }`
   table
+- a `links` entry has a key outside the target-name grammar, a value outside the links identity
+  grammar (non-empty ASCII letters, digits, `.`, `_`, `+`, and `-`), or an identity claimed by more
+  than one target of the version
 - an `upstream` block violates the provenance rules: a non-HTTPS or credential-bearing `url`, a
   `sha256` that is not 64 lowercase hex characters, a `format` other than `"tar.gz"` / `"zip"`, a
   multi-component `strip-prefix`, or an unsafe copy path

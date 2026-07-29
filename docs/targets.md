@@ -108,6 +108,8 @@ Common fields:
 - `required-features`: package features that must all be enabled for this target to be built or
   used; see [Feature-gated targets](features.md#feature-gated-targets).  Entries must name features
   declared in this package's `[features]` table.
+- `links`: the native-library identity a `library` target claims (`links = "z"`), enforced unique
+  across a resolution graph; see [`links`](manifest.md#links).
 
 Cross-package deps must reach the consumer through a `[dependencies]` edge.  `[dev-dependencies]`
 are never linked into ordinary targets; the dev-only kinds (`test`, `example`) may additionally
@@ -177,7 +179,10 @@ locally.
 The published canonical metadata records package-level surfaces such as dependencies, features,
 profiles, toolchain/build settings, checksum, and source location.  It does not contain a target
 list; target declarations remain in the archived `cabin.toml` and are visible to local tooling
-through `cabin metadata`.
+through `cabin metadata`.  The two per-target exceptions are the derived
+[`standards` table](package-index.md#standard-metadata) and the declared
+[`links` claims](package-index.md#links-metadata), which index consumers must read without
+downloading the archive.
 
 ## Limitations
 
