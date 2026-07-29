@@ -2692,6 +2692,9 @@ mod language_standards;
 #[path = "cli/standard_compat.rs"]
 mod standard_compat;
 
+#[path = "cli/links.rs"]
+mod links;
+
 #[path = "cli/vendor_offline.rs"]
 mod vendor_offline;
 
