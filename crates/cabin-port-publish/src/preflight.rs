@@ -82,6 +82,9 @@ pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
             &sources_dir,
             &registry_dir,
             ArchiveFetch::CacheOrDownload,
+            // The preflight registry is rebuilt from scratch every
+            // run, so every publish is a first revision.
+            false,
         )?;
         for warning in &report.warnings {
             eprintln!("warning: {warning}");
@@ -141,6 +144,7 @@ pub fn stage_conversion(
     sources_dir: &Path,
     registry_dir: &Path,
     fetch: ArchiveFetch,
+    new_revision: bool,
 ) -> Result<(PathBuf, cabin_publish::RegistryPublishReport)> {
     let package_dir = materialize(conversion, port_cache, sources_dir, fetch)?;
     let report = cabin_publish::publish_to_file_registry(RegistryPublishWorkflow {
@@ -148,6 +152,7 @@ pub fn stage_conversion(
         registry_dir,
         resolved_project: None,
         workspace_dep_requirements: cabin_core::WorkspaceDepRequirements::default(),
+        new_revision,
     })
     .with_context(|| {
         format!(
@@ -334,17 +339,13 @@ fn build_probe_against_registry(
 }
 
 /// The probe package's manifest.  The exact requirement names the
-/// published `major.minor.patch` (plus any pre-release tag);
-/// requirement matching ignores build metadata, so a packaging
-/// revision satisfies it too, and the temporary registry holds
-/// exactly one version per conversion.  A sole library-like target
-/// is referenced through the bare-package shorthand (exercising the
-/// spelling consumers use); several are referenced through explicit
+/// published version.  A sole library-like target is referenced
+/// through the bare-package shorthand (exercising the spelling
+/// consumers use); several are referenced through explicit
 /// `package:target` selectors, since the shorthand is ambiguous
 /// then; none leaves the dependency resolve-and-fetch-only.
 fn probe_manifest(conversion: &PortConversion) -> String {
-    let mut exact = conversion.published_version.clone();
-    exact.build = semver::BuildMetadata::EMPTY;
+    let exact = conversion.published_version.clone();
     let scoped = conversion.scoped_name.as_str();
     let deps: Vec<String> = match conversion.library_like_target_keys.as_slice() {
         [] => Vec::new(),
@@ -387,7 +388,7 @@ mod tests {
                 copies: Vec::new(),
             },
             scoped_name: cabin_core::PackageName::new("cabin-ports/zlib").unwrap(),
-            published_version: semver::Version::parse("1.3.1+cabin.1").unwrap(),
+            published_version: semver::Version::new(1, 3, 1),
             manifest: String::new(),
             dependencies: Vec::<PortDependencyEdge>::new(),
             library_like_target_keys: target_keys.iter().map(|k| (*k).to_owned()).collect(),
@@ -410,6 +411,7 @@ mod tests {
             &dir.path().join("src"),
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,
+            false,
         )
         .unwrap_err();
         let message = format!("{err:#}");
@@ -431,7 +433,7 @@ mod tests {
     fn staging_refuses_a_reused_package_directory() {
         let dir = assert_fs::TempDir::new().unwrap();
         let sources_dir = dir.path().join("src");
-        let stale = sources_dir.join("zlib").join("1.3.1+cabin.1");
+        let stale = sources_dir.join("zlib").join("1.3.1");
         fs::create_dir_all(&stale).unwrap();
         let err = stage_conversion(
             &conversion(&["z"]),
@@ -439,6 +441,7 @@ mod tests {
             &sources_dir,
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,
+            false,
         )
         .unwrap_err();
         assert!(format!("{err:#}").contains("already exists"), "{err:#}");

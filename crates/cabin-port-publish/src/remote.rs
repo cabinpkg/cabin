@@ -43,12 +43,16 @@ const MAX_RETRY_DELAY_SECS: u64 = 300;
 
 /// Upload every conversion, in publication order.
 ///
+/// Every upload passes `--new-revision`: the committed recipes are
+/// the source of truth, so a recipe change that reaches this tool is
+/// the deliberate intent to respin the published version - identical
+/// bytes still no-op through the registry's idempotency, and changed
+/// bytes become a new packaging revision of the same upstream
+/// version.
+///
 /// # Errors
 /// Returns an error when a `cabin publish` invocation cannot start
-/// or exits non-zero with every retry spent.  A divergent-bytes
-/// conflict for an existing version surfaces here with guidance to
-/// bump the packaging revision instead of editing the published
-/// version.
+/// or exits non-zero with every retry spent.
 pub fn publish_all(
     conversions: &[PortConversion],
     package_dirs: &[&Path],
@@ -82,6 +86,7 @@ fn publish_one(
             .arg("-Z")
             .arg("remote-registry")
             .arg("publish")
+            .arg("--new-revision")
             .arg("--manifest-path")
             .arg(package_dir.join("cabin.toml"))
             .arg("--index-url")
@@ -111,13 +116,10 @@ fn publish_one(
             continue;
         }
         bail!(
-            "publishing {} {} failed ({}); if the version already exists with \
-             different bytes, bump the recipe's `{}` sidecar instead of editing the \
-             published version",
+            "publishing {} {} failed ({})",
             conversion.scoped_name.as_str(),
             conversion.published_version,
             output.status,
-            crate::plan::REVISION_FILENAME
         );
     }
 }
