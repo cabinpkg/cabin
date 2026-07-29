@@ -104,7 +104,13 @@ fn frozen_fixture_with_a_lying_checksum_claim_fails_the_checksum() {
     let lying = text.replace(claim, &lying_claim);
     assert_ne!(text, lying, "the mutation must have applied");
     assert_eq!(
-        validate_pair("smoke", "withdep", "0.2.0", lying.as_bytes(), FROZEN_ARCHIVE),
+        validate_pair(
+            "smoke",
+            "withdep",
+            "0.2.0",
+            lying.as_bytes(),
+            FROZEN_ARCHIVE
+        ),
         Err(CHECKSUM_MISMATCH)
     );
 }

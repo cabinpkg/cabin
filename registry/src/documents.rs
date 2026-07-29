@@ -117,10 +117,7 @@ pub fn package_json(
             fields.shift_remove(stripped);
         }
         fields.insert("yanked".to_owned(), Value::Bool(row.yanked));
-        fields.insert(
-            "revision".to_owned(),
-            Value::String(row.revision.clone()),
-        );
+        fields.insert("revision".to_owned(), Value::String(row.revision.clone()));
         let mut revision_map = Map::new();
         for revision in revisions.iter().filter(|r| r.version == row.version) {
             // The canonical per-revision source path, the same grammar
@@ -186,7 +183,7 @@ mod tests {
         RevisionRow {
             version: version.to_owned(),
             revision: revision.to_owned(),
-            checksum: std::iter::repeat(seed).take(64).collect(),
+            checksum: std::iter::repeat_n(seed, 64).collect(),
             published_at: format!("2026-01-01T00:00:0{seed}Z"),
         }
     }
@@ -279,7 +276,10 @@ mod tests {
             &[revision("1.0.0", REV_A, 'a')],
         )
         .unwrap_err();
-        assert!(err.contains("missing from the verified revision set"), "{err}");
+        assert!(
+            err.contains("missing from the verified revision set"),
+            "{err}"
+        );
     }
 
     #[test]

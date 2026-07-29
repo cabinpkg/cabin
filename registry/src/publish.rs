@@ -64,8 +64,7 @@ pub const RESERVED_NAME: &str = "package name is reserved";
 pub const NAME_TWIN_CONFLICT: &str =
     "package name conflicts with an existing package in this scope (differs only in '-' vs '_')";
 pub const INVALID_VERSION: &str = "package version is not valid SemVer";
-pub const VERSION_BUILD_METADATA: &str =
-    "package version must not carry build metadata; packaging corrections are published as \
+pub const VERSION_BUILD_METADATA: &str = "package version must not carry build metadata; packaging corrections are published as \
      revisions of the same version";
 pub const INVALID_DEPENDENCY_NAME: &str =
     "dependency keys in dependencies and dev-dependencies must be canonical <scope>/<name> names";
@@ -977,7 +976,8 @@ mod tests {
                 &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {{\"{key}\": \"^1\"}}"),
             );
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_dev_dep.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, with_dev_dep.as_bytes())
+                    .unwrap_err(),
                 INVALID_DEPENDENCY_NAME,
                 "dev-dependencies key: {key:?}"
             );
@@ -1002,7 +1002,8 @@ mod tests {
                 &format!("\"dependencies\": {{}},\n  \"dev-dependencies\": {value}"),
             );
             assert_eq!(
-                validate_metadata("fmtlib", "fmt", "1.0.0", REV, non_object.as_bytes()).unwrap_err(),
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, non_object.as_bytes())
+                    .unwrap_err(),
                 METADATA_NOT_CANONICAL,
                 "value: {value}"
             );

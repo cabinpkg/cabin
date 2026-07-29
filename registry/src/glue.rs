@@ -258,7 +258,9 @@ async fn handle_registry(
                     name,
                     version,
                     revision,
-                } => artifact_response(env, &db, ctx, &auth, scope, name, version, revision).await?,
+                } => {
+                    artifact_response(env, &db, ctx, &auth, scope, name, version, revision).await?
+                }
                 // Answered above before the auth gate.
                 Route::Healthz => Response::empty()?,
             }
@@ -1315,12 +1317,7 @@ async fn artifact_response(
 ) -> worker::Result<Response> {
     let record: Option<ArtifactRecord> = db
         .prepare(sql::ARTIFACT_BY_REVISION)
-        .bind(&[
-            scope.into(),
-            name.into(),
-            version.into(),
-            revision.into(),
-        ])?
+        .bind(&[scope.into(), name.into(), version.into(), revision.into()])?
         .first(None)
         .await?;
     let Some(record) = record else {

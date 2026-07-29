@@ -485,13 +485,14 @@ mod tests {
         // The removed build-metadata shape fails ordinary validation:
         // registry versions are plain upstream versions.
         assert_eq!(
-            match_route(
-                "/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"
-            ),
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1+cabin.1-00112233aabbccdd.zip"),
             None
         );
         // A missing or malformed revision tail never parses.
-        assert_eq!(match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"), None);
+        assert_eq!(
+            match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1.zip"),
+            None
+        );
         assert_eq!(
             match_route("/artifacts/fmtlib/fmt/fmtlib-fmt-10.2.1-ABCD.zip"),
             None
@@ -1004,14 +1005,27 @@ mod tests {
             assert!(is_valid_version(version), "version: {version:?}");
         }
         for version in [
-            "", "1", "1.0", "1.0.0.0", "v1.0.0", "1..0", "1.0.a", "1.0.0/x", "1.0.0-ü",
+            "",
+            "1",
+            "1.0",
+            "1.0.0.0",
+            "v1.0.0",
+            "1..0",
+            "1.0.a",
+            "1.0.0/x",
+            "1.0.0-ü",
             // Full SemVer, not just charset safety: leading zeros,
             // empty pre-release / build suffixes, and zero-padded
             // numeric pre-release identifiers are all invalid.
-            "01.2.3", "1.2.3-", "1.0.0+", "1.0.0-01",
+            "01.2.3",
+            "1.2.3-",
+            "1.0.0+",
+            "1.0.0-01",
             // Build metadata is the removed packaging-revision shape:
             // registry versions are plain upstream versions.
-            "1.0.0+build", "1.0.0-rc.1+b-2", "1.3.1+cabin.1",
+            "1.0.0+build",
+            "1.0.0-rc.1+b-2",
+            "1.3.1+cabin.1",
         ] {
             assert!(!is_valid_version(version), "version: {version:?}");
         }
