@@ -333,6 +333,7 @@ pub fn parse_package_entry(
         let current = revision.as_ref().and_then(|id| revisions.get(id));
         let checksum = current.map(|rev| rev.checksum.clone());
         let source = current.map(|rev| rev.source.clone());
+        validate_links(&raw.name, &ver_str, &raw_ver.links, &raw_ver.standards)?;
         versions.insert(
             version,
             VersionMetadata {
@@ -351,6 +352,7 @@ pub fn parse_package_entry(
                 compiler_wrapper: raw_ver.compiler_wrapper,
                 language: raw_ver.language,
                 standards: raw_ver.standards,
+                links: raw_ver.links,
                 upstream: raw_ver.upstream,
             },
         );
@@ -360,6 +362,74 @@ pub fn parse_package_entry(
         name: package_name,
         versions,
     })
+}
+
+/// Re-validate a published `links` table like the typed `standards`
+/// and `upstream` fields: index documents are an external trust
+/// boundary, so target keys must satisfy the target-name grammar,
+/// identity values the links grammar, each identity may be claimed
+/// at most once, and every claim must name a non-header-only
+/// `standards` row - publish writes a row for every library-like
+/// target, so a missing row (or its `header-only` flag) marks a
+/// claim the manifest's library-only rule would have rejected.
+/// These are the same rules the manifest parser and the hosted
+/// registry's publish validation enforce, so all three boundaries
+/// tell one story.
+fn validate_links(
+    package: &str,
+    version: &str,
+    links: &BTreeMap<String, String>,
+    standards: &cabin_core::StandardsMetadata,
+) -> Result<(), IndexError> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for (target, identity) in links {
+        cabin_core::TargetName::new(target.clone()).map_err(|err| IndexError::InvalidLinks {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            message: err.to_string(),
+        })?;
+        cabin_core::validate_links_identity(identity).map_err(|err| IndexError::InvalidLinks {
+            package: package.to_owned(),
+            version: version.to_owned(),
+            message: err.to_string(),
+        })?;
+        if !seen.insert(identity) {
+            return Err(IndexError::InvalidLinks {
+                package: package.to_owned(),
+                version: version.to_owned(),
+                message: format!("identity {identity:?} is claimed by more than one target"),
+            });
+        }
+    }
+    // Cross-table pass, after the table's self-contained rules so a
+    // table that violates both reports the grammar/uniqueness error
+    // it always did.
+    for target in links.keys() {
+        match standards.targets.get(target) {
+            Some(row) if !row.header_only => {}
+            Some(_) => {
+                return Err(IndexError::InvalidLinks {
+                    package: package.to_owned(),
+                    version: version.to_owned(),
+                    message: format!(
+                        "target {target:?} is header-only; only `library` targets produce a \
+                         linkable artifact that can embody a native-library identity"
+                    ),
+                });
+            }
+            None => {
+                return Err(IndexError::InvalidLinks {
+                    package: package.to_owned(),
+                    version: version.to_owned(),
+                    message: format!(
+                        "target {target:?} has no `standards` row; a `links` claim must name a \
+                         published `library` target"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Validate `name` as a [`PackageName`], mapping failure to
@@ -662,6 +732,11 @@ struct RawVersion {
     /// range-validated `max` and a bare-string cell.
     #[serde(default)]
     standards: cabin_core::StandardsMetadata,
+    /// Declared per-target `links` identity claims.  Optional;
+    /// absence (all pre-`links` entries) means the version claims
+    /// nothing.
+    #[serde(default)]
+    links: BTreeMap<String, String>,
     /// Declared `[package.upstream]` provenance.  Optional; older
     /// registries that omit the field continue to load.  Parsed into
     /// the typed [`cabin_core::UpstreamProvenance`], whose
@@ -1962,6 +2037,101 @@ mod tests {
         assert_eq!(clib.interface_c, Requirement::Min(CStandard::C11));
         // Omitted `c++` key means unconstrained for that language.
         assert_eq!(clib.interface_cxx, Requirement::Unconstrained);
+    }
+
+    /// A published `links` table parses into the typed per-target
+    /// claim map; entries without the field load with no claims.
+    #[test]
+    fn loads_links_table() {
+        let dir = TempDir::new().unwrap();
+        dir.child("zlib.json")
+            .write_str(
+                r#"{
+                "schema": 1,
+                "name": "zlib",
+                "versions": {
+                    "1.3.1": {
+                        "dependencies": {},
+                        "standards": { "targets": { "z": {}, "zng": {} } },
+                        "links": { "z": "z", "zng": "z-ng" }
+                    },
+                    "1.3.0": {
+                        "dependencies": {}
+                    }
+                }
+            }"#,
+            )
+            .unwrap();
+        let index = load_index(dir.path()).unwrap();
+        let entry = index.package(&PackageName::new("zlib").unwrap()).unwrap();
+        let meta = entry
+            .versions
+            .get(&semver::Version::parse("1.3.1").unwrap())
+            .unwrap();
+        assert_eq!(meta.links.len(), 2);
+        assert_eq!(meta.links["z"], "z");
+        assert_eq!(meta.links["zng"], "z-ng");
+        let older = entry
+            .versions
+            .get(&semver::Version::parse("1.3.0").unwrap())
+            .unwrap();
+        assert!(older.links.is_empty());
+    }
+
+    /// Index documents are an external trust boundary: a `links`
+    /// table with a malformed target key or identity value fails to
+    /// load, like malformed `standards` cells.  A claim naming a
+    /// target with no `standards` row, or a header-only one, fails
+    /// too - the manifest's library-only rule, re-checked against
+    /// the one per-target table the entry publishes.
+    #[test]
+    fn malformed_links_entries_are_rejected() {
+        // The grammar and uniqueness cases keep an empty `standards`
+        // table on purpose: their errors fire in the self-contained
+        // pass, before the cross-table row check ever runs.
+        for (label, standards, links) in [
+            ("bad key", r#"{ "targets": {} }"#, r#"{ "..": "z" }"#),
+            ("bad value", r#"{ "targets": {} }"#, r#"{ "z": "lib z" }"#),
+            ("empty value", r#"{ "targets": {} }"#, r#"{ "z": "" }"#),
+            (
+                "duplicate identity",
+                r#"{ "targets": {} }"#,
+                r#"{ "a": "z", "b": "z" }"#,
+            ),
+            (
+                "no standards row",
+                r#"{ "targets": {} }"#,
+                r#"{ "z": "z" }"#,
+            ),
+            (
+                "header-only claimant",
+                r#"{ "targets": { "z": { "header-only": true } } }"#,
+                r#"{ "z": "z" }"#,
+            ),
+        ] {
+            let dir = TempDir::new().unwrap();
+            dir.child("zlib.json")
+                .write_str(&format!(
+                    r#"{{
+                    "schema": 1,
+                    "name": "zlib",
+                    "versions": {{
+                        "1.3.1": {{
+                            "dependencies": {{}},
+                            "standards": {standards},
+                            "links": {links}
+                        }}
+                    }}
+                }}"#
+                ))
+                .unwrap();
+            let err = load_index(dir.path()).unwrap_err();
+            assert!(
+                matches!(&err, IndexError::InvalidLinks { package, version, .. }
+                    if package == "zlib" && version == "1.3.1"),
+                "{label}: expected InvalidLinks, got {err:?}"
+            );
+        }
     }
 
     /// An entry with no `standards` field (every pre-`standards`
