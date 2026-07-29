@@ -33,6 +33,9 @@ pub struct RegistryPublishWorkflow<'a> {
 /// What [`publish_to_file_registry`] / its dry-run sibling decided
 /// happened.  Carries everything the CLI needs to render a human or
 /// JSON report.
+// Four independent report facts happen to be booleans; collapsing
+// them into state enums would obscure, not clarify, a plain report.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct RegistryPublishReport {
     pub name: PackageName,

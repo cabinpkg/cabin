@@ -1120,40 +1120,37 @@ fn build_fetch_plan(
             .find(&resolved.name)
             .filter(|locked| locked.version == resolved.version)
             .and_then(|locked| locked.checksum.clone());
-        let (source, checksum) = match pinned_checksum {
-            Some(pinned) => {
-                let revision = meta
-                    .revisions
-                    .values()
-                    .find(|rev| rev.checksum == pinned)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "the lockfile pins `{} {}` to a packaging revision with checksum \
-                             {pinned} which the index no longer lists; run `cabin update` if the \
-                             index is the intended source",
-                            resolved.name.as_str(),
-                            resolved.version
-                        )
-                    })?;
-                (&revision.source, pinned)
-            }
-            None => {
-                let source = meta.source.as_ref().ok_or_else(|| {
+        let (source, checksum) = if let Some(pinned) = pinned_checksum {
+            let revision = meta
+                .revisions
+                .values()
+                .find(|rev| rev.checksum == pinned)
+                .ok_or_else(|| {
                     anyhow::anyhow!(
-                        "package `{} {}` has no source artifact in the index",
+                        "the lockfile pins `{} {}` to a packaging revision with checksum \
+                         {pinned} which the index no longer lists; run `cabin update` if the \
+                         index is the intended source",
                         resolved.name.as_str(),
                         resolved.version
                     )
                 })?;
-                let checksum = meta.checksum.clone().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "missing checksum for `{} {}`; cabin fetch requires a sha256:<hex> entry in the index",
-                        resolved.name.as_str(),
-                        resolved.version
-                    )
-                })?;
-                (source, checksum)
-            }
+            (&revision.source, pinned)
+        } else {
+            let source = meta.source.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "package `{} {}` has no source artifact in the index",
+                    resolved.name.as_str(),
+                    resolved.version
+                )
+            })?;
+            let checksum = meta.checksum.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing checksum for `{} {}`; cabin fetch requires a sha256:<hex> entry in the index",
+                    resolved.name.as_str(),
+                    resolved.version
+                )
+            })?;
+            (source, checksum)
         };
         let fetch_source = match (source, access) {
             (cabin_index::SourceLocation::LocalPath(p), _) => {

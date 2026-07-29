@@ -353,13 +353,12 @@ fn staged_metadata_for_registry(
 fn publish_stamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let (days, tod) = (secs / 86_400, secs % 86_400);
     // Civil-from-days (Howard Hinnant's algorithm), valid for every
     // date this code will ever stamp.
     let (year, month, day) = {
-        let z = days as i64 + 719_468;
+        let z = i64::try_from(days).unwrap_or(0) + 719_468;
         let era = z.div_euclid(146_097);
         let doe = z.rem_euclid(146_097);
         let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;

@@ -248,10 +248,17 @@ pub struct SourceMetadata {
 /// referring to a freshly-archived source tree by `checksum`.
 ///
 /// `source.path` is the file-registry relative reference
-/// (`../artifacts/<name>/<name>-<version>.zip`).  Dry-run staging
-/// records the same shape as a package-index `source` block, without
-/// publishing that path, so registry publish can reuse the
-/// metadata without re-deriving it.
+/// (`../artifacts/<name>/<name>-<version>-<revision>.zip`, the
+/// packaging revision being the checksum's leading hex prefix).
+/// Dry-run staging records the same shape as a package-index
+/// `source` block, without publishing that path, so registry publish
+/// can reuse the metadata without re-deriving it.
+///
+/// # Panics
+///
+/// When `checksum` is not a `sha256:<64 lowercase hex>` claim - an
+/// internal invariant: staging always passes the digest it just
+/// computed.
 pub fn canonical_metadata(package: &Package, checksum: &str) -> PackageMetadata {
     let mut dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();
     let mut dev_dependencies: BTreeMap<String, PackageDependencyEntry> = BTreeMap::new();

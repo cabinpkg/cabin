@@ -281,7 +281,7 @@ fn vendor_reproduces_the_pinned_revision_after_a_respin() {
     // The vendored entry carries exactly the pinned revision.
     let (vendored_current, vendored_all) = fmt_revisions(&vendor_dir);
     assert_eq!(vendored_current, first_rev);
-    assert_eq!(vendored_all, [first_rev.clone()]);
+    assert_eq!(vendored_all, std::slice::from_ref(&first_rev));
     assert!(
         vendor_dir
             .join(format!(

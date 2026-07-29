@@ -259,41 +259,8 @@ pub fn materialize(
     for (name, entries) in &by_name {
         let mut version_entries: BTreeMap<String, serde_json::Value> = BTreeMap::new();
         for entry in entries {
-            // Always verify the source archive before copying.
-            // The plan promises "already-verified bytes"; we
-            // treat that as a courtesy and re-verify here so a
-            // bug in the upstream pipeline cannot surface as a
-            // silently corrupted vendor archive.
-            let actual = file_sha256(&entry.archive_source)?;
-            // Parse through cabin-artifact's canonical ChecksumDigest
-            // (validates the `sha256:` prefix + 64-hex shape and
-            // lower-cases) rather than re-implementing prefix-stripping
-            // here.
-            let digest =
-                cabin_artifact::ChecksumDigest::parse(&entry.checksum).ok_or_else(|| {
-                    VendorError::InvalidChecksum {
-                        name: entry.name.as_str().to_owned(),
-                        version: entry.version.to_string(),
-                        value: entry.checksum.clone(),
-                    }
-                })?;
-            let expected_hex = digest.hex();
-            if !actual.eq_ignore_ascii_case(expected_hex) {
-                return Err(VendorError::ChecksumMismatch {
-                    name: entry.name.as_str().to_owned(),
-                    version: entry.version.to_string(),
-                    expected: entry.checksum.clone(),
-                    actual: format!("sha256:{actual}"),
-                    archive: entry.archive_source.clone(),
-                });
-            }
-
-            // The vendored revision is the one the plan's checksum
-            // names - the lockfile-pinned revision the fetch
-            // materialized.
-            let revision = cabin_core::registry::packaging_revision_from_sha256_hex(expected_hex)
-                .expect("a parsed sha256 digest always yields a revision id")
-                .to_owned();
+            let (expected_hex, revision) = verified_entry_revision(entry)?;
+            let expected_hex = expected_hex.as_str();
             let artifact_path = registry.artifact_path(&entry.name, &entry.version, &revision);
             let artifact_relative =
                 registry.relative_source_path(&entry.name, &entry.version, &revision);
@@ -608,12 +575,46 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
     })
 }
 
-/// Point the entry's `source.path` at the vendor-relative archive
-/// path, creating the `source` block when the upstream index
-/// omitted it (the vendored archive always exists - it was just
-/// written).  A structurally malformed entry is an error: copying
-/// it through verbatim would leave the vendored index pointing at
-/// the original location, silently breaking offline use.
+/// Verify one plan entry's source archive against its checksum and
+/// derive the packaging revision the vendored copy publishes under:
+/// the plan's checksum names the lockfile-pinned revision the fetch
+/// materialized.  The plan promises "already-verified bytes"; the
+/// re-hash here is a courtesy so a bug in the upstream pipeline
+/// cannot surface as a silently corrupted vendor archive.  The
+/// checksum parses through cabin-artifact's canonical
+/// `ChecksumDigest` (validates the `sha256:` prefix + 64-hex shape
+/// and lower-cases) rather than re-implementing prefix handling.
+fn verified_entry_revision(entry: &VendorEntry) -> Result<(String, String), VendorError> {
+    let actual = file_sha256(&entry.archive_source)?;
+    let invalid = || VendorError::InvalidChecksum {
+        name: entry.name.as_str().to_owned(),
+        version: entry.version.to_string(),
+        value: entry.checksum.clone(),
+    };
+    let digest = cabin_artifact::ChecksumDigest::parse(&entry.checksum).ok_or_else(invalid)?;
+    let expected_hex = digest.hex();
+    if !actual.eq_ignore_ascii_case(expected_hex) {
+        return Err(VendorError::ChecksumMismatch {
+            name: entry.name.as_str().to_owned(),
+            version: entry.version.to_string(),
+            expected: entry.checksum.clone(),
+            actual: format!("sha256:{actual}"),
+            archive: entry.archive_source.clone(),
+        });
+    }
+    let revision = cabin_core::registry::packaging_revision_from_sha256_hex(expected_hex)
+        .ok_or_else(invalid)?
+        .to_owned();
+    Ok((expected_hex.to_owned(), revision))
+}
+
+/// Reduce the vendored entry's revision axis to exactly the fetched
+/// revision - the vendor directory holds no other revision's archive -
+/// and point that revision's `source.path` at the vendor-relative
+/// artifact.  An entry that does not list the fetched revision, or a
+/// revision without a `source` object, is an error: copying it
+/// through verbatim would leave the vendored index pointing at bytes
+/// the directory does not hold, silently breaking offline use.
 fn rewrite_vendored_revision(
     value: &mut serde_json::Value,
     revision: &str,
