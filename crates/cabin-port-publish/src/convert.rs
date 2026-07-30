@@ -179,6 +179,15 @@ fn insert_upstream_table(doc: &mut DocumentMut, descriptor: &PortDescriptor) -> 
     if let Some(prefix) = provenance.strip_prefix() {
         upstream["strip-prefix"] = value(prefix);
     }
+    if !provenance.patches().is_empty() {
+        // Before the `[[copy]]` array-of-tables: a plain key after it
+        // would belong to the last copy entry.
+        let mut patches = toml_edit::Array::new();
+        for patch in provenance.patches() {
+            patches.push(patch.as_str());
+        }
+        upstream["patches"] = value(patches);
+    }
     if !provenance.copies().is_empty() {
         let mut copies = toml_edit::ArrayOfTables::new();
         for step in provenance.copies() {
@@ -221,7 +230,11 @@ pub fn descriptor_provenance(descriptor: &PortDescriptor) -> Result<UpstreamProv
         ArchiveKind::from_url(&descriptor.source.url).extension(),
         descriptor.source.strip_prefix.clone(),
         copies,
-        Vec::new(),
+        descriptor
+            .patches
+            .iter()
+            .map(|patch| patch.as_str().to_owned())
+            .collect(),
     )
     .with_context(|| {
         format!(
@@ -783,6 +796,47 @@ deps = ["zlib"]
             "{converted}"
         );
         assert!(converted.contains("to = \"pnglibconf.h\""), "{converted}");
+    }
+
+    #[test]
+    fn stamps_patch_declarations_into_the_upstream_table() {
+        let mut descriptor = descriptor(
+            "libpng",
+            "1.6.50",
+            "https://example.com/libpng-1.6.50.tar.gz",
+            Some("libpng-1.6.50"),
+        );
+        descriptor.copies = vec![CopyStep {
+            from: Utf8PathBuf::from("scripts/pnglibconf.h.prebuilt"),
+            to: Utf8PathBuf::from("pnglibconf.h"),
+        }];
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix-msvc-build.patch")];
+        let converted = convert_overlay(&ConvertRequest {
+            descriptor: &descriptor,
+            overlay_text: LIBPNG_OVERLAY,
+            summaries: &summaries(),
+        })
+        .unwrap();
+        assert!(
+            converted.contains("patches = [\"patches/0001-fix-msvc-build.patch\"]"),
+            "{converted}"
+        );
+        // The plain `patches` key must precede the `[[copy]]`
+        // array-of-tables, or it would parse as a key of the last
+        // copy entry.
+        assert!(
+            converted.find("patches = ").unwrap()
+                < converted.find("[[package.upstream.copy]]").unwrap(),
+            "{converted}"
+        );
+        // The stamped declaration round-trips through the validated
+        // model (validate_converted re-parses the manifest).
+        let parsed = cabin_manifest::parse_manifest_str(&converted).unwrap();
+        let upstream = parsed.package.unwrap().upstream.unwrap();
+        assert_eq!(
+            upstream.patches(),
+            [Utf8PathBuf::from("patches/0001-fix-msvc-build.patch")]
+        );
     }
 
     #[test]

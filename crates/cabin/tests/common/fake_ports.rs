@@ -34,6 +34,7 @@ impl FakePortRepo {
             archive_prefix: None,
             files: Vec::new(),
             copies: Vec::new(),
+            patches: Vec::new(),
             overlay_manifest: None,
             path_deps: Vec::new(),
         }
@@ -96,6 +97,7 @@ pub struct FakePortBuilder {
     archive_prefix: Option<String>,
     files: Vec<(String, String)>,
     copies: Vec<(String, String)>,
+    patches: Vec<(String, String)>,
     overlay_manifest: Option<String>,
     path_deps: Vec<(String, PathBuf)>,
 }
@@ -132,6 +134,14 @@ impl FakePortBuilder {
         self
     }
 
+    /// Declare a `[source].patches` entry and write the patch file
+    /// under the port directory's `patches/` subdirectory.
+    pub fn patch(mut self, file_name: &str, contents: &str) -> Self {
+        self.patches
+            .push((file_name.to_owned(), contents.to_owned()));
+        self
+    }
+
     pub fn depends_on_builtin_or_path_port(mut self, name: &str, port: &FakePort) -> Self {
         self.path_deps
             .push((name.to_owned(), port.port_dir.clone()));
@@ -158,6 +168,12 @@ impl FakePortBuilder {
         fs::write(&port_toml, self.port_toml(&sha256)).expect("write fake port.toml");
         fs::write(port_dir.join("cabin.toml"), self.render_overlay_manifest())
             .expect("write fake port overlay");
+        for (file_name, contents) in &self.patches {
+            let patch_path = port_dir.join("patches").join(file_name);
+            fs::create_dir_all(patch_path.parent().expect("patch parent"))
+                .expect("create fake port patches dir");
+            fs::write(&patch_path, contents).expect("write fake port patch");
+        }
         FakePort {
             name: self.name,
             version: self.version,
@@ -176,9 +192,19 @@ impl FakePortBuilder {
             .archive_prefix
             .as_deref()
             .unwrap_or_else(|| panic!("fake port `{}` missing archive_prefix", self.name));
+        let patches_key = if self.patches.is_empty() {
+            String::new()
+        } else {
+            let entries: Vec<String> = self
+                .patches
+                .iter()
+                .map(|(file_name, _)| format!("\"patches/{}\"", toml_escape(file_name)))
+                .collect();
+            format!("patches = [{}]\n", entries.join(", "))
+        };
         let mut toml = format!(
-            "[port]\nname = \"{}\"\nversion = \"{}\"\n\n[source]\ntype = \"archive\"\nurl = \"{}\"\nsha256 = \"{}\"\nstrip_prefix = \"{}\"\n\n[overlay]\nmanifest = \"cabin.toml\"\n",
-            self.name, self.version, ARCHIVE_URL_PLACEHOLDER, sha256, strip_prefix
+            "[port]\nname = \"{}\"\nversion = \"{}\"\n\n[source]\ntype = \"archive\"\nurl = \"{}\"\nsha256 = \"{}\"\nstrip_prefix = \"{}\"\n{}\n[overlay]\nmanifest = \"cabin.toml\"\n",
+            self.name, self.version, ARCHIVE_URL_PLACEHOLDER, sha256, strip_prefix, patches_key
         );
         for (from, to) in &self.copies {
             write!(
