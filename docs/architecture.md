@@ -285,7 +285,12 @@ upstreams whose release artifact is a tarball (zip upstreams reuse `safe_extract
 extractors enforce the same fail-closed rules (decompression-bomb
 caps, path-traversal protection, and symlink rejection - with an opt-in `skip_symlinks` mode that
 skips symlink entries without materializing anything, used by the foundation-port layer for
-upstream tarballs that carry convenience symlinks).  The crate must:
+upstream tarballs that carry convenience symlinks).  The crate also owns the byte-exact
+unified-diff engine (`apply_unified_patches`) behind declared upstream patch files: both consumers
+of a patch declaration - foundation-port preparation and the registry verifier's upstream pass -
+apply patches through this one implementation, so the transformation cannot drift between the
+producer and the verifier.  Application is deliberately strict (fixed `-p1` strip, byte-exact
+context, no fuzz, text diffs only) so it is deterministic across platforms.  The crate must:
 
 - not run the resolver;
 - not write Ninja;

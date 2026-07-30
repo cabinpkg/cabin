@@ -6,14 +6,16 @@ libraries - libraries that do not yet ship a native `cabin.toml` - to Cabin's bu
 A foundation port consists of:
 
 - `port.toml` - pins a single upstream release archive by URL and SHA-256, optionally with a
-  `strip_prefix` for the archive's root directory, and optionally one or more `[[copy]]` steps (see
-  below).
+  `strip_prefix` for the archive's root directory, optionally one or more `[[copy]]` steps, and
+  optionally `[source].patches` unified-diff files (see below).
 - `cabin.toml` - a Cabin overlay manifest that describes the upstream sources as ordinary Cabin
   C/C++ targets.
+- `patches/` - the declared unified-diff files, when the recipe has any.
 
 When a Cabin package declares a bundled dependency (`{ port = true, version = "^1.3" }`) or a
 local-recipe dependency (`{ port-path = "../ports/<name>/<version>" }`), Cabin downloads the
-archive, verifies the SHA-256, safely extracts it, applies any `[[copy]]` steps, copies the overlay
+archive, verifies the SHA-256, safely extracts it, applies any `[[copy]]` steps, applies any
+declared `[source].patches` as byte-exact unified diffs, copies the overlay
 manifest into the extracted source tree, and treats the result as a normal Cabin path dependency.  A
 port's overlay may itself depend on another port (libpng depends on the bundled zlib), and discovery
 follows those edges transitively.
@@ -36,6 +38,23 @@ and before the overlay is applied (so the overlay `cabin.toml` always wins), and
 covered by the archive's pinned SHA-256.  This is a **static file copy**, not a build script: it
 cannot run commands, generate content, or read anything outside the extracted archive.
 
+### Correcting sources with `[source].patches`
+
+Small corrections that no copy step can express - build-system fixes, portability tweaks - are
+declared as unified-diff files under the port's `patches/` directory:
+
+```toml
+[source]
+# ... url / sha256 / strip_prefix ...
+patches = ["patches/0001-fix-msvc-build.patch"]
+```
+
+Patches apply in declared order, after every `[[copy]]` step, and application is byte-exact:
+fixed `-p1` strip, no fuzz, no offset search, no newline normalization, text diffs only.  Like
+`[[copy]]`, this is declarative transformation, never a script; a patch that does not apply
+fails preparation.  See [`foundation-ports.md`](../../../docs/foundation-ports.md) for the full
+rules.
+
 Recipes under this directory are also embedded in the `cabin` binary via `cabin-port::builtin` (see
 `crates/cabin-port/src/builtin.rs`).  Retiring a specific *version* of a foundation port removes
 `ports/<name>/<version>/` and the matching `BUILTIN` entry in `cabin-port::builtin`.  Retiring an
@@ -49,8 +68,9 @@ entry.
 - They are **not** a mechanism for distributing pre-built binaries or compiled artifacts.
 - They are **not** a workaround for missing build-script support - they only describe libraries
   whose source layout fits Cabin's existing target model (a list of sources plus include
-  directories), optionally placing a prebuilt file with a static `[[copy]]` step.  Ports that need
-  code generation or a configure run do not belong here.
+  directories), optionally placing a prebuilt file with a static `[[copy]]` step or correcting one
+  with a declared byte-exact patch.  Ports that need code generation or a configure run do not
+  belong here.
 
 ## Policy
 
@@ -59,7 +79,8 @@ entry.
 - No upstream build-system invocation.  Cabin never runs CMake, Autotools, Meson, Make, or upstream
   `configure` scripts.
 - Patches under `patches/` (if any) should be limited to what is strictly required to make a port
-  build through Cabin.
+  build through Cabin: build-system fixes and portability tweaks, never feature changes or
+  divergence from upstream behavior.
 - A `library` target that embodies a well-known native library claims its identity with
   [`links`](../../../docs/manifest.md#links) (`zlib` claims `"z"`), judged against upstream
   conventions.  Header-only ports claim nothing, and an alternative implementation with its own

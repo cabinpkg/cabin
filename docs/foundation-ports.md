@@ -41,19 +41,18 @@ in the bundled set, and for users who vendor a recipe into their own tree.
 
 ## Anatomy of a foundation port
 
-A port is a directory containing two files:
+A port is a directory containing two files, plus an optional `patches/` subdirectory:
 
 ```
 crates/cabin-port/ports/<name>/<version>/
   port.toml - recipe (pinned source archive + identity)
   cabin.toml - overlay manifest (describes the upstream
                    sources as a Cabin C/C++ target)
+  patches/    - optional unified-diff files declared by
+                   [source].patches
 ```
 
 For example, zlib 1.3.1 lives at `crates/cabin-port/ports/zlib/1.3.1/`.
-
-Optional `patches/` may be added later if a port needs one; this milestone ships no
-patch-application code.
 
 ### `port.toml` schema
 
@@ -71,6 +70,8 @@ type = "archive"
 url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
 sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
 strip_prefix = "zlib-1.3.1"           # optional
+# optional: unified diffs applied after every [[copy]] step
+patches = ["patches/0001-fix-msvc-build.patch"]
 
 [overlay]
 manifest = "cabin.toml"
@@ -90,6 +91,7 @@ to = "pnglibconf.h"
 | `[source].url` | yes | `file://`, `http://`, or `https://` URL pointing at the upstream archive.  A URL whose path ends in `.zip` (case-insensitive) is treated as a zip archive; every other URL is treated as a `.tar.gz`.  Zip support exists for upstreams whose only official release artifact is a zip (miniz's amalgamation, for example); prefer `.tar.gz` when the upstream publishes one. |
 | `[source].sha256` | yes | Lower-case 64-character hex digest.  Upper-case and wrong-length values are rejected. |
 | `[source].strip_prefix` | no | Single relative path component that must equal the first path segment of every archive entry.  The component is stripped before extraction so the overlay manifest sits at the prepared directory's root. |
+| `[source].patches` | no | Unified-diff files applied to the assembled source after every `[[copy]]` step, in declaration order (see below).  Each entry must be `patches/<file>`: a single file directly under the port directory's `patches/` subdirectory, at most 16 entries, 1 MiB per file. |
 | `[overlay].manifest` | yes | Relative path inside the port directory pointing at the overlay `cabin.toml`.  Absolute paths and `..` are rejected. |
 | `[[copy]]` | no | Zero or more static file placements applied to the extracted source (see below).  Each has `from` and `to`. |
 
@@ -115,6 +117,39 @@ the same tree.  `from` and `to` are both validated as relative paths inside the 
 covered by the archive's pinned SHA-256.  A missing `from` fails preparation with a clear error.
 This is a **static file copy**, not a build script: it runs no commands, generates nothing, and
 reads nothing outside the extracted archive.
+
+### Patching upstream sources with `[source].patches`
+
+Some upstreams need a small correction - a build-system fix, a portability tweak - that no copy
+step can express.  A port declares such corrections as unified-diff files:
+
+```toml
+[source]
+# ... url / sha256 / strip_prefix ...
+patches = ["patches/0001-fix-msvc-build.patch"]
+```
+
+Each entry names a file under the port directory's `patches/` subdirectory.  The declared order is
+the application order, and application is **byte-exact**: the strip level is fixed at the `-p1`
+equivalent (git's `a/` / `b/` prefixes), context must match the assembled tree byte for byte -
+no fuzz, no offset search, no newline normalization - and only text diffs are accepted (binary
+hunks are rejected).  The patch itself must end with a newline (or a `\ No newline at end of file`
+marker), git rename/copy headers and multi-hunk file creations are rejected because their
+effect is not a plain sequence of hunks, and a patch may name each file at most once (as
+`git diff` emits).  Application is bounded: each patched file is capped at 16 MiB, and the whole
+list may carry at most 1024 file entries and read or rewrite at most 128 MiB of the source tree.  A patch file must contain nothing but the diff itself:
+git's per-file preamble lines (`diff --git`, `index`, mode lines) are accepted in their exact
+shape, and any other surrounding text - a `format-patch` commit message, a signature trailer - is
+rejected, so use `git diff` output rather than `git format-patch`.  Paths inside diff headers are
+validated like copy paths, so a patch cannot escape the source tree.  Patches run after every `[[copy]]` step and before the overlay
+`cabin.toml` is written; the assembly pipeline is fixed and normative: extract, strip the
+declared prefix, apply copies, then apply patches.  A patch that does not apply fails preparation
+with a clear error.  Like `[[copy]]`, this is **declarative transformation**, not a build script:
+it runs no commands and reads nothing outside the extracted archive and the declared patch files.
+
+Each patch file is also placed into the prepared tree at its declared `patches/<file>` path, so a
+published conversion ships the patches its `[package.upstream]` declaration names and the hosted
+registry's verifier can re-run the same transformation from the published package alone.
 
 ### Overlay manifest
 
@@ -222,15 +257,19 @@ workspace loader sees the manifest:
    keep the strict reject-symlinks default.
 6. Apply any `[[copy]]` steps, placing prebuilt files under their build-time names inside the
    extracted tree.
-7. Copy the overlay manifest into the extracted source dir as `cabin.toml`.
-8. Cross-check the overlay's `[package]` identity against `port.toml`.  Mismatch surfaces an
+7. Apply any declared `[source].patches` as byte-exact unified diffs, then place each patch file
+   itself into the tree at its declared `patches/<file>` path.
+8. Copy the overlay manifest into the extracted source dir as `cabin.toml`.
+9. Cross-check the overlay's `[package]` identity against `port.toml`.  Mismatch surfaces an
    explicit error.
-9. Rename the scratch directory into its final place in the port cache.  On a cold cache, steps 5
-   through 8 all run against the scratch tree, so a hostile archive, a broken `[[copy]]` plan, or a
-   mismatched overlay leaves no partially prepared port at the final path.  (On a warm cache hit —
-   the completion marker's copy-plan fingerprint matches — there is no scratch tree: the already
-   validated directory is re-verified in place.)
-10. Drop a sibling `.ok` completion marker so the next invocation can reuse the prepared directory
+10. Rename the scratch directory into its final place in the port cache.  On a cold cache, steps 5
+   through 9 all run against the scratch tree, so a hostile archive, a broken `[[copy]]` plan, an
+   inapplicable patch, or a mismatched overlay leaves no partially prepared port at the final
+   path.  (On a warm cache hit — the completion marker's plan fingerprint matches, covering the
+   copy steps and each patch's path *and content* — there is no scratch tree, and the copy and
+   patch steps are **not** re-run: re-copying would revert a patched copy target and re-patching
+   would fail its context match.  Only the overlay refresh and the identity cross-check repeat.)
+11. Drop a sibling `.ok` completion marker so the next invocation can reuse the prepared directory
    without re-extracting.
 
 Once prepared, each port directory looks exactly like a regular Cabin path dependency: the existing
@@ -311,8 +350,8 @@ For a bundled (`port = true`) dependency the shape is:
 
 - Not Cabin's public registry.  Cabin's registry layer is documented in
   [`registry-design.md`](registry-design.md) and evolves independently.
-- Not published metadata.  A port recipe's `[source]` / `[[copy]]` vocabulary has a published
-  counterpart - the optional `[package.upstream]` provenance table on a package manifest
+- Not published metadata.  A port recipe's `[source]` / `[[copy]]` / `patches` vocabulary has a
+  published counterpart - the optional `[package.upstream]` provenance table on a package manifest
   ([`manifest.md`](manifest.md#packageupstream)), which the hosted registry's external verifier
   checks against the pinned upstream archive.  The recipe stays local development policy;
   `cabin publish` never archives port recipes.
@@ -321,8 +360,9 @@ For a bundled (`port = true`) dependency the shape is:
 - Not a vehicle for binary distribution.  Only source archives are supported.
 - Not a workaround for missing build-script support.  Ports describe libraries whose source layout
   already fits Cabin's target model (a fixed list of sources plus include directories), optionally
-  placing a prebuilt file with a static `[[copy]]` step.  Libraries that need configure-time
-  generation, CMake / Meson / Autotools driving, or custom build commands are out of scope.
+  placing a prebuilt file with a static `[[copy]]` step or correcting one with a declared
+  byte-exact patch.  Libraries that need configure-time generation, CMake / Meson / Autotools
+  driving, or custom build commands are out of scope.
 - Limited feature surface.  The `port` dependency form honors `features` / `default-features` (a
   port overlay can declare a `[features]` table; see sqlite's `single-threaded` feature), but it
   does not support optional gating or shared/static variant selection.
@@ -343,6 +383,10 @@ For a bundled (`port = true`) dependency the shape is:
 | `checksum mismatch` | The downloaded archive's SHA-256 does not match the recipe. |
 | `source archive does not contain the declared strip_prefix directory` | The archive's first path component does not equal the declared prefix. |
 | `overlay manifest was not found at <path>` | `[overlay].manifest` points at a non-existent file inside the port directory. |
+| ``declares an unsafe `patches` entry`` | A `[source].patches` entry is not `patches/<file>` or fails the portable-path rules. |
+| `patch file for port ... was not found at <path>` | A declared `[source].patches` file is absent from the port directory. |
+| `patch file for port ... is <n> bytes` | A declared patch file exceeds the 1 MiB per-file cap. |
+| `failed to apply patches for port ...` | A declared patch is malformed, binary, unsafe, or does not match the assembled tree byte for byte. |
 | `overlay manifest declares package \`<actual>\`` | The overlay's `[package]` identity disagrees with `port.toml`. |
 | `cannot download port \`<name>\` because --offline was specified` | A remote URL was reached while running in offline mode. |
 | `cannot prepare port \`<name>\` because --frozen was specified and the port is not cached` | The cache does not already hold a prepared copy under `--frozen`. |
@@ -370,8 +414,10 @@ the source of truth and keep working as bundled ports; the tool rewrites a copy 
   `"Catch2"`, upstream's case-sensitive library name); the post-resolution uniqueness check reads
   the published claims from the index.
 - **Provenance.**  Each package carries `[package.upstream]` stamped from the recipe's pinned
-  `[source]` (URL, SHA-256, format, `strip_prefix`) and declared `[[copy]]` operations, so the
-  hosted registry's verifier can check the published tree against the upstream archive.
+  `[source]` (URL, SHA-256, format, `strip_prefix`), declared `[[copy]]` operations, and declared
+  `[source].patches`, so the hosted registry's verifier can check the published tree against the
+  upstream archive.  The patch files themselves ship inside the published package at their
+  declared paths.
 - **Dependencies.**  Inter-port `{ port = true }` edges become scoped registry dependencies
   (libpng's `zlib` becomes `"cabin-ports/zlib" = "^1.3"`), and target `deps` references use the
   bare-package shorthand when the dependency exposes exactly one library-like target, or an
@@ -381,7 +427,7 @@ the source of truth and keep working as bundled ports; the tool rewrites a copy 
 
 Both modes run the complete local preflight first: fetch or reuse every pinned upstream archive
 (SHA-256 verified, reusing the standard `<cache>/ports` archive cache), run the standard safe
-preparation pipeline (extraction, `strip_prefix`, `[[copy]]`, overlay), package each conversion,
+preparation pipeline (extraction, `strip_prefix`, `[[copy]]`, `patches`, overlay), package each conversion,
 publish it into a temporary file registry, and build every port against the generated packages in
 publication order.  Each port is built through a generated probe package that depends on the
 just-published version, so the build consumes the registry artifact itself - resolution, checksum,
@@ -429,7 +475,8 @@ repository.
 ### Packaging revisions
 
 A published version always preserves the upstream version, and the bytes published under it are
-immutable.  A recipe-only correction - an overlay fix, a `[[copy]]` addition - therefore reaches the
+immutable.  A recipe-only correction - an overlay fix, a `[[copy]]` addition, a new or revised
+patch under `[source].patches` - therefore reaches the
 registry as a new [packaging revision](package-index.md#packaging-revisions) of the same version:
 the archive's changed bytes give it a new revision id, and both revisions stay listed and
 fetchable.  There is no version-string marker and no sidecar file to maintain; edit the recipe and

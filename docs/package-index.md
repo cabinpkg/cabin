@@ -138,7 +138,7 @@ Each version's metadata:
 | `features` | no | omitted | Declared `[features]`.  Older index entries that omit the field continue to load. |
 | `standards` | no | omitted | Declared per-target language-standard table (interface requirements plus `header-only` / `gnu-extensions` flags).  Absence, at any granularity, means unconstrained, so older entries that omit the field continue to load.  See [Standard metadata](#standard-metadata). |
 | `links` | no | omitted | Declared per-target [`links`](manifest.md#links) claims, keyed by target name.  Absence means the version claims nothing, so older entries that omit the field continue to load.  See [Links metadata](#links-metadata). |
-| `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, `sha256`, `format`, optional `strip-prefix`, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
+| `upstream` | no | omitted | Declared `[package.upstream]` provenance: `url`, `sha256`, `format`, optional `strip-prefix`, optional `patches` list, optional `copy` steps.  Loaded into the typed provenance model, whose validation rules match the manifest's ([`manifest.md`](manifest.md#packageupstream)).  Inert for resolution and fetching; older entries that omit the field continue to load. |
 
 Unknown fields anywhere in the file are rejected.
 
@@ -331,7 +331,8 @@ Loading rejects an index when:
   than one target of the version
 - an `upstream` block violates the provenance rules: a non-HTTPS or credential-bearing `url`, a
   `sha256` that is not 64 lowercase hex characters, a `format` other than `"tar.gz"` / `"zip"`, a
-  multi-component `strip-prefix`, or an unsafe copy path
+  multi-component `strip-prefix`, an unsafe copy path, or a `patches` entry that is unsafe or
+  conflicts with a copy path, another patch, or the root manifest
 
 ## Not supported yet
 
