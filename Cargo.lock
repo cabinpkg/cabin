@@ -317,6 +317,7 @@ dependencies = [
  "cabinpkg-env",
  "cabinpkg-fs",
  "camino",
+ "icu_normalizer",
  "semver",
  "serde",
  "serde_json",

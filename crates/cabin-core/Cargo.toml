@@ -14,6 +14,7 @@ name = "cabin_core"
 cabin-env = { workspace = true }
 cabin-fs = { workspace = true }
 camino = { workspace = true }
+icu_normalizer = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -221,6 +221,7 @@ pub fn descriptor_provenance(descriptor: &PortDescriptor) -> Result<UpstreamProv
         ArchiveKind::from_url(&descriptor.source.url).extension(),
         descriptor.source.strip_prefix.clone(),
         copies,
+        Vec::new(),
     )
     .with_context(|| {
         format!(

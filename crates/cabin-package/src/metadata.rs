@@ -614,6 +614,7 @@ mod tests {
                 cabin_core::UpstreamCopy::new("support/config.h.in".into(), "config.h".into())
                     .unwrap(),
             ],
+            Vec::new(),
         )
         .unwrap();
         let proj = package("fmt", "10.2.1", Vec::new()).with_upstream(Some(upstream));
