@@ -105,6 +105,15 @@ pub struct VersionMetadata {
     /// (the default for pre-`standards` entries) means everything is
     /// unconstrained.  See `docs/design/standard-compatibility/registry-index.md`.
     pub standards: cabin_core::StandardsMetadata,
+    /// Declared per-target native-library identity claims
+    /// (`links`), keyed by target name.  A typed view like
+    /// `standards` so the post-resolution uniqueness check can read
+    /// a candidate version's claims without downloading its archive.
+    /// Values are carried verbatim - the publish path validated the
+    /// grammar, and the check only compares them for equality.
+    /// Empty (the default for pre-`links` entries) means the version
+    /// claims nothing.
+    pub links: BTreeMap<String, String>,
     /// Declared `[package.upstream]` provenance, typed.  Inert for
     /// resolution and fetching - Cabin never downloads the upstream
     /// URL; the registry's external verifier consumes it.  `None`

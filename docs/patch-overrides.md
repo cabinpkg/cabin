@@ -100,6 +100,25 @@ Once patches are validated, Cabin treats them as *synthesized local-path package
   registry-fetch pass; the patched working copy never enters the artifact cache.
 - Feature resolution, dependency-kind handling, and target-conditioned dependencies flow through the
   patched manifest exactly as they would for any path dependency.
+- A patch reached only through registry metadata (nothing local names it, so activation is
+  discovered during resolution) has its foundation ports prepared *after* resolution.  A port
+  prepared this late may not declare a versioned registry dependency - resolution has already run,
+  so Cabin refuses the command with an error naming the port and the dependency.  The same port
+  reached from a local dependency joins resolution normally.  Its `links` claims, and those of the
+  fork's feature-enabled optional path dependencies, are enforced by the building commands' final
+  graph check (see [`links`](manifest.md#links)).  Index dependency edges onto the patched name -
+  visible only in the solution, so the pre-resolution validation above never saw them - are checked
+  once resolution completes: the fork's version must satisfy every selected dependent's
+  requirement, surfacing the same version-mismatch error.  Activation follows *live* edges only: a
+  patched name reachable solely through a replaced upstream's own index dependencies stays dormant,
+  because those edges die with the replacement (the fork's real dependencies take their place).  A
+  fork manifest that declares an
+  *optional versioned* dependency follows the same fetch policy as every other package: the
+  registry fetch materializes only edges the local feature resolution proves enabled (index-edge
+  feature requests are not consulted), and the building commands' final workspace reload requires
+  every versioned dependency an activated fork declares - so such a fork currently fails the build
+  naming the missing dependency.  Declare the fork's extras as path dependencies or non-optional
+  versioned dependencies instead.
 
 ## Source replacement syntax
 

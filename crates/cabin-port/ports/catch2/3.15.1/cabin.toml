@@ -30,6 +30,9 @@ include-dirs = ["extras"]
 # c++17 is what this port has always compiled as.
 cxx-standard = "c++17"
 interface-cxx-standard = "c++14"
+# Upstream installs libCatch2 (case-sensitive); the amalgamation
+# embodies the same symbol space.
+links = "Catch2"
 
 [target.'cfg(feature = "custom-main")'.profile]
 defines = ["CATCH_AMALGAMATED_CUSTOM_MAIN"]

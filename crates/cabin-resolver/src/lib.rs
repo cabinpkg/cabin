@@ -31,7 +31,7 @@ mod preflight;
 mod provider;
 mod range;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use cabin_core::standard_compatibility::{
     ConsumerStandards, EffectiveRequirements, edge_compatible,
@@ -42,7 +42,7 @@ use pubgrub::{PubGrubError, Ranges};
 use semver::{Version, VersionReq};
 
 pub use error::{ResolveError, ResolverConstraint};
-pub use input::{LockedVersion, ResolveInput, ResolveMode};
+pub use input::{LinksClaim, LockedVersion, ResolveInput, ResolveMode};
 pub use output::{BlockedRequirement, HeldBack, ResolveOutput, ResolvedPackage, ResolvedSource};
 
 use crate::explanation::explain_no_solution;
@@ -95,6 +95,45 @@ pub fn resolve_packages(
 /// standard hold-back report (which needs a second, `Allow`-mode
 /// resolution to diff against - see [`held_back_report`]).
 fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOutput, ResolveError> {
+    let output = resolve_once_unchecked(input, index)?;
+    // Post-resolution, whole-graph `links` uniqueness.  Runs here -
+    // not in `resolve` - so `resolve_packages` (build/run/test/
+    // vendor) enforces it too, and before any lockfile is written
+    // from this output.
+    detect_links_collision(&links_claims_of_solution(input, index, &output.packages))?;
+    Ok(output)
+}
+
+/// [`resolve_packages`] without the post-resolution links check.
+///
+/// For orchestration that must inspect a solution before claim
+/// attribution is final: the CLI's patch-activation loop discovers
+/// transitively-reached patched names from a solution that a stale
+/// upstream claim would otherwise fail, then re-resolves and runs
+/// the checked path once the activation set is stable.
+///
+/// # Errors
+/// Same as [`resolve_packages`], minus
+/// [`ResolveError::LinksCollision`].
+pub fn resolve_packages_unchecked(
+    input: &ResolveInput,
+    index: &PackageIndex,
+) -> Result<ResolveOutput, ResolveError> {
+    resolve_once_unchecked(input, index)
+}
+
+/// [`resolve_once`] without the links-uniqueness check.
+/// `held_back_report`'s second `Allow`-mode solve diffs selections
+/// only - a collision in that hypothetical selection must not
+/// silently empty the report (its defensive error arm discards
+/// failures; collision-involved rows are pruned individually via
+/// [`colliding_packages`] instead), and the public
+/// [`resolve_packages_unchecked`] wraps it for the CLI's
+/// patch-activation probe.
+fn resolve_once_unchecked(
+    input: &ResolveInput,
+    index: &PackageIndex,
+) -> Result<ResolveOutput, ResolveError> {
     let platform = TargetPlatform::current();
     let locked = effective_locked(input);
 
@@ -142,6 +181,269 @@ fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOut
     Ok(selected_dependencies_to_output(input, solution))
 }
 
+/// Every `links` claim the resolved graph carries: the caller's
+/// local claims (workspace members, path deps, patches - packages
+/// the index never sees) plus each resolved registry package's
+/// claims from its index metadata.  `ResolvedSource::Root` entries
+/// are skipped - a same-named index entry is a stranger and must not
+/// attribute its claims to the local root - and so are
+/// locally-supplied names: a patched-away upstream selected through
+/// a transitive registry edge never links, so its index claims must
+/// not collide on the replacement's behalf.  For the same reason,
+/// index claims only count for selections reachable from the root
+/// dependencies without expanding a locally-supplied selection's own
+/// index edges: those edges belong to the replaced upstream, and the
+/// replacement's real dependencies are already folded into the root
+/// set - a selection only the dead edges reach never links.
+fn links_claims_of_solution(
+    input: &ResolveInput,
+    index: &PackageIndex,
+    packages: &[ResolvedPackage],
+) -> Vec<LinksClaim> {
+    let mut claims = input.local_links.clone();
+    let selected = selected_index_versions(packages);
+    let reachable = reachable_index_selections(
+        &selected,
+        index,
+        input.root_dependencies.keys(),
+        &input.locally_supplied,
+    );
+    for package in packages {
+        if package.source == ResolvedSource::Root {
+            continue;
+        }
+        if input.locally_supplied.contains(&package.name) || !reachable.contains(&package.name) {
+            continue;
+        }
+        let Some(meta) = index
+            .package(&package.name)
+            .and_then(|entry| entry.versions.get(&package.version))
+        else {
+            continue;
+        };
+        for (target, links) in &meta.links {
+            claims.push(LinksClaim {
+                package: package.name.clone(),
+                version: package.version.clone(),
+                target: target.clone(),
+                links: links.clone(),
+            });
+        }
+    }
+    claims
+}
+
+/// Refuse a claim set in which one native-library identity is
+/// claimed by two or more distinct packages.  Symbol collisions at
+/// the final link ignore dependency visibility, so every claim in
+/// the graph participates regardless of the edges that reached it.
+///
+/// Reports the lexicographically first colliding identity with its
+/// full sorted claimant list, so the diagnostic is deterministic.
+/// Exposed for the CLI's no-versioned-deps fast path, which skips
+/// resolution entirely but must still validate the local claims
+/// against each other.
+///
+/// # Errors
+/// Returns [`ResolveError::LinksCollision`] naming the shared
+/// identity and every claimant.
+pub fn detect_links_collision(claims: &[LinksClaim]) -> Result<(), ResolveError> {
+    let mut by_identity: BTreeMap<&str, Vec<&LinksClaim>> = BTreeMap::new();
+    for claim in claims {
+        by_identity.entry(&claim.links).or_default().push(claim);
+    }
+    for (links, claimants) in by_identity {
+        let mut claimants: Vec<&LinksClaim> = claimants;
+        claimants.sort();
+        // The same package can legitimately appear twice - once from
+        // `local_links` and once from the index - when a caller
+        // over-supplies; identical (package, target) claims are one
+        // claim, not a collision.
+        claimants.dedup_by(|a, b| a.package == b.package && a.target == b.target);
+        let distinct_packages = claimants
+            .iter()
+            .map(|c| &c.package)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        if distinct_packages >= 2 {
+            return Err(ResolveError::LinksCollision {
+                links: links.to_owned(),
+                claimants: claimants.into_iter().cloned().collect(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Index-selected packages of a solution that no `roots` entry can
+/// reach through live edges: with extra root requirements injected
+/// on behalf of a packages source the caller later withdraws (a
+/// pruned `[patch]` activation), the selections those requirements
+/// pulled in are solver residue nothing real links.  Reachability
+/// walks the selected versions' active index edges from `roots`,
+/// never expanding a `locally_supplied` selection: its index edges
+/// describe the replaced upstream, and the replacement's real
+/// dependencies are already folded into the caller's root set.
+///
+/// Callers feed the result into [`ResolveInput::locally_supplied`]
+/// so the residue's index claims stay out of the links-uniqueness
+/// check while the selections themselves remain in the solution,
+/// and use it to keep patch activation on the same live boundary -
+/// a patch name selected only behind a replaced upstream's dead
+/// edges must stay dormant.
+#[must_use]
+pub fn unreachable_index_selections(
+    packages: &[ResolvedPackage],
+    index: &PackageIndex,
+    roots: &BTreeSet<PackageName>,
+    locally_supplied: &BTreeSet<PackageName>,
+) -> BTreeSet<PackageName> {
+    let selected = selected_index_versions(packages);
+    let reachable = reachable_index_selections(&selected, index, roots.iter(), locally_supplied);
+    selected
+        .keys()
+        .filter(|name| !reachable.contains(*name))
+        .map(|name| (**name).clone())
+        .collect()
+}
+
+/// Validate every live index dependent's requirement on a locally
+/// supplied fork version.  An index dependency edge onto a patched
+/// name surfaces only in the solution - after the caller's local
+/// patch validation already ran - and the final workspace reload
+/// substitutes the fork for the selected upstream without
+/// re-solving, so an unchecked edge would silently link a fork
+/// version its dependent never accepts.  Matching and error mirror
+/// the local validation (`semver` matching,
+/// [`cabin_core::PatchValidationError`]) so the same mismatch
+/// surfaces identically whichever layer sees it first.  Selections
+/// named in `fork_versions` are the replacements themselves, and
+/// selections unreachable from `roots` (see
+/// [`unreachable_index_selections`]) are residue nothing links -
+/// both are exempt.
+///
+/// # Errors
+/// [`cabin_core::PatchValidationError::VersionMismatch`] naming the
+/// fork, its version, and the violated requirement.
+pub fn enforce_fork_version_requirements(
+    packages: &[ResolvedPackage],
+    index: &PackageIndex,
+    fork_versions: &BTreeMap<PackageName, Version>,
+    roots: &BTreeSet<PackageName>,
+    locally_supplied: &BTreeSet<PackageName>,
+) -> Result<(), cabin_core::PatchValidationError> {
+    if fork_versions.is_empty() {
+        return Ok(());
+    }
+    let orphaned = unreachable_index_selections(packages, index, roots, locally_supplied);
+    let platform = TargetPlatform::current();
+    for package in packages {
+        if package.source != ResolvedSource::Index
+            || fork_versions.contains_key(&package.name)
+            || orphaned.contains(&package.name)
+        {
+            continue;
+        }
+        let Some(meta) = index
+            .packages
+            .get(&package.name)
+            .and_then(|entry| entry.versions.get(&package.version))
+        else {
+            continue;
+        };
+        for (dep_name, dep) in &meta.dependencies {
+            if dep.optional || !dep.is_active_for(&platform) {
+                continue;
+            }
+            let Some(version) = fork_versions.get(dep_name) else {
+                continue;
+            };
+            if !dep.req.matches(version) {
+                return Err(cabin_core::PatchValidationError::VersionMismatch {
+                    package: dep_name.as_str().to_owned(),
+                    version: version.to_string(),
+                    requirement: dep.req.to_string(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The index-sourced selections of a solution, by name.
+fn selected_index_versions(packages: &[ResolvedPackage]) -> BTreeMap<&PackageName, &Version> {
+    packages
+        .iter()
+        .filter(|package| package.source == ResolvedSource::Index)
+        .map(|package| (&package.name, &package.version))
+        .collect()
+}
+
+/// Selections reachable from `roots` through active index edges.
+/// `stop_expansion` names are marked reachable but never expanded:
+/// a locally-supplied selection's index edges describe the replaced
+/// upstream, not the replacement that actually links.  An empty stop
+/// set walks every selected edge.
+fn reachable_index_selections<'a, 'b>(
+    selected: &BTreeMap<&'a PackageName, &'a Version>,
+    index: &PackageIndex,
+    roots: impl Iterator<Item = &'b PackageName>,
+    stop_expansion: &BTreeSet<PackageName>,
+) -> BTreeSet<&'a PackageName> {
+    let platform = TargetPlatform::current();
+    let mut reachable: BTreeSet<&PackageName> = roots
+        .filter_map(|name| selected.get_key_value(name).map(|(key, _)| *key))
+        .collect();
+    let mut queue: Vec<&PackageName> = reachable
+        .iter()
+        .copied()
+        .filter(|name| !stop_expansion.contains(*name))
+        .collect();
+    while let Some(name) = queue.pop() {
+        let Some(version) = selected.get(name).copied() else {
+            continue;
+        };
+        let Some(meta) = index
+            .package(name)
+            .and_then(|entry| entry.versions.get(version))
+        else {
+            continue;
+        };
+        for (dep_name, dep_entry) in &meta.dependencies {
+            if !dep_entry.is_active_for(&platform) {
+                continue;
+            }
+            if let Some((key, _)) = selected.get_key_value(dep_name)
+                && reachable.insert(key)
+                && !stop_expansion.contains(key)
+            {
+                queue.push(key);
+            }
+        }
+    }
+    reachable
+}
+
+/// Names of every package participating in an identity claimed by two
+/// or more distinct packages.  Non-failing sibling of
+/// [`detect_links_collision`] for [`held_back_report`], which prunes
+/// individual rows of a hypothetical solution rather than erroring.
+fn colliding_packages(claims: &[LinksClaim]) -> BTreeSet<PackageName> {
+    let mut by_identity: BTreeMap<&str, BTreeSet<&PackageName>> = BTreeMap::new();
+    for claim in claims {
+        by_identity
+            .entry(&claim.links)
+            .or_default()
+            .insert(&claim.package);
+    }
+    by_identity
+        .into_values()
+        .filter(|packages| packages.len() >= 2)
+        .flatten()
+        .cloned()
+        .collect()
+}
+
 /// The standard-caused hold-backs of a `Fallback` resolution: the diff
 /// against the `Allow` solution.
 ///
@@ -152,7 +454,15 @@ fn resolve_once(input: &ResolveInput, index: &PackageIndex) -> Result<ResolveOut
 /// report as this diff is exact by construction: a newer version that
 /// `Allow` also passed over (out of range, unsolvable dependencies,
 /// yanked) never appears in the `Allow` solution, so it is never
-/// misreported as a standard hold.
+/// misreported as a standard hold.  The one miss the `Allow` solve
+/// itself cannot see is a `links` collision - the checked resolve
+/// refuses such a claim set under *any* mode.  Each row's newer pick
+/// is therefore validated independently, substituted into the
+/// otherwise-unchanged fallback solution: a pick that collides there
+/// is pruned instead of attributed to standards, while a pick
+/// realizable beside the fallback graph stays reported even when it
+/// collides with *another* row's newer pick (classifying the joint
+/// `Allow` solution would erase both rows).
 ///
 /// Empty under `Allow`, and whenever the workspace declares no consumer
 /// standard (nothing can be incompatible).  On the `Fallback`-success
@@ -173,7 +483,7 @@ fn held_back_report(
 
     let mut allow_input = input.clone();
     allow_input.incompatible_standards = IncompatibleStandards::Allow;
-    let Ok(allow) = resolve_once(&allow_input, index) else {
+    let Ok(allow) = resolve_once_unchecked(&allow_input, index) else {
         return Vec::new();
     };
     let allow_versions: BTreeMap<&PackageName, &Version> = allow
@@ -232,6 +542,15 @@ fn held_back_report(
         if *newest <= package.version {
             continue;
         }
+        // A newer pick whose `links` claims collide with the rest of
+        // the fallback solution is unrealizable - no mode yields that
+        // upgrade - so citing it would misattribute the miss to
+        // standards.  Validated per candidate, not on the joint
+        // `Allow` solution: two newer picks colliding only with each
+        // other must not erase a row that is realizable on its own.
+        if newer_pick_collides(package, newest, input, index, fallback_packages) {
+            continue;
+        }
         // `Allow` may have selected `newest` in a *different* dependency
         // context - a divergent parent version pulling a different range
         // for this package.  A hold-back is real only if `newest` is
@@ -276,6 +595,43 @@ fn held_back_report(
     }
     held_back.sort_by(|a, b| a.name.cmp(&b.name));
     held_back
+}
+
+/// Whether upgrading `package` to `newest` - every other pick of the
+/// fallback `solution` held fixed - produces a `links` collision.  The
+/// fallback solution itself passed the checked resolve, so any
+/// collision in the substituted claim set involves the upgraded pick.
+///
+/// Like [`admissible_under`], this validates the local upgrade
+/// hypothesis only: the substitution swaps the pick's version in
+/// place, so dependencies the newer version *introduces* are absent -
+/// their claims from this check, their constraints from that one.
+/// Chasing them would mean re-resolving the hypothetical graph for
+/// every row; the report stays a fallback-graph-local diagnostic
+/// across both dimensions, and a cited upgrade can still fail for
+/// closure-introduced reasons when actually attempted.
+fn newer_pick_collides(
+    package: &ResolvedPackage,
+    newest: &Version,
+    input: &ResolveInput,
+    index: &PackageIndex,
+    solution: &[ResolvedPackage],
+) -> bool {
+    let substituted: Vec<ResolvedPackage> = solution
+        .iter()
+        .map(|resolved| {
+            if resolved.name == package.name {
+                ResolvedPackage {
+                    version: newest.clone(),
+                    ..resolved.clone()
+                }
+            } else {
+                resolved.clone()
+            }
+        })
+        .collect();
+    colliding_packages(&links_claims_of_solution(input, index, &substituted))
+        .contains(&package.name)
 }
 
 /// Whether `version` of `package` is admissible under the fallback
@@ -456,6 +812,7 @@ mod tests {
                     compiler_wrapper: None,
                     language: None,
                     standards: cabin_index::StandardsMetadata::default(),
+                    links: BTreeMap::new(),
                     upstream: None,
                 },
             );
@@ -998,6 +1355,7 @@ mod tests {
                 compiler_wrapper: None,
                 language: None,
                 standards: cabin_index::StandardsMetadata::default(),
+                links: BTreeMap::new(),
                 upstream: None,
             },
         );
@@ -1360,6 +1718,7 @@ mod tests {
                 compiler_wrapper: None,
                 language: None,
                 standards: cabin_index::StandardsMetadata::default(),
+                links: BTreeMap::new(),
                 upstream: None,
             },
         );
@@ -1569,6 +1928,329 @@ mod tests {
             .standards = standards;
     }
 
+    fn set_links(index: &mut PackageIndex, pkg: &str, ver: &str, links: &[(&str, &str)]) {
+        index
+            .packages
+            .get_mut(&pkg_name(pkg))
+            .unwrap()
+            .versions
+            .get_mut(&version(ver))
+            .unwrap()
+            .links = links
+            .iter()
+            .map(|(target, id)| ((*target).to_owned(), (*id).to_owned()))
+            .collect();
+    }
+
+    fn local_claim(package: &str, ver_str: &str, target: &str, links: &str) -> LinksClaim {
+        LinksClaim {
+            package: pkg_name(package),
+            version: version(ver_str),
+            target: target.to_owned(),
+            links: links.to_owned(),
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // links uniqueness
+    // -----------------------------------------------------------------
+
+    /// Two direct dependencies claiming the same identity collide;
+    /// the error names the identity and both claimants sorted.
+    #[test]
+    fn links_collision_between_direct_dependencies_errors() {
+        let mut index = build_index(vec![
+            entry("zlib", vec![("1.3.1", vec![], false)]),
+            entry("zlib-ng", vec![("2.2.0", vec![], false)]),
+        ]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        set_links(&mut index, "zlib-ng", "2.2.0", &[("zng", "z")]);
+        let err = resolve(&make_input(vec![("zlib", "*"), ("zlib-ng", "*")]), &index).unwrap_err();
+        match err {
+            ResolveError::LinksCollision { links, claimants } => {
+                assert_eq!(links, "z");
+                let rendered: Vec<(String, String)> = claimants
+                    .iter()
+                    .map(|c| (c.package.as_str().to_owned(), c.target.clone()))
+                    .collect();
+                assert_eq!(
+                    rendered,
+                    vec![
+                        ("zlib".to_owned(), "z".to_owned()),
+                        ("zlib-ng".to_owned(), "zng".to_owned()),
+                    ]
+                );
+            }
+            other => panic!("expected LinksCollision, got {other:?}"),
+        }
+    }
+
+    /// A collision through transitive dependencies errors even when
+    /// neither claimant is a direct dependency of the root.
+    #[test]
+    fn links_collision_between_transitive_dependencies_errors() {
+        let mut index = build_index(vec![
+            entry("a", vec![("1.0.0", vec![("x", ">=1, <2")], false)]),
+            entry("b", vec![("1.0.0", vec![("y", ">=1, <2")], false)]),
+            entry("x", vec![("1.0.0", vec![], false)]),
+            entry("y", vec![("1.0.0", vec![], false)]),
+        ]);
+        set_links(&mut index, "x", "1.0.0", &[("x", "sqlite3")]);
+        set_links(&mut index, "y", "1.0.0", &[("y", "sqlite3")]);
+        let err = resolve(&make_input(vec![("a", "*"), ("b", "*")]), &index).unwrap_err();
+        assert!(matches!(
+            err,
+            ResolveError::LinksCollision { links, .. } if links == "sqlite3"
+        ));
+    }
+
+    /// The check runs on the lean `resolve_packages` path too - the
+    /// one build/run/test/vendor use.
+    #[test]
+    fn links_collision_fires_on_resolve_packages() {
+        let mut index = build_index(vec![
+            entry("zlib", vec![("1.3.1", vec![], false)]),
+            entry("miniz", vec![("3.1.2", vec![], false)]),
+        ]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        set_links(&mut index, "miniz", "3.1.2", &[("miniz", "z")]);
+        let err =
+            resolve_packages(&make_input(vec![("zlib", "*"), ("miniz", "*")]), &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { .. }));
+    }
+
+    /// A caller-supplied local claim (workspace member, path dep,
+    /// patch) collides with a resolved registry package's claim.
+    #[test]
+    fn links_collision_between_local_and_registry_claims_errors() {
+        let mut index = build_index(vec![entry("zlib", vec![("1.3.1", vec![], false)])]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        let mut input = make_input(vec![("zlib", "*")]);
+        input.local_links = vec![local_claim("app", "0.1.0", "vendored-z", "z")];
+        let err = resolve(&input, &index).unwrap_err();
+        match err {
+            ResolveError::LinksCollision { links, claimants } => {
+                assert_eq!(links, "z");
+                assert_eq!(claimants.len(), 2);
+                assert_eq!(claimants[0].package.as_str(), "app");
+                assert_eq!(claimants[1].package.as_str(), "zlib");
+            }
+            other => panic!("expected LinksCollision, got {other:?}"),
+        }
+    }
+
+    /// Distinct identities never collide, a sole claimant never
+    /// collides, and packages without claims are inert - no false
+    /// positives from the mere presence of links metadata.
+    #[test]
+    fn distinct_links_identities_resolve_cleanly() {
+        let mut index = build_index(vec![
+            entry("zlib", vec![("1.3.1", vec![], false)]),
+            entry("libpng", vec![("1.6.50", vec![("zlib", ">=1, <2")], false)]),
+            entry("fmt", vec![("10.2.1", vec![], false)]),
+        ]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        set_links(&mut index, "libpng", "1.6.50", &[("png", "png")]);
+        let mut input = make_input(vec![("zlib", "*"), ("libpng", "*"), ("fmt", "*")]);
+        input.local_links = vec![local_claim("app", "0.1.0", "app-lib", "app-native")];
+        let out = resolve(&input, &index).unwrap();
+        assert_eq!(out.packages.len(), 4);
+    }
+
+    /// A locally-supplied name's index claims are skipped: a
+    /// patched-away upstream selected through a transitive registry
+    /// edge never links, so its claims must not collide on the
+    /// replacement's behalf.  The replacement's own claims (from
+    /// `local_links`) still participate.
+    #[test]
+    fn locally_supplied_names_contribute_no_index_claims() {
+        let mut index = build_index(vec![
+            entry("zlib", vec![("1.3.1", vec![], false)]),
+            entry("miniz", vec![("3.1.2", vec![], false)]),
+        ]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        set_links(&mut index, "miniz", "3.1.2", &[("miniz", "z")]);
+        let mut input = make_input(vec![("zlib", "*"), ("miniz", "*")]);
+        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("zlib")]);
+        assert!(
+            resolve(&input, &index).is_ok(),
+            "the patched-away upstream's claim must be skipped"
+        );
+
+        // A claiming replacement still collides.
+        input.local_links = vec![local_claim("zlib", "1.3.1", "z", "z")];
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { .. }));
+    }
+
+    /// A selection reachable only through a locally-supplied
+    /// selection's own index edges never links - the replacement's
+    /// real dependencies are folded into the root set - so its index
+    /// claims are dropped rather than colliding with a live claimant.
+    /// A live path onto the same selection keeps its claims counted.
+    #[test]
+    fn upstream_only_descendants_of_locally_supplied_names_do_not_claim() {
+        let mut index = build_index(vec![
+            entry("aaa", vec![("1.0.0", vec![("bbb", ">=1")], false)]),
+            entry("bbb", vec![("1.0.0", vec![("ccc", ">=1")], false)]),
+            entry("ccc", vec![("1.0.0", vec![], false)]),
+            entry("ddd", vec![("1.0.0", vec![], false)]),
+        ]);
+        set_links(&mut index, "ccc", "1.0.0", &[("ccc", "z")]);
+        set_links(&mut index, "ddd", "1.0.0", &[("ddd", "z")]);
+        let mut input = make_input(vec![("aaa", "*"), ("ddd", "*")]);
+        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("bbb")]);
+        assert!(
+            resolve(&input, &index).is_ok(),
+            "a claim behind the replaced upstream's dead edge must not collide"
+        );
+
+        // A root requirement (as a fork's folded dep would inject)
+        // reaches the same selection live: the collision is real.
+        let mut input = make_input(vec![("aaa", "*"), ("ddd", "*"), ("ccc", ">=1")]);
+        input.locally_supplied = std::collections::BTreeSet::from([pkg_name("bbb")]);
+        let err = resolve(&input, &index).unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { .. }));
+    }
+
+    /// The same package reported through both `local_links` and the
+    /// index counts once: over-supplying local claims for a package
+    /// the resolver also sees must not self-collide.
+    #[test]
+    fn duplicate_claims_of_one_package_do_not_self_collide() {
+        let mut index = build_index(vec![entry("zlib", vec![("1.3.1", vec![], false)])]);
+        set_links(&mut index, "zlib", "1.3.1", &[("z", "z")]);
+        let mut input = make_input(vec![("zlib", "*")]);
+        input.local_links = vec![local_claim("zlib", "1.3.1", "z", "z")];
+        assert!(resolve(&input, &index).is_ok());
+    }
+
+    /// The exposed fast-path helper: local-only claim sets are
+    /// validated the same way (the CLI calls this when there is
+    /// nothing to resolve).
+    #[test]
+    fn detect_links_collision_validates_local_only_claims() {
+        assert!(
+            detect_links_collision(&[
+                local_claim("member-a", "0.1.0", "z", "z"),
+                local_claim("member-b", "0.1.0", "png", "png"),
+            ])
+            .is_ok()
+        );
+        let err = detect_links_collision(&[
+            local_claim("member-a", "0.1.0", "za", "z"),
+            local_claim("member-b", "0.1.0", "zb", "z"),
+        ])
+        .unwrap_err();
+        assert!(matches!(err, ResolveError::LinksCollision { .. }));
+    }
+
+    /// The rendered diagnostic carries the stable resolver code, the
+    /// shared identity, and every claimant with package, version, and
+    /// target - the user must be able to act without a backtrace.
+    /// Reachability for residue classification: selections no root
+    /// can reach through active index edges are residue; everything
+    /// on a root's edge chain is not.
+    #[test]
+    fn unreachable_index_selections_walks_root_edges() {
+        let index = build_index(vec![
+            entry("aaa", vec![("1.0.0", vec![("bbb", ">=1")], false)]),
+            entry("bbb", vec![("1.0.0", vec![], false)]),
+            entry("ccc", vec![("1.0.0", vec![], false)]),
+        ]);
+        let packages: Vec<ResolvedPackage> = ["aaa", "bbb", "ccc"]
+            .into_iter()
+            .map(|name| ResolvedPackage {
+                name: PackageName::new(name.to_owned()).unwrap(),
+                version: version("1.0.0"),
+                source: ResolvedSource::Index,
+            })
+            .collect();
+        let roots: BTreeSet<PackageName> = [PackageName::new("aaa".to_owned()).unwrap()]
+            .into_iter()
+            .collect();
+        let residue = unreachable_index_selections(&packages, &index, &roots, &BTreeSet::new());
+        let expected: BTreeSet<PackageName> = [PackageName::new("ccc".to_owned()).unwrap()]
+            .into_iter()
+            .collect();
+        assert_eq!(residue, expected);
+
+        // A locally-supplied root is never expanded: its index edges
+        // belong to the replaced upstream, so `bbb` becomes residue.
+        let supplied: BTreeSet<PackageName> = [PackageName::new("aaa".to_owned()).unwrap()]
+            .into_iter()
+            .collect();
+        let residue = unreachable_index_selections(&packages, &index, &roots, &supplied);
+        let expected: BTreeSet<PackageName> = ["bbb", "ccc"]
+            .into_iter()
+            .map(|name| PackageName::new(name.to_owned()).unwrap())
+            .collect();
+        assert_eq!(residue, expected);
+    }
+
+    /// A live index dependent's requirement is validated against the
+    /// fork version replacing its dependency; an orphaned dependent
+    /// is residue nothing links, so its requirements are exempt.
+    #[test]
+    fn fork_version_requirements_checked_for_live_dependents_only() {
+        let index = build_index(vec![entry(
+            "aaa",
+            vec![("1.0.0", vec![("bbb", ">=2")], false)],
+        )]);
+        let packages = vec![ResolvedPackage {
+            name: pkg_name("aaa"),
+            version: version("1.0.0"),
+            source: ResolvedSource::Index,
+        }];
+        let fork_versions: BTreeMap<PackageName, Version> =
+            [(pkg_name("bbb"), version("1.0.0"))].into_iter().collect();
+        let supplied: BTreeSet<PackageName> = [pkg_name("bbb")].into_iter().collect();
+
+        let roots: BTreeSet<PackageName> = [pkg_name("aaa")].into_iter().collect();
+        let err =
+            enforce_fork_version_requirements(&packages, &index, &fork_versions, &roots, &supplied)
+                .unwrap_err();
+        assert!(matches!(
+            err,
+            cabin_core::PatchValidationError::VersionMismatch { .. }
+        ));
+
+        // No root reaches aaa: its requirement constrains nothing.
+        let no_roots = BTreeSet::new();
+        assert!(
+            enforce_fork_version_requirements(
+                &packages,
+                &index,
+                &fork_versions,
+                &no_roots,
+                &supplied,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn links_collision_diagnostic_names_identity_and_claimants() {
+        let err = ResolveError::LinksCollision {
+            links: "z".to_owned(),
+            claimants: vec![
+                local_claim("miniz", "3.1.2", "miniz", "z"),
+                local_claim("zlib", "1.3.1", "z", "z"),
+            ],
+        };
+        let rendered = render_diagnostic(&err);
+        assert!(
+            rendered.contains("cabin::resolver::error"),
+            "expected stable code in: {rendered}"
+        );
+        for needle in ["\"z\"", "zlib v1.3.1", "miniz v3.1.2", "target `miniz`"] {
+            assert!(
+                rendered.contains(needle),
+                "expected {needle:?} in: {rendered}"
+            );
+        }
+    }
+
     /// A `PreferLocked` request (no lockfile → fresh selection, so the
     /// tier ordering applies) with the given C++ consumer level.
     fn cxx_consumer_input(root_deps: Vec<(&str, &str)>, cxx: CxxStandard) -> ResolveInput {
@@ -1652,6 +2334,128 @@ mod tests {
         let out = resolve(&input, &index).unwrap();
         assert_eq!(fmt_version(&out), version("2.0.0"));
         assert!(out.held_back.is_empty());
+    }
+
+    /// Standards-and-links index shared by the two hold-back pruning
+    /// tests: `fmt` and `spdlog` each have a declared-compatible 1.4.0
+    /// and an incompatible 2.0.0; `zlib` has a single version claiming
+    /// `zlib_links`; only `fmt` 2.0.0 claims "z".
+    fn pruning_index(zlib_links: &str) -> PackageIndex {
+        let mut index = build_index(vec![
+            entry(
+                "fmt",
+                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+            ),
+            entry(
+                "spdlog",
+                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+            ),
+            entry("zlib", vec![("1.0.0", vec![], false)]),
+        ]);
+        for pkg in ["fmt", "spdlog"] {
+            set_standards(
+                &mut index,
+                pkg,
+                "2.0.0",
+                cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+            );
+            set_standards(
+                &mut index,
+                pkg,
+                "1.4.0",
+                cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+            );
+        }
+        set_links(&mut index, "fmt", "2.0.0", &[("fmt", "z")]);
+        set_links(&mut index, "zlib", "1.0.0", &[("z", zlib_links)]);
+        index
+    }
+
+    /// A newer version the `Allow` solve picks is not reported as a
+    /// standard hold-back when its `links` claim collides with another
+    /// resolved package: no mode can actually select it.  Hold-backs
+    /// of packages uninvolved in the collision are still reported.
+    #[test]
+    fn held_back_prunes_versions_unrealizable_by_links_collision() {
+        let index = pruning_index("z");
+        let out = resolve(
+            &cxx_consumer_input(
+                vec![("fmt", "*"), ("spdlog", "*"), ("zlib", "*")],
+                CxxStandard::Cxx17,
+            ),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(fmt_version(&out), version("1.4.0"));
+        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
+        assert_eq!(out.held_back[0].name.as_str(), "spdlog");
+        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+    }
+
+    /// Two newer picks that collide only with each other are validated
+    /// independently against the fallback solution: `fmt` 2.0.0 claims
+    /// the identity `spdlog`'s *fallback* version already holds, so its
+    /// row is pruned, while `spdlog` 2.0.0 is realizable beside `fmt`'s
+    /// fallback claim and stays reported.  Classifying the joint
+    /// `Allow` solution would erase both rows.
+    #[test]
+    fn held_back_validates_each_newer_pick_against_fallback() {
+        let mut index = build_index(vec![
+            entry(
+                "fmt",
+                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+            ),
+            entry(
+                "spdlog",
+                vec![("2.0.0", vec![], false), ("1.4.0", vec![], false)],
+            ),
+        ]);
+        for pkg in ["fmt", "spdlog"] {
+            set_standards(
+                &mut index,
+                pkg,
+                "2.0.0",
+                cxx_table(Requirement::Min(CxxStandard::Cxx20)),
+            );
+            set_standards(
+                &mut index,
+                pkg,
+                "1.4.0",
+                cxx_table(Requirement::Min(CxxStandard::Cxx17)),
+            );
+        }
+        set_links(&mut index, "fmt", "1.4.0", &[("fmt", "a")]);
+        set_links(&mut index, "fmt", "2.0.0", &[("fmt", "z")]);
+        set_links(&mut index, "spdlog", "1.4.0", &[("spdlog", "z")]);
+        set_links(&mut index, "spdlog", "2.0.0", &[("spdlog", "z")]);
+
+        let out = resolve(
+            &cxx_consumer_input(vec![("fmt", "*"), ("spdlog", "*")], CxxStandard::Cxx17),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(out.held_back.len(), 1, "held_back: {:?}", out.held_back);
+        assert_eq!(out.held_back[0].name.as_str(), "spdlog");
+        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
+    }
+
+    /// Sensitivity control for the pruning above: with `zlib` claiming
+    /// a distinct identity, the identical `fmt` hold-back is reported -
+    /// pruning keys on the collision, not on carrying a links table.
+    #[test]
+    fn held_back_reports_links_bearing_versions_without_collision() {
+        let index = pruning_index("y");
+        let out = resolve(
+            &cxx_consumer_input(
+                vec![("fmt", "*"), ("spdlog", "*"), ("zlib", "*")],
+                CxxStandard::Cxx17,
+            ),
+            &index,
+        )
+        .unwrap();
+        assert_eq!(out.held_back.len(), 2, "held_back: {:?}", out.held_back);
+        assert_eq!(out.held_back[0].name.as_str(), "fmt");
+        assert_eq!(out.held_back[0].newest, Some(version("2.0.0")));
     }
 
     /// `resolve_packages` selects identically to `resolve` (same

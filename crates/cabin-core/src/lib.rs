@@ -81,6 +81,7 @@ pub use model::{
     Dependency, DependencyKind, DependencySource, Package, PackageConfigInput, PackageName,
     PortDepSource, SystemDependency, Target, TargetDep, TargetKind, TargetName,
     WorkspaceDepRequirements, is_path_safe_package_name, is_valid_package_scope,
+    validate_links_identity,
 };
 pub use patch::{
     PatchManifestSettings, PatchProvenance, PatchSource, PatchSourceKind, PatchValidationError,

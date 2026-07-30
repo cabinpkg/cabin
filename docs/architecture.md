@@ -1213,6 +1213,14 @@ today, so future contributors do not silently regress them by porting more Cargo
   declaration-only even under `cabin test`.  `cabin build` continues to ignore every dev-dep, so
   production builds are unaffected.
 
+- **Native-library identities are graph-unique.** A `library` target may claim the native library
+  it embodies via [`links`](manifest.md#links); after resolution, one identity claimed by two
+  distinct packages is an error, regardless of dependency visibility, because duplicate native
+  symbols fail at the final link either way.  The claim is an identity only - deliberately not
+  Cargo's `links`: there is no metadata channel between packages, no build-script integration, and
+  no `provides` / `conflicts` vocabulary (those stay reserved).  Registry claims are read from
+  index metadata, never from downloaded archives.
+
 These invariants are normative: a change that breaks one of them is a language / build-system change
 and needs an explicit design update, not an implementation tweak.
 

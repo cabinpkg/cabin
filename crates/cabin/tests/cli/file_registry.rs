@@ -183,6 +183,95 @@ cxx-standard = "c++17"
     }
 }
 
+/// `cabin publish` projects declared `links` claims into the index
+/// entry keyed by target name; claim-free packages omit the field.
+#[test]
+fn published_index_carries_links_table() {
+    let dir = TempDir::new().unwrap();
+    let pkg_root = dir.path().join("pkg");
+    assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.1"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+c-standard = "c11"
+links = "z"
+
+[target.extras]
+type = "library"
+sources = ["src/extras.c"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    for (path, body) in [
+        ("src/z.c", "void z(void) {}\n"),
+        ("src/extras.c", "void extras(void) {}\n"),
+    ] {
+        assert_fs::fixture::ChildPath::new(pkg_root.join(path))
+            .write_str(body)
+            .unwrap();
+    }
+    let registry = dir.path().join("registry");
+
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(registry.join("packages/acme/zlib.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let entry = &value["versions"]["1.3.1"];
+    assert_eq!(entry["links"], serde_json::json!({ "z": "z" }));
+
+    // And the entry loads back through the resolver path: a consumer
+    // colliding with the published claim is refused.
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"acme/zlib" = ">=1"
+
+[target.vendored]
+type = "library"
+sources = ["src/vendored.c"]
+c-standard = "c11"
+links = "z"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/vendored.c"))
+        .write_str("void v(void) {}\n")
+        .unwrap();
+    let output = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(registry.join("packages"))
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        crate::standard_compat::flat_contains(
+            &stderr,
+            "is claimed by multiple packages in the dependency graph"
+        ),
+        "expected the collision diagnostic in: {stderr}"
+    );
+}
+
 #[test]
 fn published_index_carries_per_target_standards_table() {
     let dir = TempDir::new().unwrap();
@@ -579,4 +668,76 @@ fn published_registry_can_be_built() {
     assert!(exe.is_file());
     let output = std::process::Command::new(&exe).output().unwrap();
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from fmt"));
+}
+
+/// The strict reload after the artifact pipeline must not require a
+/// dormant patch's versioned deps either: an ordinary registry
+/// dependency plus an unused patch whose fork declares its own
+/// versioned dep builds cleanly.
+#[test]
+fn build_with_registry_dep_tolerates_dormant_patch() {
+    require_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let registry = publish_simple_package(dir.path());
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"fmtlib/fmt" = ">=10.0.0 <11.0.0"
+
+[patch]
+ghost = { path = "../ghost-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+deps = ["fmtlib/fmt"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("#include \"fmt.h\"\nint main() { say_hello(); return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("ghost-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "ghost"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+absent = ">=1"
+
+[target.ghost]
+type = "library"
+sources = ["src/ghost.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("ghost-fork/src/ghost.cc"))
+        .write_str("void g() {}\n")
+        .unwrap();
+    let cache = dir.path().join("cache");
+    let build_dir = dir.path().join("build");
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .arg("--build-dir")
+        .arg(&build_dir)
+        .assert()
+        .success();
+    assert!(
+        build_dir
+            .join("dev/packages/app")
+            .join(host_exe("app"))
+            .is_file()
+    );
 }

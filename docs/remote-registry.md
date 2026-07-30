@@ -253,7 +253,9 @@ Server-side behavior is part of the contract:
   packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
   manifest's provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"`
   format, single-component `strip-prefix`, non-escaping copy paths - the server never fetches the
-  URL), and verifies the archive
+  URL), requires a declared `links` map to pass a lexical mirror of the manifest's rules (valid
+  target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
+  claimed at most once), and verifies the archive
   bytes against the metadata's `sha256:<hex>` checksum.  Failures are `400`.
   Two name-level rules join the same `400` family (`registry/docs/architecture.md`, "Name
   fidelity"): a reserved package name (`package name is reserved` - the DOS device stems plus a
@@ -277,8 +279,13 @@ Server-side behavior is part of the contract:
 - **The revision contract.**  A revision must not change what resolution consumes: `dependencies`,
   `features`, and `standards` are identical across every revision of a version, so a respin can
   never alter a decision the resolver already made.  A change to any of them is a new version, not a
-  revision.  `cabin publish --registry-dir` rejects a violating respin outright, naming the field
-  that changed; it is a protocol obligation on any registry implementing this contract.
+  revision.  `links` joins the contract with a one-way rule: a revision may add a claim table to a
+  version published without one (identities are stamped onto already-published versions as recipes
+  adopt the key - note this retroactively applies to every packaging revision of the version, older
+  pinned revisions included, whose archived manifests may predate the declaration), but an existing
+  table can never be changed or removed by a respin.  `cabin publish --registry-dir` rejects a
+  violating respin outright, naming the field that changed; it is a protocol obligation on any
+  registry implementing this contract.
 - **Recovery.**  A version whose revisions are all **rejected** never became part of the registry,
   so fresh bytes are accepted without the opt-in.  Byte-identical bytes revive the rejected revision
   in place - new metadata, timestamp, and publisher - back to `pending` with a `201`.
@@ -462,7 +469,8 @@ checks, in order:
    extract but fail to build), and must reproduce the
    entire stored canonical metadata document through the same derivation publish used - name,
    version, the three dependency tables, language-standard fields and the per-target standards
-   table, features, profiles, toolchain, build settings, the upstream provenance block, and the
+   table, the per-target links claims, features, profiles, toolchain, build settings, the upstream
+   provenance block, and the
    source block - and the archive
    bytes must hash to the recorded checksum (defense in depth; the server already checked at
    publish).

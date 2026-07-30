@@ -517,6 +517,7 @@ mod tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language: Default::default(),
+            links: None,
         }
     }
 

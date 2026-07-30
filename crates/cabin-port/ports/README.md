@@ -60,6 +60,10 @@ entry.
   `configure` scripts.
 - Patches under `patches/` (if any) should be limited to what is strictly required to make a port
   build through Cabin.
+- A `library` target that embodies a well-known native library claims its identity with
+  [`links`](../../../docs/manifest.md#links) (`zlib` claims `"z"`), judged against upstream
+  conventions.  Header-only ports claim nothing, and an alternative implementation with its own
+  symbol namespace claims its own identity (`miniz` claims `"miniz"`, not `"z"`).
 - A foundation port should be **retired** once its upstream project ships and maintains a native
   `cabin.toml`.
 

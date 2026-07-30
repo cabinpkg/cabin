@@ -1342,6 +1342,7 @@ mod tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
+            links: None,
         };
         graph.packages[2].package.targets.push(target);
         let exp = explain_target(&graph, &[2], "util").unwrap();
@@ -1366,6 +1367,7 @@ mod tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language: cabin_core::LanguageStandardSettings::default(),
+            links: None,
         };
         graph.packages[1].package.targets.push(lib_target);
         let err = explain_target(&graph, &[1], "missing").unwrap_err();

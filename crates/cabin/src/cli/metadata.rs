@@ -695,6 +695,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
                 effective_config,
                 active_patches,
                 graph,
+                port_cache: crate::cli::port::port_cache_for(&manifest_path, None)?,
             }
         }
         Err(err) => return Err(err),
@@ -705,6 +706,7 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         effective_config,
         active_patches,
         graph: initial_graph,
+        ..
     } = prep;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the

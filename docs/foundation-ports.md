@@ -141,7 +141,14 @@ sources = [
 ]
 include-dirs = ["."]
 c-standard = "c11"
+links = "z"
 ```
+
+Library recipes claim the native identity they embody via [`links`](manifest.md#links) (`zlib`
+claims `"z"`, `libpng` claims `"png"`), judged against upstream conventions - the identity, not the
+target key, and only where a real native library exists.  Header-only ports claim nothing, and an
+alternative implementation with its own symbol namespace claims its own identity (`miniz` claims
+`"miniz"`, not `"z"`: its objects export only `mz_*` symbols).
 
 ## Depending on a foundation port
 
@@ -357,6 +364,11 @@ the source of truth and keep working as bundled ports; the tool rewrites a copy 
   the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
   `libz.a` / `z.lib`), `libpng` publishes `png`, `googletest` publishes `gtest`, and every other
   key lowercases.  No target mangling and no output-name mechanism exist; the key *is* the stem.
+- **Links identities.**  A declared [`links`](manifest.md#links) claim rides through the
+  conversion unchanged - the identity is independent of the target key, so the renamed `z` target
+  still carries `links = "z"`.  The two often coincide (`z`, `png`) but need not (`catch2` claims
+  `"Catch2"`, upstream's case-sensitive library name); the post-resolution uniqueness check reads
+  the published claims from the index.
 - **Provenance.**  Each package carries `[package.upstream]` stamped from the recipe's pinned
   `[source]` (URL, SHA-256, format, `strip_prefix`) and declared `[[copy]]` operations, so the
   hosted registry's verifier can check the published tree against the upstream archive.
@@ -432,6 +444,9 @@ signal: a correction landing on `main` is by construction a deliberate respin, a
 unchanged recipes still produces byte-identical archives and stays a no-op.  A revision may not
 change what resolution consumes, so a correction that alters the converted package's
 `dependencies`, `features`, or `standards` is not a respin - it needs a new upstream version.
+`links` is the one-way exception: a respin may stamp a claim table onto a version published
+without one (that is how existing ports gained their identities), but changing or removing an
+existing claim still needs a new upstream version.
 
 ## Retiring a foundation port
 

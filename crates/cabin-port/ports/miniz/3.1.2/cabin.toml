@@ -16,3 +16,7 @@ include-dirs = ["."]
 # Cabin requires an explicit standard for every compiled language;
 # c11 is what this port has always compiled as.
 c-standard = "c11"
+# Not "z": miniz objects export only mz_* symbols (the zlib-style
+# names are header-level wrappers for consumers), so it never
+# collides with zlib at the final link.
+links = "miniz"

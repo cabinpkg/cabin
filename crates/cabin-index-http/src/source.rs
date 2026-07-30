@@ -998,6 +998,36 @@ mod tests {
         );
     }
 
+    /// The `links` claim table survives a full sparse-HTTP fetch,
+    /// like the file loader's typed view.
+    #[test]
+    fn fetch_package_parses_links_table() {
+        const CONFIG: &str = r#"{
+            "schema": 1,
+            "kind": "file-registry",
+            "packages": "packages",
+            "artifacts": "artifacts"
+        }"#;
+        const PACKAGE: &str = r#"{
+            "schema": 1,
+            "name": "zlib",
+            "versions": {
+                "1.3.1": {
+                    "dependencies": {},
+                    "standards": { "targets": { "z": {} } },
+                    "links": { "z": "z" }
+                }
+            }
+        }"#;
+        let server = StaticRegistry::start(CONFIG, "zlib", PACKAGE);
+        let index = HttpIndex::open(&server.url, HttpClient::new()).unwrap();
+        let entry = index
+            .fetch_package(&PackageName::new("zlib").unwrap())
+            .unwrap();
+        let (_, meta) = entry.versions.iter().next().expect("one version");
+        assert_eq!(meta.links["z"], "z");
+    }
+
     /// A hosted registry's `config.json` (carrying `auth-required`
     /// and `api`) opens through the plain `open` path: the fields are
     /// ordinary, non-experimental configuration.

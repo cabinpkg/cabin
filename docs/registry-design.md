@@ -65,8 +65,9 @@ The file-registry writer:
   byte-identical bytes is a no-op onto the recorded revision; different
   bytes for a version that already has one require the `--new-revision`
   opt-in and must leave the resolver-consumed metadata
-  (`dependencies`, `features`, `standards`) unchanged; and two different
-  archives whose digests share a revision id fail loudly;
+  (`dependencies`, `features`, `standards`) unchanged - `links` may be
+  added where the version had none, never changed or removed; and two
+  different archives whose digests share a revision id fail loudly;
 - makes the newly written revision the version's current one while
   keeping superseded revisions listed and their artifacts in place;
 - writes version entries in deterministic semver order;

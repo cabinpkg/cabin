@@ -204,12 +204,13 @@ pub(crate) fn prepare_workspace(
     let workspace_selection = super::build_workspace_selection(args.workspace_selection);
     let include_dev = matches!(args.dev, DevActivation::SelectedPrimaries);
     let super::port::WorkspacePrep {
-        port_sources,
+        mut port_sources,
         effective_config,
         // Patched names are excluded from the closure / artifact
         // pipeline because they ship from a local working copy.
         active_patches,
         graph: initial_graph,
+        port_cache,
         ..
     } = super::port::prepare_ports_and_load_initial_graph(
         &manifest_path,
@@ -286,20 +287,35 @@ pub(crate) fn prepare_workspace(
         &initial_request,
         &dev_for,
     )?;
-    let patched_root_deps_preview =
-        super::collect_patched_versioned_deps(&active_patches, &patched_names)?;
-    let has_versioned = !patched_root_deps_preview.is_empty()
-        || super::closure_has_versioned_deps_excluding_patches(
-            probe_graph,
-            probe_selection,
-            &initial_features,
-            &patched_names,
-            &dev_for,
-        );
+    let closure_deps_preview = super::resolve::collect_closure_versioned_deps_excluding_patches(
+        probe_graph,
+        probe_selection,
+        &initial_features,
+        &patched_names,
+        &dev_for,
+    )?;
+    let patched_root_deps_preview = super::collect_patched_versioned_deps(
+        &active_patches,
+        &patched_names,
+        &closure_deps_preview.referenced_excluded,
+    )?;
+    // Local-vs-local links claims - activated patch forks' included
+    // - must be checked here too: the `!has_versioned` arm below
+    // never reaches the artifact pipeline, so a local-only
+    // workspace would otherwise skip the uniqueness check entirely.
+    super::resolve::enforce_seed_links_uniqueness(
+        probe_graph,
+        &initial_features,
+        &active_patches,
+        &patched_root_deps_preview.activated,
+    )?;
+    let has_versioned =
+        !patched_root_deps_preview.deps.is_empty() || !closure_deps_preview.deps.is_empty();
 
-    let (registry, lockfile_pinned): (
+    let (registry, lockfile_pinned, activated_patches): (
         Vec<super::RegistryPackageSource>,
         BTreeSet<(String, String)>,
+        BTreeSet<String>,
     ) = if has_versioned {
         let inputs = super::config::resolve_pipeline_inputs(
             resolved_index_source.as_ref(),
@@ -330,10 +346,61 @@ pub(crate) fn prepare_workspace(
             no_patches: args.no_patches,
             dev_for: &dev_for,
         })?;
-        (pipeline.registry_sources(), pipeline.lockfile_pinned)
+        (
+            pipeline.registry_sources(),
+            pipeline.lockfile_pinned,
+            pipeline.activated_patches,
+        )
     } else {
-        (Vec::new(), BTreeSet::new())
+        (
+            Vec::new(),
+            BTreeSet::new(),
+            patched_root_deps_preview.activated.clone(),
+        )
     };
+
+    // Port discovery seeds only the patches the local selected
+    // closure names, so a transitively-activated fork's port deps
+    // are not prepared yet - and the strict reload below would
+    // fail them with `PortDependencyNotPrepared`.  Prepare exactly
+    // the activated forks' ports late; re-walking an
+    // already-seeded fork is a cache hit.
+    let late_port_seeds: Vec<std::path::PathBuf> = active_patches
+        .iter()
+        .filter(|patch| activated_patches.contains(patch.name.as_str()))
+        .map(|patch| patch.manifest_path.clone())
+        .collect();
+    if !late_port_seeds.is_empty() {
+        let late_prepared = super::port::discover_and_prepare(super::port::PortPrepInputs {
+            seeds: &late_port_seeds,
+            cache: &port_cache,
+            offline,
+            frozen: args.frozen,
+            // Activated patches are dependencies, never selected
+            // primaries, so their dev edges stay declaration-only in
+            // the reload (`dev_for` holds selected primaries alone) -
+            // preparing dev-only ports here would download material
+            // nothing loads and could fail an offline/frozen run.
+            include_dev: false,
+        })?;
+        // A port the original selected closure also reaches is a
+        // cache-hit re-walk whose registry deps already joined
+        // resolution - only genuinely new ports face the
+        // late-versioned-dep refusal.
+        let new_ports: Vec<&cabin_port::prepare::PreparedPort> = late_prepared
+            .iter()
+            .filter(|prepared| {
+                let source = super::port::workspace_source(prepared);
+                !port_sources
+                    .iter()
+                    .any(|existing| existing.manifest_path == source.manifest_path)
+            })
+            .collect();
+        super::port::refuse_late_versioned_port_deps(new_ports.iter().copied())?;
+        for prepared in new_ports {
+            port_sources.push(super::port::workspace_source(prepared));
+        }
+    }
 
     // Re-load the workspace, this time stitching in the resolved
     // registry packages plus active patches.  When both lists are
@@ -349,11 +416,12 @@ pub(crate) fn prepare_workspace(
     // registry extension those packages would parent a
     // missing-registry / missing-port edge under the scoped policy
     // and silently drop it, leaving the build to fail later with a
-    // less actionable diagnostic.  `patched_names` is folded in
-    // defensively too - closure already reaches the patched
-    // manifests now, but the explicit add keeps the strict set
-    // correct if anything in the chicken-and-egg loading order
-    // ever shifts.
+    // less actionable diagnostic.  Activated patched names are
+    // folded in explicitly: a transitively-discovered patch is
+    // reached through registry metadata, not the local closure
+    // walk.  Dormant patches stay out - their versioned deps are
+    // deliberately never resolved, so requiring them would fail
+    // the build over a patch nothing uses.
     //
     // Under dev activation the strict set must additionally cover
     // every package reachable from the selected test runners *with
@@ -384,7 +452,7 @@ pub(crate) fn prepare_workspace(
     } else {
         initial_resolved_selection.closure_package_names(&initial_graph)
     };
-    strict_packages.extend(patched_names.iter().cloned());
+    strict_packages.extend(activated_patches.iter().cloned());
     strict_packages.extend(registry.iter().map(|r| r.name.as_str().to_owned()));
     let graph = cabin_workspace::load_workspace_with_options(
         &manifest_path,
@@ -397,6 +465,42 @@ pub(crate) fn prepare_workspace(
             port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?;
+
+    // Resolve the workspace package selection up-front.  The planner
+    // consumes the selected indices through `PlanRequest::selected_packages`
+    // so default-target enumeration narrows to the picked packages instead
+    // of every primary - and the backend checks below scope to the
+    // selected closure so an unselected member's C source or pkg-config
+    // dependency never gates the command.
+    let resolved_selection =
+        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
+    // Resolve features for the selected closure before toolchain
+    // detection and build-flag derivation: the links check below
+    // must not hide behind an environment-dependent failure, and
+    // `[target.'cfg(feature = "...")'.profile]` flag layers are
+    // gated on the enabled-feature set.
+    let selection_request =
+        super::build_selection_request(args.features, args.all_features, args.no_default_features);
+    let feature_resolution = super::compute_feature_resolution(
+        &graph,
+        &resolved_selection,
+        &selection_request,
+        &dev_for,
+    )?;
+    // The exact links-uniqueness check.  The final graph is the
+    // only place every claimant exists as a loaded manifest -
+    // fetched registry packages, activated forks, and the
+    // late-prepared ports the resolution-time checks cannot see -
+    // and this feature resolution applies the dependents' real
+    // edge requests, which those earlier checks only approximate
+    // conservatively (see `activated_fork_claims`).  The artifact
+    // pipeline has already written the lockfile by now; that is
+    // fine - the recorded resolution itself is valid, only this
+    // command's feature-exact link plan is not.
+    super::resolve::enforce_local_links_uniqueness(&super::resolve::local_links_claims(
+        &graph,
+        &feature_resolution,
+    ))?;
 
     // Resolve the build directory.  Precedence:
     // `--build-dir` > `CABIN_BUILD_DIR` env var
@@ -422,14 +526,6 @@ pub(crate) fn prepare_workspace(
     // error from a broken command line.
     let detection_report =
         cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner)?;
-    // Resolve the workspace package selection up-front.  The planner
-    // consumes the selected indices through `PlanRequest::selected_packages`
-    // so default-target enumeration narrows to the picked packages instead
-    // of every primary - and the backend checks below scope to the
-    // selected closure so an unselected member's C source or pkg-config
-    // dependency never gates the command.
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&graph, &workspace_selection)?;
     let selected_closure = resolved_selection.closure(&graph);
     // Package-level approximation used only for the MSVC
     // `/external:I` fallback decision; the authoritative toolchain
@@ -473,19 +569,6 @@ pub(crate) fn prepare_workspace(
         cabin_build::Dialect::from_compiler_kind(detection_report.cxx.identity.kind),
         &selected_closure,
     )?;
-    // Resolve features for the selected closure *before* deriving
-    // build flags: `[target.'cfg(feature = "...")'.profile]` layers
-    // are gated on the enabled-feature set, so feature resolution
-    // must precede `resolve_build_prep`.
-    let selection_request =
-        super::build_selection_request(args.features, args.all_features, args.no_default_features);
-    let feature_resolution = super::compute_feature_resolution(
-        &graph,
-        &resolved_selection,
-        &selection_request,
-        &dev_for,
-    )?;
-
     let prep = resolve_build_prep(BuildConfigInputs {
         graph: &graph,
         host_platform: &host_platform,

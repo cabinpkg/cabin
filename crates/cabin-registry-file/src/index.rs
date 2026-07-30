@@ -282,6 +282,28 @@ fn ensure_resolver_metadata_unchanged(
             });
         }
     }
+    // `links` is resolver-consumed too, but with a one-way rule: a
+    // revision may add a claim table where the version had none
+    // (identities are stamped onto already-published versions as the
+    // feature reaches recipes), while changing or removing an
+    // existing one would flip resolution outcomes under a pinned
+    // graph and still requires a new version.  The hosted registry
+    // enforces the same rule in its publish preflight and SQL guards.
+    let existing_links = entry
+        .get("links")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let incoming_links = (!metadata.links.is_empty())
+        .then(|| serde_json::to_value(&metadata.links))
+        .transpose()?
+        .unwrap_or(serde_json::Value::Null);
+    if !existing_links.is_null() && existing_links != incoming_links {
+        return Err(RegistryError::RevisionChangesResolverMetadata {
+            name: metadata.name.clone(),
+            version: metadata.version.clone(),
+            field: "links",
+        });
+    }
     Ok(())
 }
 
@@ -368,6 +390,8 @@ struct IndexVersionWire<'a, D: Serialize> {
     #[serde(skip_serializing_if = "Option::is_none")]
     standards: Option<&'a cabin_core::StandardsMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    links: Option<&'a std::collections::BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     upstream: Option<&'a cabin_core::UpstreamProvenance>,
 }
 
@@ -420,6 +444,7 @@ fn version_value_from_metadata(
         compiler_wrapper: metadata.compiler_wrapper.as_ref(),
         language: (!metadata.language.is_empty()).then_some(&metadata.language),
         standards: (!metadata.standards.is_empty()).then_some(&metadata.standards),
+        links: (!metadata.links.is_empty()).then_some(&metadata.links),
         upstream: metadata.upstream.as_ref(),
     };
     Ok(serde_json::to_value(&wire)?)
@@ -453,6 +478,7 @@ mod tests {
             compiler_wrapper: Default::default(),
             language: Default::default(),
             standards: Default::default(),
+            links: Default::default(),
             upstream: None,
             yanked: false,
             checksum: format!("sha256:{hex}"),
@@ -738,6 +764,57 @@ mod tests {
         let body = render(&index, Path::new("packages/fmt.json")).unwrap();
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert!(value["versions"]["10.2.1"].get("standards").is_none());
+    }
+
+    /// A populated `links` table is projected into the version
+    /// document target-keyed and sorted; a package without claims
+    /// omits the field so existing entries stay byte-identical.
+    #[test]
+    fn render_projects_links_and_omits_empty() {
+        let mut meta = metadata("zlib", "1.3.1");
+        meta.links = BTreeMap::from([("z".to_owned(), "z".to_owned())]);
+        let index = insert_new(None, &meta).unwrap();
+        let body = render(&index, Path::new("packages/zlib.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["versions"]["1.3.1"]["links"]["z"], "z");
+
+        let bare = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
+        let body = render(&bare, Path::new("packages/fmt.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(value["versions"]["10.2.1"].get("links").is_none());
+    }
+
+    /// The `links` revision rule is one-way: a new packaging revision
+    /// may add a claim table to a version published without one (the
+    /// stamping path for already-published recipes), but changing or
+    /// removing an existing table still requires a new version.
+    #[test]
+    fn revisions_may_add_but_not_change_or_remove_links() {
+        let no_links = insert_new(None, &metadata("zlib", "1.3.1")).unwrap();
+        let mut stamped = metadata_with_bytes("zlib", "1.3.1", 'b');
+        stamped.links = BTreeMap::from([("z".to_owned(), "z".to_owned())]);
+        let (with_links, disposition) =
+            insert_version(Some(no_links), &stamped, STAMP, true).unwrap();
+        assert_eq!(disposition, InsertDisposition::Inserted);
+        let entry = &with_links.versions["1.3.1"];
+        assert_eq!(entry["links"]["z"], "z");
+
+        let mut changed = metadata_with_bytes("zlib", "1.3.1", 'c');
+        changed.links = BTreeMap::from([("z".to_owned(), "zlib".to_owned())]);
+        let err = insert_version(Some(with_links.clone()), &changed, STAMP, true).unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
+                if *field == "links"),
+            "{err}"
+        );
+
+        let dropped = metadata_with_bytes("zlib", "1.3.1", 'd');
+        let err = insert_version(Some(with_links), &dropped, STAMP, true).unwrap_err();
+        assert!(
+            matches!(&err, RegistryError::RevisionChangesResolverMetadata { field, .. }
+                if *field == "links"),
+            "{err}"
+        );
     }
 
     #[test]

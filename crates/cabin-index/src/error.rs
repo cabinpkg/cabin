@@ -111,6 +111,13 @@ pub enum IndexError {
     #[error("missing `source.path` for package {package:?} version {version}")]
     MissingSourcePath { package: String, version: String },
 
+    #[error("invalid `links` entry for package {package:?} version {version}: {message}")]
+    InvalidLinks {
+        package: String,
+        version: String,
+        message: String,
+    },
+
     #[error(
         "invalid file registry at {}: {message}", path.display()
     )]

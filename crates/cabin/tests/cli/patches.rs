@@ -849,3 +849,1047 @@ sources = ["src/lib.cc"]
     assert!(!body.contains("source-replacement"), "{body}");
     assert!(!body.contains("https://example.com/index"), "{body}");
 }
+
+/// A dormant patch - nothing in the invocation depends on its name -
+/// must not fail the build over its fork's own versioned deps: they
+/// are deliberately never resolved, so the strict workspace reload
+/// cannot require them.
+#[test]
+fn build_tolerates_dormant_patch_with_versioned_deps() {
+    require_cxx_build_tools();
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("app");
+    write_root_manifest(
+        &root,
+        r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[patch]
+ghost = { path = "../ghost-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+    );
+    assert_fs::fixture::ChildPath::new(root.join("src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+    write_patched_fork(
+        parent.path(),
+        "ghost-fork",
+        r#"[package]
+name = "ghost"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+absent = ">=1"
+
+[target.ghost]
+type = "library"
+sources = ["src/ghost.cc"]
+"#,
+    );
+    assert_fs::fixture::ChildPath::new(parent.path().join("ghost-fork/src/ghost.cc"))
+        .write_str("void g() {}\n")
+        .unwrap();
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(root.join("cabin.toml"))
+        .arg("--build-dir")
+        .arg(root.join("build"))
+        .assert()
+        .success();
+}
+
+/// A transitively-activated patch fork's foundation-port deps are
+/// prepared before the strict reload: initial port discovery cannot
+/// see the fork (nothing local names it), so the build pipeline
+/// preps the activated forks' ports late instead of failing the
+/// reload with `PortDependencyNotPrepared`.
+#[test]
+fn build_prepares_ports_of_transitively_activated_patch() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let repo = FakePortRepo::new(tmp.path());
+    let fakeport = repo
+        .port("fakeport", "1.0.0")
+        .archive_prefix("fakeport-1.0.0")
+        .file("include/fakeport.h", "#pragma once\nint fp();\n")
+        .file(
+            "src/fakeport.cc",
+            "#include \"fakeport.h\"\nint fp() { return 3; }\n",
+        )
+        .overlay_manifest(
+            r#"[package]
+name = "fakeport"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.fakeport]
+type = "library"
+sources = ["src/fakeport.cc"]
+include-dirs = ["include"]
+"#,
+        )
+        .build();
+    let _server = FakeArchiveServer::new().serve(&fakeport.archive).start();
+
+    // Publish upstream bbb (dep-free) and aaa (which depends on it)
+    // so the patched name is reached only through registry metadata.
+    for (name, manifest) in [
+        (
+            "bbb",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "aaa",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+fakeport = { port-path = "../ports/fakeport/1.0.0" }
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/src/lib.cc"))
+        .write_str("int b() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+
+[patch]
+"acme/bbb" = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+}
+
+/// A foundation port both the original selected closure and a
+/// transitively-activated fork reference resolved its registry
+/// dependencies through the ordinary pre-resolution walk - the
+/// fork's late re-walk is a cache hit, and the late
+/// versioned-port-dep refusal must not fail the build over it.
+#[test]
+fn shared_port_of_activated_fork_keeps_registry_deps() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let repo = FakePortRepo::new(tmp.path());
+    let shport = repo
+        .port("shport", "1.0.0")
+        .archive_prefix("shport-1.0.0")
+        .file("src/shport.cc", "int sp() { return 3; }\n")
+        .overlay_manifest(
+            r#"[package]
+name = "shport"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/ccc" = ">=1"
+
+[target.shport]
+type = "library"
+sources = ["src/shport.cc"]
+"#,
+        )
+        .build();
+    let _server = FakeArchiveServer::new().serve(&shport.archive).start();
+
+    for (name, manifest) in [
+        (
+            "ccc",
+            r#"[package]
+name = "acme/ccc"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.ccc]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "bbb",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "aaa",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+shport = { port-path = "../ports/shport/1.0.0" }
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/src/lib.cc"))
+        .write_str("int b() { return 0; }\n")
+        .unwrap();
+    // The app itself references the same port, so the original
+    // closure prepares it and its `acme/ccc` dep joins resolution.
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+shport = { port-path = "../ports/shport/1.0.0" }
+
+[patch]
+"acme/bbb" = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+}
+
+/// An activated fork is a dependency, never a selected primary, so
+/// its `[dev-dependencies]` ports stay declaration-only under
+/// `cabin test`: the late port walk must not prepare them.  The
+/// fixture's port is unserved and uncached, so preparing it offline
+/// would fail the run.
+#[test]
+fn test_skips_dev_ports_of_transitively_activated_fork() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    let repo = FakePortRepo::new(tmp.path());
+    let _fakeport = repo
+        .port("fakeport", "1.0.0")
+        .archive_prefix("fakeport-1.0.0")
+        .file("src/fakeport.cc", "int fp() { return 3; }\n")
+        .overlay_manifest(
+            r#"[package]
+name = "fakeport"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.fakeport]
+type = "library"
+sources = ["src/fakeport.cc"]
+"#,
+        )
+        .build();
+
+    for (name, manifest) in [
+        (
+            "bbb",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "aaa",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dev-dependencies]
+fakeport = { port-path = "../ports/fakeport/1.0.0" }
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/src/lib.cc"))
+        .write_str("int b() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+
+[patch]
+"acme/bbb" = { path = "../bbb-fork" }
+
+[target.app_test]
+type = "test"
+sources = ["tests/app_test.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/tests/app_test.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["test", "--offline", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+}
+
+/// A pruned activation must not reach the build pipeline's late
+/// port discovery or the strict reload: an uncached HTTP-backed
+/// port declared by a fork the final selection never reaches cannot
+/// fail an `--offline` build.
+#[test]
+fn offline_build_skips_pruned_activation_ports() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    // Unserved port fixture: preparing it would fail (offline, no
+    // cache), which is the point - it must never be prepared.
+    let repo = FakePortRepo::new(tmp.path());
+    let _fakeport = repo
+        .port("fakeport", "1.0.0")
+        .archive_prefix("fakeport-1.0.0")
+        .file("src/fakeport.cc", "int fp() { return 3; }\n")
+        .overlay_manifest(
+            r#"[package]
+name = "fakeport"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.fakeport]
+type = "library"
+sources = ["src/fakeport.cc"]
+"#,
+        )
+        .build();
+
+    // aaa 2.0.0 reaches patched bbb but pins ccc to 1.x; the bbb
+    // fork's own `ccc >= 2` therefore flips aaa back to 1.0.0,
+    // which drops bbb (and its port) from the final selection.
+    for (dir_name, manifest) in [
+        (
+            "aaa-1",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "aaa-2",
+            r#"[package]
+name = "acme/aaa"
+version = "2.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+"acme/ccc" = "=1.0.0"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "bbb-1",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ccc-1",
+            r#"[package]
+name = "acme/ccc"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.ccc]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ccc-2",
+            r#"[package]
+name = "acme/ccc"
+version = "2.0.0"
+cxx-standard = "c++17"
+
+[target.ccc]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{dir_name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/ccc" = ">=2"
+fakeport = { port-path = "../ports/fakeport/1.0.0" }
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("bbb-fork/src/lib.cc"))
+        .write_str("int b() { return 0; }\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+
+[patch]
+"acme/bbb" = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["build", "--offline", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+}
+
+/// An index-discovered fork's *path dependency* declaring registry
+/// dependencies is invisible to both the fork-manifest fold and the
+/// pre-resolve closure pass (the fork was not reachable yet), so
+/// those dependencies must be folded from the fork's island - and a
+/// path dependency naming another patched package chains that patch,
+/// whose own island then contributes deps of its own (fixed point).
+/// Both registry deps must land in the resolution: dropping them was
+/// silent (nothing errored; the edges just vanished).
+#[test]
+fn activated_fork_path_deps_fold_registry_and_chained_patch_deps() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    for (dir_name, manifest) in [
+        (
+            "aaa",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "bbb",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ccc",
+            r#"[package]
+name = "acme/ccc"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.ccc]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ddd",
+            r#"[package]
+name = "acme/ddd"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.ddd]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{dir_name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+
+    // The fork of bbb pulls in local xxx, which declares a registry
+    // dep (ccc) and a dep on the patched ppp; ppp's fork declares a
+    // registry dep of its own (ddd).
+    for (dir, manifest) in [
+        (
+            "bbb-fork",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+xxx = { path = "../xxx" }
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "xxx",
+            r#"[package]
+name = "xxx"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/ccc" = ">=1"
+"acme/ppp" = ">=1"
+
+[target.xxx]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ppp-fork",
+            r#"[package]
+name = "acme/ppp"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/ddd" = ">=1"
+
+[target.ppp]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        assert_fs::fixture::ChildPath::new(tmp.path().join(dir).join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(tmp.path().join(dir).join("src/lib.cc"))
+            .write_str("int y() { return 0; }\n")
+            .unwrap();
+    }
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+
+[patch]
+"acme/bbb" = { path = "../bbb-fork" }
+"acme/ppp" = { path = "../ppp-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["build", "--offline", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+
+    let lockfile = std::fs::read_to_string(tmp.path().join("app/cabin.lock")).unwrap();
+    for name in ["acme/ccc", "acme/ddd"] {
+        assert!(
+            lockfile.contains(&format!("name = \"{name}\"")),
+            "expected {name} in the lockfile; a dropped fork-island dep is silent: {lockfile}"
+        );
+    }
+}
+
+/// A patched name selected only through a replaced upstream's dead
+/// index edges stays dormant: `app -> aaa -> ppp` activates ppp's
+/// fork through a live edge, but upstream ppp's `bbb` edge dies with
+/// the replacement (the fork drops it), so bbb's patch must not
+/// activate.  Its fork declares a dependency that exists nowhere -
+/// if activation leaks through the dead edge, resolution fails on
+/// that name and this build breaks.
+#[test]
+fn dead_upstream_edges_of_activated_forks_do_not_activate_patches() {
+    require_cxx_build_tools();
+    let tmp = TempDir::new().unwrap();
+    for (dir_name, manifest) in [
+        (
+            "aaa",
+            r#"[package]
+name = "acme/aaa"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/ppp" = ">=1"
+
+[target.aaa]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "ppp",
+            r#"[package]
+name = "acme/ppp"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/bbb" = ">=1"
+
+[target.ppp]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "bbb",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        let pkg_root = tmp.path().join(format!("src-{dir_name}"));
+        assert_fs::fixture::ChildPath::new(pkg_root.join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(pkg_root.join("src/lib.cc"))
+            .write_str("int x() { return 0; }\n")
+            .unwrap();
+        cabin()
+            .args(["publish", "--manifest-path"])
+            .arg(pkg_root.join("cabin.toml"))
+            .arg("--registry-dir")
+            .arg(tmp.path().join("registry"))
+            .assert()
+            .success();
+    }
+    for (dir, manifest) in [
+        (
+            "ppp-fork",
+            r#"[package]
+name = "acme/ppp"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[target.ppp]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+        (
+            "bbb-fork",
+            r#"[package]
+name = "acme/bbb"
+version = "1.0.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/never-published" = ">=1"
+
+[target.bbb]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        ),
+    ] {
+        assert_fs::fixture::ChildPath::new(tmp.path().join(dir).join("cabin.toml"))
+            .write_str(manifest)
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(tmp.path().join(dir).join("src/lib.cc"))
+            .write_str("int y() { return 0; }\n")
+            .unwrap();
+    }
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[dependencies]
+"acme/aaa" = ">=1"
+
+[patch]
+"acme/ppp" = { path = "../ppp-fork" }
+"acme/bbb" = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(tmp.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    cabin()
+        .args(["build", "--offline", "--manifest-path"])
+        .arg(tmp.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(tmp.path().join("registry"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--build-dir")
+        .arg(tmp.path().join("build"))
+        .assert()
+        .success();
+}
+
+/// A patch discovered only through an index edge is validated
+/// against that edge's requirement exactly like a locally-visible
+/// one: `resolve_active_patches` never saw `aaa`'s `bbb >= 2`
+/// (aaa is index-only), and the final reload substitutes the fork
+/// without re-solving, so the post-solve check is the only place
+/// the mismatch can surface before an incompatible fork links.
+#[test]
+fn transitive_activation_validates_fork_version() {
+    let dir = TempDir::new().unwrap();
+    let index = dir.path().join("index");
+    assert_fs::fixture::ChildPath::new(index.join("aaa.json"))
+        .write_str(
+            r#"{
+  "schema": 1,
+  "name": "aaa",
+  "versions": {
+    "1.0.0": { "dependencies": { "bbb": ">=2" }, "yanked": false }
+  }
+}"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(index.join("bbb.json"))
+        .write_str(
+            r#"{
+  "schema": 1,
+  "name": "bbb",
+  "versions": { "2.0.0": { "dependencies": {}, "yanked": false } }
+}"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "bbb"
+version = "1.0.0"
+
+[target.bbb]
+type = "library"
+sources = ["src/bbb.c"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/src/bbb.c"))
+        .write_str("void b(void) {}\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+aaa = ">=1"
+
+[patch]
+bbb = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+
+    let output = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(&index)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+    for needle in [
+        "patch package `bbb` has version `1.0.0`",
+        "does not satisfy dependency requirement `>=2`",
+    ] {
+        assert!(stderr.contains(needle), "expected {needle:?} in: {stderr}");
+    }
+}

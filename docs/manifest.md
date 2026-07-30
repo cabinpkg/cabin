@@ -124,9 +124,40 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | `interface-c-standard` | string or `{ min, max }` table | no | effective `c-standard` | C interface requirement: a string minimum, a bounded `{ min, max }` range, or `"none"`; `library` / `header-only` only.  A `header-only` target must have at least one interface standard (either language, target or package level). |
 | `interface-cxx-standard` | string or `{ min, max }` table | no | effective `cxx-standard` | C++ interface requirement; same forms as the C field; `library` / `header-only` only. |
 | `gnu-extensions` | boolean | no | package value, else `false` | Per-target GNU-extensions dialect override. |
+| `links` | string | no | - | Native-library identity this target claims, e.g. `"z"` for a target embodying zlib; `library` only.  See [`links`](#links). |
 
 `include-dirs` of a `library` or `header-only` target are visible (transitively) to any target that
 depends on it.
+
+### `links`
+
+`links = "<identity>"` declares that the target embodies the named native library.  The claim is an
+explicit opt-in and is never derived from the target name: target names are artifact stems, while a
+`links` value names the native identity, and the two can legitimately differ (a target `ssl` may
+link `"openssl"`).  Identities are non-empty, case-sensitive strings of ASCII letters, digits, `.`,
+`_`, `+`, and `-`.
+
+After dependency resolution, Cabin refuses a graph in which two distinct packages claim the same
+identity, because duplicate native symbols fail at the final link regardless of dependency
+visibility - the check sees private edges too.  The diagnostic names the shared identity and every
+claimant (package, version, target); keep exactly one claimant, or move the extras behind features
+or platform conditions so they never resolve together.  Claims are declared, not selection-aware: a
+target whose `required-features` are disabled still claims, but a package reachable only through a
+disabled optional dependency does not.
+
+The check runs where its inputs are exact.  Resolution refuses collisions among the claims that
+provably link: local claims under the selected features, resolved registry claims, and - for a
+`[patch]` fork reached only through registry metadata - the claims that hold under every feature
+configuration (the fork itself and its non-optional path dependencies; the fork's real feature set
+is decided by its dependents' edges, which resolution does not interpret).  The building commands
+re-check the final loaded graph, whose feature resolution applies the fetched manifests' real
+per-edge requests: a collision created only by such a fork's feature-enabled optional dependency,
+or by a foundation port the fork pulls in, is refused there.  A build refused this way may already
+have written `cabin.lock` - the recorded resolution itself stays valid.
+
+`links` is uniqueness enforcement only.  There is no metadata passing between packages and no
+build-hook integration, and only `library` targets may claim (header-only targets emit no linkable
+artifact, so two wrappers of one library must not conflict).
 
 ## `[dependencies]`
 
@@ -335,6 +366,10 @@ The parser and downstream tools reject manifests when:
 - a name is empty or contains whitespace
 - a target's `type` is unknown
 - the same target name appears twice
+- a `links` value is empty or contains a character outside ASCII letters, digits, `.`, `_`, `+`,
+  and `-`
+- a `links` key appears on a non-`library` target
+- two targets of one package claim the same `links` value
 - the same dependency key appears twice
 - a dependency entry has neither `path`, `version`, `port = true`, `port-path`, `workspace`, nor
   `system = true`

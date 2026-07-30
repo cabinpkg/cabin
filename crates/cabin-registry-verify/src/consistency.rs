@@ -220,6 +220,7 @@ mod tests {
             "build",
             "yanked",
             "source",
+            "links",
         ] {
             assert_eq!(field_reason(key), Reason::MetadataMismatch, "key: {key}");
         }

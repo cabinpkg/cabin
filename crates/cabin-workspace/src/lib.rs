@@ -30,10 +30,11 @@ pub use loader::{
 };
 pub use patch::{
     ActivePatch, ActivePatchSet, ConfigPatchInput, PatchManifestLoadError, PatchResolutionError,
-    PatchResolutionInputs, collect_patched_versioned_deps, resolve_active_patches,
+    PatchResolutionInputs, PatchedVersionedDeps, activated_fork_indices, activated_patch_closure,
+    collect_island_versioned_deps, collect_patched_versioned_deps, resolve_active_patches,
 };
 pub use selection::{
-    PackageSelection, ResolvedSelection, SelectionMode,
+    ClosureVersionedDeps, PackageSelection, ResolvedSelection, SelectionMode,
     closure_has_versioned_deps_excluding_with_dev,
     collect_closure_versioned_deps_excluding_with_dev, combine_version_reqs,
     resolve_package_selection,

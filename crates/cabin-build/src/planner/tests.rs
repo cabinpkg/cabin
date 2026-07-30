@@ -134,6 +134,7 @@ fn target(name: &str, kind: TargetKind, sources: &[&str], deps: &[&str]) -> Core
             .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
+        links: None,
     }
 }
 
@@ -156,6 +157,7 @@ fn target_with_includes(
             .collect(),
         required_features: Vec::new(),
         language: language_for_sources(sources),
+        links: None,
     }
 }
 

@@ -1239,6 +1239,194 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
     assert_eq!(revive("aa", "aa", 1), 1);
 }
 
+/// The `links` conjunct inside the transactional guards is one-way:
+/// a respin may add a claim table beside link-less live siblings,
+/// but once a live sibling carries one, a respin that changes or
+/// omits it changes zero rows - opt-in or not.  The revival guard
+/// mirrors the insert's, and the preflight's sibling read prefers a
+/// links-bearing row so its diagnostic matches the transactional
+/// truth.
+#[test]
+fn links_revision_guards_are_one_way_and_prefer_links_bearing_siblings() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+
+    let insert = |revision: &str, metadata: &str| -> usize {
+        conn.execute(
+            sql::INSERT_REVISION,
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                revision,
+                revision,
+                metadata,
+                "2026-07-15T02:00:00.000Z",
+                10,
+                1,
+                1 // always opt in: the links rule must hold regardless
+            ],
+        )
+        .expect("guarded revision insert")
+    };
+
+    // The seeded live revision 'aa' has metadata '{}' - no links.
+    // Adding a claim table is a legal respin.
+    let stamped = r#"{"links":{"z":"z"}}"#;
+    assert_eq!(insert("b1", stamped), 1);
+
+    // With a links-bearing live sibling, a respin that changes the
+    // table, or omits it, is suppressed by the in-SQL conjunct.
+    assert_eq!(insert("b2", r#"{"links":{"z":"zlib"}}"#), 0);
+    assert_eq!(insert("b3", "{}"), 0);
+    // A respin carrying the identical table still lands.
+    assert_eq!(insert("b4", stamped), 1);
+
+    // The preflight's sibling read prefers the links-bearing row,
+    // even though the link-less 'aa' sorts first by revision id -
+    // that row is the constraining one once it exists.
+    let preferred: String = conn
+        .query_row(
+            sql::LIVE_REVISION_METADATA,
+            rusqlite::params!["alpha", "pkg", "1.0.0"],
+            |row| row.get(0),
+        )
+        .expect("live sibling metadata");
+    assert_eq!(preferred, stamped);
+
+    // The revival guard mirrors the insert's: reject 'b1', then try
+    // to revive it with a mutated links table - suppressed; the
+    // original table revives.
+    conn.execute(
+        "UPDATE revisions SET verification = 'rejected' WHERE revision = 'b1'",
+        [],
+    )
+    .expect("reject b1");
+    let revive = |metadata: &str| -> usize {
+        conn.execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                metadata,
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                1,
+                "1.0.0",
+                "b1",
+                "b1"
+            ],
+        )
+        .expect("guarded revival")
+    };
+    assert_eq!(revive(r#"{"links":{"z":"zlib"}}"#), 0);
+    assert_eq!(revive(stamped), 1);
+}
+
+/// The storage-accounting statements repeat the revision guards'
+/// conjuncts - links included - one-for-one: a respin the links rule
+/// refuses must add zero bytes on both the publish and the revival
+/// path, or the counter drifts from what was actually persisted.
+#[test]
+fn links_accounting_guards_mirror_the_revision_guards() {
+    let conn = migrated_connection();
+    seed_scope_collision(&conn);
+    let stamped = r#"{"links":{"z":"z"}}"#;
+    let stored = |conn: &rusqlite::Connection| -> String {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key = 'total_stored_bytes'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stored bytes")
+    };
+    let account = |checksum: &str, metadata: &str| {
+        conn.execute(
+            sql::COUNT_STORED_BYTES_ON_PUBLISH,
+            rusqlite::params![checksum, 40, "alpha", "pkg", "1.0.0", checksum, metadata, 1],
+        )
+        .expect("accounting upsert");
+    };
+    let insert = |checksum: &str, metadata: &str| -> usize {
+        conn.execute(
+            sql::INSERT_REVISION,
+            rusqlite::params![
+                "alpha",
+                "pkg",
+                "1.0.0",
+                checksum,
+                checksum,
+                metadata,
+                "2026-07-15T02:00:00.000Z",
+                40,
+                1,
+                1
+            ],
+        )
+        .expect("guarded revision insert")
+    };
+
+    // Absent -> present beside the link-less live 'aa': counts + lands.
+    account("f1", stamped);
+    assert_eq!(insert("f1", stamped), 1);
+    assert_eq!(stored(&conn), "70", "30 seeded + the stamped respin's 40");
+
+    // With a links-bearing live sibling, a changed or omitted table
+    // is refused - and the mirrored accounting must add nothing.
+    account("f2", r#"{"links":{"z":"zlib"}}"#);
+    assert_eq!(insert("f2", r#"{"links":{"z":"zlib"}}"#), 0);
+    account("f3", "{}");
+    assert_eq!(insert("f3", "{}"), 0);
+    assert_eq!(stored(&conn), "70", "refused respins must add nothing");
+
+    // Revival path: reject the stamped row, then a revival whose
+    // document mutates the table (against the still-live stamped
+    // sibling 'f4') counts nothing and flips nothing; the matching
+    // revival counts its bytes back and applies.
+    account("f4", stamped);
+    assert_eq!(insert("f4", stamped), 1);
+    assert_eq!(stored(&conn), "110");
+    conn.execute(
+        "UPDATE revisions SET verification = 'rejected' WHERE revision = 'f1'",
+        [],
+    )
+    .expect("reject f1");
+    let revive_count = |metadata: &str| {
+        conn.execute(
+            sql::COUNT_STORED_BYTES_ON_REVIVAL,
+            rusqlite::params!["alpha", "pkg", "1.0.0", "f1", "f1", 40, "f1", 1, metadata],
+        )
+        .expect("revival accounting");
+    };
+    let revive = |metadata: &str| -> usize {
+        conn.execute(
+            sql::REVIVE_REJECTED_REVISION,
+            rusqlite::params![
+                metadata,
+                "2026-07-15T03:00:00.000Z",
+                1,
+                "alpha",
+                "pkg",
+                1,
+                "1.0.0",
+                "f1",
+                "f1"
+            ],
+        )
+        .expect("guarded revival")
+    };
+    revive_count(r#"{"links":{"z":"zlib"}}"#);
+    assert_eq!(revive(r#"{"links":{"z":"zlib"}}"#), 0);
+    assert_eq!(stored(&conn), "110", "a refused revival must add nothing");
+    revive_count(stamped);
+    assert_eq!(revive(stamped), 1);
+    assert_eq!(
+        stored(&conn),
+        "150",
+        "the applied revival re-counts its bytes"
+    );
+}
+
 /// `current_revisions` is the single served-revision definition: per
 /// verified version, the newest `published_at` wins (revision id as
 /// the deterministic tie-break), pending respins never surface, and a

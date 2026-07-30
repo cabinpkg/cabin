@@ -62,8 +62,8 @@ pub(crate) use self::build_prep::{
     workspace_profile_definitions,
 };
 pub(crate) use self::resolve::{
-    ArtifactPipelineRequest, LockPolicy, closure_has_versioned_deps_excluding_patches,
-    lockfile_path_for, read_optional_lockfile, run_artifact_pipeline,
+    ArtifactPipelineRequest, LockPolicy, lockfile_path_for, read_optional_lockfile,
+    run_artifact_pipeline,
 };
 
 use crate::cli::fetch_output::emit_fetch_output;

@@ -1346,6 +1346,7 @@ mod tests {
             deps: Vec::new(),
             required_features: Vec::new(),
             language,
+            links: None,
         }
     }
 
@@ -2190,6 +2191,7 @@ mod tests {
                         gnu_extensions: Some(true),
                         ..Default::default()
                     },
+                    links: None,
                 },
             ],
             Vec::new(),

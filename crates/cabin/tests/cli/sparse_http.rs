@@ -174,6 +174,9 @@ include-dirs = ["include"]
     if let Some(standards) = staged.get("standards") {
         version_entry["standards"] = standards.clone();
     }
+    if let Some(links) = staged.get("links") {
+        version_entry["links"] = links.clone();
+    }
     let index = serde_json::json!({
         "schema": 1,
         "name": "fmt",
@@ -576,4 +579,103 @@ fn resolve_frozen_rejects_config_index_url() {
         .failure()
         .stderr(predicate::str::contains("--index-url"))
         .stderr(predicate::str::contains("--frozen"));
+}
+
+/// A fork dependency of a transitively-activated patch can name a
+/// package the pre-activation sparse crawl never fetched (nothing in
+/// the upstream metadata closure references it).  The activation
+/// loop extends the index instead of failing the re-solve with an
+/// unknown package.
+#[test]
+fn index_url_extends_crawl_for_transitively_activated_patch_deps() {
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    assert_fs::fixture::ChildPath::new(registry.join("config.json"))
+        .write_str(
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+        )
+        .unwrap();
+    for (name, deps) in [
+        ("aaa", r#"{ "bbb": ">=1" }"#),
+        ("bbb", r#"{}"#),
+        // Unreachable from any upstream metadata: only the bbb
+        // fork's own [dependencies] names it.
+        ("ccc", r#"{}"#),
+    ] {
+        assert_fs::fixture::ChildPath::new(registry.join(format!("packages/{name}.json")))
+            .write_str(&format!(
+                r#"{{
+  "schema": 1,
+  "name": "{name}",
+  "versions": {{
+    "1.0.0": {{
+      "dependencies": {deps},
+      "yanked": false
+    }}
+  }}
+}}"#
+            ))
+            .unwrap();
+    }
+    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "bbb"
+version = "1.0.0"
+
+[dependencies]
+ccc = ">=1"
+
+[target.bbb]
+type = "library"
+sources = ["src/bbb.c"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("bbb-fork/src/bbb.c"))
+        .write_str("void b(void) {}\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+aaa = ">=1"
+
+[patch]
+bbb = { path = "../bbb-fork" }
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+c-standard = "c11"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
+        .write_str("int main(void) { return 0; }\n")
+        .unwrap();
+    let server = TestServer::serve(registry);
+
+    let value = run_json(
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("app/cabin.toml"))
+            .arg("--index-url")
+            .arg(server.url())
+            .args(["--format", "json"]),
+    );
+    let names: Vec<&str> = value["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"ccc"),
+        "the fork's crawl-invisible dependency must resolve: {names:?}"
+    );
 }
