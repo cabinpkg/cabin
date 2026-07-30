@@ -503,6 +503,84 @@ to = "config.h"
     assert!(!entries.iter().any(|e| e.contains("config.h")));
 }
 
+/// Declared patch files ride through packaging: the metadata carries
+/// the `patches` list and the archive ships the patch file itself.
+#[test]
+fn package_carries_declared_upstream_patches() {
+    let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+    let dir = TempDir::new().unwrap();
+    write_simple_package(dir.path());
+    let manifest_path = dir.path().join("cabin.toml");
+    let manifest = fs::read_to_string(&manifest_path).unwrap()
+        + &format!(
+            r#"
+[package.upstream]
+url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
+sha256 = "{sha}"
+format = "tar.gz"
+patches = ["patches/0001-fix-msvc-build.patch"]
+"#
+        );
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(&manifest)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("patches/0001-fix-msvc-build.patch"))
+        .write_str("--- a/src/fmt.cc\n+++ b/src/fmt.cc\n@@ -1,1 +1,1 @@\n-x\n+y\n")
+        .unwrap();
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(&manifest_path)
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(dist.join("fmt-10.2.1.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        value["upstream"]["patches"],
+        serde_json::json!(["patches/0001-fix-msvc-build.patch"])
+    );
+    let entries = read_archive_entries(&dist.join("fmt-10.2.1.zip"));
+    assert!(entries.contains("patches/0001-fix-msvc-build.patch"));
+}
+
+/// A declared patch file absent from the package tree fails staging
+/// before anything is written.
+#[test]
+fn package_rejects_a_missing_declared_patch_file() {
+    let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+    let dir = TempDir::new().unwrap();
+    write_simple_package(dir.path());
+    let manifest_path = dir.path().join("cabin.toml");
+    let manifest = fs::read_to_string(&manifest_path).unwrap()
+        + &format!(
+            r#"
+[package.upstream]
+url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
+sha256 = "{sha}"
+format = "tar.gz"
+patches = ["patches/0001-fix-msvc-build.patch"]
+"#
+        );
+    assert_fs::fixture::ChildPath::new(&manifest_path)
+        .write_str(&manifest)
+        .unwrap();
+    let dist = dir.path().join("dist");
+    cabin()
+        .args(["package", "--manifest-path"])
+        .arg(&manifest_path)
+        .arg("--output-dir")
+        .arg(&dist)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "patches/0001-fix-msvc-build.patch",
+        ));
+    assert!(!dist.exists(), "nothing staged on a rejected manifest");
+}
+
 /// An invalid `[package.upstream]` declaration fails `cabin package`
 /// with the manifest diagnostic, before anything is staged.
 #[test]

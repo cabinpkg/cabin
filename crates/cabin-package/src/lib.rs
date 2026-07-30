@@ -153,6 +153,7 @@ pub fn stage_with_project(
     let files =
         archive::collect_package_files(&validated.package_root, staging_exclude.as_deref())?;
     archive::ensure_manifest_included(&files)?;
+    ensure_declared_patches_included(&validated.package, &files)?;
 
     let manifest_substitute = resolve_manifest_substitute(&validated, workspace_dep_requirements)?;
 
@@ -170,6 +171,48 @@ pub fn stage_with_project(
         metadata,
         package: validated.package,
     })
+}
+
+/// A `[package.upstream]` `patches` entry names a file inside the
+/// package tree, so unlike copy paths (which reference the upstream
+/// archive and are unknowable locally) its presence is checkable at
+/// staging time.  A declared patch the walk did not collect could
+/// only ever reach the registry's verifier as a rejection, so it
+/// fails here instead.  The parse layer proved the path safe; this
+/// only checks membership.
+fn ensure_declared_patches_included(
+    package: &cabin_core::Package,
+    files: &[archive::PackageFile],
+) -> Result<(), PackageError> {
+    let Some(upstream) = &package.upstream else {
+        return Ok(());
+    };
+    for patch in upstream.patches() {
+        let Some(file) = files.iter().find(|file| file.rel_path == patch.as_str()) else {
+            return Err(PackageError::UpstreamPatchMissing {
+                path: patch.as_str().to_owned(),
+            });
+        };
+        // Enforce the per-file cap here, where the file is on disk, so
+        // an oversized patch fails at packaging with a clear
+        // client-side error instead of publishing and then being
+        // terminally rejected by the verifier (which applies the same
+        // cap).
+        let size = std::fs::metadata(&file.abs_path)
+            .map_err(|source| PackageError::Io {
+                path: file.abs_path.clone(),
+                source,
+            })?
+            .len();
+        if size > cabin_core::MAX_PATCH_BYTES as u64 {
+            return Err(PackageError::UpstreamPatchTooLarge {
+                path: patch.as_str().to_owned(),
+                size,
+                limit: cabin_core::MAX_PATCH_BYTES,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Normalize `{ workspace = true }` markers - standard fields and
@@ -463,6 +506,85 @@ fmt = { workspace = true, features = ["color"] }
         package.dependencies[0].source =
             cabin_core::DependencySource::Version(semver::VersionReq::parse(">=10, <11").unwrap());
         package
+    }
+
+    /// A manifest declaring upstream patch files, with the archive
+    /// tree carrying (or missing) the declared file.
+    fn write_patched_upstream_package(dir: &TempDir, with_patch_file: bool) {
+        let manifest = format!(
+            "{VALID_MANIFEST}\n[package.upstream]\nurl = \"https://upstream.invalid/demo-0.1.0.tar.gz\"\n\
+             sha256 = \"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"\n\
+             format = \"tar.gz\"\npatches = [\"patches/0001-fix.patch\"]\n"
+        );
+        dir.child("cabin.toml").write_str(&manifest).unwrap();
+        dir.child("src/lib.cc")
+            .write_str("int demo() { return 0; }\n")
+            .unwrap();
+        if with_patch_file {
+            dir.child("patches/0001-fix.patch")
+                .write_str("--- a/src/lib.cc\n+++ b/src/lib.cc\n@@ -1,1 +1,1 @@\n-x\n+y\n")
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn staging_requires_declared_upstream_patches_in_the_archive() {
+        let dir = TempDir::new().unwrap();
+        write_patched_upstream_package(&dir, true);
+        let staged = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            None,
+            None,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .unwrap();
+        let upstream = staged.metadata.upstream.as_ref().expect("upstream carried");
+        assert_eq!(
+            upstream.patches(),
+            [camino::Utf8PathBuf::from("patches/0001-fix.patch")]
+        );
+
+        let dir = TempDir::new().unwrap();
+        write_patched_upstream_package(&dir, false);
+        let err = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            None,
+            None,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .expect_err("a declared patch missing from the tree must fail staging");
+        match err {
+            PackageError::UpstreamPatchMissing { path } => {
+                assert_eq!(path, "patches/0001-fix.patch");
+            }
+            other => panic!("expected UpstreamPatchMissing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn staging_enforces_the_per_patch_byte_cap() {
+        // An oversized patch must fail at packaging (client-side)
+        // rather than publishing and then being terminally rejected
+        // by the verifier, which applies the same cap.
+        let dir = TempDir::new().unwrap();
+        write_patched_upstream_package(&dir, true);
+        dir.child("patches/0001-fix.patch")
+            .write_str(&"x".repeat(cabin_core::MAX_PATCH_BYTES + 1))
+            .unwrap();
+        let err = stage_with_project(
+            &dir.path().join("cabin.toml"),
+            None,
+            None,
+            &cabin_core::WorkspaceDepRequirements::default(),
+        )
+        .expect_err("an over-cap patch must fail staging");
+        match err {
+            PackageError::UpstreamPatchTooLarge { path, limit, .. } => {
+                assert_eq!(path, "patches/0001-fix.patch");
+                assert_eq!(limit, cabin_core::MAX_PATCH_BYTES);
+            }
+            other => panic!("expected UpstreamPatchTooLarge, got {other:?}"),
+        }
     }
 
     /// A scoped package's staging products land flat in the output

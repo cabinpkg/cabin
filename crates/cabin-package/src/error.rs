@@ -50,6 +50,19 @@ pub enum PackageError {
     #[error("package archive would not contain cabin.toml at its root")]
     ArchiveMissingManifest,
 
+    #[error(
+        "manifest declares upstream patch `{path}` but the package archive would not contain it; \
+         add the file or drop the `[package.upstream]` `patches` entry"
+    )]
+    UpstreamPatchMissing { path: String },
+
+    #[error("upstream patch `{path}` is {size} bytes; at most {limit} are supported")]
+    UpstreamPatchTooLarge {
+        path: String,
+        size: u64,
+        limit: usize,
+    },
+
     #[error("refusing to package symlink `{0}`: symlinks in package archives are not supported")]
     SymlinkNotSupported(String),
 
