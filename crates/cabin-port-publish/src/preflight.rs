@@ -386,6 +386,7 @@ mod tests {
                     relative_path: camino::Utf8PathBuf::from("cabin.toml"),
                 },
                 copies: Vec::new(),
+                patches: Vec::new(),
             },
             scoped_name: cabin_core::PackageName::new("cabin-ports/zlib").unwrap(),
             published_version: semver::Version::new(1, 3, 1),

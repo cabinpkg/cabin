@@ -35,6 +35,11 @@ pub struct BuiltinPort {
     pub port_toml: &'static str,
     /// Embedded contents of `ports/<name>/<version>/cabin.toml` (overlay).
     pub overlay_toml: &'static str,
+    /// Embedded files from `ports/<name>/<version>/patches/`, as
+    /// `("patches/<file>", bytes)` pairs sorted by name.  The recipe's
+    /// declared `patches` entries resolve against this list when the
+    /// port is prepared from its bundled form.
+    pub patches: &'static [(&'static str, &'static [u8])],
 }
 
 // Curated set of recipes embedded in the `cabin` binary, generated at
@@ -168,5 +173,46 @@ mod tests {
     fn iter_yields_zlib() {
         let names: Vec<_> = iter().map(|p| p.name).collect();
         assert!(names.contains(&"zlib"), "got: {names:?}");
+    }
+
+    #[test]
+    fn declared_patches_are_embedded_and_match_on_disk() {
+        // Every patch a bundled recipe declares must resolve against
+        // the embedded table with exactly the on-disk bytes;
+        // otherwise a recipe that gains a patch would prepare
+        // differently from its bundled form.  (Vacuous while no
+        // committed recipe declares patches.)
+        let ports = ports_dir();
+        for entry in iter() {
+            let descriptor = crate::parse_port_str(
+                entry.port_toml,
+                &ports.join(entry.name).join(entry.version).join("port.toml"),
+            )
+            .unwrap();
+            for declared in &descriptor.patches {
+                let embedded = entry
+                    .patches
+                    .iter()
+                    .find(|(path, _)| *path == declared.as_str())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "declared patch {declared} of {} {} is not embedded",
+                            entry.name, entry.version
+                        )
+                    });
+                let on_disk = std::fs::read(
+                    ports
+                        .join(entry.name)
+                        .join(entry.version)
+                        .join(declared.as_std_path()),
+                )
+                .unwrap_or_else(|e| panic!("missing patch file for {}: {e}", entry.name));
+                assert_eq!(
+                    embedded.1, on_disk,
+                    "embedded patch drifted from on-disk for {} {}",
+                    entry.name, entry.version
+                );
+            }
+        }
     }
 }

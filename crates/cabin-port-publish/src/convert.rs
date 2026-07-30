@@ -591,6 +591,7 @@ mod tests {
                 relative_path: Utf8PathBuf::from("cabin.toml"),
             },
             copies: Vec::new(),
+            patches: Vec::new(),
         }
     }
 
