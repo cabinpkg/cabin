@@ -1683,6 +1683,322 @@ fn stored_upstream_divergence_is_rejected_as_upstream_mismatch() {
     assert_upstream_rejected(&archive, &pending, &upstream, Reason::UpstreamMismatch);
 }
 
+// ---- Declared patch files -------------------------------------
+//
+// The published tree must be the declared transformation of the
+// upstream archive with the declared patches applied on top, using
+// the patch bytes shipped inside the published archive itself.
+
+const UPSTREAM_PATCH: &str = "--- a/src/lib.cc\n\
+                              +++ b/src/lib.cc\n\
+                              @@ -1,1 +1,1 @@\n\
+                              -int lib() { return 42; }\n\
+                              +int lib() { return 43; }\n";
+
+const PATCHED_LIB_CC: &str = "int lib() { return 43; }\n";
+
+/// Stage a package that declares one patch: the tree carries the
+/// *patched* source plus the patch file itself at its declared path.
+fn patched_staged(dir: &TempDir, upstream_sha: &str, lib_cc: &str) -> cabin_package::StagedPackage {
+    dir.child("pkg/cabin.toml")
+        .write_str(&format!(
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"1.2.3\"\n\
+             cxx-standard = \"c++20\"\n\
+             \n\
+             [package.upstream]\n\
+             url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+             sha256 = \"{upstream_sha}\"\n\
+             format = \"tar.gz\"\n\
+             strip-prefix = \"lib-1.0\"\n\
+             patches = [\"patches/0001-fix.patch\"]\n\
+             \n\
+             [target.demo]\n\
+             type = \"library\"\n\
+             sources = [\"src/lib.cc\"]\n\
+             interface-cxx-standard = \"c++17\"\n",
+        ))
+        .unwrap();
+    dir.child("pkg/src/lib.cc").write_str(lib_cc).unwrap();
+    dir.child("pkg/include/lib.h")
+        .write_str(UPSTREAM_LIB_H)
+        .unwrap();
+    dir.child("pkg/patches/0001-fix.patch")
+        .write_str(UPSTREAM_PATCH)
+        .unwrap();
+    cabin_package::stage_with_project(
+        dir.child("pkg/cabin.toml").path(),
+        None,
+        None,
+        &cabin_core::WorkspaceDepRequirements::default(),
+    )
+    .unwrap()
+}
+
+fn patched_upstream(dir: &TempDir) -> (std::path::PathBuf, String) {
+    upstream_tar_gz(
+        dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", UPSTREAM_LIB_CC),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+        ],
+    )
+}
+
+#[test]
+fn patched_provenance_verifies() {
+    // Also the exclusion proof: the patch file exists only in the
+    // published archive (never in the assembled upstream tree), so a
+    // verified verdict shows it was exempted from the extras sweep.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let staged = patched_staged(&dir, &hex, PATCHED_LIB_CC);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let verdict = inspect(&archive, &pending, &Limits::default(), Some(&upstream)).unwrap();
+    assert_eq!(verdict, Verdict::Verified);
+}
+
+#[test]
+fn patch_context_divergence_is_rejected() {
+    // The pinned upstream's source does not match the patch context:
+    // byte-exact application must fail deterministically.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = upstream_tar_gz(
+        &dir,
+        "lib-1.0.tar.gz",
+        &[
+            ("lib-1.0/src/lib.cc", "int lib() { return 41; }\n"),
+            ("lib-1.0/include/lib.h", UPSTREAM_LIB_H),
+        ],
+    );
+    let staged = patched_staged(&dir, &hex, PATCHED_LIB_CC);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("context mismatch"),
+    );
+}
+
+#[test]
+fn published_tree_must_reflect_the_declared_patches() {
+    // The archive ships the patch and it applies cleanly, but the
+    // published source still carries the unpatched bytes: the
+    // expected (patched) tree diverges from the published one.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let staged = patched_staged(&dir, &hex, UPSTREAM_LIB_CC);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamTreeMismatch("file contents"),
+    );
+}
+
+#[test]
+fn declared_patch_missing_from_the_archive_is_rejected() {
+    // Hand-assembled archive: the manifest declares a patch the
+    // archive does not ship (`cabin package` refuses to stage this
+    // shape, so the verifier must catch the hand-crafted form).
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let manifest = format!(
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         patches = [\"patches/0001-fix.patch\"]\n\n\
+         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
+         interface-cxx-standard = \"c++17\"\n"
+    );
+    let (archive, pending) = hand_pending(
+        &dir,
+        &[
+            Entry::deflated("cabin.toml", manifest.as_bytes()),
+            Entry::deflated("src/lib.cc", PATCHED_LIB_CC.as_bytes()),
+            Entry::deflated("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+        ],
+        &manifest,
+    );
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("missing file"),
+    );
+}
+
+#[test]
+fn malformed_patch_bytes_are_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    // Hand-assemble the published archive so it ships garbage patch
+    // bytes; `cabin package` would refuse to stage this shape.
+    let manifest = format!(
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         patches = [\"patches/0001-fix.patch\"]\n\n\
+         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
+         interface-cxx-standard = \"c++17\"\n"
+    );
+    let (archive, pending) = hand_pending(
+        &dir,
+        &[
+            Entry::deflated("cabin.toml", manifest.as_bytes()),
+            Entry::deflated("src/lib.cc", PATCHED_LIB_CC.as_bytes()),
+            Entry::deflated("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+            Entry::deflated("patches/0001-fix.patch", b"this is not a diff\n"),
+        ],
+        &manifest,
+    );
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("malformed"),
+    );
+}
+
+#[test]
+fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
+    // A publisher declares a real upstream source file as a "patch"
+    // and ships arbitrary bytes there; without the shadow guard the
+    // exclusion would launder those bytes past the tree comparison.
+    // The patch file must be a valid no-op diff so it parses and
+    // applies (the attack's premise); the shadow check rejects it
+    // regardless.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let manifest = format!(
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         patches = [\"src/lib.cc\"]\n\n\
+         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
+         interface-cxx-standard = \"c++17\"\n"
+    );
+    // A valid no-op modify diff against include/lib.h.  It must be a
+    // pure diff: the grammar rejects any free text around it (the
+    // C/diff-polyglot guard), so the shadow check is the layer this
+    // test exercises - it fires even for bytes that survive parsing.
+    let backdoor_diff = "--- a/include/lib.h\n+++ b/include/lib.h\n@@ -1,2 +1,2 @@\n \
+         #pragma once\n int lib();\n";
+    let (archive, pending) = hand_pending(
+        &dir,
+        &[
+            Entry::deflated("cabin.toml", manifest.as_bytes()),
+            Entry::deflated("src/lib.cc", backdoor_diff.as_bytes()),
+            Entry::deflated("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+        ],
+        &manifest,
+    );
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("shadows tree"),
+    );
+}
+
+#[test]
+fn a_polyglot_patch_doubling_as_a_build_input_is_rejected() {
+    // The complement of the shadow test: the declared patch path does
+    // NOT exist upstream, so the exclusion would exempt its bytes from
+    // the tree comparison entirely, and the manifest also lists the
+    // path as a target source.  The shipped bytes are valid C followed
+    // by a comment-wrapped no-op diff - a C/diff polyglot the old
+    // preamble-skipping parser applied cleanly, which would have
+    // verified publisher-authored source that no declared
+    // transformation produced.  The strict grammar rejects the free
+    // text as `malformed` before any application.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let manifest = format!(
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         patches = [\"src/extra.cc\"]\n\n\
+         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\", \"src/extra.cc\"]\n\
+         interface-cxx-standard = \"c++17\"\n"
+    );
+    let polyglot = "int evil(void) { return 0; }\n/*\n\
+         --- a/include/lib.h\n+++ b/include/lib.h\n@@ -1,2 +1,2 @@\n \
+         #pragma once\n int lib();\n*/\n";
+    let (archive, pending) = hand_pending(
+        &dir,
+        &[
+            Entry::deflated("cabin.toml", manifest.as_bytes()),
+            Entry::deflated("src/lib.cc", UPSTREAM_LIB_CC.as_bytes()),
+            Entry::deflated("src/extra.cc", polyglot.as_bytes()),
+            Entry::deflated("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+        ],
+        &manifest,
+    );
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("malformed"),
+    );
+}
+
+#[test]
+fn an_oversized_declared_patch_is_rejected() {
+    // End-to-end through the scan: a declared patch whose entry
+    // exceeds the 1 MiB cap must reject `too large`.  The structure
+    // pass declines to retain it (its declared size is over the cap),
+    // and the upstream pass reads the verdict from its presence in
+    // the file set.
+    let dir = TempDir::new().unwrap();
+    let (upstream, hex) = patched_upstream(&dir);
+    let manifest = format!(
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
+         [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
+         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         patches = [\"patches/0001-fix.patch\"]\n\n\
+         [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
+         interface-cxx-standard = \"c++17\"\n"
+    );
+    let oversized = vec![b'x'; cabin_core::MAX_PATCH_BYTES + 1];
+    let (archive, pending) = hand_pending(
+        &dir,
+        &[
+            Entry::deflated("cabin.toml", manifest.as_bytes()),
+            Entry::deflated("src/lib.cc", PATCHED_LIB_CC.as_bytes()),
+            Entry::deflated("include/lib.h", UPSTREAM_LIB_H.as_bytes()),
+            Entry::deflated("patches/0001-fix.patch", &oversized),
+        ],
+        &manifest,
+    );
+    assert_upstream_rejected(
+        &archive,
+        &pending,
+        &upstream,
+        Reason::UpstreamPatchInvalid("too large"),
+    );
+}
+
+#[test]
+fn a_patch_declaring_version_without_the_upstream_archive_stays_pending() {
+    // Operational fetch failures keep the fail-safe behavior for
+    // patch-declaring versions too: no verdict without the pinned
+    // bytes.
+    let dir = TempDir::new().unwrap();
+    let (_upstream, hex) = patched_upstream(&dir);
+    let staged = patched_staged(&dir, &hex, PATCHED_LIB_CC);
+    let (archive, pending) = write_pending(&dir, &staged.archive_bytes, &staged);
+    let err = inspect(&archive, &pending, &Limits::default(), None).unwrap_err();
+    assert!(
+        matches!(err, VerifyError::MissingUpstreamArchive),
+        "{err:?}"
+    );
+}
+
 /// Declared provenance with no downloaded archive - and the
 /// reverse - are operational failures: no verdict, the version
 /// stays pending.

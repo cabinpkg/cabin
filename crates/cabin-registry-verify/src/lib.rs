@@ -51,6 +51,7 @@
 //! that is not the shape the registry stores) are [`VerifyError`]s,
 //! which the caller must treat as "leave the version pending".
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::fs::File;
 use std::io;
@@ -208,6 +209,20 @@ pub enum Reason {
     /// the destination is a directory, or one of its ancestors is a
     /// regular file).
     UpstreamCopyInvalid(&'static str),
+    /// A declared patch file cannot be applied to the assembled
+    /// upstream tree.  The detail names the deterministic cause:
+    /// `missing file` (the published archive lacks the declared patch
+    /// entry), `too large` (the patch exceeds the per-file byte cap),
+    /// `shadows tree` (the patch path also names a file the upstream
+    /// transformation produces, so its bytes would go unverified),
+    /// `malformed` (not a valid unified diff), `binary` (binary
+    /// content in the patch), `unsafe path` (a diff header path that
+    /// cannot address the tree), `missing target` (the patched file
+    /// is absent), `target conflict` (the patched or created path
+    /// cannot name a regular file), `target too large` (the patched
+    /// file exceeds the per-file size cap), or `context mismatch`
+    /// (the tree's bytes do not match the patch context exactly).
+    UpstreamPatchInvalid(&'static str),
     /// The published source tree is not the declared transformation
     /// of the pinned upstream archive.  The detail names the first
     /// divergence in sorted-path order - missing and diverging files
@@ -251,6 +266,7 @@ impl Reason {
             Reason::UpstreamChecksumMismatch => "upstream_checksum_mismatch",
             Reason::UpstreamArchiveInvalid(_) => "upstream_archive_invalid",
             Reason::UpstreamCopyInvalid(_) => "upstream_copy_invalid",
+            Reason::UpstreamPatchInvalid(_) => "upstream_patch_invalid",
             Reason::UpstreamTreeMismatch(_) => "upstream_tree_mismatch",
         }
     }
@@ -262,6 +278,7 @@ impl Reason {
             Reason::UnsupportedZipFeature(detail)
             | Reason::HeaderMismatch(detail)
             | Reason::UpstreamCopyInvalid(detail)
+            | Reason::UpstreamPatchInvalid(detail)
             | Reason::UpstreamTreeMismatch(detail) => Some(detail),
             _ => None,
         }
@@ -348,10 +365,36 @@ pub fn inspect(
         });
     }
 
-    let (manifest, files) = match scan::scan_archive(archive, limits)? {
-        scan::ScanOutcome::Manifest { bytes, files } => (bytes, files),
-        scan::ScanOutcome::Reject(reason) => return Ok(Verdict::Rejected(vec![reason])),
-    };
+    // The scan retains the bytes of every entry the stored metadata
+    // declares as an upstream patch file (the upstream pass applies
+    // them; nothing else in the archive is kept in memory).  The list
+    // is peeked tolerantly: the declaration is only *enforced* after
+    // the consistency pass proves the stored document equals what the
+    // manifest derives, and a garbage `patches` value simply retains
+    // nothing and rejects downstream.
+    let declared_patches: BTreeSet<String> = pending
+        .metadata
+        .get("upstream")
+        .and_then(|upstream| upstream.get("patches"))
+        .and_then(serde_json::Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .take(cabin_core::MAX_PATCH_FILES)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let (manifest, files, patch_bytes) =
+        match scan::scan_archive(archive, limits, &declared_patches)? {
+            scan::ScanOutcome::Manifest {
+                bytes,
+                files,
+                retained,
+            } => (bytes, files, retained),
+            scan::ScanOutcome::Reject(reason) => return Ok(Verdict::Rejected(vec![reason])),
+        };
 
     let file = File::open(archive).map_err(|source| VerifyError::Io {
         path: archive.to_path_buf(),
@@ -376,7 +419,7 @@ pub fn inspect(
         (Some(value), Some(path)) => {
             let declared: cabin_core::UpstreamProvenance = serde_json::from_value(value.clone())
                 .map_err(|_| VerifyError::MalformedMetadata("upstream"))?;
-            match upstream::check(path, &declared, &files)? {
+            match upstream::check(path, &declared, &files, &patch_bytes)? {
                 Some(reason) => Ok(Verdict::Rejected(vec![reason])),
                 None => Ok(Verdict::Verified),
             }
