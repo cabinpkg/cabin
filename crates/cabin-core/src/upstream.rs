@@ -300,8 +300,11 @@ pub fn validate_patch_plan(patches: &[String], plan_paths: &[&str]) -> Result<()
 
 /// The shared shape rule for copy and patch paths: both are canonical
 /// forward-slash spellings of published-archive entries, so both are
-/// bound by the same structural and portability limits.
-fn is_safe_archive_path(value: &str) -> bool {
+/// bound by the same structural and portability limits.  Public so
+/// the unified-diff engine (`cabin-artifact`) holds the file paths
+/// inside patch hunks to the same rule the declaration obeys.
+#[must_use]
+pub fn is_safe_archive_path(value: &str) -> bool {
     let structurally_safe = !value.is_empty()
         && value.len() <= MAX_COPY_PATH_BYTES
         && !value.starts_with('/')
@@ -459,47 +462,7 @@ impl UpstreamProvenance {
                 }
             }
         }
-        if patches.len() > MAX_PATCH_FILES {
-            return Err(UpstreamError::TooManyPatches {
-                count: patches.len(),
-            });
-        }
-        for value in &patches {
-            if !is_safe_archive_path(value) {
-                return Err(UpstreamError::UnsafePatchPath {
-                    value: value.clone(),
-                });
-            }
-        }
-        // A patch file is a publisher-authored archive entry excluded
-        // from the tree comparison on both sides, so any collision -
-        // byte-identical, case-folded, or nesting - with a copy plan
-        // path, another patch, or the root manifest is ambiguous or a
-        // guaranteed case conflict no archive can satisfy.  Unlike
-        // copies, byte-identical repeats are rejected too: applying
-        // the same patch twice deterministically fails its context
-        // match, and a patch aliasing a copy path would leave that
-        // path's bytes unverified.
-        for (index, patch) in patches.iter().enumerate() {
-            let patch_folded = patch.to_lowercase();
-            let others = patches[index + 1..]
-                .iter()
-                .map(String::as_str)
-                .chain(plan_paths.iter().copied())
-                .chain(std::iter::once("cabin.toml"));
-            for other in others {
-                let other_folded = other.to_lowercase();
-                if patch_folded == other_folded
-                    || other_folded.starts_with(&format!("{patch_folded}/"))
-                    || patch_folded.starts_with(&format!("{other_folded}/"))
-                {
-                    return Err(UpstreamError::ConflictingPatchPath {
-                        patch: patch.clone(),
-                        other: other.to_owned(),
-                    });
-                }
-            }
-        }
+        validate_patch_plan(&patches, &plan_paths)?;
         Ok(Self {
             url: parsed,
             sha256: sha256.to_owned(),
