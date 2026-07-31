@@ -273,6 +273,7 @@ dependencies = [
  "cabinpkg-fs",
  "cabinpkg-manifest",
  "cabinpkg-package",
+ "camino",
  "flate2",
  "predicates",
  "semver",
