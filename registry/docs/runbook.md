@@ -327,9 +327,11 @@ ones. Launch is a data and policy event, in order:
 3. Remove the private-alpha labels from the website (the `private α`
    badges on the sign-in affordance and the account-page shell, and the
    private-alpha copy on `/login/denied` - see `website/`).
-4. Decide and apply the access policy: expand `ALLOWED_GITHUB_IDS` or
-   open sign-up, and keep `auth-required` reads or enable whatever
-   public-read work package applies by then.
+4. Decide and apply the write-access policy: expand
+   `ALLOWED_GITHUB_IDS` or open sign-up. Reads need no decision -
+   verified-package reads are public by recorded decision
+   (`docs/architecture.md`, "Origins and roles"), pre-launch and
+   post-launch alike.
 5. Re-issue any long-lived operational tokens (`REGISTRY_VERIFY_TOKEN`)
    against the post-wipe database and re-run the verification workflow
    once (see "Verification pipeline").

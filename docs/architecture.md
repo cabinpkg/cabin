@@ -1590,9 +1590,10 @@ This repository implements the local registry interface: local file registries, 
 and a read-only sparse HTTP client for a static layout.  Account systems, hosted write paths,
 ownership workflows, package yanking, signing policy, and administrative control planes are outside
 this local-core boundary.  See [`registry-design.md`](registry-design.md) for the concrete read-path
-and file-registry shape this repository supports.  The *client* side of an authenticated remote
-registry is specified in [`remote-registry.md`](remote-registry.md): bearer-token reads (and the
-default hosted index origin) are stable, while publish and yank stay gated behind
+and file-registry shape this repository supports.  The *client* side of a remote
+registry is specified in [`remote-registry.md`](remote-registry.md): reads (public on the
+hosted registry, token-optional in the protocol) and the
+default hosted index origin are stable, while publish and yank stay gated behind
 `-Z remote-registry`; the registry service's hosted implementation lives under `registry/` in
 this repository, outside the OSS-core boundary.
 

@@ -48,6 +48,12 @@ pub enum IndexHttpError {
     ))]
     RegistryOverBudget { retry_after_secs: Option<u64> },
 
+    #[error("{}", with_retry(
+        "the registry rate limited this download; the daily per-caller read allowance resets",
+        *.retry_after_secs,
+    ))]
+    ReadRateLimited { retry_after_secs: Option<u64> },
+
     #[error("HTTP transport error fetching `{name}`: {message}")]
     Transport { name: String, message: String },
 

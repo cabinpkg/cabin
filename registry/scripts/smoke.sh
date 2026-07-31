@@ -509,9 +509,27 @@ uniform_401() {
   printf '    %s -> uniform 401 with the challenge\n' "$path"
 }
 
+step "the machine read plane is public; unknown packages are plain 404s"
+check /config.json 200
+grep -q '"auth-required":false' "$body" \
+  || fail "config.json must declare auth-required false: $(cat "$body")"
+check /packages/smoke/withdep.json 200 404
+# A read-plane path with a credential that fails to validate is the
+# uniform 401 - a presented credential is a claim, never silently
+# downgraded to anonymous (the verifier must fail loudly on a rotated
+# token).
+uniform_401 "$base" /config.json -H "Authorization: Bearer cabin_definitelyNotAToken"
+# Method discipline: the public read plane is GET-only, and the
+# refusal never depends on the credential - an invalid token must not
+# turn the 405 into a token-validity oracle.
+for credential in "" "Authorization: Bearer cabin_definitelyNotAToken"; do
+  config_put_status="$(curl -sS -o "$body" -w '%{http_code}' -X PUT \
+    ${credential:+-H "$credential"} "$base/config.json")"
+  [[ "$config_put_status" == "405" ]] \
+    || fail "PUT /config.json (credential: ${credential:-none}) returned $config_put_status, expected 405"
+done
+
 step "the registry host is a uniform 401 with the challenge off the read plane"
-uniform_401 "$base" /config.json
-uniform_401 "$base" /packages/smoke/withdep.json
 # Non-read-plane paths - the whole API and session surface included -
 # are indistinguishable from unknown paths, whatever credential comes
 # along.
@@ -526,6 +544,30 @@ uniform_401 "$base" "/api/v1/admin/versions?status=pending" \
 # Write methods too: the mutation surface simply does not exist here.
 uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0 -X PUT --data-binary "x"
 uniform_401 "$base" /api/v1/packages/smoke/withdep/0.1.0/yank -X PATCH --data-binary "{}"
+
+step "the mutation surface keeps the byte-identical uniform 401"
+# Public reads narrowed the uniform-401 discipline to the mutation
+# surface; unauthenticated publish, yank, and admin requests on the
+# website origin must still answer the exact envelope and one
+# byte-identical challenge. wrangler dev rewrites the emulated
+# website origin to the local address in response headers, so the
+# expected challenge is compared in its rewritten form here.
+web_challenge="Cabin login_url=\"${web_base}/settings/tokens\""
+uniform_401_web() {
+  local path="$1"
+  shift
+  local status got
+  status="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' "$@" "$web_base$path")"
+  [[ "$status" == "401" ]] || fail "$path returned $status, expected the uniform 401"
+  [[ "$(cat "$body")" == "$expected_401" ]] || fail "401 body mismatch on $path: $(cat "$body")"
+  got="$(grep -i '^www-authenticate:' "$headers" | sed 's/^[^:]*: //' | tr -d '\r')"
+  [[ "$got" == "$web_challenge" ]] \
+    || fail "401 on $path challenge mismatch: got '$got', expected '$web_challenge'"
+  printf '    %s -> uniform 401 with the challenge\n' "$path"
+}
+uniform_401_web /api/v1/packages/smoke/withdep/0.1.0 -X PUT --data-binary "x"
+uniform_401_web /api/v1/packages/smoke/withdep/0.1.0/yank -X PATCH --data-binary "{}"
+uniform_401_web "/api/v1/admin/versions?status=pending"
 
 step "session endpoints answer 401 json without a session (no challenge)"
 wcheck /api/v1/user 401
@@ -681,13 +723,13 @@ run_verifier() {
 }
 
 as_publisher
-step "authenticated read routes"
+step "read routes serve tokened callers identically"
 check /config.json 200
-grep -q '"auth-required":true' "$body" || fail "config.json missing auth-required: $(cat "$body")"
+grep -q '"auth-required":false' "$body" || fail "config.json missing auth-required: $(cat "$body")"
 # The api field names the website origin, crates.io-style.
 grep -qF "\"api\":\"${web_origin}\"" "$body" \
   || fail "config.json api is not the website origin: $(cat "$body")"
-# 200 only with previously published local data; 404 proves auth + routing.
+# 200 only with previously published local data; 404 proves routing.
 check /packages/smoke/withdep.json 200 404
 check "$artifact_path" 200 404
 
@@ -997,9 +1039,21 @@ expect_body 'reserved'
 wrangler d1 execute DB --local --command "
   UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';" >/dev/null
 
-step "pending versions are invisible to ordinary tokens"
+step "pending versions are invisible to ordinary tokens and anonymous readers"
 check "$package_path" 404
 check "$artifact_path" 404
+# Anonymous readers see byte-identical 404s: pending, rejected, and
+# unknown stay indistinguishable from missing without a verify scope.
+curl_args=()
+check "$package_path" 404
+cp "$body" "$work/anon-pending-404.json"
+check "$artifact_path" 404
+cmp -s "$body" "$work/anon-pending-404.json" \
+  || fail "anonymous pending 404s differ between routes: $(cat "$body")"
+check /packages/smoke/never-published.json 404
+cmp -s "$body" "$work/anon-pending-404.json" \
+  || fail "an unknown package's anonymous 404 differs from a pending one: $(cat "$body")"
+as_publisher
 # And they have no backup copy: only versions that become verified
 # enter the durable backup set (the verdict batch enqueues the work).
 sleep 1
@@ -1195,6 +1249,22 @@ node -e '
 check "$artifact_path" 200
 await_row_downloads 2
 
+step "anonymous readers see the verified version, and their downloads count"
+curl_args=()
+check "$package_path" 200
+expect_body "\"name\":\"$scope/$name\""
+# A cache-hit download without a credential: served, counted, and the
+# outward answer stays no-store (the Worker-internal cache is the one
+# caching layer that keeps the counter accurate).
+anon_download_status="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' \
+  "$base$artifact_path")"
+[[ "$anon_download_status" == "200" ]] \
+  || fail "an anonymous verified download returned $anon_download_status"
+grep -qi '^cache-control: no-store' "$headers" \
+  || fail "an anonymous download is missing the outward no-store: $(grep -i cache-control "$headers")"
+await_row_downloads 3
+as_publisher
+
 # await_backup_blob <key> <out-file>: replication runs via waitUntil
 # after the response, so poll the BACKUP bucket briefly.
 await_backup_blob() {
@@ -1359,7 +1429,7 @@ row_downloads() {
 # re-check and the checksum download) land their deferred increments
 # here; awaiting the exact count keeps the flat-counter assertion below
 # race-free. A new artifact fetch above must bump this number.
-await_row_downloads 4
+await_row_downloads 5
 
 # source_range <range-or-empty> <expected>: a source-route read with the
 # minted session; body in $body, headers in $headers.
@@ -1423,8 +1493,8 @@ session_request GET "/api/v1/user/source/$scope/$name/notsemver" 404
 
 # Source reads are never downloads: the counter did not move.
 sleep 1
-[[ "$(row_downloads)" == "4" ]] \
-  || fail "source reads moved the download counter: $(row_downloads) (expected 4)"
+[[ "$(row_downloads)" == "5" ]] \
+  || fail "source reads moved the download counter: $(row_downloads) (expected 5)"
 
 # The dev vars pin SERVICE_MODE_TTL_SECS to 0, so the running worker sees
 # the flipped mode immediately instead of after the 60 s cache TTL.
@@ -1465,9 +1535,18 @@ tr -d '\r' <"$headers" | grep -qi '^retry-after: 900$' \
 check "$artifact_path" 503
 check /config.json 503
 wrequest PUT "$publish_path" "$work/publish.bin" 503
-# Unauthenticated callers cannot observe service state: the uniform 401
-# is byte-identical, and /healthz stays up.
-uniform_401 "$base" /config.json
+# Anonymous readers receive the same refusal - status, envelope, and
+# Retry-After. A public over-budget answer reveals service state; that
+# is inherent to public reads (the recorded revision). /healthz stays
+# up.
+anon_blocked_status="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' \
+  "$base$package_path")"
+[[ "$anon_blocked_status" == "503" ]] \
+  || fail "an anonymous read under reads_blocked answered $anon_blocked_status"
+expect_body 'registry_over_budget'
+expect_body 'read budget'
+tr -d '\r' <"$headers" | grep -qi '^retry-after: 900$' \
+  || fail "the anonymous read 503 must carry Retry-After: 900"
 check /healthz 200
 # The exempt planes: the session plane and the public stats (where
 # operators and users see what is happening), the admin plane, and the
@@ -1562,6 +1641,19 @@ node -e '
 wrequest PATCH "$verdict2_path" "$work/verdict-rejected2.json" 200
 expect_body '"verification":"rejected"'
 expect_body '"changed":true'
+check "$artifact2_path" 404
+# Rejected content is invisible to anonymous readers too, and its
+# refusal is byte-identical to an unknown one: a rejected revision
+# must never be distinguishable from a version that never existed.
+curl_args=()
+check "$artifact2_path" 404
+cp "$body" "$work/anon-rejected-404.json"
+check "/artifacts/$scope/$name/$scope-$name-9.9.9-$rev.zip" 404
+cmp -s "$body" "$work/anon-rejected-404.json" \
+  || fail "an anonymous rejected 404 differs from an unknown one: $(cat "$body")"
+as_verifier
+# Rejected versions are served to no one - not even the verify scope,
+# which can still read pending ones.
 check "$artifact2_path" 404
 # Rejected versions are invisible to the source viewer too.
 session_request GET "/api/v1/user/source/$scope/$name/$version2" 404 -H "Range: bytes=-22"
@@ -1908,6 +2000,14 @@ grep -qi '^cache-control: no-store' "$headers" \
 step "an uncached verified download is refused with the budget envelope"
 check "$iso_verified_artifact" 503
 expect_body 'registry_over_budget'
+# Anonymous readers draw from the same exhausted `b_ordinary` pool:
+# public reads are charged like tokened ones, so a regression that
+# skipped admission for credential-less callers would serve this and
+# turn public downloads into ungoverned R2 spend.
+curl_args=()
+check "$iso_verified_artifact" 503
+expect_body 'registry_over_budget'
+as_publisher
 
 step "the verifier pool is isolated from the exhausted ordinary pool"
 as_verifier

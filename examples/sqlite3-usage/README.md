@@ -45,8 +45,9 @@ To compile a single-threaded SQLite instead - dropping the threading layer via `
 
 ## Offline
 
-Registry dependencies resolve through the hosted registry by default; while the registry is in
-private alpha its reads are authenticated, so run `cabin login` before the first build (see
+Registry dependencies resolve through the hosted registry by default; verified packages download
+without an account or token - `cabin login` is only needed to
+publish (see
 [`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
 archive without re-fetching it.  Resolving still consults the
 registry index, so a fully offline build needs a local index; see

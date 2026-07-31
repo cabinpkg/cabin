@@ -28,6 +28,7 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// a breaker refusal from every other `503` on the wire - Cloudflare's
 /// edge and the Workers runtime emit bare `503`s of their own.
 const OVER_BUDGET_CODE: &str = "registry_over_budget";
+const READ_RATE_LIMITED_CODE: &str = "read_rate_limited";
 
 /// A bearer credential the client may attach to registry requests:
 /// the normalized origin the token is scoped to plus the token
@@ -106,8 +107,8 @@ impl HttpClient {
 
     /// Build a client whose agent follows up to `max_redirects`
     /// HTTP 3xx responses.  Use only for downloads whose
-    /// integrity is established by an out-of-band pin (SHA-256 in
-    /// a foundation-port recipe); the sparse-HTTP-index read path
+    /// integrity is established by an out-of-band pin (a declared
+    /// `[package.upstream]` SHA-256); the sparse-HTTP-index read path
     /// must keep using [`HttpClient::new`] so a registry cannot
     /// redirect metadata fetches to a different origin.
     pub fn with_redirect_budget(max_redirects: u32) -> Self {
@@ -265,6 +266,28 @@ impl HttpClient {
                     },
                 )
             }
+            // The governor's per-caller fairness refusal
+            // (`registry/docs/architecture.md`, "The cost governor"):
+            // with public reads every caller - tokened or anonymous -
+            // has a daily cache-miss window, and its coded `429`
+            // carries the reset in `Retry-After`. Same discipline as
+            // the breaker arm above: the envelope code identifies the
+            // refusal, any other 429 stays a generic server error.
+            Err(ureq::Error::Status(429, response)) => {
+                let retry_after_secs = response
+                    .header("Retry-After")
+                    .and_then(|value| value.trim().parse::<u64>().ok());
+                Err(
+                    if envelope_code(response).as_deref() == Some(READ_RATE_LIMITED_CODE) {
+                        IndexHttpError::ReadRateLimited { retry_after_secs }
+                    } else {
+                        IndexHttpError::ServerError {
+                            name: package.to_owned(),
+                            status: 429,
+                        }
+                    },
+                )
+            }
             Err(ureq::Error::Status(status, _)) => Err(IndexHttpError::ServerError {
                 name: package.to_owned(),
                 status,
@@ -358,14 +381,16 @@ fn origin_for_error(url: &str) -> String {
 /// couple of seconds, never hang the login for the full read timeout.
 const LOGIN_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Discover an `auth-required` registry's token-creation page: one
-/// unauthenticated `GET` of `<index_url>/config.json`, expecting the
-/// uniform 401 whose `WWW-Authenticate` header carries the
+/// Discover a registry's token-creation page from the
 /// `Cabin login_url="<url>"` challenge (`docs/remote-registry.md`,
-/// "Authentication").  Every other outcome - a 2xx (the registry does
-/// not require auth), any other status, a missing or malformed
-/// challenge, an implausible URL, or a transport failure (offline) -
-/// is `None`: the probe must never block `cabin login`.
+/// "Authentication"): one unauthenticated `GET` of
+/// `<index_url>/config.json` - an `auth-required` registry answers it
+/// with the challenged 401 - and, when that read succeeds instead
+/// (public reads), one `GET` of the index root, which is off the read
+/// plane and answers the uniform 401 with the same challenge on the
+/// hosted registry.  Every other outcome - any other status, a missing
+/// or malformed challenge, an implausible URL, or a transport failure
+/// (offline) - is `None`: the probe must never block `cabin login`.
 ///
 /// The probe never carries a credential (no `Authorization` header,
 /// whatever `CABIN_REGISTRY_TOKEN` or `credentials.toml` hold): it
@@ -381,6 +406,12 @@ pub fn fetch_login_url(index_url: &str) -> Option<String> {
         Err(ureq::Error::Status(401, response)) => response
             .header("www-authenticate")
             .and_then(parse_login_url),
+        Ok(_) => match agent.get(base.as_str()).call() {
+            Err(ureq::Error::Status(401, response)) => response
+                .header("www-authenticate")
+                .and_then(parse_login_url),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -821,6 +852,65 @@ mod tests {
     /// degrading to "try again later" otherwise. The mapping is shared by
     /// metadata reads and artifact downloads (`download` remaps only the
     /// 404).
+    /// The governor's per-caller fairness refusal: a coded `429`
+    /// carries the daily window's reset in `Retry-After`, and with
+    /// public reads it reaches anonymous consumers who cannot fix it
+    /// by logging in - the rendering must say what resets and when.
+    /// An uncoded 429 stays the generic server error.
+    #[test]
+    fn get_bytes_maps_a_coded_429_to_read_rate_limited() {
+        const ENVELOPE: &str =
+            r#"{"errors":[{"detail":"too many charged reads today","code":"read_rate_limited"}]}"#;
+
+        let (server, url, thread) = challenge_server(429, ENVELOPE, &[("Retry-After", "3600")]);
+        let err = HttpClient::new()
+            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::ReadRateLimited {
+                retry_after_secs: Some(3600),
+            } => {}
+            other => panic!("expected ReadRateLimited, got {other:?}"),
+        }
+        let message = err.to_string();
+        assert!(message.contains("rate limited"), "{message}");
+        assert!(
+            message.contains("try again in 3600 seconds"),
+            "expected the Retry-After hint in: {message}"
+        );
+        server.unblock();
+        let _ = thread.join();
+
+        let (server, url, thread) = challenge_server(429, ENVELOPE, &[]);
+        let err = HttpClient::new()
+            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::ReadRateLimited {
+                retry_after_secs: None,
+            } => {}
+            other => panic!("expected ReadRateLimited, got {other:?}"),
+        }
+        assert!(err.to_string().contains("try again later"), "{err}");
+        server.unblock();
+        let _ = thread.join();
+
+        let (server, url, thread) = challenge_server(
+            429,
+            r#"{"errors":[{"detail":"nope","code":"something_else"}]}"#,
+            &[("Retry-After", "3600")],
+        );
+        let err = HttpClient::new()
+            .get_bytes(&format!("{url}/artifacts/smoke/withdep/a.zip"), "pkg")
+            .unwrap_err();
+        match &err {
+            IndexHttpError::ServerError { status: 429, .. } => {}
+            other => panic!("expected the generic 429, got {other:?}"),
+        }
+        server.unblock();
+        let _ = thread.join();
+    }
+
     #[test]
     fn get_bytes_maps_a_coded_503_to_registry_over_budget() {
         const ENVELOPE: &str = r#"{"errors":[{"detail":"registry downloads are temporarily disabled: the registry's read budget is exhausted","code":"registry_over_budget"}]}"#;
@@ -1115,6 +1205,62 @@ mod tests {
         server.unblock();
         assert!(
             !thread.join().unwrap(),
+            "the probe must never send Authorization"
+        );
+    }
+
+    /// A public-reads registry serves `config.json` to everyone, so the
+    /// probe falls back to the index root - off the read plane, where
+    /// the uniform 401 still carries the challenge.  The order is
+    /// load-bearing: `config.json` must be probed FIRST, because an
+    /// `auth-required` registry carries the challenge only there, and
+    /// the fallback must keep the index URL's own path prefix so a
+    /// subdirectory-hosted registry is probed under its own root.
+    #[test]
+    fn fetch_login_url_falls_back_to_the_index_root_on_public_reads() {
+        let server =
+            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let server_for_thread = Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            let mut seen: Vec<String> = Vec::new();
+            let mut saw_authorization = false;
+            while let Ok(req) = server_for_thread.recv() {
+                saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
+                let url = req.url().to_owned();
+                seen.push(url.clone());
+                let response = if url.ends_with("/config.json") {
+                    tiny_http::Response::from_string(
+                        r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":false,"api":"https://cabinpkg.com"}"#,
+                    )
+                } else {
+                    tiny_http::Response::from_string("{}")
+                        .with_status_code(401)
+                        .with_header(
+                            tiny_http::Header::from_bytes(
+                                "WWW-Authenticate".as_bytes(),
+                                r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+                                    .as_bytes(),
+                            )
+                            .expect("valid test header"),
+                        )
+                };
+                let _ = req.respond(response);
+            }
+            (seen, saw_authorization)
+        });
+
+        // A subdirectory-hosted registry: both probes must stay under
+        // `/reg/`, and `config.json` must come first.
+        assert_eq!(
+            fetch_login_url(&format!("http://{addr}/reg")).as_deref(),
+            Some("https://cabinpkg.com/settings/tokens")
+        );
+        server.unblock();
+        let (seen, saw_authorization) = thread.join().unwrap();
+        assert_eq!(seen, ["/reg/config.json", "/reg/"], "probe order");
+        assert!(
+            !saw_authorization,
             "the probe must never send Authorization"
         );
     }

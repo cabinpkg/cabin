@@ -67,7 +67,7 @@ which routes and which credential exist where:
 | | Registry custom domain (`registry.cabinpkg.com`) | Website origin (`cabinpkg.com`) |
 | --- | --- | --- |
 | `/healthz` | 200, unauthenticated | - |
-| `/config.json`, `/packages/*`, `/artifacts/*` | Bearer (the read plane) | - |
+| `/config.json`, `/packages/*`, `/artifacts/*` | public GET, verified content only (the read plane; a Bearer credential is optional and still honored) | - |
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
 | `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
 | `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
@@ -81,12 +81,50 @@ A dash means the path does not exist on that hostname: on the registry
 domain every non-read-plane path answers the uniform 401 **without
 consulting the `Authorization` header**, indistinguishable from any unknown
 path; on the website origin nothing ever matches a machine read route, so
-the Bearer read plane does not exist there - the one package-data surface
+the read plane does not exist there - the one package-data surface
 on this origin is the source viewer's session-authenticated ranged read
 (below). Every Bearer-plane 401 carries the
 byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/settings/tokens"`
 challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
-401s deliberately do not, keeping the planes distinguishable. In production
+401s deliberately do not, keeping the planes distinguishable.
+
+**Public verified reads (recorded decision change, 2026-07-31).** The
+machine read plane originally required a Bearer token like everything
+else, under a uniform-401-before-route-matching discipline that covered
+the whole data plane. That discipline is now **narrowed to the mutation
+surface**: unauthenticated `GET`s of `/config.json`, package documents,
+and artifact downloads serve **verified** content to everyone - a
+public C/C++ package ecosystem cannot ask every consumer to
+authenticate before downloading. What publicness does and does not
+change:
+
+- Pending, rejected, and unknown versions stay indistinguishable from
+  missing to everyone without the `verify` scope; yanked keeps its
+  download-path semantics. Package **existence** (of verified content)
+  is therefore public - that is the point - while scope claims and
+  lifecycle states stay non-oracles.
+- Every mutation surface keeps its plane: publish, yank, token, admin,
+  and verify stay authenticated, still answering the byte-identical
+  uniform 401 with the challenge to unauthenticated callers
+  (`scripts/smoke.sh` asserts the bytes), and the session plane is
+  unchanged.
+- A presented credential is still a claim: a read-plane request whose
+  Bearer token fails to validate answers the uniform 401 rather than
+  silently degrading to anonymous, so the verifier's pending fetches
+  fail loudly on a rotated token instead of reading as missing rows.
+  A request with no `Authorization` header at all is an anonymous
+  reader. The read plane is `GET`-only for everyone (405 otherwise).
+- Under `reads_blocked`, anonymous readers receive the same
+  `503 registry_over_budget` refusal as tokened ones ("Billing model:
+  the governor and the breaker"). A public over-budget refusal
+  necessarily reveals service state; that is inherent to public reads
+  and recorded here alongside the uniform-401 revision.
+- Pre-launch gating is unchanged and does not touch the read plane:
+  `ALLOWED_GITHUB_IDS` gates sign-in (and thus writes), and
+  `meta.launched` gates the destructive operator scripts. Public
+  verified reads therefore apply pre-launch too, over data the
+  data-policy section of [`runbook.md`](runbook.md) declares
+  disposable; the launched end state is the same public read plane. In production
 the website origin reaches this Worker through zone routes
 (`cabinpkg.com/api/*`, `/login`, `/callback*` - which also covers the
 claim flow's `/callback/claim` - and `/claim/*`; see `wrangler.jsonc`
@@ -135,12 +173,15 @@ governor"). A source read is never a download ("Download counts").
 **Search and reverse dependencies.** The dashboard's package search
 (`GET /api/v1/user/search?q=<term>`) and the package resource
 (`GET /api/v1/user/package/<scope>/<name>`, with
-`/reverse-dependencies` nested under it) are **session-only by the
-same recorded decision**: a public search endpoint would let
-unauthenticated callers enumerate packages, destroying the data
-plane's uniform-401 property - existing and non-existing packages must
-stay indistinguishable without a credential - so `/api/v1/stats`
-remains the only public JSON route. All three live under
+`/reverse-dependencies` nested under it) are **session-only by
+recorded decision**. The original rationale - a public search endpoint
+would let unauthenticated callers enumerate packages - narrowed when
+verified reads became public ("Origins and roles"): verified package
+existence is now public by design. What remains deliberate is that
+these routes stay the dashboard's, serving its frontend on the session
+cookie, so `/api/v1/stats` remains the only public JSON route on this
+origin and no new unauthenticated, high-cardinality query surface is
+opened as a side effect of public reads. All three live under
 `/api/v1/user` because that is the session cookie's `Path`, nothing
 more; `package` (singular - any one visible package) deliberately does
 not nest under `/api/v1/user/packages`, the created-packages listing,
@@ -188,18 +229,24 @@ credential, separated by route on top of the hostname split: the
 `/api/` is Bearer-only except the read-only public `/api/v1/stats`
 subtree ("Download counts"), which takes no credential at all.
 
-**The data plane is Bearer-only and deny-by-default.** Every data route -
-including `/config.json` - requires `Authorization: Bearer cabin_<base62>`.
-The uniform `401 {"errors":[{"detail":"authentication required"}]}` (plus
-the challenge header) is emitted before any route matching or D1/R2 data
-lookup, so unauthenticated callers cannot distinguish existing from
-non-existing packages. `/healthz` (registry host) and the public
-`/api/v1/stats` subtree (website origin; "Download counts") are the only
-routes outside both planes. Cookies are never read here.
+**The mutation surface is Bearer-only and deny-by-default.** Publish,
+yank, and the admin plane require `Authorization: Bearer
+cabin_<base62>`. The uniform
+`401 {"errors":[{"detail":"authentication required"}]}` (plus the
+challenge header) is emitted before any route matching or D1/R2 data
+lookup, so unauthenticated callers cannot probe the mutation routes -
+and on the registry host every non-read-plane path answers the same
+bytes. The read plane itself is public for verified content ("Origins
+and roles"); it honors an optional Bearer credential, and a presented
+credential that fails to validate is the same uniform 401. `/healthz`
+(registry host) and the public `/api/v1/stats` subtree (website
+origin; "Download counts") are the only routes outside both planes.
+Cookies are never read here.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
 exists only in the client's hands (it is rendered exactly once, in the
-create-token response). Any valid, unrevoked token grants read access;
+create-token response). A valid token additionally opens the read
+plane's `verify`-scope carve-outs;
 `scopes` (a subset of `publish,yank,verify`) gates the mutation routes and
 the verifier's admin plane.
 `last_used_at` is updated best-effort off the response path, and log lines
@@ -855,11 +902,15 @@ yanked-state lookups keep working throughout an outage of the breaker
 itself. (The governor is the opposite by design: any R2-touching read
 that cannot get an admission answer fails closed - the asymmetry is
 possible because a cache hit needs no admission, so popular content
-keeps flowing through either outage.) The gate covers the Bearer data
-plane only (`/config.json`, `/packages/*`, `/artifacts/*`), runs
-**after** Bearer validation - the uniform 401 stays byte-identical, so
-unauthenticated callers cannot observe service state - and answers the
-same envelope: `503 registry_over_budget` with `Retry-After`. Exempt
+keeps flowing through either outage.) The gate covers the machine read
+plane only (`/config.json`, `/packages/*`, `/artifacts/*`) and answers
+one envelope for everyone: `503 registry_over_budget` with
+`Retry-After`. With public reads ("Origins and roles") the gate runs
+for anonymous readers too - it sits after the optional credential
+check (which still needs to run first: the verifier exemption below is
+scope-derived), and a public over-budget refusal necessarily reveals
+service state, which is inherent to public reads and recorded with the
+uniform-401 revision. Exempt
 from the gate: `/healthz`, the public `/api/v1/stats`, the entire
 session plane (the dashboard is where the operator and users see what
 is happening while blocked), the admin plane, and the verifier's
@@ -943,20 +994,37 @@ served through the Cache API under a synthetic identity derived from
 the content checksum alone (`https://registry.cabinpkg.com/__cache/...`;
 never from the outward URL or query string, so request input cannot
 alias or poison an entry, and the Worker runs on every request to its
-hostnames, so the entry is unreachable without passing Bearer auth and
-the D1 verified-version gate first). A cache hit costs no R2 operation
+hostnames, so the entry is unreachable without passing the D1
+verified-version gate first - which also keeps the download counter
+accurate: outward responses stay `no-store`, so no edge layer can
+re-serve a body without the Worker running). A cache hit costs no R2
+operation
 and no governor round-trip - the deliberate reason a governor outage
 can fail closed without taking popular downloads down. A miss takes an
 in-isolate single-flight slot (one uncached checksum must not fan out
 into simultaneous R2 reads; waiters poll the cache briefly and only
 fall through to their own charged read if the loader vanished), then
-charges one `b_ordinary` op - with the caller's per-user daily
-fairness cap - before the R2 `get`, and fills the cache for everyone
-else. Fairness refusals are per-caller `429 read_rate_limited` with a
+charges one `b_ordinary` op - under a per-caller daily
+fairness window - before the R2 `get`, and
+fills the cache for everyone
+else. With public reads the window's principal is the token's user
+when one is presented and the edge client IP (`CF-Connecting-IP`,
+which Cloudflare overwrites, so it is not caller-controlled)
+otherwise, measured against the default class's cap: an anonymous
+caller has no account, but it must still be bounded by something,
+because the deployed WAF rate limiter deliberately covers only the
+website origin's write/auth surface and never the read host
+([`runbook.md`](runbook.md), "Zone security and rate limiting").
+Without that window one unauthenticated caller could drain the shared
+pool and turn everyone else's uncached downloads into `503`s. A
+request carrying no client-IP header (local development; the edge
+always sets it in production) falls back to one shared anonymous
+window rather than none. Fairness refusals are per-caller `429 read_rate_limited`
+with a
 `Retry-After` reaching the next UTC day; pool refusals and governor
 outages are the breaker's `503 registry_over_budget` envelope, which
 clients already classify. Fairness caps come from the quota-class
-model and only ever *bound* a user's drain rate - global correctness
+model - global correctness
 never depends on them, because the pool check always runs too. The
 verifier's pending fetches are never cached (the bytes are not yet
 part of the registry) and charge `b_verifier`; the source viewer's

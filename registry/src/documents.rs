@@ -28,7 +28,10 @@ pub fn config_json(api_origin: &str) -> String {
         kind: "file-registry",
         packages: "packages",
         artifacts: "artifacts",
-        auth_required: true,
+        // Public verified reads: no credential is required to read.
+        // Stored credentials still ride along when the client has one
+        // (the verifier's pending fetches depend on that).
+        auth_required: false,
         api: api_origin,
     })
     .expect("config document serializes")
@@ -163,7 +166,7 @@ mod tests {
         // The `api` field names the website origin, not the index origin.
         assert_eq!(
             config_json("https://cabinpkg.com"),
-            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":true,"api":"https://cabinpkg.com"}"#
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":false,"api":"https://cabinpkg.com"}"#
         );
     }
 

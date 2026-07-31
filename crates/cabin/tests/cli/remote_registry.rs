@@ -872,6 +872,103 @@ version = "0.1.0"
     );
 }
 
+/// Consuming a hosted-style public registry needs no account, login,
+/// or token: with no credentials configured anywhere, a scoped
+/// dependency resolves, downloads, and builds - and no request ever
+/// carries an `Authorization` header.
+#[test]
+fn build_scoped_package_from_a_public_registry_with_no_credentials() {
+    require_c_and_cxx_build_tools();
+    let dir = TempDir::new().unwrap();
+    let pkg_root = dir.path().join("pkg");
+    write_scoped_publishable_package(&pkg_root);
+    let registry = dir.path().join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    // The hosted registry's config shape: reads are public.
+    let config = fs::read_to_string(registry.join("config.json")).unwrap();
+    fs::write(
+        registry.join("config.json"),
+        config.replace(
+            "\"kind\"",
+            "\"auth-required\": false, \"api\": \"https://cabinpkg.com\", \"kind\"",
+        ),
+    )
+    .unwrap();
+
+    // A public file server that records whether any request carried a
+    // credential.
+    let server = std::sync::Arc::new(
+        tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+    );
+    let addr = server.server_addr().to_ip().expect("loopback addr");
+    let url = format!("http://{addr}");
+    let server_for_thread = std::sync::Arc::clone(&server);
+    let registry_for_thread = registry.clone();
+    let thread = std::thread::spawn(move || {
+        let mut saw_authorization = false;
+        while let Ok(req) = server_for_thread.recv() {
+            saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
+            let path = req.url().trim_start_matches('/').to_owned();
+            if path.contains("..") {
+                let _ = req.respond(tiny_http::Response::empty(400));
+                continue;
+            }
+            match fs::read(registry_for_thread.join(&path)) {
+                Ok(bytes) => {
+                    let _ = req.respond(tiny_http::Response::from_data(bytes));
+                }
+                Err(_) => {
+                    let _ = req.respond(tiny_http::Response::empty(404));
+                }
+            }
+        }
+        saw_authorization
+    });
+
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+c-standard = "c11"
+
+[dependencies]
+"acme/demo" = "0.1.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.c"]
+deps = ["acme/demo"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.c"))
+        .write_str("int demo(void);\nint main(void) { return demo(); }\n")
+        .unwrap();
+    cabin()
+        .args(["build", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(&url)
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .arg("--build-dir")
+        .arg(dir.path().join("build"))
+        .assert()
+        .success();
+    server.unblock();
+    assert!(
+        !thread.join().unwrap(),
+        "a credential-less build must never send Authorization"
+    );
+}
+
 /// The sparse read client never follows redirects, so a registry
 /// cannot bounce an authenticated read toward another server: the
 /// command fails on the 3xx and the redirect target receives zero

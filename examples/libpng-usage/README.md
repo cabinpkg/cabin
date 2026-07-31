@@ -54,8 +54,9 @@ source set links on every architecture.
 
 ## Caching and offline
 
-Registry dependencies resolve through the hosted registry by default; while the registry is in
-private alpha its reads are authenticated, so run `cabin login` before the first build (see
+Registry dependencies resolve through the hosted registry by default; verified packages download
+without an account or token - `cabin login` is only needed to
+publish (see
 [`docs/remote-registry.md`](../../docs/remote-registry.md)).  The first `cabin build` downloads both
 the libpng and zlib package archives, verifies their checksums, extracts them under Cabin's cache,
 and builds.  Subsequent builds reuse the cached archives without re-fetching them.  Resolving still

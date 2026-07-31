@@ -39,8 +39,8 @@ uthash version: 2.4.0
 ## Offline
 
 The first `cabin build` needs the registry.  Reads resolve through
-the hosted registry by default, and while it is in private alpha
-they are authenticated, so run `cabin login` first (see
+the hosted registry by default, and verified packages download
+without an account or token - `cabin login` is only needed to publish (see
 [`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later builds reuse the downloaded
 archive without re-fetching it.  Resolving still consults the
 registry index, so a fully offline build needs a local index; see
