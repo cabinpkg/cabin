@@ -122,3 +122,146 @@ and do not add speculative flexibility.
   called out with a reason.
 - Docs, examples, website, and `AGENTS.md` pointers are updated when the
   user-visible surface changes; generated output remains deterministic.
+
+## Git and pull request workflow
+
+All implementation work must use branches and pull requests. Never implement changes directly on the default branch.
+
+### Core principle
+
+Each pull request must be the **smallest cohesive change that can be meaningfully reviewed, tested, and squash-merged**.
+
+Default to splitting work into smaller pull requests. Keep changes together only when separating them would make an intermediate pull request:
+
+* broken or non-buildable;
+* untestable;
+* misleading or semantically incomplete;
+* unsafe to merge;
+* or not meaningfully reviewable on its own.
+
+Do not combine changes merely because they belong to the same issue, feature, or overall task.
+
+### Before editing
+
+Before making changes:
+
+1. Inspect the repository status and preserve all unrelated local changes.
+2. Update the local default branch from its remote.
+3. Determine whether the requested work fits into one minimal, cohesive pull request.
+4. If multiple pull requests are needed, briefly state the proposed sequence and the responsibility of each pull request.
+5. Create a fresh branch from the latest default branch for the first pull request.
+
+Do not discard, reset, overwrite, commit, or otherwise modify unrelated local changes.
+
+### Pull request scope
+
+A pull request may include only:
+
+* the code required for its single cohesive change;
+* tests required to verify that change;
+* documentation required to accurately describe that change;
+* and strictly necessary mechanical updates caused by that change.
+
+Do not include:
+
+* unrelated refactoring;
+* opportunistic cleanup;
+* optional improvements;
+* formatting changes outside the affected area;
+* preparatory work that is needed only by a later pull request;
+* or additional features that can be reviewed and merged separately.
+
+When uncertain whether two changes belong together, default to separate pull requests.
+
+Do not split work into artificial or meaningless fragments. Every merged pull request must leave the repository in a valid, tested, and usable state.
+
+### Branches and commits
+
+Use one branch per pull request.
+
+The initial implementation should normally be committed as one cohesive commit. During the pull request lifecycle, additional fixup commits are allowed for:
+
+* review feedback;
+* CI failures;
+* test corrections;
+* small omissions;
+* and other changes required to make the current pull request acceptable.
+
+Do not add unrelated work through fixup commits.
+
+Use clear branch names and commit messages that describe the specific change.
+
+### Large or dependent tasks
+
+If the overall task is too large for one minimal, cohesive pull request, split it into an ordered sequence of smaller pull requests.
+
+Later pull requests may depend on earlier pull requests. Dependent work must be processed strictly sequentially:
+
+1. Implement, test, commit, push, and open the current pull request.
+2. Address review feedback with fixup commits as needed.
+3. Wait until the pull request is approved and all required checks pass.
+4. Do autosquash and rebase the current branch onto the updated default branch, resolving any conflicts.
+5. Wait until the pull request is approved and all required checks pass again.
+6. If you get new review feedback, repeat steps 2–5 until the pull request is ready to merge.
+7. Squash-merge the pull request into the default branch.
+8. Update the local default branch from the remote.
+9. Create a fresh branch from the updated default branch.
+10. Begin the next dependent pull request.
+
+Do not:
+
+* create stacked branches;
+* create a later branch from an unmerged feature branch;
+* keep multiple dependent pull requests open simultaneously;
+* target one feature branch from another pull request;
+* or place several sequential review steps into one multi-commit pull request.
+
+Independent pull requests may be open concurrently only when they do not depend on or overlap with each other.
+
+If a task cannot be decomposed into valid sequential pull requests without leaving broken or unusable intermediate states, keep the inseparable portion together and explain why it cannot be split further.
+
+### Testing
+
+Before opening or updating a pull request:
+
+1. Run the relevant formatting, linting, build, and test commands.
+2. Fix failures caused by the current change.
+3. Report which checks were run and their results.
+4. Clearly disclose any checks that could not be run and why.
+
+Do not claim that a change is complete or tested when the relevant verification has not been performed.
+
+### Review lifecycle
+
+After opening a pull request:
+
+* keep all further changes limited to the current pull request’s stated purpose;
+* use fixup commits for review feedback and CI corrections;
+* rerun relevant checks after material changes;
+
+Do not begin the next dependent pull request while the current one remains unmerged.
+
+### Merge policy
+
+Use **squash merge only**.
+
+Never use:
+
+* merge commits;
+* rebase merge;
+* direct pushes to the default branch;
+* or manual merging outside the pull request workflow.
+
+Merge only after:
+
+* the pull request has received the required approval;
+* all required checks have passed;
+* and there are no unresolved review comments or requested changes.
+
+If authorized to perform the merge, use the repository’s squash-merge mechanism and delete the merged branch. Otherwise, stop after the pull request is ready and wait for an authorized maintainer to squash-merge it.
+
+After merging, update the local default branch before starting any subsequent work.
+
+### Decision rule
+
+When choosing between one larger pull request and several smaller sequential pull requests, prefer the smaller sequence unless the split would create a broken, untestable, misleading, unsafe, or meaningless intermediate state.
