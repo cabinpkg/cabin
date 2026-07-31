@@ -1335,9 +1335,11 @@ got_hash="$(shasum -a 256 "$work/artifact.zip" | cut -d' ' -f1)"
   || fail "artifact checksum mismatch: got $got_hash, expected $old_hash"
 grep -qF "sha256:$old_hash" "$fixture_metadata" \
   || fail "fixture metadata does not carry sha256:$old_hash"
-# The pre-revision filename is not a route any more: it does not parse,
-# so it never reaches storage.
-check "/artifacts/$scope/$name/$scope-$name-$version.zip" 404
+# The pre-revision filename is not a route any more: it does not
+# parse, so it never reaches storage and answers like any unknown
+# path - the uniform 401, token or not.
+uniform_401 "$base" "/artifacts/$scope/$name/$scope-$name-$version.zip" \
+  ${curl_args[@]+"${curl_args[@]}"}
 
 # --- The source viewer's session-ranged reads. ---
 step "the source route serves session-ranged reads of the verified archive"
@@ -1523,17 +1525,41 @@ expect_body '"verification":"pending"'
 [[ "$(stored_bytes)" == "$before_bytes" ]] \
   || fail "a shared blob was double-counted: $(stored_bytes) (was $before_bytes)"
 
-step "a verdict bound to a stale listing conflicts"
+# Every verdict binds to the listing entry of the version it judges:
+# the checksum names the revision, and `published_at` names the
+# publish event.  0.2.1 shares 0.2.0's bytes - so the same checksum -
+# but is its own publish event, so it needs its own entry.
 as_verifier
-printf '{"verdict":"verified","checksum":"%s","published_at":"1970-01-01T00:00:00.000Z"}' \
-  "$(printf 'stale' | shasum -a 256 | cut -d' ' -f1)" >"$work/verdict-stale.json"
+wcheck "/api/v1/admin/versions?status=pending" 200
+cp "$body" "$work/pending2.json"
+listing_entry "$work/pending2.json" "$scope/$name" "$version2" "$work/entry2.json"
+
+step "a verdict bound to a stale listing conflicts"
+# The checksum must be the real one - a bogus digest names no revision
+# under this triple and is a plain 404, never the binding conflict.
+# The stale half is the publish event, exactly what a byte-identical
+# revival changes.
+node -e '
+  const fs = require("fs");
+  const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  fs.writeFileSync(process.argv[2], JSON.stringify({
+    verdict: "verified", checksum: entry.checksum,
+    published_at: "1970-01-01T00:00:00.000Z",
+  }));' "$work/entry2.json" "$work/verdict-stale.json"
 wrequest PATCH "$verdict2_path" "$work/verdict-stale.json" 409
 expect_body 'changed since it was listed'
 
 step "rejecting a version sharing its blob keeps the blob and the accounting"
-# The verdict is bound to these exact bytes, which this version shares
-# with the verified 0.2.0 - so it names 0.2.1's revision, and only it.
-wrequest PATCH "$verdict2_path" "$work/verdict-rejected.json" 200
+# Bound to 0.2.1's own listing entry: the shared checksum names the
+# revision, its publish event names the generation.
+node -e '
+  const fs = require("fs");
+  const entry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  fs.writeFileSync(process.argv[2], JSON.stringify({
+    verdict: "rejected", reason: "smoke rejection",
+    checksum: entry.checksum, published_at: entry.published_at,
+  }));' "$work/entry2.json" "$work/verdict-rejected2.json"
+wrequest PATCH "$verdict2_path" "$work/verdict-rejected2.json" 200
 expect_body '"verification":"rejected"'
 expect_body '"changed":true'
 check "$artifact2_path" 404
