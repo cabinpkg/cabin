@@ -54,6 +54,7 @@ atomic-write-file = "0.3"
 camino = { version = "1", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
+icu_normalizer = "2"
 clap_complete = "4"
 clap_mangen = "0.3"
 crc32fast = "1"

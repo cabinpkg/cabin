@@ -23,6 +23,15 @@ pub struct PortDescriptor {
     /// static copy, not a build script: foundation ports never run
     /// upstream configure/codegen.
     pub copies: Vec<CopyStep>,
+    /// Declared unified-diff patch files, applied to the extracted
+    /// source after every `[[copy]]` step, in declaration order.
+    /// Each path is `patches/<file>` relative to the port directory
+    /// (where the file lives) and doubles as the file's destination
+    /// inside the prepared tree, so the published package carries the
+    /// patch at the same path its `[package.upstream]` declaration
+    /// names.  Like copies, this is declarative transformation only -
+    /// byte-exact unified diffs, never a script.
+    pub patches: Vec<Utf8PathBuf>,
 }
 
 /// One declarative file placement: copy `from` to `to`, both

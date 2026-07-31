@@ -3860,6 +3860,62 @@ fn package_without_upstream_has_none() {
 }
 
 #[test]
+fn package_upstream_patches_are_parsed_in_order() {
+    let package = parse_project(&UPSTREAM.replace(
+        "strip-prefix = \"zlib-1.3.1\"",
+        "strip-prefix = \"zlib-1.3.1\"\n        patches = [\"patches/0001-fix-msvc-build.patch\", \
+         \"patches/0002-portability.patch\"]",
+    ));
+    let upstream = package.upstream.expect("upstream parsed");
+    assert_eq!(
+        upstream.patches(),
+        [
+            Utf8PathBuf::from("patches/0001-fix-msvc-build.patch"),
+            Utf8PathBuf::from("patches/0002-portability.patch"),
+        ]
+    );
+}
+
+#[test]
+fn package_upstream_rejects_unsafe_patch_paths() {
+    for path in ["../escape.patch", "/abs.patch", "patches\\a.patch"] {
+        let err = parse_project_err(&UPSTREAM.replace(
+            "format = \"tar.gz\"",
+            &format!(
+                "format = \"tar.gz\"\n        patches = [\"{}\"]",
+                path.replace('\\', "\\\\")
+            ),
+        ));
+        assert!(
+            matches!(
+                &err,
+                ManifestError::Upstream {
+                    source: cabin_core::UpstreamError::UnsafePatchPath { .. }
+                }
+            ),
+            "{path:?}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn package_upstream_rejects_patch_conflicting_with_copy_path() {
+    let err = parse_project_err(&UPSTREAM.replace(
+        "format = \"tar.gz\"",
+        "format = \"tar.gz\"\n        patches = [\"zconf.h\"]",
+    ));
+    assert!(
+        matches!(
+            &err,
+            ManifestError::Upstream {
+                source: cabin_core::UpstreamError::ConflictingPatchPath { .. }
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn package_upstream_zip_without_strip_prefix_or_copies() {
     let package = parse_project(
         r#"

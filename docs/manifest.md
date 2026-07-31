@@ -83,11 +83,16 @@ url = "https://example.com/library-1.2.3.tar.gz"
 sha256 = "1f9d0a4b2c8e63b7f0d5a9c8e7b6a5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8"
 format = "tar.gz"
 strip-prefix = "library-1.2.3"
+patches = ["patches/0001-fix-msvc-build.patch"]
 
 [[package.upstream.copy]]
 from = "scripts/config.h.prebuilt"
 to = "config.h"
 ```
+
+The assembly pipeline is fixed and normative: extract the archive, strip the declared prefix,
+apply the copy steps in declaration order, then apply the patches in declaration order.  Every
+step is a declarative, deterministic transformation - never a script or build hook.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -95,6 +100,7 @@ to = "config.h"
 | `sha256` | string | yes | SHA-256 of the archive bytes: exactly 64 lowercase hexadecimal characters. |
 | `format` | string | yes | Archive container format: `"tar.gz"` or `"zip"`. |
 | `strip-prefix` | string | no | Single directory component stripped from every archive entry before comparison; omit it when the archive root is the source root.  Must be a portable component the extractor could accept (no `/` or `\`, at most 254 bytes so a child entry fits the 256-byte path cap, none of the Windows-hostile shapes). |
+| `patches` | array of strings | no | Unified-diff patch files applied to the assembled tree after every copy step, in declaration order.  Each entry is a plain portable forward-slash relative path naming a file *inside this package* (the patch ships in the published archive; `cabin package` refuses to stage a declaration whose file is absent).  At most 16 entries and at most 1 MiB per file; an entry must not duplicate, case- or normalization-collide with, or nest with a copy path, another patch, or the root `cabin.toml`.  A patch names each file at most once, each patched file is capped at 16 MiB, and the whole list may carry at most 1024 file entries and read or rewrite at most 128 MiB of the tree in total.  Application is byte-exact - fixed `-p1` strip, no fuzz, no offset search, no newline normalization, text diffs only (binary hunks are rejected) - and paths inside diff headers must resolve safely within the assembled tree.  A patch file must contain nothing but the diff itself (git's per-file preamble lines are accepted in their exact shape; commit-message text or any other surrounding content is rejected - use `git diff` output, not `git format-patch`): patch files are exempt from the registry's upstream tree comparison, so their bytes must never be able to double as compilable source.  Note the key must appear before any `[[package.upstream.copy]]` table. |
 | `[[package.upstream.copy]]` | array of tables | no | Declarative file placements applied to the extracted upstream tree, in declaration order: copy `from` to `to`.  Both are plain forward-slash relative paths with portable components (no absolute paths, no `.` / `..` components, no `\`), `from` and `to` must differ (including under case folding), steps' paths must not case-collide or nest one under another, at most 16 steps are accepted, and `strip-prefix` plus `/` plus `from` must fit the 256-byte archive entry-path cap.  Static file-to-file copies only - never a build script or codegen hook. |
 
 The declaration is inert for consumers: resolving, fetching, and building a package never touch the
@@ -385,6 +391,9 @@ The parser and downstream tools reject manifests when:
   64 lowercase hexadecimal characters, a `format` other than `"tar.gz"` / `"zip"`, a `strip-prefix`
   that is not a single relative path component, more than 16 copy steps, or a copy step whose
   `from` / `to` is not a plain portable forward-slash relative path or names the same file twice
+- a `[package.upstream]` `patches` list has more than 16 entries, an entry that is not a plain
+  portable forward-slash relative path, or an entry that duplicates, case-collides with, or nests
+  with a copy path, another patch, or the root `cabin.toml`
 
 ## Example - direct version dependency
 

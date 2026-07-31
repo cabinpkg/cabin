@@ -77,6 +77,19 @@ pub enum PortError {
     },
 
     #[error(
+        "port descriptor at {} declares an unsafe `patches` entry `{value}`; expected `patches/<file>` inside the port directory",
+        path.display()
+    )]
+    UnsafePatchPath { path: PathBuf, value: String },
+
+    #[error("port descriptor at {} declares a conflicting patch plan: {source}", path.display())]
+    InvalidPatchPlan {
+        path: PathBuf,
+        #[source]
+        source: cabin_core::UpstreamError,
+    },
+
+    #[error(
         "checksum mismatch for port `{name} {version}`: expected sha256:{expected}, got sha256:{actual}"
     )]
     ChecksumMismatch {
@@ -110,6 +123,44 @@ pub enum PortError {
         name: String,
         version: String,
         path: PathBuf,
+    },
+
+    #[error("patch file for port `{name} {version}` was not found at {}", path.display())]
+    MissingPatchFile {
+        name: String,
+        version: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "patch `{path}` for port `{name} {version}` shadows a file already in the prepared tree; \
+         a patch file must not name a path the upstream archive, a `[[copy]]` step, or another \
+         patch produces (the registry verifier rejects such a version)"
+    )]
+    PatchShadowsTree {
+        name: String,
+        version: String,
+        path: camino::Utf8PathBuf,
+    },
+
+    #[error(
+        "patch file for port `{name} {version}` at {} is {size} bytes; at most {limit} are supported",
+        path.display()
+    )]
+    PatchTooLarge {
+        name: String,
+        version: String,
+        path: PathBuf,
+        size: usize,
+        limit: usize,
+    },
+
+    #[error("failed to apply patches for port `{name} {version}`: {source}")]
+    PatchApply {
+        name: String,
+        version: String,
+        #[source]
+        source: Box<cabin_artifact::PatchError>,
     },
 
     #[error(

@@ -452,7 +452,9 @@ Publish validates in a fixed order, stopping at the first failure:
    the lexical mirror of the client's provenance rules - an
    `https://` URL whose authority embeds no credentials, a 64-hex
    `sha256`, a `"tar.gz"` / `"zip"` format, a single-component
-   `strip-prefix`, and non-escaping copy paths (`400`).  A strict
+   `strip-prefix`, non-escaping copy paths, and non-escaping
+   `patches` entries distinct from copy paths and the root
+   manifest (`400`).  A strict
    subset of the client parser's typed validation, so an honest
    client is never rejected here; the external verifier's
    metadata-equality pass plus its upstream-archive comparison are

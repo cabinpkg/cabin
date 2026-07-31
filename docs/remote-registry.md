@@ -252,7 +252,8 @@ Server-side behavior is part of the contract:
   name (`system-dependencies` is exempt - its keys name system packages, not registry
   packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
   manifest's provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"`
-  format, single-component `strip-prefix`, non-escaping copy paths - the server never fetches the
+  format, single-component `strip-prefix`, non-escaping copy paths, non-escaping `patches`
+  entries distinct from copy paths and the root manifest - the server never fetches the
   URL), requires a declared `links` map to pass a lexical mirror of the manifest's rules (valid
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity
   claimed at most once), and verifies the archive
@@ -480,10 +481,18 @@ checks, in order:
    the publisher-controlled URL - and passes it to the verifier, which requires the bytes to hash
    to the pinned SHA-256, interprets the archive with the same hardened extraction foundation
    ports use (bomb caps, lexical path safety, `strip-prefix` matching, symlinks skipped) in a
-   scratch directory, applies the declared copy steps in order, collects the resulting tree under
+   scratch directory, applies the declared copy steps in order, then applies the declared
+   `patches` in order - byte-exact unified diffs, using the patch bytes shipped inside the
+   published archive itself, so verification needs exactly two inputs: the pinned upstream
+   archive and the published package - collects the resulting tree under
    `cabin package`'s include / exclude policy, and requires the published archive's entries to
    match the expected tree byte for byte - except the root `cabin.toml`, which is the publisher's
-   manifest, never upstream's.  When the upstream download fails - including a pinned archive over
+   manifest, never upstream's, and the declared patch files themselves, which are
+   publisher-authored transformation inputs rather than products of the upstream tree (and are
+   for that reason held to a strict diff-only grammar: free text around the diff would let one
+   file be both a valid patch and valid source code, laundering unverified bytes past the
+   comparison).  When the
+   upstream download fails - including a pinned archive over
    the 256 MiB download cap, which is part of the provenance contract
    ([`manifest.md`](manifest.md#packageupstream)), or when the run's bounded upstream-download time
    budget is exhausted (versions are processed in a shuffled order, so slow upstream hosts cannot
@@ -491,8 +500,8 @@ checks, in order:
    consistency passes (which can reject on their own); a version whose provenance could then not
    be checked stays pending, because a transport failure must not terminally reject a package
    (the stuck-pending alert summons an operator instead).  Deterministic disagreements - a digest
-   mismatch, an uninterpretable archive, an inapplicable copy step, a diverging tree - are
-   rejections with the stable codes below.
+   mismatch, an uninterpretable archive, an inapplicable copy step, a malformed or inapplicable
+   patch, a diverging tree - are rejections with the stable codes below.
 
 A rejection records machine-readable reason codes in the revision's `verification_reason`:
 
@@ -524,6 +533,7 @@ A rejection records machine-readable reason codes in the revision's `verificatio
 | `upstream_checksum_mismatch` | the downloaded upstream archive does not hash to the pinned SHA-256 |
 | `upstream_archive_invalid` | the pinned upstream archive cannot be interpreted as declared: the hardened extractor refused it, its compressed stream would not decode (`stream`), an entry name cannot be materialized on the verifier's filesystem (`file name`), the declared strip prefix is absent (`strip prefix`), or the extracted file set violates packaging rules (`file set`) |
 | `upstream_copy_invalid` | a declared copy step cannot be applied to the extracted upstream tree: its `from` file is absent (`missing source`), or its `to` cannot name a regular file there (`destination`) |
+| `upstream_patch_invalid` | a declared patch file cannot be applied to the assembled upstream tree: the published archive lacks the declared entry (`missing file`), the patch exceeds the 1 MiB per-file cap (`too large`), the patch path also names a file the upstream transformation produces (`shadows tree`), it is not strictly a unified diff - free text around the diff or inside git's preamble lines is rejected along with structural corruption (`malformed`), it carries binary content (`binary`), a diff header path cannot address the tree (`unsafe path`), the patched file is absent (`missing target`), the patched or created path cannot name a regular file (`target conflict`), the patched file exceeds the 16 MiB per-target cap (`target too large`), the `patches` list carries more than 1024 file entries (`too many file entries`), applying the whole list would read or rewrite more than 128 MiB of the tree (`work budget exceeded`), or the tree's bytes do not match the patch context exactly (`context mismatch`) |
 | `upstream_tree_mismatch` | the published tree is not the declared transformation of the upstream archive; the detail names the first divergence in sorted-path order, reporting missing and diverging files before unexplained extras: `missing file`, `file contents`, or `extra file` |
 
 A recorded reason is the `code` above, optionally followed by one parenthesized detail that

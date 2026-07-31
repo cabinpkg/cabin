@@ -535,6 +535,7 @@ fn upstream_from_raw(
         &raw.format,
         raw.strip_prefix,
         copies,
+        raw.patches,
     )
     .map(Some)
     .map_err(|source| ManifestError::Upstream { source })

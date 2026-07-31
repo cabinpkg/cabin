@@ -80,6 +80,9 @@ pub const INVALID_UPSTREAM_STRIP_PREFIX: &str =
 pub const INVALID_UPSTREAM_COPY_PATH: &str =
     "upstream copy paths must be plain forward-slash relative paths naming two different files";
 pub const TOO_MANY_UPSTREAM_COPIES: &str = "too many upstream copy steps";
+pub const INVALID_UPSTREAM_PATCH_PATH: &str = "upstream patch paths must be plain forward-slash relative paths distinct from copy paths, \
+     other patches, and the root manifest";
+pub const TOO_MANY_UPSTREAM_PATCHES: &str = "too many upstream patch files";
 pub const INVALID_LINKS: &str = "links entries must map valid target names to non-empty \
      native-library identities built from ASCII letters, digits, `.`, `_`, `+`, and `-`, \
      with each identity claimed at most once";
@@ -90,6 +93,9 @@ pub const LINKS_NOT_SORTED: &str = "links targets must be listed in ascending or
 
 /// Mirror of the client-side `cabin_core::MAX_COPY_STEPS` cap.
 const MAX_UPSTREAM_COPY_STEPS: usize = 16;
+
+/// Mirror of the client-side `cabin_core::MAX_PATCH_FILES` cap.
+const MAX_UPSTREAM_PATCH_FILES: usize = 16;
 
 /// The canonical per-version metadata document `cabin package` emits
 /// (`cabin_package::metadata::PackageMetadata`), mirrored key for key.
@@ -176,6 +182,11 @@ pub struct UpstreamMetadata {
     /// pass rather than by a `400` here.
     #[serde(rename = "strip-prefix")]
     pub strip_prefix: Option<String>,
+    /// Declared unified-diff patch files, applied after the copy
+    /// steps; the external verifier enforces them, this mirror only
+    /// gatekeeps the path shapes.
+    #[serde(default)]
+    pub patches: Vec<String>,
     #[serde(default)]
     pub copy: Vec<UpstreamCopyMetadata>,
 }
@@ -255,9 +266,9 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
                 return Err(INVALID_UPSTREAM_COPY_PATH);
             }
         }
-        // Case-folded, matching the client and the archive's
-        // case-conflict rule.
-        if step.from.to_lowercase() == step.to.to_lowercase() {
+        // The collision fold (lowercase + NFC) matches the client
+        // and the archive's conflict rule.
+        if collision_fold(&step.from) == collision_fold(&step.to) {
             return Err(INVALID_UPSTREAM_COPY_PATH);
         }
         // The archive entry backing `from` carries the unstripped
@@ -283,12 +294,69 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
             if first == second {
                 continue;
             }
-            let (first_folded, second_folded) = (first.to_lowercase(), second.to_lowercase());
+            let (first_folded, second_folded) = (collision_fold(first), collision_fold(second));
             let conflicting = first_folded == second_folded
                 || second_folded.starts_with(&format!("{first_folded}/"))
                 || first_folded.starts_with(&format!("{second_folded}/"));
             if conflicting {
                 return Err(INVALID_UPSTREAM_COPY_PATH);
+            }
+        }
+    }
+    validate_upstream_patches(&upstream.patches, &plan_paths)
+}
+
+/// Lexical mirror of the client's patch-path rules: the same path
+/// shape as copy paths, and the guaranteed-dead-end conflict set - a
+/// patch path is excluded from the verifier's tree comparison, so
+/// any collision (byte-identical, case-folded, or nesting) with a
+/// copy path, another patch, or the root manifest is rejected.
+/// The collision fold shared with the client (`cabin-core`'s
+/// `collision_fold`): full Unicode lowercase plus NFC normalization,
+/// so declarations whose spellings alias on a case- or
+/// normalization-insensitive filesystem are rejected at publish just
+/// as the client and verifier reject them.
+fn collision_fold(value: &str) -> String {
+    let lowered = value.to_lowercase();
+    match icu_normalizer::ComposingNormalizerBorrowed::new_nfc().normalize(&lowered) {
+        std::borrow::Cow::Borrowed(_) => lowered,
+        std::borrow::Cow::Owned(normalized) => normalized,
+    }
+}
+
+fn validate_upstream_patches(patches: &[String], plan_paths: &[&str]) -> Result<(), &'static str> {
+    if patches.len() > MAX_UPSTREAM_PATCH_FILES {
+        return Err(TOO_MANY_UPSTREAM_PATCHES);
+    }
+    for (index, patch) in patches.iter().enumerate() {
+        // Same lexical path shape as copy paths (256 / 255 caps, no
+        // escapes); portability finer points stay client-side.
+        let unsafe_shape = patch.is_empty()
+            || patch.len() > 256
+            || patch.starts_with('/')
+            || patch.contains('\\')
+            || patch.split('/').any(|component| {
+                component.is_empty()
+                    || component.len() > 255
+                    || component == "."
+                    || component == ".."
+            });
+        if unsafe_shape {
+            return Err(INVALID_UPSTREAM_PATCH_PATH);
+        }
+        let patch_folded = collision_fold(patch);
+        let others = patches[index + 1..]
+            .iter()
+            .map(String::as_str)
+            .chain(plan_paths.iter().copied())
+            .chain(std::iter::once("cabin.toml"));
+        for other in others {
+            let other_folded = collision_fold(other);
+            let conflicting = patch_folded == other_folded
+                || other_folded.starts_with(&format!("{patch_folded}/"))
+                || patch_folded.starts_with(&format!("{other_folded}/"));
+            if conflicting {
+                return Err(INVALID_UPSTREAM_PATCH_PATH);
             }
         }
     }
@@ -1024,6 +1092,79 @@ mod tests {
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
             TOO_MANY_UPSTREAM_COPIES
+        );
+    }
+
+    #[test]
+    fn validate_metadata_accepts_upstream_patches() {
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": ["patches/0001-fix-msvc-build.patch"], "copy": [{{"from": "scripts/config.h.prebuilt", "to": "config.h"}}]}}"#
+        ));
+        let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
+        let upstream = parsed.upstream.expect("upstream block parsed");
+        assert_eq!(upstream.patches, ["patches/0001-fix-msvc-build.patch"]);
+    }
+
+    #[test]
+    fn validate_metadata_rejects_unsafe_upstream_patch_paths() {
+        for patch in [
+            "",
+            "../escape.patch",
+            "/abs.patch",
+            "patches\\a.patch",
+            "a/../b.patch",
+        ] {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": [{patch:?}]}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_PATCH_PATH,
+                "{patch:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_conflicting_upstream_patch_paths() {
+        // Duplicate patches, patch-vs-copy collisions (byte-identical
+        // or case-folded), nesting, and the root manifest are the
+        // client's guaranteed-dead-end set, mirrored here.
+        let cases = [
+            r#""patches": ["patches/a.patch", "patches/a.patch"]"#,
+            r#""patches": ["patches/a.patch", "Patches/A.PATCH"]"#,
+            // Composed vs decomposed spelling of one name: the
+            // collision fold is NFC-normalized like the client's.
+            "\"patches\": [\"patches/\u{e9}toile.patch\", \"patches/e\u{301}toile.patch\"]",
+            r#""patches": ["config.h"], "copy": [{"from": "scripts/config.h.prebuilt", "to": "config.h"}]"#,
+            r#""patches": ["scripts"], "copy": [{"from": "scripts/config.h.prebuilt", "to": "config.h"}]"#,
+            r#""patches": ["cabin.toml"]"#,
+            r#""patches": ["patches", "patches/a.patch"]"#,
+        ];
+        for case in cases {
+            let body = upstream_metadata_json(&format!(
+                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", {case}}}"#
+            ));
+            assert_eq!(
+                validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
+                INVALID_UPSTREAM_PATCH_PATH,
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_metadata_rejects_too_many_upstream_patches() {
+        let entries: Vec<String> = (0..=MAX_UPSTREAM_PATCH_FILES)
+            .map(|i| format!(r#""patches/{i}.patch""#))
+            .collect();
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": [{patches}]}}"#,
+            patches = entries.join(",")
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
+            TOO_MANY_UPSTREAM_PATCHES
         );
     }
 

@@ -23,7 +23,7 @@
 //! entry order) are pinned by the client and its own tests, not by
 //! this pass.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
@@ -87,10 +87,13 @@ pub(crate) enum ScanOutcome {
     /// Structure is sound; the embedded manifest bytes plus the
     /// entry paths and content digests (so the consistency pass can
     /// check the manifest's declared sources are present and the
-    /// upstream pass can compare trees).
+    /// upstream pass can compare trees), and the bytes of every
+    /// `wanted` entry (the declared upstream patch files the
+    /// upstream pass applies).
     Manifest {
         bytes: Vec<u8>,
         files: Contents,
+        retained: RetainedBytes,
     },
     Reject(Reason),
 }
@@ -101,6 +104,10 @@ pub(crate) enum ScanOutcome {
 /// retaining them costs no extra decode and no per-file body memory.
 pub(crate) type Contents = BTreeMap<String, String>;
 
+/// Entry path → raw decompressed bytes, for the entries the caller
+/// asked the scan to retain (declared upstream patch files).
+pub(crate) type RetainedBytes = BTreeMap<String, Vec<u8>>;
+
 /// Inspect `archive`.
 ///
 /// # Errors
@@ -109,7 +116,11 @@ pub(crate) type Contents = BTreeMap<String, String>;
 /// once it is in memory, every parse failure is a verdict, not an
 /// error (a container that will not parse in the strict profile is a
 /// hostile or corrupt archive).
-pub(crate) fn scan_archive(archive: &Path, limits: &Limits) -> Result<ScanOutcome, VerifyError> {
+pub(crate) fn scan_archive(
+    archive: &Path,
+    limits: &Limits,
+    wanted: &BTreeSet<String>,
+) -> Result<ScanOutcome, VerifyError> {
     let bytes = fs::read(archive).map_err(|source| VerifyError::Io {
         path: archive.to_path_buf(),
         source,
@@ -122,8 +133,12 @@ pub(crate) fn scan_archive(archive: &Path, limits: &Limits) -> Result<ScanOutcom
         .saturating_mul(compressed_size)
         .max(floor)
         .min(limits.abs_cap_bytes);
-    Ok(match parse(&bytes, cap, limits) {
-        Ok((bytes, files)) => ScanOutcome::Manifest { bytes, files },
+    Ok(match parse(&bytes, cap, limits, wanted) {
+        Ok((bytes, files, retained)) => ScanOutcome::Manifest {
+            bytes,
+            files,
+            retained,
+        },
         Err(reason) => ScanOutcome::Reject(reason),
     })
 }
@@ -150,7 +165,12 @@ struct Central {
 // splitting it would scatter that state across helpers rather than
 // clarify it.
 #[allow(clippy::too_many_lines)]
-fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents), Reason> {
+fn parse(
+    bytes: &[u8],
+    cap: u64,
+    limits: &Limits,
+    wanted: &BTreeSet<String>,
+) -> Result<(Vec<u8>, Contents, RetainedBytes), Reason> {
     // Step 1: a container is at least a bare EOCD.
     if bytes.len() < EOCD_LEN {
         return Err(Reason::ArchiveInvalid);
@@ -337,6 +357,7 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
     // its CRC.
     let mut budget = cap;
     let mut manifest: Option<Vec<u8>> = None;
+    let mut retained: RetainedBytes = RetainedBytes::new();
     let mut pos = 0usize;
     for record in &records {
         // Tiling and bijection: the local record the directory names
@@ -378,7 +399,18 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
         }
         let data = &bytes[name_end..data_end];
 
-        let mut collector = (record.name == ROOT_MANIFEST).then(Vec::new);
+        // The root manifest is always retained (the consistency pass
+        // parses it).  A `wanted` entry - a declared upstream patch
+        // file - is retained for the upstream pass, but only when its
+        // declared uncompressed size is within the patch cap: an
+        // honestly-oversized patch is left unretained (bounding peak
+        // memory) and the upstream pass reads its `too large` verdict
+        // from its presence in `files`.  A header that lies about the
+        // size is caught by the deflate/CRC checks below regardless.
+        let keep = record.name == ROOT_MANIFEST
+            || (wanted.contains(&record.name)
+                && record.uncompressed as usize <= cabin_core::MAX_PATCH_BYTES);
+        let mut collector = keep.then(Vec::new);
         let mut sha = Sha256::new();
         let (crc, produced, consumed) =
             decode_entry(record.method, data, budget, &mut sha, collector.as_mut())?;
@@ -393,7 +425,11 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
         }
         budget -= produced;
         if let Some(bytes) = collector {
-            manifest = Some(bytes);
+            if record.name == ROOT_MANIFEST {
+                manifest = Some(bytes);
+            } else {
+                retained.insert(record.name.clone(), bytes);
+            }
         }
         files.insert(
             record.name.clone(),
@@ -407,7 +443,7 @@ fn parse(bytes: &[u8], cap: u64, limits: &Limits) -> Result<(Vec<u8>, Contents),
 
     // Step 8: the archive root manifest must be present.
     manifest
-        .map(|bytes| (bytes, files))
+        .map(|bytes| (bytes, files, retained))
         .ok_or(Reason::ManifestMissing)
 }
 

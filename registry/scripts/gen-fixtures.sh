@@ -76,6 +76,7 @@ url = "https://example.com/withupstream-0.3.0.tar.gz"
 sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
 format = "tar.gz"
 strip-prefix = "withupstream-0.3.0"
+patches = ["patches/0001-fix.patch"]
 
 [[package.upstream.copy]]
 from = "scripts/config.h.prebuilt"
@@ -86,6 +87,12 @@ type = "library"
 sources = ["src/withupstream.c"]
 EOF
 printf 'int withupstream(void) { return 0; }\n' >"$src/withupstream/src/withupstream.c"
+# The declared patch must exist in the tree: `cabin package` refuses
+# to stage a manifest whose declared patch file is absent, and the
+# conformance leg proves the Worker accepts patches-bearing metadata.
+mkdir -p "$src/withupstream/patches"
+printf -- '--- a/src/withupstream.c\n+++ b/src/withupstream.c\n@@ -1,1 +1,1 @@\n-int withupstream(void) { return 1; }\n+int withupstream(void) { return 0; }\n' \
+  >"$src/withupstream/patches/0001-fix.patch"
 
 for pkg in nodep withdep withupstream; do
   step "packaging $pkg"

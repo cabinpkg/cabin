@@ -5,6 +5,8 @@
 //!
 //! - cache layout ([`cache`]),
 //! - SHA-256 verification and archive extraction ([`mod@fetch`], [`extract`]),
+//! - byte-exact unified-diff application for declared upstream
+//!   patches ([`mod@patch`]),
 //! - the small typed surface in [`model`].
 //!
 //! Crate boundaries:
@@ -21,6 +23,7 @@ pub mod error;
 pub mod extract;
 pub mod fetch;
 pub mod model;
+pub mod patch;
 
 pub use cache::ArtifactCache;
 pub use error::ArtifactError;
@@ -29,3 +32,6 @@ pub use fetch::{
     FetchEntry, FetchOptions, FetchPlan, FetchResult, FetchSource, FetchedPackage, fetch,
 };
 pub use model::{CHECKSUM_PREFIX, ChecksumDigest};
+pub use patch::{
+    PatchError, PatchInput, apply_unified_patches, create_would_conflict, path_is_case_exact,
+};

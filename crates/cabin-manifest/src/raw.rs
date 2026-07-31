@@ -234,6 +234,10 @@ pub(crate) struct RawUpstream {
     pub(crate) format: String,
     #[serde(default, rename = "strip-prefix")]
     pub(crate) strip_prefix: Option<String>,
+    /// Declared unified-diff patch files, applied after the copy
+    /// steps.
+    #[serde(default)]
+    pub(crate) patches: Vec<String>,
     /// `[[package.upstream.copy]]` file placements.
     #[serde(default)]
     pub(crate) copy: Vec<RawUpstreamCopy>,

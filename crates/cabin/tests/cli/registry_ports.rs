@@ -622,6 +622,90 @@ fn explicit_target_selectors_link_a_multi_library_package() {
 /// and the `[[copy]]` plan), and the archived manifest inside the
 /// fetched package still declares it.
 #[test]
+fn patched_port_round_trips_through_the_staged_registry() {
+    // Publisher round trip for a patch-carrying recipe: the staged
+    // registry package ships the patched sources plus the patch file,
+    // and its index entry and archived manifest both declare it.
+    let root = TempDir::new().unwrap();
+    let cache = root.path().join("cache");
+    let repo = FakePortRepo::new(root.path());
+    let patch = "--- a/zutil.c\n\
+                 +++ b/zutil.c\n\
+                 @@ -1,1 +1,1 @@\n\
+                 -int fake_zlib_marker(void) { return 1; }\n\
+                 +int fake_zlib_marker(void) { return 2; }\n";
+    let zlib = repo
+        .port("zlib", "1.3.1")
+        .archive_prefix("zlib-1.3.1")
+        .file("zlib.h", FAKE_ZLIB_H)
+        .stub_declared_sources_except(ZLIB_OVERLAY, "zlib", &["zutil.c"])
+        .file("zutil.c", "int fake_zlib_marker(void) { return 1; }\n")
+        .patch("0001-fix.patch", patch)
+        .overlay_manifest(ZLIB_OVERLAY)
+        .build();
+    zlib.pin_https_source_and_seed_cache(&cache);
+    let registry = stage_ports_registry(
+        &root.path().join("ports"),
+        &cache,
+        &root.path().join("stage"),
+    );
+
+    let index: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(registry.join("packages/cabin-ports/zlib.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        index["versions"]["1.3.1"]["upstream"]["patches"],
+        serde_json::json!(["patches/0001-fix.patch"])
+    );
+
+    let manifest = RegistryConsumer {
+        name: "patched-consumer",
+        dependencies: r#""cabin-ports/zlib" = "=1.3.1""#,
+        target_deps: &[],
+        standard: r#"c-standard = "c11""#,
+        source_name: "main.c",
+        source: "int main(void) { return 0; }\n",
+    }
+    .write(root.path());
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(&manifest)
+        .arg("--index-path")
+        .arg(&registry)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .assert()
+        .success();
+
+    let sources = cache.join("sources/sha256");
+    let fetched = fs::read_dir(&sources)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            fs::read_to_string(path.join("cabin.toml"))
+                .is_ok_and(|manifest| manifest.contains("name = \"cabin-ports/zlib\""))
+        })
+        .expect("fetched zlib source tree");
+    // The published tree carries the *patched* source and the patch
+    // file itself at its declared path.
+    assert_eq!(
+        fs::read_to_string(fetched.join("zutil.c")).unwrap(),
+        "int fake_zlib_marker(void) { return 2; }\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fetched.join("patches/0001-fix.patch")).unwrap(),
+        patch
+    );
+    let archived_manifest = fs::read_to_string(fetched.join("cabin.toml")).unwrap();
+    assert!(
+        archived_manifest.contains("patches = [\"patches/0001-fix.patch\"]"),
+        "archived manifest lacks the patch declaration:\n{archived_manifest}"
+    );
+}
+
+#[test]
 fn provenance_round_trips_recipe_pin_into_index_and_archived_manifest() {
     let staged = stage_fixture_ports();
 

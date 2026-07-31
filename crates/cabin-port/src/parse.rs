@@ -53,6 +53,12 @@ struct RawSource {
     sha256: Option<String>,
     #[serde(default)]
     strip_prefix: Option<String>,
+    /// `[source].patches` - declared unified-diff files applied to
+    /// the assembled source, mirroring the published
+    /// `[package.upstream]` table where `patches` sits beside the
+    /// pin.
+    #[serde(default)]
+    patches: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,10 +111,11 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
     })?;
     let RawPort {
         port,
-        source,
+        mut source,
         overlay,
         copy,
     } = raw;
+    let raw_patches = std::mem::take(&mut source.patches);
 
     let name = PackageName::new(port.name.clone()).map_err(|err| PortError::InvalidField {
         path: path.to_path_buf(),
@@ -131,6 +138,25 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
     let source = source_from_raw(path, source)?;
     let overlay = overlay_from_raw(path, overlay)?;
     let copies = copies_from_raw(path, copy)?;
+    let patches = patches_from_raw(path, raw_patches)?;
+
+    // Reject patch/copy and patch/patch collisions at parse time with
+    // the same rule the published `[package.upstream]` declaration
+    // enforces, so a recipe that would only fail at publish-time
+    // conversion fails here instead.
+    if !patches.is_empty() {
+        let patch_strings: Vec<String> = patches.iter().map(|p| p.as_str().to_owned()).collect();
+        let plan_paths: Vec<&str> = copies
+            .iter()
+            .flat_map(|step| [step.from.as_str(), step.to.as_str()])
+            .collect();
+        cabin_core::upstream::validate_patch_plan(&patch_strings, &plan_paths).map_err(
+            |source| PortError::InvalidPatchPlan {
+                path: path.to_path_buf(),
+                source,
+            },
+        )?;
+    }
 
     Ok(PortDescriptor {
         name,
@@ -139,6 +165,7 @@ pub fn parse_port_str(text: &str, path: &Path) -> Result<PortDescriptor, PortErr
         source,
         overlay,
         copies,
+        patches,
     })
 }
 
@@ -150,6 +177,53 @@ fn copies_from_raw(path: &Path, raw: Vec<RawCopy>) -> Result<Vec<CopyStep>, Port
             Ok(CopyStep { from, to })
         })
         .collect()
+}
+
+/// Validate the `[source].patches` list: each entry must be
+/// `patches/<file>` - a single file directly under the port
+/// directory's `patches/` subdirectory - so the recipe layout matches
+/// the published `[package.upstream]` declaration and the bundling
+/// build script can embed the files without parsing the descriptor.
+/// Entries are capped and duplicates rejected, mirroring the
+/// published declaration's rules.
+fn patches_from_raw(path: &Path, raw: Vec<String>) -> Result<Vec<Utf8PathBuf>, PortError> {
+    if raw.len() > cabin_core::MAX_PATCH_FILES {
+        return Err(PortError::InvalidField {
+            path: path.to_path_buf(),
+            field: "[source].patches",
+            message: format!(
+                "at most {} patch files are supported",
+                cabin_core::MAX_PATCH_FILES
+            ),
+        });
+    }
+    let mut patches = Vec::with_capacity(raw.len());
+    for value in raw {
+        // The full archive-path rule (portability, length caps) runs
+        // too: the entry is stamped verbatim into the published
+        // `[package.upstream]` declaration, so a spelling the
+        // publish-side validation would reject must fail here.
+        let well_shaped = value
+            .strip_prefix("patches/")
+            .is_some_and(is_safe_single_component)
+            && cabin_core::upstream::is_safe_archive_path(&value);
+        if !well_shaped {
+            return Err(PortError::UnsafePatchPath {
+                path: path.to_path_buf(),
+                value,
+            });
+        }
+        let rel = Utf8PathBuf::from(&value);
+        if patches.contains(&rel) {
+            return Err(PortError::InvalidField {
+                path: path.to_path_buf(),
+                field: "[source].patches",
+                message: format!("duplicate patch entry `{value}`"),
+            });
+        }
+        patches.push(rel);
+    }
+    Ok(patches)
 }
 
 fn safe_copy_path(
@@ -553,5 +627,121 @@ manifest = "cabin.toml"
         let text = format!("{ZLIB_PORT}\n[[copy]]\nfrom = \"a\"\nto = \"b\"\nmode = \"0644\"\n");
         let err = parse(&text).unwrap_err();
         assert!(matches!(err, PortError::Toml { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn parses_patch_entries_in_order() {
+        let text = ZLIB_PORT.replace(
+            "strip_prefix = \"zlib-1.3.1\"",
+            "strip_prefix = \"zlib-1.3.1\"\npatches = [\"patches/0001-fix-msvc-build.patch\", \
+             \"patches/0002-portability.patch\"]",
+        );
+        let descriptor = parse(&text).unwrap();
+        assert_eq!(
+            descriptor.patches,
+            [
+                Utf8PathBuf::from("patches/0001-fix-msvc-build.patch"),
+                Utf8PathBuf::from("patches/0002-portability.patch"),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_patches_key_yields_empty_patches() {
+        assert!(parse(ZLIB_PORT).unwrap().patches.is_empty());
+    }
+
+    #[test]
+    fn rejects_patch_entries_outside_the_patches_directory() {
+        for value in [
+            "0001-fix.patch",
+            "other/0001-fix.patch",
+            "patches/nested/0001-fix.patch",
+            "patches/",
+            "patches/..",
+            "../patches/0001-fix.patch",
+            "/patches/0001-fix.patch",
+            "patches\\0001-fix.patch",
+            "patches/fix.patch.",
+        ] {
+            let text = ZLIB_PORT.replace(
+                "strip_prefix = \"zlib-1.3.1\"",
+                &format!(
+                    "strip_prefix = \"zlib-1.3.1\"\npatches = [\"{}\"]",
+                    value.replace('\\', "\\\\")
+                ),
+            );
+            let err = parse(&text).unwrap_err();
+            assert!(
+                matches!(err, PortError::UnsafePatchPath { .. }),
+                "{value:?}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_patch_conflicting_with_a_copy_path() {
+        let text = ZLIB_PORT.replace(
+            "[overlay]",
+            "patches = [\"patches/gen.h\"]\n\n[[copy]]\nfrom = \"scripts/gen.h.in\"\n\
+             to = \"patches/gen.h\"\n\n[overlay]",
+        );
+        let err = parse(&text).unwrap_err();
+        assert!(matches!(err, PortError::InvalidPatchPlan { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn rejects_case_folded_duplicate_patch_entries() {
+        let text = ZLIB_PORT.replace(
+            "strip_prefix = \"zlib-1.3.1\"",
+            "strip_prefix = \"zlib-1.3.1\"\npatches = [\"patches/A.patch\", \"patches/a.patch\"]",
+        );
+        let err = parse(&text).unwrap_err();
+        assert!(matches!(err, PortError::InvalidPatchPlan { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn rejects_duplicate_patch_entries() {
+        let text = ZLIB_PORT.replace(
+            "strip_prefix = \"zlib-1.3.1\"",
+            "strip_prefix = \"zlib-1.3.1\"\npatches = [\"patches/0001-fix.patch\", \
+             \"patches/0001-fix.patch\"]",
+        );
+        let err = parse(&text).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                PortError::InvalidField {
+                    field: "[source].patches",
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_too_many_patch_entries() {
+        let entries: Vec<String> = (0..=cabin_core::MAX_PATCH_FILES)
+            .map(|i| format!("\"patches/{i}.patch\""))
+            .collect();
+        let text = ZLIB_PORT.replace(
+            "strip_prefix = \"zlib-1.3.1\"",
+            &format!(
+                "strip_prefix = \"zlib-1.3.1\"\npatches = [{}]",
+                entries.join(", ")
+            ),
+        );
+        let err = parse(&text).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                PortError::InvalidField {
+                    field: "[source].patches",
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
     }
 }

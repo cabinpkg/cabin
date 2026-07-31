@@ -107,5 +107,6 @@ pub use toolchain::{
     ToolSpec, ToolchainDecl, ToolchainResolutionError, ToolchainSelection, ToolchainSettings,
 };
 pub use upstream::{
-    MAX_COPY_STEPS, MAX_URL_BYTES, UpstreamCopy, UpstreamError, UpstreamFormat, UpstreamProvenance,
+    MAX_COPY_STEPS, MAX_PATCH_BYTES, MAX_PATCH_FILES, MAX_URL_BYTES, UpstreamCopy, UpstreamError,
+    UpstreamFormat, UpstreamProvenance,
 };

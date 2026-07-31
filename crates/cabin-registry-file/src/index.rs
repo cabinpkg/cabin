@@ -831,6 +831,7 @@ mod tests {
                     cabin_core::UpstreamCopy::new("support/config.h.in".into(), "config.h".into())
                         .unwrap(),
                 ],
+                Vec::new(),
             )
             .unwrap(),
         );

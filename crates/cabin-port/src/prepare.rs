@@ -19,11 +19,15 @@
 //! 4. applies any declared `[[copy]]` placements, copying an
 //!    upstream file to a second in-tree location (e.g. a
 //!    prebuilt config header to its build-time name);
-//! 5. copies the overlay `cabin.toml` into the extracted source
+//! 5. applies any declared `patches` as byte-exact unified diffs,
+//!    then places each patch file itself into the tree at its
+//!    declared `patches/<file>` path (so a published conversion
+//!    ships the patches its provenance declaration names);
+//! 6. copies the overlay `cabin.toml` into the extracted source
 //!    dir, overwriting any in-tree copy that already existed;
-//! 6. cross-checks the overlay's `[package]` identity against
+//! 7. cross-checks the overlay's `[package]` identity against
 //!    the authoritative `port.toml`;
-//! 7. writes the `<source_dir>.ok` completion marker so a future
+//! 8. writes the `<source_dir>.ok` completion marker so a future
 //!    run can reuse the prep without re-extracting.
 //!
 //! A crash between extraction and marker write leaves the
@@ -37,6 +41,7 @@ use cabin_artifact::cache::{extraction_marker_path, partial_dir_sibling, partial
 use cabin_artifact::{SafeExtractOptions, safe_extract_tar_gz, safe_extract_zip};
 use cabin_core::PackageName;
 use cabin_fs::write_atomic;
+use camino::Utf8PathBuf;
 use semver::Version;
 use url::Url;
 
@@ -202,34 +207,48 @@ fn prepare_one(
         &expected_hex,
     );
 
+    // Patch bytes are resolved up front: the plan fingerprint must
+    // cover their *content* (the files live outside the hash-verified
+    // archive, so an edited patch under an unchanged path would
+    // otherwise warm-hit a stale tree), and a missing or oversized
+    // patch file should fail before any extraction work.
+    let patch_plan = resolve_patch_plan(entry)?;
     // The extracted tree is keyed by the archive hash, which does not
-    // capture the `[[copy]]` plan.  Fold the plan into the completion
-    // marker so a recipe whose copy steps changed against an unchanged
-    // archive re-extracts clean instead of reusing a tree that still
-    // holds stale copy targets from the previous plan.
-    let copy_fingerprint = copy_plan_fingerprint(&entry.descriptor.copies);
+    // capture the `[[copy]]` or patch plan.  Fold both into the
+    // completion marker so a recipe whose transformation changed
+    // against an unchanged archive re-extracts clean instead of
+    // reusing a tree built by the previous plan.
+    let plan_fingerprint = plan_fingerprint(&entry.descriptor.copies, &patch_plan);
 
     ensure_archive(entry, &archive_path, sha256, options.frozen)?;
     // `Some(tmp)` when the archive had to be extracted: the rest of
-    // the preparation - copies, overlay, identity cross-check - then
-    // runs against the scratch tree, which is renamed into place only
-    // once the whole pipeline succeeds.  A hostile archive, a broken
-    // `[[copy]]` plan, or a mismatched overlay therefore leaves no
-    // partially prepared port at `source_dir`.  `None` is a warm
-    // cache hit, where those steps run against the existing tree
-    // exactly as before (they are idempotent, and the identity
-    // cross-check keeps re-verifying it).
+    // the preparation - copies, patches, overlay, identity
+    // cross-check - then runs against the scratch tree, which is
+    // renamed into place only once the whole pipeline succeeds.  A
+    // hostile archive, a broken `[[copy]]` plan, an inapplicable
+    // patch, or a mismatched overlay therefore leaves no partially
+    // prepared port at `source_dir`.  `None` is a warm cache hit: the
+    // marker's fingerprint proved the existing tree was produced by
+    // this exact copy + patch plan, so the transformation steps are
+    // NOT re-run - re-copying would revert a patched copy target and
+    // re-patching would fail its context match - and only the overlay
+    // refresh and identity cross-check repeat.
     let scratch = ensure_source(
         entry,
         &archive_path,
         archive_kind,
         &source_dir,
         strip_prefix.as_deref(),
-        &copy_fingerprint,
+        &plan_fingerprint,
         options.frozen,
     )?;
     let prepare_dir = scratch.as_deref().unwrap_or(source_dir.as_path());
-    let prepared = apply_copies(entry, prepare_dir)
+    let transformed = match &scratch {
+        Some(_) => apply_copies(entry, prepare_dir)
+            .and_then(|()| apply_patches(entry, prepare_dir, &patch_plan)),
+        None => Ok(()),
+    };
+    let prepared = transformed
         .and_then(|()| ensure_overlay(entry, prepare_dir))
         .and_then(|()| cross_check_overlay_identity(entry, prepare_dir));
     if let Err(err) = prepared {
@@ -256,7 +275,7 @@ fn prepare_one(
             });
         }
     }
-    write_marker(&source_dir, &copy_fingerprint)?;
+    write_marker(&source_dir, &plan_fingerprint)?;
 
     let overlay_manifest = match &entry.origin {
         PortOrigin::PortDir(dir) => Some(dir.join(&entry.descriptor.overlay.relative_path)),
@@ -357,33 +376,34 @@ fn ensure_source(
     archive_kind: ArchiveKind,
     source_dir: &Path,
     strip_prefix: Option<&str>,
-    copy_fingerprint: &str,
+    plan_fingerprint: &str,
     frozen: bool,
 ) -> Result<Option<PathBuf>, PortError> {
     let marker = extraction_marker_path(source_dir);
     if marker.is_file() && source_dir.join("cabin.toml").is_file() {
         // We trust the marker because:
         // 1. cabin-port wrote the marker only after a full
-        //    successful extraction + overlay copy + identity
-        //    cross-check, so the directory contents matched the
-        //    port descriptor when the marker was written;
+        //    successful extraction + transformation + overlay copy +
+        //    identity cross-check, so the directory contents matched
+        //    the port descriptor when the marker was written;
         // 2. the archive on disk has already been re-verified
         //    by `ensure_archive`, so the source tree we wrote
         //    from it is still correct under the recorded hash;
-        // 3. the marker records the `[[copy]]` plan that produced
-        //    the tree, so a changed plan (which the hash-keyed
-        //    directory cannot distinguish) forces a clean
-        //    re-extract below rather than leaving stale copy
-        //    targets behind.  A missing/legacy empty marker matches
-        //    only the empty (no-copy) plan, so no-copy ports keep
-        //    reusing their cache untouched.
+        // 3. the marker records the `[[copy]]` + patch plan (patch
+        //    content included) that produced the tree, so a changed
+        //    plan (which the hash-keyed directory cannot distinguish)
+        //    forces a clean re-extract below rather than reusing a
+        //    tree built by the previous plan.  A missing/legacy empty
+        //    marker matches only the empty (no-copy, no-patch) plan,
+        //    so untransformed ports keep reusing their cache
+        //    untouched.
         //    The marker exists (checked above), so a read failure is a
         //    real filesystem error, not a cache miss - surface it rather
-        //    than treating an unreadable marker as the empty (no-copy)
+        //    than treating an unreadable marker as the empty
         //    fingerprint, which would silently reuse an unverified tree.  A
         //    legacy empty marker reads as "" and matches the empty plan.
         let recorded = fs::read_to_string(&marker).with_path(&marker)?;
-        if recorded == copy_fingerprint {
+        if recorded == plan_fingerprint {
             return Ok(None);
         }
     }
@@ -461,10 +481,13 @@ fn ensure_source(
 /// validated as non-empty safe relative paths (no `..`, no absolute
 /// component) so neither can escape `source_dir`.
 ///
-/// Run unconditionally and before [`ensure_overlay`] so the overlay
-/// `cabin.toml` always wins on any conflicting `to`.  The operation
-/// is idempotent: `from` comes from the immutable extracted archive,
-/// so re-running on a warm cache reproduces the same `to`.
+/// Run on a freshly extracted scratch tree only (the caller skips it
+/// on a warm cache hit), before [`apply_patches`] and
+/// [`ensure_overlay`] so a later patch sees the copied file and the
+/// overlay `cabin.toml` wins on any conflicting `to`.  It is not
+/// re-run on a warm hit: the plan fingerprint already proved the
+/// cached tree was produced by this exact copy + patch plan, and
+/// re-copying would revert a copy target a later patch modified.
 fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     for step in &entry.descriptor.copies {
         let from = source_dir.join(step.from.as_std_path());
@@ -481,6 +504,231 @@ fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
             fs::create_dir_all(parent).with_path(parent)?;
         }
         fs::copy(&from, &to).with_path(&to)?;
+    }
+    Ok(())
+}
+
+/// One declared patch, resolved to its bytes: from the port
+/// directory for a filesystem recipe, from the embedded table for a
+/// bundled one.
+struct ResolvedPatch {
+    rel_path: Utf8PathBuf,
+    bytes: Vec<u8>,
+}
+
+/// Reject a declared patch path whose `patches/` component or leaf is
+/// a symlink, WITHOUT following links - matching the bundled pipeline
+/// (`build.rs` rejects every symlink via `symlink_metadata`).  An
+/// in-tree link (`patches/x -> ../real.patch`) canonicalizes inside
+/// the port directory and reads a regular file, so containment alone
+/// would accept a recipe shape the bundled path refuses.
+fn reject_symlinked_patch_path(
+    entry: &PortEntry,
+    port_dir: &Path,
+    rel_path: &Utf8PathBuf,
+    path: &Path,
+) -> Result<(), PortError> {
+    let unsafe_patch = || PortError::UnsafePatchPath {
+        path: port_dir.to_path_buf(),
+        value: rel_path.to_string(),
+    };
+    let patches_dir = port_dir.join("patches");
+    match fs::symlink_metadata(&patches_dir) {
+        Ok(meta) if meta.file_type().is_symlink() => return Err(unsafe_patch()),
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(PortError::Fs {
+                path: patches_dir,
+                source,
+            });
+        }
+    }
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(unsafe_patch()),
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let (name, version) = entry.identity();
+            Err(PortError::MissingPatchFile {
+                name,
+                version,
+                path: path.to_path_buf(),
+            })
+        }
+        Err(source) => Err(PortError::Fs {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+/// Resolve every declared patch to its bytes, enforcing presence and
+/// the shared size cap up front.
+fn resolve_patch_plan(entry: &PortEntry) -> Result<Vec<ResolvedPatch>, PortError> {
+    let mut plan = Vec::with_capacity(entry.descriptor.patches.len());
+    for rel_path in &entry.descriptor.patches {
+        let (bytes, display_path) = match &entry.origin {
+            PortOrigin::PortDir(port_dir) => {
+                let path = port_dir.join(rel_path.as_std_path());
+                reject_symlinked_patch_path(entry, port_dir, rel_path, &path)?;
+                // Resolve the real file and require it to stay inside
+                // the port directory.  Canonicalizing follows every
+                // symlink on the way - the leaf `patches/x`, an
+                // intermediate `patches/` that is itself a symlink, or
+                // any `..` - so a link escaping the port directory
+                // (which would read and then publish bytes from
+                // outside it, breaking the `patches/<file>`
+                // containment) is rejected.  Kept as defense in depth
+                // behind the symlink rejection above.
+                let canonical = match path.canonicalize() {
+                    Ok(canonical) => canonical,
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                        let (name, version) = entry.identity();
+                        return Err(PortError::MissingPatchFile {
+                            name,
+                            version,
+                            path,
+                        });
+                    }
+                    Err(source) => return Err(PortError::Fs { path, source }),
+                };
+                let canonical_port = port_dir.canonicalize().with_path(port_dir)?;
+                let meta = fs::metadata(&canonical).with_path(&canonical)?;
+                // Beyond containment and regular-file-ness, require the
+                // declared path to match the on-disk spelling
+                // case-exactly, matching the case-sensitive bundled
+                // lookup (`builtin::lookup`) and a Linux checkout: a
+                // case-insensitive host would otherwise accept
+                // `patches/Fix.patch` for an on-disk `patches/fix.patch`
+                // and prepare a recipe the bundled path and the
+                // verifier reject.
+                let case_exact = cabin_artifact::path_is_case_exact(port_dir, rel_path.as_str())
+                    .with_path(port_dir)?;
+                if !canonical.starts_with(&canonical_port)
+                    || !meta.file_type().is_file()
+                    || !case_exact
+                {
+                    return Err(PortError::UnsafePatchPath {
+                        path: port_dir.clone(),
+                        value: rel_path.to_string(),
+                    });
+                }
+                // Bound the read: an over-cap patch must fail without
+                // first allocating the whole file.
+                if meta.len() > cabin_core::MAX_PATCH_BYTES as u64 {
+                    let (name, version) = entry.identity();
+                    return Err(PortError::PatchTooLarge {
+                        name,
+                        version,
+                        path,
+                        size: usize::try_from(meta.len()).unwrap_or(usize::MAX),
+                        limit: cabin_core::MAX_PATCH_BYTES,
+                    });
+                }
+                (fs::read(&canonical).with_path(&canonical)?, path)
+            }
+            PortOrigin::Builtin(name) => {
+                let pinned = semver::VersionReq::parse(&format!("={}", entry.descriptor.version))
+                    .expect("descriptor.version is a valid SemVer; the `=` requirement parses");
+                let embedded = crate::builtin::lookup(name, &pinned)
+                    .and_then(|recipe| {
+                        recipe
+                            .patches
+                            .iter()
+                            .find(|(path, _)| *path == rel_path.as_str())
+                    })
+                    .map(|(_, bytes)| bytes.to_vec());
+                let Some(bytes) = embedded else {
+                    let (name, version) = entry.identity();
+                    return Err(PortError::MissingPatchFile {
+                        name,
+                        version,
+                        path: PathBuf::from(format!("<builtin>/{rel_path}")),
+                    });
+                };
+                (bytes, PathBuf::from(format!("<builtin>/{rel_path}")))
+            }
+        };
+        if bytes.len() > cabin_core::MAX_PATCH_BYTES {
+            let (name, version) = entry.identity();
+            return Err(PortError::PatchTooLarge {
+                name,
+                version,
+                path: display_path,
+                size: bytes.len(),
+                limit: cabin_core::MAX_PATCH_BYTES,
+            });
+        }
+        plan.push(ResolvedPatch {
+            rel_path: rel_path.clone(),
+            bytes,
+        });
+    }
+    Ok(plan)
+}
+
+/// Apply the resolved patch plan to the extracted tree, then place
+/// each patch file itself at its declared `patches/<file>` path.
+///
+/// Runs after [`apply_copies`] and before [`ensure_overlay`] - the
+/// documented assembly order (extract, strip-prefix, copies, patches)
+/// that the registry's external verifier reproduces.  Materialization
+/// comes after application on purpose: a patch can therefore never
+/// target a declared patch file, on either side.  Unlike copies this
+/// is NOT idempotent (re-applying fails its context match), which is
+/// why the caller only runs it on a freshly extracted scratch tree.
+fn apply_patches(
+    entry: &PortEntry,
+    source_dir: &Path,
+    plan: &[ResolvedPatch],
+) -> Result<(), PortError> {
+    if plan.is_empty() {
+        return Ok(());
+    }
+    let inputs: Vec<cabin_artifact::PatchInput<'_>> = plan
+        .iter()
+        .map(|patch| cabin_artifact::PatchInput {
+            name: patch.rel_path.as_str(),
+            bytes: &patch.bytes,
+        })
+        .collect();
+    cabin_artifact::apply_unified_patches(source_dir, &inputs).map_err(|source| {
+        let (name, version) = entry.identity();
+        PortError::PatchApply {
+            name,
+            version,
+            source: Box::new(source),
+        }
+    })?;
+    for patch in plan {
+        let dest = source_dir.join(patch.rel_path.as_std_path());
+        // A declared patch path that collides with the assembled
+        // tree (shipped by the upstream archive, produced by a copy,
+        // or created by a patch) is a shadow: the verifier excludes
+        // the patch path from its tree comparison and rejects the
+        // version as `upstream_patch_invalid (shadows tree)`.  The
+        // lookup is the engine's case-folded one, not a plain
+        // `exists()`: a case-insensitive host resolves the
+        // destination onto a differently-cased entry that a
+        // case-sensitive host materializes alongside, and packaging
+        // then rejects the case conflict anyway.  Reject here so
+        // preparation fails identically on every platform instead
+        // of producing a package guaranteed to fail packaging or
+        // verification.
+        if cabin_artifact::create_would_conflict(source_dir, patch.rel_path.as_str())
+            .with_path(&dest)?
+        {
+            let (name, version) = entry.identity();
+            return Err(PortError::PatchShadowsTree {
+                name,
+                version,
+                path: patch.rel_path.clone(),
+            });
+        }
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).with_path(parent)?;
+        }
+        fs::write(&dest, &patch.bytes).with_path(&dest)?;
     }
     Ok(())
 }
@@ -586,24 +834,37 @@ fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<
     Ok(())
 }
 
-fn write_marker(source_dir: &Path, copy_fingerprint: &str) -> Result<(), PortError> {
+fn write_marker(source_dir: &Path, plan_fingerprint: &str) -> Result<(), PortError> {
     let marker = extraction_marker_path(source_dir);
-    fs::write(&marker, copy_fingerprint).with_path(&marker)
+    fs::write(&marker, plan_fingerprint).with_path(&marker)
 }
 
-/// Deterministic fingerprint of a port's `[[copy]]` plan, stored in
-/// the completion marker so `ensure_source` can detect a changed plan.
-/// Length-prefixed so no `from`/`to` content can forge an entry
-/// boundary; the empty plan yields the empty string, which matches a
-/// legacy empty marker (so no-copy ports never spuriously re-extract).
-fn copy_plan_fingerprint(copies: &[CopyStep]) -> String {
+/// Deterministic fingerprint of a port's transformation plan -
+/// `[[copy]]` steps plus resolved patches - stored in the completion
+/// marker so `ensure_source` can detect a changed plan.  Copy lines
+/// are length-prefixed so no `from`/`to` content can forge an entry
+/// boundary; patch lines carry the content digest because patch
+/// bytes live outside the hash-verified archive (an edited patch
+/// file must invalidate the tree even when its path is unchanged).
+/// The two line shapes cannot forge each other: copy lines start
+/// with a digit, patch lines with `patch `.  The empty plan yields
+/// the empty string, which matches a legacy empty marker (so
+/// untransformed ports never spuriously re-extract).
+fn plan_fingerprint(copies: &[CopyStep], patches: &[ResolvedPatch]) -> String {
     use std::fmt::Write as _;
+
+    use sha2::Digest as _;
     let mut out = String::new();
     for step in copies {
         let from = step.from.as_str();
         let to = step.to.as_str();
         // Writing to a String is infallible, so the Result is ignored.
         let _ = writeln!(out, "{}:{from} {}:{to}", from.len(), to.len());
+    }
+    for patch in patches {
+        let path = patch.rel_path.as_str();
+        let digest = cabin_core::hash::hex_digest(&sha2::Sha256::digest(&patch.bytes));
+        let _ = writeln!(out, "patch {}:{path} {digest}", path.len());
     }
     out
 }
@@ -700,6 +961,7 @@ mod tests {
                 relative_path: Utf8PathBuf::from("cabin.toml"),
             },
             copies: Vec::new(),
+            patches: Vec::new(),
         }
     }
 
@@ -1324,6 +1586,386 @@ mod tests {
         );
     }
 
+    /// Common scaffold for the patch tests: an archive with one C
+    /// source, a port dir carrying `patches/0001-fix.patch`, and a
+    /// plan wired to them.
+    fn patched_plan(dir: &TempDir, patch_body: &str) -> (PortPlan, PortCache, String) {
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        assert_fs::fixture::ChildPath::new(port_dir.join("patches/0001-fix.patch"))
+            .write_str(patch_body)
+            .unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/zlib.c", "int deflate_broken(void);\n"),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        (plan, cache, hex)
+    }
+
+    const FIX_PATCH: &str = "--- a/zlib.c\n\
+                             +++ b/zlib.c\n\
+                             @@ -1,1 +1,1 @@\n\
+                             -int deflate_broken(void);\n\
+                             +int deflate_fixed(void);\n";
+
+    #[test]
+    fn applies_declared_patches_and_ships_the_patch_file() {
+        let dir = TempDir::new().unwrap();
+        let (plan, cache, _) = patched_plan(&dir, FIX_PATCH);
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        let source_dir = &result.ports[0].source_dir;
+        // The patch applied to the extracted source, and the patch
+        // file itself was placed at its declared path so a published
+        // conversion ships it.
+        assert_eq!(
+            fs::read_to_string(source_dir.join("zlib.c")).unwrap(),
+            "int deflate_fixed(void);\n"
+        );
+        assert_eq!(
+            fs::read_to_string(source_dir.join("patches/0001-fix.patch")).unwrap(),
+            FIX_PATCH
+        );
+    }
+
+    #[test]
+    fn warm_cache_skips_patch_reapplication() {
+        // Patches are not idempotent: a second application would fail
+        // its context match.  A warm hit under an unchanged plan must
+        // therefore skip the transformation steps entirely and keep
+        // the patched bytes.
+        let dir = TempDir::new().unwrap();
+        let (plan, cache, _) = patched_plan(&dir, FIX_PATCH);
+        prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(
+            fs::read_to_string(result.ports[0].source_dir.join("zlib.c")).unwrap(),
+            "int deflate_fixed(void);\n"
+        );
+    }
+
+    #[test]
+    fn warm_cache_keeps_a_patched_copy_target() {
+        // A copy target that a later patch modifies: if the warm path
+        // re-ran the copy steps it would silently revert the patch,
+        // so the fingerprint-matched warm hit must skip copies too.
+        use crate::model::CopyStep;
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        assert_fs::fixture::ChildPath::new(port_dir.join("patches/0001-fix.patch"))
+            .write_str(
+                "--- a/conf.h\n+++ b/conf.h\n@@ -1,1 +1,1 @@\n-#define BROKEN 1\n+#define FIXED 1\n",
+            )
+            .unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/conf.prebuilt", "#define BROKEN 1\n"),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.copies = vec![CopyStep {
+            from: Utf8PathBuf::from("conf.prebuilt"),
+            to: Utf8PathBuf::from("conf.h"),
+        }];
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(
+            fs::read_to_string(result.ports[0].source_dir.join("conf.h")).unwrap(),
+            "#define FIXED 1\n"
+        );
+    }
+
+    #[test]
+    fn changed_patch_content_reextracts_the_tree() {
+        // The plan fingerprint covers patch *content*, so editing the
+        // patch file under an unchanged path invalidates the cached
+        // tree instead of warm-hitting a stale one.
+        let dir = TempDir::new().unwrap();
+        let (plan, cache, _) = patched_plan(&dir, FIX_PATCH);
+        prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+
+        let port_dir = dir.path().join("port");
+        let revised = FIX_PATCH.replace("deflate_fixed", "deflate_final");
+        fs::write(port_dir.join("patches/0001-fix.patch"), &revised).unwrap();
+        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
+        assert_eq!(
+            fs::read_to_string(result.ports[0].source_dir.join("zlib.c")).unwrap(),
+            "int deflate_final(void);\n"
+        );
+        assert_eq!(
+            fs::read_to_string(result.ports[0].source_dir.join("patches/0001-fix.patch")).unwrap(),
+            revised
+        );
+    }
+
+    #[test]
+    fn an_inapplicable_patch_leaves_no_partial_tree() {
+        let dir = TempDir::new().unwrap();
+        let mismatched =
+            "--- a/zlib.c\n+++ b/zlib.c\n@@ -1,1 +1,1 @@\n-int other(void);\n+int fixed(void);\n";
+        let (plan, cache, hex) = patched_plan(&dir, mismatched);
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::PatchApply { .. }), "{err:?}");
+        let source_dir = cache.source_dir(
+            &cabin_core::PackageName::new("zlib").unwrap(),
+            "1.3.1",
+            &hex,
+        );
+        assert!(!source_dir.exists(), "partial port tree left behind");
+        assert!(!extraction_marker_path(&source_dir).exists());
+    }
+
+    #[cfg(unix)]
+    fn patched_plan_with_symlink(
+        dir: &TempDir,
+        wire_symlink: impl FnOnce(&Path),
+    ) -> (PortPlan, PortCache) {
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let secret = dir.path().join("secret.patch");
+        fs::write(
+            &secret,
+            "--- a/zlib.c\n+++ b/zlib.c\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+        )
+        .unwrap();
+        wire_symlink(&port_dir);
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[("zlib-1.3.1/zlib.c", "x\n")],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        (plan, cache)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_patch_file() {
+        // A patch entry that is a symlink out of the port directory
+        // would read (and then publish) external bytes; reject it.
+        let dir = TempDir::new().unwrap();
+        let secret = dir.path().join("secret.patch");
+        let (plan, cache) = patched_plan_with_symlink(&dir, |port_dir| {
+            fs::create_dir_all(port_dir.join("patches")).unwrap();
+            std::os::unix::fs::symlink(&secret, port_dir.join("patches/0001-fix.patch")).unwrap();
+        });
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::UnsafePatchPath { .. }), "{err:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_patches_directory() {
+        // An intermediate symlink - `patches/` itself pointing out of
+        // the port directory - must be caught too, not just a
+        // symlinked leaf file.
+        let dir = TempDir::new().unwrap();
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(
+            outside.join("0001-fix.patch"),
+            "--- a/zlib.c\n+++ b/zlib.c\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+        )
+        .unwrap();
+        let (plan, cache) = patched_plan_with_symlink(&dir, |port_dir| {
+            fs::create_dir_all(port_dir).unwrap();
+            std::os::unix::fs::symlink(&outside, port_dir.join("patches")).unwrap();
+        });
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::UnsafePatchPath { .. }), "{err:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_in_tree_symlinked_patch_file() {
+        // A link whose target stays INSIDE the port directory passes
+        // canonicalize-containment and reads a regular file - but the
+        // bundled pipeline (`build.rs`) rejects every symlink, so the
+        // filesystem path must too or the two accept different
+        // recipe shapes.
+        let dir = TempDir::new().unwrap();
+        let (plan, cache) = patched_plan_with_symlink(&dir, |port_dir| {
+            fs::create_dir_all(port_dir.join("patches")).unwrap();
+            fs::write(
+                port_dir.join("patches/real.patch"),
+                "--- a/zlib.c\n+++ b/zlib.c\n@@ -1,1 +1,1 @@\n-x\n+y\n",
+            )
+            .unwrap();
+            std::os::unix::fs::symlink("real.patch", port_dir.join("patches/0001-fix.patch"))
+                .unwrap();
+        });
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::UnsafePatchPath { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reports_oversized_patch_file() {
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        fs::create_dir_all(port_dir.join("patches")).unwrap();
+        fs::write(
+            port_dir.join("patches/0001-fix.patch"),
+            vec![b'x'; cabin_core::MAX_PATCH_BYTES + 1],
+        )
+        .unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[("zlib-1.3.1/zlib.c", "x\n")],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::PatchTooLarge { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn rejects_a_patch_that_shadows_a_tree_file() {
+        // The upstream archive already ships `patches/0001-fix.patch`;
+        // placing the declared patch there would overwrite it, and the
+        // verifier rejects such a version - so preparation must fail
+        // too, matching the producer/verifier symmetry.
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        assert_fs::fixture::ChildPath::new(port_dir.join("patches/0001-fix.patch"))
+            .write_str(FIX_PATCH)
+            .unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/zlib.c", "int deflate_broken(void);\n"),
+                (
+                    "zlib-1.3.1/patches/0001-fix.patch",
+                    "upstream shipped this\n",
+                ),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::PatchShadowsTree { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn rejects_a_patch_path_that_case_collides_with_the_tree() {
+        // The upstream archive ships `Patches/0001-fix.patch` - a
+        // case-folded collision, not an exact match.  A plain
+        // `exists()` check diverges by host: false on case-sensitive
+        // Linux (both entries materialize, packaging later rejects
+        // the case conflict), true on case-insensitive macOS and
+        // Windows.  The case-folded lookup must fail preparation
+        // identically everywhere.
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        assert_fs::fixture::ChildPath::new(port_dir.join("patches/0001-fix.patch"))
+            .write_str(FIX_PATCH)
+            .unwrap();
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[
+                ("zlib-1.3.1/zlib.h", "// stub\n"),
+                ("zlib-1.3.1/zlib.c", "int deflate_broken(void);\n"),
+                (
+                    "zlib-1.3.1/Patches/0001-fix.patch",
+                    "upstream shipped this\n",
+                ),
+            ],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/0001-fix.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::PatchShadowsTree { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn reports_missing_patch_file_before_extraction() {
+        let dir = TempDir::new().unwrap();
+        let port_dir = dir.path().join("port");
+        lay_overlay(&port_dir, ok_overlay());
+        let (archive, hex) = make_archive(
+            &dir.path().join("downloads"),
+            "zlib-1.3.1.tar.gz",
+            &[("zlib-1.3.1/zlib.h", "// stub\n")],
+        );
+        let mut descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
+        descriptor.patches = vec![Utf8PathBuf::from("patches/absent.patch")];
+        let cache = PortCache::new(dir.path().join("cache"));
+        let plan = PortPlan {
+            entries: vec![PortEntry {
+                descriptor,
+                origin: PortOrigin::PortDir(port_dir),
+                source: PortFetchSource::LocalArchive(archive),
+            }],
+        };
+        let err = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap_err();
+        assert!(matches!(err, PortError::MissingPatchFile { .. }), "{err:?}");
+    }
+
     /// Two port descriptors that intentionally reuse the same
     /// upstream archive - different package identities (different
     /// `[package].name`) shipping different overlays - must
@@ -1369,6 +2011,7 @@ mod tests {
                 relative_path: Utf8PathBuf::from("cabin.toml"),
             },
             copies: Vec::new(),
+            patches: Vec::new(),
         };
 
         let cache = PortCache::new(dir.path().join("cache"));
