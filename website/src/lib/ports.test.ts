@@ -100,6 +100,151 @@ manifest = "cabin.toml"
     }
 });
 
+test("a migrated package directory loads from its committed manifest", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        // A recipe and a migrated package coexist in one tree while
+        // the collapse lands, so the loader must read both shapes.
+        const recipeDir = join(dir, "zlib", "1.3.1");
+        await mkdir(recipeDir, { recursive: true });
+        await writeFile(
+            join(recipeDir, "port.toml"),
+            `[port]
+name = "zlib"
+version = "1.3.1"
+
+[source]
+type = "archive"
+url = "https://example.com/zlib-1.3.1.tar.gz"
+sha256 = "${"a".repeat(64)}"
+
+[overlay]
+manifest = "cabin.toml"
+`,
+        );
+        await writeFile(join(recipeDir, "cabin.toml"), "");
+
+        const packageDir = join(dir, "fmt", "12.2.0");
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+            join(packageDir, "cabin.toml"),
+            `[package]
+name = "cabin-ports/fmt"
+version = "12.2.0"
+
+[package.upstream]
+url = "HTTPS://example.com/fmt-12.2.0.tar.gz"
+sha256 = "${"b".repeat(64)}"
+format = "tar.gz"
+
+[dependencies]
+"cabin-ports/zlib" = "^1.3"
+`,
+        );
+
+        // An auxiliary directory with neither marker is skipped, as
+        // the publisher and the builtin embed skip it.
+        await mkdir(join(dir, "fmt", "scripts"), { recursive: true });
+
+        const records = await loadPortsFromDir(dir);
+        assert.equal(records.length, 2);
+        const fmt = records.find((r) => r.name === "cabin-ports/fmt");
+        assert.ok(fmt, "no fmt record");
+        assert.equal(fmt.version, "12.2.0");
+        // Normalized like the recipe path, and carrying the manifest's
+        // own scoped dependency.
+        assert.equal(
+            fmt.upstream?.archiveUrl,
+            "https://example.com/fmt-12.2.0.tar.gz",
+        );
+        assert.deepEqual(
+            (
+                fmt.metadata as {
+                    dependencies: Array<{ name: string; req: string }>;
+                }
+            ).dependencies,
+            [{ name: "cabin-ports/zlib", req: "^1.3" }],
+        );
+        // The manifest carries no display metadata; those fields stay
+        // null so their UI sections hide.
+        assert.equal(fmt.description, null);
+        assert.equal(fmt.license, null);
+        assert.ok(records.some((r) => r.name === "cabin-ports/zlib"));
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a port spanning both committed shapes fails the build", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const recipeDir = join(dir, "fmt", "12.2.0");
+        await mkdir(recipeDir, { recursive: true });
+        await writeFile(
+            join(recipeDir, "port.toml"),
+            `[port]
+name = "fmt"
+version = "12.2.0"
+
+[source]
+type = "archive"
+url = "https://example.com/f.tar.gz"
+sha256 = "${"a".repeat(64)}"
+
+[overlay]
+manifest = "cabin.toml"
+`,
+        );
+        await writeFile(join(recipeDir, "cabin.toml"), "");
+        const packageDir = join(dir, "fmt", "12.3.0");
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+            join(packageDir, "cabin.toml"),
+            `[package]
+name = "cabin-ports/fmt"
+version = "12.3.0"
+
+[package.upstream]
+url = "https://example.com/f.tar.gz"
+sha256 = "${"b".repeat(64)}"
+format = "tar.gz"
+`,
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /committed both as a recipe and as a package/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a migrated package whose identity disagrees with its directory fails", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const packageDir = join(dir, "fmt", "12.2.0");
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+            join(packageDir, "cabin.toml"),
+            `[package]
+name = "cabin-ports/notfmt"
+version = "12.2.0"
+
+[package.upstream]
+url = "https://example.com/fmt-12.2.0.tar.gz"
+sha256 = "${"b".repeat(64)}"
+format = "tar.gz"
+`,
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /disagrees with its directory identity/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
 test("scopedPackageName rejects names outside the registry grammar", () => {
     assert.equal(scopedPackageName("cJSON", "test"), "cabin-ports/cjson");
     assert.equal(

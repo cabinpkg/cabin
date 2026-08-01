@@ -9,14 +9,20 @@ from 22.18).
 ## Data sources
 
 - Package pages are generated at build time from
-  `../crates/cabin-port/ports/<name>/<version>/port.toml` (curated
-  foundation-port recipes) - no database or API, and no live-registry build
-  dependency. `src/lib/ports.ts` loads one `PackageRecord` per `port.toml`,
-  mirroring the `cabin-port-publish` identity rules: the record name is the
-  scoped registry name `cabin-ports/<lowercase name>`, the version is the
-  upstream version verbatim (packaging corrections are registry revisions,
-  never a version-string suffix), and the committed `[source]` pin (HTTPS
-  URL + SHA-256) surfaces as `upstream` provenance. `src/lib/packages.ts` does grouping,
+  `../crates/cabin-port/ports/<name>/<version>/` (curated foundation
+  ports) - no database or API, and no live-registry build dependency.
+  While the recipe layer collapses into provenance-bearing packages,
+  a version directory carries one of two shapes and `src/lib/ports.ts`
+  loads one `PackageRecord` from either: a recipe (`port.toml` +
+  overlay, the `[source]` pin surfacing as `upstream` provenance) or a
+  migrated package (a single `cabin.toml` whose `[package.upstream]`
+  supplies the same provenance; its display fields are null - the
+  manifest carries none - so those UI sections hide). Both mirror the
+  `cabin-port-publish` identity rules: the record name is the scoped
+  registry name `cabin-ports/<lowercase name>`, the version is the
+  upstream version verbatim (packaging corrections are registry
+  revisions, never a version-string suffix). One port never spans both
+  shapes; directories with neither marker are skipped. `src/lib/packages.ts` does grouping,
   latest-version selection, route generation, and the search index (loader
   memoized: one disk read per build). `src/pages/packages.json.ts` is the
   search-index endpoint.

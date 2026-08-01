@@ -86,9 +86,35 @@ export async function loadPortsFromDir(
 
     for (const portName of await listDirectories(portsDir)) {
         const portDir = join(portsDir, portName);
+        // One port never legitimately spans both committed shapes -
+        // the publisher refuses a half-migrated port, so a page for
+        // one must fail the build too.
+        let sawRecipe = false;
+        let sawPackage = false;
         for (const version of await listDirectories(portDir)) {
+            // Two committed shapes coexist while the recipe layer
+            // collapses: a recipe pair (port.toml + overlay) and a
+            // provenance-bearing package manifest.  A port.toml marks
+            // the former; a bare cabin.toml the latter.
             const portTomlPath = join(portDir, version, "port.toml");
-            const record = await loadPortRecord(portTomlPath);
+            const manifestPath = join(portDir, version, "cabin.toml");
+            const isRecipe = existsSync(portTomlPath);
+            const isPackage = !isRecipe && existsSync(manifestPath);
+            if (!isRecipe && !isPackage) {
+                // Neither marker: an auxiliary directory (the
+                // publisher and the builtin embed skip these too).
+                continue;
+            }
+            sawRecipe = sawRecipe || isRecipe;
+            sawPackage = sawPackage || isPackage;
+            if (sawRecipe && sawPackage) {
+                throw new Error(
+                    `Port "${portName}" is committed both as a recipe and as a package; migrate all of a port's versions together.`,
+                );
+            }
+            const record = isRecipe
+                ? await loadPortRecord(portTomlPath)
+                : await loadPackageRecord(manifestPath, portName, version);
             const owner = scopedOwners.get(record.name);
             if (owner !== undefined && owner !== portName) {
                 throw new Error(
@@ -108,6 +134,132 @@ export async function loadPortsFromDir(
     }
 
     return records;
+}
+
+// A migrated port: the committed manifest already carries the
+// canonical scoped identity and a complete [package.upstream] block,
+// so nothing is converted.  The manifest has no description, license,
+// or homepage fields, so those stay null and their UI sections hide.
+async function loadPackageRecord(
+    manifestPath: string,
+    portName: string,
+    versionDir: string,
+): Promise<PackageRecord> {
+    let raw: string;
+    try {
+        raw = await readFile(manifestPath, "utf-8");
+    } catch (error) {
+        throw new Error(
+            `Failed to read cabin.toml at ${manifestPath}: ${errorMessage(error)}`,
+        );
+    }
+    let parsed: {
+        package?: {
+            name?: string;
+            version?: string;
+            upstream?: { url?: string; sha256?: string };
+        };
+        dependencies?: Record<string, unknown>;
+    };
+    try {
+        parsed = parseToml(raw) as typeof parsed;
+    } catch (error) {
+        throw new Error(
+            `Failed to parse TOML at ${manifestPath}: ${errorMessage(error)}`,
+        );
+    }
+
+    const name = stringOrNull(parsed.package?.name);
+    if (name === null) {
+        throw new Error(`Missing [package].name in ${manifestPath}.`);
+    }
+    // The directory layout is the identity: a moved or mislabeled
+    // directory fails the build instead of publishing a page under a
+    // surprising identity, exactly as the publisher refuses it.
+    const expectedName = scopedPackageName(portName, manifestPath);
+    if (name !== expectedName) {
+        throw new Error(
+            `${manifestPath} declares "${name}", which disagrees with its directory identity "${expectedName}".`,
+        );
+    }
+    const version = stringOrNull(parsed.package?.version);
+    if (version === null) {
+        throw new Error(`Missing [package].version in ${manifestPath}.`);
+    }
+    if (version !== versionDir) {
+        throw new Error(
+            `${manifestPath} declares version ${version}, which disagrees with its "${versionDir}/" directory.`,
+        );
+    }
+
+    const archiveUrl = stringOrNull(parsed.package?.upstream?.url);
+    const sha256 = stringOrNull(parsed.package?.upstream?.sha256);
+    if (archiveUrl === null || sha256 === null) {
+        throw new Error(
+            `Missing [package.upstream] url or sha256 in ${manifestPath}.`,
+        );
+    }
+    const parsedUrl = parseProvenanceUrl(archiveUrl, manifestPath);
+    if (!/^[0-9a-f]{64}$/.test(sha256)) {
+        throw new Error(
+            `[package.upstream].sha256 in ${manifestPath} must be a lowercase 64-character hex digest.`,
+        );
+    }
+
+    const dependencies = Object.entries(parsed.dependencies ?? {}).map(
+        ([depName, spec]) => {
+            if (typeof spec === "string") {
+                return { name: depName, req: spec };
+            }
+            if (typeof spec === "object" && spec !== null) {
+                const req = (spec as { version?: unknown }).version;
+                if (typeof req === "string" && req !== "") {
+                    return { name: depName, req };
+                }
+            }
+            throw new Error(
+                `Dependency "${depName}" in ${manifestPath} has no version requirement.`,
+            );
+        },
+    );
+
+    return {
+        name,
+        version,
+        description: null,
+        edition: null,
+        license: null,
+        metadata: { package: {}, dependencies },
+        published_at: null,
+        readme: null,
+        repository: null,
+        upstream: { version, archiveUrl: parsedUrl.toString(), sha256 },
+    };
+}
+
+// Shared provenance-URL rule: credential-free HTTPS, parsed rather
+// than prefix-matched so this loader accepts whatever the client's
+// URL parser normalizes.
+function parseProvenanceUrl(archiveUrl: string, context: string): URL {
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(archiveUrl);
+    } catch {
+        throw new Error(
+            `The upstream URL in ${context} is not a valid URL: "${archiveUrl}".`,
+        );
+    }
+    if (parsedUrl.protocol !== "https:") {
+        throw new Error(
+            `The upstream URL in ${context} must be an https:// URL; got "${archiveUrl}".`,
+        );
+    }
+    if (parsedUrl.username !== "" || parsedUrl.password !== "") {
+        throw new Error(
+            `The upstream URL in ${context} must not embed credentials.`,
+        );
+    }
+    return parsedUrl;
 }
 
 async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {

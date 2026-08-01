@@ -17,9 +17,10 @@ explain`, the Cargo-inspired interface foundation (`cabin run`, the `cabin-env` 
 check`, `cabin fmt` / `cabin tidy`, `pkg-config`-driven ``system = true` deps`, `CPPFLAGS` /
 `CFLAGS` / `CXXFLAGS` / `LDFLAGS` ingestion, `-j` / `--jobs` build / run / tidy parallelism, `cabin
 new --bin` / `--lib` scaffold parity, `cabin version` plus `cabin --list`, `cabin add` / `cabin
-remove` manifest editing, `cabin clean`, and the curated foundation-port layer - bundled,
-version-pinned recipes for upstream C/C++ libraries under
-[`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/)
+remove` manifest editing, `cabin clean`, and the curated foundation-port layer -
+version-pinned upstream C/C++ libraries under
+[`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/),
+committed either as bundled recipes or as migrated registry packages
 (see [`foundation-ports.md`](foundation-ports.md)).
 
 See [`dependency-kinds.md`](dependency-kinds.md) for the dependency-kind protocol and command
@@ -48,10 +49,14 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   cabin-port/        foundation-port recipe parser + preparation pipeline
-    ports/           curated foundation-port recipes, embedded at build time
+    ports/           curated foundation ports, in two shapes while the
+                     recipe layer collapses into packages
       README.md      foundation-port policy + retirement plan
-      <name>/<version>/  one recipe directory per bundled port
-  cabin-port-publish/ repository tool: converts port recipes into cabin-ports registry packages
+      <name>/<version>/  a recipe (port.toml + overlay), embedded into the
+                     builtin table at build time and preparable offline; or a
+                     migrated package (cabin.toml with [package.upstream]),
+                     published to the registry and deliberately NOT embedded
+  cabin-port-publish/ repository tool: publishes committed ports (recipes or packages) to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -464,10 +469,17 @@ deps in its validator and `cabin-publish` never archives them.  See
 ### `cabin-port-publish`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
-converts every committed foundation-port recipe into an ordinary registry package under the
+publishes every committed foundation port as an ordinary registry package under the
 `cabin-ports` scope (see [`foundation-ports.md`](foundation-ports.md), "Publishing ports as
-registry packages").  It composes existing layers instead of duplicating them: `cabin-port` for
-recipe parsing and the archive/prepare pipeline, `cabin-package` + `cabin-publish` +
+registry packages").  While the recipe layer collapses into provenance-bearing packages, the
+committed tree carries two shapes side by side and the tool handles both: a recipe pair
+(`port.toml` + overlay) is converted, prepared through `cabin-port`, and published under its
+derived scoped identity; a migrated package directory (a single `cabin.toml` with a complete
+`[package.upstream]`) is published verbatim and staged through
+`cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays.  It
+composes existing layers instead of duplicating them: `cabin-port` for
+recipe parsing and the archive/prepare pipeline, `cabin-artifact` for package-shape
+materialization, `cabin-package` + `cabin-publish` +
 `cabin-registry-file` for staging and the temporary preflight registry, the real `cabin` binary
 for the preflight builds, and `cabin-index-http` + `cabin-credentials` + `cabin-registry-api` for
 the remote upload.  The crate must:

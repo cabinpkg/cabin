@@ -393,12 +393,62 @@ For a bundled (`port = true`) dependency the shape is:
 | `foundation-port dependency <name> declared by package <parent> has not been prepared` | Internal invariant violation: the CLI orchestration layer did not run before the workspace loader. |
 | `foundation-port directory <port_dir> does not exist` | The consumer's `port-path = "..."` value does not resolve to an existing directory. |
 
+## Migration to provenance-bearing packages
+
+The recipe tree is collapsing into ordinary package directories: a port
+migrates by replacing its `port.toml` + overlay pair with a single
+`cabin.toml` that carries the canonical scoped identity
+(`cabin-ports/<name>`), the full `[package.upstream]` provenance block
+(pinned archive, checksum, strip prefix, copies, and declared patch
+files), and the same targets the overlay described. Both shapes coexist
+under `crates/cabin-port/ports/` while the migration lands, one port at
+a time:
+
+- A directory with a `port.toml` is a recipe: converted at publish
+  time, embedded into the `cabin-port` crate's builtin table, and
+  preparable offline through `{ port = true }`.
+- A directory with only a `cabin.toml` is a migrated package: published
+  verbatim (nothing is converted), materialized through the same
+  shared pipeline the registry verifier replays, and **no longer
+  embedded** - it is consumed as an ordinary registry dependency, not
+  through the builtin port mechanism.
+
+A migrated port's manifest must agree with its directory layout (name
+and version), publish under the `cabin-ports/` scope, and declare only
+registry dependencies - unconditional ones: no `system = true`, no
+path or workspace sources, and no `cfg(...)` table, because
+publication ordering reads the declared edges without evaluating
+conditions (the publisher refuses each of these with a message
+naming it).  Each migrated version stands alone - published verbatim and
+probed on its own targets - so two versions of one port may expose
+different library targets, which a recipe's versions may not.  The
+preflight probe links the library targets available with the
+package's *default* features: one gated behind a non-default
+`required-features` entry still publishes, but the probe does not
+compile it, because the probe enables no extra features.  A target
+declaring `interface-cxx-standard = "none"` is linked by a C consumer
+and the rest by a C++ one, so a package mixing the two is probed from
+both languages.
+
+The publisher orders publication across both shapes by dependency, and a
+migrated package may depend on a port still committed as a recipe.
+
+The reverse does not hold, and fixes the migration order: a recipe's
+`{ port = true }` dependency resolves only through the bundled
+builtin table, which deliberately no longer carries migrated ports, so
+**a port may not migrate while a recipe still consumes it that way**.
+Migrate such a dependency together with (or after) its recipe
+dependents; the publisher refuses the intermediate state rather than
+letting a consumer's build fail with `UnknownBuiltin`.
+
 ## Publishing ports as registry packages
 
 The repository tool `cabin-port-publish` (`crates/cabin-port-publish`, a `publish = false`
-workspace crate that is not part of the shipped `cabin` binary) converts every committed recipe
-into an ordinary registry package under the **`cabin-ports`** scope.  The committed recipes stay
-the source of truth and keep working as bundled ports; the tool rewrites a copy of each overlay:
+workspace crate that is not part of the shipped `cabin` binary) publishes every committed port as
+an ordinary registry package under the **`cabin-ports`** scope.  A port still committed as a recipe
+is converted (the recipe stays the source of truth and keeps working as a bundled port; the tool
+rewrites a copy of each overlay); a migrated package directory is published verbatim, from the
+manifest committed in it.  For a recipe the rewrite is:
 
 - **Identity.**  `cabin-ports/<lowercase name>` - the registry name grammar is lowercase, so the
   mixed-case recipes normalize coherently (`cJSON` → `cabin-ports/cjson` with target `cjson`,
