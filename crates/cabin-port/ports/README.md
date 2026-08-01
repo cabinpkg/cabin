@@ -101,8 +101,13 @@ entry.
 
 ## Available ports
 
+A **migrated** entry is committed as a package, not a recipe: it is not embedded in the `cabin`
+binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather than through
+`{ port = true }`.
+
 - [`catch2/3.15.1/`](catch2/3.15.1/) - the Catch2 modern C++ test framework (upstream
-  amalgamation, default main plus a `custom-main` feature), version 3.15.1.
+  amalgamation, default main plus a `custom-main` feature), version 3.15.1.  **Migrated**:
+  depend on `"cabin-ports/catch2"`.
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.
 - [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
   (header-only), version 2.6.2.
