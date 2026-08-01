@@ -1,7 +1,8 @@
 # sqlite3-usage
 
 A consumer example for the `cabin-ports/sqlite3` registry package, published from the curated
-[`crates/cabin-port/ports/sqlite3/3.53.2/`](../../crates/cabin-port/ports/sqlite3/3.53.2/) recipe.
+[`crates/cabin-port/ports/sqlite3/3.53.2/`](../../crates/cabin-port/ports/sqlite3/3.53.2/)
+package directory.
 The program links against SQLite (the single-file amalgamation), opens an in-memory database, runs
 a query, and prints the library version and thread-safety mode.
 
@@ -56,6 +57,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::sqlite3_usage_builds_and_runs`) runs only with `--ignored`
-and needs outbound network: it stages the committed recipes into a local file registry through the
+and needs outbound network: it stages the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`, downloading the pinned upstream
 archives on the way.

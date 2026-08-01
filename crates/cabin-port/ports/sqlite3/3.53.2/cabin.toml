@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://www.sqlite.org/2026/sqlite-autoconf-3530200.tar.gz"
+sha256 = "588ad51949419a56ebe81fe56193d510c559eb94c9a57748387860b5d3069316"
+format = "tar.gz"
+strip-prefix = "sqlite-autoconf-3530200"
 [package]
-name = "sqlite3"
+name = "cabin-ports/sqlite3"
 version = "3.53.2"
 
 # SQLite ships as a single-file "amalgamation": sqlite3.c plus the

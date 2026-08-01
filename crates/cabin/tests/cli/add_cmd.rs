@@ -169,7 +169,7 @@ fn add_port_with_features_and_no_default_features() {
         .args([
             "add",
             "--port",
-            "sqlite3",
+            "zlib",
             "--features",
             "single-threaded",
             "--no-default-features",
@@ -198,7 +198,7 @@ fn add_features_splits_commas_and_repeats() {
         .args([
             "add",
             "--port",
-            "sqlite3",
+            "zlib",
             "--features",
             "a,b",
             "--features",

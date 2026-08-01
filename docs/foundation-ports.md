@@ -228,8 +228,10 @@ without an account or token - `cabin login` is only needed to publish; the bundl
 Both forms are mutually exclusive with `path`, `workspace`, and `system`.  Both **do** honor
 `features` and `default-features` - a port's overlay can declare a `[features]` table, and the
 feature resolver threads per-edge feature requests onto the prepared port package exactly as it does
-for a path dependency (so, e.g., `sqlite3 = { port = true, version = "^3", features =
-["single-threaded"] }` enables that feature on the bundled recipe).  `optional` is still rejected on
+for a path dependency.  No port still committed as a recipe declares a `[features]` table today -
+the feature-bearing ports have all migrated to packages - so the live example is the registry
+form (`"cabin-ports/sqlite3" = { version = "=3.53.2", features = ["single-threaded"] }`); a
+recipe that declared one would thread the same way.  `optional` is still rejected on
 port dependencies with a typed error, because the port forms never enter the version resolver that
 optional gating drives.
 
@@ -373,8 +375,9 @@ For a bundled (`port = true`) dependency the shape is:
   byte-exact patch.  Libraries that need configure-time generation, CMake / Meson / Autotools
   driving, or custom build commands are out of scope.
 - Limited feature surface.  The `port` dependency form honors `features` / `default-features` (a
-  port overlay can declare a `[features]` table; see sqlite's `single-threaded` feature), but it
-  does not support optional gating or shared/static variant selection.
+  port overlay can declare a `[features]` table, though no committed recipe does today -
+  `cabin-ports/sqlite3` carries its `single-threaded` feature as a package), but it does not
+  support optional gating or shared/static variant selection.
 
 ## Error catalog
 

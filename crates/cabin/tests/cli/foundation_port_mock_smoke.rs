@@ -49,7 +49,10 @@ const FAKE_SQLITE3_H: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/sqlite3.h");
 const FAKE_SQLITE3_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/sqlite3.c");
-const SQLITE3_OVERLAY: &str = include_str!("../../../cabin-port/ports/sqlite3/3.53.2/cabin.toml");
+// sqlite3 is committed as a package, not a recipe, so its manifest
+// no longer describes a recipe overlay; the fake port carries its own.
+const SQLITE3_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/cabin.toml");
 const SQLITE3_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/main.c");
 
