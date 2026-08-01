@@ -33,7 +33,6 @@ mod diagnostic_registry;
 mod error_rendering;
 mod help_rendering;
 mod manpages;
-mod port_subcommand;
 mod stamp;
 mod term_setup;
 mod version_info;

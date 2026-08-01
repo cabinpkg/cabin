@@ -228,7 +228,8 @@ pub enum PortError {
     },
 
     #[error(
-        "no bundled foundation port named `{name}`; run `cabin port list` to see available names"
+        "no bundled foundation port named `{name}`; the curated foundation ports \
+         publish as `cabin-ports/*` registry packages - depend on one of those instead"
     )]
     UnknownBuiltin { name: String },
 

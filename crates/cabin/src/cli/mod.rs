@@ -299,8 +299,7 @@ pub(crate) enum Command {
     ///
     /// Edits the manifest in place, preserving its existing
     /// formatting and comments.  Use `<scope>/<name>@<req>` to add a
-    /// registry dependency, `--port <name>` to add a bundled
-    /// foundation port, or `--path <dir>` to add a local package.
+    /// registry dependency, or `--path <dir>` to add a local package.
     Add(crate::cli::add::AddArgs),
     /// Remove a dependency from a cabin.toml manifest file.
     ///
@@ -449,8 +448,6 @@ pub(crate) enum Command {
     /// Drives `run-clang-tidy` over the workspace's C/C++
     /// sources using the generated `compile_commands.json`.
     Tidy(crate::cli::tidy::TidyArgs),
-    /// List or inspect bundled foundation-port recipes.
-    Port(crate::port_subcommand::PortArgs),
     /// Generate shell completion scripts for the `cabin` CLI.
     #[command(hide = true)]
     Compgen(CompgenArgs),
@@ -1191,9 +1188,6 @@ pub(crate) fn run(
             .map(|()| ExitCode::SUCCESS),
         Command::Fmt(args) => crate::cli::fmt::fmt(&args, reporter),
         Command::Tidy(args) => crate::cli::tidy::tidy(&args, reporter),
-        Command::Port(args) => {
-            crate::port_subcommand::port(&args, reporter).map(|()| ExitCode::SUCCESS)
-        }
         Command::Compgen(args) => crate::completions::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Mangen(args) => crate::manpages::run(&args).map(|()| ExitCode::SUCCESS),
         Command::Version(args) => {

@@ -1,8 +1,8 @@
 //! `cabin add` - add a dependency to a `cabin.toml` manifest.
 //!
-//! Supports three dependency kinds: registry dependencies
-//! (`<scope>/<name>@<REQ>`), bundled foundation ports
-//! (`--port <name>`), and local path dependencies (`--path <dir>`).
+//! Supports two dependency kinds: registry dependencies
+//! (`<scope>/<name>@<REQ>`) and local path dependencies
+//! (`--path <dir>`).
 //! Registry packages are always `<scope>/<name>`, so a bare name is
 //! rejected with that explanation; the requirement is explicit
 //! because `cabin add` never queries a registry (no name search or
@@ -27,19 +27,10 @@ use crate::cli::term_verbosity::Reporter;
 #[derive(Debug, Args)]
 pub(crate) struct AddArgs {
     /// Dependency to add.  A registry dependency is
-    /// `<scope>/<name>@<REQ>` (both parts required); a `--port`
-    /// dependency is `<NAME>` or `<NAME>@<REQ>`.  With `--path`, the
-    /// name is omitted and taken from the depended-on package.
+    /// `<scope>/<name>@<REQ>` (both parts required).  With `--path`,
+    /// the name is omitted and taken from the depended-on package.
     #[arg(value_name = "DEP")]
     pub dep: Option<String>,
-
-    /// Add a bundled foundation-port dependency (`port = true`).
-    ///
-    /// The version is resolved from the bundled recipe set: without an
-    /// explicit `@<REQ>`, the newest bundled version is pinned with a
-    /// caret requirement.
-    #[arg(long, conflicts_with = "path")]
-    pub port: bool,
 
     /// Add a local path dependency rooted at <PATH> (relative to the
     /// manifest being edited).
@@ -75,8 +66,6 @@ pub(crate) struct AddArgs {
 
 /// The version detail rendered in the `Adding …` status line.
 enum AddStatus {
-    /// A concrete version (foundation ports): `Adding zlib v1.3.1 …`.
-    Version(String),
     /// A registry dependency's declared requirement:
     /// `Adding fmtlib/fmt@^10 …`.  No registry is queried, so there
     /// is no concrete version to report.
@@ -113,8 +102,6 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
             );
         }
         build_path_dependency(path, &manifest_path, features, args.no_default_features)?
-    } else if args.port {
-        build_port_dependency(args, features)?
     } else {
         build_registry_dependency(args, features)?
     };
@@ -125,9 +112,6 @@ pub(crate) fn add(args: &AddArgs, reporter: Reporter) -> Result<()> {
     let table_label = table.header();
     let name = &dep.name;
     match status {
-        AddStatus::Version(version) => {
-            reporter.status("Adding", format_args!("{name} v{version} to {table_label}"));
-        }
         AddStatus::Requirement(req) => {
             reporter.status("Adding", format_args!("{name}@{req} to {table_label}"));
         }
@@ -166,8 +150,8 @@ fn build_registry_dependency(
     if !name.is_scoped() {
         bail!(
             "registry packages are named `<scope>/<name>` (e.g. `fmtlib/fmt`), but `{name}` is a \
-             bare name; pass the package's full scoped name, use `cabin add --port {name}` for a \
-             bundled foundation port, or `cabin add --path <dir>` for a local package",
+             bare name; pass the package's full scoped name, or use \
+             `cabin add --path <dir>` for a local package",
             name = name.as_str()
         );
     }
@@ -189,42 +173,6 @@ fn build_registry_dependency(
         no_default_features: args.no_default_features,
     };
     Ok((dep, AddStatus::Requirement(req_str.to_owned())))
-}
-
-/// Resolve a `--port` dependency: look the name up in the bundled
-/// recipe set, pick the requirement to write, and report the concrete
-/// version selected.
-fn build_port_dependency(
-    args: &AddArgs,
-    features: Vec<String>,
-) -> Result<(NewDependency, AddStatus)> {
-    let spec = args
-        .dep
-        .as_deref()
-        .context("`cabin add --port` requires a port name")?;
-    let (name, req) = split_dep_spec(spec);
-
-    let (version_to_write, resolved) = if let Some(req_str) = req {
-        let req = parse_req(name, req_str)?;
-        let port = cabin_port::builtin::lookup(name, &req).ok_or_else(|| {
-            anyhow::anyhow!("no bundled foundation port `{name}` matches `{req_str}`")
-        })?;
-        (req_str.to_owned(), port.version.to_owned())
-    } else {
-        let port = cabin_port::builtin::lookup(name, &VersionReq::STAR)
-            .ok_or_else(|| anyhow::anyhow!("no bundled foundation port named `{name}`"))?;
-        (format!("^{}", port.version), port.version.to_owned())
-    };
-
-    let dep = NewDependency {
-        name: name.to_owned(),
-        version: Some(version_to_write),
-        port: true,
-        path: None,
-        features,
-        no_default_features: args.no_default_features,
-    };
-    Ok((dep, AddStatus::Version(resolved)))
 }
 
 /// Resolve a `--path` dependency.  The dependency key is always the

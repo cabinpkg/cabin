@@ -1,8 +1,8 @@
 //! Integration tests for `cabin add`.
 //!
-//! Covers registry dependencies (`<scope>/<name>@<REQ>`), foundation
-//! ports (`--port`), and local path dependencies (`--path`); bare
-//! registry names are rejected with the scoped-name explanation.
+//! Covers registry dependencies (`<scope>/<name>@<REQ>`) and local
+//! path dependencies (`--path`); bare registry names are rejected
+//! with the scoped-name explanation.
 //! Status output mirrors `cargo add`'s visible lines.
 
 use super::*;
@@ -25,28 +25,19 @@ fn package_dir() -> TempDir {
     dir
 }
 
+/// `--port` was removed with the builtin-port feature.  Without this
+/// test a later clap change could silently re-accept the flag while the
+/// suite stayed green.
 #[test]
-fn add_port_writes_caret_port_dependency_and_status() {
+fn add_rejects_the_removed_port_flag() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
         .args(["add", "--port", "zlib", "--manifest-path"])
         .arg(&manifest)
         .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Adding zlib v1.3.1 to dependencies",
-        ));
-
-    let body = fs::read_to_string(&manifest).unwrap();
-    assert!(
-        body.contains("[dependencies]"),
-        "expected a [dependencies] table:\n{body}"
-    );
-    assert!(
-        body.contains("zlib = { port = true, version = \"^1.3.1\" }"),
-        "expected caret-pinned port entry:\n{body}"
-    );
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument '--port'"));
 }
 
 #[test]
@@ -57,101 +48,25 @@ fn add_hints_to_link_the_dep_in_a_target() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
-        .args(["add", "--port", "zlib", "--manifest-path"])
+        .args(["add", "fmtlib/fmt@^10", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success()
         .stdout(predicate::str::contains("to link it"))
-        .stdout(predicate::str::contains("deps = [\"zlib\"]"));
+        .stdout(predicate::str::contains("deps = [\"fmtlib/fmt\"]"));
 }
 
 #[test]
-fn add_port_with_explicit_requirement_is_written_verbatim() {
+fn add_dev_targets_dev_dependencies() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
-        .args(["add", "--port", "zlib@^1.3", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .success();
-
-    let body = fs::read_to_string(&manifest).unwrap();
-    assert!(
-        body.contains("zlib = { port = true, version = \"^1.3\" }"),
-        "expected the user's requirement verbatim:\n{body}"
-    );
-}
-
-#[test]
-fn add_port_unknown_recipe_fails() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "definitely-not-a-port", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "no bundled foundation port named `definitely-not-a-port`",
-        ));
-
-    // A failed add must not mutate the manifest.
-    let body = fs::read_to_string(&manifest).unwrap();
-    assert!(
-        !body.contains("[dependencies]"),
-        "manifest changed:\n{body}"
-    );
-}
-
-#[test]
-fn add_port_requirement_with_no_matching_recipe_fails() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "zlib@^99", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "no bundled foundation port `zlib` matches `^99`",
-        ));
-}
-
-#[test]
-fn add_port_without_a_name_fails() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("requires a port name"));
-}
-
-#[test]
-fn add_port_invalid_requirement_fails() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "zlib@not-a-version", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("invalid version requirement"));
-}
-
-#[test]
-fn add_port_dev_targets_dev_dependencies() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "zlib", "--dev", "--manifest-path"])
+        .args(["add", "fmtlib/fmt@^10", "--dev", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Adding zlib v1.3.1 to dev-dependencies",
+            "Adding fmtlib/fmt@^10 to dev-dependencies",
         ));
 
     let body = fs::read_to_string(&manifest).unwrap();
@@ -162,14 +77,13 @@ fn add_port_dev_targets_dev_dependencies() {
 }
 
 #[test]
-fn add_port_with_features_and_no_default_features() {
+fn add_with_features_and_no_default_features() {
     let dir = package_dir();
     let manifest = dir.path().join("cabin.toml");
     cabin()
         .args([
             "add",
-            "--port",
-            "zlib",
+            "fmtlib/fmt@^10",
             "--features",
             "single-threaded",
             "--no-default-features",
@@ -197,8 +111,7 @@ fn add_features_splits_commas_and_repeats() {
     cabin()
         .args([
             "add",
-            "--port",
-            "zlib",
+            "fmtlib/fmt@^10",
             "--features",
             "a,b",
             "--features",
@@ -371,7 +284,7 @@ fn add_into_workspace_without_package_selection_fails() {
         .unwrap();
 
     cabin()
-        .args(["add", "--port", "zlib", "--manifest-path"])
+        .args(["add", "fmtlib/fmt@^10", "--manifest-path"])
         .arg(&manifest)
         .assert()
         .failure()
@@ -392,8 +305,7 @@ fn add_targets_selected_workspace_member() {
     cabin()
         .args([
             "add",
-            "--port",
-            "zlib",
+            "fmtlib/fmt@^10",
             "--package",
             "app",
             "--manifest-path",
@@ -402,18 +314,18 @@ fn add_targets_selected_workspace_member() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Adding zlib v1.3.1 to dependencies",
+            "Adding fmtlib/fmt@^10 to dependencies",
         ));
 
     // The member's manifest is edited; the workspace root is untouched.
     let member = fs::read_to_string(dir.path().join("packages/app/cabin.toml")).unwrap();
     assert!(
-        member.contains("zlib = { port = true"),
+        member.contains("\"fmtlib/fmt\" = \"^10\""),
         "member not edited:\n{member}"
     );
     let root_body = fs::read_to_string(&root).unwrap();
     assert!(
-        !root_body.contains("zlib"),
+        !root_body.contains("fmtlib/fmt"),
         "root must be untouched:\n{root_body}"
     );
 }
