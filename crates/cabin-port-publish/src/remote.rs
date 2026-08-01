@@ -10,8 +10,10 @@
 //! Versions are never skipped based on the public index: pending
 //! (not yet verified) versions are invisible there, so the only
 //! correct dedupe is the registry's own byte-identical idempotency -
-//! `cabin publish` reports a no-op for identical bytes and fails on
-//! divergent ones (published versions are immutable).
+//! `cabin publish` reports a no-op for identical bytes.  Divergent
+//! bytes do not fail here: every upload passes `--new-revision`, so
+//! they land as a new packaging revision of the same immutable
+//! version (see [`publish_all`]).
 //!
 //! A serial bulk publish can outrun the registry's per-token publish
 //! bucket, and every attempt - byte-identical no-ops included -
@@ -43,8 +45,8 @@ const MAX_RETRY_DELAY_SECS: u64 = 300;
 
 /// Upload every conversion, in publication order.
 ///
-/// Every upload passes `--new-revision`: the committed recipes are
-/// the source of truth, so a recipe change that reaches this tool is
+/// Every upload passes `--new-revision`: the committed ports are
+/// the source of truth, so a change that reaches this tool is
 /// the deliberate intent to respin the published version - identical
 /// bytes still no-op through the registry's idempotency, and changed
 /// bytes become a new packaging revision of the same upstream

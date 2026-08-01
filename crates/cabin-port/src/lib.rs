@@ -10,9 +10,9 @@
 //! - the source-preparation pipeline ([`mod@prepare`]).
 //!
 //! Crate boundaries:
-//! - this crate must not perform HTTP - the caller (the
-//!   CLI orchestration layer) downloads archive bytes and
-//!   passes them in as [`PortFetchSource::InMemoryArchive`];
+//! - this crate must not perform HTTP - the caller (the ports
+//!   publisher) downloads archive bytes and passes them in as
+//!   [`PortFetchSource::InMemoryArchive`];
 //! - this crate must not call the resolver, the workspace
 //!   loader, or the build planner;
 //! - extraction safety (decompression-bomb caps, symlink

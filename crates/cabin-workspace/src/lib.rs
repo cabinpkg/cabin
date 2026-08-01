@@ -25,8 +25,8 @@ pub use graph::{
     synthetic_root_identity,
 };
 pub use loader::{
-    PatchedPackageSource, PortPackageSource, PortPolicy, RegistryPackageSource, RegistryPolicy,
-    WorkspaceLoadOptions, load_workspace, load_workspace_skip_ports, load_workspace_with_options,
+    PatchedPackageSource, RegistryPackageSource, RegistryPolicy, WorkspaceLoadOptions,
+    load_workspace, load_workspace_with_options,
 };
 pub use patch::{
     ActivePatch, ActivePatchSet, ConfigPatchInput, PatchManifestLoadError, PatchResolutionError,

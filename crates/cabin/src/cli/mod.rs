@@ -22,7 +22,6 @@ pub(crate) mod login;
 pub(crate) mod metadata;
 pub(crate) mod ninja;
 pub(crate) mod patch;
-pub(crate) mod port;
 pub(crate) mod remove;
 pub(crate) mod run;
 pub(crate) mod source_tooling;
@@ -35,6 +34,7 @@ pub(crate) mod tidy;
 pub(crate) mod tree;
 pub(crate) mod vendor;
 pub(crate) mod version;
+pub(crate) mod workspace_prep;
 pub(crate) mod yank;
 
 mod build;
@@ -1416,10 +1416,8 @@ fn select_single_package_manifest(
         );
     }
     // Package / publish only need to identify the selected
-    // workspace member; foundation-port edges are skipped so the
-    // selection works without network access on workspaces with
-    // HTTP-backed ports that have never been cached.
-    let graph = cabin_workspace::load_workspace_skip_ports(invocation)?;
+    // workspace member.
+    let graph = cabin_workspace::load_workspace(invocation)?;
     let name = &selection.package[0];
     let idx = graph
         .index_of(name)
@@ -1444,10 +1442,9 @@ fn select_single_package_manifest(
 /// fallback shape mirrors `cabin_config::discovery`
 /// so the cache home and config home follow the same rule.
 ///
-/// The cache is content-addressed (e.g. foundation-port archives
-/// land at `<cache>/ports/archives/sha256/<hex>.tar.gz`), so the
-/// user-global default lets two projects on the same machine
-/// share a single download.
+/// The cache is content-addressed (registry archives land at
+/// `<cache>/archives/sha256/<hex>.zip`), so the user-global default
+/// lets two projects on the same machine share a single download.
 pub(crate) fn cache_dir_for(override_dir: Option<&Path>) -> Result<PathBuf> {
     use etcetera::{BaseStrategy, choose_base_strategy};
     let user_cache_home = choose_base_strategy()

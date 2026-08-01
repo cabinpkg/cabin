@@ -110,8 +110,8 @@ pub struct CompileArguments {
     /// Include search directories marked as *system* search paths,
     /// so diagnostics inside their headers are suppressed.  Searched
     /// after [`Self::include_dirs`].  The planner routes third-party
-    /// contributions here (registry packages, foundation ports,
-    /// pkg-config system dependencies).  Spelled `-isystem <dir>` for
+    /// contributions here (registry packages, pkg-config system
+    /// dependencies).  Spelled `-isystem <dir>` for
     /// GNU/Clang; `/external:W0 /external:I <dir>` for MSVC (the
     /// planner only populates this on MSVC-dialect builds when the
     /// detected compiler supports the `/external:` block).

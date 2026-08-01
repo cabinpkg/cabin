@@ -210,12 +210,12 @@ pub(super) fn topo_sort_targets(
 /// bucket (`-I`) and the system bucket (`-isystem` / `/external:I`).
 pub(super) struct CollectedIncludeDirs {
     /// The target's own include dirs plus those contributed by
-    /// local, non-port dependency targets - code the user owns.
+    /// local dependency targets - code the user owns.
     pub(super) user: Vec<Utf8PathBuf>,
     /// Include dirs contributed by third-party dependency targets:
-    /// extracted registry packages and foundation ports.  Their
-    /// headers are upstream code the user cannot fix, so compiles
-    /// mark them as system search paths.
+    /// extracted registry packages.  Their headers are upstream code
+    /// the user cannot fix, so compiles mark them as system search
+    /// paths.
     pub(super) system: Vec<Utf8PathBuf>,
 }
 
@@ -250,15 +250,14 @@ pub(super) fn collect_include_dirs(
             continue;
         };
         if dep_target.kind.is_library_like() {
-            // Provenance decides the bucket: registry archives and
-            // foundation ports are third-party code, while workspace
+            // Provenance decides the bucket: registry archives are
+            // third-party code, while workspace
             // members, plain path deps, and `[patch]`ed packages are
             // the user's own (a patched dependency intentionally
             // surfaces its warnings again).  A dir already collected
             // keeps its first-seen bucket so no path is ever spelled
             // both `-I` and `-isystem` on one command line.
-            let third_party =
-                dep_pkg.kind == cabin_workspace::PackageKind::Registry || dep_pkg.is_port;
+            let third_party = dep_pkg.kind == cabin_workspace::PackageKind::Registry;
             let dep_manifest = promote_dir(&dep_pkg.manifest_dir)?;
             for inc in &dep_target.include_dirs {
                 let abs = dep_manifest.join(inc);

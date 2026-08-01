@@ -167,8 +167,8 @@ fn compile_argv_gnu(compile: &CompileAction) -> Vec<String> {
     if let Some(depfile) = &compile.depfile {
         // `-MD`, not `-MMD`: `-MMD` omits headers found through
         // system include dirs, so an edit under an `-isystem` path
-        // (a foundation port, an extracted registry package, a
-        // pkg-config dir) would stop invalidating rebuilds.
+        // (an extracted registry package, a pkg-config dir) would
+        // stop invalidating rebuilds.
         out.push("-MD".to_owned());
         out.push("-MF".to_owned());
         out.push(depfile.to_string());

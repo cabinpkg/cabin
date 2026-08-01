@@ -1,9 +1,11 @@
-//! Repository tool that converts the curated foundation-port
-//! recipes (`crates/cabin-port/ports/`) into ordinary registry
-//! packages under the `cabin-ports` scope.
+//! Repository tool that publishes the curated foundation ports
+//! (`crates/cabin-port/ports/`) as ordinary registry packages under
+//! the `cabin-ports` scope.  Two committed shapes coexist while the
+//! recipe layer collapses: a recipe is converted, a migrated package
+//! directory is published verbatim.
 //!
 //! The tool has exactly two modes, both of which run the complete
-//! local preflight (materialize every recipe, publish it into a
+//! local preflight (materialize every port, publish it into a
 //! temporary file registry, and build every port against the
 //! generated packages in publication order):
 //!
@@ -45,12 +47,12 @@ pub enum Mode {
 #[derive(Debug)]
 pub struct Options {
     pub mode: Mode,
-    /// `ports/` recipe directory to convert.
+    /// `ports/` directory to publish, in either committed shape.
     pub ports_dir: PathBuf,
     /// Cabin cache root (upstream archives are reused from and
     /// cached into `<cache>/ports`).
     pub cache_dir: PathBuf,
-    /// Scratch root for converted packages, the temporary registry,
+    /// Scratch root for the staged packages, the temporary registry,
     /// and preflight build outputs.
     pub work_dir: PathBuf,
     /// `cabin` binary for the preflight builds.
@@ -80,7 +82,7 @@ pub fn run(options: &Options) -> Result<()> {
 
     let conversions = plan::load_conversions(&options.ports_dir)?;
     println!(
-        "converted {} recipes; publication order: {}",
+        "loaded {} ports; publication order: {}",
         conversions.len(),
         conversions
             .iter()

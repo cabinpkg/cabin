@@ -246,7 +246,7 @@ pub(crate) fn run_ninja(
 /// Inspect Ninja's captured stderr after a non-zero exit and, if
 /// it looks like a recognizable link failure, print a one-shot
 /// `hint:` block to stderr pointing the user at the missing
-/// `deps =` entry (or the un-declared bundled port).
+/// `deps =` entry.
 ///
 /// Quiet on inputs that don't look like link failures - the
 /// diagnostic is purely additive, never replaces the underlying

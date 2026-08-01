@@ -36,7 +36,6 @@ impl FakePortRepo {
             copies: Vec::new(),
             patches: Vec::new(),
             overlay_manifest: None,
-            path_deps: Vec::new(),
         }
     }
 }
@@ -99,7 +98,6 @@ pub struct FakePortBuilder {
     copies: Vec<(String, String)>,
     patches: Vec<(String, String)>,
     overlay_manifest: Option<String>,
-    path_deps: Vec<(String, PathBuf)>,
 }
 
 impl FakePortBuilder {
@@ -139,12 +137,6 @@ impl FakePortBuilder {
     pub fn patch(mut self, file_name: &str, contents: &str) -> Self {
         self.patches
             .push((file_name.to_owned(), contents.to_owned()));
-        self
-    }
-
-    pub fn depends_on_builtin_or_path_port(mut self, name: &str, port: &FakePort) -> Self {
-        self.path_deps
-            .push((name.to_owned(), port.port_dir.clone()));
         self
     }
 
@@ -219,21 +211,10 @@ impl FakePortBuilder {
     }
 
     fn render_overlay_manifest(&self) -> String {
-        let mut manifest = self
-            .overlay_manifest
+        self.overlay_manifest
             .as_ref()
             .unwrap_or_else(|| panic!("fake port `{}` missing overlay_manifest", self.name))
-            .clone();
-        for (name, port_dir) in &self.path_deps {
-            let token = path_dep_token(name);
-            let replacement = toml_escape(&port_dir.to_string_lossy());
-            if manifest.contains(&token) {
-                manifest = manifest.replace(&token, &replacement);
-            } else {
-                manifest = rewrite_builtin_port_dep_to_path(&manifest, name, &replacement);
-            }
-        }
-        manifest
+            .clone()
     }
 }
 
@@ -392,46 +373,6 @@ fn patch_port_toml_url(path: &Path, url: &str) {
         body.replace(ARCHIVE_URL_PLACEHOLDER, &toml_escape(url)),
     )
     .expect("patch fake port URL");
-}
-
-fn path_dep_token(name: &str) -> String {
-    let upper = name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>();
-    format!("__FAKE_PORT_{upper}_PATH__")
-}
-
-fn rewrite_builtin_port_dep_to_path(manifest: &str, name: &str, replacement: &str) -> String {
-    let mut rewritten = String::with_capacity(manifest.len());
-    let mut replaced = false;
-    for line in manifest.lines() {
-        let trimmed = line.trim_start();
-        let indent_len = line.len() - trimmed.len();
-        if !replaced
-            && trimmed.starts_with(&format!("{name} = {{"))
-            && trimmed.contains("port = true")
-        {
-            rewritten.push_str(&line[..indent_len]);
-            writeln!(rewritten, "{name} = {{ port-path = \"{replacement}\" }}")
-                .expect("rewrite fake port dependency");
-            replaced = true;
-        } else {
-            rewritten.push_str(line);
-            rewritten.push('\n');
-        }
-    }
-    assert!(
-        replaced,
-        "fake port overlay did not contain builtin `{name}` dependency to rewrite"
-    );
-    rewritten
 }
 
 fn declared_sources(manifest: &str, target_name: &str) -> Vec<String> {

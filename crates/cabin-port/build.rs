@@ -24,8 +24,7 @@ fn main() {
     let ports_dir = manifest_dir.join("ports");
 
     // Fail loudly if the recipes are missing instead of silently
-    // emitting an empty BUILTIN table, which would leave every
-    // `{ port = true }` dependency unresolvable.
+    // emitting an empty BUILTIN table.
     assert!(
         ports_dir.is_dir(),
         "foundation-port recipes not found at {}; the crate-local ports/ directory is missing.",

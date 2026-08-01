@@ -73,7 +73,6 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// parent directory.  Validation additionally yields
 /// [`PackageError::PatchTableNotPublishable`],
 /// [`PackageError::PathDependencyNotPublishable`],
-/// [`PackageError::PortDependencyNotPublishable`],
 /// [`PackageError::UnresolvedWorkspaceDependency`],
 /// [`PackageError::UnresolvedWorkspaceStandard`],
 /// [`PackageError::SourceEscapesPackageRoot`], or
@@ -131,7 +130,7 @@ pub fn load_and_validate_with_project(
 /// # Errors
 ///
 /// Returns the [`PackageError`] naming the violated rule: unsafe
-/// registry package name, `[patch]` table, path / port / unresolved
+/// registry package name, `[patch]` table, path / unresolved
 /// workspace dependency, unresolved workspace standard marker,
 /// interface-standard contradiction, or a target source / include
 /// directory escaping the package root.
@@ -167,11 +166,6 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
         match &dep.source {
             DependencySource::Path(_) => {
                 return Err(PackageError::PathDependencyNotPublishable {
-                    name: dep.name.as_str().to_owned(),
-                });
-            }
-            DependencySource::Port(_) => {
-                return Err(PackageError::PortDependencyNotPublishable {
                     name: dep.name.as_str().to_owned(),
                 });
             }

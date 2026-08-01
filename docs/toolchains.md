@@ -50,8 +50,8 @@ see [architecture.md](architecture.md) for the IR.
 
 ## System include directories
 
-Include directories contributed by third-party code - extracted registry packages, foundation ports,
-and `pkg-config`-probed `system = true` dependencies - are marked as *system* search paths on every
+Include directories contributed by third-party code - extracted registry packages and
+`pkg-config`-probed `system = true` dependencies - are marked as *system* search paths on every
 consuming compile: `-isystem <dir>` in the GCC/Clang dialect, `/external:W0 /external:I <dir>` in
 the MSVC dialect.  Compilers suppress warnings whose location is inside a system header, so a strict
 warning profile (`-Wall -Wextra -Werror`) keeps gating the user's own code without failing on
@@ -68,8 +68,8 @@ still shadows a stale system-wide copy of the same library.
 Two consequences of the spelling are worth knowing:
 
 - The GCC/Clang depfile block is `-MD -MF <file>` (not `-MMD`, which omits system headers): edits
-  under a port, an extracted registry tree, or a `pkg-config` include dir keep invalidating
-  incremental rebuilds.
+  under an extracted registry tree or a `pkg-config` include dir keep invalidating incremental
+  rebuilds.
 - On MSVC, `/external:I` is version-gated (see the [capability set](#capability-set)); an older `cl`
   falls back to plain `/I` for those directories: the historical command shape without warning
   isolation.
@@ -466,7 +466,7 @@ the example packages on a `windows-2025-vs2026` runner on every change.
   with no stable `/std:` flag are rejected outright - so a `cl` too old for the standard it would
   emit fails with a clear error up front rather than at the first compile.  See
   [Language standards](language-standards.md) for the full tables.
-- **Foundation ports.** The bundled zlib port builds under MSVC (Unix-only defines such as
+- **Foundation ports.** The zlib port builds under MSVC (Unix-only defines such as
   `HAVE_UNISTD_H` are gated behind `cfg(family = "unix")`).
 
 ### Toolchain discovery

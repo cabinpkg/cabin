@@ -167,7 +167,7 @@ A workspace-inherited value (see "Workspace defaults" above) occupies the `[pack
 chain - inheritance adds no new tier, and opting in with `{ workspace = true }` counts as
 declaring.
 
-Registry and foundation-port packages keep their own declared standards: unlike the raw `cflags` /
+Registry packages keep their own declared standards: unlike the raw `cflags` /
 `cxxflags` escape hatches (dropped for registry packages during flag resolution), a typed standard
 is a bounded correctness requirement, so a published `c++20` library still compiles as C++20 inside
 your build.
@@ -326,8 +326,8 @@ declared - the wire carries the declared bounds and nothing else, and every load
 standard fields with their resolved literals (the dependency-marker rewrite shares the same pass -
 see [`package-format.md`](package-format.md)), so packaging an inherited member produces an archive
 byte-identical to a literal-declaring twin.  Standalone `cabin package` on a marker-bearing manifest
-fails with a clear error directing the user to package from inside the workspace, and registry /
-foundation-port manifests that nonetheless carry markers are rejected at load - an external
+fails with a clear error directing the user to package from inside the workspace, and registry
+manifests that nonetheless carry markers are rejected at load - an external
 package's compile standard is never chosen by the consuming workspace.  This is round-trip
 preservation only - the registry build honors the extracted manifest, and resolver-side
 standard-compatibility filtering remains deferred.

@@ -1,5 +1,5 @@
 //! `cabin test` dev-dependency activation: `[dev-dependencies]` of
-//! the selected packages become real graph edges (path, port, and
+//! the selected packages become real graph edges (path and
 //! versioned sources), so `test` targets may link dev-only
 //! packages.  Ordinary commands keep dev deps declaration-only,
 //! and the activation never propagates to transitive deps.
@@ -577,8 +577,8 @@ sources = ["src/applib.cc"]
         .stdout(predicate::str::contains("no test targets found"));
 
     // A *missing* dev path dep directory must not fail the run
-    // either: the no-tests shortcut fires before port discovery
-    // or any dev-aware load touches the dev edge.
+    // either: the no-tests shortcut fires before any dev-aware load
+    // touches the dev edge.
     fs::remove_dir_all(dir.path().join("harness")).unwrap();
     cabin()
         .args(["test", "--allow-no-tests", "--manifest-path"])
@@ -809,101 +809,4 @@ deps = ["devcheck"]
         !ninja.contains("devcheck"),
         "versioned dev dep must stay out of the ordinary build graph: {ninja}"
     );
-}
-
-#[test]
-fn test_links_dev_port_path_dependency_into_test_target() {
-    require_cxx_build_tools();
-    let tmp = TempDir::new().unwrap();
-    let repo = FakePortRepo::new(tmp.path());
-    let checkkit = repo
-        .port("checkkit", "1.0.0")
-        .archive_prefix("checkkit-1.0.0")
-        .file(
-            "include/checkkit.h",
-            "#pragma once\nint checkkit_answer();\n",
-        )
-        .file(
-            "src/checkkit.cc",
-            "#include \"checkkit.h\"\nint checkkit_answer() { return 9; }\n",
-        )
-        .overlay_manifest(
-            r#"[package]
-name = "checkkit"
-version = "1.0.0"
-cxx-standard = "c++17"
-
-[target.checkkit]
-type = "library"
-sources = ["src/checkkit.cc"]
-include-dirs = ["include"]
-"#,
-        )
-        .build();
-    let server = FakeArchiveServer::new().serve(&checkkit.archive).start();
-
-    assert_fs::fixture::ChildPath::new(tmp.path().join("consumer/cabin.toml"))
-        .write_str(
-            r#"[package]
-name = "consumer"
-version = "0.1.0"
-cxx-standard = "c++17"
-
-[dev-dependencies]
-checkkit = { port-path = "../ports/checkkit/1.0.0" }
-
-[target.consumerlib]
-type = "library"
-sources = ["src/lib.cc"]
-
-[target.consumer_test]
-type = "test"
-sources = ["tests/consumer_test.cc"]
-deps = ["checkkit"]
-"#,
-        )
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(tmp.path().join("consumer/src/lib.cc"))
-        .write_str("int consumer_lib() { return 1; }\n")
-        .unwrap();
-    assert_fs::fixture::ChildPath::new(tmp.path().join("consumer/tests/consumer_test.cc"))
-        .write_str(
-            "#include \"checkkit.h\"\nint main() { return checkkit_answer() == 9 ? 0 : 1; }\n",
-        )
-        .unwrap();
-
-    // Ordinary build first: the dev port is declaration-only, so
-    // nothing is downloaded.
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(tmp.path().join("consumer/cabin.toml"))
-        .arg("--build-dir")
-        .arg(tmp.path().join("build-ordinary"))
-        .arg("--cache-dir")
-        .arg(tmp.path().join("cache"))
-        .assert()
-        .success();
-    assert_eq!(
-        server.total_requests(),
-        0,
-        "cabin build must not fetch dev port archives"
-    );
-
-    // `cabin test` activates the dev port: download, build, link,
-    // run.
-    let assertion = cabin()
-        .args(["test", "--manifest-path"])
-        .arg(tmp.path().join("consumer/cabin.toml"))
-        .arg("--build-dir")
-        .arg(tmp.path().join("build"))
-        .arg("--cache-dir")
-        .arg(tmp.path().join("cache"))
-        .assert()
-        .success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
-    assert!(
-        stdout.contains("test consumer:consumer_test ... ok"),
-        "test executable linking the dev port should run: {stdout}"
-    );
-    assert_eq!(server.requests_for(checkkit.archive.name()), 1);
 }

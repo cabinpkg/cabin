@@ -133,10 +133,11 @@ fn write_recipe(
     dir.child("cabin.toml").write_str(overlay).unwrap();
 }
 
-/// Two fake ports: `zlib` (exercises the `z` native target key) and
-/// `libpng` depending on it (exercises the scoped dependency
-/// rewrite and publication ordering).  Returns the ports dir and the
-/// seeded cache dir.
+/// Two fake ports: `zlib`, still a recipe (exercises the `z` native
+/// target key), and `libpng`, already migrated and depending on it -
+/// a cross-shape edge, which orders publication like any other
+/// scoped registry dependency.  Returns the ports dir and the seeded
+/// cache dir.
 fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
     let ports = dir.child("ports");
     let cache = dir.child("cache");
@@ -172,14 +173,15 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
         ),
     ]);
     seed_port_cache(cache.path(), &libpng_bytes, &libpng_hex);
-    write_recipe(
+    write_port_package(
         &ports,
         "libpng",
         "1.6.50",
         &libpng_hex,
-        "[package]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n[dependencies]\nzlib = { port = \
-         true, version = \"^1.3\" }\n\n[target.libpng]\ntype = \"library\"\nsources = \
-         [\"png.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\ndeps = [\"zlib\"]\n",
+        &[],
+        "[dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n\n[target.png]\ntype = \
+         \"library\"\nsources = [\"png.c\"]\ninclude-dirs = [\".\"]\nc-standard = \
+         \"c11\"\ndeps = [\"cabin-ports/zlib\"]\n",
     );
 
     // A third port, already migrated to a provenance-bearing package
@@ -205,6 +207,7 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
         "fastlz",
         "0.5.0",
         &fastlz_hex,
+        &["patches/0001-define-answer.patch"],
         "[target.fastlz]\ntype = \"library\"\nsources = \
          [\"fastlz.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\n",
     );
@@ -229,7 +232,7 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
 fn assert_publication_order(stdout: &str) {
     let Some(order) = stdout
         .lines()
-        .find(|line| line.starts_with("converted "))
+        .find(|line| line.starts_with("loaded "))
         .and_then(|line| line.split_once("publication order: "))
         .map(|(_, order)| order.to_owned())
     else {
@@ -281,8 +284,15 @@ fn write_port_package(
     name: &str,
     version: &str,
     sha256: &str,
+    patches: &[&str],
     body: &str,
 ) {
+    let patches = if patches.is_empty() {
+        String::new()
+    } else {
+        let quoted: Vec<String> = patches.iter().map(|p| format!("\"{p}\"")).collect();
+        format!("patches = [{}]\n", quoted.join(", "))
+    };
     let dir = ports.child(format!("{name}/{version}"));
     dir.child("cabin.toml")
         .write_str(&format!(
@@ -290,7 +300,7 @@ fn write_port_package(
              [package.upstream]\nurl = \
              \"https://ports.invalid/{name}-{version}.tar.gz\"\nsha256 = \
              \"{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \
-             \"{name}-{version}\"\npatches = [\"patches/0001-define-answer.patch\"]\n\n{body}"
+             \"{name}-{version}\"\n{patches}\n{body}"
         ))
         .unwrap();
 }
@@ -769,14 +779,15 @@ fn a_failed_preflight_makes_no_remote_mutation() {
         "#error this port must fail its preflight build\n",
     )]);
     seed_port_cache(cache.path(), &libpng_bytes, &libpng_hex);
-    write_recipe(
+    write_port_package(
         &ports,
         "libpng",
         "1.6.50",
         &libpng_hex,
-        "[package]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n[dependencies]\nzlib = { port = \
-         true, version = \"^1.3\" }\n\n[target.libpng]\ntype = \"library\"\nsources = \
-         [\"png.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\ndeps = [\"zlib\"]\n",
+        &[],
+        "[dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n\n[target.png]\ntype = \
+         \"library\"\nsources = [\"png.c\"]\ninclude-dirs = [\".\"]\nc-standard = \
+         \"c11\"\ndeps = [\"cabin-ports/zlib\"]\n",
     );
 
     let registry = FakeRegistry::start();

@@ -10,9 +10,10 @@
 //! depends on the just-published version, so the build consumes the
 //! registry artifact - archive bytes, checksum, archived manifest,
 //! source materialization - rather than the scratch source tree it
-//! was packaged from.  The probe's target references the dependency
-//! through the bare-package shorthand, proving the published target
-//! set supports it.
+//! was packaged from.  The probe references the dependency the way
+//! the published target set allows: the bare-package shorthand when
+//! the package exposes exactly one library-like target, explicit
+//! `package:target` selectors otherwise.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,9 +32,9 @@ use crate::plan::{PortConversion, PortSource};
 pub struct PreflightRequest<'a> {
     /// Publication-ordered conversions from [`crate::plan`].
     pub conversions: &'a [PortConversion],
-    /// Cabin cache root; upstream archives and prepared trees reuse
-    /// the standard `<cache>/ports` layout, so archives already
-    /// fetched by ordinary builds are reused, not re-downloaded.
+    /// Cabin cache root; upstream archives and materialized trees
+    /// reuse the standard `<cache>/ports` layout, so an archive
+    /// fetched by an earlier run is reused, not re-downloaded.
     pub cache_dir: &'a Path,
     /// Scratch root.  The preflight owns (and clears) exactly the
     /// `run/` directory beneath it, so pointing `--work-dir` at a
@@ -46,10 +47,10 @@ pub struct PreflightRequest<'a> {
 /// Where the preflight left its outputs.
 #[derive(Debug)]
 pub struct PreflightReport {
-    /// Temporary file registry holding every converted package.
+    /// Temporary file registry holding every published package.
     pub registry_dir: PathBuf,
-    /// Scratch package directory per conversion, in publication
-    /// order (parallel to the request's `conversions`).
+    /// Scratch package directory per port, in publication order
+    /// (parallel to the request's `conversions`).
     pub package_dirs: Vec<PathBuf>,
 }
 
@@ -121,7 +122,7 @@ pub enum ArchiveFetch {
     /// test fixtures pre-seed the cache and rely on this so a
     /// checksum or cache-layout regression surfaces as an error
     /// instead of a network attempt against the (unreachable)
-    /// recipe pin.
+    /// upstream pin.
     CacheOnly,
 }
 
@@ -164,12 +165,16 @@ pub fn stage_conversion(
     Ok((package_dir, report))
 }
 
-/// Materialize one conversion: prepare the recipe through the
+/// Materialize one conversion into a staging directory and write the
+/// manifest that publishes with it.  A recipe runs through the
 /// standard port pipeline (checksum, safe extraction, strip-prefix,
-/// `[[copy]]`, overlay identity cross-check), copy the prepared tree
-/// into a scratch directory, and overwrite the manifest with the
-/// converted text.  The committed overlay and the shared port cache
-/// are never mutated.
+/// `[[copy]]`, overlay identity cross-check) and gets the converted
+/// manifest; a migrated package runs the shared
+/// `materialize_upstream` pipeline instead and keeps its committed
+/// manifest verbatim.  Only the recipe-specific conversion and
+/// overlay handling differ - both shapes fetch, verify, materialize,
+/// and patch.  The committed sources and the shared port cache are
+/// never mutated.
 fn materialize(
     conversion: &PortConversion,
     port_cache: &PortCache,

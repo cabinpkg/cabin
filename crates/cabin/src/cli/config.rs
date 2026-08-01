@@ -40,9 +40,7 @@ pub(crate) fn load_effective_config(graph: &PackageGraph) -> Result<EffectiveCon
 /// Discover and merge config files keyed off a manifest path
 /// alone - no [`PackageGraph`] needed.  Used by stages that have
 /// to consult the merged config *before* the workspace loader
-/// can run (e.g. foundation-port preparation needs `[paths]
-/// cache-dir` to point itself at the same archive cache the
-/// later artifact pipeline uses).
+/// can run.
 ///
 /// Equivalence: when called against the same manifest as
 /// `load_effective_config(&graph)`, both produce identical

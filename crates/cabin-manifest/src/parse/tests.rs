@@ -2,7 +2,7 @@ use camino::Utf8PathBuf;
 
 use super::target::parse_target_kind;
 use super::*;
-use cabin_core::{DependencyKind, DependencySource, PortDepSource, TargetKind, ValidationError};
+use cabin_core::{DependencyKind, DependencySource, TargetKind, ValidationError};
 
 fn parse_project(input: &str) -> Package {
     parse_manifest_str(input)
@@ -2252,6 +2252,49 @@ fn ignore_interface_standard_on_system_dependency_is_rejected() {
     }
 }
 
+/// The builtin-port feature is gone: `port = true` is no longer a
+/// recognized dependency field, so it must surface the generic
+/// unknown-field diagnostic rather than a port-specific one.  Without
+/// this test the removal would be unguarded - a later `RawDependencyTable`
+/// field could silently re-accept the syntax.
+#[test]
+fn port_true_is_rejected_as_an_unknown_field() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port = true, version = "^1.3" }
+        "#;
+    let err = parse_project_err(manifest);
+    let rendered = format!("{err}");
+    assert!(
+        rendered.contains("port"),
+        "error should name the offending field: {rendered}"
+    );
+}
+
+/// Companion to [`port_true_is_rejected_as_an_unknown_field`] for the
+/// filesystem form.
+#[test]
+fn port_path_is_rejected_as_an_unknown_field() {
+    let manifest = r#"
+            [package]
+            name = "app"
+            version = "0.1.0"
+
+            [dependencies]
+            zlib = { port-path = "../ports/zlib/1.3.1" }
+        "#;
+    let err = parse_project_err(manifest);
+    let rendered = format!("{err}");
+    assert!(
+        rendered.contains("port-path"),
+        "error should name the offending field: {rendered}"
+    );
+}
+
 #[test]
 fn unsupported_dependency_section_yields_toml_error() {
     // `[test-dependencies]` is not a recognized top-level
@@ -2945,448 +2988,6 @@ fn workspace_dependency_kind_is_preserved() {
     let deps = deps_of_kind(&package, DependencyKind::Dev);
     assert_eq!(deps.len(), 1);
     assert_eq!(deps[0].source, DependencySource::Workspace);
-}
-
-// ---------------------------------------------------------------
-// Foundation-port dependency form
-// ---------------------------------------------------------------
-
-#[test]
-fn parses_port_dependency() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1" }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    assert_eq!(deps.len(), 1);
-    assert_eq!(deps[0].name.as_str(), "zlib");
-    match &deps[0].source {
-        DependencySource::Port(PortDepSource::Path(p)) => {
-            assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
-        }
-        other => panic!("expected Port, got {other:?}"),
-    }
-}
-
-/// Shared body for the `rejects_port_combined_with_*` cases: a
-/// `port-path` dependency combined with `extra` must surface
-/// [`ManifestError::PortDependencyHasOtherSource`] naming
-/// `conflicting_field`.
-fn assert_port_rejects_other_source(extra: &str, conflicting_field: &str) {
-    let err = parse_project_err(&format!(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = {{ port-path = "../ports/zlib/1.3.1", {extra} }}
-        "#
-    ));
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, conflicting_field, "case `{conflicting_field}`");
-        }
-        other => panic!(
-            "case `{conflicting_field}`: expected PortDependencyHasOtherSource, got {other:?}"
-        ),
-    }
-}
-
-#[test]
-fn rejects_port_combined_with_path() {
-    assert_port_rejects_other_source(r#"path = "../zlib""#, "path");
-}
-
-#[test]
-fn rejects_port_combined_with_version() {
-    assert_port_rejects_other_source(r#"version = "1.0""#, "version");
-}
-
-#[test]
-fn rejects_port_combined_with_workspace() {
-    assert_port_rejects_other_source("workspace = true", "workspace");
-}
-
-#[test]
-fn rejects_port_combined_with_system() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", system = true, version = "1.0" }
-        "#,
-    );
-    // The system router runs first and surfaces a clear
-    // SystemConflictsWith for the `port-path` field.
-    match err {
-        ManifestError::SystemConflictsWith { field, .. } => {
-            assert_eq!(field, "port-path");
-        }
-        other => panic!("expected SystemConflictsWith on `port-path`, got {other:?}"),
-    }
-}
-
-#[test]
-fn port_path_dependency_honors_features() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", features = ["x"], default-features = false }
-        "#,
-    );
-    let dep = package
-        .dependencies
-        .iter()
-        .find(|d| d.name.as_str() == "zlib")
-        .expect("zlib port dep");
-    assert_eq!(dep.features, vec!["x".to_owned()]);
-    assert!(!dep.default_features);
-}
-
-#[test]
-fn port_builtin_dependency_honors_features() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            sqlite3 = { port = true, version = "^3", features = ["single-threaded"] }
-        "#,
-    );
-    let dep = package
-        .dependencies
-        .iter()
-        .find(|d| d.name.as_str() == "sqlite3")
-        .expect("sqlite3 port dep");
-    assert_eq!(dep.features, vec!["single-threaded".to_owned()]);
-    assert!(dep.default_features);
-}
-
-#[test]
-fn rejects_port_with_empty_feature_name() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", features = [""] }
-        "#,
-    );
-    assert!(
-        matches!(err, ManifestError::EmptyDependencyFeatureName { .. }),
-        "expected EmptyDependencyFeatureName, got {err:?}"
-    );
-}
-
-#[test]
-fn rejects_port_with_optional() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", optional = true }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "optional");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
-}
-
-#[test]
-fn treats_optional_false_as_absent_on_port_path_dep() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", optional = false }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    assert_eq!(deps.len(), 1);
-    assert!(!deps[0].optional);
-    match &deps[0].source {
-        DependencySource::Port(PortDepSource::Path(p)) => {
-            assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
-        }
-        other => panic!("expected port path source, got {other:?}"),
-    }
-}
-
-#[test]
-fn parses_builtin_port_with_version_requirement() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3" }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    assert_eq!(deps.len(), 1);
-    assert_eq!(deps[0].name.as_str(), "zlib");
-    match &deps[0].source {
-        DependencySource::Port(PortDepSource::Builtin { name, version_req }) => {
-            assert_eq!(name.as_str(), "zlib");
-            assert_eq!(version_req.to_string(), "^1.3");
-        }
-        other => panic!("expected Builtin, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_without_version() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true }
-        "#,
-    );
-    assert!(
-        matches!(err, ManifestError::PortDependencyMissingVersion { ref name } if name == "zlib"),
-        "expected PortDependencyMissingVersion, got {err:?}"
-    );
-}
-
-#[test]
-fn rejects_port_path_with_version() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1", version = "^1.3" }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "version");
-        }
-        other => panic!("expected PortDependencyHasOtherSource for version, got {other:?}"),
-    }
-}
-
-#[test]
-fn parses_path_port_dependency_via_port_path_field() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1" }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    assert_eq!(deps.len(), 1);
-    match &deps[0].source {
-        DependencySource::Port(PortDepSource::Path(p)) => {
-            assert_eq!(p, &Utf8PathBuf::from("../ports/zlib/1.3.1"));
-        }
-        other => panic!("expected Path, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_combined_with_port_path() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, port-path = "../ports/zlib/1.3.1" }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "port-path");
-        }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_combined_with_path() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", path = "../zlib" }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "path");
-        }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_combined_with_workspace() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", workspace = true }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyHasOtherSource { conflicting, .. } => {
-            assert_eq!(conflicting, "workspace");
-        }
-        other => panic!("expected PortDependencyHasOtherSource, got {other:?}"),
-    }
-}
-
-#[test]
-fn port_true_honors_features_and_default_features() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", features = ["x"], default-features = false }
-        "#,
-    );
-    let dep = package
-        .dependencies
-        .iter()
-        .find(|d| d.name.as_str() == "zlib")
-        .expect("zlib port dep");
-    assert_eq!(dep.features, vec!["x".to_owned()]);
-    assert!(!dep.default_features);
-}
-
-#[test]
-fn rejects_port_true_combined_with_optional() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", optional = true }
-        "#,
-    );
-    match err {
-        ManifestError::PortDependencyUnsupportedOption { conflicting, .. } => {
-            assert_eq!(conflicting, "optional");
-        }
-        other => panic!("expected PortDependencyUnsupportedOption, got {other:?}"),
-    }
-}
-
-#[test]
-fn treats_optional_false_as_absent_on_builtin_port_dep() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3", optional = false }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    assert_eq!(deps.len(), 1);
-    assert!(!deps[0].optional);
-    match &deps[0].source {
-        DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-            assert_eq!(name.as_str(), "zlib");
-        }
-        other => panic!("expected builtin port source, got {other:?}"),
-    }
-}
-
-#[test]
-fn rejects_port_true_with_invalid_version() {
-    let err = parse_project_err(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "not-a-version" }
-        "#,
-    );
-    match err {
-        ManifestError::InvalidDependencyRequirement {
-            name, requirement, ..
-        } => {
-            assert_eq!(name, "zlib");
-            assert_eq!(requirement, "not-a-version");
-        }
-        other => panic!("expected InvalidDependencyRequirement, got {other:?}"),
-    }
-}
-
-#[test]
-fn treats_port_false_as_absent() {
-    let package = parse_project(
-        r#"
-            [package]
-            name = "consumer"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = false, path = "../zlib" }
-        "#,
-    );
-    let deps = deps_of_kind(&package, DependencyKind::Normal);
-    match &deps[0].source {
-        DependencySource::Path(p) => assert_eq!(p, &Utf8PathBuf::from("../zlib")),
-        other => panic!("expected Path (port = false is treated as absent), got {other:?}"),
-    }
 }
 
 // ---------------------------------------------------------------

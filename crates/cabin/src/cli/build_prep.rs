@@ -197,31 +197,17 @@ pub(crate) fn prepare_workspace(
     // First-pass load: needed to detect versioned dependencies
     // before we know whether we have to fetch anything.  This load
     // also surfaces manifest / workspace errors before we touch
-    // the index.  Under dev activation, ports referenced from any
-    // workspace member's dev-deps must participate in discovery so
-    // the second-pass loader can resolve them.
+    // the index.
     let offline = super::config::effective_offline(args.offline)?;
     let workspace_selection = super::build_workspace_selection(args.workspace_selection);
     let include_dev = matches!(args.dev, DevActivation::SelectedPrimaries);
-    let super::port::WorkspacePrep {
-        mut port_sources,
+    let super::workspace_prep::WorkspacePrep {
         effective_config,
         // Patched names are excluded from the closure / artifact
         // pipeline because they ship from a local working copy.
         active_patches,
         graph: initial_graph,
-        port_cache,
-        ..
-    } = super::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        args.cache_dir,
-        offline,
-        args.frozen,
-        include_dev,
-        &workspace_selection,
-        args.no_patches,
-        Some(reporter),
-    )?;
+    } = super::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     let resolved_index_source =
         super::config::resolve_index_source(args.index_path, args.index_url, &effective_config)?;
@@ -264,10 +250,8 @@ pub(crate) fn prepare_workspace(
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
                 patches: &patched_sources,
-                ports: &port_sources,
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &dev_for,
-                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
             },
         )?;
         let probe_selection =
@@ -359,62 +343,19 @@ pub(crate) fn prepare_workspace(
         )
     };
 
-    // Port discovery seeds only the patches the local selected
-    // closure names, so a transitively-activated fork's port deps
-    // are not prepared yet - and the strict reload below would
-    // fail them with `PortDependencyNotPrepared`.  Prepare exactly
-    // the activated forks' ports late; re-walking an
-    // already-seeded fork is a cache hit.
-    let late_port_seeds: Vec<std::path::PathBuf> = active_patches
-        .iter()
-        .filter(|patch| activated_patches.contains(patch.name.as_str()))
-        .map(|patch| patch.manifest_path.clone())
-        .collect();
-    if !late_port_seeds.is_empty() {
-        let late_prepared = super::port::discover_and_prepare(super::port::PortPrepInputs {
-            seeds: &late_port_seeds,
-            cache: &port_cache,
-            offline,
-            frozen: args.frozen,
-            // Activated patches are dependencies, never selected
-            // primaries, so their dev edges stay declaration-only in
-            // the reload (`dev_for` holds selected primaries alone) -
-            // preparing dev-only ports here would download material
-            // nothing loads and could fail an offline/frozen run.
-            include_dev: false,
-        })?;
-        // A port the original selected closure also reaches is a
-        // cache-hit re-walk whose registry deps already joined
-        // resolution - only genuinely new ports face the
-        // late-versioned-dep refusal.
-        let new_ports: Vec<&cabin_port::prepare::PreparedPort> = late_prepared
-            .iter()
-            .filter(|prepared| {
-                let source = super::port::workspace_source(prepared);
-                !port_sources
-                    .iter()
-                    .any(|existing| existing.manifest_path == source.manifest_path)
-            })
-            .collect();
-        super::port::refuse_late_versioned_port_deps(new_ports.iter().copied())?;
-        for prepared in new_ports {
-            port_sources.push(super::port::workspace_source(prepared));
-        }
-    }
-
     // Re-load the workspace, this time stitching in the resolved
     // registry packages plus active patches.  When both lists are
     // empty this is identical to the first-pass load.
     //
     // `strict_packages` controls which packages require their
-    // versioned / port deps to be satisfied.  The set is the
+    // versioned deps to be satisfied.  The set is the
     // selection's closure plus every package the resolver fetched
     // into `registry`.  The closure alone misses any package
     // reached only after resolution - in particular, transitive
     // registry packages a patched manifest pulled in via a version
     // dep that did not exist on the upstream package.  Without the
     // registry extension those packages would parent a
-    // missing-registry / missing-port edge under the scoped policy
+    // missing-registry edge under the scoped policy
     // and silently drop it, leaving the build to fail later with a
     // less actionable diagnostic.  Activated patched names are
     // folded in explicitly: a transitively-discovered patch is
@@ -428,22 +369,19 @@ pub(crate) fn prepare_workspace(
     // their dev-dependencies activated* - otherwise a transitive
     // path-dep that only becomes an active graph edge through a
     // dev edge would be missing from the strict set, and its
-    // broken port edge would silently drop instead of surfacing
-    // the typed `PortDependencyNotPrepared` / `PortDirectoryMissing`
-    // diagnostic.  The pre-resolution probe graph carries dev
-    // edges but not the resolver's registry, so the closure walks
-    // a permissive dev-aware skeleton loaded with the full
-    // registry + active patches + prepared ports instead.
+    // broken registry edge would silently drop instead of
+    // surfacing the typed diagnostic.  The pre-resolution probe
+    // graph carries dev edges but not the resolver's registry, so
+    // the closure walks a permissive dev-aware skeleton loaded with
+    // the full registry + active patches instead.
     let mut strict_packages: BTreeSet<String> = if include_dev {
         let dev_aware_skeleton = cabin_workspace::load_workspace_with_options(
             &manifest_path,
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &registry,
                 patches: &patched_sources,
-                ports: &port_sources,
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &dev_for,
-                port_policy: cabin_workspace::PortPolicy::TolerateExcept(&BTreeSet::new()),
             },
         )?;
         let dev_aware_selection =
@@ -459,10 +397,8 @@ pub(crate) fn prepare_workspace(
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &registry,
             patches: &patched_sources,
-            ports: &port_sources,
             registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &dev_for,
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?;
 
@@ -489,8 +425,7 @@ pub(crate) fn prepare_workspace(
     )?;
     // The exact links-uniqueness check.  The final graph is the
     // only place every claimant exists as a loaded manifest -
-    // fetched registry packages, activated forks, and the
-    // late-prepared ports the resolution-time checks cannot see -
+    // fetched registry packages and activated forks alike -
     // and this feature resolution applies the dependents' real
     // edge requests, which those earlier checks only approximate
     // conservatively (see `activated_fork_claims`).  The artifact
@@ -1076,7 +1011,6 @@ mod tests {
                 manifest_path: PathBuf::from("/tmp/cabin.toml"),
                 kind,
                 deps: Vec::new(),
-                is_port: false,
             }
         }
 

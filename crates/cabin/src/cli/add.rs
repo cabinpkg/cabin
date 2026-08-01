@@ -167,7 +167,6 @@ fn build_registry_dependency(
     let dep = NewDependency {
         name: name.as_str().to_owned(),
         version: Some(req_str.to_owned()),
-        port: false,
         path: None,
         features,
         no_default_features: args.no_default_features,
@@ -208,7 +207,6 @@ fn build_path_dependency(
     let dep = NewDependency {
         name: package.name.as_str().to_owned(),
         version: None,
-        port: false,
         path: Some(path_str),
         features,
         no_default_features,

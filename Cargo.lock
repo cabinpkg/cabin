@@ -705,7 +705,6 @@ dependencies = [
  "cabinpkg-core",
  "cabinpkg-fs",
  "cabinpkg-manifest",
- "cabinpkg-port",
  "camino",
  "miette",
  "semver",

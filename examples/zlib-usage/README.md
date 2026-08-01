@@ -43,6 +43,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::zlib_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports tree into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.

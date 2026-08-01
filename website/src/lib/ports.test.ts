@@ -12,7 +12,7 @@ import {
     scopedPackageName,
 } from "./ports.ts";
 
-test("every committed recipe loads as a canonical cabin-ports identity", async () => {
+test("every committed port loads as a canonical cabin-ports identity", async () => {
     const records = await loadPortsAsPackageRecords();
     assert.ok(records.length > 0);
     const identities = new Set(
@@ -44,7 +44,7 @@ test("mixed-case port directories lowercase like the publisher", async () => {
     assert.ok(names.includes("cabin-ports/zlib"));
 });
 
-test("overlay port dependencies surface as scoped registry dependencies", async () => {
+test("a migrated package's scoped dependencies reach the package page", async () => {
     const records = await loadPortsAsPackageRecords();
     const libpng = records.find((record) =>
         record.name.startsWith("cabin-ports/libpng"),
@@ -56,6 +56,120 @@ test("overlay port dependencies surface as scoped registry dependencies", async 
     assert.deepEqual(metadata.dependencies, [
         { name: "cabin-ports/zlib", req: "^1.3" },
     ]);
+});
+
+test("a recipe overlay's registry dependencies read in both spellings", async () => {
+    // The publisher passes the overlay's dependency table through
+    // unrewritten, so the page must read exactly what will publish:
+    // the bare requirement string and the table with a `version` key.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const recipeDir = join(dir, "apng", "1.0.0");
+        await mkdir(recipeDir, { recursive: true });
+        await writeFile(
+            join(recipeDir, "port.toml"),
+            `[port]
+name = "apng"
+version = "1.0.0"
+
+[source]
+type = "archive"
+url = "https://example.com/apng-1.0.0.tar.gz"
+sha256 = "${"a".repeat(64)}"
+
+[overlay]
+manifest = "cabin.toml"
+`,
+        );
+        await writeFile(
+            join(recipeDir, "cabin.toml"),
+            `[package]
+name = "apng"
+version = "1.0.0"
+
+[dependencies]
+"cabin-ports/zlib" = "^1.3"
+"cabin-ports/fmt" = { version = "^12", default-features = false }
+`,
+        );
+
+        const records = await loadPortsFromDir(dir);
+        assert.equal(records.length, 1);
+        const metadata = records[0].metadata as {
+            dependencies: Array<{ name: string; req: string }>;
+        };
+        assert.deepEqual(metadata.dependencies, [
+            { name: "cabin-ports/zlib", req: "^1.3" },
+            { name: "cabin-ports/fmt", req: "^12" },
+        ]);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a blank dependency requirement is refused in both shapes", async () => {
+    // Cabin's manifest parser refuses an empty requirement, so a page
+    // must never render one: the publisher would reject the manifest
+    // the page claims to describe.
+    for (const [shape, files] of [
+        [
+            "recipe",
+            {
+                "port.toml": `[port]
+name = "apng"
+version = "1.0.0"
+
+[source]
+type = "archive"
+url = "https://example.com/apng-1.0.0.tar.gz"
+sha256 = "${"a".repeat(64)}"
+
+[overlay]
+manifest = "cabin.toml"
+`,
+                "cabin.toml": `[package]
+name = "apng"
+version = "1.0.0"
+
+[dependencies]
+"cabin-ports/zlib" = "   "
+`,
+            },
+        ],
+        [
+            "package",
+            {
+                "cabin.toml": `[package]
+name = "cabin-ports/apng"
+version = "1.0.0"
+
+[package.upstream]
+url = "https://example.com/apng-1.0.0.tar.gz"
+sha256 = "${"a".repeat(64)}"
+format = "tar.gz"
+
+[dependencies]
+"cabin-ports/zlib" = { version = "" }
+`,
+            },
+        ],
+    ] as Array<[string, Record<string, string>]>) {
+        const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+        try {
+            const portDir = join(dir, "apng", "1.0.0");
+            await mkdir(portDir, { recursive: true });
+            for (const [file, body] of Object.entries(files)) {
+                await writeFile(join(portDir, file), body);
+            }
+            await assert.rejects(
+                () => loadPortsFromDir(dir),
+                /declares no version requirement/,
+                `${shape} shape must refuse a blank requirement`,
+            );
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    }
 });
 
 test("recipes publish the upstream version verbatim, sidecars ignored", async () => {
@@ -144,7 +258,7 @@ format = "tar.gz"
         );
 
         // An auxiliary directory with neither marker is skipped, as
-        // the publisher and the builtin embed skip it.
+        // the publisher skips it.
         await mkdir(join(dir, "fmt", "scripts"), { recursive: true });
 
         const records = await loadPortsFromDir(dir);

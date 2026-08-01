@@ -131,8 +131,7 @@ deps = ["demo", "cabin-ports/googletest"]
 ```
 
 Every dependency source form works under `[dev-dependencies]`: versioned registry requirements
-(resolved and fetched like normal deps, and recorded in the lockfile), `path` deps, and foundation
-ports (`port = true` / `port-path`).  The
+(resolved and fetched like normal deps, and recorded in the lockfile) and `path` deps.  The
 [`unit-test-gtest`](https://github.com/cabinpkg/cabin/tree/main/examples/unit-test-gtest) example
 links the `cabin-ports/googletest` registry package from `[dev-dependencies]` this way.
 

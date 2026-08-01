@@ -258,14 +258,13 @@ fn workspace_basic_runs_selected_package() {
 }
 
 // Real-upstream registry examples are external-network smoke tests:
-// each one stages the committed `crates/cabin-port/ports/` recipes into
-// a local file registry through the publisher pipeline (one shared
-// staging per test process, downloading the pinned upstream archives)
-// and consumes the published `cabin-ports/*` packages from it.  They
-// intentionally do not run in default PR/push CI; the required CI
-// exercises the same consumption path hermetically via
-// `cli/registry_ports.rs`, and the builtin-port machinery via the
-// loopback tests under `cli/foundation_port_*`.
+// each one stages the committed `crates/cabin-port/ports/` tree - both
+// committed shapes - into a local file registry through the publisher
+// pipeline (one shared staging per test process, downloading the
+// pinned upstream archives) and consumes the published
+// `cabin-ports/*` packages from it.  They intentionally do not run in
+// default PR/push CI; the required CI exercises the same consumption
+// path hermetically via `cli/registry_ports.rs`.
 #[test]
 #[ignore = "requires external network"]
 fn zlib_usage_builds_and_runs() {

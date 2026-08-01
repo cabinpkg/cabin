@@ -29,10 +29,7 @@ pub use foundation_port_smoke::{
     PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,
 };
 #[allow(unused_imports)]
-pub use port_schema::{
-    assert_builtin_port_bundled_and_parses, assert_tar_gz_source, builtin_overlay,
-    load_real_port_and_assert_schema,
-};
+pub use port_schema::{assert_tar_gz_source, load_real_port_and_assert_schema};
 #[allow(unused_imports)]
 pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
 
@@ -197,9 +194,8 @@ pub fn cabin() -> Command {
         "CABIN_CACHE_DIR",
         // `CABIN_CACHE_HOME` redirects the per-user cache home;
         // strip it so a developer's environment can't bleed into
-        // tests that observe cache state.  Tests that exercise
-        // foundation-port HTTP traffic pass an explicit
-        // `--cache-dir` instead.
+        // tests that observe cache state.  Tests that exercise cache
+        // traffic pass an explicit `--cache-dir` instead.
         "CABIN_CACHE_HOME",
         "CABIN_FMT",
         "CABIN_TIDY",

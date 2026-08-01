@@ -1,20 +1,20 @@
 name: Ports Publish
 
-# Converts the committed foundation-port recipes into `cabin-ports/*`
+# Publishes the committed foundation ports as `cabin-ports/*`
 # registry packages through the repository tool
 # (crates/cabin-port-publish). Pull requests run the complete
 # preflight as a dry-run with no secrets; pushes to main publish the
-# converted set; manual dispatch from main republishes everything (the
+# published set; manual dispatch from main republishes everything (the
 # recovery path after a pre-launch registry wipe - dispatching any
-# other ref runs the dry-run instead, never a publish). The recipes
+# other ref runs the dry-run instead, never a publish). The ports tree
 # and this workflow live in cabinpkg/cabin - the cabin-ports GitHub
 # organization is the registry scope authority, not a separate source
 # repository.
 #
 # The publish-pipeline crate paths mirror registry.yml's filter: they
-# shape the archive + canonical-metadata bytes the converted packages
-# carry, and the registry rejects divergent bytes for an
-# already-published version - a change there must run the ports
+# shape the archive + canonical-metadata bytes the published packages
+# carry, and divergent bytes for an already-published version land as
+# a new packaging revision - a change there must run the ports
 # preflight (and republish) too, or it surfaces weeks later as a
 # blocked publish on an unrelated recipe PR.
 on:
@@ -66,8 +66,8 @@ jobs:
   dry-run:
     # Pull requests, plus manual dispatch from a non-main ref (which
     # must never publish). --dry-run runs the identical preflight the
-    # publish path runs: convert every recipe, stage it into a
-    # temporary file registry, and build every port against it.
+    # publish path runs: stage every port into a temporary file
+    # registry and build every port against it.
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
     runs-on: ubuntu-latest
 
@@ -86,8 +86,9 @@ jobs:
           sudo apt-get install -y ninja-build gcc g++
 
       # Restored archives are never trusted: the tool re-hashes every
-      # cached archive against the recipe's pinned SHA-256 before use
-      # and re-downloads on mismatch (cabin-port-publish::preflight),
+      # cached archive against the SHA-256 its port pins - a recipe's
+      # `[source]`, a migrated package's `[package.upstream]` - before
+      # use, and re-downloads on mismatch (cabin-port-publish::preflight),
       # so this cache saves bandwidth without vouching for bytes. Only
       # archives/ is cached - extracted sources/ trees are not
       # integrity-checked on reuse and stay run-local.
@@ -142,7 +143,7 @@ jobs:
           sudo apt-get install -y ninja-build gcc g++
 
       # Same checksum discipline as the dry-run job: restored bytes
-      # are re-hashed against the recipe-pinned SHA-256 before use, so
+      # are re-hashed against the committed SHA-256 pin before use, so
       # a poisoned cache entry cannot alter what publishes.
       - name: Cache upstream archives
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -112,30 +112,6 @@ pub enum WorkspaceError {
     UnresolvedRegistryDependency { dep_name: String, parent: String },
 
     #[error(
-        "foundation-port dependency {dep_name:?} declared by package {parent:?} has not been prepared; this is an internal invariant violation — the CLI orchestration layer must call `cabin_port::prepare` before the workspace loader runs"
-    )]
-    PortDependencyNotPrepared {
-        dep_name: String,
-        parent: String,
-        port_dir: PathBuf,
-    },
-
-    #[error(
-        "bundled foundation-port dependency {dep_name:?} declared by package {parent:?} has not been prepared; this is an internal invariant violation — the CLI orchestration layer must call `cabin_port::prepare` before the workspace loader runs"
-    )]
-    BuiltinPortDependencyNotPrepared { dep_name: String, parent: String },
-
-    #[error(
-        "foundation-port directory {} declared by package {parent:?} does not exist",
-        port_dir.display()
-    )]
-    PortDirectoryMissing {
-        dep_name: String,
-        parent: String,
-        port_dir: PathBuf,
-    },
-
-    #[error(
         "registry package source {path} is named {actual_name:?} {actual_version}, but the resolver expected {name:?} {version}",
         path = path.display()
     )]
@@ -277,21 +253,12 @@ pub enum WorkspaceError {
     },
 
     #[error(
-        "registry package `{package}` at {path} declares a port dependency on `{dep_name}`, but a downloaded registry package may only depend on other packages by version",
-        path = path.display()
-    )]
-    RegistryPackageDeclaresPortDependency {
-        package: String,
-        dep_name: String,
-        path: PathBuf,
-    },
-
-    #[error(
         "{origin} package `{package}` at {path} sets `{field} = {{ workspace = true }}`, but {origin} package manifests must declare literal standard values",
         path = path.display()
     )]
     ExternalPackageDeclaresWorkspaceStandard {
-        /// `"registry"` or `"foundation-port"`.
+        /// Always `"registry"` today; the field keeps the
+        /// diagnostic wording pinned to the manifest's origin.
         origin: &'static str,
         package: String,
         field: &'static str,
@@ -303,7 +270,8 @@ pub enum WorkspaceError {
         path = path.display()
     )]
     ExternalPackageDeclaresWorkspaceDependency {
-        /// `"registry"` or `"foundation-port"`.
+        /// Always `"registry"` today; the field keeps the
+        /// diagnostic wording pinned to the manifest's origin.
         origin: &'static str,
         package: String,
         dep_name: String,

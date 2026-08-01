@@ -357,22 +357,6 @@ pub(crate) struct RawDependencyTable {
     pub(crate) path: Option<String>,
     #[serde(default)]
     pub(crate) version: Option<String>,
-    /// `{ port = true }` declares a foundation-port dependency
-    /// resolved by the dep's name against the bundled set in
-    /// `cabin_port::builtin`. `port = false` is treated as if
-    /// the field were absent so it never collides with another
-    /// source.  Mutually exclusive with `port-path`, `path`,
-    /// `version`, `workspace`, and `system`; does not support
-    /// `features`, `default-features`, or `optional`.
-    #[serde(default)]
-    pub(crate) port: Option<bool>,
-    /// `{ port-path = "..." }` declares a foundation-port
-    /// dependency resolved by filesystem path to a recipe
-    /// directory containing `port.toml` and an overlay
-    /// `cabin.toml`.  Mutually exclusive with `port`, `path`,
-    /// `version`, `workspace`, and `system`.
-    #[serde(default, rename = "port-path")]
-    pub(crate) port_path: Option<String>,
     /// `{ workspace = true }` opts the package into the
     /// workspace-level dependency declared under the matching
     /// `[workspace.<kind>-dependencies]` table (or
