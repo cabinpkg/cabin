@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/leethomason/tinyxml2/archive/refs/tags/11.0.0.tar.gz"
+sha256 = "5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289"
+format = "tar.gz"
+strip-prefix = "tinyxml2-11.0.0"
 [package]
-name = "tinyxml2"
+name = "cabin-ports/tinyxml2"
 version = "11.0.0"
 
 # tinyxml2 is a single C++ translation unit plus its header. The

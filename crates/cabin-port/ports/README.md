@@ -136,7 +136,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`stb/2026.4.15/`](stb/2026.4.15/) - the stb single-file public domain libraries (header-only;
   commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.  **Migrated**: depend on `"cabin-ports/stb"`.
 - [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
-  11.0.0.
+  11.0.0.  **Migrated**: depend on `"cabin-ports/tinyxml2"`.
 - [`uthash/2.4.0/`](uthash/2.4.0/) - the uthash hash table and container macros for C structures
   (header-only), version 2.4.0.  **Migrated**: depend on `"cabin-ports/uthash"`.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,
