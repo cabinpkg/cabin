@@ -470,10 +470,11 @@ manifest committed in it.  For a recipe the rewrite is:
   the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
   `libz.a` / `z.lib`), `libpng` publishes `png`, `googletest` publishes `gtest`, and every other
   key lowercases.  No target mangling and no output-name mechanism exist; the key *is* the stem.
-- **Links identities.**  A declared [`links`](manifest.md#links) claim rides through the
-  conversion unchanged - the identity is independent of the target key, so the renamed `z` target
-  still carries `links = "z"`.  The two often coincide (`z`, `png`) but need not (`catch2` claims
-  `"Catch2"`, upstream's case-sensitive library name); the post-resolution uniqueness check reads
+- **Links identities.**  A declared [`links`](manifest.md#links) claim is independent of the target
+  key: for a recipe it rides through the conversion unchanged, so the renamed `z` target still
+  carries `links = "z"`, and a migrated package declares key and claim directly.  The two often
+  coincide (`z`, `png`) but need not - `cabin-ports/catch2` keys its target `catch2` while claiming
+  `"Catch2"`, upstream's case-sensitive library name.  The post-resolution uniqueness check reads
   the published claims from the index.
 - **Provenance.**  Each package carries `[package.upstream]` stamped from the recipe's pinned
   `[source]` (URL, SHA-256, format, `strip_prefix`), declared `[[copy]]` operations, and declared
