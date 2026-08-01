@@ -7,9 +7,9 @@ A small command-line app that combines three `cabin-ports/*` registry packages i
 - [`cabin-ports/spdlog`](../../crates/cabin-port/ports/spdlog) logs what the app is about to do.
 
 Each one is an ordinary scoped registry package, published to the Cabin registry from the curated
-port directory it links to by the repository tool `cabin-port-publish`.  A port still committed as
-a recipe is also reachable as a bundled `port = true` dependency; one already migrated to a package
-(CLI11 and {fmt} here) is registry-only.  See
+port directory it links to by the repository tool `cabin-port-publish`.  All three have migrated to
+packages, so they are registry-only: `{ port = true }` no longer resolves them.  A port still
+committed as a recipe stays reachable that way.  See
 [`docs/foundation-ports.md`](../../docs/foundation-ports.md).
 
 The spdlog package is header-only and defaults to its **bundled** {fmt} copy.  Cabin propagates

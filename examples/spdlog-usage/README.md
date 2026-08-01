@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/spdlog` registry package,
 published from the curated
 [`crates/cabin-port/ports/spdlog/1.17.0/`](../../crates/cabin-port/ports/spdlog/1.17.0/)
-recipe.  The program uses spdlog in its upstream-default
+package directory.  The program uses spdlog in its upstream-default
 header-only form, logs one message through `spdlog::info`, and
 prints the compiled-in spdlog version.
 
@@ -47,6 +47,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::spdlog_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.
