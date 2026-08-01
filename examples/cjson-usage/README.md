@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/cjson` registry package,
 published from the curated
 [`crates/cabin-port/ports/cJSON/1.7.18/`](../../crates/cabin-port/ports/cJSON/1.7.18/)
-recipe.  The program links against cJSON, parses a small JSON
+package directory.  The program links against cJSON, parses a small JSON
 document, and prints a field plus `cJSON_Version()`.
 
 This is **not** itself a port and does not vendor or copy cJSON
@@ -45,6 +45,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::cjson_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.

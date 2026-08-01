@@ -109,6 +109,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
   amalgamation, default main plus a `custom-main` feature), version 3.15.1.  **Migrated**:
   depend on `"cabin-ports/catch2"`.
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.
+  **Migrated**: depend on `"cabin-ports/cjson"`.
 - [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
   (header-only), version 2.6.2.
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
