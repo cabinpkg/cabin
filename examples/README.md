@@ -10,9 +10,11 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
   directory.
 - `crates/<name>/examples/` - **Cargo example targets for the Rust crates.** None exist today; this
   is where they would go if added.
-- `crates/cabin-port/ports/` - **curated foundation ports.** Cabin recipes that adapt real upstream
-  C/C++ libraries that do not yet ship a native `cabin.toml`, and the recipes the `cabin-ports/*`
-  registry packages these examples depend on are published from.  Not example projects; see
+- `crates/cabin-port/ports/` - **curated foundation ports.** Port directories that adapt real
+  upstream C/C++ libraries that do not yet ship a native `cabin.toml`, and the source the
+  `cabin-ports/*` registry packages these examples depend on are published from.  Most are
+  committed as provenance-bearing packages; the rest are still recipes while the collapse
+  lands.  Not example projects; see
   [`../crates/cabin-port/ports/README.md`](../crates/cabin-port/ports/README.md).
 
 ## Available examples
@@ -76,5 +78,5 @@ accumulates build output.  Tests that compile real sources fail with a clear mes
 a C/C++ compiler is missing.  The tests
 for the examples consuming `cabin-ports/*` packages are `#[ignore]`d because they need outbound
 network; run them with `cargo test --test cabin_examples -- --ignored`, which stages the committed
-recipes into a local file registry through the publisher pipeline - downloading the pinned upstream
+ports into a local file registry through the publisher pipeline - downloading the pinned upstream
 archives - and builds each example against that registry with `--index-path`.
