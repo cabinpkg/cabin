@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/nothings/stb/archive/31c1ad37456438565541f4919958214b6e762fb4.tar.gz"
+sha256 = "e4e3bba9c572a4a4148373a914d88ea0f0d11de8cc2c66739926e7eca0223319"
+format = "tar.gz"
+strip-prefix = "stb-31c1ad37456438565541f4919958214b6e762fb4"
 [package]
-name = "stb"
+name = "cabin-ports/stb"
 version = "2026.4.15"
 
 # The stb libraries are single-file headers designed around the

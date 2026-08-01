@@ -134,7 +134,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine
   (amalgamation), version 3.53.2.  **Migrated**: depend on `"cabin-ports/sqlite3"`.
 - [`stb/2026.4.15/`](stb/2026.4.15/) - the stb single-file public domain libraries (header-only;
-  commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.
+  commit-pinned, date-versioned - stb publishes no releases), snapshot 2026.4.15.  **Migrated**: depend on `"cabin-ports/stb"`.
 - [`tinyxml2/11.0.0/`](tinyxml2/11.0.0/) - the tinyxml2 small, efficient C++ XML parser, version
   11.0.0.
 - [`uthash/2.4.0/`](uthash/2.4.0/) - the uthash hash table and container macros for C structures

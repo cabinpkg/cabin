@@ -3,12 +3,12 @@
 A consumer example for the `cabin-ports/stb` registry package,
 published from the curated
 [`crates/cabin-port/ports/stb/2026.4.15/`](../../crates/cabin-port/ports/stb/2026.4.15/)
-recipe.  The program includes `stb_sprintf.h` with
+package directory.  The program includes `stb_sprintf.h` with
 `STB_SPRINTF_IMPLEMENTATION` defined - the stb single-file pattern,
 where exactly one translation unit hosts the function bodies - and
 prints a formatted string.
 
-stb publishes no tagged releases, so the recipe pins one upstream
+stb publishes no tagged releases, so the port pins one upstream
 commit by its immutable tarball URL and SHA-256, and the published
 package's version is that commit's date spelled as SemVer
 (`2026.4.15`).
@@ -49,5 +49,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::stb_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.

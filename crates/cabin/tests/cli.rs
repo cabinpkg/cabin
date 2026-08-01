@@ -2844,6 +2844,3 @@ mod foundation_port_mock_smoke;
 
 #[path = "cli/foundation_port_libpng.rs"]
 mod foundation_port_libpng;
-
-#[path = "cli/foundation_port_stb.rs"]
-mod foundation_port_stb;
