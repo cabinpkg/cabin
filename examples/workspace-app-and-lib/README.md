@@ -4,7 +4,7 @@ A Cabin workspace whose internal library carries an external dependency:
 
 - `packages/greeter` - a `library` that depends on the `cabin-ports/fmt` registry package,
   published from the curated [`crates/cabin-port/ports/fmt/`](../../crates/cabin-port/ports/fmt)
-  recipe, and formats its greeting with `fmt::format`.
+  package directory, and formats its greeting with `fmt::format`.
 - `packages/app` - an `executable` that depends on `greeter` through a path dependency and prints
   the greeting.
 
@@ -50,5 +50,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::workspace_app_and_lib_builds_and_runs`) is
-`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+`#[ignore = "requires external network"]`: it stages the committed ports into a local file
 registry through the publisher pipeline and builds this example against it with `--index-path`.

@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/fmt` registry package,
 published from the curated
 [`crates/cabin-port/ports/fmt/12.2.0/`](../../crates/cabin-port/ports/fmt/12.2.0/)
-recipe.  The program links against {fmt} (a C++ formatting
+package directory.  The program links against {fmt} (a C++ formatting
 library), prints `FMT_VERSION`, and formats a greeting through
 `fmt::format`.
 
@@ -46,6 +46,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::fmt_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.
