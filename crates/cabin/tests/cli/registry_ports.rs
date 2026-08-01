@@ -56,7 +56,12 @@ const LIBPNG_OVERLAY: &str = include_str!("../../../cabin-port/ports/libpng/1.6.
 const LIBPNG_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-libpng-transitive/consumer/src/main.c");
 
-const STB_OVERLAY: &str = include_str!("../../../cabin-port/ports/stb/2026.4.15/cabin.toml");
+// stb is committed as a package, not a recipe, so its manifest no
+// longer describes a recipe overlay; the fake port carries its own,
+// inline like the header it ships.
+const STB_OVERLAY: &str = "[package]\nname = \"stb\"\nversion = \"2026.4.15\"\n\n\
+[target.stb]\ntype = \"header-only\"\ninclude-dirs = [\".\"]\n\
+interface-c-standard = \"c89\"\n";
 // The fake stb archive carries one single-file header in the
 // upstream pattern (declaration-only unless the consumer TU defines
 // the implementation macro), so the consumer proves both the
