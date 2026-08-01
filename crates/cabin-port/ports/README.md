@@ -118,7 +118,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
   only, no gtest_main / GoogleMock), version 1.17.0.  **Migrated**: depend on
   `"cabin-ports/googletest"`.
 - [`inih/62.0.0/`](inih/62.0.0/) - the inih simple INI file parser in C (C core only; upstream tag
-  r62 spelled as SemVer), version 62.0.0.
+  r62 spelled as SemVer), version 62.0.0.  **Migrated**: depend on `"cabin-ports/inih"`.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
   on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
 - [`miniz/3.1.2/`](miniz/3.1.2/) - the miniz single-file zlib-replacement compression library

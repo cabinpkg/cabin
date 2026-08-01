@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/benhoyt/inih/archive/refs/tags/r62.tar.gz"
+sha256 = "9c15fa751bb8093d042dae1b9f125eb45198c32c6704cd5481ccde460d4f8151"
+format = "tar.gz"
+strip-prefix = "inih-r62"
 [package]
-name = "inih"
+name = "cabin-ports/inih"
 version = "62.0.0"
 
 # inih's C core is a single translation unit: ini.c plus the ini.h

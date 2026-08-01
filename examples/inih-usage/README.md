@@ -3,11 +3,11 @@
 A consumer example for the `cabin-ports/inih` registry package,
 published from the curated
 [`crates/cabin-port/ports/inih/62.0.0/`](../../crates/cabin-port/ports/inih/62.0.0/)
-recipe.  The program links against the inih C core, parses an
+package directory.  The program links against the inih C core, parses an
 in-memory INI document with `ini_parse_string`, and prints the two
 values its handler captured.
 
-Upstream tags releases as `r62`; the recipe spells that as the
+Upstream tags releases as `r62`; the port spells that as the
 SemVer `62.0.0`, which is the version the package is published
 under.  The package builds the C core (`ini.c`) only - the optional
 C++ `INIReader` under `cpp/` is not part of it.
@@ -49,5 +49,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::inih_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.
