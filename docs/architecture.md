@@ -290,7 +290,13 @@ unified-diff engine (`apply_unified_patches`) behind declared upstream patch fil
 of a patch declaration - foundation-port preparation and the registry verifier's upstream pass -
 apply patches through this one implementation, so the transformation cannot drift between the
 producer and the verifier.  Application is deliberately strict (fixed `-p1` strip, byte-exact
-context, no fuzz, text diffs only) so it is deterministic across platforms.  The crate must:
+context, no fuzz, text diffs only) so it is deterministic across platforms.  On top of those
+seams the crate owns `materialize_upstream`, the one upstream-provenance materialization
+pipeline: checksum pin, hardened extraction, declared copy steps, then declared patches (with a
+collision-folded check that no declared patch path shadows a produced file), with a typed split
+between publisher-determined defects (`MaterializeDefect`) and environmental failures.  The
+registry verifier replays every `[package.upstream]` declaration through it, and the ports
+publisher adopts the same pipeline as recipes collapse into provenance-bearing packages.  The crate must:
 
 - not run the resolver;
 - not write Ninja;
@@ -419,9 +425,10 @@ Actions workflow, never by users.  The crate must:
   decompression caps (memory stays within a small constant factor of the cap; only the manifest
   entry is retained), and a cap violation is a rejection, never an OOM.  The upstream-provenance
   pass is the one deliberate extraction: a pinned upstream archive whose digest already matched
-  is extracted into a scratch directory through `cabin-artifact`'s hardened extractors - the
-  same bounded code path foundation ports run - because the tree comparison needs the exact
-  extraction and collection semantics clients use;
+  is replayed through `cabin-artifact::materialize_upstream` - checksum, hardened extraction,
+  copies, and patches in one shared pipeline, the same bounded code path the collapse of
+  recipes into provenance-bearing packages routes the publisher through - because the tree
+  comparison needs the exact materialization semantics the producer uses;
 - reuse `cabin-package`'s seams instead of duplicating them: the publishability rules
   (`validate_publishable`), the canonical-metadata derivation (`canonical_metadata`), and the
   archive include / exclude walk (`collect_package_files`, for the expected upstream tree) are
