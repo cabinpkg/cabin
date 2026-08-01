@@ -19,6 +19,13 @@ with only `cabin` installed can depend on a bundled port without copying any rec
 zlib = { port = true, version = "^1.3" }
 ```
 
+The embedded set shrinks as the recipe layer collapses: a port committed as a
+provenance-bearing package is deliberately *not* embedded, so `{ port = true }` no longer
+resolves it and the dependency moves to `"cabin-ports/<name>"` (see "Migrating a port to a
+package" below).  `cabin port list` reports what your binary actually ships, and
+[`crates/cabin-port/ports/README.md`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/README.md)
+marks the migrated entries.
+
 `port = true` declarations require a `version = "<requirement>"` field.  The bundled set is resolved
 by `(name, version_req)`; the highest-versioned entry whose `version` satisfies the requirement
 wins.  With the current single-entry bundled set, the only effective check is that the request is
@@ -187,8 +194,10 @@ alternative implementation with its own symbol namespace claims its own identity
 
 ## Depending on a foundation port
 
-A downstream package opts in via either the bundled form (`port = true`, resolved by name against
-the embedded set) or the filesystem form (`port-path`, pointing at a recipe directory):
+A port still committed as a recipe is opted into via either the bundled form (`port = true`,
+resolved by name against the embedded set) or the filesystem form (`port-path`, pointing at a
+recipe directory).  Neither form reaches a *migrated* port: those are registry packages, and the
+`"cabin-ports/<name>"` spelling below is the only one that resolves them.
 
 ```toml
 [dependencies]
