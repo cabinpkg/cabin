@@ -7,8 +7,9 @@ A small command-line app that combines three `cabin-ports/*` registry packages i
 - [`cabin-ports/spdlog`](../../crates/cabin-port/ports/spdlog) logs what the app is about to do.
 
 Each one is an ordinary scoped registry package, published to the Cabin registry from the curated
-recipe it links to by the repository tool `cabin-port-publish`.  The same libraries are still
-reachable as bundled `port = true` dependencies; see
+port directory it links to by the repository tool `cabin-port-publish`.  A port still committed as
+a recipe is also reachable as a bundled `port = true` dependency; one already migrated to a package
+(CLI11 here) is registry-only.  See
 [`docs/foundation-ports.md`](../../docs/foundation-ports.md).
 
 The spdlog package is header-only and defaults to its **bundled** {fmt} copy.  Cabin propagates
@@ -59,5 +60,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::cli_with_spdlog_builds_and_runs`) is
-`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+`#[ignore = "requires external network"]`: it stages the committed ports into a local file
 registry through the publisher pipeline and builds this example against it with `--index-path`.
