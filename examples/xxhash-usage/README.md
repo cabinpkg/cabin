@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/xxhash` registry package,
 published from the curated
 [`crates/cabin-port/ports/xxhash/0.8.3/`](../../crates/cabin-port/ports/xxhash/0.8.3/)
-recipe.  The program links against xxHash and prints
+package directory.  The program links against xxHash and prints
 `XXH_versionNumber()` plus the `XXH64` digest of a short
 string.
 
@@ -46,6 +46,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::xxhash_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.

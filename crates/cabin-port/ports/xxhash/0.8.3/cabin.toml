@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz"
+sha256 = "aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80"
+format = "tar.gz"
+strip-prefix = "xxHash-0.8.3"
 [package]
-name = "xxhash"
+name = "cabin-ports/xxhash"
 version = "0.8.3"
 
 # xxHash's whole implementation lives in `xxhash.c` (it pulls in
