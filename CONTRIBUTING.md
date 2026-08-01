@@ -104,25 +104,29 @@ Read [`docs/architecture.md`](docs/architecture.md) before changing crate bounda
 ownership, scope, diagnostics, generated formats, or build / registry / resolver behavior.  When in
 doubt, the architecture document wins.
 
-## Foundation-port recipes
+## Foundation ports
 
-Recipe policy and schema live in
+Port policy and schema live in
 [`crates/cabin-port/ports/README.md`](crates/cabin-port/ports/README.md) and
-[`docs/foundation-ports.md`](docs/foundation-ports.md).  After changing a recipe, run the
-repository tool's local preflight, which converts every recipe into its `cabin-ports/<name>`
-registry package, publishes the set into a temporary file registry, and builds each port from it:
+[`docs/foundation-ports.md`](docs/foundation-ports.md).  A port is committed either as a
+provenance-bearing package (a bare `cabin.toml`, published verbatim) or, while the collapse
+lands, as a recipe the publisher converts.  After changing either shape, run the repository
+tool's local preflight, which stages every committed port as its `cabin-ports/<name>` registry
+package, publishes the set into a temporary file registry, and builds each port from it:
 
 ```console
 cargo build -p cabinpkg
 cargo run -p cabinpkg-port-publish -- --dry-run
 ```
 
-Maintainers publish the converted packages with `--publish --index-url <registry>`; a recipe-only
-correction to an already-published version reaches the registry as a new packaging revision of the
-same version, with nothing extra to edit (see `docs/foundation-ports.md`, "Packaging
-revisions").  CI runs the same dry-run on pull requests
-that touch the recipes or the publisher, and publishes on `main`
-(`.github/workflows/ports-publish.yml`).
+Maintainers publish with `--publish --index-url <registry>`; a byte-only correction to an
+already-published version reaches the registry as a new packaging revision of the same version,
+with nothing extra to edit, while a change to what resolution consumes (`dependencies`,
+`features`, `standards`) needs a new upstream version instead.  `links` is the one-way
+exception: a respin may stamp a claim onto a version published without one, but changing or
+removing an existing claim also needs a new upstream version (see `docs/foundation-ports.md`,
+"Packaging revisions").  CI runs the same dry-run on pull requests that touch the ports tree or
+the publisher, and publishes on `main` (`.github/workflows/ports-publish.yml`).
 
 ## Pull requests
 
