@@ -55,7 +55,11 @@ const FAKE_PNG_C: &str = include_str!(
 const FAKE_PNGLIBCONF_H: &str = include_str!(
     "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/scripts/pnglibconf.h.prebuilt"
 );
-const LIBPNG_OVERLAY: &str = include_str!("../../../cabin-port/ports/libpng/1.6.50/cabin.toml");
+// libpng is committed as a package, not a recipe, so its manifest no
+// longer describes a recipe overlay; the fake port carries its own -
+// including the `{ port = true }` edge no committed recipe declares now.
+const LIBPNG_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/libpng/cabin.toml");
 const LIBPNG_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-libpng-transitive/consumer/src/main.c");
 

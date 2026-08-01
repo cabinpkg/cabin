@@ -1,7 +1,8 @@
 # libpng-usage
 
 A consumer example for the `cabin-ports/libpng` registry package, published from the curated
-[`crates/cabin-port/ports/libpng/1.6.50/`](../../crates/cabin-port/ports/libpng/1.6.50/) recipe.
+[`crates/cabin-port/ports/libpng/1.6.50/`](../../crates/cabin-port/ports/libpng/1.6.50/)
+package directory.
 The program creates a libpng read struct, prints the libpng version, and prints the zlib version -
 the latter reached only through libpng's own dependency on `cabin-ports/zlib`.
 
@@ -47,7 +48,8 @@ zlib version (via libpng edge): 1.3.1
 ## Prebuilt configuration, no configure step
 
 libpng normally generates `pnglibconf.h` during its build.  Cabin never runs a port's upstream build
-system, so the libpng recipe uses a declarative `[[copy]]` step to place the upstream **prebuilt**
+system, so the libpng package uses a declarative `[[package.upstream.copy]]` step to place the
+upstream **prebuilt**
 config (`scripts/pnglibconf.h.prebuilt`) at `pnglibconf.h`.  The hand-written SIMD optimizations
 (ARM NEON, Intel SSE) are compiled out (`PNG_ARM_NEON_OPT=0`, `PNG_INTEL_SSE_OPT=0`) so the portable
 source set links on every architecture.
@@ -66,7 +68,7 @@ consults the registry index, so a fully offline build needs a local index; see
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::libpng_usage_builds_and_runs`) runs only with `--ignored`
-and needs outbound network: it stages the committed recipes into a local file registry through the
+and needs outbound network: it stages the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`, downloading the pinned upstream
 archives on the way.  The hermetic cache-lifecycle coverage lives in
 `crates/cabin/tests/cli/registry_ports.rs`.

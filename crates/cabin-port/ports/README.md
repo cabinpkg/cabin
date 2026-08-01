@@ -120,7 +120,8 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`inih/62.0.0/`](inih/62.0.0/) - the inih simple INI file parser in C (C core only; upstream tag
   r62 spelled as SemVer), version 62.0.0.  **Migrated**: depend on `"cabin-ports/inih"`.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
-  on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
+  on `"cabin-ports/zlib"` and places its prebuilt `pnglibconf.h` with a
+  `[[package.upstream.copy]]` step.  **Migrated**: depend on `"cabin-ports/libpng"`.
 - [`miniz/3.1.2/`](miniz/3.1.2/) - the miniz single-file zlib-replacement compression library
   (upstream amalgamated release zip), version 3.1.2.  **Migrated**: depend on
   `"cabin-ports/miniz"`.

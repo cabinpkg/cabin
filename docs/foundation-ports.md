@@ -241,8 +241,9 @@ When Cabin runs a workspace-loading command, the CLI orchestrates preparation **
 workspace loader sees the manifest:
 
 1. Walk the manifest tree to discover every reachable port dependency.  A port's own overlay may
-   declare further port dependencies (libpng depends on the bundled zlib), so discovery recurses
-   into each port's overlay and follows those edges transitively.  The walk stays network-free: a
+   declare further port dependencies, so discovery recurses into each port's overlay and follows
+   those edges transitively - no port still committed as a recipe declares one today, the last
+   such edge (libpng's on zlib) having migrated with libpng.  The walk stays network-free: a
    bundled port's overlay is read from the embedded recipe text, a `port-path` port's from disk.
 2. Load each `port.toml` and validate it.
 3. Decide a fetch source per port:
@@ -471,7 +472,7 @@ manifest committed in it.  For a recipe the rewrite is:
   declare `cabin-ports/cjson`, `CLI11/` must declare `cabin-ports/cli11`).
 - **Target keys.**  A target key directly determines its artifact stem, so the conversion picks
   the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
-  `libz.a` / `z.lib`), `libpng` publishes `png`, and every other key lowercases.  A migrated
+  `libz.a` / `z.lib`), and every other key lowercases.  A migrated
   package states the key it wants directly (`cabin-ports/googletest` keys its target `gtest`).
   No target mangling and no output-name mechanism exist; the key *is* the stem.
 - **Links identities.**  A declared [`links`](manifest.md#links) claim is independent of the target
@@ -485,8 +486,9 @@ manifest committed in it.  For a recipe the rewrite is:
   `[source].patches`, so the hosted registry's verifier can check the published tree against the
   upstream archive.  The patch files themselves ship inside the published package at their
   declared paths.
-- **Dependencies.**  Inter-port `{ port = true }` edges become scoped registry dependencies
-  (libpng's `zlib` becomes `"cabin-ports/zlib" = "^1.3"`), and target `deps` references use the
+- **Dependencies.**  Inter-port `{ port = true }` edges become scoped registry dependencies; a
+  migrated package declares that scoped dependency itself (`cabin-ports/libpng` depends on
+  `"cabin-ports/zlib" = "^1.3"`), and target `deps` references use the
   bare-package shorthand when the dependency exposes exactly one library-like target, or an
   explicit `package:target` selector otherwise.
 - **Order.**  Publication order derives from the inter-port dependency edges (zlib publishes
