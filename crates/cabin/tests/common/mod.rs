@@ -14,6 +14,7 @@
 #![allow(dead_code)]
 
 use assert_cmd::Command;
+use assert_fs::TempDir;
 use cabin_build::Dialect;
 
 mod fake_ports;
@@ -250,29 +251,28 @@ pub fn pin_test_cache_home(cmd: &mut Command) {
     );
 }
 
-/// Pin `CABIN_CONFIG_HOME` to a deterministic empty temp path so the
+thread_local! {
+    /// The pinned config home, one per test thread.  A freshly
+    /// created directory is empty by construction, so nothing has to
+    /// wipe a shared path - which is what makes this safe under a
+    /// process-per-test runner (`cargo nextest`), where a wipe of one
+    /// fixed path would race every sibling process using it.  The
+    /// guard is dropped when the thread ends, so a run leaves no
+    /// directories behind.
+    static USER_CONFIG_HOME: TempDir =
+        TempDir::new().expect("create the test config home");
+}
+
+/// Pin `CABIN_CONFIG_HOME` to an empty temp directory so the
 /// credential store (which falls back to the *platform* config home
 /// when the variable is unset) can never observe or mutate a
-/// developer's real `credentials.toml`.  The directory is wiped once
-/// per `cargo test` invocation so state a misbehaving previous run
-/// left behind (a stray `credentials.toml`, say) cannot leak in;
-/// tests that exercise credentials or config discovery point the
-/// variable at their own fixture home instead.
+/// developer's real `credentials.toml`.  Tests that exercise
+/// credentials or config discovery point the variable at their own
+/// fixture home instead.
 pub fn pin_test_user_config_home(cmd: &mut Command) {
-    static CLEAR_STALE: std::sync::Once = std::sync::Once::new();
-    let home = std::env::temp_dir().join("cabin-tests-config-home");
-    CLEAR_STALE.call_once(|| {
-        // Only an absent directory is fine to skip; any other
-        // removal failure would leave stale state behind while the
-        // create below still succeeds.
-        if let Err(err) = std::fs::remove_dir_all(&home)
-            && err.kind() != std::io::ErrorKind::NotFound
-        {
-            panic!("wipe the shared test config home: {err}");
-        }
-        std::fs::create_dir_all(&home).expect("create the shared empty test config home");
+    USER_CONFIG_HOME.with(|home| {
+        cmd.env("CABIN_CONFIG_HOME", home.path());
     });
-    cmd.env("CABIN_CONFIG_HOME", home);
 }
 
 pub fn command_exists(name: &str) -> bool {
