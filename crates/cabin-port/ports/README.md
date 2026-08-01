@@ -115,7 +115,8 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
   **Migrated**: depend on `"cabin-ports/fmt"`.
 - [`googletest/1.17.0/`](googletest/1.17.0/) - Google's C++ testing framework (GoogleTest library
-  only, no gtest_main / GoogleMock), version 1.17.0.
+  only, no gtest_main / GoogleMock), version 1.17.0.  **Migrated**: depend on
+  `"cabin-ports/googletest"`.
 - [`inih/62.0.0/`](inih/62.0.0/) - the inih simple INI file parser in C (C core only; upstream tag
   r62 spelled as SemVer), version 62.0.0.
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends

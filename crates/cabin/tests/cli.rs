@@ -2854,9 +2854,6 @@ mod foundation_port_libpng;
 #[path = "cli/foundation_port_spdlog.rs"]
 mod foundation_port_spdlog;
 
-#[path = "cli/foundation_port_googletest.rs"]
-mod foundation_port_googletest;
-
 #[path = "cli/foundation_port_nlohmann_json.rs"]
 mod foundation_port_nlohmann_json;
 

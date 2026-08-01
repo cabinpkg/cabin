@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/googletest` registry
 package, published from the curated
 [`crates/cabin-port/ports/googletest/1.17.0/`](../../crates/cabin-port/ports/googletest/1.17.0/)
-recipe.  The package has a small `calc` library and one `test`
+package directory.  The package has a small `calc` library and one `test`
 target that links GoogleTest.  The dependency is a
 `[dev-dependencies]` entry: `cabin test` activates dev dependencies
 for the selected packages, so the `test` target links it while
@@ -48,5 +48,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::googletest_usage_runs_tests`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and runs this example against it with `--index-path`.

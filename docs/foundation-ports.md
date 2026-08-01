@@ -468,8 +468,9 @@ manifest committed in it.  For a recipe the rewrite is:
   declare `cabin-ports/cjson`, `CLI11/` must declare `cabin-ports/cli11`).
 - **Target keys.**  A target key directly determines its artifact stem, so the conversion picks
   the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
-  `libz.a` / `z.lib`), `libpng` publishes `png`, `googletest` publishes `gtest`, and every other
-  key lowercases.  No target mangling and no output-name mechanism exist; the key *is* the stem.
+  `libz.a` / `z.lib`), `libpng` publishes `png`, and every other key lowercases.  A migrated
+  package states the key it wants directly (`cabin-ports/googletest` keys its target `gtest`).
+  No target mangling and no output-name mechanism exist; the key *is* the stem.
 - **Links identities.**  A declared [`links`](manifest.md#links) claim is independent of the target
   key: for a recipe it rides through the conversion unchanged, so the renamed `z` target still
   carries `links = "z"`, and a migrated package declares key and claim directly.  The two often

@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz"
+sha256 = "65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c"
+format = "tar.gz"
+strip-prefix = "googletest-1.17.0"
 [package]
-name = "googletest"
+name = "cabin-ports/googletest"
 version = "1.17.0"
 
 # GoogleTest's portable build is the single umbrella translation
@@ -10,7 +15,7 @@ version = "1.17.0"
 # target, so consumers supply their own main calling InitGoogleTest
 # + RUN_ALL_TESTS - the example shows the two-liner) and GoogleMock
 # (googlemock/ is a separate opt-in library).
-[target.googletest]
+[target.gtest]
 type = "library"
 sources = ["googletest/src/gtest-all.cc"]
 # googletest/include is the public header root (<gtest/gtest.h>);
