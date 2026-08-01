@@ -2,7 +2,8 @@
 
 A miniature manifest-inspector built on the header-only `cabin-ports/nlohmann_json` registry
 package, published from the curated
-[`crates/cabin-port/ports/nlohmann_json/`](../../crates/cabin-port/ports/nlohmann_json) recipe.
+[`crates/cabin-port/ports/nlohmann_json/`](../../crates/cabin-port/ports/nlohmann_json)
+package directory.
 Where [`nlohmann-json-usage/`](../nlohmann-json-usage) is the minimal consumption smoke test, this
 example walks a realistic JSON round trip: parse a document, read typed values out of nested
 objects and arrays, and serialize a derived summary back to JSON.
@@ -47,5 +48,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::json_cli_builds_and_runs`) is
-`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+`#[ignore = "requires external network"]`: it stages the committed ports into a local file
 registry through the publisher pipeline and builds this example against it with `--index-path`.

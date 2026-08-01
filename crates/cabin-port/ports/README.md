@@ -125,7 +125,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
   (upstream amalgamated release zip), version 3.1.2.  **Migrated**: depend on
   `"cabin-ports/miniz"`.
 - [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
-  3.12.0.
+  3.12.0.  **Migrated**: depend on `"cabin-ports/nlohmann_json"`.
 - [`picohttpparser/2026.4.6/`](picohttpparser/2026.4.6/) - the picohttpparser tiny HTTP
   request/response parser in C (commit-pinned, date-versioned - upstream publishes no releases),
   snapshot 2026.4.6.  **Migrated**: depend on `"cabin-ports/picohttpparser"`.

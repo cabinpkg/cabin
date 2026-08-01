@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/nlohmann_json` registry
 package, published from the curated
 [`crates/cabin-port/ports/nlohmann_json/3.12.0/`](../../crates/cabin-port/ports/nlohmann_json/3.12.0/)
-recipe.  The program includes the header-only JSON for Modern C++
+package directory.  The program includes the header-only JSON for Modern C++
 library, parses a small document, and prints two fields plus the
 compiled-in library version.
 
@@ -45,5 +45,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::nlohmann_json_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.
