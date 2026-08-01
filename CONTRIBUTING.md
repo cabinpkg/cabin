@@ -32,7 +32,7 @@ taplo fmt --check
 typos
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
 RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --locked --verbose
-RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --verbose -- --show-output
+RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the commits this branch adds.
@@ -41,6 +41,14 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```
+
+`scripts/ci.sh` runs this gate locally, with one optional acceleration: when
+[`cargo-nextest`](https://nexte.st) is installed it runs the test phase through
+`cargo nextest run` instead of `cargo test`.  Both run the same set - the phase's `--all-targets`
+excludes doctests either way, and both carry `--no-fail-fast` so one failure never hides the rest -
+but nextest schedules each test in its own process rather than one
+binary at a time, which is most of that phase's wall clock.  Without it installed the phase runs
+CI's exact command above, so it is an accelerator, never a requirement.
 
 The Rust CI workflow runs the Rust commands above and treats warnings as errors; a separate CI job
 runs the `commitlint` command above against the PR's commits.  Mirror the flags verbatim when

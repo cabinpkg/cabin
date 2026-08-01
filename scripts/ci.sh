@@ -336,10 +336,23 @@ if [[ "$rust_changed" -eq 1 ]]; then
   launch "cargo check (workspace, all targets, -D warnings)" \
     env CARGO_TARGET_DIR="$PWD/target/ci-check" RUSTFLAGS="-D warnings" \
     cargo check --workspace --all-targets --locked --verbose --jobs "$check_jobs"
-  launch "cargo test (workspace, all targets, all features)" \
-    env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
-    cargo test --workspace --all-targets --all-features --locked --verbose \
-    --jobs "$test_jobs" -- --show-output --test-threads "$test_jobs"
+  # `cargo-nextest` runs the same test set (the phase excludes
+  # doctests either way, via `--all-targets`) but schedules each test
+  # in its own process instead of one binary at a time, which is the
+  # bulk of this phase's wall clock.  It is an optional accelerator:
+  # without it installed the phase runs CI's exact command.
+  if command -v cargo-nextest >/dev/null 2>&1; then
+    launch "cargo nextest (workspace, all targets, all features)" \
+      env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
+      cargo nextest run --workspace --all-targets --all-features --locked \
+      --no-fail-fast --cargo-verbose --build-jobs "$test_jobs" \
+      --test-threads "$test_jobs"
+  else
+    launch "cargo test (workspace, all targets, all features)" \
+      env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
+      cargo test --workspace --all-targets --all-features --locked --no-fail-fast \
+      --verbose --jobs "$test_jobs" -- --show-output --test-threads "$test_jobs"
+  fi
   launch "cargo doc (workspace, no deps, -D warnings)" \
     env CARGO_TARGET_DIR="$PWD/target/ci-doc" RUSTDOCFLAGS="-D warnings" \
     cargo doc --workspace --all-features --no-deps --locked --verbose --jobs "$doc_jobs"
@@ -349,10 +362,18 @@ else
     # The cli integration tests embed doc pages via include_str! (the
     # crates/cabin/tests/cli/*_docs.rs convention) and assert on their
     # contents, so doc edits can fail Rust CI.
-    launch "cargo test -p cabinpkg --test cli (docs)" \
-      env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
-      cargo test -p cabinpkg --test cli --all-features --locked --verbose \
-      --jobs "$test_jobs" -- --show-output --test-threads "$test_jobs" docs
+    if command -v cargo-nextest >/dev/null 2>&1; then
+      launch "cargo nextest -p cabinpkg --test cli (docs)" \
+        env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
+        cargo nextest run -p cabinpkg --test cli --all-features --locked \
+        --no-fail-fast --cargo-verbose --build-jobs "$test_jobs" \
+        --test-threads "$test_jobs" docs
+    else
+      launch "cargo test -p cabinpkg --test cli (docs)" \
+        env CARGO_TARGET_DIR="$PWD/target/ci-test" RUSTFLAGS="-D warnings" \
+        cargo test -p cabinpkg --test cli --all-features --locked --no-fail-fast \
+        --verbose --jobs "$test_jobs" -- --show-output --test-threads "$test_jobs" docs
+    fi
   fi
 fi
 
