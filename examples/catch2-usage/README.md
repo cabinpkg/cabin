@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/catch2` registry package,
 published from the curated
 [`crates/cabin-port/ports/catch2/3.15.1/`](../../crates/cabin-port/ports/catch2/3.15.1/)
-recipe.  The package has a small `calc` library and one `test`
+package directory.  The package has a small `calc` library and one `test`
 target whose source only defines `TEST_CASE`s - the package's
 amalgamated translation unit supplies Catch2's default `main()`.
 
@@ -11,7 +11,7 @@ The package carries Catch2's upstream amalgamation
 (`extras/catch_amalgamated.cpp` / `.hpp`), so tests include
 `<catch_amalgamated.hpp>` rather than the split `<catch2/...>`
 headers (those need a CMake-generated configuration header, which
-the recipe never generates).  A consumer that wants its own entry
+the port never generates).  A consumer that wants its own entry
 point enables the package's `custom-main` feature:
 
 ```toml
@@ -53,5 +53,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::catch2_usage_runs_tests`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and runs this example against it with `--index-path`.
