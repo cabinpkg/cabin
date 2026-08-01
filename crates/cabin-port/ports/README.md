@@ -3,7 +3,11 @@
 This directory holds **curated foundation ports**: Cabin recipes that adapt important existing C/C++
 libraries - libraries that do not yet ship a native `cabin.toml` - to Cabin's build model.
 
-A foundation port consists of:
+While the recipe layer collapses into provenance-bearing packages, a
+`<name>/<version>/` directory carries one of two shapes.
+
+A **recipe** (embedded into the `cabin-port` crate at build time, so `{ port = true }` resolves it
+offline) consists of:
 
 - `port.toml` - pins a single upstream release archive by URL and SHA-256, optionally with a
   `strip_prefix` for the archive's root directory, optionally one or more `[[copy]]` steps, and
@@ -11,6 +15,13 @@ A foundation port consists of:
 - `cabin.toml` - a Cabin overlay manifest that describes the upstream sources as ordinary Cabin
   C/C++ targets.
 - `patches/` - the declared unified-diff files, when the recipe has any.
+
+A **migrated package** consists of a single `cabin.toml` carrying the canonical scoped identity
+(`cabin-ports/<name>`) and a complete `[package.upstream]` block (plus its `patches/`, when it
+declares any).  It publishes verbatim and is deliberately **not** embedded: it is consumed as an
+ordinary registry dependency.  See
+[`docs/foundation-ports.md`](../../../docs/foundation-ports.md) for the migration contract,
+including why a port may not migrate while a recipe still depends on it through `port = true`.
 
 When a Cabin package declares a bundled dependency (`{ port = true, version = "^1.3" }`) or a
 local-recipe dependency (`{ port-path = "../ports/<name>/<version>" }`), Cabin downloads the
@@ -123,15 +134,25 @@ entry.
   version 0.8.3.
 - [`zlib/1.3.1/`](zlib/1.3.1/) - the zlib compression library, version 1.3.1.
 
-## Publishing recipes as `cabin-ports/*` registry packages
+## Publishing ports as `cabin-ports/*` registry packages
 
 The repository tool `cabin-port-publish` (`crates/cabin-port-publish`; not part of the shipped
-`cabin` binary) converts every recipe in this directory into an ordinary registry package under
-the `cabin-ports` scope: `cabin-ports/<lowercase name>` at the upstream version, with
+`cabin` binary) publishes every port in this directory as an ordinary registry package under the
+`cabin-ports` scope, handling both committed shapes in one run.
+
+A **recipe** is converted: `cabin-ports/<lowercase name>` at the upstream version, with
 `[package.upstream]` provenance stamped from `port.toml`, target keys renamed to the intended
 native artifact stems (zlib's sole library target publishes as `z`), and inter-port dependencies
 rewritten to scoped registry dependencies.  The committed recipe is never mutated - the
 conversion rewrites a copy - and the bundled-port layer keeps working unchanged.
+
+A **migrated package** is published verbatim: its committed `cabin.toml` already carries the
+canonical identity, provenance, and target names, so nothing is rewritten.  Its sources are
+materialized through the same `cabin-artifact` pipeline the registry verifier replays, and it is
+deliberately absent from the builtin table - consumers reach it as an ordinary registry
+dependency, not through `{ port = true }`.  Because a bundled `{ port = true }` edge resolves
+only against recipes, a port may not migrate while a recipe still depends on it that way; the
+publisher refuses that state.
 
 ```console
 $ cargo build -p cabinpkg

@@ -182,7 +182,117 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
          [\"png.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\ndeps = [\"zlib\"]\n",
     );
 
+    // A third port, already migrated to a provenance-bearing package
+    // directory: recipes and packages coexist in one tree while the
+    // collapse lands, and one dry-run must stage both shapes.
+    let (fastlz_bytes, fastlz_hex) = make_tar_gz(&[
+        (
+            "fastlz-0.5.0/fastlz.h",
+            "#ifndef FASTLZ_H\n#define FASTLZ_H\nint fastlz_answer(void);\n#endif\n",
+        ),
+        // Deliberately does not compile as shipped: FASTLZ_ANSWER is
+        // undefined until the committed patch supplies it, so the
+        // probe build below can only succeed if the declared patch
+        // actually ran through the shared materializer.
+        (
+            "fastlz-0.5.0/fastlz.c",
+            "#include \"fastlz.h\"\nint fastlz_answer(void) { return FASTLZ_ANSWER; }\n",
+        ),
+    ]);
+    seed_port_cache(cache.path(), &fastlz_bytes, &fastlz_hex);
+    write_port_package(
+        &ports,
+        "fastlz",
+        "0.5.0",
+        &fastlz_hex,
+        "[target.fastlz]\ntype = \"library\"\nsources = \
+         [\"fastlz.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\n",
+    );
+    ports
+        .child("fastlz/0.5.0/patches/0001-define-answer.patch")
+        .write_str(
+            "--- a/fastlz.c\n\
+             +++ b/fastlz.c\n\
+             @@ -1,2 +1,3 @@\n \
+             #include \"fastlz.h\"\n\
+             +#define FASTLZ_ANSWER 7\n \
+             int fastlz_answer(void) { return FASTLZ_ANSWER; }\n",
+        )
+        .unwrap();
+
     (ports.to_path_buf(), cache.to_path_buf())
+}
+
+/// Publication order: the dependency before the dependent, with both
+/// committed shapes in one run (the migrated `fastlz` package has no
+/// dependencies, so it drains in the first rank by name).
+fn assert_publication_order(stdout: &str) {
+    let Some(order) = stdout
+        .lines()
+        .find(|line| line.starts_with("converted "))
+        .and_then(|line| line.split_once("publication order: "))
+        .map(|(_, order)| order.to_owned())
+    else {
+        panic!("no publication order line: {stdout}")
+    };
+    let position = |needle: &str| {
+        order
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing from `{order}`"))
+    };
+    assert!(
+        position("cabin-ports/zlib 1.3.1") < position("cabin-ports/libpng 1.6.50"),
+        "zlib must publish before libpng: {order}"
+    );
+    let _ = position("cabin-ports/fastlz 0.5.0");
+}
+
+/// The migrated package staged from its committed manifest, was
+/// published verbatim (identity, provenance, and target key all
+/// straight from the file), and probe-built from the registry.  Its
+/// upstream source does not compile unpatched, so the probe artifact
+/// existing is proof the declared patch ran through the shared
+/// materializer.
+fn assert_migrated_package_round_trip(registry: &std::path::Path, work: &std::path::Path) {
+    let fastlz_index: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(registry.join("packages/cabin-ports/fastlz.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(fastlz_index["name"], "cabin-ports/fastlz");
+    let fastlz_version = &fastlz_index["versions"]["0.5.0"];
+    assert_eq!(
+        fastlz_version["upstream"]["url"],
+        "https://ports.invalid/fastlz-0.5.0.tar.gz"
+    );
+    assert_eq!(fastlz_version["upstream"]["strip-prefix"], "fastlz-0.5.0");
+    let fastlz_probe = work.join("run").join("probes").join("fastlz");
+    assert!(
+        tree_contains(&fastlz_probe, "libfastlz.a") || tree_contains(&fastlz_probe, "fastlz.lib"),
+        "no fastlz artifact under {}",
+        fastlz_probe.display()
+    );
+}
+
+/// Write an already-migrated port: one committed `cabin.toml`
+/// carrying the canonical scoped identity and complete
+/// `[package.upstream]` provenance, published verbatim.
+fn write_port_package(
+    ports: &assert_fs::fixture::ChildPath,
+    name: &str,
+    version: &str,
+    sha256: &str,
+    body: &str,
+) {
+    let dir = ports.child(format!("{name}/{version}"));
+    dir.child("cabin.toml")
+        .write_str(&format!(
+            "[package]\nname = \"cabin-ports/{name}\"\nversion = \"{version}\"\n\n\
+             [package.upstream]\nurl = \
+             \"https://ports.invalid/{name}-{version}.tar.gz\"\nsha256 = \
+             \"{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \
+             \"{name}-{version}\"\npatches = [\"patches/0001-define-answer.patch\"]\n\n{body}"
+        ))
+        .unwrap();
 }
 
 /// Scrub the environment with the same variable set as
@@ -269,11 +379,7 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 
-    // Publication order: the dependency before the dependent.
-    assert!(
-        stdout.contains("publication order: cabin-ports/zlib 1.3.1, cabin-ports/libpng 1.6.50"),
-        "{stdout}"
-    );
+    assert_publication_order(&stdout);
 
     // The temporary file registry holds both packages, scoped.
     let registry = work.join("run").join("registry");
@@ -338,6 +444,8 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         "no transitive z artifact under {}",
         libpng_probe.display()
     );
+
+    assert_migrated_package_round_trip(&registry, &work);
 
     // Dry run performs no remote mutation and reports completion.
     assert!(stdout.contains("dry run complete"), "{stdout}");
@@ -546,15 +654,17 @@ fn publish_uploads_every_package_in_dependency_order() {
         .filter(|(method, _, _)| method == "PUT")
         .map(|(_, path, len)| (path, len))
         .collect();
-    // Dependency order: zlib uploads before libpng, both framed
-    // bodies non-trivial (metadata JSON + zip archive).  Every upload
-    // opts into new revisions: a changed committed recipe IS the
-    // deliberate intent to respin its published version.
+    // Dependency order: fastlz (no deps, first by name) and zlib
+    // upload before libpng, all framed bodies non-trivial (metadata
+    // JSON + zip archive).  Every upload opts into new revisions: a
+    // changed committed recipe IS the deliberate intent to respin its
+    // published version.
     assert_eq!(
         puts.iter()
             .map(|(path, _)| path.as_str())
             .collect::<Vec<_>>(),
         [
+            "/api/v1/packages/cabin-ports/fastlz/0.5.0?new-revision=true",
             "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
             "/api/v1/packages/cabin-ports/libpng/1.6.50?new-revision=true",
         ]
@@ -605,12 +715,12 @@ fn publish_retries_a_rate_limited_package() {
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
-        stderr.contains("note: the registry rate limited cabin-ports/zlib"),
+        stderr.contains("note: the registry rate limited cabin-ports/fastlz"),
         "{stderr}"
     );
 
-    // The limited PUT is retried: zlib uploads twice (429 then 201),
-    // libpng once, and order is preserved.
+    // The limited PUT is retried: fastlz (first in publication order)
+    // uploads twice (429 then 201), the rest once, order preserved.
     let puts: Vec<String> = registry
         .requests()
         .into_iter()
@@ -620,7 +730,8 @@ fn publish_retries_a_rate_limited_package() {
     assert_eq!(
         puts,
         [
-            "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
+            "/api/v1/packages/cabin-ports/fastlz/0.5.0?new-revision=true",
+            "/api/v1/packages/cabin-ports/fastlz/0.5.0?new-revision=true",
             "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
             "/api/v1/packages/cabin-ports/libpng/1.6.50?new-revision=true",
         ]

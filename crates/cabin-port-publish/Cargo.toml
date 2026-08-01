@@ -20,12 +20,14 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
 cabin-index-http = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-port = { workspace = true }
 cabin-publish = { workspace = true }
+camino = { workspace = true }
 etcetera = { workspace = true }
 semver = { workspace = true }
 toml_edit = { workspace = true }

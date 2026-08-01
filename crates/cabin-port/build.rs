@@ -48,13 +48,17 @@ fn main() {
 
             // A directory with neither file is not a recipe (e.g. a
             // future non-version subdirectory); skip it.  A directory
-            // with only one of the two is a malformed recipe; fail loudly.
-            if !has_port && !has_overlay {
+            // with only `cabin.toml` is a port that has already
+            // migrated to a provenance-bearing package: it publishes
+            // to the registry and is deliberately no longer embedded.
+            // Only `port.toml` without an overlay is a malformed
+            // recipe; fail loudly.
+            if !has_port {
                 continue;
             }
             assert!(
-                has_port && has_overlay,
-                "incomplete foundation port at {}: both port.toml and cabin.toml are required",
+                has_overlay,
+                "incomplete foundation port at {}: a recipe needs its overlay cabin.toml",
                 version_dir.display(),
             );
 

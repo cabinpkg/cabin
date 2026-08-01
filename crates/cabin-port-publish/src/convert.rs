@@ -311,12 +311,20 @@ fn rewrite_port_dependencies<'a>(
                  conversion tool only rewrites unconditional port dependencies"
             );
         }
-        let summary = request.summaries.get(dep_name).ok_or_else(|| {
-            anyhow!(
-                "port dependency `{dep_name}` does not match any committed recipe; every \
-                 inter-port dependency must convert in the same run"
-            )
-        })?;
+        // A migrated port's summary is keyed by its lowercase
+        // directory name, so a recipe's mixed-case reference folds
+        // on the fallback lookup (the same rule the planner's edge
+        // and satisfiability lookups apply).
+        let summary = request
+            .summaries
+            .get(dep_name)
+            .or_else(|| request.summaries.get(&dep_name.to_lowercase()))
+            .ok_or_else(|| {
+                anyhow!(
+                    "port dependency `{dep_name}` does not match any committed port; every \
+                     inter-port dependency must convert or resolve in the same run"
+                )
+            })?;
 
         let table_key = match dep.kind {
             cabin_core::DependencyKind::Normal => "dependencies",
@@ -769,6 +777,35 @@ deps = ["zlib"]
         assert!(converted.contains("[target.png]"), "{converted}");
     }
 
+    /// A migrated port's summary is keyed by its lowercase directory
+    /// name; a remaining recipe that still spells the dependency the
+    /// old mixed-case way must fold onto it instead of aborting the
+    /// conversion.
+    #[test]
+    fn folds_mixed_case_references_onto_a_migrated_ports_summary() {
+        let descriptor = descriptor(
+            "libpng",
+            "1.6.50",
+            "https://example.com/libpng-1.6.50.tar.gz",
+            Some("libpng-1.6.50"),
+        );
+        let overlay = LIBPNG_OVERLAY.replace("zlib = { port = true", "ZLIB = { port = true");
+        assert!(overlay.contains("ZLIB = { port = true"), "{overlay}");
+        // The summary sits under the lowercase key only, as it does
+        // after zlib migrates to a package directory.
+        let converted = convert_overlay(&ConvertRequest {
+            descriptor: &descriptor,
+            overlay_text: &overlay,
+            summaries: &summaries(),
+        })
+        .unwrap();
+        assert!(
+            converted.contains("\"cabin-ports/zlib\" = \"^1.3\""),
+            "{converted}"
+        );
+        assert!(!converted.contains("port = true"), "{converted}");
+    }
+
     #[test]
     fn stamps_copy_steps_into_the_upstream_table() {
         let mut descriptor = descriptor(
@@ -920,7 +957,7 @@ c-standard = "c11"
         })
         .unwrap_err();
         assert!(
-            format!("{err:#}").contains("does not match any committed recipe"),
+            format!("{err:#}").contains("does not match any committed port"),
             "{err:#}"
         );
     }
