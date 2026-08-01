@@ -3,13 +3,13 @@
 A consumer example for the `cabin-ports/miniz` registry package,
 published from the curated
 [`crates/cabin-port/ports/miniz/3.1.2/`](../../crates/cabin-port/ports/miniz/3.1.2/)
-recipe.  The program links against miniz, round-trips a string
+package directory.  The program links against miniz, round-trips a string
 through `mz_compress` / `mz_uncompress`, and prints the decompressed
 text plus `mz_version()`.
 
 The package carries upstream's official **amalgamated release
 sources** - the repository's split sources need a CMake-generated
-`miniz_export.h`, which the recipe never generates.  (`mz_version()`
+`miniz_export.h`, which the port never generates.  (`mz_version()`
 reports miniz's internal zlib-style version string, `11.3.2` for
 release 3.1.2; the two numberings differ upstream on purpose.)
 
@@ -50,5 +50,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::miniz_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.

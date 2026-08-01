@@ -122,7 +122,8 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`libpng/1.6.50/`](libpng/1.6.50/) - the official PNG reference library, version 1.6.50.  Depends
   on the bundled zlib port and places its prebuilt `pnglibconf.h` with a `[[copy]]` step.
 - [`miniz/3.1.2/`](miniz/3.1.2/) - the miniz single-file zlib-replacement compression library
-  (upstream amalgamated release zip), version 3.1.2.
+  (upstream amalgamated release zip), version 3.1.2.  **Migrated**: depend on
+  `"cabin-ports/miniz"`.
 - [`nlohmann_json/3.12.0/`](nlohmann_json/3.12.0/) - JSON for Modern C++ (header-only), version
   3.12.0.
 - [`picohttpparser/2026.4.6/`](picohttpparser/2026.4.6/) - the picohttpparser tiny HTTP
