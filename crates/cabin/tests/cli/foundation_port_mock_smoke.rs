@@ -30,7 +30,10 @@ const FAKE_XXHASH_H: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/xxhash/xxhash.h");
 const FAKE_XXHASH_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/xxhash/xxhash.c");
-const XXHASH_OVERLAY: &str = include_str!("../../../cabin-port/ports/xxhash/0.8.3/cabin.toml");
+// xxhash is committed as a package, not a recipe, so its manifest
+// no longer describes a recipe overlay; the fake port carries its own.
+const XXHASH_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/xxhash/cabin.toml");
 const XXHASH_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/xxhash/main.c");
 

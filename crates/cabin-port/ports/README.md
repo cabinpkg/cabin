@@ -140,7 +140,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`uthash/2.4.0/`](uthash/2.4.0/) - the uthash hash table and container macros for C structures
   (header-only), version 2.4.0.  **Migrated**: depend on `"cabin-ports/uthash"`.
 - [`xxhash/0.8.3/`](xxhash/0.8.3/) - the xxHash extremely fast non-cryptographic hash algorithm,
-  version 0.8.3.
+  version 0.8.3.  **Migrated**: depend on `"cabin-ports/xxhash"`.
 - [`zlib/1.3.1/`](zlib/1.3.1/) - the zlib compression library, version 1.3.1.
 
 ## Publishing ports as `cabin-ports/*` registry packages
