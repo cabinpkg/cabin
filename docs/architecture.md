@@ -107,7 +107,7 @@ docs/
   target-dependencies.md  `[target.'cfg(...)'.<kind>]` predicates
   patch-overrides.md  patch / override / source replacement
   package-index.md   package index schema
-  foundation-ports.md  curated foundation-port recipes + `cabin port list`
+  foundation-ports.md  the curated foundation ports and how they publish
   design/
     standard-compatibility/
       spec.md            normative resolver-level standard-compatibility model

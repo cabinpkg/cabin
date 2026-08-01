@@ -22,14 +22,14 @@ zlib = { port = true, version = "^1.3" }
 The embedded set shrinks as the recipe layer collapses: a port committed as a
 provenance-bearing package is deliberately *not* embedded, so `{ port = true }` no longer
 resolves it and the dependency moves to `"cabin-ports/<name>"` (see "Migrating a port to a
-package" below).  `cabin port list` reports what your binary actually ships, and
+package" below).  The bundled set is what your binary ships, and
 [`crates/cabin-port/ports/README.md`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/README.md)
 marks the migrated entries.
 
 `port = true` declarations require a `version = "<requirement>"` field.  The bundled set is resolved
 by `(name, version_req)`; the highest-versioned entry whose `version` satisfies the requirement
 wins.  With the current single-entry bundled set, the only effective check is that the request is
-satisfiable.  Run `cabin port list` to see the names and versions shipped in your binary.  The
+satisfiable.  The
 dependency name must match a bundled entry exactly; unknown names surface
 `PortError::UnknownBuiltin`.
 

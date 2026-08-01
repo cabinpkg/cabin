@@ -2804,18 +2804,16 @@ mod cargo_interface_docs;
 #[path = "cli/curated_help_and_list.rs"]
 mod curated_help_and_list;
 
-// ---------------------------------------------------------------
-// cabin port subcommand
-// ---------------------------------------------------------------
-
+/// `cabin port` was removed with the builtin-port feature.  Without this
+/// test a later clap change could silently re-register the subcommand
+/// while the suite stayed green.
 #[test]
-fn cabin_port_list_prints_zlib() {
-    let assertion = cabin().args(["port", "list"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    assert!(
-        stdout.contains("zlib") && stdout.contains("1.3.1"),
-        "expected name + version in output: {stdout}"
-    );
+fn port_subcommand_is_rejected() {
+    cabin()
+        .args(["port", "list"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unrecognized subcommand 'port'"));
 }
 
 // ---------------------------------------------------------------
