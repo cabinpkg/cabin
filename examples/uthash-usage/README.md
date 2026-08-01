@@ -3,14 +3,14 @@
 A consumer example for the `cabin-ports/uthash` registry package,
 published from the curated
 [`crates/cabin-port/ports/uthash/2.4.0/`](../../crates/cabin-port/ports/uthash/2.4.0/)
-recipe.  The program includes the header-only uthash macro library,
+package directory.  The program includes the header-only uthash macro library,
 adds one entry to a hash table keyed by a string field, looks it up,
 and prints the value plus the library version.
 
 The upstream tarball ships a convenience `include -> src` symlink;
 the extraction policy that stages the package from that tarball
 skips symlink entries (nothing is materialized for them) and the
-recipe's overlay points straight at `src/`, so the package publishes
+package manifest points straight at `src/`, so the package publishes
 cleanly.
 
 This is **not** itself a port and does not vendor or copy uthash
@@ -50,5 +50,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::uthash_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.
