@@ -1,7 +1,8 @@
 # png-info
 
 A tiny PNG inspector built on the `cabin-ports/libpng` registry package, published from the
-curated [`crates/cabin-port/ports/libpng/`](../../crates/cabin-port/ports/libpng) recipe.  The
+curated [`crates/cabin-port/ports/libpng/`](../../crates/cabin-port/ports/libpng) package
+directory.  The
 program encodes a 2x2 RGBA image to an in-memory PNG with libpng's simplified write API, decodes
 it back, and prints the dimensions, channel count, and encoded size - the information a `png-info`
 tool would report for a file on disk.
@@ -49,5 +50,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::png_info_builds_and_runs`) is
-`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+`#[ignore = "requires external network"]`: it stages the committed ports into a local file
 registry through the publisher pipeline and builds this example against it with `--index-path`.
