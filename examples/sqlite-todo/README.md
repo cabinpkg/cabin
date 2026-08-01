@@ -2,7 +2,8 @@
 
 A miniature todo-list app on the `cabin-ports/sqlite3` registry package (the amalgamation),
 published from the curated
-[`crates/cabin-port/ports/sqlite3/`](../../crates/cabin-port/ports/sqlite3) recipe.  Where
+[`crates/cabin-port/ports/sqlite3/`](../../crates/cabin-port/ports/sqlite3) package
+directory.  Where
 [`sqlite3-usage/`](../sqlite3-usage) is the minimal consumption smoke test, this example walks the
 shape of a real SQLite program from C: open a database, run DDL and DML through `sqlite3_exec`,
 then iterate a `SELECT` with the prepare/step/finalize statement API.
@@ -46,5 +47,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::sqlite_todo_builds_and_runs`) is
-`#[ignore = "requires external network"]`: it stages the committed recipes into a local file
+`#[ignore = "requires external network"]`: it stages the committed ports into a local file
 registry through the publisher pipeline and builds this example against it with `--index-path`.
