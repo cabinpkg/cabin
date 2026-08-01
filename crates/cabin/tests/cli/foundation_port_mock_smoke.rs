@@ -19,7 +19,10 @@ const FAKE_CJSON_H: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/cJSON/cJSON.h");
 const FAKE_CJSON_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/cJSON/cJSON.c");
-const CJSON_OVERLAY: &str = include_str!("../../../cabin-port/ports/cJSON/1.7.18/cabin.toml");
+// cJSON is committed as a package, not a recipe, so its manifest no
+// longer describes a recipe overlay; the fake port carries its own.
+const CJSON_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/cJSON/cabin.toml");
 const CJSON_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/cJSON/main.c");
 

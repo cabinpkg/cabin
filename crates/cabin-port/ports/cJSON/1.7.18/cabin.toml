@@ -1,5 +1,10 @@
+[package.upstream]
+url = "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.tar.gz"
+sha256 = "3aa806844a03442c00769b83e99970be70fbef03735ff898f4811dd03b9f5ee5"
+format = "tar.gz"
+strip-prefix = "cJSON-1.7.18"
 [package]
-name = "cJSON"
+name = "cabin-ports/cjson"
 version = "1.7.18"
 
 # cJSON's core parser/printer is a single translation unit. The
@@ -11,7 +16,7 @@ version = "1.7.18"
 # platform, and the only `sqrt` reference is inside a
 # `#ifndef NAN` / `#ifdef _WIN32` fallback that never fires where
 # `<math.h>` already defines `NAN`, so no `-lm` link is required.
-[target.cJSON]
+[target.cjson]
 type = "library"
 sources = ["cJSON.c"]
 include-dirs = ["."]
