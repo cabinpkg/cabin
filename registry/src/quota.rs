@@ -32,6 +32,10 @@ pub struct ClassQuotas {
     pub source_reads_per_day: u64,
 }
 
+/// The `users.quota_class` value every account starts on, and the
+/// class an anonymous caller is measured against.
+pub const DEFAULT_CLASS_NAME: &str = "default";
+
 const DEFAULT: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
     max_total_bytes_per_user: 128 * 1024 * 1024,
@@ -258,6 +262,43 @@ pub fn check_publish(
         return Err(QUOTA_VERSIONS_DAILY);
     }
     Ok(())
+}
+
+/// The fairness window a charged artifact read is billed to, as a
+/// `(principal, cap)` pair for the governor's per-principal daily
+/// window.
+///
+/// Tokened callers key on their registry user id, as before public
+/// reads.  Anonymous callers - the read plane is public
+/// (`docs/architecture.md`, "Origins and roles") - key on the
+/// client IP Cloudflare stamps on every edge request
+/// (`CF-Connecting-IP`, which the edge overwrites, so it is not
+/// caller-controlled).  They must be bounded by *something*: the
+/// deployed WAF rate limiter deliberately covers only the website
+/// origin's write/auth surface, never `registry.cabinpkg.com` reads
+/// ([`runbook.md`](../docs/runbook.md), "Zone security and rate
+/// limiting"), so without this one unauthenticated caller could
+/// drain the shared `b_ordinary` pool and 503 everyone else's
+/// uncached downloads.
+///
+/// A request with no client-IP header (local dev; the edge always
+/// sets it in production) falls back to one shared anonymous window
+/// rather than no window at all - bounding total anonymous drain is
+/// the fail-safe direction.
+#[must_use]
+pub fn artifact_read_fairness(
+    user_id: Option<i64>,
+    quotas: &ClassQuotas,
+    client_ip: Option<&str>,
+) -> (String, u64) {
+    if let Some(user_id) = user_id {
+        return (user_id.to_string(), quotas.artifact_reads_per_day);
+    }
+    let principal = match client_ip {
+        Some(ip) if !ip.is_empty() => format!("ip:{ip}"),
+        _ => "ip:unknown".to_owned(),
+    };
+    (principal, DEFAULT.artifact_reads_per_day)
 }
 
 #[cfg(test)]
@@ -501,5 +542,40 @@ mod tests {
             ..healthy_counts()
         };
         assert_eq!(check_publish(1, &counts, &quotas), Err(QUOTA_STORAGE));
+    }
+
+    /// Anonymous readers must still land in a per-caller window: the
+    /// WAF rate limiter does not cover the read host, so an unbounded
+    /// anonymous miss path would let one caller drain the shared pool.
+    #[test]
+    fn anonymous_artifact_reads_key_on_the_client_ip() {
+        let quotas = quotas_for_class("operator");
+        let (principal, cap) = artifact_read_fairness(None, &quotas, Some("203.0.113.7"));
+        assert_eq!(principal, "ip:203.0.113.7");
+        // Anonymous callers never inherit a promoted class's cap - the
+        // class belongs to an account, and there is no account here.
+        assert_eq!(cap, DEFAULT.artifact_reads_per_day);
+    }
+
+    /// A tokened caller keys on its user id and its own class cap,
+    /// exactly as before the read plane became public.
+    #[test]
+    fn tokened_artifact_reads_key_on_the_user() {
+        let quotas = quotas_for_class("operator");
+        let (principal, cap) = artifact_read_fairness(Some(42), &quotas, Some("203.0.113.7"));
+        assert_eq!(principal, "42");
+        assert_eq!(cap, quotas.artifact_reads_per_day);
+    }
+
+    /// No client-IP header (local dev): one shared anonymous window,
+    /// never an unbounded path.
+    #[test]
+    fn a_missing_client_ip_still_lands_in_a_window() {
+        let quotas = quotas_for_class("default");
+        for ip in [None, Some("")] {
+            let (principal, cap) = artifact_read_fairness(None, &quotas, ip);
+            assert_eq!(principal, "ip:unknown");
+            assert_eq!(cap, quotas.artifact_reads_per_day);
+        }
     }
 }

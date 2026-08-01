@@ -175,9 +175,10 @@ pub fn transition(current: Status, verdict: Verdict) -> Transition {
 }
 
 /// Whether the artifact route serves a version to this request:
-/// verified versions to any valid token, pending versions only to the
-/// `verify` scope (the verifier downloads the bytes it inspects), and
-/// rejected versions to no one - their blob is reclaimed.
+/// verified versions to everyone (reads are public), pending versions
+/// only to the `verify` scope (the verifier downloads the bytes it
+/// inspects), and rejected versions to no one - their blob is
+/// reclaimed.
 pub fn artifact_readable(status: Status, has_verify_scope: bool) -> bool {
     match status {
         Status::Verified => true,

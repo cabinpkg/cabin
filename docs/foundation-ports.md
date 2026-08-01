@@ -210,9 +210,9 @@ The dependency key needs quotes (scoped names contain `/`), and the requirement 
 upstream version: [packaging revisions](package-index.md#packaging-revisions) are not part of the
 version string, and consumers pin them through the lockfile's checksum instead.  Registry
 dependencies resolve through the hosted registry by default (no flag; see
-[remote-registry.md](remote-registry.md#the-default-registry)) - while the registry is in
-private alpha its reads are authenticated, so a `cabin login` token is required; the bundled
-`port = true` form works with no configuration on a stock `cabin` install.
+[remote-registry.md](remote-registry.md#the-default-registry)), and verified packages download
+without an account or token - `cabin login` is only needed to publish; the bundled
+`port = true` form works offline-cached with no configuration on a stock `cabin` install.
 
 `port = true` requires a sibling `version = "<requirement>"` field (see "Bundled ports" above).
 `port-path` is mutually exclusive with `version` - the recipe at the path supplies the version.

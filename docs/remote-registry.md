@@ -1,11 +1,12 @@
 # Remote Registry Protocol
 
-> **Reads are stable; mutations are experimental.**  Consuming hosted packages - the registry
-> `config.json`, authenticated index reads, artifact downloads, and `cabin login` / `cabin logout` -
-> is a normal client path with no flag.  The mutation surfaces (`cabin publish --index-url`,
-> `cabin yank`, and the admin API) stay gated behind `-Z remote-registry` and carry no
-> compatibility promise: those routes, framings, and status codes may change or disappear between
-> releases without a migration path.
+> **Reads are public and stable; mutations are authenticated and experimental.**  Consuming
+> hosted packages - the registry `config.json`, index reads, and artifact downloads - is a normal
+> client path that needs **no account, login, or token** (`cabin login` / `cabin logout` exist
+> for the authenticated surfaces and are stable too).  The mutation surfaces
+> (`cabin publish --index-url`, `cabin yank`, and the admin API) require a token, stay gated
+> behind `-Z remote-registry`, and carry no compatibility promise: those routes, framings, and
+> status codes may change or disappear between releases without a migration path.
 
 > **Names are scoped.** Registry packages are always `<scope>/<name>` (e.g. `fmtlib/fmt`): every
 > package route carries the `<scope>/<name>` pair, the artifact filename embeds the scope and the
@@ -24,7 +25,7 @@ described in [`registry-design.md`](registry-design.md).
 
 Client status today: the [`config.json` fields](#registry-configuration) below and client-side
 token handling - `cabin login` / `cabin logout` plus
-[authenticated reads](#client-side-token-handling) - are stable, and the hosted registry is the
+[token-optional reads](#client-side-token-handling) - are stable, and the hosted registry is the
 [default index origin](#the-default-registry) when no explicit override applies.
 [Publishing](#publishing-from-the-client) (`cabin publish` against an HTTP index source) and
 [yanking](#yanking-from-the-client) (`cabin yank`) are implemented behind `-Z remote-registry`.
@@ -39,7 +40,8 @@ a config-supplied URL: `[source-replacement]` applies to it, `--offline` refuses
 ever materializes when the selected closure actually has versioned dependencies, so dependency-free
 projects never observe it - and it never applies to `cabin publish`, `cabin yank`, or
 `cabin vendor`, which keep requiring an explicitly named source (`cabin login` / `cabin logout` do
-fall back to it, since a stored token is what makes the default usable at all).
+fall back to it, since they manage credentials for exactly that hosted registry - reads are
+public, and a token is what unlocks publishing).
 
 ## Registry configuration
 
@@ -52,14 +54,14 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
   "kind": "file-registry",
   "packages": "packages",
   "artifacts": "artifacts",
-  "auth-required": true,
+  "auth-required": false,
   "api": "https://cabinpkg.com"
 }
 ```
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`. |
+| `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`.  The hosted registry serves `false`: its verified reads are public (`registry/docs/architecture.md`, "Origins and roles"). |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -74,7 +76,7 @@ UI plus the entire API, glued together by `config.json`'s `dl`/`api` fields):
 
 | Hostname | Role |
 | --- | --- |
-| `registry.cabinpkg.com` | The machine read plane **only**: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
+| `registry.cabinpkg.com` | The machine read plane **only**, public for verified content: `config.json`, package metadata, artifact downloads, and `/healthz`.  Cabin keeps artifacts on the index host - the client's same-origin artifact rule makes a separate download host pointless - so this one hostname covers what crates.io splits across `index.crates.io` and `static.crates.io`. |
 | `cabinpkg.com` | The website, plus everything else the registry serves: the browser sign-in flow, the session-cookie user API, the Bearer mutation routes, and the one unauthenticated JSON route - `GET /api/v1/stats`, aggregate download/package totals for the website's own pages (service-local; not part of the client protocol).  `config.json`'s [`api`](#registry-configuration) field names this origin. |
 
 On the index host, every path outside the read plane - the mutation routes included - answers
@@ -83,18 +85,23 @@ surface is indistinguishable from any unknown path there.
 
 ## Authentication
 
-Requests authenticate with a bearer token:
+The authenticated surfaces - publish, yank, the admin API, and any registry declaring
+[`auth-required`](#registry-configuration) - authenticate with a bearer token:
 
 ```text
 Authorization: Bearer cabin_<base62>
 ```
 
+- Reads on the hosted registry need no token.  When the client holds one for the origin it is
+  [still attached](#when-the-token-is-sent); a presented token that fails to validate answers
+  the uniform `401` rather than being ignored, so a rotated or revoked credential fails loudly
+  instead of silently reading as anonymous.
 - Tokens are issued on the registry's web UI after GitHub sign-in.  Its URL is **not** derived
   from the index origin by convention; it is discovered through the
   [login-URL challenge](#the-login-url-challenge) below.
 - Token scopes: `publish`, `yank`, and `verify` (the
-  [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token grants
-  read access regardless of scope.
+  [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token
+  additionally opens the read plane's `verify`-scope carve-outs (pending-artifact fetches).
 
 ### The login-URL challenge
 
@@ -107,9 +114,11 @@ WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
 
 The grammar is the scheme token `Cabin` (ASCII case-insensitive, per RFC 7235) followed by a
 quoted `login_url` parameter carrying an absolute `http(s)` URL.  The header is byte-identical
-on every path and failure reason - a missing token, an invalid token, and an unknown path all
-answer the same challenge - so unauthenticated responses stay indistinguishable and leak
-nothing about package existence.
+on every path and failure reason - a missing token on the mutation surface, an invalid token,
+and an unknown path all answer the same challenge - so the 401s the Bearer plane still emits
+stay indistinguishable from one another.  Because the read plane serves unauthenticated `GET`s,
+reads themselves no longer challenge; the challenge survives on every non-read-plane path of
+the index host, which is where [discovery](#cabin-login-and-cabin-logout) finds it.
 
 ## Client-side token handling
 
@@ -135,9 +144,12 @@ visit https://cabinpkg.com/settings/tokens to create a token
        Login token for `https://registry.cabinpkg.com` saved
 ```
 
-Discovery is one advisory, always-unauthenticated `GET` of the index's `config.json`: on a
-`401` carrying the [login-URL challenge](#the-login-url-challenge), the challenge's URL is
-printed verbatim.  Every other outcome - a registry that does not require auth, a missing or
+Discovery is advisory and always unauthenticated: one `GET` of the index's `config.json` - an
+`auth-required` registry answers it with the challenged `401` - and, when that read succeeds
+instead (public reads), one `GET` of the index root, which is off the read plane and answers
+the uniform `401` with the same challenge on the hosted registry.  On a `401` carrying the
+[login-URL challenge](#the-login-url-challenge), the challenge's URL is
+printed verbatim.  Every other outcome - a missing or
 malformed challenge, an implausible URL, or a failed probe (offline) - degrades to a generic
 `create a token in the registry's web interface` hint.  The probe never blocks login: the
 pasted token is read and stored either way.
@@ -203,13 +215,17 @@ The read routes are the same shapes as the sparse HTTP index in
 | `GET /packages/<scope>/<name>.json` | Per-package index document. |
 | `GET /artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip` | Source archive download, one route per [packaging revision](package-index.md#packaging-revisions).  The `<revision>` segment must be exactly 16 lowercase hex characters and the `<version>` segment must not carry SemVer build metadata; anything else is a `404` before storage is consulted. |
 
-On an `auth-required` registry, all three return `401` with the
+On the hosted registry all three serve unauthenticated `GET`s: no account, login, or token is
+needed to consume verified packages, and non-`GET` methods answer `405`.  A request that *does*
+present a token gets it validated - an invalid one is the uniform `401` with the
 [error envelope](#error-envelope) body
 `{"errors":[{"detail":"authentication required"}]}` and the
-[login-URL challenge](#the-login-url-challenge) when the request carries no valid token.
-Unauthenticated requests **must not** be able to distinguish existing from non-existing packages:
-the `401` status, body, and challenge are identical whether or not the requested package exists -
-and identical again on every [non-read-plane path](#one-role-per-hostname) of the index host.
+[login-URL challenge](#the-login-url-challenge), never a silent downgrade to anonymous.  On a
+registry declaring [`auth-required`](#registry-configuration), all three instead return that
+same `401` whenever the request carries no valid token, identical whether or not the requested
+package exists.  Either way the `401` bytes match every
+[non-read-plane path](#one-role-per-hostname) of the index host, so the mutation surface stays
+indistinguishable from unknown paths.
 
 On a registry with the [verification lifecycle](#verification-lifecycle), the composed
 `/packages/<scope>/<name>.json` document contains **verified** revisions only - each version's
@@ -325,7 +341,7 @@ Client-side behavior:
   metadata document.  The uploaded bytes are byte-identical to what `cabin package` writes into
   `dist/` for the same source tree.
 - `config.json` (which supplies the [`api`](#registry-configuration) origin) and the lint baseline
-  ride the authenticated read path; the upload carries the same bearer token to the API origin,
+  ride the read path with the publisher's token attached; the upload carries the same bearer token to the API origin,
   under the same https-or-loopback cleartext rule.
 - On `201` the client reports the published name, version, checksum, and revision.  On `200` it
   reports that byte-identical bytes were already published and exits successfully - the same
@@ -621,7 +637,7 @@ fmtlib/fmt@10.2.1 is no longer yanked
 The report states the *resulting* state.  Because the route is idempotent, that wording also
 covers the no-op: yanking an already-yanked version succeeds and prints the same line.  A `404`
 reports that the version is not published on this registry; `401` / `403` follow the
-[authenticated read path's conventions](#when-the-token-is-sent).
+[token conventions of the read path](#when-the-token-is-sent).
 
 What yanking means - matching the resolver behavior in
 [`package-index.md`](package-index.md#yanked-version):
@@ -641,9 +657,9 @@ What yanking means - matching the resolver behavior in
 | `200` | Success without a state change: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has). |
 | `201` | Publish that created a packaging revision - a first publish of the version, an opted-in respin, or the revival of a rejected revision. |
 | `400` | Malformed request: bad framing, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
-| `401` | No token or an invalid token (never reveals whether the package exists).  Carries the [login-URL challenge](#the-login-url-challenge). |
+| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there).  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
-| `404` | Authenticated request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones for ordinary tokens. |
+| `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
 | `429` | A rate limit: the publish token bucket is empty (code `rate_limited`), or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |

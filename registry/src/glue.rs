@@ -201,7 +201,8 @@ fn unauthorized(env: &Env) -> worker::Result<Response> {
     Ok(response)
 }
 
-/// The registry custom domain: only the machine read plane exists here.
+/// The registry custom domain: only the machine read plane exists here,
+/// and it is public - unauthenticated GETs read verified content.
 /// Every other path - including all of `/api/*` - answers the uniform
 /// 401 without consulting the `Authorization` header at all, so a
 /// misdirected credential or a probe of the mutation routes is
@@ -212,7 +213,7 @@ async fn handle_registry(
     ctx: &Context,
     path: &str,
 ) -> worker::Result<(Response, Option<String>)> {
-    // The only unauthenticated route; 200 with no body.
+    // The only bodyless health route; 200 with no body.
     if path == "/healthz" {
         return Ok((Response::empty()?, None));
     }
@@ -220,61 +221,96 @@ async fn handle_registry(
         return Ok((unauthorized(env)?, None));
     };
 
-    // Deny by default: the uniform 401 is emitted before any D1/R2 data
-    // lookup, so non-callers cannot probe package existence.
     let db = env.d1("DB")?;
-    let Some(auth) = authenticate(req, &db, ctx).await? else {
-        return Ok((unauthorized(env)?, None));
+    // The read plane is public, so its method discipline is public
+    // too: a non-`GET` answers 405 whatever credential rides along,
+    // before the header is read at all. Deciding it on the presented
+    // credential instead would make the refusal a token-validity
+    // oracle on a route that exists for everyone.
+    if req.method() != Method::Get {
+        let mut response = error_response(405, error::METHOD_NOT_ALLOWED)?;
+        if let Some(generation) = registry_generation(&db).await {
+            response.headers_mut().set(GENERATION_HEADER, &generation)?;
+        }
+        return Ok((response, None));
+    }
+
+    // Public verified reads (`docs/architecture.md`, "Origins and
+    // roles"): a request with no `Authorization` header is an anonymous
+    // reader. A presented credential is still a claim - one that fails
+    // to validate answers the uniform 401 rather than silently
+    // degrading to anonymous, so the verifier's pending fetches fail
+    // loudly on a rotated token instead of reading as missing rows.
+    let auth = if req.headers().get("authorization")?.is_some() {
+        match authenticate(req, &db, ctx).await? {
+            Some(auth) => Some(auth),
+            None => return Ok((unauthorized(env)?, None)),
+        }
+    } else {
+        None
     };
 
-    let mut response = if req.method() == Method::Get {
-        // The read-side budget gate (`docs/architecture.md`, "Billing
-        // model and the budget breaker"). After the Bearer gate, so
-        // unauthenticated callers cannot observe service state; inside
-        // the GET arm, so method discipline keeps its 405; and fail-open
-        // on the mode lookup (`.ok()`): only an affirmatively read
-        // `reads_blocked` refuses, so downloads keep working through an
-        // outage of the breaker itself. The verifier's fetches - the
-        // config it discovers the api origin from and the artifacts it
-        // inspects, never the package documents - are exempt: it must
-        // be able to drain the pending queue while reads are blocked,
-        // and its spend is negligible.
-        let verify_exempt =
-            has_verify_scope(&auth) && matches!(route, Route::Config | Route::Artifact { .. });
-        let mode = service_mode(env, &db).await.ok();
-        if breaker::read_gate_refuses(mode, verify_exempt) {
-            error_response_with_code(
-                breaker::OVER_BUDGET_STATUS,
-                breaker::OVER_BUDGET_READS_DETAIL,
-                breaker::OVER_BUDGET_CODE,
-                Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),
-            )?
-        } else {
-            match route {
-                Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
-                Route::Package { scope, name } => package_response(&db, scope, name).await?,
-                Route::Artifact {
+    // The read-side budget gate (`docs/architecture.md`, "Billing
+    // model and the budget breaker"). Anonymous readers receive the
+    // same refusal as authenticated ones - a public over-budget
+    // answer necessarily reveals service state, which is inherent
+    // to public reads (the recorded revision in "Origins and
+    // roles"). Fail-open on the mode lookup (`.ok()`): only an
+    // affirmatively read `reads_blocked` refuses, so downloads keep
+    // working through an outage of the breaker itself. The
+    // verifier's fetches - the config it discovers the api origin
+    // from and the artifacts it inspects, never the package
+    // documents - are exempt: it must be able to drain the pending
+    // queue while reads are blocked, and its spend is negligible.
+    let verify_exempt = auth.as_ref().is_some_and(has_verify_scope)
+        && matches!(route, Route::Config | Route::Artifact { .. });
+    let mode = service_mode(env, &db).await.ok();
+    let mut response = if breaker::read_gate_refuses(mode, verify_exempt) {
+        error_response_with_code(
+            breaker::OVER_BUDGET_STATUS,
+            breaker::OVER_BUDGET_READS_DETAIL,
+            breaker::OVER_BUDGET_CODE,
+            Some(breaker::OVER_BUDGET_RETRY_AFTER_SECS),
+        )?
+    } else {
+        match route {
+            Route::Config => json_response(&documents::config_json(&web_origin(env)?))?,
+            Route::Package { scope, name } => package_response(&db, scope, name).await?,
+            Route::Artifact {
+                scope,
+                name,
+                version,
+                revision,
+            } => {
+                // Cloudflare stamps `CF-Connecting-IP` on every edge
+                // request (it overwrites any client-supplied value),
+                // so it is the one caller identity an anonymous
+                // reader has - see `quota::artifact_read_fairness`.
+                let client_ip = req.headers().get("cf-connecting-ip")?;
+                artifact_response(
+                    env,
+                    &db,
+                    ctx,
+                    auth.as_ref(),
+                    client_ip.as_deref(),
                     scope,
                     name,
                     version,
                     revision,
-                } => {
-                    artifact_response(env, &db, ctx, &auth, scope, name, version, revision).await?
-                }
-                // Answered above before the auth gate.
-                Route::Healthz => Response::empty()?,
+                )
+                .await?
             }
+            // Answered above before the credential check.
+            Route::Healthz => Response::empty()?,
         }
-    } else {
-        error_response(405, error::METHOD_NOT_ALLOWED)?
     };
 
     // Debug aid for the pre-launch registry (see docs/runbook.md):
-    // stamp every authenticated response with the registry generation.
+    // stamp every read-plane response with the registry generation.
     if let Some(generation) = registry_generation(&db).await {
         response.headers_mut().set(GENERATION_HEADER, &generation)?;
     }
-    Ok((response, Some(auth.token_id)))
+    Ok((response, auth.map(|auth| auth.token_id)))
 }
 
 /// The website origin: the OAuth plane (`/login`, `/callback`, and the
@@ -1309,7 +1345,8 @@ async fn artifact_response(
     env: &Env,
     db: &D1Database,
     ctx: &Context,
-    auth: &AuthContext,
+    auth: Option<&AuthContext>,
+    client_ip: Option<&str>,
     scope: &str,
     name: &str,
     version: &str,
@@ -1323,13 +1360,14 @@ async fn artifact_response(
     let Some(record) = record else {
         return error_response(404, error::NOT_FOUND);
     };
-    // Verified versions download with any valid token; pending ones
-    // only with the `verify` scope (the verifier fetches the bytes it
-    // inspects); rejected ones - whose blob is reclaimed - and rows
-    // with an unreadable status gate like missing rows.
+    // Verified versions download for everyone; pending ones only with
+    // the `verify` scope (the verifier fetches the bytes it inspects);
+    // rejected ones - whose blob is reclaimed - and rows with an
+    // unreadable status gate like missing rows.
     let status = verify::Status::parse(&record.verification);
-    let readable =
-        status.is_some_and(|status| verify::artifact_readable(status, has_verify_scope(auth)));
+    let readable = status.is_some_and(|status| {
+        verify::artifact_readable(status, auth.is_some_and(has_verify_scope))
+    });
     if !readable {
         return error_response(404, error::NOT_FOUND);
     }
@@ -1338,14 +1376,28 @@ async fn artifact_response(
     // downloadable on purpose (docs/remote-registry.md, "Yank").
     let key = format!("blobs/sha256/{}", record.checksum);
     if status == Some(verify::Status::Verified) {
-        let response =
-            verified_artifact_response(env, auth, &key, &record.checksum, scope, name, version)
-                .await?;
+        let response = verified_artifact_response(
+            env,
+            auth,
+            client_ip,
+            &key,
+            &record.checksum,
+            scope,
+            name,
+            version,
+        )
+        .await?;
         if response.status_code() == 200 {
             count_download(env, ctx, scope, name, version);
         }
         return Ok(response);
     }
+
+    // Pending is readable only with the `verify` scope, so a credential
+    // is present here by construction; gate like a missing row if not.
+    let Some(auth) = auth else {
+        return error_response(404, error::NOT_FOUND);
+    };
 
     // The verifier's pending fetch: never cached (the bytes are not yet
     // part of the registry), charged to the isolated verifier pool so
@@ -1402,14 +1454,17 @@ fn thaw_cached(mut cached: Response) -> worker::Result<Response> {
         .with_status(status)
         .with_headers(headers);
     // The stored copy carries the internal `public` freshness header;
-    // the outward answer to an authenticated request must not.
+    // the outward answer must not (it would let the edge re-serve the
+    // body without the Worker, dropping the download count).
     response.headers_mut().set("cache-control", "no-store")?;
     Ok(response)
 }
 
+#[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn verified_artifact_response(
     env: &Env,
-    auth: &AuthContext,
+    auth: Option<&AuthContext>,
+    client_ip: Option<&str>,
     key: &str,
     checksum: &str,
     scope: &str,
@@ -1450,32 +1505,43 @@ async fn verified_artifact_response(
         }
         owns_marker = INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().insert(checksum.to_owned()));
     }
-    let result = charged_blob_read(env, auth, key, &cache_url, scope, name, version).await;
+    let result =
+        charged_blob_read(env, auth, client_ip, key, &cache_url, scope, name, version).await;
     if owns_marker {
         INFLIGHT_BLOB_READS.with(|set| set.borrow_mut().remove(checksum));
     }
     result
 }
 
-/// The cache-miss path: charge one ordinary Class B read (with the
-/// caller's per-user fairness cap) immediately before the R2 `get`,
-/// then serve and fill the edge cache.
+/// The cache-miss path: charge one ordinary Class B read immediately
+/// before the R2 `get`, then serve and fill the edge cache. Every
+/// miss lands in a per-caller daily fairness window - the token's
+/// user for a tokened caller, the edge client IP for an anonymous
+/// one ([`quota::artifact_read_fairness`]) - so no single caller can
+/// drain the shared pool and turn everyone else's uncached downloads
+/// into `503`s (`docs/architecture.md`, "The cost governor").
+#[allow(clippy::too_many_arguments)] // the caller identity plus the artifact triple
 async fn charged_blob_read(
     env: &Env,
-    auth: &AuthContext,
+    auth: Option<&AuthContext>,
+    client_ip: Option<&str>,
     key: &str,
     cache_url: &str,
     scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    let quotas = quota::quotas_for_class(&auth.quota_class);
+    let quotas = quota::quotas_for_class(
+        auth.map_or(quota::DEFAULT_CLASS_NAME, |auth| auth.quota_class.as_str()),
+    );
+    let (principal, principal_cap) =
+        quota::artifact_read_fairness(auth.map(|auth| auth.user_id), &quotas, client_ip);
     let decision = Decision {
         consume: vec![Consume {
             pool: OpPool::BOrdinary,
             n: 1,
-            principal: Some(auth.user_id.to_string()),
-            principal_cap: Some(quotas.artifact_reads_per_day),
+            principal: Some(principal),
+            principal_cap: Some(principal_cap),
         }],
         ..Decision::default()
     };
@@ -1512,11 +1578,13 @@ async fn charged_blob_read(
     response
         .headers_mut()
         .set("content-type", "application/zip")?;
-    // The freshness directives go on the internal cache copy ONLY: the
-    // outward response answered an authenticated request, and `public`
-    // would explicitly license shared caches to store and re-serve it
-    // past the Worker's auth gates (RFC 9111's Authorization
-    // exception).
+    // The freshness directives go on the internal cache copy ONLY. An
+    // outward `public` would license Cloudflare's own edge layer (and
+    // any shared cache) to re-serve the body without running the
+    // Worker, which would stop counting downloads and bypass the
+    // verified-version gate; the Worker-internal Cache API copy is the
+    // one caching layer that keeps both (`docs/architecture.md`,
+    // "Download counts").
     let mut for_cache = response.cloned()?;
     for_cache
         .headers_mut()

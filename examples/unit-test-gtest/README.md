@@ -37,7 +37,8 @@ that calls `::testing::InitGoogleTest` and `RUN_ALL_TESTS()`.
 ## Offline
 
 The first `cabin test` needs the registry.  Reads resolve through the hosted registry by default,
-and while it is in private alpha they are authenticated, so run `cabin login` first (see
+and verified packages download
+without an account or token - `cabin login` is only needed to publish (see
 [`docs/remote-registry.md`](../../docs/remote-registry.md)).  Once the package is cached, later runs reuse the downloaded
 archive without re-fetching it.  Resolving still consults the
 registry index, so a fully offline run needs a local index; see

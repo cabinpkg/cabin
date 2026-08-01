@@ -5,7 +5,8 @@ The hosted side of Cabin's experimental remote registry: a Cloudflare Worker
 sparse HTTP file-registry contract in
 [`../docs/remote-registry.md`](../docs/remote-registry.md) - the authoritative
 protocol document - with D1 as the canonical store and R2 for immutable
-archive blobs: the authenticated read routes plus the `publish` and `yank`
+archive blobs: the public read routes (verified
+content) plus the authenticated `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (validation
 order, the immutability rule, and the verification lifecycle are described
 in [`docs/architecture.md`](docs/architecture.md)), and the browser
@@ -48,8 +49,8 @@ checklist").
 
 Sign in with GitHub on the website origin (`https://cabinpkg.com/login`)
 and create a token with the scopes you need through the token page (its
-URL is what the `WWW-Authenticate` challenge on every unauthenticated
-response names, and what `cabin login` prints) - the plaintext is shown
+URL is what the `WWW-Authenticate` challenge on the mutation surface's
+uniform `401` names, and what `cabin login` prints) - the plaintext is shown
 exactly once; the registry stores only its hash. Then hand it to the
 client with `cabin login`.
 
@@ -90,10 +91,11 @@ CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   # end-to-end, local
 
 `scripts/smoke.sh` runs two `wrangler dev` instances over shared local
 D1/R2 state under `.wrangler/` - one per hostname role - and checks
-`/healthz`, the uniform `401` with its byte-identical `WWW-Authenticate`
-challenge, the hostname dispatch (no read plane on the website origin, no
-API surface on the registry domain), the OAuth and session planes'
-refusals and cookie attributes, the three authenticated read routes,
+`/healthz`, the mutation surface's uniform `401` with its byte-identical
+`WWW-Authenticate` challenge, the hostname dispatch (no read plane on the
+website origin, no API surface on the registry domain), the OAuth and
+session planes' refusals and cookie attributes, the three public read
+routes,
 claim -> publish -> fetch end to end - the scope-claim flow against a
 local GitHub mock (self-claim, org claim, refusals) and membership
 management through the session API, then the full publish / yank flow
