@@ -121,23 +121,17 @@ pub(crate) fn vendor(
     reporter: crate::cli::term_verbosity::Reporter,
 ) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
+    // Read before the workspace load: `CABIN_NET_OFFLINE` is validated
+    // by reading it, and a malformed value must fail ahead of any
+    // manifest diagnosis - and ahead of the empty-plan arm below,
+    // which returns before ever reaching the artifact pipeline.
     let offline = crate::cli::config::effective_offline(args.offline)?;
-    let vendor_selection = build_workspace_selection(&args.workspace_selection);
-    let crate::cli::port::WorkspacePrep {
+    let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
         graph: initial_graph,
         ..
-    } = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        args.cache_dir.as_deref(),
-        offline,
-        args.frozen,
-        false,
-        &vendor_selection,
-        args.no_patches,
-        None,
-    )?;
+    } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
     // Compute the resolved selection so we can scope the index
@@ -204,7 +198,6 @@ pub(crate) fn vendor(
         None,
         &effective_config,
     )?;
-    let offline = crate::cli::config::effective_offline(args.offline)?;
     crate::cli::config::enforce_offline_index_source(offline, resolved_index_source.as_ref())?;
     let resolved_cache_dir =
         crate::cli::config::resolve_cache_dir(args.cache_dir.as_deref(), &effective_config);

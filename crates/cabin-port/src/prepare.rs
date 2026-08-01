@@ -2,10 +2,10 @@
 //!
 //! The pipeline turns a [`PortPlan`] (each entry is a parsed
 //! `PortDescriptor` plus a [`PortFetchSource`]) into a list of
-//! [`PreparedPort`]s on disk.  Each prepared port directory looks
-//! exactly like a regular Cabin path dependency: the upstream
-//! source files plus the overlay `cabin.toml` at the directory
-//! root.  The workspace loader can then take over unchanged.
+//! [`PreparedPort`]s on disk.  Each materialized port directory is
+//! an ordinary Cabin package directory: the upstream source files
+//! plus the overlay `cabin.toml` at the directory root, which is
+//! what the publisher packages.
 //!
 //! For each entry the pipeline:
 //!
@@ -65,9 +65,6 @@ pub enum PortFetchSource {
 /// Where a port's recipe came from.  Determines whether
 /// `ensure_overlay` reads the overlay text from disk (`PortDir`)
 /// or from a `cabin_port::builtin::BuiltinPort` (`Builtin`).
-/// It also discriminates how the workspace loader resolves a port
-/// dependency: filesystem ports are keyed by their canonical
-/// directory path, while bundled ports are keyed by package name.
 #[derive(Debug, Clone)]
 pub enum PortOrigin {
     /// Filesystem recipe: `<port_dir>/port.toml` plus the
@@ -137,14 +134,11 @@ pub struct PreparedPort {
     /// freshly-provided bytes ([`PortFetchSource::InMemoryArchive`]) -
     /// i.e. the caller downloaded it this invocation - rather than
     /// reusing a local or already-cached archive
-    /// ([`PortFetchSource::LocalArchive`]).  The CLI reads this to emit
-    /// a cargo-style `Downloaded <name> v<ver>` status only for ports
-    /// fetched over the network this run.
+    /// ([`PortFetchSource::LocalArchive`]).
     pub downloaded: bool,
 }
 
-/// Provenance recorded for downstream observability
-/// (metadata / tree / explain).
+/// Provenance recorded for downstream observability.
 #[derive(Debug, Clone)]
 pub struct PortProvenance {
     pub url: Url,
@@ -765,47 +759,6 @@ fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError>
     };
     write_atomic(&overlay_dest, &overlay_bytes).with_path(&overlay_dest)?;
     Ok(())
-}
-
-/// First versioned registry dependency a prepared port's overlay
-/// manifest declares on an edge that could load, if any.  Dev
-/// dependencies stay declaration-only for ports and
-/// platform-inactive edges never load, so both are skipped;
-/// optional dependencies count - features are decided only at the
-/// final workspace load, by which point a caller that discovered
-/// this port after dependency resolution can no longer re-enter it.
-///
-/// # Errors
-/// [`PortError::OverlayManifestParse`] when the overlay manifest
-/// fails to load, [`PortError::OverlayMissingPackage`] when it
-/// carries no `[package]` table.
-pub fn active_versioned_registry_dep(
-    prepared: &PreparedPort,
-    host: &cabin_core::TargetPlatform,
-) -> Result<Option<PackageName>, PortError> {
-    let overlay_manifest = prepared.source_dir.join("cabin.toml");
-    let parsed = cabin_manifest::load_manifest(&overlay_manifest).map_err(|source| {
-        PortError::OverlayManifestParse {
-            name: prepared.name.as_str().to_owned(),
-            version: prepared.version.to_string(),
-            source: Box::new(source),
-        }
-    })?;
-    let package = parsed
-        .package
-        .ok_or_else(|| PortError::OverlayMissingPackage {
-            name: prepared.name.as_str().to_owned(),
-            version: prepared.version.to_string(),
-        })?;
-    Ok(package.dependencies.iter().find_map(|dep| {
-        if dep.kind == cabin_core::DependencyKind::Dev || !dep.matches_platform(host) {
-            return None;
-        }
-        match &dep.source {
-            cabin_core::DependencySource::Version(_) => Some(dep.name.clone()),
-            _ => None,
-        }
-    }))
 }
 
 fn cross_check_overlay_identity(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {

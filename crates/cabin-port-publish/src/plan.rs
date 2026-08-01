@@ -18,7 +18,8 @@ use semver::Version;
 
 use crate::convert::{self, ConvertRequest, RecipeSummary, convert_overlay, summarize};
 
-/// One recipe, converted and ready to materialize.
+/// One committed port, ready to materialize and publish - converted
+/// from a recipe, or taken verbatim from a migrated package.
 #[derive(Debug)]
 pub struct PortConversion {
     /// `ports/<name>/<version>/` source directory.
@@ -35,9 +36,10 @@ pub struct PortConversion {
     /// a new registry revision (derived from the archive bytes), so
     /// no version-string axis exists here.
     pub published_version: Version,
-    /// Converted manifest text.
+    /// The manifest text that publishes: converted from a recipe's
+    /// overlay, or the migrated package's own file verbatim.
     pub manifest: String,
-    /// Inter-port dependencies the conversion rewrote — the
+    /// Inter-port dependencies this package publishes with — the
     /// publication-order edges, requirement included so ordering can
     /// wait for a *satisfying* version, not just any version of the
     /// name.
@@ -46,7 +48,7 @@ pub struct PortConversion {
     /// probed target's declared interface requirement.  `None` keeps
     /// the probe's defaults.
     pub probe_standards: ProbeStandards,
-    /// Converted keys of the library-like targets the preflight probe
+    /// Published keys of the library-like targets the preflight probe
     /// links, referenced through explicit `package:target` selectors
     /// unless [`Self::sole_library_target`] allows the bare-package
     /// shorthand.
@@ -107,7 +109,7 @@ pub struct ProbeStandards {
     pub c_targets: Vec<String>,
 }
 
-/// One rewritten inter-port dependency edge.
+/// One inter-port dependency edge.
 #[derive(Debug, Clone)]
 pub struct PortDependencyEdge {
     /// Scoped registry name of the dependency.
@@ -116,9 +118,10 @@ pub struct PortDependencyEdge {
     pub req: semver::VersionReq,
 }
 
-/// Scan `ports_dir`, convert every recipe, and return the
-/// conversions in publication order (dependencies first; name-sorted
-/// within a rank, versions ascending within a name).
+/// Scan `ports_dir` - converting every recipe, taking every migrated
+/// package manifest verbatim - and return the conversions in
+/// publication order (dependencies first; name-sorted within a rank,
+/// versions ascending within a name).
 ///
 /// # Errors
 /// Returns an error when the directory cannot be read, any recipe
@@ -130,10 +133,9 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
         bail!("no ports found under {}", ports_dir.display());
     }
 
-    // First pass: parse everything and summarize each port for
-    // cross-port dependency rewriting.  Migrated packages summarize
-    // too: a port still committed as a recipe may depend on one, and
-    // its `{ port = true }` edge is rewritten against these.
+    // First pass: parse everything and summarize each port so the
+    // recipe path can rename its own targets and refuse a port
+    // committed in both shapes.
     let mut summaries: BTreeMap<String, RecipeSummary> = BTreeMap::new();
     let (loaded_packages, package_dir_names) = load_packages(packages, &mut summaries)?;
     let mut loaded = Vec::new();
@@ -173,15 +175,14 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
         } else {
             summaries.insert(port_name.clone(), summary);
         }
-        loaded.push((recipe_dir, descriptor, overlay_text, package));
+        loaded.push((recipe_dir, descriptor, overlay_text));
     }
 
     ensure_distinct_scoped_names(&summaries)?;
-    ensure_port_requirements_satisfiable(&loaded, &loaded_packages)?;
 
     // Second pass: convert.
     let mut conversions = Vec::new();
-    for (recipe_dir, descriptor, overlay_text, package) in loaded {
+    for (recipe_dir, descriptor, overlay_text) in loaded {
         let request = ConvertRequest {
             descriptor: &descriptor,
             overlay_text: &overlay_text,
@@ -189,7 +190,19 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
         };
         let manifest = convert_overlay(&request)
             .with_context(|| format!("converting {}", recipe_dir.display()))?;
-        let dependencies = recipe_edges(&descriptor, &package, &summaries, &package_dir_names)?;
+        // Edges come from the CONVERTED manifest, which is what
+        // publishes: an overlay reaches another port the same way any
+        // package does, through a scoped registry dependency.
+        let converted = cabin_manifest::parse_manifest_str(&manifest)
+            .with_context(|| format!("re-parsing the conversion of {}", recipe_dir.display()))?
+            .package
+            .ok_or_else(|| {
+                anyhow!(
+                    "the conversion of {} has no [package] table",
+                    recipe_dir.display()
+                )
+            })?;
+        let dependencies = registry_edges(&converted, &recipe_dir.join("cabin.toml"))?;
         let summary = &summaries[descriptor.name.as_str()];
         let scoped_name = summary.scoped.clone();
         let library_like_target_keys = summary.library_like_target_keys.clone();
@@ -211,75 +224,16 @@ pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
     }
     conversions.extend(loaded_packages);
 
+    ensure_requirements_satisfiable(&conversions)?;
     ensure_unique_identities(&conversions)?;
     order_by_dependencies(conversions)
 }
 
-/// The publication-order edges a recipe's `{ port = true }`
-/// dependencies contribute, with the migrated-port guard applied.
-fn recipe_edges(
-    descriptor: &PortDescriptor,
-    package: &cabin_core::Package,
-    summaries: &BTreeMap<String, RecipeSummary>,
-    package_dir_names: &BTreeSet<String>,
-) -> Result<Vec<PortDependencyEdge>> {
-    let recipe_name = descriptor.name.as_str();
-    package
-        .dependencies
-        .iter()
-        .filter_map(|dep| match &dep.source {
-            // Ordinary edges only, exactly as for a migrated
-            // package: a dev dependency is dropped from a
-            // transitive package's resolution and from the
-            // probe's build, so it neither orders publication
-            // nor reaches the builtin lookup.
-            DependencySource::Port(cabin_core::PortDepSource::Builtin { version_req, .. })
-                if dep.kind == cabin_core::DependencyKind::Normal =>
-            {
-                Some((dep, version_req.clone()))
-            }
-            _ => None,
-        })
-        .map(|(dep, req)| {
-            let dep_name = dep.name.as_str();
-            // A `{ port = true }` edge resolves only through the
-            // builtin table, which no longer carries a migrated
-            // port - so a recipe must never outlive a dependency
-            // it consumes that way.  Refuse it here rather than
-            // let a consumer's build fail with `UnknownBuiltin`.
-            // Only ordinary edges reach here (dev ones are
-            // filtered out above), so a recipe may keep a dev
-            // dependency on a port that has already migrated.
-            if package_dir_names.contains(dep_name)
-                || package_dir_names.contains(&dep_name.to_lowercase())
-            {
-                return Err(anyhow!(
-                    "recipe `{recipe_name}` depends on `{dep_name}` through `port = true`, \
-                         but `{dep_name}` has migrated to a package directory; bundled port \
-                         dependencies resolve only against recipes, so migrate `{recipe_name}` \
-                         in the same change"
-                ));
-            }
-            // A migrated port's summary is keyed by its lowercase
-            // directory name, so a mixed-case reference folds on
-            // the fallback lookup.
-            summaries
-                .get(dep_name)
-                .or_else(|| summaries.get(&dep_name.to_lowercase()))
-                .map(|summary| PortDependencyEdge {
-                    scoped: summary.scoped.clone(),
-                    req,
-                })
-                .ok_or_else(|| anyhow!("unknown port dependency `{dep_name}`"))
-        })
-        .collect()
-}
-
-/// First pass over the migrated package directories: load each one,
-/// record its rewrite summary under its (lowercase) directory name,
-/// and refuse versions that disagree on their library-like targets -
-/// the same rule the recipe path enforces, or dependency rewriting
-/// against the port would be ambiguous.
+/// First pass over the migrated package directories: load each one
+/// and record its published identity under its (lowercase) directory
+/// name.  Versions are deliberately NOT required to agree on their
+/// library-like targets - each publishes verbatim and is probed on
+/// its own targets.
 fn load_packages(
     packages: Vec<PathBuf>,
     summaries: &mut BTreeMap<String, RecipeSummary>,
@@ -295,19 +249,12 @@ fn load_packages(
         // manifest publishes verbatim and is probed on its own
         // targets, so a newer upstream that adds or renames a library
         // is publishable.  The summary carries the scoped identity
-        // for diagnostics and for rewriting a remaining recipe's DEV
-        // reference (an ordinary one is refused - a port may not
-        // migrate out from under a recipe that consumes it).
+        // for diagnostics and for the both-shapes check below.
         //
         // Ceiling, deliberate: the first version's target set wins.
         // Picking the set of the version a requirement selects means
         // resolving that requirement here, which is the resolver's
-        // job, not the publisher's - and it can only matter for a
-        // port migrated with several versions whose library targets
-        // differ AND a recipe dev-depending on a subset of them.
-        // Every committed port has exactly one version, and the
-        // conversion fails loudly (ambiguous target reference)
-        // rather than publishing anything wrong.
+        // job, not the publisher's.
         summaries.entry(dir_name).or_insert_with(|| RecipeSummary {
             scoped: package.scoped_name.clone(),
             library_like_target_keys: package.library_like_target_keys.clone(),
@@ -382,6 +329,71 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
         );
     };
 
+    let dependencies = registry_edges(&package, &manifest_path)?;
+
+    // The preflight probe depends on the staged package the ordinary
+    // way, so the package's default features are on and no others.
+    // A target whose `required-features` that set satisfies is
+    // therefore linkable and must be probed - dropping it would let
+    // a target that does not even compile pass preflight.  One
+    // gated behind a non-default feature is left out of the link
+    // set (it still publishes); linking it would fail the very
+    // build the probe exists to prove.
+    let default_features = package
+        .features
+        .expand(&package.features.default.iter().cloned().collect());
+    let library_like: Vec<&cabin_core::Target> = package
+        .targets
+        .iter()
+        .filter(|target| target.kind.is_library_like())
+        .collect();
+    let library_like_target_keys: Vec<String> = library_like
+        .iter()
+        .filter(|target| {
+            target
+                .missing_required_features(&default_features)
+                .is_empty()
+        })
+        .map(|target| target.name.as_str().to_owned())
+        .collect();
+
+    let probe_standards = probe_standards(&package, &library_like_target_keys).map_err(|why| {
+        anyhow!(
+            "{}: the probed targets' declared interface standards cannot be satisfied by one \
+             consumer ({why}); the preflight probe builds one consumer per language for all of \
+             them",
+            manifest_path.display()
+        )
+    })?;
+
+    Ok(PortConversion {
+        recipe_dir: package_dir.to_path_buf(),
+        source: PortSource::Package {
+            upstream: Box::new(upstream),
+        },
+        probe_standards,
+        scoped_name: package.name.clone(),
+        published_version: package.version.clone(),
+        manifest,
+        dependencies,
+        sole_library_target: library_like.len() == 1,
+        library_like_target_keys,
+    })
+}
+
+/// The publication-order edges a published manifest declares, and the
+/// validation every port package's dependency table must pass.
+///
+/// Both committed shapes go through this: a migrated package declares
+/// its edges directly, and a recipe's converted manifest carries the
+/// scoped dependencies its overlay named.  A recipe reaching another
+/// port through the registry needs the ordering edge for exactly the
+/// same reason a package does - the preflight probe-builds each
+/// conversion against the registry the moment it is staged.
+fn registry_edges(
+    package: &cabin_core::Package,
+    manifest_path: &Path,
+) -> Result<Vec<PortDependencyEdge>> {
     // System dependencies live in their own field, so the loop below
     // would never see them - and a port package resolving through
     // host pkg-config would make its published build host-dependent.
@@ -394,7 +406,7 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
         );
     }
 
-    let activated_by_default = default_activated_optional_deps(&package);
+    let activated_by_default = default_activated_optional_deps(package);
 
     let mut dependencies = Vec::new();
     for dep in &package.dependencies {
@@ -402,7 +414,7 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
             bail!(
                 "{} declares `{}` under a cfg-conditional table; publication ordering reads \
                  the declared edges without evaluating conditions, so port packages carry \
-                 unconditional dependencies only (recipe conversion refuses these too)",
+                 unconditional dependencies only",
                 manifest_path.display(),
                 dep.name.as_str()
             );
@@ -463,55 +475,7 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
             ),
         }
     }
-
-    // The preflight probe depends on the staged package the ordinary
-    // way, so the package's default features are on and no others.
-    // A target whose `required-features` that set satisfies is
-    // therefore linkable and must be probed - dropping it would let
-    // a target that does not even compile pass preflight.  One
-    // gated behind a non-default feature is left out of the link
-    // set (it still publishes); linking it would fail the very
-    // build the probe exists to prove.
-    let default_features = package
-        .features
-        .expand(&package.features.default.iter().cloned().collect());
-    let library_like: Vec<&cabin_core::Target> = package
-        .targets
-        .iter()
-        .filter(|target| target.kind.is_library_like())
-        .collect();
-    let library_like_target_keys: Vec<String> = library_like
-        .iter()
-        .filter(|target| {
-            target
-                .missing_required_features(&default_features)
-                .is_empty()
-        })
-        .map(|target| target.name.as_str().to_owned())
-        .collect();
-
-    let probe_standards = probe_standards(&package, &library_like_target_keys).map_err(|why| {
-        anyhow!(
-            "{}: the probed targets' declared interface standards cannot be satisfied by one \
-             consumer ({why}); the preflight probe builds one consumer per language for all of \
-             them",
-            manifest_path.display()
-        )
-    })?;
-
-    Ok(PortConversion {
-        recipe_dir: package_dir.to_path_buf(),
-        source: PortSource::Package {
-            upstream: Box::new(upstream),
-        },
-        probe_standards,
-        scoped_name: package.name.clone(),
-        published_version: package.version.clone(),
-        manifest,
-        dependencies,
-        sole_library_target: library_like.len() == 1,
-        library_like_target_keys,
-    })
+    Ok(dependencies)
 }
 
 /// Names of the optional dependencies a package's DEFAULT feature
@@ -650,10 +614,6 @@ fn dir_name(dir: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("{} has no UTF-8 directory name", dir.display()))
 }
 
-/// One first-pass recipe: directory, descriptor, overlay text,
-/// parsed overlay package.
-type LoadedRecipe = (PathBuf, PortDescriptor, String, cabin_core::Package);
-
 /// Two distinct recipe names must not fold onto one scoped name
 /// (`cJSON/` next to `cjson/` would silently merge under
 /// `cabin-ports/cjson`).
@@ -671,78 +631,36 @@ fn ensure_distinct_scoped_names(summaries: &BTreeMap<String, RecipeSummary>) -> 
     Ok(())
 }
 
-/// Every rewritten requirement must be satisfiable by a version
-/// converted in the same run, or the preflight (and every consumer)
-/// would fail resolution later with a worse error.
-fn ensure_port_requirements_satisfiable(
-    loaded: &[LoadedRecipe],
-    packages: &[PortConversion],
-) -> Result<()> {
-    let mut versions_by_port: BTreeMap<String, Vec<Version>> = BTreeMap::new();
-    for (_, descriptor, _, _) in loaded {
-        versions_by_port
-            .entry(descriptor.name.as_str().to_owned())
+/// Every declared requirement must be satisfiable by a version
+/// published in the same run, or the preflight (and every consumer)
+/// would fail resolution later with a worse error.  An unsatisfiable
+/// edge must fail here with its real diagnosis, not surface as a
+/// phantom "dependency cycle" when ordering never drains the node.
+///
+/// Both shapes are checked together, against the whole committed
+/// tree: a scoped name's base is the lowercase fold of a port's name
+/// (`cJSON` publishes as `cabin-ports/cjson`), so this runs entirely
+/// over published identities.
+fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()> {
+    let mut published: BTreeMap<&str, Vec<&Version>> = BTreeMap::new();
+    for conversion in conversions {
+        published
+            .entry(conversion.scoped_name.base_name())
             .or_default()
-            .push(descriptor.version.clone());
+            .push(&conversion.published_version);
     }
-    // A recipe may depend on a port that has already migrated; its
-    // versions satisfy the requirement exactly as a recipe's would.
-    for package in packages {
-        versions_by_port
-            .entry(package.scoped_name.base_name().to_owned())
-            .or_default()
-            .push(package.published_version.clone());
-    }
-    // And a package's own edges must be satisfiable too, under the
-    // committed tree's full version set - an unsatisfiable edge must
-    // fail here with its real diagnosis, not surface later as a
-    // phantom "dependency cycle" when ordering never drains the node.
-    // Package edges name scoped identities, whose base is the
-    // lowercase fold of a recipe's name (`cJSON` publishes as
-    // `cabin-ports/cjson`), so this lookup runs over folded keys.
-    let mut versions_by_scoped_base: BTreeMap<String, Vec<Version>> = BTreeMap::new();
-    for (port_name, versions) in &versions_by_port {
-        versions_by_scoped_base
-            .entry(port_name.to_lowercase())
-            .or_default()
-            .extend(versions.iter().cloned());
-    }
-    for package in packages {
-        for dep in &package.dependencies {
-            let satisfied = versions_by_scoped_base
+    for conversion in conversions {
+        for dep in &conversion.dependencies {
+            let satisfied = published
                 .get(dep.scoped.base_name())
                 .is_some_and(|versions| versions.iter().any(|v| dep.req.matches(v)));
             if !satisfied {
                 bail!(
                     "{} depends on `{}` with requirement `{}`, which no committed port \
                      version satisfies",
-                    package.recipe_dir.display(),
+                    conversion.recipe_dir.display(),
                     dep.scoped.as_str(),
                     dep.req
-                );
-            }
-        }
-    }
-    for (recipe_dir, _, _, package) in loaded {
-        for dep in &package.dependencies {
-            let DependencySource::Port(cabin_core::PortDepSource::Builtin { version_req, .. }) =
-                &dep.source
-            else {
-                continue;
-            };
-            // A migrated port's versions are keyed by its lowercase
-            // directory name; a recipe's mixed-case reference folds
-            // on the fallback lookup.
-            let satisfied = versions_by_port
-                .get(dep.name.as_str())
-                .or_else(|| versions_by_port.get(&dep.name.as_str().to_lowercase()))
-                .is_some_and(|versions| versions.iter().any(|v| version_req.matches(v)));
-            if !satisfied {
-                bail!(
-                    "{} depends on `{}` with requirement `{version_req}`, which no committed \
-                     recipe version satisfies",
-                    recipe_dir.display(),
-                    dep.name.as_str()
                 );
             }
         }
@@ -898,17 +816,21 @@ mod tests {
             .unwrap();
     }
 
+    /// A recipe reaches another port the only way anything can now -
+    /// through a scoped registry dependency in its overlay - and that
+    /// edge has to order publication.  The preflight probe-builds each
+    /// conversion against the registry the moment it is staged, so a
+    /// dependent staged first fails on a package that is not there yet.
     #[test]
-    fn orders_dependencies_before_dependents() {
+    fn a_recipe_registry_dependency_orders_publication() {
         let dir = TempDir::new().unwrap();
         let ports = dir.child("ports");
-        // `apng` sorts before `zlib` but depends on it, so the order
-        // must invert the name sort.
+        // `apng` sorts before `zlib`, so only the edge can invert it.
         write_recipe(
             &ports,
             "apng",
             "1.0.0",
-            "\n[dependencies]\nzlib = { port = true, version = \"^1.3\" }\n",
+            "\n[dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n",
         );
         write_recipe(&ports, "zlib", "1.3.1", "");
         let conversions = load_conversions(ports.path()).unwrap();
@@ -924,43 +846,26 @@ mod tests {
         );
     }
 
-    /// Readiness is per satisfying version: `apng` requires `^2` of
-    /// zlib, and zlib 2.0.0 itself waits on xxhash, so `apng` must
-    /// order after zlib 2.0.0 - even though zlib's name already
-    /// published version 1.3.1 in the first rank and `apng` sorts
-    /// before `zlib` inside a rank.
+    /// The same validation a migrated package's edges get: a recipe
+    /// whose overlay names a version nothing publishes fails with the
+    /// real diagnosis, not a phantom cycle.
     #[test]
-    fn dependents_wait_for_a_satisfying_version_not_just_the_name() {
+    fn an_unsatisfiable_recipe_dependency_is_diagnosed_as_such() {
         let dir = TempDir::new().unwrap();
         let ports = dir.child("ports");
         write_recipe(
             &ports,
             "apng",
             "1.0.0",
-            "\n[dependencies]\nzlib = { port = true, version = \"^2\" }\n",
+            "\n[dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n",
         );
         write_recipe(&ports, "zlib", "1.3.1", "");
-        write_recipe(
-            &ports,
-            "zlib",
-            "2.0.0",
-            "\n[dependencies]\nxxhash = { port = true, version = \"^0.8\" }\n",
+        let err = load_conversions(ports.path()).unwrap_err();
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("which no committed port version satisfies"),
+            "{message}"
         );
-        write_recipe(&ports, "xxhash", "0.8.3", "");
-        let conversions = load_conversions(ports.path()).unwrap();
-        let order: Vec<String> = conversions
-            .iter()
-            .map(|c| format!("{} {}", c.scoped_name.as_str(), c.published_version))
-            .collect();
-        let position = |needle: &str| {
-            order
-                .iter()
-                .position(|entry| entry == needle)
-                .unwrap_or_else(|| panic!("{needle} missing from {order:?}"))
-        };
-        assert!(position("cabin-ports/zlib 2.0.0") < position("cabin-ports/apng 1.0.0"));
-        assert!(position("cabin-ports/xxhash 0.8.3") < position("cabin-ports/zlib 2.0.0"));
-        assert!(position("cabin-ports/zlib 1.3.1") < position("cabin-ports/zlib 2.0.0"));
     }
 
     /// A stray `packaging-revision` sidecar (the removed mechanism)
@@ -980,29 +885,9 @@ mod tests {
         assert_eq!(conversions[0].published_version.to_string(), "1.3.1");
     }
 
-    #[test]
-    fn detects_dependency_cycles() {
-        let dir = TempDir::new().unwrap();
-        let ports = dir.child("ports");
-        write_recipe(
-            &ports,
-            "aport",
-            "1.0.0",
-            "\n[dependencies]\nbport = { port = true, version = \"^1\" }\n",
-        );
-        write_recipe(
-            &ports,
-            "bport",
-            "1.0.0",
-            "\n[dependencies]\naport = { port = true, version = \"^1\" }\n",
-        );
-        let err = load_conversions(ports.path()).unwrap_err();
-        assert!(format!("{err:#}").contains("cycle"), "{err:#}");
-    }
-
-    /// The committed recipes are the tool's real inputs; converting
-    /// them end-to-end (no archives needed — conversion is pure) pins
-    /// the requirements that name concrete ports.
+    /// The committed ports are the tool's real inputs; loading them
+    /// end-to-end (no archives needed — conversion is pure) pins the
+    /// requirements that name concrete ports.
     #[test]
     fn committed_recipes_all_convert() {
         let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1045,8 +930,8 @@ mod tests {
             cli11.manifest
         );
 
-        // libpng orders after zlib and rewrites its dependency to the
-        // bare scoped shorthand.
+        // libpng orders after zlib, which its overlay names through
+        // the bare scoped shorthand.
         let zlib_pos = conversions
             .iter()
             .position(|c| c.scoped_name.as_str() == "cabin-ports/zlib")
@@ -1078,17 +963,12 @@ mod tests {
             libpng.manifest
         );
 
-        // Provenance is stamped everywhere, and no converted manifest
-        // keeps a port dependency or an upper-case identity.
+        // Provenance is stamped everywhere, and no converted
+        // manifest keeps an upper-case identity.
         for conversion in &conversions {
             assert!(
                 conversion.manifest.contains("[package.upstream]"),
                 "{} lacks provenance",
-                conversion.scoped_name.as_str()
-            );
-            assert!(
-                !conversion.manifest.contains("port = true"),
-                "{} keeps a port dependency",
                 conversion.scoped_name.as_str()
             );
             assert_eq!(
@@ -1191,8 +1071,8 @@ mod tests {
 
     /// Two migrated versions may expose different library targets:
     /// each publishes verbatim and is probed on its own targets, and
-    /// no recipe can consume a migrated port through `port = true`,
-    /// so there is no port-wide set to keep consistent.
+    /// nothing consumes a port through a port-wide summary, so there
+    /// is no port-wide target set to keep consistent.
     #[test]
     fn migrated_versions_may_expose_different_targets() {
         let dir = assert_fs::TempDir::new().unwrap();
@@ -1213,6 +1093,121 @@ mod tests {
             .collect();
         keys.sort_unstable();
         assert_eq!(keys, ["t", "u"]);
+    }
+
+    #[test]
+    fn orders_dependencies_before_dependents() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        // `apng` sorts before `zlib` but depends on it, so the order
+        // must invert the name sort.
+        write_package(
+            dir.path(),
+            "apng",
+            "1.0.0",
+            &package_manifest(
+                "cabin-ports/apng",
+                "1.0.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        let conversions = load_conversions(dir.path()).unwrap();
+        let names: Vec<&str> = conversions.iter().map(|c| c.scoped_name.as_str()).collect();
+        assert_eq!(names, ["cabin-ports/zlib", "cabin-ports/apng"]);
+        assert_eq!(
+            conversions[1]
+                .dependencies
+                .iter()
+                .map(|dep| (dep.scoped.as_str(), dep.req.to_string()))
+                .collect::<Vec<_>>(),
+            [("cabin-ports/zlib", "^1.3".to_owned())]
+        );
+    }
+
+    #[test]
+    fn detects_dependency_cycles() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "aport",
+            "1.0.0",
+            &package_manifest(
+                "cabin-ports/aport",
+                "1.0.0",
+                "[dependencies]\n\"cabin-ports/bport\" = \"^1\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "bport",
+            "1.0.0",
+            &package_manifest(
+                "cabin-ports/bport",
+                "1.0.0",
+                "[dependencies]\n\"cabin-ports/aport\" = \"^1\"\n\n",
+            ),
+        );
+        let err = load_conversions(dir.path()).unwrap_err();
+        assert!(format!("{err:#}").contains("cycle"), "{err:#}");
+    }
+
+    /// Ordering waits for a version that *satisfies* the requirement,
+    /// not merely for the dependency's name: `apng` needs zlib `^2`,
+    /// so publishing zlib 1.3.1 first does not unblock it.
+    #[test]
+    fn dependents_wait_for_a_satisfying_version_not_just_the_name() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "apng",
+            "1.0.0",
+            &package_manifest(
+                "cabin-ports/apng",
+                "1.0.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "2.0.0",
+            &package_manifest(
+                "cabin-ports/zlib",
+                "2.0.0",
+                "[dependencies]\n\"cabin-ports/xxhash\" = \"^0.8\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "xxhash",
+            "0.8.3",
+            &package_manifest("cabin-ports/xxhash", "0.8.3", ""),
+        );
+        let conversions = load_conversions(dir.path()).unwrap();
+        let order: Vec<String> = conversions
+            .iter()
+            .map(|c| format!("{} {}", c.scoped_name.as_str(), c.published_version))
+            .collect();
+        let position = |needle: &str| {
+            order
+                .iter()
+                .position(|entry| entry == needle)
+                .unwrap_or_else(|| panic!("{needle} missing from {order:?}"))
+        };
+        assert!(position("cabin-ports/zlib 2.0.0") < position("cabin-ports/apng 1.0.0"));
+        assert!(position("cabin-ports/xxhash 0.8.3") < position("cabin-ports/zlib 2.0.0"));
+        assert!(position("cabin-ports/zlib 1.3.1") < position("cabin-ports/zlib 2.0.0"));
     }
 
     /// Two migrated packages may dev-depend on each other: a
@@ -1551,98 +1546,6 @@ mod tests {
         );
         let err = load_conversions(dir.path()).unwrap_err();
         assert!(format!("{err:#}").contains("system dependency"), "{err:#}");
-    }
-
-    /// A `{ port = true }` edge resolves only through the builtin
-    /// table, which no longer carries a migrated port - so migrating
-    /// a dependency out from under a recipe that consumes it must
-    /// fail here, not at that recipe's next build.
-    /// A recipe may keep a DEV dependency on a migrated port: dev
-    /// edges are dropped from a transitive package's resolution and
-    /// from the probe's build, so the builtin lookup never runs.
-    #[test]
-    fn a_recipe_dev_depending_on_a_migrated_port_is_accepted() {
-        let dir = assert_fs::TempDir::new().unwrap();
-        write_package(
-            dir.path(),
-            "zlib",
-            "1.3.1",
-            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
-        );
-        let recipe_dir = dir.path().join("libpng/1.6.50");
-        std::fs::create_dir_all(&recipe_dir).unwrap();
-        std::fs::write(
-            recipe_dir.join("port.toml"),
-            format!(
-                "[port]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n\
-                 [source]\ntype = \"archive\"\nurl = \
-                 \"https://ports.invalid/libpng-1.6.50.tar.gz\"\nsha256 = \"{}\"\n\n\
-                 [overlay]\nmanifest = \"cabin.toml\"\n",
-                "b".repeat(64)
-            ),
-        )
-        .unwrap();
-        std::fs::write(
-            recipe_dir.join("cabin.toml"),
-            "[package]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n\
-             [dev-dependencies]\nzlib = { port = true, version = \"^1.3\" }\n\n\
-             [target.png]\ntype = \"library\"\nsources = [\"png.c\"]\n\
-             include-dirs = [\".\"]\nc-standard = \"c11\"\n",
-        )
-        .unwrap();
-
-        let conversions = load_conversions(dir.path()).unwrap();
-        assert_eq!(conversions.len(), 2);
-        // The dev edge must not order publication either, or a
-        // package depending back on the recipe would false-cycle.
-        let libpng = conversions
-            .iter()
-            .find(|c| c.scoped_name.as_str() == "cabin-ports/libpng")
-            .unwrap();
-        assert!(libpng.dependencies.is_empty());
-    }
-
-    #[test]
-    fn a_recipe_depending_on_a_migrated_port_is_refused() {
-        let dir = assert_fs::TempDir::new().unwrap();
-        write_package(
-            dir.path(),
-            "zlib",
-            "1.3.1",
-            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
-        );
-        let recipe_dir = dir.path().join("libpng/1.6.50");
-        std::fs::create_dir_all(&recipe_dir).unwrap();
-        std::fs::write(
-            recipe_dir.join("port.toml"),
-            format!(
-                "[port]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n\
-                 [source]\ntype = \"archive\"\nurl = \
-                 \"https://ports.invalid/libpng-1.6.50.tar.gz\"\nsha256 = \"{}\"\n\n\
-                 [overlay]\nmanifest = \"cabin.toml\"\n",
-                "b".repeat(64)
-            ),
-        )
-        .unwrap();
-        std::fs::write(
-            recipe_dir.join("cabin.toml"),
-            "[package]\nname = \"libpng\"\nversion = \"1.6.50\"\n\n\
-             [dependencies]\nzlib = { port = true, version = \"^1.3\" }\n\n\
-             [target.png]\ntype = \"library\"\nsources = [\"png.c\"]\n\
-             include-dirs = [\".\"]\nc-standard = \"c11\"\n",
-        )
-        .unwrap();
-
-        let err = load_conversions(dir.path()).unwrap_err();
-        let message = format!("{err:#}");
-        assert!(
-            message.contains("has migrated to a package directory"),
-            "{message}"
-        );
-        assert!(
-            message.contains("migrate `libpng` in the same change"),
-            "{message}"
-        );
     }
 
     #[test]

@@ -106,8 +106,8 @@ pub const MAX_COPY_STEPS: usize = 16;
 pub const MAX_PATCH_FILES: usize = 16;
 
 /// Byte cap on one declared patch file's contents.  Enforced at
-/// packaging (against the on-disk file size), during port
-/// preparation, and by the verifier (against the patch bytes it
+/// packaging (against the on-disk file size), during upstream
+/// materialization, and by the verifier (against the patch bytes it
 /// retains from the published archive) - so an over-cap patch fails
 /// client-side rather than publishing and then being terminally
 /// rejected.  Patches are small build-system and portability

@@ -39,7 +39,6 @@ pub(crate) fn reload_for_patches(
     manifest_path: &std::path::Path,
     initial_graph: PackageGraph,
     patched_sources: &[cabin_workspace::PatchedPackageSource],
-    port_sources: &[cabin_workspace::PortPackageSource],
 ) -> Result<PackageGraph> {
     if patched_sources.is_empty() {
         return Ok(initial_graph);
@@ -50,10 +49,8 @@ pub(crate) fn reload_for_patches(
         &cabin_workspace::WorkspaceLoadOptions {
             registry: &[],
             patches: patched_sources,
-            ports: port_sources,
             registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&strict_packages),
             include_dev_for: &std::collections::BTreeSet::new(),
-            port_policy: cabin_workspace::PortPolicy::TolerateExcept(&strict_packages),
         },
     )?)
 }

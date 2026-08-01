@@ -734,7 +734,6 @@ mod tests {
             manifest_dir: PathBuf::from("/w"),
             deps: Vec::new(),
             kind: PackageKind::Local,
-            is_port: false,
         };
         let scoped_exe = Path::new("/b/dev/packages/fmtlib/fmt/unit_test");
         let outputs: BTreeSet<&Path> = [scoped_exe].into_iter().collect();

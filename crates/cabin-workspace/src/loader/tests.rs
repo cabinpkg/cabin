@@ -470,10 +470,8 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap();
@@ -544,10 +542,8 @@ cxxflags = ["-fplugin=evil.so"]
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap_err();
@@ -557,60 +553,6 @@ cxxflags = ["-fplugin=evil.so"]
             WorkspaceError::RegistryPackageDeclaresPathDependency { .. }
         ),
         "expected RegistryPackageDeclaresPathDependency, got {err:?}"
-    );
-}
-
-#[test]
-fn registry_package_declaring_port_dependency_is_rejected() {
-    let dir = TempDir::new().unwrap();
-    dir.child("app/cabin.toml")
-        .write_str(
-            r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-evil = ">=1.0.0 <2.0.0"
-"#,
-        )
-        .unwrap();
-    // The same invariant covers port dependencies: a downloaded registry
-    // archive may not pull in a port (a port is prepared as a trusted
-    // `PackageKind::Local` package).
-    dir.child("registry/evil/cabin.toml")
-        .write_str(
-            r#"[package]
-name = "evil"
-version = "1.0.0"
-
-[dependencies]
-inner = { port-path = "ports/inner" }
-"#,
-        )
-        .unwrap();
-    let registry = vec![RegistryPackageSource {
-        name: pkg("evil"),
-        version: ver("1.0.0"),
-        manifest_path: dir.path().join("registry/evil/cabin.toml"),
-    }];
-    let err = load_workspace_with_options(
-        dir.path().join("app/cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &registry,
-            patches: &[],
-            ports: &[],
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(
-            err,
-            WorkspaceError::RegistryPackageDeclaresPortDependency { .. }
-        ),
-        "expected RegistryPackageDeclaresPortDependency, got {err:?}"
     );
 }
 
@@ -648,10 +590,8 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap_err();
@@ -715,10 +655,8 @@ version = "10.2.1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap();
@@ -766,10 +704,8 @@ version = "10.1.0"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap_err();
@@ -1544,10 +1480,8 @@ cxx-standard = { workspace = true }
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap_err();
@@ -1561,70 +1495,6 @@ cxx-standard = { workspace = true }
             assert_eq!(origin, "registry");
             assert_eq!(package, "fmt");
             assert_eq!(field, "cxx-standard");
-        }
-        other => panic!("expected ExternalPackageDeclaresWorkspaceStandard, got {other:?}"),
-    }
-}
-
-#[test]
-fn prepared_port_with_workspace_standard_marker_is_rejected() {
-    let tmp = TempDir::new().unwrap();
-    let prepared = tmp.child("cache/sources/sha256/abc");
-    prepared
-        .child("cabin.toml")
-        .write_str(
-            r#"[package]
-name = "zlib"
-version = "1.3.1"
-c-standard = { workspace = true }
-"#,
-        )
-        .unwrap();
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"[workspace]
-members = []
-c-standard = "c17"
-
-[package]
-name = "consumer"
-version = "0.1.0"
-
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-"#,
-        )
-        .unwrap();
-    let port_sources = vec![PortPackageSource {
-        name: PackageName::new("zlib").unwrap(),
-        version: semver::Version::new(1, 3, 1),
-        manifest_path: prepared.path().join("cabin.toml"),
-        origin: cabin_port::PortOrigin::Builtin("zlib"),
-    }];
-    let err = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &port_sources,
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap_err();
-    match err {
-        WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
-            origin,
-            package,
-            field,
-            ..
-        } => {
-            assert_eq!(origin, "foundation-port");
-            assert_eq!(package, "zlib");
-            assert_eq!(field, "c-standard");
         }
         other => panic!("expected ExternalPackageDeclaresWorkspaceStandard, got {other:?}"),
     }
@@ -1675,10 +1545,8 @@ fmt = { workspace = true }
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::Strict,
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .unwrap_err();
@@ -1691,74 +1559,6 @@ fmt = { workspace = true }
         } => {
             assert_eq!(origin, "registry");
             assert_eq!(package, "fmt");
-            assert_eq!(dep_name, "fmt");
-        }
-        other => panic!("expected ExternalPackageDeclaresWorkspaceDependency, got {other:?}"),
-    }
-}
-
-#[test]
-fn prepared_port_with_workspace_dep_marker_is_rejected() {
-    let tmp = TempDir::new().unwrap();
-    let prepared = tmp.child("cache/sources/sha256/abc");
-    prepared
-        .child("cabin.toml")
-        .write_str(
-            r#"[package]
-name = "zlib"
-version = "1.3.1"
-
-[dependencies]
-fmt = { workspace = true }
-"#,
-        )
-        .unwrap();
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"[workspace]
-members = []
-
-[workspace.dependencies]
-fmt = "^1"
-
-[package]
-name = "consumer"
-version = "0.1.0"
-
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-"#,
-        )
-        .unwrap();
-    let port_sources = vec![PortPackageSource {
-        name: PackageName::new("zlib").unwrap(),
-        version: semver::Version::new(1, 3, 1),
-        manifest_path: prepared.path().join("cabin.toml"),
-        origin: cabin_port::PortOrigin::Builtin("zlib"),
-    }];
-    let err = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &port_sources,
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap_err();
-    match err {
-        WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
-            origin,
-            package,
-            dep_name,
-            ..
-        } => {
-            assert_eq!(origin, "foundation-port");
-            assert_eq!(package, "zlib");
             assert_eq!(dep_name, "fmt");
         }
         other => panic!("expected ExternalPackageDeclaresWorkspaceDependency, got {other:?}"),
@@ -1984,10 +1784,8 @@ spdlog = "^1"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::StrictFor(&strict),
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .expect("selection-aware load should not require spdlog");
@@ -2046,10 +1844,8 @@ fmt = ">=10 <11"
         &WorkspaceLoadOptions {
             registry: &registry,
             patches: &[],
-            ports: &[],
             registry_policy: RegistryPolicy::StrictFor(&strict),
             include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
         },
     )
     .expect_err("expected UnresolvedRegistryDependency for selected closure dep");
@@ -2060,244 +1856,4 @@ fmt = ">=10 <11"
         }
         other => panic!("expected UnresolvedRegistryDependency, got {other:?}"),
     }
-}
-
-// ---------------------------------------------------------------
-// Foundation-port resolution
-// ---------------------------------------------------------------
-
-#[test]
-fn resolves_port_dep_via_supplied_source() {
-    let tmp = TempDir::new().unwrap();
-
-    // Port directory (contains port.toml in real life, but
-    // the workspace loader only cares about the canonical
-    // path).
-    let port_dir = tmp.child("ports/zlib/1.3.1");
-    port_dir.create_dir_all().unwrap();
-
-    // Prepared overlay manifest directory (the CLI
-    // orchestration step writes the upstream sources here
-    // before the loader runs).
-    let prepared = tmp.child("cache/sources/sha256/abc");
-    prepared
-            .child("cabin.toml")
-            .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
-            )
-            .unwrap();
-    prepared
-        .child("zlib.c")
-        .write_str("int zlib_dummy(void){return 0;}\n")
-        .unwrap();
-
-    // Consumer manifest that references the port by
-    // relative path.
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"
-[package]
-name = "consumer"
-version = "0.1.0"
-c-standard = "c11"
-
-[dependencies]
-zlib = { port-path = "../ports/zlib/1.3.1" }
-
-[target.consumer]
-type = "executable"
-sources = ["src/main.c"]
-deps = ["zlib"]
-"#,
-        )
-        .unwrap();
-    consumer
-        .child("src/main.c")
-        .write_str("int main(void){return 0;}\n")
-        .unwrap();
-
-    let port_sources = vec![PortPackageSource {
-        name: PackageName::new("zlib").unwrap(),
-        version: semver::Version::new(1, 3, 1),
-        manifest_path: prepared.path().join("cabin.toml"),
-        origin: cabin_port::PortOrigin::PortDir(port_dir.to_path_buf()),
-    }];
-    let graph = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &port_sources,
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap();
-    // Two packages: the consumer and the zlib port.
-    assert_eq!(graph.packages.len(), 2);
-    let zlib = graph
-        .packages
-        .iter()
-        .find(|p| p.package.name.as_str() == "zlib")
-        .unwrap();
-    assert_eq!(
-        zlib.manifest_dir,
-        // Match the loader's own verbatim-stripped spelling so the
-        // expectation holds on Windows, where `std::fs::canonicalize`
-        // would add a `\\?\` prefix the loader does not carry.
-        cabin_fs::canonicalize(prepared.path()).unwrap()
-    );
-    // Foundation ports are local development policy, so the
-    // package kind is Local.
-    assert_eq!(zlib.kind, PackageKind::Local);
-}
-
-#[test]
-fn resolves_builtin_port_dep_by_name() {
-    let tmp = TempDir::new().unwrap();
-
-    // The "prepared" overlay (in a real build this is in the
-    // cabin cache).  The loader only needs the [package] block
-    // to match the dep, plus a source file for the target.
-    let prepared = tmp.child("cache/sources/sha256/abc");
-    prepared
-            .child("cabin.toml")
-            .write_str(
-                "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\nc-standard = \"c11\"\n\n[target.zlib]\ntype = \"library\"\nsources = [\"zlib.c\"]\n",
-            )
-            .unwrap();
-    prepared
-        .child("zlib.c")
-        .write_str("int zlib_dummy(void){return 0;}\n")
-        .unwrap();
-
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"
-[package]
-name = "consumer"
-version = "0.1.0"
-c-standard = "c11"
-
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-
-[target.consumer]
-type = "executable"
-sources = ["src/main.c"]
-deps = ["zlib"]
-"#,
-        )
-        .unwrap();
-    consumer
-        .child("src/main.c")
-        .write_str("int main(void){return 0;}\n")
-        .unwrap();
-
-    let port_sources = vec![PortPackageSource {
-        name: PackageName::new("zlib").unwrap(),
-        version: semver::Version::new(1, 3, 1),
-        manifest_path: prepared.path().join("cabin.toml"),
-        origin: cabin_port::PortOrigin::Builtin("zlib"),
-    }];
-    let graph = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &port_sources,
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap();
-    assert_eq!(graph.packages.len(), 2);
-    let zlib = graph
-        .packages
-        .iter()
-        .find(|p| p.package.name.as_str() == "zlib")
-        .unwrap();
-    assert_eq!(zlib.kind, PackageKind::Local);
-}
-
-#[test]
-fn rejects_port_dep_without_prepared_source() {
-    let tmp = TempDir::new().unwrap();
-    let port_dir = tmp.child("ports/zlib/1.3.1");
-    port_dir.create_dir_all().unwrap();
-
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"
-[package]
-name = "consumer"
-version = "0.1.0"
-
-[dependencies]
-zlib = { port-path = "../ports/zlib/1.3.1" }
-"#,
-        )
-        .unwrap();
-
-    let err = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &[],
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, WorkspaceError::PortDependencyNotPrepared { .. }),
-        "{err:?}"
-    );
-}
-
-#[test]
-fn rejects_port_dep_with_missing_port_directory() {
-    let tmp = TempDir::new().unwrap();
-
-    let consumer = tmp.child("consumer");
-    consumer
-        .child("cabin.toml")
-        .write_str(
-            r#"
-[package]
-name = "consumer"
-version = "0.1.0"
-
-[dependencies]
-zlib = { port-path = "../nonexistent/zlib" }
-"#,
-        )
-        .unwrap();
-
-    let err = load_workspace_with_options(
-        consumer.path().join("cabin.toml"),
-        &WorkspaceLoadOptions {
-            registry: &[],
-            patches: &[],
-            ports: &[],
-            registry_policy: RegistryPolicy::Strict,
-            include_dev_for: &BTreeSet::new(),
-            port_policy: PortPolicy::Strict,
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, WorkspaceError::PortDirectoryMissing { .. }),
-        "{err:?}"
-    );
 }

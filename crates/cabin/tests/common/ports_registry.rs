@@ -57,19 +57,20 @@ impl RegistryConsumer<'_> {
     }
 }
 
-/// Convert every recipe under `ports_dir` and publish the results
-/// into `<work_dir>/registry`, returning the registry path for
-/// `--index-path`.  Cache-only on purpose: every recipe's archive
-/// must already be seeded into `cache_dir` (see
+/// Publish every port under `ports_dir` - converting the recipes,
+/// taking the migrated packages verbatim - into `<work_dir>/registry`,
+/// returning the registry path for `--index-path`.  Cache-only on
+/// purpose: every port's archive must already be seeded into
+/// `cache_dir` (see
 /// `FakePort::pin_https_source_and_seed_cache`), so a fixture
 /// regression fails loudly instead of attempting the network.
 pub fn stage_ports_registry(ports_dir: &Path, cache_dir: &Path, work_dir: &Path) -> PathBuf {
     stage(ports_dir, cache_dir, work_dir, ArchiveFetch::CacheOnly)
 }
 
-/// The committed `crates/cabin-port/ports/` recipes, converted and
-/// staged into one immutable file registry shared by every test in
-/// the calling process.  Staging downloads the pinned real upstream
+/// The committed `crates/cabin-port/ports/` tree - both committed
+/// shapes - staged into one immutable file registry shared by every
+/// test in the calling process.  Staging downloads the pinned real upstream
 /// archives, so callers must be `#[ignore = "requires external
 /// network"]` tests; sharing one registry keeps the ignored example
 /// suite from re-downloading the whole set per test.

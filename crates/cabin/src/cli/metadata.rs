@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::Result;
 use serde::Serialize;
 
-use cabin_core::{DependencySource, Package, PortDepSource};
+use cabin_core::{DependencySource, Package};
 use cabin_lockfile::Lockfile;
 use cabin_workspace::PackageGraph;
 
@@ -55,60 +55,6 @@ pub(crate) struct MetadataView<'a> {
     /// Active source-replacement entries from the merged
     /// effective config.  Empty array when none apply.
     source_replacements: serde_json::Value,
-    /// Foundation ports prepared for this invocation.  One entry
-    /// per port, sorted: bundled (Builtin) ports first by name,
-    /// then filesystem (Path) ports by directory.  Surfaces the
-    /// upstream archive URL, SHA-256, declared `strip_prefix`,
-    /// overlay manifest path (omitted for bundled ports), and the
-    /// cache location each port was extracted into.  Empty array
-    /// when no port deps were declared.
-    ports: Vec<PortView<'a>>,
-}
-
-#[derive(Serialize)]
-struct PortView<'a> {
-    name: &'a str,
-    version: String,
-    origin: PortOriginView<'a>,
-    /// Prepared cache directory: where the upstream archive was
-    /// extracted and the overlay manifest copied.  This is the
-    /// path the workspace loader treats as the port's
-    /// `manifest_dir`.
-    source_dir: &'a Path,
-    source: PortSourceView<'a>,
-    /// Absolute path to the overlay manifest.  `None` (omitted from
-    /// JSON) for bundled ports, which have no on-disk overlay file.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    overlay_manifest: Option<&'a Path>,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum PortOriginView<'a> {
-    Builtin { name: &'a str },
-    Path { port_dir: &'a Path },
-}
-
-impl<'a> PortOriginView<'a> {
-    fn from_origin(origin: &'a cabin_port::PortOrigin) -> Self {
-        match origin {
-            cabin_port::PortOrigin::Builtin(name) => PortOriginView::Builtin { name },
-            cabin_port::PortOrigin::PortDir(p) => PortOriginView::Path {
-                port_dir: p.as_path(),
-            },
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum PortSourceView<'a> {
-    Archive {
-        url: &'a str,
-        sha256: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        strip_prefix: Option<&'a str>,
-    },
 }
 
 #[derive(Serialize)]
@@ -283,13 +229,6 @@ enum DependencySourceView<'a> {
     Version {
         requirement: String,
     },
-    /// A foundation-port dependency.  The `origin` carries the
-    /// same discriminated form as the top-level `ports` array:
-    /// either a filesystem path to the port directory or the
-    /// bundled-port name.
-    Port {
-        origin: PortOriginView<'a>,
-    },
     /// An unresolved `{ workspace = true }` opt-in.  The
     /// workspace loader normally rewrites these into `Path` /
     /// `Version` before metadata is serialized, so this variant
@@ -355,17 +294,6 @@ pub(crate) struct MetadataInputs<'a> {
     /// suppress the source-replacement view when the user
     /// disabled the local-policy layer entirely.
     pub(crate) no_patches: bool,
-    /// Prepared foundation ports.  Each entry's provenance is
-    /// rendered under the `ports` array of the metadata
-    /// document.
-    pub(crate) ports: &'a [cabin_port::PreparedPort],
-}
-
-fn port_origin_sort_key<'a>(view: &'a PortView<'_>) -> (u8, &'a std::ffi::OsStr) {
-    match &view.origin {
-        PortOriginView::Builtin { name } => (0, std::ffi::OsStr::new(name)),
-        PortOriginView::Path { port_dir } => (1, port_dir.as_os_str()),
-    }
 }
 
 /// Build the JSON view for a single workspace package.  The returned
@@ -433,18 +361,6 @@ fn build_package_view<'a>(
                 DependencySource::Version(req) => DependencySourceView::Version {
                     requirement: req.to_string(),
                 },
-                DependencySource::Port(PortDepSource::Path(p)) => DependencySourceView::Port {
-                    origin: PortOriginView::Path {
-                        port_dir: p.as_std_path(),
-                    },
-                },
-                DependencySource::Port(PortDepSource::Builtin { name, .. }) => {
-                    DependencySourceView::Port {
-                        origin: PortOriginView::Builtin {
-                            name: name.as_str(),
-                        },
-                    }
-                }
                 DependencySource::Workspace => DependencySourceView::Workspace,
             },
         })
@@ -610,32 +526,6 @@ impl<'a> MetadataView<'a> {
             inputs.no_patches,
         );
 
-        let mut ports: Vec<PortView<'_>> = inputs
-            .ports
-            .iter()
-            .map(|prepared| {
-                let cabin_port::PortProvenance {
-                    url,
-                    sha256_hex,
-                    strip_prefix,
-                    overlay_manifest,
-                } = &prepared.provenance;
-                PortView {
-                    name: prepared.name.as_str(),
-                    version: prepared.version.to_string(),
-                    origin: PortOriginView::from_origin(&prepared.origin),
-                    source_dir: prepared.source_dir.as_path(),
-                    source: PortSourceView::Archive {
-                        url: url.as_str(),
-                        sha256: format!("sha256:{sha256_hex}"),
-                        strip_prefix: strip_prefix.as_deref(),
-                    },
-                    overlay_manifest: overlay_manifest.as_deref(),
-                }
-            })
-            .collect();
-        ports.sort_by(|a, b| port_origin_sort_key(a).cmp(&port_origin_sort_key(b)));
-
         Self {
             workspace,
             packages,
@@ -646,7 +536,6 @@ impl<'a> MetadataView<'a> {
             config: config_view,
             patches: patches_view,
             source_replacements: source_replacements_view,
-            ports,
         }
     }
 }
@@ -655,59 +544,13 @@ impl<'a> MetadataView<'a> {
 /// (or minimal human) view assembled by [`MetadataView`].
 pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin metadata` reports the whole workspace; scope port
-    // preparation accordingly so a member's port absence cannot
-    // block emitting metadata for unrelated members.
-    let metadata_selection = cabin_workspace::PackageSelection {
-        mode: cabin_workspace::SelectionMode::WholeWorkspace,
-        exclude: Vec::new(),
-    };
-    // Metadata generation is a network-free local introspection
-    // command: force `offline = true` regardless of the user's
-    // `--offline` flag so a fresh checkout that declares an
-    // HTTP-backed port never blocks on a download.  Cached
-    // archives and `file://` ports still resolve and surface
-    // their provenance; uncached HTTP ports gracefully degrade
-    // to a port-less graph via the skeleton fallback below.
-    let port_prep = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        None,
-        true,
-        false,
-        false,
-        &metadata_selection,
-        args.no_patches,
-        None,
-    );
-    let prep = match port_prep {
-        Ok(result) => result,
-        Err(err) if crate::cli::port::is_metadata_recoverable(&err) => {
-            // Port-less fallback: rebuild the same bundle from the
-            // skeleton graph so the rest of the pipeline is agnostic
-            // to which path produced it.
-            let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
-            let effective_config = crate::cli::config::load_effective_config(&graph)?;
-            let active_patches =
-                crate::cli::patch::load_active_patches(&graph, &effective_config, args.no_patches)?;
-            crate::cli::port::WorkspacePrep {
-                prepared_ports: Vec::new(),
-                port_sources: Vec::new(),
-                effective_config,
-                active_patches,
-                graph,
-                port_cache: crate::cli::port::port_cache_for(&manifest_path, None)?,
-            }
-        }
-        Err(err) => return Err(err),
-    };
-    let crate::cli::port::WorkspacePrep {
-        prepared_ports,
-        port_sources,
+    // Metadata generation is network-free local introspection: it
+    // reads the workspace and its patch table, nothing more.
+    let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
         graph: initial_graph,
-        ..
-    } = prep;
+    } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     // `cabin metadata` never reaches the network, but reject
     // `--offline` paired with a URL registry source so the
     // metadata view documents the same offline contract the
@@ -720,12 +563,8 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         resolved_index_for_offline_check.as_ref(),
     )?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = crate::cli::patch::reload_for_patches(
-        &manifest_path,
-        initial_graph,
-        &patched_sources,
-        &port_sources,
-    )?;
+    let graph =
+        crate::cli::patch::reload_for_patches(&manifest_path, initial_graph, &patched_sources)?;
     let lockfile_path = lockfile_path_for(&manifest_path);
     let lockfile = read_optional_lockfile(&lockfile_path)?;
     let request = build_selection_request(
@@ -828,7 +667,6 @@ pub(crate) fn metadata(args: &ManifestArgs, reporter: Reporter) -> Result<()> {
         config: &effective_config,
         active_patches: &active_patches,
         no_patches: args.no_patches,
-        ports: &prepared_ports,
         resolver_incompatible_standards,
     });
     match args.format {

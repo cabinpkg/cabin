@@ -8,8 +8,7 @@ pub struct PortBuildRun<'a> {
     pub build_dir: PathBuf,
     pub cache_dir: PathBuf,
     /// `--index-path` registry for consumers of `cabin-ports/*`
-    /// packages; `None` for builtin / `port-path` consumers, which
-    /// resolve without an index.
+    /// packages.
     pub index_path: Option<PathBuf>,
     pub expected_stdout: &'a [&'a str],
 }

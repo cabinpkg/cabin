@@ -101,12 +101,9 @@ Once patches are validated, Cabin treats them as *synthesized local-path package
 - Feature resolution, dependency-kind handling, and target-conditioned dependencies flow through the
   patched manifest exactly as they would for any path dependency.
 - A patch reached only through registry metadata (nothing local names it, so activation is
-  discovered during resolution) has its foundation ports prepared *after* resolution.  A port
-  prepared this late may not declare a versioned registry dependency - resolution has already run,
-  so Cabin refuses the command with an error naming the port and the dependency.  The same port
-  reached from a local dependency joins resolution normally.  Its `links` claims, and those of the
-  fork's feature-enabled optional path dependencies, are enforced by the building commands' final
-  graph check (see [`links`](manifest.md#links)).  Index dependency edges onto the patched name -
+  discovered during resolution) has the `links` claims of its feature-enabled optional path
+  dependencies enforced by the building commands' final graph check (see
+  [`links`](manifest.md#links)), because those edges are not visible before resolution runs.  Index dependency edges onto the patched name -
   visible only in the solution, so the pre-resolution validation above never saw them - are checked
   once resolution completes: the fork's version must satisfy every selected dependent's
   requirement, surfacing the same version-mismatch error.  Activation follows *live* edges only: a

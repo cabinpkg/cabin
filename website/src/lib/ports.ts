@@ -67,7 +67,7 @@ export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
 
 // Exported with an explicit directory so tests can exercise the
 // loader against fixture trees; the site itself always loads the
-// committed recipes.
+// committed ports tree, in whichever shape each port is committed.
 export async function loadPortsFromDir(
     portsDir: string,
 ): Promise<PackageRecord[]> {
@@ -102,7 +102,7 @@ export async function loadPortsFromDir(
             const isPackage = !isRecipe && existsSync(manifestPath);
             if (!isRecipe && !isPackage) {
                 // Neither marker: an auxiliary directory (the
-                // publisher and the builtin embed skip these too).
+                // publisher skips these too).
                 continue;
             }
             sawRecipe = sawRecipe || isRecipe;
@@ -207,20 +207,7 @@ async function loadPackageRecord(
     }
 
     const dependencies = Object.entries(parsed.dependencies ?? {}).map(
-        ([depName, spec]) => {
-            if (typeof spec === "string") {
-                return { name: depName, req: spec };
-            }
-            if (typeof spec === "object" && spec !== null) {
-                const req = (spec as { version?: unknown }).version;
-                if (typeof req === "string" && req !== "") {
-                    return { name: depName, req };
-                }
-            }
-            throw new Error(
-                `Dependency "${depName}" in ${manifestPath} has no version requirement.`,
-            );
-        },
+        ([depName, spec]) => dependencyRequirement(depName, spec, manifestPath),
     );
 
     return {
@@ -364,11 +351,10 @@ async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {
 }
 
 // The published dependency set comes from the overlay manifest, not
-// port.toml: the publisher rewrites the overlay's inter-port
-// `{ port = true }` edges into scoped registry dependencies
-// (cabin-port-publish::convert::rewrite_port_dependencies), so the
-// page's dependency count must read the same file or it under-counts
-// (libpng depends on zlib).
+// port.toml, which declares no dependencies at all: a recipe's
+// dependencies live in its overlay and publish verbatim, so the
+// page's dependency count must read the same file the publisher
+// converts.
 async function overlayDependencies(
     overlay: PortTomlOverlay | undefined,
     portTomlPath: string,
@@ -398,27 +384,36 @@ async function overlayDependencies(
     if (dependencies === undefined) {
         return [];
     }
-    return Object.entries(dependencies).map(([name, spec]) => {
-        if (
-            typeof spec === "object" &&
-            spec !== null &&
-            (spec as { port?: unknown }).port === true
-        ) {
-            const req = (spec as { version?: unknown }).version;
-            if (typeof req !== "string" || req === "") {
-                throw new Error(
-                    `Port dependency "${name}" in ${overlayPath} has no version requirement.`,
-                );
-            }
-            return { name: scopedPackageName(name, overlayPath), req };
-        }
-        // Non-port dependency forms pass through unrewritten, exactly
-        // as the publisher leaves them.
-        return {
-            name,
-            req: typeof spec === "string" ? spec : "",
-        };
-    });
+    return Object.entries(dependencies).map(([name, spec]) =>
+        dependencyRequirement(name, spec, overlayPath),
+    );
+}
+
+// One dependency entry, in either spelling a published port manifest
+// can carry: the bare requirement string and the table with a
+// `version` key.  Both committed shapes go through this, because the
+// publisher passes a dependency table through unrewritten - so the
+// page reads exactly what will publish.  This is a shape check, not
+// a SemVer parse: it refuses a missing or blank requirement (Cabin
+// trims, then refuses the empty string), and leaves malformed
+// requirement syntax to the publisher and the registry.
+function dependencyRequirement(
+    name: string,
+    spec: unknown,
+    context: string,
+): { name: string; req: string } {
+    const req =
+        typeof spec === "string"
+            ? spec
+            : typeof spec === "object" && spec !== null
+              ? (spec as { version?: unknown }).version
+              : undefined;
+    if (typeof req !== "string" || req.trim() === "") {
+        throw new Error(
+            `Dependency "${name}" in ${context} declares no version requirement; port packages carry registry dependencies only.`,
+        );
+    }
+    return { name, req };
 }
 
 // The publisher's identity rule (cabin-port-publish::convert::

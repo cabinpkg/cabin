@@ -7,7 +7,7 @@
 //! whitespace), so this module wraps [`toml_edit`]'s document model
 //! instead, which round-trips formatting and comments.
 //!
-//! The schema written here - the `port` / `version` / `path` /
+//! The schema written here - the `version` / `path` /
 //! `features` / `default-features` keys - must stay in step with the
 //! parsing schema in the `raw` and `parse::dependency` modules;
 //! keeping both in the same crate is deliberate so a schema change
@@ -79,7 +79,7 @@ impl DepTable {
 ///
 /// The combination of fields determines the rendered form: a bare
 /// version string (`name = "^1"`) when only [`version`] is set,
-/// otherwise an inline table (`name = { port = true, version = "^1" }`).
+/// otherwise an inline table (`name = { version = "^1", features = [...] }`).
 ///
 /// [`version`]: NewDependency::version
 #[derive(Debug, Clone, Default)]
@@ -89,8 +89,6 @@ pub struct NewDependency {
     /// Version requirement string (e.g. `^1.3.1`).  `None` for a
     /// path-only entry.
     pub version: Option<String>,
-    /// Emit `port = true` (foundation-port dependency).
-    pub port: bool,
     /// Emit `path = "..."` (local path dependency).
     pub path: Option<String>,
     /// Features to enable on the dependency (`features = [...]`).
@@ -400,16 +398,12 @@ fn substitute_dependency_markers_in(
 
 /// Build the rendered value (bare string or inline table) for `dep`.
 fn dependency_value(dep: &NewDependency) -> Value {
-    let needs_table =
-        dep.port || dep.path.is_some() || !dep.features.is_empty() || dep.no_default_features;
+    let needs_table = dep.path.is_some() || !dep.features.is_empty() || dep.no_default_features;
     if !needs_table && let Some(version) = &dep.version {
         return Value::from(version.as_str());
     }
 
     let mut table = toml_edit::InlineTable::new();
-    if dep.port {
-        table.insert("port", Value::from(true));
-    }
     if let Some(path) = &dep.path {
         table.insert("path", Value::from(path.as_str()));
     }
@@ -435,33 +429,12 @@ mod tests {
 
     const PACKAGE_ONLY: &str = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n";
 
-    fn port_dep(name: &str, version: &str) -> NewDependency {
-        NewDependency {
-            name: name.to_owned(),
-            version: Some(version.to_owned()),
-            port: true,
-            ..NewDependency::default()
-        }
-    }
-
     fn registry_dep(name: &str, version: &str) -> NewDependency {
         NewDependency {
             name: name.to_owned(),
             version: Some(version.to_owned()),
             ..NewDependency::default()
         }
-    }
-
-    #[test]
-    fn upserts_port_dependency_as_inline_table() {
-        let mut doc = parse_document(PACKAGE_ONLY).unwrap();
-        upsert_dependency(&mut doc, DepTable::Normal, &port_dep("zlib", "^1.3.1")).unwrap();
-        let out = doc.to_string();
-        assert!(out.contains("[dependencies]"), "got:\n{out}");
-        assert!(
-            out.contains("zlib = { port = true, version = \"^1.3.1\" }"),
-            "got:\n{out}"
-        );
     }
 
     #[test]
@@ -486,7 +459,6 @@ mod tests {
         let dep = NewDependency {
             name: "fmt".to_owned(),
             version: Some("^10".to_owned()),
-            port: true,
             features: vec!["a".to_owned(), "b".to_owned()],
             no_default_features: true,
             ..NewDependency::default()
@@ -495,7 +467,7 @@ mod tests {
         let out = doc.to_string();
         assert!(
             out.contains(
-                "fmt = { port = true, version = \"^10\", features = [\"a\", \"b\"], default-features = false }"
+                "fmt = { version = \"^10\", features = [\"a\", \"b\"], default-features = false }"
             ),
             "got:\n{out}"
         );

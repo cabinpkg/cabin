@@ -897,39 +897,15 @@ pub struct SystemDependency {
     pub condition: Option<crate::Condition>,
 }
 
-/// Where a foundation-port dependency's recipe comes from.
-///
-/// Constructed by the manifest parser from one of the two
-/// recipe-locator fields:
-///
-/// - `{ port = true, version = "..." }` → `Builtin { name, version_req }`.  The recipe
-///   is resolved from `cabin_port::builtin::BUILTIN` by the discovery layer using the
-///   consumer-supplied `version_req`.
-/// - `{ port-path = "..." }` → `Path(PathBuf)`.  The recipe lives
-///   on disk at the given path, interpreted relative to the
-///   manifest directory that declared it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PortDepSource {
-    /// Bundled curated recipe. `version_req` is the consumer-supplied requirement,
-    /// resolved against `cabin_port::builtin::BUILTIN` by the discovery layer.
-    Builtin {
-        name: PackageName,
-        version_req: semver::VersionReq,
-    },
-    Path(Utf8PathBuf),
-}
-
 /// Where a dependency is sourced from.
 ///
 /// Covers [`DependencySource::Path`] for local path dependencies,
 /// [`DependencySource::Version`] for registry-resolved versioned
-/// dependencies, [`DependencySource::Port`] for foundation-port
-/// dependencies (curated recipes under `crates/cabin-port/ports/`), and
-/// [`DependencySource::Workspace`] for the `{ workspace = true }`
-/// opt-in into the workspace's shared dependency table.  The
-/// `Workspace` variant is an unresolved marker -
+/// dependencies, and [`DependencySource::Workspace`] for the
+/// `{ workspace = true }` opt-in into the workspace's shared
+/// dependency table.  The `Workspace` variant is an unresolved marker -
 /// `cabin-workspace::load_workspace` rewrites it into the
-/// matching `Path` / `Version` / `Port` source from
+/// matching `Path` / `Version` source from
 /// `[workspace.dependencies]` before any consumer sees a
 /// [`crate::Package`] returned from the workspace loader.  If a
 /// `Workspace` source ever reaches a planner or resolver it
@@ -946,15 +922,6 @@ pub enum DependencySource {
     /// candidate versions during dependency resolution.
     #[serde(rename = "version")]
     Version(semver::VersionReq),
-    /// Foundation-port dependency.  The recipe source is one of two
-    /// shapes (see [`PortDepSource`]): a relative path to a port
-    /// directory on disk (`Path`), or a bundled curated recipe keyed
-    /// by the dependency name (`Builtin`).  The CLI orchestration
-    /// layer prepares the port (download → verify → safe-extract
-    /// with `strip_prefix` → overlay copy) before the workspace
-    /// loader resolves the dependency to the prepared directory.
-    #[serde(rename = "port")]
-    Port(PortDepSource),
     /// `dep = { workspace = true }`.  An unresolved opt-in into
     /// the workspace's `[workspace.dependencies]` table, resolved
     /// by `load_workspace` before the `PackageGraph` is produced

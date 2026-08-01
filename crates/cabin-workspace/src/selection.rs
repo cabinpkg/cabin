@@ -89,7 +89,7 @@ impl ResolvedSelection {
     /// Names of every package in the selection's path-dependency
     /// [`closure`](Self::closure), in deterministic order.  Convenience
     /// over `closure(graph)` for the common case where a caller needs a
-    /// set of package *names* - e.g. to seed a strict registry / port
+    /// set of package *names* - e.g. to seed a strict registry
     /// policy - rather than graph indices.
     pub fn closure_package_names(&self, graph: &PackageGraph) -> BTreeSet<String> {
         self.closure(graph)
@@ -300,7 +300,7 @@ where
     }
     match &dep.source {
         DependencySource::Version(req) => Some(req),
-        DependencySource::Path(_) | DependencySource::Port(_) | DependencySource::Workspace => None,
+        DependencySource::Path(_) | DependencySource::Workspace => None,
     }
 }
 

@@ -1,8 +1,7 @@
 use crate::error::ManifestError;
 use crate::raw::{RawDependency, RawDependencyTable};
 use cabin_core::{
-    Condition, Dependency, DependencyKind, DependencySource, PackageName, PortDepSource,
-    SystemDependency,
+    Condition, Dependency, DependencyKind, DependencySource, PackageName, SystemDependency,
 };
 use camino::Utf8PathBuf;
 
@@ -59,7 +58,7 @@ pub(super) fn package_dependency_from_raw(
             default_features: true,
             ignore_interface_standard: false,
         },
-        RawDependency::Table(mut table) => {
+        RawDependency::Table(table) => {
             // The router catches `system = true`.  Reaching this
             // arm with `system = true` is an internal invariant
             // violation; fail loudly so a future refactor cannot
@@ -74,24 +73,7 @@ pub(super) fn package_dependency_from_raw(
                 });
             }
 
-            // `port` / `port-path` are mutually exclusive with every
-            // other source form and do not support feature gating
-            // for this milestone.  Check both conditions before
-            // routing through the path/version/workspace
-            // selector so a port dep cannot silently shadow a
-            // mistakenly-set field.
-            let port_builtin = table.port.unwrap_or(false);
-            match (port_builtin, table.port_path.take()) {
-                (true, Some(_)) => {
-                    return Err(ManifestError::PortDependencyHasOtherSource {
-                        name,
-                        conflicting: "port-path",
-                    });
-                }
-                (true, None) => builtin_port_dep_from_table(&name, table)?,
-                (false, Some(port_path)) => path_port_dep_from_table(&name, port_path, table)?,
-                (false, None) => ordinary_dep_from_table(&name, table, kind)?,
-            }
+            ordinary_dep_from_table(&name, table, kind)?
         }
     };
     let ResolvedDep {
@@ -126,125 +108,6 @@ pub(super) fn package_dependency_from_raw(
     })
 }
 
-/// Resolve a `port = true` (bundled foundation-port) dependency
-/// table.  The caller's dispatch already rejected `port-path`.
-fn builtin_port_dep_from_table(
-    name: &str,
-    table: RawDependencyTable,
-) -> Result<ResolvedDep, ManifestError> {
-    let RawDependencyTable {
-        path,
-        version,
-        port: _,
-        port_path: _,
-        workspace,
-        system: _,
-        optional,
-        features,
-        default_features,
-        ignore_interface_standard,
-    } = table;
-    if path.is_some() {
-        return Err(ManifestError::PortDependencyHasOtherSource {
-            name: name.to_owned(),
-            conflicting: "path",
-        });
-    }
-    if workspace.is_some() {
-        return Err(ManifestError::PortDependencyHasOtherSource {
-            name: name.to_owned(),
-            conflicting: "workspace",
-        });
-    }
-    // `optional` ports are still unsupported (the port
-    // forms never enter the version resolver), but
-    // `features` / `default-features` are honored: a
-    // port's overlay can declare `[features]`, and the
-    // feature resolver threads per-edge requests onto
-    // the prepared port package like a path dep.
-    // `optional = false` is the default and is treated as
-    // if the field were absent, like `workspace = false`.
-    if optional == Some(true) {
-        return Err(ManifestError::PortDependencyUnsupportedOption {
-            name: name.to_owned(),
-            conflicting: "optional",
-        });
-    }
-    let (features_vec, default_features_flag) =
-        port_feature_selection(name, features, default_features)?;
-    let req_str = version.ok_or_else(|| ManifestError::PortDependencyMissingVersion {
-        name: name.to_owned(),
-    })?;
-    let version_req = parse_version_req(name, &req_str)?;
-    Ok(ResolvedDep {
-        source: DependencySource::Port(PortDepSource::Builtin {
-            name: PackageName::new(name.to_owned())?,
-            version_req,
-        }),
-        optional: false,
-        features: features_vec,
-        default_features: default_features_flag,
-        ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
-    })
-}
-
-/// Resolve a `port-path = "..."` (local port overlay) dependency
-/// table. `port_path` is the value the caller's dispatch took out
-/// of the table.
-fn path_port_dep_from_table(
-    name: &str,
-    port_path: String,
-    table: RawDependencyTable,
-) -> Result<ResolvedDep, ManifestError> {
-    let RawDependencyTable {
-        path,
-        version,
-        port: _,
-        port_path: _,
-        workspace,
-        system: _,
-        optional,
-        features,
-        default_features,
-        ignore_interface_standard,
-    } = table;
-    if path.is_some() {
-        return Err(ManifestError::PortDependencyHasOtherSource {
-            name: name.to_owned(),
-            conflicting: "path",
-        });
-    }
-    if version.is_some() {
-        return Err(ManifestError::PortDependencyHasOtherSource {
-            name: name.to_owned(),
-            conflicting: "version",
-        });
-    }
-    if workspace.is_some() {
-        return Err(ManifestError::PortDependencyHasOtherSource {
-            name: name.to_owned(),
-            conflicting: "workspace",
-        });
-    }
-    // `optional = false` is the default and is treated as
-    // if the field were absent, like `workspace = false`.
-    if optional == Some(true) {
-        return Err(ManifestError::PortDependencyUnsupportedOption {
-            name: name.to_owned(),
-            conflicting: "optional",
-        });
-    }
-    let (features_vec, default_features_flag) =
-        port_feature_selection(name, features, default_features)?;
-    Ok(ResolvedDep {
-        source: DependencySource::Port(PortDepSource::Path(Utf8PathBuf::from(port_path))),
-        optional: false,
-        features: features_vec,
-        default_features: default_features_flag,
-        ignore_interface_standard: ignore_interface_standard.unwrap_or(false),
-    })
-}
-
 /// Resolve an ordinary dependency table whose source is one of
 /// `path`, `version`, or `workspace = true`.
 fn ordinary_dep_from_table(
@@ -255,8 +118,6 @@ fn ordinary_dep_from_table(
     let RawDependencyTable {
         path,
         version,
-        port: _,
-        port_path: _,
         workspace,
         system: _,
         optional,
@@ -319,25 +180,6 @@ fn ordinary_dep_from_table(
     })
 }
 
-/// Validate and normalize the `features` / `default-features`
-/// selection on a foundation-port dependency.  Mirrors the
-/// validation the normal package-dependency path applies: feature
-/// names must be non-empty, and an omitted `default-features`
-/// defaults to `true`.
-fn port_feature_selection(
-    name: &str,
-    features: Option<Vec<String>>,
-    default_features: Option<bool>,
-) -> Result<(Vec<String>, bool), ManifestError> {
-    let features_vec = features.unwrap_or_default();
-    if features_vec.iter().any(String::is_empty) {
-        return Err(ManifestError::EmptyDependencyFeatureName {
-            name: name.to_owned(),
-        });
-    }
-    Ok((features_vec, default_features.unwrap_or(true)))
-}
-
 /// Produce a `SystemDependency` from a `[dependencies]` /
 /// `[dev-dependencies]` entry that
 /// carries `system = true`.  Only `version` is permitted
@@ -353,8 +195,6 @@ pub(super) fn system_dependency_from_raw_table(
     let RawDependencyTable {
         path,
         version,
-        port,
-        port_path,
         workspace,
         system,
         optional,
@@ -371,8 +211,6 @@ pub(super) fn system_dependency_from_raw_table(
     // in the table.
     let forbidden: &[(&'static str, bool)] = &[
         ("path", path.is_some()),
-        ("port", port == Some(true)),
-        ("port-path", port_path.is_some()),
         ("workspace", workspace.is_some()),
         ("features", features.is_some()),
         ("default-features", default_features.is_some()),

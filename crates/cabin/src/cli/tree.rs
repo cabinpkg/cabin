@@ -78,33 +78,15 @@ pub(crate) struct TreeArgs {
 
 pub(crate) fn tree(args: &TreeArgs) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin tree` is read-only inspection: never auto-download
-    // foundation ports.  The cache short-circuit still lets a
-    // workspace whose ports were prepared by an earlier `cabin
-    // build` run unchanged.
     let tree_selection = build_workspace_selection(&args.workspace_selection);
-    let crate::cli::port::WorkspacePrep {
-        port_sources,
+    let crate::cli::workspace_prep::WorkspacePrep {
         active_patches,
         graph: initial_graph,
         ..
-    } = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        None,
-        true,
-        false,
-        false,
-        &tree_selection,
-        args.no_patches,
-        None,
-    )?;
+    } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_sources = active_patches.workspace_sources();
-    let graph = crate::cli::patch::reload_for_patches(
-        &manifest_path,
-        initial_graph,
-        &patched_sources,
-        &port_sources,
-    )?;
+    let graph =
+        crate::cli::patch::reload_for_patches(&manifest_path, initial_graph, &patched_sources)?;
 
     let lockfile_path = lockfile_path_for(&manifest_path);
     let lockfile = read_optional_lockfile(&lockfile_path)?;

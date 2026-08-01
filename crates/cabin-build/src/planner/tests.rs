@@ -263,7 +263,6 @@ fn make_pkg(
             })
             .collect(),
         kind: PackageKind::Local,
-        is_port: false,
     }
 }
 
@@ -1817,7 +1816,7 @@ fn qualified_dev_dependency_without_activated_edge_diagnoses() {
 /// Two-package fixture for the include-provenance tests: local `app`
 /// (executable) depends on `greet` (library with an `include` dir),
 /// with greet's provenance set by the caller.
-fn provenance_graph(greet_kind: PackageKind, greet_is_port: bool) -> PackageGraph {
+fn provenance_graph(greet_kind: PackageKind) -> PackageGraph {
     let greet_proj = Package::new(
         pkg_name("greet"),
         version(),
@@ -1845,7 +1844,6 @@ fn provenance_graph(greet_kind: PackageKind, greet_is_port: bool) -> PackageGrap
     .unwrap();
     let mut greet_pkg = make_pkg("greet", "/abs/greet", greet_proj, vec![]);
     greet_pkg.kind = greet_kind;
-    greet_pkg.is_port = greet_is_port;
     let app_pkg = make_pkg("app", "/abs/app", app_proj, vec![0]);
     graph_with(vec![greet_pkg, app_pkg], vec![1], Some(1))
 }
@@ -1876,7 +1874,7 @@ fn registry_dep_include_dirs_become_system_includes() {
     // greet is an extracted registry archive: third-party code whose
     // headers the user cannot fix, so its include dir routes to the
     // system bucket (`-isystem`) on the consumer's compiles.
-    let graph = provenance_graph(PackageKind::Registry, false);
+    let graph = provenance_graph(PackageKind::Registry);
     let bg = plan_provenance_graph(&graph, Dialect::GnuLike, true);
 
     let app_compile = compile_for(&bg, "/app/");
@@ -1920,26 +1918,8 @@ fn registry_dep_include_dirs_become_system_includes() {
 }
 
 #[test]
-fn port_dep_include_dirs_become_system_includes() {
-    // Foundation ports are trust-local (their flags come from the
-    // curated recipe) but code-wise third-party upstream sources, so
-    // their headers take the system bucket like registry packages.
-    let graph = provenance_graph(PackageKind::Local, true);
-    let bg = plan_provenance_graph(&graph, Dialect::GnuLike, true);
-    let app_compile = compile_for(&bg, "/app/");
-    let greet_include = Utf8PathBuf::from("/abs/greet/include");
-    assert!(
-        app_compile
-            .arguments
-            .system_include_dirs
-            .contains(&greet_include)
-    );
-    assert!(!app_compile.arguments.include_dirs.contains(&greet_include));
-}
-
-#[test]
 fn msvc_with_external_support_keeps_system_includes() {
-    let graph = provenance_graph(PackageKind::Registry, false);
+    let graph = provenance_graph(PackageKind::Registry);
     let bg = plan_provenance_graph(&graph, Dialect::Msvc, true);
     let app_compile = compile_for(&bg, "/app/");
     assert!(
@@ -1972,7 +1952,7 @@ fn msvc_without_external_support_collapses_system_includes() {
     // A `cl` older than VS2019 16.10 rejects `/external:I`, so the
     // planner falls back to spelling every dependency include dir as
     // a plain `/I` - exactly the pre-system-include behavior.
-    let graph = provenance_graph(PackageKind::Registry, false);
+    let graph = provenance_graph(PackageKind::Registry);
     let bg = plan_provenance_graph(&graph, Dialect::Msvc, false);
     let app_compile = compile_for(&bg, "/app/");
     let greet_include = Utf8PathBuf::from("/abs/greet/include");

@@ -11,10 +11,7 @@ pub(super) fn clean(args: &CleanArgs, reporter: Reporter) -> Result<()> {
     // selection share helpers with `cabin build` so the user
     // sees the same precedence rules across both commands.
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // must never reach the network.  Foundation-port edges are
-    // skipped so a fresh checkout with an HTTP-backed port (no
-    // archive cached yet) still cleans without erroring.
-    let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
+    let graph = cabin_workspace::load_workspace(&manifest_path)?;
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let (build_dir_input, _build_dir_source) = crate::cli::config::resolve_build_dir_with_env(

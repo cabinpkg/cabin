@@ -710,8 +710,8 @@ fn emit_actions(
                 inputs.extend(lib_paths);
 
                 // System libraries required by this executable's
-                // dependency closure (e.g. a static library port's
-                // `link-libs`).  Carried as bare names on the LinkAction
+                // dependency closure (e.g. a static library
+                // dependency's `link-libs`).  Carried as bare names on the LinkAction
                 // so the dialect lowering spells them (`-l<name>` for
                 // GNU, `<name>.lib` for MSVC) and places them after the
                 // archives for left-to-right resolution. `arguments`

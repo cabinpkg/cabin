@@ -83,11 +83,7 @@ pub(crate) struct FmtArgs {
 /// Entry point invoked by the top-level dispatcher.
 pub(crate) fn fmt(args: &FmtArgs, reporter: Reporter) -> Result<ExitCode> {
     let manifest_path = crate::cli::resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    // `cabin fmt` rewrites local source files: it never reads
-    // foundation-port contents and never reaches the network.
-    // Skipping port edges lets a fresh checkout (or any CI lint
-    // job) format without first downloading an uncached port.
-    let graph = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
+    let graph = cabin_workspace::load_workspace(&manifest_path)?;
     let effective_config = crate::cli::config::load_effective_config(&graph)?;
 
     let workspace_selection =

@@ -2816,23 +2816,5 @@ fn port_subcommand_is_rejected() {
         .stderr(predicate::str::contains("unrecognized subcommand 'port'"));
 }
 
-// ---------------------------------------------------------------
-// Foundation-port end-to-end pipeline
-// ---------------------------------------------------------------
-
-/// End-to-end coverage for the zlib foundation-port pipeline:
-/// a downstream Cabin consumer declares
-/// `{ port-path = "..." }`, the CLI downloads + verifies + extracts
-/// the upstream archive, applies the overlay, and the planner
-/// links an `executable` that calls `zlibVersion()`.
-///
-/// The tests are hermetic: a `tiny_http` loopback server serves
-/// a synthesized "fake-zlib" archive whose layout matches the
-/// real upstream archive (one `zlib.h` + one `zlib.c` under a
-/// `zlib-1.3.1/` prefix dir).  The mock proves the mechanics
-/// without touching `zlib.net` or GitHub.
 #[path = "cli/foundation_port_zlib.rs"]
 mod foundation_port_zlib;
-
-#[path = "cli/foundation_port_mock_smoke.rs"]
-mod foundation_port_mock_smoke;

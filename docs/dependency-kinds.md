@@ -53,7 +53,7 @@ gtest = "^1.14"
 - `{ version = "...", system = true }` - externally-provided system dep, probed via `pkg-config` at
   build time.
 
-`system = true` is mutually exclusive with `path`, `port`, `port-path`, `workspace`, `features`,
+`system = true` is mutually exclusive with `path`, `workspace`, `features`,
 `default-features`, and `optional`; mixing the flag with any of those surfaces a clear parser error.
 Every declared `system = true` dependency is required - the manifest has no `required` field.
 

@@ -1,8 +1,9 @@
-# Overlay for the hermetic fake libpng port: the same shape the
-# committed recipe had before libpng migrated to a package, so the
-# registry-ports test keeps exercising the recipe machinery - and in
-# particular the inter-port `{ port = true }` edge, which no committed
-# recipe declares any more - against sources it fully controls.
+# Overlay for the hermetic fake libpng port: the shape the committed
+# recipe had before libpng migrated to a package, so the
+# registry-ports test keeps exercising the recipe machinery - the
+# `[[copy]]` step included - against sources it fully controls.  Its
+# zlib edge names the scoped registry package, which is the only way
+# one port can reach another now.
 #
 # The fake archive stubs every declared source except png.c, so the
 # source list must stay the recipe's 15-source set for
@@ -12,7 +13,7 @@ name = "libpng"
 version = "1.6.50"
 
 [dependencies]
-zlib = { port = true, version = "^1.3" }
+"cabin-ports/zlib" = "^1.3"
 
 [target.libpng]
 type = "library"
@@ -36,7 +37,7 @@ sources = [
 include-dirs = ["."]
 c-standard = "c11"
 defines = ["PNG_ARM_NEON_OPT=0", "PNG_INTEL_SSE_OPT=0"]
-deps = ["zlib"]
+deps = ["cabin-ports/zlib"]
 links = "png"
 
 [target.'cfg(family = "unix")'.profile]

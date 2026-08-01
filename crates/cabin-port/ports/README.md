@@ -6,8 +6,7 @@ libraries - libraries that do not yet ship a native `cabin.toml` - to Cabin's bu
 While the recipe layer collapses into provenance-bearing packages, a
 `<name>/<version>/` directory carries one of two shapes.
 
-A **recipe** (embedded into the `cabin-port` crate at build time, so `{ port = true }` resolves it
-offline) consists of:
+A **recipe**, converted at publish time, consists of:
 
 - `port.toml` - pins a single upstream release archive by URL and SHA-256, optionally with a
   `strip_prefix` for the archive's root directory, optionally one or more `[[copy]]` steps, and
@@ -18,18 +17,16 @@ offline) consists of:
 
 A **migrated package** consists of a single `cabin.toml` carrying the canonical scoped identity
 (`cabin-ports/<name>`) and a complete `[package.upstream]` block (plus its `patches/`, when it
-declares any).  It publishes verbatim and is deliberately **not** embedded: it is consumed as an
-ordinary registry dependency.  See
-[`docs/foundation-ports.md`](../../../docs/foundation-ports.md) for the migration contract,
-including why a port may not migrate while a recipe still depends on it through `port = true`.
+declares any).  It publishes verbatim.  See
+[`docs/foundation-ports.md`](../../../docs/foundation-ports.md) for the migration contract.
 
-When a Cabin package declares a bundled dependency (`{ port = true, version = "^1.3" }`) or a
-local-recipe dependency (`{ port-path = "../ports/<name>/<version>" }`), Cabin downloads the
-archive, verifies the SHA-256, safely extracts it, applies any `[[copy]]` steps, applies any
-declared `[source].patches` as byte-exact unified diffs, copies the overlay
-manifest into the extracted source tree, and treats the result as a normal Cabin path dependency.  A
-port's overlay may itself depend on another port (libpng depends on the bundled zlib), and discovery
-follows those edges transitively.
+Either shape reaches consumers the same way: as a published `cabin-ports/*` registry package.
+Nothing in this directory is consumed from a user's manifest directly.  To publish one, the tool
+downloads the archive, verifies the SHA-256, safely extracts it, applies the declared copy steps
+and then the declared patches as byte-exact unified diffs.  A recipe spells those declarations
+`[[copy]]` and `[source].patches` in its `port.toml`, and its overlay is copied in as the
+published manifest; a migrated package spells them `[[package.upstream.copy]]` and
+`[package.upstream].patches` in the `cabin.toml` that publishes verbatim.
 
 ### Placing prebuilt files with `[[copy]]`
 
@@ -63,14 +60,11 @@ patches = ["patches/0001-fix-msvc-build.patch"]
 Patches apply in declared order, after every `[[copy]]` step, and application is byte-exact:
 fixed `-p1` strip, no fuzz, no offset search, no newline normalization, text diffs only.  Like
 `[[copy]]`, this is declarative transformation, never a script; a patch that does not apply
-fails preparation.  See [`foundation-ports.md`](../../../docs/foundation-ports.md) for the full
-rules.
+fails the materialization.  See [`foundation-ports.md`](../../../docs/foundation-ports.md) for the
+full rules.
 
-Recipes under this directory are also embedded in the `cabin` binary via `cabin-port::builtin` (see
-`crates/cabin-port/src/builtin.rs`).  Retiring a specific *version* of a foundation port removes
-`ports/<name>/<version>/` and the matching `BUILTIN` entry in `cabin-port::builtin`.  Retiring an
-entire port (all versions) removes the whole `ports/<name>/` directory and every same-name `BUILTIN`
-entry.
+Retiring a specific *version* of a foundation port removes `ports/<name>/<version>/`; retiring an
+entire port removes the whole `ports/<name>/` directory.
 
 ## What ports are not
 
@@ -101,9 +95,9 @@ entry.
 
 ## Available ports
 
-A **migrated** entry is committed as a package, not a recipe: it is not embedded in the `cabin`
-binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather than through
-`{ port = true }`.
+A **migrated** entry is committed as a package, not a recipe.  Both shapes are consumed the same
+way - as `"cabin-ports/<name>"` from the registry - so the marker records only what is left to
+migrate.
 
 - [`catch2/3.15.1/`](catch2/3.15.1/) - the Catch2 modern C++ test framework (upstream
   amalgamation, default main plus a `custom-main` feature), version 3.15.1.  **Migrated**:
@@ -152,17 +146,14 @@ The repository tool `cabin-port-publish` (`crates/cabin-port-publish`; not part 
 
 A **recipe** is converted: `cabin-ports/<lowercase name>` at the upstream version, with
 `[package.upstream]` provenance stamped from `port.toml`, target keys renamed to the intended
-native artifact stems (zlib's sole library target publishes as `z`), and inter-port dependencies
-rewritten to scoped registry dependencies.  The committed recipe is never mutated - the
-conversion rewrites a copy - and the bundled-port layer keeps working unchanged.
+native artifact stems (zlib's sole library target publishes as `z`).  The committed recipe is never
+mutated - the conversion rewrites a copy.
 
 A **migrated package** is published verbatim: its committed `cabin.toml` already carries the
 canonical identity, provenance, and target names, so nothing is rewritten.  Its sources are
-materialized through the same `cabin-artifact` pipeline the registry verifier replays, and it is
-deliberately absent from the builtin table - consumers reach it as an ordinary registry
-dependency, not through `{ port = true }`.  Because a bundled `{ port = true }` edge resolves
-only against recipes, a port may not migrate while a recipe still depends on it that way; the
-publisher refuses that state.
+materialized through the same `cabin-artifact` pipeline the registry verifier replays.  A migrated
+package may depend on a port still committed as a recipe; a recipe reaches another port only
+through the registry, like any other package.
 
 ```console
 $ cargo build -p cabinpkg
@@ -170,8 +161,8 @@ $ cargo run -p cabinpkg-port-publish -- --dry-run     # full local preflight, no
 $ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.cabinpkg.com
 ```
 
-CI automates the tool (`.github/workflows/ports-publish.yml`): pull requests touching the
-recipes or the publisher run the complete `--dry-run` preflight, pushes to `main` publish to
+CI automates the tool (`.github/workflows/ports-publish.yml`): pull requests touching this
+directory or the publisher run the complete `--dry-run` preflight, pushes to `main` publish to
 `https://registry.cabinpkg.com`, and manual dispatch from `main` republishes the full set (the
 recovery path after a pre-launch registry wipe; dispatching any other ref runs the dry-run).
 

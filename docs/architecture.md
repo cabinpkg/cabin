@@ -20,7 +20,7 @@ new --bin` / `--lib` scaffold parity, `cabin version` plus `cabin --list`, `cabi
 remove` manifest editing, `cabin clean`, and the curated foundation-port layer -
 version-pinned upstream C/C++ libraries under
 [`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/),
-committed either as bundled recipes or as migrated registry packages
+published to the registry under the `cabin-ports` scope
 (see [`foundation-ports.md`](foundation-ports.md)).
 
 See [`dependency-kinds.md`](dependency-kinds.md) for the dependency-kind protocol and command
@@ -48,14 +48,13 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
-  cabin-port/        foundation-port recipe parser + preparation pipeline
+  cabin-port/        foundation-port recipe parser + materialization pipeline
     ports/           curated foundation ports, in two shapes while the
                      recipe layer collapses into packages
       README.md      foundation-port policy + retirement plan
-      <name>/<version>/  a recipe (port.toml + overlay), embedded into the
-                     builtin table at build time and preparable offline; or a
-                     migrated package (cabin.toml with [package.upstream]),
-                     published to the registry and deliberately NOT embedded
+      <name>/<version>/  a recipe (port.toml + overlay), converted at publish
+                     time; or a migrated package (cabin.toml with
+                     [package.upstream]), published verbatim
   cabin-port-publish/ repository tool: publishes committed ports (recipes or packages) to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
@@ -448,12 +447,11 @@ Actions workflow, never by users.  The crate must:
 ### `cabin-port`
 
 Owns the foundation-port recipe layer: parsing `port.toml`, the checksum-addressed port cache, and
-the source-preparation pipeline that turns a pinned upstream archive plus an overlay manifest into a
-directory the workspace loader treats as a normal path dependency.  The crate must:
+the materialization pipeline that turns a pinned upstream archive plus an overlay manifest into an
+ordinary package directory for the publisher to package.  The crate must:
 
 - never reach into HTTP - like `cabin-artifact`, it accepts archive bytes via a typed
-  `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in `cabin`'s orchestration
-  layer;
+  `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in the publisher;
 - never reimplement extraction safety.  Decompression-bomb caps, symlink handling, and
   path-traversal protection belong to `cabin-artifact::safe_extract_tar_gz` /
   `cabin-artifact::safe_extract_zip`; `cabin-port` picks the extractor from the `[source].url` path
@@ -462,9 +460,10 @@ directory the workspace loader treats as a normal path dependency.  The crate mu
   symlink entries (upstream tarballs commonly carry convenience symlinks; nothing is materialized
   for a skipped entry), while package archives keep the strict reject-symlinks default.
 
-Foundation ports are local development policy, not published metadata: `cabin-package` rejects port
-deps in its validator and `cabin-publish` never archives them.  See
-[`foundation-ports.md`](foundation-ports.md) for the policy, the schema, and the zlib milestone.
+Foundation-port recipes are a publishing input, not published metadata: `cabin-publish` never
+archives them, and a manifest cannot name one - the dependency forms that could were removed, so
+the syntax now dies in the manifest parser's generic unknown-field rejection.  See
+[`foundation-ports.md`](foundation-ports.md) for the policy, the schema, and the migration.
 
 ### `cabin-port-publish`
 
@@ -1197,7 +1196,7 @@ today, so future contributors do not silently regress them by porting more Cargo
   must live under `sources` / internal subdirectories that the public include path does not expose.
   There is no `private-include-dirs` field today; adding one is a deliberate language change, not a
   build-graph fix-up.  Provenance decides the spelling on consumer compiles: dirs inherited from
-  registry packages and foundation ports are marked as system search paths (`-isystem` / MSVC
+  registry packages are marked as system search paths (`-isystem` / MSVC
   `/external:I`), while workspace members, plain `path` dependencies, and `[patch]`ed packages stay
   on plain `-I` (see [`docs/toolchains.md`](toolchains.md#system-include-directories)).
 

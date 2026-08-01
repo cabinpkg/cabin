@@ -139,11 +139,9 @@ pub(crate) fn test(
     color: cabin_core::ColorChoice,
 ) -> Result<()> {
     // `--allow-no-tests` succeeds without building anything, so an
-    // empty test selection must not activate dev deps at all - not
-    // even the dev-aware port discovery in the shared pipeline,
-    // which would fail on a missing dev path dep or download dev
-    // ports for a run that builds nothing.  Targets are
-    // manifest-level, so a ports-free, dev-blind skeleton
+    // empty test selection must not activate dev deps at all, which
+    // would fail on a missing dev path dep for a run that builds
+    // nothing.  Targets are manifest-level, so a dev-blind skeleton
     // enumerates them exactly like the final strict graph will.
     // `--test <NAME>` is excluded: an unknown name must keep
     // erroring even under `--allow-no-tests`, and that validation
@@ -155,7 +153,7 @@ pub(crate) fn test(
         crate::cli::config::effective_offline(args.offline)?;
         let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
         let workspace_selection = build_workspace_selection(&args.workspace_selection);
-        let skeleton = cabin_workspace::load_workspace_skip_ports(&manifest_path)?;
+        let skeleton = cabin_workspace::load_workspace(&manifest_path)?;
         let skeleton_selection =
             cabin_workspace::resolve_package_selection(&skeleton, &workspace_selection)?;
         if select_targets_of_kind(
@@ -481,7 +479,6 @@ mod tests {
                 manifest_dir: PathBuf::from("demo"),
                 deps: Vec::new(),
                 kind: PackageKind::Local,
-                is_port: false,
             }],
         }
     }
@@ -529,7 +526,6 @@ mod tests {
             manifest_dir: PathBuf::from(dir),
             deps: Vec::new(),
             kind: PackageKind::Local,
-            is_port: false,
         };
         PackageGraph {
             root_manifest_path: PathBuf::from("ws/cabin.toml"),

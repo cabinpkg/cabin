@@ -17,15 +17,13 @@
 //! - renames target keys to the intended native artifact stems
 //!   (a target key directly determines its artifact stem, so
 //!   `zlib`'s sole library target becomes `z` → `libz.a` / `z.lib`);
-//! - rewrites `{ port = true }` dependencies to scoped registry
-//!   dependencies, and target `deps` references to the bare-package
-//!   shorthand (or `package:target` when the dependency exposes
-//!   more than one library-like target).
+//! - follows those renames through the overlay's own target `deps`
+//!   references, including the self-qualified `port:target` form.
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result, anyhow, bail};
-use cabin_core::{DependencySource, PackageName, PortDepSource, UpstreamCopy, UpstreamProvenance};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use cabin_core::{PackageName, UpstreamCopy, UpstreamProvenance};
 use cabin_port::{ArchiveKind, PortDescriptor};
 use semver::Version;
 use toml_edit::{DocumentMut, Item, Key, Table, value};
@@ -81,10 +79,10 @@ pub fn scoped_package_name(port_name: &str) -> Result<PackageName> {
         .map_err(|err| anyhow!("scoped name for port `{port_name}` is invalid: {err}"))
 }
 
-/// Cross-port facts one conversion needs about every other port:
-/// the scoped name to rewrite dependencies to, and the converted
-/// library-like target keys that decide between the bare-package
-/// dependency shorthand and an explicit `package:target` reference.
+/// The published identity a port converts to: its scoped registry
+/// name, and the converted keys of its library-like targets — which
+/// decide between the bare-package dependency shorthand and an
+/// explicit `package:target` reference for anything consuming it.
 #[derive(Debug, Clone)]
 pub struct RecipeSummary {
     /// Scoped registry name (`cabin-ports/<lowercase>`).
@@ -94,7 +92,7 @@ pub struct RecipeSummary {
     pub library_like_target_keys: Vec<String>,
 }
 
-/// Summarize a parsed overlay for cross-port dependency rewriting.
+/// Summarize a parsed overlay under its published identity.
 ///
 /// # Errors
 /// Returns an error when the scoped name cannot be formed.
@@ -118,18 +116,16 @@ pub struct ConvertRequest<'a> {
     /// Committed overlay `cabin.toml` text.
     pub overlay_text: &'a str,
     /// Summaries of every committed port, keyed by original port
-    /// name — used to rewrite inter-port dependencies.
+    /// name; the conversion reads its own entry to rewrite
+    /// self-qualified target references.
     pub summaries: &'a BTreeMap<String, RecipeSummary>,
 }
 
 /// Convert a committed overlay into the published-package manifest.
 ///
 /// # Errors
-/// Returns an error when the overlay does not parse, a port
-/// dependency cannot be rewritten (unknown port, `port-path` form,
-/// cfg-conditional declaration, or a dependency without exactly one
-/// resolvable library-like target for the bare shorthand), or the
-/// converted manifest fails re-validation.
+/// Returns an error when the overlay does not parse, carries no
+/// `[package]` table, or the converted manifest fails re-validation.
 pub fn convert_overlay(request: &ConvertRequest<'_>) -> Result<String> {
     let port_name = request.descriptor.name.as_str();
     let summary = request
@@ -143,9 +139,10 @@ pub fn convert_overlay(request: &ConvertRequest<'_>) -> Result<String> {
 
     let overlay = cabin_manifest::parse_manifest_str(request.overlay_text)
         .with_context(|| format!("parsing committed overlay for port `{port_name}`"))?;
-    let overlay_package = overlay
-        .package
-        .ok_or_else(|| anyhow!("overlay for port `{port_name}` has no [package] table"))?;
+    ensure!(
+        overlay.package.is_some(),
+        "overlay for port `{port_name}` has no [package] table"
+    );
 
     let mut doc: DocumentMut = request
         .overlay_text
@@ -156,9 +153,7 @@ pub fn convert_overlay(request: &ConvertRequest<'_>) -> Result<String> {
     doc["package"]["version"] = value(published.to_string());
     insert_upstream_table(&mut doc, request.descriptor)?;
     let target_renames = rename_targets(&mut doc, port_name)?;
-    let dep_renames = rewrite_port_dependencies(&mut doc, &overlay_package, request)?;
-    rewrite_target_dep_references(&mut doc, port_name, summary, &target_renames, &dep_renames)?;
-    rewrite_feature_references(&mut doc, &dep_renames);
+    rewrite_target_dep_references(&mut doc, port_name, summary, &target_renames);
 
     let converted = doc.to_string();
     validate_converted(&converted, request, summary, &published)?;
@@ -285,103 +280,21 @@ fn is_cfg_key(key: &str) -> bool {
     key.starts_with("cfg(") && key.ends_with(')')
 }
 
-/// Rewrite every `{ port = true }` dependency to a scoped registry
-/// dependency.  Returns the applied renames (old dependency name →
-/// summary of the dependency's converted package).
-fn rewrite_port_dependencies<'a>(
-    doc: &mut DocumentMut,
-    overlay_package: &cabin_core::Package,
-    request: &ConvertRequest<'a>,
-) -> Result<BTreeMap<String, &'a RecipeSummary>> {
-    let mut renames: BTreeMap<String, &RecipeSummary> = BTreeMap::new();
-    for dep in &overlay_package.dependencies {
-        let DependencySource::Port(port_source) = &dep.source else {
-            continue;
-        };
-        let dep_name = dep.name.as_str();
-        let PortDepSource::Builtin { version_req, .. } = port_source else {
-            bail!(
-                "dependency `{dep_name}` uses `port-path`, which pins no version and cannot be \
-                 rewritten to a registry dependency; use `{{ port = true, version = ... }}`"
-            );
-        };
-        if dep.condition.is_some() {
-            bail!(
-                "port dependency `{dep_name}` is declared under a cfg-conditional table; the \
-                 conversion tool only rewrites unconditional port dependencies"
-            );
-        }
-        // A migrated port's summary is keyed by its lowercase
-        // directory name, so a recipe's mixed-case reference folds
-        // on the fallback lookup (the same rule the planner's edge
-        // and satisfiability lookups apply).
-        let summary = request
-            .summaries
-            .get(dep_name)
-            .or_else(|| request.summaries.get(&dep_name.to_lowercase()))
-            .ok_or_else(|| {
-                anyhow!(
-                    "port dependency `{dep_name}` does not match any committed port; every \
-                     inter-port dependency must convert or resolve in the same run"
-                )
-            })?;
-
-        let table_key = match dep.kind {
-            cabin_core::DependencyKind::Normal => "dependencies",
-            cabin_core::DependencyKind::Dev => "dev-dependencies",
-        };
-        let deps_table = doc
-            .get_mut(table_key)
-            .and_then(Item::as_table_mut)
-            .ok_or_else(|| anyhow!("overlay [{table_key}] table missing for `{dep_name}`"))?;
-        let (old_key, _) = deps_table
-            .remove_entry(dep_name)
-            .ok_or_else(|| anyhow!("dependency `{dep_name}` missing from [{table_key}]"))?;
-
-        let req = version_req.to_string();
-        let plain =
-            dep.features.is_empty() && dep.default_features && !dep.ignore_interface_standard;
-        let new_item = if plain {
-            value(req)
-        } else {
-            let mut table = toml_edit::InlineTable::new();
-            table.insert("version", req.into());
-            if !dep.default_features {
-                table.insert("default-features", false.into());
-            }
-            if !dep.features.is_empty() {
-                let features: toml_edit::Array = dep.features.iter().map(String::as_str).collect();
-                table.insert("features", features.into());
-            }
-            if dep.ignore_interface_standard {
-                table.insert("ignore-interface-standard", true.into());
-            }
-            value(table)
-        };
-        let new_key =
-            Key::new(summary.scoped.as_str()).with_leaf_decor(old_key.leaf_decor().clone());
-        deps_table.insert_formatted(&new_key, new_item);
-        renames.insert(dep_name.to_owned(), summary);
-    }
-    Ok(renames)
-}
-
-/// Rewrite target `deps` references from old dependency names to the
-/// scoped registry form: the bare-package shorthand when the
-/// dependency exposes exactly one library-like target, and the
-/// explicit `package:target` selector otherwise.
+/// Follow the target-key renames through the overlay's own `deps`
+/// references.  Only same-package references move: a dependency is
+/// already named by its published scoped identity in the overlay, so
+/// nothing about it changes in the conversion.
 fn rewrite_target_dep_references(
     doc: &mut DocumentMut,
     port_name: &str,
     self_summary: &RecipeSummary,
     target_renames: &BTreeMap<String, String>,
-    dep_renames: &BTreeMap<String, &RecipeSummary>,
-) -> Result<()> {
-    if dep_renames.is_empty() && target_renames.is_empty() {
-        return Ok(());
+) {
+    if target_renames.is_empty() {
+        return;
     }
     let Some(targets) = doc.get_mut("target").and_then(Item::as_table_mut) else {
-        return Ok(());
+        return;
     };
     let keys: Vec<String> = targets
         .iter()
@@ -409,13 +322,8 @@ fn rewrite_target_dep_references(
                 }
                 _ => continue,
             };
-            let Some(replacement) = rewritten_dep_reference(
-                &reference,
-                port_name,
-                self_summary,
-                target_renames,
-                dep_renames,
-            )?
+            let Some(replacement) =
+                rewritten_dep_reference(&reference, port_name, self_summary, target_renames)
             else {
                 continue;
             };
@@ -433,112 +341,34 @@ fn rewrite_target_dep_references(
             }
         }
     }
-    Ok(())
 }
 
 /// The rewritten form of one target `deps` reference, or `None` when
-/// the reference needs no change.  The precedence mirrors the build
-/// planner's lowering exactly: a bare name is a same-package target
-/// reference first and a dependency-package reference second, so a
-/// local target that shadows a dependency name keeps resolving
-/// locally after conversion.
+/// the reference needs no change - which is every reference naming
+/// something outside this package.
 fn rewritten_dep_reference(
     reference: &str,
     port_name: &str,
     self_summary: &RecipeSummary,
     target_renames: &BTreeMap<String, String>,
-    dep_renames: &BTreeMap<String, &RecipeSummary>,
-) -> Result<Option<String>> {
+) -> Option<String> {
     if let Some((package_part, target_part)) = reference.split_once(':') {
-        // Qualified `package:target`: both the self-qualified form
-        // and a rewritten port dependency need the package half
-        // renamed; the target half follows the named package's key
-        // mapping.
+        // Qualified `package:target`: the self-qualified form needs
+        // the package half renamed, and the target half follows the
+        // package's own key mapping.
         if package_part == port_name {
             let new_target = target_renames
                 .get(target_part)
                 .cloned()
                 .unwrap_or_else(|| target_part.to_owned());
-            return Ok(Some(format!(
-                "{}:{new_target}",
-                self_summary.scoped.as_str()
-            )));
+            return Some(format!("{}:{new_target}", self_summary.scoped.as_str()));
         }
-        let Some(summary) = dep_renames.get(package_part) else {
-            return Ok(None);
-        };
-        let new_target = registry_target_key(package_part, target_part);
-        return Ok(Some(format!("{}:{new_target}", summary.scoped.as_str())));
+        return None;
     }
-    // Same-package targets shadow dependency names in the planner's
-    // bare-name lookup; `target_renames` holds every local target
-    // (identity entries included), so a shadowing reference follows
-    // its key rename instead of the dependency rewrite.
     if let Some(new_key) = target_renames.get(reference) {
-        return Ok((new_key != reference).then(|| new_key.clone()));
+        return (new_key != reference).then(|| new_key.clone());
     }
-    if let Some(summary) = dep_renames.get(reference) {
-        return match summary.library_like_target_keys.as_slice() {
-            [_] => Ok(Some(summary.scoped.as_str().to_owned())),
-            [] => Err(anyhow!(
-                "dependency `{reference}` has no library-like target; the reference cannot be \
-                 rewritten"
-            )),
-            keys => Err(anyhow!(
-                "dependency `{reference}` exposes {} library-like targets ({}); rewrite the \
-                 reference to an explicit `package:target` selector in the overlay first",
-                keys.len(),
-                keys.join(", ")
-            )),
-        };
-    }
-    Ok(None)
-}
-
-/// Rewrite `[features]` values that reference a renamed dependency:
-/// the `dep:<name>` activation form and the `<name>/<feature>`
-/// forwarding form both carry the dependency's name, which must
-/// follow the rename or the published feature would point at a
-/// dependency that no longer exists.
-fn rewrite_feature_references(
-    doc: &mut DocumentMut,
-    dep_renames: &BTreeMap<String, &RecipeSummary>,
-) {
-    let Some(features) = doc.get_mut("features").and_then(Item::as_table_mut) else {
-        return;
-    };
-    let keys: Vec<String> = features.iter().map(|(key, _)| key.to_owned()).collect();
-    for key in keys {
-        let Some(values) = features
-            .get_mut(&key)
-            .and_then(Item::as_value_mut)
-            .and_then(toml_edit::Value::as_array_mut)
-        else {
-            continue;
-        };
-        for entry in values.iter_mut() {
-            let Some(reference) = entry.as_str() else {
-                continue;
-            };
-            let rewritten = if let Some(dep_name) = reference.strip_prefix("dep:") {
-                dep_renames
-                    .get(dep_name)
-                    .map(|summary| format!("dep:{}", summary.scoped.as_str()))
-            } else if let Some((dep_name, feature)) = reference.split_once('/') {
-                dep_renames
-                    .get(dep_name)
-                    .map(|summary| format!("{}/{feature}", summary.scoped.as_str()))
-            } else {
-                None
-            };
-            if let Some(rewritten) = rewritten {
-                let decor = entry.decor().clone();
-                let mut new_value = toml_edit::Value::from(rewritten);
-                *new_value.decor_mut() = decor;
-                *entry = new_value;
-            }
-        }
-    }
+    None
 }
 
 /// Re-parse the converted manifest and assert the conversion's
@@ -571,14 +401,6 @@ fn validate_converted(
     let expected = descriptor_provenance(request.descriptor)?;
     if package.upstream.as_ref() != Some(&expected) {
         bail!("converted manifest's [package.upstream] does not match the recipe source");
-    }
-    for dep in &package.dependencies {
-        if matches!(dep.source, DependencySource::Port(_)) {
-            bail!(
-                "converted manifest still declares port dependency `{}`",
-                dep.name.as_str()
-            );
-        }
     }
     Ok(())
 }
@@ -636,15 +458,11 @@ defines = ["HAVE_UNISTD_H=1"]
 name = "libpng"
 version = "1.6.50"
 
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-
 [target.libpng]
 type = "library"
 sources = ["png.c"]
 include-dirs = ["."]
 c-standard = "c11"
-deps = ["zlib"]
 "#;
 
     fn zlib_descriptor() -> PortDescriptor {
@@ -746,64 +564,6 @@ deps = ["zlib"]
             converted.contains("strip-prefix = \"zlib-1.3.1\""),
             "{converted}"
         );
-    }
-
-    #[test]
-    fn rewrites_inter_port_dependencies_to_the_bare_scoped_shorthand() {
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            Some("libpng-1.6.50"),
-        );
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: LIBPNG_OVERLAY,
-            summaries: &summaries(),
-        })
-        .unwrap();
-
-        assert!(
-            converted.contains("\"cabin-ports/zlib\" = \"^1.3\""),
-            "{converted}"
-        );
-        assert!(!converted.contains("port = true"), "{converted}");
-        // zlib exposes exactly one library-like target, so the target
-        // reference uses the bare-package shorthand.
-        assert!(
-            converted.contains("deps = [\"cabin-ports/zlib\"]"),
-            "{converted}"
-        );
-        assert!(converted.contains("[target.png]"), "{converted}");
-    }
-
-    /// A migrated port's summary is keyed by its lowercase directory
-    /// name; a remaining recipe that still spells the dependency the
-    /// old mixed-case way must fold onto it instead of aborting the
-    /// conversion.
-    #[test]
-    fn folds_mixed_case_references_onto_a_migrated_ports_summary() {
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            Some("libpng-1.6.50"),
-        );
-        let overlay = LIBPNG_OVERLAY.replace("zlib = { port = true", "ZLIB = { port = true");
-        assert!(overlay.contains("ZLIB = { port = true"), "{overlay}");
-        // The summary sits under the lowercase key only, as it does
-        // after zlib migrates to a package directory.
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: &overlay,
-            summaries: &summaries(),
-        })
-        .unwrap();
-        assert!(
-            converted.contains("\"cabin-ports/zlib\" = \"^1.3\""),
-            "{converted}"
-        );
-        assert!(!converted.contains("port = true"), "{converted}");
     }
 
     #[test]
@@ -910,179 +670,6 @@ c-standard = "c11"
         assert!(!converted.contains("strip-prefix"), "{converted}");
     }
 
-    #[test]
-    fn rejects_port_path_dependencies() {
-        let overlay = r#"[package]
-name = "libpng"
-version = "1.6.50"
-
-[dependencies]
-zlib = { port-path = "../zlib/1.3.1" }
-
-[target.libpng]
-type = "library"
-sources = ["png.c"]
-c-standard = "c11"
-"#;
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            None,
-        );
-        let err = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: overlay,
-            summaries: &summaries(),
-        })
-        .unwrap_err();
-        assert!(format!("{err:#}").contains("port-path"), "{err:#}");
-    }
-
-    #[test]
-    fn rejects_port_dependencies_on_unconverted_ports() {
-        let overlay = LIBPNG_OVERLAY;
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            None,
-        );
-        let mut only_libpng = summaries();
-        only_libpng.remove("zlib");
-        let err = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: overlay,
-            summaries: &only_libpng,
-        })
-        .unwrap_err();
-        assert!(
-            format!("{err:#}").contains("does not match any committed port"),
-            "{err:#}"
-        );
-    }
-
-    #[test]
-    fn refuses_the_bare_shorthand_when_the_dependency_is_ambiguous() {
-        let two_libs = r#"[package]
-name = "zlib"
-version = "1.3.1"
-
-[target.zlib]
-type = "library"
-sources = ["adler32.c"]
-c-standard = "c11"
-
-[target.zlibextra]
-type = "library"
-sources = ["extra.c"]
-c-standard = "c11"
-"#;
-        let zlib = cabin_manifest::parse_manifest_str(two_libs)
-            .unwrap()
-            .package
-            .unwrap();
-        let libpng = cabin_manifest::parse_manifest_str(LIBPNG_OVERLAY)
-            .unwrap()
-            .package
-            .unwrap();
-        let summaries = BTreeMap::from([
-            ("zlib".to_owned(), summarize("zlib", &zlib).unwrap()),
-            ("libpng".to_owned(), summarize("libpng", &libpng).unwrap()),
-        ]);
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            None,
-        );
-        let err = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: LIBPNG_OVERLAY,
-            summaries: &summaries,
-        })
-        .unwrap_err();
-        assert!(format!("{err:#}").contains("package:target"), "{err:#}");
-    }
-
-    #[test]
-    fn preserves_ignore_interface_standard_on_rewritten_dependencies() {
-        let overlay = r#"[package]
-name = "libpng"
-version = "1.6.50"
-
-[dependencies]
-zlib = { port = true, version = "^1.3", ignore-interface-standard = true }
-
-[target.libpng]
-type = "library"
-sources = ["png.c"]
-include-dirs = ["."]
-c-standard = "c11"
-deps = ["zlib"]
-"#;
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            Some("libpng-1.6.50"),
-        );
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: overlay,
-            summaries: &summaries(),
-        })
-        .unwrap();
-        assert!(
-            converted.contains(
-                "\"cabin-ports/zlib\" = { version = \"^1.3\", ignore-interface-standard = true }"
-            ),
-            "{converted}"
-        );
-    }
-
-    /// The planner resolves a bare reference to a same-package target
-    /// before a dependency package, so a local target that shadows a
-    /// dependency name must keep resolving locally after conversion.
-    #[test]
-    fn local_targets_shadow_dependency_names_in_references() {
-        let overlay = r#"[package]
-name = "libpng"
-version = "1.6.50"
-
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-
-[target.libpng]
-type = "library"
-sources = ["png.c"]
-include-dirs = ["."]
-c-standard = "c11"
-deps = ["zlib"]
-
-[target.zlib]
-type = "library"
-sources = ["shim.c"]
-c-standard = "c11"
-"#;
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            Some("libpng-1.6.50"),
-        );
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: overlay,
-            summaries: &summaries(),
-        })
-        .unwrap();
-        // The reference stays on the local `zlib` target (whose key
-        // is unchanged for this package), not the scoped dependency.
-        assert!(converted.contains("deps = [\"zlib\"]"), "{converted}");
-        assert!(converted.contains("[target.zlib]"), "{converted}");
-    }
-
     /// Self-qualified `package:target` references rename both halves.
     #[test]
     fn rewrites_self_qualified_references() {
@@ -1110,52 +697,6 @@ deps = ["zlib:zlib"]
         .unwrap();
         assert!(
             converted.contains("deps = [\"cabin-ports/zlib:z\"]"),
-            "{converted}"
-        );
-    }
-
-    /// `[features]` values naming a renamed dependency (`dep:` and
-    /// forwarding forms) must follow the rename, or enabling the
-    /// feature on the published package would reference a
-    /// dependency that no longer exists.
-    #[test]
-    fn rewrites_feature_references_to_renamed_dependencies() {
-        let overlay = r#"[package]
-name = "libpng"
-version = "1.6.50"
-
-[features]
-default = []
-compression = ["zlib/simd", "dep:zlib", "local"]
-local = []
-
-[dependencies]
-zlib = { port = true, version = "^1.3" }
-
-[target.libpng]
-type = "library"
-sources = ["png.c"]
-include-dirs = ["."]
-c-standard = "c11"
-deps = ["zlib"]
-"#;
-        let descriptor = descriptor(
-            "libpng",
-            "1.6.50",
-            "https://example.com/libpng-1.6.50.tar.gz",
-            Some("libpng-1.6.50"),
-        );
-        let converted = convert_overlay(&ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: overlay,
-            summaries: &summaries(),
-        })
-        .unwrap();
-        assert!(
-            converted.contains(
-                "compression = [\"cabin-ports/zlib/simd\", \"dep:cabin-ports/zlib\", \
-                 \"local\"]"
-            ),
             "{converted}"
         );
     }

@@ -7,10 +7,9 @@
 //! `[[copy]]` steps, overlay contents) stay asserted in the
 //! port's own file.  These helpers own only the boilerplate every
 //! port repeats verbatim: loading the on-disk `port.toml`,
-//! checking the schema invariants all ports share, and the
-//! bundled-recipe lookup.
+//! and checking the schema invariants all ports share.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Load `crates/cabin-port/ports/<name>/<version>/port.toml` and
 /// assert the schema fields every foundation port shares: the
@@ -58,28 +57,4 @@ pub fn assert_tar_gz_source(descriptor: &cabin_port::PortDescriptor, expected_st
         descriptor.source.strip_prefix.as_deref(),
         Some(expected_strip_prefix)
     );
-}
-
-/// Assert `name` is bundled in the builtin port registry at
-/// exactly `version` (looked up through `req`) and that the
-/// embedded `port.toml` parses back to the same identity.
-pub fn assert_builtin_port_bundled_and_parses(name: &str, req: &str, version: &str) {
-    let entry = cabin_port::builtin::lookup(name, &semver::VersionReq::parse(req).unwrap())
-        .unwrap_or_else(|| panic!("{name} should be bundled"));
-    assert_eq!(entry.name, name);
-    assert_eq!(entry.version, version);
-    let descriptor = cabin_port::parse_port_str(
-        entry.port_toml,
-        Path::new(&format!("<builtin:{name}>/port.toml")),
-    )
-    .unwrap_or_else(|err| panic!("embedded {name} port.toml should parse: {err:?}"));
-    assert_eq!(descriptor.name.as_str(), name);
-    assert_eq!(descriptor.version.to_string(), version);
-}
-
-/// The bundled overlay manifest for `name` (any bundled version).
-pub fn builtin_overlay(name: &str) -> &'static str {
-    cabin_port::builtin::lookup(name, &semver::VersionReq::parse(">=0").unwrap())
-        .unwrap_or_else(|| panic!("{name} should be bundled"))
-        .overlay_toml
 }

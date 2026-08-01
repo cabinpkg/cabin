@@ -432,7 +432,6 @@ mod tests {
                 manifest_path: PathBuf::from("/tmp/cabin.toml"),
                 kind: PackageKind::Local,
                 deps: Vec::new(),
-                is_port: false,
             }],
         }
     }

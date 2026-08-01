@@ -1,6 +1,5 @@
-//! `cabin-port-publish` — repository tool that converts the curated
-//! foundation-port recipes into `cabin-ports/<name>` registry
-//! packages.  See the library crate for the pipeline; this shim owns
+//! `cabin-port-publish` — repository tool that publishes the curated
+//! foundation ports as `cabin-ports/<name>` registry packages.  See the library crate for the pipeline; this shim owns
 //! argument parsing (hand-rolled: `clap` stays in the `cabin` crate)
 //! and default resolution.
 
@@ -13,15 +12,16 @@ use cabin_port_publish::{Mode, Options, run};
 const USAGE: &str = "\
 usage: cabin-port-publish (--dry-run | --publish --index-url <URL>) [options]
 
-Converts the committed foundation-port recipes into `cabin-ports/<name>`
-registry packages.  Both modes run the complete local preflight
+Publishes the committed foundation ports as `cabin-ports/<name>` registry
+packages: a recipe is converted, a migrated package directory is published
+verbatim.  Both modes run the complete local preflight
 (materialize, package, publish into a temporary file registry, build
 every port against it in publication order); --publish then uploads
 every package through the registry API.
 
 options:
   --index-url <URL>   registry index URL (required with --publish)
-  --ports-dir <PATH>  recipe directory (default: the repository's
+  --ports-dir <PATH>  ports directory (default: the repository's
                       crates/cabin-port/ports)
   --cache-dir <PATH>  cabin cache root for upstream archives
                       (default: CABIN_CACHE_DIR, CABIN_CACHE_HOME, or
@@ -142,7 +142,7 @@ fn parse_args() -> Result<Parsed> {
     }))
 }
 
-/// The repository's recipe directory, resolved from this crate's
+/// The repository's ports directory, resolved from this crate's
 /// compile-time location.  The tool is repository-owned (`publish =
 /// false`), so the baked path is valid wherever the tool itself can
 /// be built.
@@ -155,8 +155,8 @@ fn default_ports_dir() -> PathBuf {
 
 /// The standard cabin cache root: `CABIN_CACHE_DIR`, then
 /// `CABIN_CACHE_HOME`, then the platform cache directory with the
-/// `cabin` suffix — the same precedence the CLI resolves, so
-/// archives cached by ordinary builds are reused.
+/// `cabin` suffix — the same precedence the CLI resolves, so one
+/// machine keeps a single upstream-archive cache across runs.
 fn default_cache_dir() -> Result<PathBuf> {
     use etcetera::BaseStrategy;
 

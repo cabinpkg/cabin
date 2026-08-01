@@ -231,12 +231,6 @@ pub struct WorkspacePackage {
     /// Whether this package was loaded from a local source tree
     /// or from an extracted registry archive.
     pub kind: PackageKind,
-    /// Whether this package is a prepared foundation port (its
-    /// source tree was materialized from a `port.toml` recipe).
-    /// Ports are also [`PackageKind::Local`] - this flag is what
-    /// distinguishes them from ordinary `path` dependencies so
-    /// `cabin tree` / `explain` can tag them `[port]`.
-    pub is_port: bool,
 }
 
 impl WorkspacePackage {
@@ -282,18 +276,15 @@ pub struct DependencyEdge {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageKind {
     /// A local-filesystem package: the workspace root or a member, a
-    /// `path = "..."` dependency, a `[patch]`ed package, or a prepared
-    /// foundation port.
+    /// `path = "..."` dependency, or a `[patch]`ed package.
     ///
     /// `Local` is the trust boundary used when deciding whether to honor
     /// a package's own raw `[profile]` compiler/linker flags: every
     /// `Local` source is user-controlled.  Root / members / path deps are
-    /// local working trees; patches are local override copies; and a
-    /// port's build flags come from its trusted overlay recipe (bundled
-    /// or user-pinned), not the downloaded source archive.  The loader
-    /// guarantees a downloaded registry archive can never introduce a
-    /// `Local` package, because it rejects `path` / `port` dependencies
-    /// declared by a [`PackageKind::Registry`] package.
+    /// local working trees, and patches are local override copies.  The
+    /// loader guarantees a downloaded registry archive can never
+    /// introduce a `Local` package, because it rejects `path`
+    /// dependencies declared by a [`PackageKind::Registry`] package.
     Local,
     /// A registry package whose source archive was already fetched and
     /// extracted into the artifact cache.  Untrusted: its own `[profile]`
@@ -410,7 +401,6 @@ mod consumer_standards_tests {
             manifest_dir: PathBuf::from(format!("/ws/{name}")),
             deps: Vec::new(),
             kind: PackageKind::Local,
-            is_port: false,
         }
     }
 

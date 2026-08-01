@@ -142,7 +142,7 @@ fn active_versioned_req<'a>(
     }
     match &dep.source {
         DependencySource::Version(req) => Some(req),
-        DependencySource::Path(_) | DependencySource::Port(_) | DependencySource::Workspace => None,
+        DependencySource::Path(_) | DependencySource::Workspace => None,
     }
 }
 
@@ -329,8 +329,8 @@ pub fn activated_fork_indices(
 
 /// Graph indices reachable from the `activated` patches' forks
 /// along resolved dependency edges: the fork packages themselves
-/// plus the local closure each fork's manifest pulls in (path
-/// dependencies, prepared ports).  The loader stitches every active
+/// plus the local closure each fork's manifest pulls in (its path
+/// dependencies).  The loader stitches every active
 /// patch manifest into the graph and resolves its edges, so
 /// activation only walks indices - no manifests are re-read.
 ///

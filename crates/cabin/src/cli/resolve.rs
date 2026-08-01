@@ -251,8 +251,8 @@ pub(crate) fn resolve_with_patch_activation(
             // patched name selected only behind a locally-supplied
             // (or patched) selection's dead upstream edges never
             // links, so its fork must stay dormant rather than
-            // inject deps, claims, or late ports into a build that
-            // never reaches it.
+            // inject deps or claims into a build that never
+            // reaches it.
             let mut stop = input.locally_supplied.clone();
             stop.extend(patched_package_names.iter().cloned());
             let dead = cabin_resolver::unreachable_index_selections(
@@ -290,8 +290,8 @@ pub(crate) fn resolve_with_patch_activation(
             // fork absent from the final graph never links, so its
             // claims and suppression are dropped before the checked
             // solve, and the pruned set is what this function
-            // returns - the build pipeline must not port-prep or
-            // strict-load a fork the graph never reaches.  The
+            // returns - the build pipeline must not strict-load a
+            // fork the graph never reaches.  The
             // injected root deps stay - withdrawing them re-selects
             // the parent that reached the patch and oscillates - but
             // the orphaned selections they pull in never link
@@ -302,8 +302,8 @@ pub(crate) fn resolve_with_patch_activation(
             // Membership in the probe is not liveness: that residue
             // can itself select a patched name (a pruned fork's
             // injected dep with a back-edge onto one), and keeping
-            // such a fork activated would claim and port-prep for a
-            // package the final graph never links.  A patched name is
+            // such a fork activated would claim for a package the
+            // final graph never links.  A patched name is
             // live only when reachable from the original roots or a
             // live fork's injected deps - the same reachability the
             // residue suppression below uses - and liveness feeds the
@@ -427,7 +427,7 @@ fn enforce_activated_fork_versions(
 
 /// The declared `links` claims of the activated patches' forks and
 /// of everything the forks' manifests pull into the graph (path
-/// dependencies, prepared ports) - the local packages the final
+/// dependencies) - the local packages the final
 /// reload will link in place of, or alongside, the upstream
 /// packages the activation suppressed.  Feature resolution never
 /// included any of them (nothing selected reaches a
@@ -582,21 +582,12 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
     let offline = crate::cli::config::effective_offline(args.offline)?;
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let crate::cli::port::WorkspacePrep {
+    let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
         graph: initial_graph,
         ..
-    } = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        args.cache_dir.as_deref(),
-        offline,
-        args.frozen,
-        false,
-        &workspace_selection,
-        args.no_patches,
-        None,
-    )?;
+    } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     // validate the workspace selection up-front so a typo
     // like `--package missing` fails even when there are no
@@ -714,33 +705,26 @@ struct ResolutionRequest<'a> {
 fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result<()> {
     let manifest_path = absolutise(request.manifest_path)
         .with_context(|| format!("failed to resolve {}", request.manifest_path.display()))?;
-    let offline = crate::cli::config::effective_offline(request.offline)?;
+    // Read before the workspace load: `CABIN_NET_OFFLINE` is validated
+    // by reading it, and a malformed value must fail ahead of any
+    // manifest diagnosis.
+    let resolution_offline = crate::cli::config::effective_offline(request.offline)?;
     // CLI flags win; otherwise consult the merged effective
     // config for a `[registry]` default.  The orchestration layer
     // owns the final reconciliation; cabin-resolver / cabin-index
     // see only a concrete index source.
-    let crate::cli::port::WorkspacePrep {
+    let crate::cli::workspace_prep::WorkspacePrep {
         effective_config,
         active_patches,
         graph,
         ..
-    } = crate::cli::port::prepare_ports_and_load_initial_graph(
-        &manifest_path,
-        None,
-        offline,
-        request.policy.frozen(),
-        false,
-        &request.selection,
-        request.no_patches,
-        None,
-    )?;
+    } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, request.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
     let resolved_index_source = crate::cli::config::resolve_index_source(
         request.index_path,
         request.index_url,
         &effective_config,
     )?;
-    let resolution_offline = crate::cli::config::effective_offline(request.offline)?;
     crate::cli::config::enforce_offline_index_source(
         resolution_offline,
         resolved_index_source.as_ref(),

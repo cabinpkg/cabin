@@ -301,3 +301,39 @@ fn vendor_locked_succeeds_when_lockfile_is_current() {
     let lock_after = fs::read_to_string(dir.path().join("proj/cabin.lock")).unwrap();
     assert_eq!(lock_before, lock_after);
 }
+
+#[test]
+fn vendor_with_nothing_to_vendor_still_validates_offline_env() {
+    // The empty-plan fast path writes the registry skeleton and
+    // returns before any index access; a malformed CABIN_NET_OFFLINE
+    // must still fail the run rather than be read only on the path
+    // that happens to need the network.
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml")
+        .write_str(
+            r#"[package]
+name = "lib_only"
+version = "0.1.0"
+cxx-standard = "c++17"
+
+[target.lib_only]
+type = "library"
+sources = ["src/lib.cc"]
+"#,
+        )
+        .unwrap();
+    dir.child("src/lib.cc")
+        .write_str("int x() { return 1; }\n")
+        .unwrap();
+    let assertion = cabin()
+        .env("CABIN_NET_OFFLINE", "nope")
+        .args(["vendor", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("CABIN_NET_OFFLINE") && stderr.contains("nope"),
+        "invalid offline env diagnostic should name the variable and value: {stderr}"
+    );
+}

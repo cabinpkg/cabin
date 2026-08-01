@@ -157,8 +157,8 @@ provably link: local claims under the selected features, resolved registry claim
 configuration (the fork itself and its non-optional path dependencies; the fork's real feature set
 is decided by its dependents' edges, which resolution does not interpret).  The building commands
 re-check the final loaded graph, whose feature resolution applies the fetched manifests' real
-per-edge requests: a collision created only by such a fork's feature-enabled optional dependency,
-or by a foundation port the fork pulls in, is refused there.  A build refused this way may already
+per-edge requests: a collision created only by such a fork's feature-enabled optional dependency
+is refused there.  A build refused this way may already
 have written `cabin.lock` - the recorded resolution itself stays valid.
 
 `links` is uniqueness enforcement only.  There is no metadata passing between packages and no
@@ -182,38 +182,23 @@ fmt = ">=10.0.0 <11.0.0"
 # Versioned dependency, table form
 spdlog = { version = "^1.13.0" }
 
-# Foundation-port dependency (bundled form)
-zlib = { port = true, version = "^1.3" }
-
-# Foundation-port dependency (filesystem path form)
-zlib = { port-path = "../ports/zlib/1.3.1" }
+# Foundation port - an ordinary scoped registry package
+"cabin-ports/zlib" = "=1.3.1"
 ```
 
 Each entry declares a package-level dependency.  The dependency value is either:
 
 - a **string** - interpreted as a SemVer requirement;
-- a **table** - must specify exactly one source: `path`, `version`, `port = true`, `port-path`,
-  `workspace = true`, or `system = true` (`port = false` is treated as absent).  The source may be
-  combined with `features`, `default-features`, `optional`, or `ignore-interface-standard`
-  (subject to per-source rules below).  Unknown keys are rejected by the manifest parser.
+- a **table** - must specify exactly one source: `path`, `version`, `workspace = true`, or
+  `system = true`.  The source may be combined with `features`, `default-features`, `optional`, or
+  `ignore-interface-standard` (subject to per-source rules below).  Unknown keys are rejected by
+  the manifest parser.
 
-Foundation-port dependencies use one of two mutually-exclusive fields:
+[Foundation ports](foundation-ports.md) have no dependency form of their own: they are published
+registry packages, named like any other (`"cabin-ports/zlib" = "=1.3.1"`).
 
-- `port = true` - bundled curated recipe resolved by the dependency's name against the set embedded
-  in the Cabin binary.  `port = true` requires a sibling `version = "<requirement>"` field; the
-  requirement is resolved against the bundled set's available versions.
-- `port-path = "..."` - filesystem path to a recipe directory (containing `port.toml` plus an
-  overlay `cabin.toml`); the path is interpreted relative to the consumer's `cabin.toml`.
-  `port-path` is mutually exclusive with `version` (the recipe at the path supplies the version).
-  The CLI prepares the port - downloading, verifying, extracting, and applying the overlay - before
-  the workspace loader runs.
-
-Both forms are mutually exclusive with `path`, `workspace`, and `system`.  They honor `features` and
-`default-features` (a port overlay may declare a `[features]` table that the feature resolver gates
-per edge), but do not support `optional`.
-
-The dependency *key* (`greet`, `fmt`, `spdlog`, `zlib` above) must equal the depended-on package's
-`[package].name` (path deps, port deps) or the registry package name (version deps).  Registry
+The dependency *key* (`greet`, `fmt`, `spdlog` above) must equal the depended-on package's
+`[package].name` (path deps) or the registry package name (version deps).  Registry
 dependency keys are always the canonical scoped `<scope>/<name>` name (lowercase throughout, the
 registry grammars): `cabin publish` rejects a bare or non-canonical versioned dependency key in
 `[dependencies]` or `[dev-dependencies]` (dev-dependency keys denote registry packages too - they
@@ -231,7 +216,7 @@ override cannot silently rot.  The exemption covers this check only: the always-
 interface enforcement is unaffected, so it can unblock the interface-`"none"` and cross-language
 violation classes but not interface-range violations - below the declared minimum or above the
 declared maximum - which that enforcement independently rejects.  The field is deliberately per-edge: there is no package-wide or global variant.  It is accepted on every package-sourced
-form (path, version, port, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
+form (path, version, workspace) in `[dependencies]` and `[dev-dependencies]`, and rejected
 alongside `system = true` (system dependencies never enter the check).
 
 ### Version requirement syntax
@@ -377,11 +362,10 @@ The parser and downstream tools reject manifests when:
 - a `links` key appears on a non-`library` target
 - two targets of one package claim the same `links` value
 - the same dependency key appears twice
-- a dependency entry has neither `path`, `version`, `port = true`, `port-path`, `workspace`, nor
-  `system = true`
+- a dependency entry has neither `path`, `version`, `workspace`, nor `system = true`
 - a dependency entry combines mutually exclusive source forms
-- a dependency table combines `system = true` with another source form (`path`, `port`, `port-path`,
-  `workspace`, `features`, `default-features`, or `optional`)
+- a dependency table combines `system = true` with another source form (`path`, `workspace`,
+  `features`, `default-features`, or `optional`)
 - a versioned dependency requirement is not parseable
 - a referenced local manifest does not exist
 - a dependency key does not match the referenced package's name
