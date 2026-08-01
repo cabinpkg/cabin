@@ -31,13 +31,14 @@ test("every committed recipe loads as a canonical cabin-ports identity", async (
     }
 });
 
-test("mixed-case recipe names lowercase like the publisher", async () => {
+test("mixed-case port directories lowercase like the publisher", async () => {
     const names = (await loadPortsAsPackageRecords()).map(
         (record) => record.name,
     );
-    // cJSON and CLI11 are the committed mixed-case recipes; renaming
-    // them is a deliberate identity change and should update this
-    // test alongside cabin-port-publish.
+    // cJSON and CLI11 are the committed mixed-case directories -
+    // packages now, recipes before - and both shapes must fold onto
+    // the same scoped name; renaming them is a deliberate identity
+    // change and should update this test alongside cabin-port-publish.
     assert.ok(names.includes("cabin-ports/cjson"));
     assert.ok(names.includes("cabin-ports/cli11"));
     assert.ok(names.includes("cabin-ports/zlib"));

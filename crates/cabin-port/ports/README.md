@@ -111,7 +111,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`cJSON/1.7.18/`](cJSON/1.7.18/) - the cJSON ultralightweight JSON parser, version 1.7.18.
   **Migrated**: depend on `"cabin-ports/cjson"`.
 - [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
-  (header-only), version 2.6.2.
+  (header-only), version 2.6.2.  **Migrated**: depend on `"cabin-ports/cli11"`.
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
 - [`googletest/1.17.0/`](googletest/1.17.0/) - Google's C++ testing framework (GoogleTest library
   only, no gtest_main / GoogleMock), version 1.17.0.

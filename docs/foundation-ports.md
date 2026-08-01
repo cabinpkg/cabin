@@ -460,11 +460,12 @@ rewrites a copy of each overlay); a migrated package directory is published verb
 manifest committed in it.  For a recipe the rewrite is:
 
 - **Identity.**  `cabin-ports/<lowercase name>` - the registry name grammar is lowercase, so a
-  mixed-case port directory normalizes coherently (`CLI11` → `cabin-ports/cli11` with target
-  `cli11`).  The published version is the upstream version, verbatim.  The same fold applies to a
-  migrated package, from the other direction: its committed manifest already declares the scoped
-  name, and the publisher refuses one that does not fold onto its directory (`cJSON/` must declare
-  `cabin-ports/cjson`).
+  recipe named `Foo` would convert to `cabin-ports/foo`; every port still committed as a recipe is
+  already lowercase, so the fold is a no-op for them today.  The published version is the upstream
+  version, verbatim.  A migrated package meets the same rule from the other direction: its
+  committed manifest declares the scoped name itself, and the publisher refuses one that does not
+  fold onto its directory - which is what keeps the mixed-case directories coherent (`cJSON/` must
+  declare `cabin-ports/cjson`, `CLI11/` must declare `cabin-ports/cli11`).
 - **Target keys.**  A target key directly determines its artifact stem, so the conversion picks
   the intended native artifact name: `zlib` publishes a sole library target named `z` (producing
   `libz.a` / `z.lib`), `libpng` publishes `png`, `googletest` publishes `gtest`, and every other

@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/cli11` registry package,
 published from the curated
 [`crates/cabin-port/ports/CLI11/2.6.2/`](../../crates/cabin-port/ports/CLI11/2.6.2/)
-recipe.  The program includes the header-only CLI11 command line
+package directory.  The program includes the header-only CLI11 command line
 parser, declares one option with a default, parses `argv`, and
 prints the parsed value plus the compiled-in CLI11 version.
 
@@ -44,5 +44,5 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::cli11_usage_builds_and_runs`)
 is `#[ignore = "requires external network"]`: it stages the
-committed recipes into a local file registry through the publisher
+committed ports into a local file registry through the publisher
 pipeline and builds this example against it with `--index-path`.
