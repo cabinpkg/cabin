@@ -2836,9 +2836,6 @@ fn cabin_port_list_prints_zlib() {
 #[path = "cli/foundation_port_zlib.rs"]
 mod foundation_port_zlib;
 
-#[path = "cli/foundation_port_tinyxml2.rs"]
-mod foundation_port_tinyxml2;
-
 #[path = "cli/foundation_port_mock_smoke.rs"]
 mod foundation_port_mock_smoke;
 

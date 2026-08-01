@@ -41,7 +41,10 @@ const FAKE_TINYXML2_H: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/tinyxml2.h");
 const FAKE_TINYXML2_CPP: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/tinyxml2.cpp");
-const TINYXML2_OVERLAY: &str = include_str!("../../../cabin-port/ports/tinyxml2/11.0.0/cabin.toml");
+// tinyxml2 is committed as a package, not a recipe, so its manifest
+// no longer describes a recipe overlay; the fake port carries its own.
+const TINYXML2_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/cabin.toml");
 const TINYXML2_MAIN_CPP: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/main.cpp");
 

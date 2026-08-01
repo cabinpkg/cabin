@@ -3,7 +3,7 @@
 A consumer example for the `cabin-ports/tinyxml2` registry
 package, published from the curated
 [`crates/cabin-port/ports/tinyxml2/11.0.0/`](../../crates/cabin-port/ports/tinyxml2/11.0.0/)
-recipe.  The program links against tinyxml2 (a C++ library), parses
+package directory.  The program links against tinyxml2 (a C++ library), parses
 a small XML document, and prints an element's text plus the
 compiled-in tinyxml2 version.
 
@@ -46,6 +46,6 @@ the `cabin vendor` + `--offline --index-path` workflow.
 The integration test for this example
 (`crates/cabin/tests/cabin_examples.rs::tinyxml2_usage_builds_and_runs`)
 runs only with `--ignored` and needs outbound network: it stages
-the committed recipes into a local file registry through the
+the committed ports into a local file registry through the
 publisher pipeline and builds against that with `--index-path`,
 downloading the pinned upstream archives on the way.
