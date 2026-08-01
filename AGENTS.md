@@ -34,9 +34,12 @@ same change and treat the architecture doc as authoritative.
   `RUSTFLAGS="-D warnings"`, `RUSTDOCFLAGS="-D warnings"`, and clippy's
   trailing `-- -D warnings` are intentional.
 - Changes under `docs/` or `website/` require, from `website/`:
-  `npm ci && npm run lint && npm run build` (build runs
+  `npm ci && npm run lint && npm run build && npm test` (build runs
   typecheck, Astro build, CSP checks, and docs-link checks). For docs-only
   changes, run only the checks matching the touched surface.
+- `scripts/ci.sh` does not run `npm test`, but `website.yml` does, so the
+  local gate can be green while CI is red. Run it by hand for changes that
+  touch what `website/src/lib/` reads - the ports tree included.
 - Commit subjects follow Conventional Commits, lower-case, at or under 100
   characters (commitlint runs in CI).
 - Do not edit `typos.toml` or add allowlist entries unless a reviewer
@@ -100,6 +103,24 @@ and do not add speculative flexibility.
 - Add focused tests for behavior changes: unit tests in the owning crate,
   plus CLI integration coverage when user-facing. Test portability rules
   live in `crates/AGENTS.md`.
+- A scripted or repeated edit must assert, not assume: check that the
+  pattern matched and that the old identifier is gone afterwards. A
+  silently-skipped edit passes every check that does not compile the file.
+- Green checks only cover the surfaces they touch. Before calling a change
+  verified, name which check would have failed had the change been wrong;
+  if none would, the change is unverified.
+- A **migrated package** directory under a ports tree (a bare `cabin.toml`,
+  no `port.toml`) is published **verbatim**: editing it - a comment
+  included - changes the published archive bytes.  A recipe's overlay is a
+  rewritten input instead, so the same edit reaches the archive only through
+  the conversion.
+  A byte-only correction is a packaging revision; an edit that changes what
+  resolution consumes (`dependencies`, `features`, `standards`) is not a
+  revision at all and needs a new upstream version, with `links` stamping
+  the one-way exception - see `docs/foundation-ports.md` "Correcting a
+  published port". The preflight dry-run publishes into a fresh temporary
+  registry, so it cannot catch that distinction for you. Never fold such an
+  edit into an unrelated change, and check the published digest either way.
 - `--target` is reserved for future platform/toolchain triples; never use it
   for manifest-target selection. `--build-dir` is the build-output flag;
   `--target-dir` is not a Cabin alias.
@@ -113,6 +134,14 @@ and do not add speculative flexibility.
 - If positioning, supported languages/platforms, install instructions, the
   top-level command surface, or package-page snippets change, update
   `website/` in the same change or call out the required follow-up.
+- A change that alters what is *true* rather than what runs (a migration, a
+  removal) silently invalidates prose. Sweep every surface that describes the
+  thing: `docs/`, `CONTRIBUTING.md`, the per-example `README.md`s **and the
+  aggregate `examples/README.md`**, the ports tree `README.md`, and website
+  copy that names specific packages or features. Separate claims
+  about a thing's *shape* ("published from the curated recipe", "reachable as
+  `port = true`"), which go stale, from durable facts about upstream or
+  policy, which do not - and fix only the former.
 
 ## Done Criteria
 
