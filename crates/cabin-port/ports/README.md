@@ -113,6 +113,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
 - [`CLI11/2.6.2/`](CLI11/2.6.2/) - the CLI11 command line parser for C++11 and beyond
   (header-only), version 2.6.2.  **Migrated**: depend on `"cabin-ports/cli11"`.
 - [`fmt/12.2.0/`](fmt/12.2.0/) - the {fmt} fast and safe C++ formatting library, version 12.2.0.
+  **Migrated**: depend on `"cabin-ports/fmt"`.
 - [`googletest/1.17.0/`](googletest/1.17.0/) - Google's C++ testing framework (GoogleTest library
   only, no gtest_main / GoogleMock), version 1.17.0.
 - [`inih/62.0.0/`](inih/62.0.0/) - the inih simple INI file parser in C (C core only; upstream tag
