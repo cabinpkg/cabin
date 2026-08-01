@@ -2866,8 +2866,5 @@ mod foundation_port_stb;
 #[path = "cli/foundation_port_uthash.rs"]
 mod foundation_port_uthash;
 
-#[path = "cli/foundation_port_inih.rs"]
-mod foundation_port_inih;
-
 #[path = "cli/foundation_port_picohttpparser.rs"]
 mod foundation_port_picohttpparser;
