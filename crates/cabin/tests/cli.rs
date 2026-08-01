@@ -2857,9 +2857,6 @@ mod foundation_port_spdlog;
 #[path = "cli/foundation_port_nlohmann_json.rs"]
 mod foundation_port_nlohmann_json;
 
-#[path = "cli/foundation_port_miniz.rs"]
-mod foundation_port_miniz;
-
 #[path = "cli/foundation_port_stb.rs"]
 mod foundation_port_stb;
 

@@ -1,5 +1,9 @@
+[package.upstream]
+url = "https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip"
+sha256 = "f0446d863f9c19926ad9483c523fdc42e42b8d4a6a431d27e09d49c79a140d9a"
+format = "zip"
 [package]
-name = "miniz"
+name = "cabin-ports/miniz"
 version = "3.1.2"
 
 # The amalgamation is a single translation unit: miniz.c plus the
