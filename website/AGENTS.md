@@ -41,7 +41,9 @@ from 22.18).
 ## Commands
 
 - `npm run dev` / `npm run typecheck` (`astro check`) / `npm run lint` (Biome) /
-  `npm run fmt` (Biome `--write`).
+  `npm run fmt` (Biome `--write`) / `npm test` (`node --test` over
+  `src/**/*.test.ts` and `scripts/**/*.test.mjs`).  `scripts/ci.sh` does not
+  run `npm test`; CI does, so run it by hand.
 - `npm run build` = `npm run typecheck && astro build && npm run verify`; writes
   the static site to `dist/`.
 - `npm run verify` = `verify:csp` (fails on any inline `<script>` in built
@@ -104,4 +106,4 @@ from 22.18).
 - Deploy: Cloudflare Workers Static Assets serving `./dist`
   (`wrangler.jsonc`); `npm run build && npx wrangler deploy`. No deploy
   workflow is committed (account/secrets vary by environment); CI
-  (`.github/workflows/website.yml`) only lints and builds.
+  (`.github/workflows/website.yml`) lints, builds, and runs `npm test`.
