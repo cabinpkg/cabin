@@ -128,7 +128,7 @@ binary, so it is consumed as `"cabin-ports/<name>"` from the registry rather tha
   3.12.0.
 - [`picohttpparser/2026.4.6/`](picohttpparser/2026.4.6/) - the picohttpparser tiny HTTP
   request/response parser in C (commit-pinned, date-versioned - upstream publishes no releases),
-  snapshot 2026.4.6.
+  snapshot 2026.4.6.  **Migrated**: depend on `"cabin-ports/picohttpparser"`.
 - [`spdlog/1.17.0/`](spdlog/1.17.0/) - the spdlog fast C++ logging library (header-only form),
   version 1.17.0.
 - [`sqlite3/3.53.2/`](sqlite3/3.53.2/) - the SQLite self-contained SQL database engine
