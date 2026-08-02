@@ -34,7 +34,11 @@ from 22.18).
   the dashboard's download figures are same-origin fetches of the
   registry's public `/api/v1/stats` endpoint and the session packages
   API (`registry/docs/architecture.md`, "Download counts"); both are
-  progressive enhancements - the static HTML renders without them.
+  progressive enhancements. Every figure in the band is registry data,
+  so the `<section data-registry-stats>` itself ships `hidden` and
+  `src/scripts/home-stats.ts` reveals it only after a successful
+  fetch - a script-less or offline visitor gets the page without the
+  band rather than an empty strip.
 
 ## Commands
 
