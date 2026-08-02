@@ -14,54 +14,38 @@
 
 use super::*;
 
-const FAKE_ZLIB_H: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/zlib.h");
-const FAKE_ZLIB_C: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/zutil.c");
+const FAKE_ZLIB_H: &str = include_str!("../fixtures/fake-port-smoke/zlib/zlib.h");
+const FAKE_ZLIB_C: &str = include_str!("../fixtures/fake-port-smoke/zlib/zutil.c");
 // zlib is committed as a package, not a recipe, so its manifest no
 // longer describes a recipe overlay; the fake port carries its own.
-const ZLIB_OVERLAY: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/cabin.toml");
-const ZLIB_MAIN_C: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/main.c");
+const ZLIB_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/zlib/cabin.toml");
+const ZLIB_MAIN_C: &str = include_str!("../fixtures/fake-port-smoke/zlib/main.c");
 
-const FAKE_TINYXML2_H: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/tinyxml2.h");
-const FAKE_TINYXML2_CPP: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/tinyxml2.cpp");
+const FAKE_TINYXML2_H: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/tinyxml2.h");
+const FAKE_TINYXML2_CPP: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/tinyxml2.cpp");
 // tinyxml2 is committed as a package, not a recipe, so its manifest
 // no longer describes a recipe overlay; the fake port carries its own.
-const TINYXML2_OVERLAY: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/cabin.toml");
-const TINYXML2_MAIN_CPP: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/tinyxml2/main.cpp");
+const TINYXML2_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/cabin.toml");
+const TINYXML2_MAIN_CPP: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/main.cpp");
 
-const FAKE_SQLITE3_H: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/sqlite3.h");
-const FAKE_SQLITE3_C: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/sqlite3.c");
+const FAKE_SQLITE3_H: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/sqlite3.h");
+const FAKE_SQLITE3_C: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/sqlite3.c");
 // sqlite3 is committed as a package, not a recipe, so its manifest
 // no longer describes a recipe overlay; the fake port carries its own.
-const SQLITE3_OVERLAY: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/cabin.toml");
-const SQLITE3_MAIN_C: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/sqlite3/main.c");
+const SQLITE3_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/cabin.toml");
+const SQLITE3_MAIN_C: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/main.c");
 
-const FAKE_PNG_H: &str = include_str!(
-    "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/png.h"
-);
-const FAKE_PNG_C: &str = include_str!(
-    "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/png.c"
-);
+const FAKE_PNG_H: &str =
+    include_str!("../fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/png.h");
+const FAKE_PNG_C: &str =
+    include_str!("../fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/png.c");
 const FAKE_PNGLIBCONF_H: &str = include_str!(
-    "../../../cabin-port/tests/fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/scripts/pnglibconf.h.prebuilt"
+    "../fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/scripts/pnglibconf.h.prebuilt"
 );
 // libpng is committed as a package, not a recipe, so its manifest no
 // longer describes a recipe overlay; the fake port carries its own.
-const LIBPNG_OVERLAY: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/libpng/cabin.toml");
-const LIBPNG_MAIN_C: &str =
-    include_str!("../../../cabin-port/tests/fixtures/fake-libpng-transitive/consumer/src/main.c");
+const LIBPNG_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/libpng/cabin.toml");
+const LIBPNG_MAIN_C: &str = include_str!("../fixtures/fake-libpng-transitive/consumer/src/main.c");
 
 // stb is committed as a package, not a recipe, so its manifest no
 // longer describes a recipe overlay; the fake port carries its own,
