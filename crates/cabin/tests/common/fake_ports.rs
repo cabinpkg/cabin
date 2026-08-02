@@ -1,20 +1,23 @@
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
-const ARCHIVE_URL_PLACEHOLDER: &str = "http://127.0.0.1:1/__fake-port-archive.tar.gz";
+/// Every fake port pins a never-fetched `https://` URL.  Publisher
+/// conversion refuses a non-HTTPS pin, and the cache-first archive
+/// lookup makes the unreachable host a no-op, so staging needs no
+/// server and no network - see `seed_archive_into_cache`.
+fn archive_url(archive_name: &str) -> String {
+    format!("https://ports.invalid/{archive_name}")
+}
 
 /// Test fixture builder for local Cabin ports backed by loopback
 /// archives.  It keeps test bodies focused on port topology while the
-/// tarball, checksum, `port.toml`, and HTTP plumbing stay in one place.
+/// tarball, checksum, manifest, and HTTP plumbing stay in one place.
 pub struct FakePortRepo {
     root: PathBuf,
 }
@@ -35,7 +38,7 @@ impl FakePortRepo {
             files: Vec::new(),
             copies: Vec::new(),
             patches: Vec::new(),
-            overlay_manifest: None,
+            manifest_body: None,
         }
     }
 }
@@ -51,7 +54,6 @@ pub struct FakePort {
 pub struct FakeArchive {
     name: String,
     path: PathBuf,
-    port_toml: PathBuf,
     sha256: String,
 }
 
@@ -66,18 +68,11 @@ impl FakeArchive {
 }
 
 impl FakePort {
-    /// Re-pin the recipe's `[source].url` to a never-fetched
-    /// `https://ports.invalid/...` address and seed the archive bytes
-    /// into `cache_dir`'s content-addressed `ports` slot.  Publisher
-    /// conversion refuses non-HTTPS pins (the `[package.upstream]`
-    /// provenance rules), and the cache-first archive lookup makes the
-    /// unreachable pin a no-op, so registry-fixture staging works with
-    /// no server and no network.
-    pub fn pin_https_source_and_seed_cache(&self, cache_dir: &Path) {
-        patch_port_toml_url(
-            &self.archive.port_toml,
-            &format!("https://ports.invalid/{}", self.archive.name),
-        );
+    /// Seed the archive bytes into `cache_dir`'s content-addressed
+    /// `ports` slot.  The manifest already pins the matching
+    /// unreachable `https://` URL, so the cache-first lookup resolves
+    /// without a server or the network.
+    pub fn seed_archive_into_cache(&self, cache_dir: &Path) {
         let slot = cache_dir
             .join("ports")
             .join("archives")
@@ -97,7 +92,7 @@ pub struct FakePortBuilder {
     files: Vec<(String, String)>,
     copies: Vec<(String, String)>,
     patches: Vec<(String, String)>,
-    overlay_manifest: Option<String>,
+    manifest_body: Option<String>,
 }
 
 impl FakePortBuilder {
@@ -132,16 +127,16 @@ impl FakePortBuilder {
         self
     }
 
-    /// Declare a `[source].patches` entry and write the patch file
-    /// under the port directory's `patches/` subdirectory.
+    /// Declare a `[package.upstream].patches` entry and write the
+    /// patch file under the port directory's `patches/` subdirectory.
     pub fn patch(mut self, file_name: &str, contents: &str) -> Self {
         self.patches
             .push((file_name.to_owned(), contents.to_owned()));
         self
     }
 
-    pub fn overlay_manifest(mut self, manifest: &str) -> Self {
-        self.overlay_manifest = Some(manifest.to_owned());
+    pub fn manifest_body(mut self, manifest: &str) -> Self {
+        self.manifest_body = Some(manifest.to_owned());
         self
     }
 
@@ -156,10 +151,12 @@ impl FakePortBuilder {
         let sha256 = write_archive(&archive_path, &archive_prefix, &self.files);
         let port_dir = self.root.join("ports").join(&self.name).join(&self.version);
         fs::create_dir_all(&port_dir).expect("fake port dir");
-        let port_toml = port_dir.join("port.toml");
-        fs::write(&port_toml, self.port_toml(&sha256)).expect("write fake port.toml");
-        fs::write(port_dir.join("cabin.toml"), self.render_overlay_manifest())
-            .expect("write fake port overlay");
+        let manifest_path = port_dir.join("cabin.toml");
+        fs::write(
+            &manifest_path,
+            self.package_manifest(&sha256, &archive_name),
+        )
+        .expect("write fake port manifest");
         for (file_name, contents) in &self.patches {
             let patch_path = port_dir.join("patches").join(file_name);
             fs::create_dir_all(patch_path.parent().expect("patch parent"))
@@ -173,13 +170,16 @@ impl FakePortBuilder {
             archive: FakeArchive {
                 name: archive_name,
                 path: archive_path,
-                port_toml,
                 sha256,
             },
         }
     }
 
-    fn port_toml(&self, sha256: &str) -> String {
+    /// The committed manifest of a provenance-bearing package: the
+    /// fixture's own `[package]` / `[target.*]` body with a
+    /// `[package.upstream]` block stamped on top, exactly the shape a
+    /// port directory carries in `crates/cabin-port/ports/`.
+    fn package_manifest(&self, sha256: &str, archive_name: &str) -> String {
         let strip_prefix = self
             .archive_prefix
             .as_deref()
@@ -194,142 +194,27 @@ impl FakePortBuilder {
                 .collect();
             format!("patches = [{}]\n", entries.join(", "))
         };
-        let mut toml = format!(
-            "[port]\nname = \"{}\"\nversion = \"{}\"\n\n[source]\ntype = \"archive\"\nurl = \"{}\"\nsha256 = \"{}\"\nstrip_prefix = \"{}\"\n{}\n[overlay]\nmanifest = \"cabin.toml\"\n",
-            self.name, self.version, ARCHIVE_URL_PLACEHOLDER, sha256, strip_prefix, patches_key
+        let mut upstream = format!(
+            "[package.upstream]\nurl = \"{}\"\nsha256 = \"{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \"{strip_prefix}\"\n{patches_key}",
+            archive_url(archive_name)
         );
         for (from, to) in &self.copies {
             write!(
-                toml,
-                "\n[[copy]]\nfrom = \"{}\"\nto = \"{}\"\n",
+                upstream,
+                "\n[[package.upstream.copy]]\nfrom = \"{}\"\nto = \"{}\"\n",
                 toml_escape(from),
                 toml_escape(to)
             )
             .expect("append fake port copy section");
         }
-        toml
+        format!("{upstream}\n{}", self.render_manifest_body())
     }
 
-    fn render_overlay_manifest(&self) -> String {
-        self.overlay_manifest
+    fn render_manifest_body(&self) -> String {
+        self.manifest_body
             .as_ref()
-            .unwrap_or_else(|| panic!("fake port `{}` missing overlay_manifest", self.name))
+            .unwrap_or_else(|| panic!("fake port `{}` missing manifest_body", self.name))
             .clone()
-    }
-}
-
-pub struct FakeArchiveServer {
-    archives: Vec<FakeArchive>,
-    running: Option<RunningArchiveServer>,
-}
-
-impl FakeArchiveServer {
-    pub fn new() -> Self {
-        Self {
-            archives: Vec::new(),
-            running: None,
-        }
-    }
-
-    pub fn serve(mut self, archive: &FakeArchive) -> Self {
-        assert!(
-            self.running.is_none(),
-            "fake archive server cannot register archives after start"
-        );
-        self.archives.push(archive.clone());
-        self
-    }
-
-    pub fn start(mut self) -> Self {
-        assert!(
-            self.running.is_none(),
-            "fake archive server cannot start twice"
-        );
-        let server =
-            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
-        let addr = server.server_addr().to_ip().expect("loopback addr");
-        let base_url = format!("http://{addr}");
-        let archives = self
-            .archives
-            .drain(..)
-            .map(|archive| {
-                let url = format!("{base_url}/{}", archive.name);
-                patch_port_toml_url(&archive.port_toml, &url);
-                (
-                    archive.name,
-                    fs::read(&archive.path).expect("read fake archive"),
-                )
-            })
-            .collect::<Vec<_>>();
-        let request_counts = Arc::new(Mutex::new(BTreeMap::new()));
-        let counts_for_thread = Arc::clone(&request_counts);
-        let server_for_thread = Arc::clone(&server);
-        let archives = Arc::new(archives);
-        let archives_for_thread = Arc::clone(&archives);
-        let thread = std::thread::spawn(move || {
-            while let Ok(req) = server_for_thread.recv() {
-                let requested = req.url().trim_start_matches('/').to_owned();
-                if let Some((name, body)) = archives_for_thread
-                    .iter()
-                    .find(|(name, _)| name.as_str() == requested)
-                {
-                    *counts_for_thread
-                        .lock()
-                        .expect("request counts lock")
-                        .entry(name.clone())
-                        .or_default() += 1;
-                    let _ = req.respond(tiny_http::Response::from_data(body.clone()));
-                } else {
-                    let _ = req.respond(tiny_http::Response::empty(404));
-                }
-            }
-        });
-        self.running = Some(RunningArchiveServer {
-            server,
-            thread: Some(thread),
-            request_counts,
-        });
-        self
-    }
-
-    pub fn requests_for(&self, archive_name: &str) -> usize {
-        self.running()
-            .request_counts
-            .lock()
-            .expect("request counts lock")
-            .get(archive_name)
-            .copied()
-            .unwrap_or(0)
-    }
-
-    pub fn total_requests(&self) -> usize {
-        self.running()
-            .request_counts
-            .lock()
-            .expect("request counts lock")
-            .values()
-            .sum()
-    }
-
-    fn running(&self) -> &RunningArchiveServer {
-        self.running
-            .as_ref()
-            .expect("fake archive server must be started before inspection")
-    }
-}
-
-struct RunningArchiveServer {
-    server: Arc<tiny_http::Server>,
-    thread: Option<JoinHandle<()>>,
-    request_counts: Arc<Mutex<BTreeMap<String, usize>>>,
-}
-
-impl Drop for RunningArchiveServer {
-    fn drop(&mut self) {
-        self.server.unblock();
-        if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
-        }
     }
 }
 
@@ -366,23 +251,14 @@ fn write_archive(path: &Path, prefix: &str, files: &[(String, String)]) -> Strin
     cabin_core::hash::hex_digest(&h.finalize())
 }
 
-fn patch_port_toml_url(path: &Path, url: &str) {
-    let body = fs::read_to_string(path).expect("read fake port.toml");
-    fs::write(
-        path,
-        body.replace(ARCHIVE_URL_PLACEHOLDER, &toml_escape(url)),
-    )
-    .expect("patch fake port URL");
-}
-
 fn declared_sources(manifest: &str, target_name: &str) -> Vec<String> {
-    let parsed = cabin_manifest::parse_manifest_str(manifest).expect("parse fake port overlay");
-    let package = parsed.package.expect("fake port overlay package");
+    let parsed = cabin_manifest::parse_manifest_str(manifest).expect("parse fake port manifest");
+    let package = parsed.package.expect("fake port manifest package");
     let target = package
         .targets
         .iter()
         .find(|target| target.name.as_str() == target_name)
-        .unwrap_or_else(|| panic!("fake port overlay missing target `{target_name}`"));
+        .unwrap_or_else(|| panic!("fake port manifest missing target `{target_name}`"));
     target
         .sources
         .iter()

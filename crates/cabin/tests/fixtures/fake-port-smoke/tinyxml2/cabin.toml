@@ -1,10 +1,10 @@
-# Overlay for the hermetic fake tinyxml2 port: the same shape the
-# committed recipe had before tinyxml2 migrated to a package, so the
-# mock smoke and registry-ports tests keep exercising the recipe
-# machinery (fetch, extract, overlay, build) against sources they
-# fully control.
+# Manifest for the hermetic fake tinyxml2 port: the shape a committed
+# port carries, so the registry-ports tests exercise the publish
+# pipeline (fetch, extract, materialize, build) against sources they
+# fully control.  `[package.upstream]` is stamped on at build time by
+# `FakePortBuilder`, which owns the generated archive's checksum.
 [package]
-name = "tinyxml2"
+name = "cabin-ports/tinyxml2"
 version = "11.0.0"
 
 [target.tinyxml2]

@@ -1,21 +1,22 @@
-# Overlay for the hermetic fake libpng port: the shape the committed
-# recipe had before libpng migrated to a package, so the
-# registry-ports test keeps exercising the recipe machinery - the
-# `[[copy]]` step included - against sources it fully controls.  Its
-# zlib edge names the scoped registry package, which is the only way
-# one port can reach another now.
+# Manifest for the hermetic fake libpng port: the shape a committed
+# port carries, so the registry-ports test exercises the publish
+# pipeline - the copy step included - against sources it fully
+# controls.  Its zlib edge names the scoped registry package, which is
+# the only way one port reaches another.  `[package.upstream]` is
+# stamped on at build time by `FakePortBuilder`, which owns the
+# generated archive's checksum.
 #
 # The fake archive stubs every declared source except png.c, so the
-# source list must stay the recipe's 15-source set for
+# source list must stay this 15-source set for
 # `stub_declared_sources_except` to generate the same tree.
 [package]
-name = "libpng"
+name = "cabin-ports/libpng"
 version = "1.6.50"
 
 [dependencies]
 "cabin-ports/zlib" = "^1.3"
 
-[target.libpng]
+[target.png]
 type = "library"
 sources = [
   "png.c",

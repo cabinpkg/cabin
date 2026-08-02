@@ -16,23 +16,17 @@ use super::*;
 
 const FAKE_ZLIB_H: &str = include_str!("../fixtures/fake-port-smoke/zlib/zlib.h");
 const FAKE_ZLIB_C: &str = include_str!("../fixtures/fake-port-smoke/zlib/zutil.c");
-// zlib is committed as a package, not a recipe, so its manifest no
-// longer describes a recipe overlay; the fake port carries its own.
-const ZLIB_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/zlib/cabin.toml");
+const ZLIB_MANIFEST: &str = include_str!("../fixtures/fake-port-smoke/zlib/cabin.toml");
 const ZLIB_MAIN_C: &str = include_str!("../fixtures/fake-port-smoke/zlib/main.c");
 
 const FAKE_TINYXML2_H: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/tinyxml2.h");
 const FAKE_TINYXML2_CPP: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/tinyxml2.cpp");
-// tinyxml2 is committed as a package, not a recipe, so its manifest
-// no longer describes a recipe overlay; the fake port carries its own.
-const TINYXML2_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/cabin.toml");
+const TINYXML2_MANIFEST: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/cabin.toml");
 const TINYXML2_MAIN_CPP: &str = include_str!("../fixtures/fake-port-smoke/tinyxml2/main.cpp");
 
 const FAKE_SQLITE3_H: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/sqlite3.h");
 const FAKE_SQLITE3_C: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/sqlite3.c");
-// sqlite3 is committed as a package, not a recipe, so its manifest
-// no longer describes a recipe overlay; the fake port carries its own.
-const SQLITE3_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/cabin.toml");
+const SQLITE3_MANIFEST: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/cabin.toml");
 const SQLITE3_MAIN_C: &str = include_str!("../fixtures/fake-port-smoke/sqlite3/main.c");
 
 const FAKE_PNG_H: &str =
@@ -42,15 +36,12 @@ const FAKE_PNG_C: &str =
 const FAKE_PNGLIBCONF_H: &str = include_str!(
     "../fixtures/fake-libpng-transitive/archives/fake-libpng-1.6.50/scripts/pnglibconf.h.prebuilt"
 );
-// libpng is committed as a package, not a recipe, so its manifest no
-// longer describes a recipe overlay; the fake port carries its own.
-const LIBPNG_OVERLAY: &str = include_str!("../fixtures/fake-port-smoke/libpng/cabin.toml");
+const LIBPNG_MANIFEST: &str = include_str!("../fixtures/fake-port-smoke/libpng/cabin.toml");
 const LIBPNG_MAIN_C: &str = include_str!("../fixtures/fake-libpng-transitive/consumer/src/main.c");
 
-// stb is committed as a package, not a recipe, so its manifest no
-// longer describes a recipe overlay; the fake port carries its own,
-// inline like the header it ships.
-const STB_OVERLAY: &str = "[package]\nname = \"stb\"\nversion = \"2026.4.15\"\n\n\
+// The fake stb port carries its own manifest, inline like the header
+// it ships.  Published identity, like every committed port.
+const STB_MANIFEST: &str = "[package]\nname = \"cabin-ports/stb\"\nversion = \"2026.4.15\"\n\n\
 [target.stb]\ntype = \"header-only\"\ninclude-dirs = [\".\"]\n\
 interface-c-standard = \"c89\"\n";
 // The fake stb archive carries one single-file header in the
@@ -61,8 +52,8 @@ const FAKE_STB_H: &str = "#ifndef FAKE_STB_ANSWER_H\n#define FAKE_STB_ANSWER_H\n
 
 // Only the multi-library scenario has no committed port shaped for
 // it, so it alone uses a synthetic manifest.
-const TOOLBOX_OVERLAY: &str = r#"[package]
-name = "toolbox"
+const TOOLBOX_MANIFEST: &str = r#"[package]
+name = "cabin-ports/toolbox"
 version = "1.2.3"
 
 [target.alpha]
@@ -106,8 +97,7 @@ impl StagedPorts {
 /// - `zlib` 1.3.1 - C library; the target key renames to the native
 ///   stem `z`;
 /// - `libpng` 1.6.50 - depends on the scoped `cabin-ports/zlib`
-///   package and places `pnglibconf.h` via the recipe's `[[copy]]`
-///   step;
+///   package and places `pnglibconf.h` via a declared copy step;
 /// - `tinyxml2` 11.0.0 - C++ library;
 /// - `sqlite3` 3.53.2 - carries the `single-threaded` feature;
 /// - `stb` 2026.4.15 - header-only;
@@ -122,20 +112,20 @@ fn stage_fixture_ports() -> StagedPorts {
         .port("zlib", "1.3.1")
         .archive_prefix("zlib-1.3.1")
         .file("zlib.h", FAKE_ZLIB_H)
-        .stub_declared_sources_except(ZLIB_OVERLAY, "zlib", &["zutil.c"])
+        .stub_declared_sources_except(ZLIB_MANIFEST, "z", &["zutil.c"])
         .file("zutil.c", FAKE_ZLIB_C)
-        .overlay_manifest(ZLIB_OVERLAY)
+        .manifest_body(ZLIB_MANIFEST)
         .build();
 
     let libpng = repo
         .port("libpng", "1.6.50")
         .archive_prefix("libpng-1.6.50")
         .file("png.h", FAKE_PNG_H)
-        .stub_declared_sources_except(LIBPNG_OVERLAY, "libpng", &["png.c"])
+        .stub_declared_sources_except(LIBPNG_MANIFEST, "png", &["png.c"])
         .file("png.c", FAKE_PNG_C)
         .file("scripts/pnglibconf.h.prebuilt", FAKE_PNGLIBCONF_H)
         .copy("scripts/pnglibconf.h.prebuilt", "pnglibconf.h")
-        .overlay_manifest(LIBPNG_OVERLAY)
+        .manifest_body(LIBPNG_MANIFEST)
         .build();
 
     let tinyxml2 = repo
@@ -143,7 +133,7 @@ fn stage_fixture_ports() -> StagedPorts {
         .archive_prefix("tinyxml2-11.0.0")
         .file("tinyxml2.h", FAKE_TINYXML2_H)
         .file("tinyxml2.cpp", FAKE_TINYXML2_CPP)
-        .overlay_manifest(TINYXML2_OVERLAY)
+        .manifest_body(TINYXML2_MANIFEST)
         .build();
 
     let sqlite3 = repo
@@ -151,14 +141,14 @@ fn stage_fixture_ports() -> StagedPorts {
         .archive_prefix("sqlite-autoconf-3530200")
         .file("sqlite3.h", FAKE_SQLITE3_H)
         .file("sqlite3.c", FAKE_SQLITE3_C)
-        .overlay_manifest(SQLITE3_OVERLAY)
+        .manifest_body(SQLITE3_MANIFEST)
         .build();
 
     let stb = repo
         .port("stb", "2026.4.15")
         .archive_prefix("stb-2026.4.15")
         .file("stb_answer.h", FAKE_STB_H)
-        .overlay_manifest(STB_OVERLAY)
+        .manifest_body(STB_MANIFEST)
         .build();
 
     let toolbox = repo
@@ -180,11 +170,11 @@ fn stage_fixture_ports() -> StagedPorts {
             "beta.c",
             "#include \"beta.h\"\nint beta_value(void) { return 2; }\n",
         )
-        .overlay_manifest(TOOLBOX_OVERLAY)
+        .manifest_body(TOOLBOX_MANIFEST)
         .build();
 
     for port in [&zlib, &libpng, &tinyxml2, &sqlite3, &stb, &toolbox] {
-        port.pin_https_source_and_seed_cache(&cache);
+        port.seed_archive_into_cache(&cache);
     }
 
     stage_ports_registry(
@@ -316,7 +306,7 @@ fn feature_flows_through_registry_dependency_edge() {
 }
 
 /// The consumer declares only `cabin-ports/libpng`; zlib arrives
-/// transitively through libpng's `"cabin-ports/zlib" = "^1.3"` edge, the `[[copy]]`-placed `pnglibconf.h` is part of
+/// transitively through libpng's `"cabin-ports/zlib" = "^1.3"` edge, the `[[package.upstream.copy]]`-placed `pnglibconf.h` is part of
 /// the published package, and both published archives land on the
 /// link.
 #[test]
@@ -614,14 +604,13 @@ fn explicit_target_selectors_link_a_multi_library_package() {
     assert!(stdout.contains("toolbox sum: 42"), "{stdout}");
 }
 
-/// The recipe's pinned `[source]` round-trips end to end: the
-/// conversion stamps `[package.upstream]`, the file registry's index
-/// entry carries the same pin (URL, SHA-256, format, strip-prefix,
-/// and the `[[copy]]` plan), and the archived manifest inside the
-/// fetched package still declares it.
+/// The committed `[package.upstream]` pin round-trips end to end: the
+/// file registry's index entry carries the same pin (URL, SHA-256,
+/// format, strip-prefix, and the copy plan), and the archived
+/// manifest inside the fetched package still declares it.
 #[test]
 fn patched_port_round_trips_through_the_staged_registry() {
-    // Publisher round trip for a patch-carrying recipe: the staged
+    // Publisher round trip for a patch-carrying port: the staged
     // registry package ships the patched sources plus the patch file,
     // and its index entry and archived manifest both declare it.
     let root = TempDir::new().unwrap();
@@ -636,12 +625,12 @@ fn patched_port_round_trips_through_the_staged_registry() {
         .port("zlib", "1.3.1")
         .archive_prefix("zlib-1.3.1")
         .file("zlib.h", FAKE_ZLIB_H)
-        .stub_declared_sources_except(ZLIB_OVERLAY, "zlib", &["zutil.c"])
+        .stub_declared_sources_except(ZLIB_MANIFEST, "z", &["zutil.c"])
         .file("zutil.c", "int fake_zlib_marker(void) { return 1; }\n")
         .patch("0001-fix.patch", patch)
-        .overlay_manifest(ZLIB_OVERLAY)
+        .manifest_body(ZLIB_MANIFEST)
         .build();
-    zlib.pin_https_source_and_seed_cache(&cache);
+    zlib.seed_archive_into_cache(&cache);
     let registry = stage_ports_registry(
         &root.path().join("ports"),
         &cache,
@@ -704,18 +693,18 @@ fn patched_port_round_trips_through_the_staged_registry() {
 }
 
 #[test]
-fn provenance_round_trips_recipe_pin_into_index_and_archived_manifest() {
+fn provenance_round_trips_committed_pin_into_index_and_archived_manifest() {
     let staged = stage_fixture_ports();
 
-    // Re-read the pin straight from the fixture recipe so the
-    // assertion cannot drift from what was staged.
-    let recipe =
-        fs::read_to_string(staged.root.path().join("ports/libpng/1.6.50/port.toml")).unwrap();
-    let pinned_sha = recipe
+    // Re-read the pin straight from the fixture's committed manifest
+    // so the assertion cannot drift from what was staged.
+    let committed =
+        fs::read_to_string(staged.root.path().join("ports/libpng/1.6.50/cabin.toml")).unwrap();
+    let pinned_sha = committed
         .lines()
         .find_map(|line| line.strip_prefix("sha256 = \""))
         .and_then(|rest| rest.strip_suffix('"'))
-        .expect("fixture recipe pins a sha256");
+        .expect("fixture manifest pins a sha256");
 
     let index: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(staged.registry().join("packages/cabin-ports/libpng.json")).unwrap(),

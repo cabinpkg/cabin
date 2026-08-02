@@ -1,12 +1,12 @@
-# Overlay for the hermetic fake sqlite3 port: the same shape the
-# committed recipe had before sqlite3 migrated to a package, so the
-# mock smoke and registry-ports tests keep exercising the recipe
-# machinery (fetch, extract, overlay, build) against sources they
-# fully control.  The feature and cfg-gated profile blocks are part
+# Manifest for the hermetic fake sqlite3 port: the shape a committed
+# port carries, so the registry-ports tests exercise the publish
+# pipeline (fetch, extract, materialize, build) against sources they
+# fully control.  `[package.upstream]` is stamped on at build time by
+# `FakePortBuilder`, which owns the generated archive's checksum.  The feature and cfg-gated profile blocks are part
 # of that shape: the fixtures assert the published target set, not
 # just that something compiles.
 [package]
-name = "sqlite3"
+name = "cabin-ports/sqlite3"
 version = "3.53.2"
 
 [features]
