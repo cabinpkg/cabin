@@ -31,35 +31,11 @@ function resolvePortsDir(): string {
 
 const PORTS_DIR = resolvePortsDir();
 
-// The registry identity every recipe publishes under, mirroring the
+// The registry identity every port publishes under, mirroring the
 // cabin-port-publish conversion (crates/cabin-port-publish): the site must
 // present exactly the names and versions the registry serves, without a
 // live-registry build dependency.
 const REGISTRY_SCOPE = "cabin-ports";
-
-interface PortTomlPort {
-    name: string;
-    version: string;
-    description?: string;
-    license?: string;
-    homepage?: string;
-    upstream?: string;
-}
-
-interface PortTomlSource {
-    url?: string;
-    sha256?: string;
-}
-
-interface PortTomlOverlay {
-    manifest?: string;
-}
-
-interface PortToml {
-    port: PortTomlPort;
-    source?: PortTomlSource;
-    overlay?: PortTomlOverlay;
-}
 
 export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
     return loadPortsFromDir(PORTS_DIR);
@@ -67,7 +43,7 @@ export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
 
 // Exported with an explicit directory so tests can exercise the
 // loader against fixture trees; the site itself always loads the
-// committed ports tree, in whichever shape each port is committed.
+// committed ports tree.
 export async function loadPortsFromDir(
     portsDir: string,
 ): Promise<PackageRecord[]> {
@@ -79,53 +55,36 @@ export async function loadPortsFromDir(
 
     const records: PackageRecord[] = [];
     const seen = new Set<string>();
-    // Two distinct recipe names must not fold onto one scoped name
-    // (cJSON/ next to cjson/ would silently merge under
+    // Two distinct port directory names must not fold onto one scoped
+    // name (cJSON/ next to cjson/ would silently merge under
     // cabin-ports/cjson) - the publisher rejects that, so must we.
     const scopedOwners = new Map<string, string>();
 
     for (const portName of await listDirectories(portsDir)) {
         const portDir = join(portsDir, portName);
-        // One port never legitimately spans both committed shapes -
-        // the publisher refuses a half-migrated port, so a page for
-        // one must fail the build too.
-        let sawRecipe = false;
-        let sawPackage = false;
         for (const version of await listDirectories(portDir)) {
-            // Every committed port is a provenance-bearing package
-            // manifest; the recipe pair (port.toml + overlay) is still
-            // supported and still covered by the fixture tests.  A
-            // port.toml marks a recipe; a bare cabin.toml a package.
-            const portTomlPath = join(portDir, version, "port.toml");
             const manifestPath = join(portDir, version, "cabin.toml");
-            const isRecipe = existsSync(portTomlPath);
-            const isPackage = !isRecipe && existsSync(manifestPath);
-            if (!isRecipe && !isPackage) {
-                // Neither marker: an auxiliary directory (the
-                // publisher skips these too).
+            if (!existsSync(manifestPath)) {
+                // An auxiliary directory (the publisher skips these
+                // too).
                 continue;
             }
-            sawRecipe = sawRecipe || isRecipe;
-            sawPackage = sawPackage || isPackage;
-            if (sawRecipe && sawPackage) {
-                throw new Error(
-                    `Port "${portName}" is committed both as a recipe and as a package; migrate all of a port's versions together.`,
-                );
-            }
-            const record = isRecipe
-                ? await loadPortRecord(portTomlPath)
-                : await loadPackageRecord(manifestPath, portName, version);
+            const record = await loadPackageRecord(
+                manifestPath,
+                portName,
+                version,
+            );
             const owner = scopedOwners.get(record.name);
             if (owner !== undefined && owner !== portName) {
                 throw new Error(
-                    `Ports "${owner}" and "${portName}" both convert to "${record.name}"; converted names must stay distinct.`,
+                    `Ports "${owner}" and "${portName}" both publish as "${record.name}"; published names must stay distinct.`,
                 );
             }
             scopedOwners.set(record.name, portName);
             const key = `${record.name}@${record.version}`;
             if (seen.has(key)) {
                 throw new Error(
-                    `Duplicate port entry ${key} encountered at ${portTomlPath}.`,
+                    `Duplicate port entry ${key} encountered at ${manifestPath}.`,
                 );
             }
             seen.add(key);
@@ -249,151 +208,10 @@ function parseProvenanceUrl(archiveUrl: string, context: string): URL {
     return parsedUrl;
 }
 
-async function loadPortRecord(portTomlPath: string): Promise<PackageRecord> {
-    let raw: string;
-    try {
-        raw = await readFile(portTomlPath, "utf-8");
-    } catch (error) {
-        throw new Error(
-            `Failed to read port.toml at ${portTomlPath}: ${errorMessage(error)}`,
-        );
-    }
-
-    let parsed: PortToml;
-    try {
-        parsed = parseToml(raw) as unknown as PortToml;
-    } catch (error) {
-        throw new Error(
-            `Failed to parse TOML at ${portTomlPath}: ${errorMessage(error)}`,
-        );
-    }
-
-    const port = parsed.port;
-    if (!port || typeof port.name !== "string" || port.name === "") {
-        throw new Error(`Missing [port].name in ${portTomlPath}.`);
-    }
-    if (typeof port.version !== "string" || port.version === "") {
-        throw new Error(`Missing [port].version in ${portTomlPath}.`);
-    }
-    const scopedName = scopedPackageName(port.name, portTomlPath);
-
-    const archiveUrl = stringOrNull(parsed.source?.url);
-    const sha256 = stringOrNull(parsed.source?.sha256);
-    if (archiveUrl === null || sha256 === null) {
-        throw new Error(
-            `Missing [source].url or [source].sha256 in ${portTomlPath}.`,
-        );
-    }
-    // Mirror the committed-recipe provenance rules the publisher
-    // enforces: credential-free HTTPS archives pinned by a lowercase
-    // 64-hex SHA-256.  Parse the URL rather than prefix-matching it -
-    // the publisher's URL parser normalizes e.g. an uppercase scheme,
-    // and this loader must accept whatever it accepts.
-    let parsedUrl: URL;
-    try {
-        parsedUrl = new URL(archiveUrl);
-    } catch {
-        throw new Error(
-            `[source].url in ${portTomlPath} is not a valid URL: "${archiveUrl}".`,
-        );
-    }
-    if (parsedUrl.protocol !== "https:") {
-        throw new Error(
-            `[source].url in ${portTomlPath} must be an https:// URL; got "${archiveUrl}".`,
-        );
-    }
-    if (parsedUrl.username !== "" || parsedUrl.password !== "") {
-        throw new Error(
-            `[source].url in ${portTomlPath} must not embed credentials.`,
-        );
-    }
-    if (!/^[0-9a-f]{64}$/.test(sha256)) {
-        throw new Error(
-            `[source].sha256 in ${portTomlPath} must be a lowercase 64-character hex digest.`,
-        );
-    }
-
-    // The published version is the upstream version, verbatim:
-    // packaging corrections republish it as a new registry revision
-    // derived from the archive bytes, never as a version-string
-    // suffix.
-    const version = port.version;
-    const dependencies = await overlayDependencies(
-        parsed.overlay,
-        portTomlPath,
-    );
-
-    const homepage = stringOrNull(port.homepage);
-    const repository = stringOrNull(port.upstream);
-
-    return {
-        name: scopedName,
-        version,
-        description: stringOrNull(port.description),
-        edition: null,
-        license: stringOrNull(port.license),
-        metadata: {
-            package: {
-                ...(homepage !== null ? { homepage } : {}),
-                ...(repository !== null ? { repository } : {}),
-            },
-            dependencies,
-        },
-        published_at: null,
-        readme: null,
-        repository,
-        upstream: {
-            version: port.version,
-            archiveUrl: parsedUrl.toString(),
-            sha256,
-        },
-    };
-}
-
-// The published dependency set comes from the overlay manifest, not
-// port.toml, which declares no dependencies at all: a recipe's
-// dependencies live in its overlay and publish verbatim, so the
-// page's dependency count must read the same file the publisher
-// converts.
-async function overlayDependencies(
-    overlay: PortTomlOverlay | undefined,
-    portTomlPath: string,
-): Promise<Array<{ name: string; req: string }>> {
-    const manifest = stringOrNull(overlay?.manifest);
-    if (manifest === null) {
-        throw new Error(`Missing [overlay].manifest in ${portTomlPath}.`);
-    }
-    const overlayPath = join(dirname(portTomlPath), manifest);
-    let raw: string;
-    try {
-        raw = await readFile(overlayPath, "utf-8");
-    } catch (error) {
-        throw new Error(
-            `Failed to read overlay manifest at ${overlayPath}: ${errorMessage(error)}`,
-        );
-    }
-    let parsed: { dependencies?: Record<string, unknown> };
-    try {
-        parsed = parseToml(raw) as typeof parsed;
-    } catch (error) {
-        throw new Error(
-            `Failed to parse TOML at ${overlayPath}: ${errorMessage(error)}`,
-        );
-    }
-    const dependencies = parsed.dependencies;
-    if (dependencies === undefined) {
-        return [];
-    }
-    return Object.entries(dependencies).map(([name, spec]) =>
-        dependencyRequirement(name, spec, overlayPath),
-    );
-}
-
 // One dependency entry, in either spelling a published port manifest
 // can carry: the bare requirement string and the table with a
-// `version` key.  Both committed shapes go through this, because the
-// publisher passes a dependency table through unrewritten - so the
-// page reads exactly what will publish.  This is a shape check, not
+// `version` key.  The publisher publishes the manifest verbatim, so
+// the page reads exactly what will publish.  This is a shape check, not
 // a SemVer parse: it refuses a missing or blank requirement (Cabin
 // trims, then refuses the empty string), and leaves malformed
 // requirement syntax to the publisher and the registry.
@@ -416,8 +234,8 @@ function dependencyRequirement(
     return { name, req };
 }
 
-// The publisher's identity rule (cabin-port-publish::convert::
-// scoped_package_name): lowercase the recipe name and require the
+// The publisher's identity rule (cabin-port-publish::plan::
+// scoped_package_name): lowercase the port name and require the
 // canonical registry grammar `[a-z0-9][a-z0-9_-]*`, so cJSON becomes
 // cabin-ports/cjson and a name the registry would reject fails the
 // build here instead of publishing a page for a package that cannot

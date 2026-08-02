@@ -14,11 +14,8 @@ from 22.18).
   Every committed version directory is a provenance-bearing package (a
   single `cabin.toml` whose `[package.upstream]` supplies the record's
   provenance; its display fields are null - the manifest carries none -
-  so those UI sections hide).  `src/lib/ports.ts` still carries a code
-  path for the retired recipe shape (`port.toml` + overlay, the
-  `[source]` pin surfacing as `upstream`); nothing is committed in it
-  and `cabin-port-publish` no longer accepts it, so do not build on
-  that path. The loader mirrors the `cabin-port-publish` identity
+  so those UI sections hide).  `src/lib/ports.ts` mirrors the
+  `cabin-port-publish` identity
   rules: the record name is the scoped registry name
   `cabin-ports/<lowercase name>`, the version is the upstream version
   verbatim (packaging corrections are registry revisions, never a
