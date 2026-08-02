@@ -36,8 +36,15 @@ pub struct PortConversion {
     /// Inter-port dependencies this package publishes with — the
     /// publication-order edges, requirement included so ordering can
     /// wait for a *satisfying* version, not just any version of the
-    /// name.
+    /// name.  A subset of [`Self::declared_requirements`]: only an
+    /// edge something actually resolves constrains the order.
     pub dependencies: Vec<PortDependencyEdge>,
+    /// EVERY registry requirement the published manifest declares,
+    /// ordering edge or not.  A dev dependency and an optional one
+    /// the default features leave off order nothing, but they still
+    /// ship in the published metadata, so a requirement no committed
+    /// version satisfies is broken metadata and must fail the run.
+    pub declared_requirements: Vec<DeclaredRequirement>,
     /// Language standards a probe consumer must use to satisfy every
     /// probed target's declared interface requirement.  `None` keeps
     /// the probe's defaults.
@@ -83,6 +90,26 @@ pub struct PortDependencyEdge {
     pub scoped: PackageName,
     /// Version requirement the conversion carries for it.
     pub req: semver::VersionReq,
+}
+
+/// One registry requirement a published manifest declares, with
+/// whether a default invocation actually resolves it.
+#[derive(Debug, Clone)]
+pub struct DeclaredRequirement {
+    /// Scoped registry name of the dependency.
+    pub scoped: PackageName,
+    /// Version requirement declared for it.
+    pub req: semver::VersionReq,
+    /// Whether some default invocation resolves this edge: a
+    /// non-optional normal dependency, an optional one the default
+    /// features activate, or a dev dependency (`cabin test` activates
+    /// those for the selected package).  Requirements that are active
+    /// together must be satisfiable by ONE version, because selection
+    /// joins same-name requirements into a single `VersionReq`.  An
+    /// optional dependency the defaults leave off is never resolved
+    /// alongside them, so conjoining it would reject a port that
+    /// every default invocation resolves fine.
+    pub default_active: bool,
 }
 
 /// The scoped registry name for a port: `cabin-ports/<lowercase>`.
@@ -206,7 +233,7 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
         );
     };
 
-    let dependencies = registry_edges(&package, &manifest_path)?;
+    let (dependencies, declared_requirements) = registry_edges(&package, &manifest_path)?;
 
     // The preflight probe depends on the staged package the ordinary
     // way, so the package's default features are on and no others.
@@ -251,17 +278,19 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
         published_version: package.version.clone(),
         manifest,
         dependencies,
+        declared_requirements,
         sole_library_target: library_like.len() == 1,
         library_like_target_keys,
     })
 }
 
-/// The publication-order edges a published manifest declares, and the
-/// validation every port package's dependency table must pass.
+/// The publication-order edges a published manifest declares, the
+/// full set of registry requirements it carries, and the validation
+/// every port package's dependency table must pass.
 fn registry_edges(
     package: &cabin_core::Package,
     manifest_path: &Path,
-) -> Result<Vec<PortDependencyEdge>> {
+) -> Result<(Vec<PortDependencyEdge>, Vec<DeclaredRequirement>)> {
     // System dependencies live in their own field, so the loop below
     // would never see them - and a port package resolving through
     // host pkg-config would make its published build host-dependent.
@@ -277,6 +306,7 @@ fn registry_edges(
     let activated_by_default = default_activated_optional_deps(package);
 
     let mut dependencies = Vec::new();
+    let mut declared = Vec::new();
     for dep in &package.dependencies {
         if dep.condition.is_some() {
             bail!(
@@ -326,14 +356,22 @@ fn registry_edges(
                 // inter-port edge, libpng -> zlib); if one ever does,
                 // preflight fails loudly on the missing package
                 // rather than publishing anything wrong.
-                if dep.kind == cabin_core::DependencyKind::Normal
-                    && (!dep.optional || activated_by_default.contains(dep.name.as_str()))
-                {
+                let resolved_by_default =
+                    !dep.optional || activated_by_default.contains(dep.name.as_str());
+                if dep.kind == cabin_core::DependencyKind::Normal && resolved_by_default {
                     dependencies.push(PortDependencyEdge {
                         scoped: dep.name.clone(),
                         req: req.clone(),
                     });
                 }
+                declared.push(DeclaredRequirement {
+                    scoped: dep.name.clone(),
+                    req: req.clone(),
+                    // A dev dependency is optional-free and activated
+                    // by `cabin test`; a normal one counts when the
+                    // default features resolve it.
+                    default_active: resolved_by_default,
+                });
             }
             _ => bail!(
                 "{} depends on `{}` through a non-registry source; port packages carry \
@@ -343,7 +381,7 @@ fn registry_edges(
             ),
         }
     }
-    Ok(dependencies)
+    Ok((dependencies, declared))
 }
 
 /// Names of the optional dependencies a package's DEFAULT feature
@@ -503,6 +541,11 @@ fn ensure_distinct_scoped_names(scoped_by_dir: &BTreeMap<String, PackageName>) -
 /// would fail resolution later with a worse error.  An unsatisfiable
 /// edge must fail here with its real diagnosis, not surface as a
 /// phantom "dependency cycle" when ordering never drains the node.
+///
+/// This reads `declared_requirements`, not the ordering edges: a dev
+/// dependency and an optional one the default features leave off
+/// order nothing, but they still publish, so a requirement nothing
+/// satisfies is broken metadata however inert it is at build time.
 fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()> {
     let mut published: BTreeMap<&str, Vec<&Version>> = BTreeMap::new();
     for conversion in conversions {
@@ -512,18 +555,52 @@ fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()>
             .push(&conversion.published_version);
     }
     for conversion in conversions {
-        for dep in &conversion.dependencies {
-            let satisfied = published
-                .get(dep.scoped.base_name())
-                .is_some_and(|versions| versions.iter().any(|v| dep.req.matches(v)));
-            if !satisfied {
-                bail!(
-                    "{} depends on `{}` with requirement `{}`, which no committed port \
-                     version satisfies",
-                    conversion.committed_dir.display(),
-                    dep.scoped.as_str(),
-                    dep.req
-                );
+        // Grouped by name.  Cabin permits the same name under
+        // `[dependencies]` and `[dev-dependencies]`, and
+        // `cabin-workspace`'s selection joins same-name requirements
+        // into a single `VersionReq` - so requirements a default
+        // invocation resolves TOGETHER must be satisfiable by ONE
+        // version: `^1` normal beside `^2` dev is unsatisfiable under
+        // `cabin test` even though each half matches a different
+        // committed version.
+        //
+        // Only co-activatable requirements are conjoined.  An optional
+        // dependency the default features leave off is never resolved
+        // beside the others - ordinary commands omit it and `cabin
+        // test` still leaves it disabled - so it is checked alone;
+        // conjoining it would reject a port every default invocation
+        // resolves fine.
+        let mut by_name: BTreeMap<&str, Vec<&DeclaredRequirement>> = BTreeMap::new();
+        for dep in &conversion.declared_requirements {
+            by_name.entry(dep.scoped.as_str()).or_default().push(dep);
+        }
+        for (name, deps) in by_name {
+            let base = deps[0].scoped.base_name();
+            let versions = published.get(base);
+            let (active, inactive): (Vec<_>, Vec<_>) =
+                deps.iter().partition(|dep| dep.default_active);
+            let mut groups: Vec<Vec<&DeclaredRequirement>> = Vec::new();
+            if !active.is_empty() {
+                groups.push(active.into_iter().copied().collect());
+            }
+            groups.extend(inactive.into_iter().map(|dep| vec![*dep]));
+
+            for group in groups {
+                let satisfied = versions.is_some_and(|versions| {
+                    versions
+                        .iter()
+                        .any(|v| group.iter().all(|dep| dep.req.matches(v)))
+                });
+                if !satisfied {
+                    let reqs: Vec<String> = group.iter().map(|dep| dep.req.to_string()).collect();
+                    bail!(
+                        "{} depends on `{}` with requirement `{}`, which no committed port \
+                         version satisfies",
+                        conversion.committed_dir.display(),
+                        name,
+                        reqs.join(", ")
+                    );
+                }
             }
         }
     }
@@ -1448,6 +1525,167 @@ mod tests {
             format!("{err:#}").contains("symlinked directory"),
             "{err:#}"
         );
+    }
+
+    /// A dev dependency orders nothing, but it still publishes: a
+    /// requirement no committed version satisfies is broken metadata
+    /// whether or not anything resolves it, so it must fail the run
+    /// rather than ship.
+    #[test]
+    fn an_unsatisfiable_dev_dependency_is_diagnosed() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "fmt",
+            "12.2.0",
+            &package_manifest(
+                "cabin-ports/fmt",
+                "12.2.0",
+                "[dev-dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        let err = load_conversions(dir.path()).unwrap_err();
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("which no committed port version satisfies"),
+            "{message}"
+        );
+    }
+
+    /// Same for an optional dependency the default features leave
+    /// off: inert for ordering, still published metadata.
+    #[test]
+    fn an_unsatisfiable_optional_dependency_is_diagnosed() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "fmt",
+            "12.2.0",
+            &package_manifest(
+                "cabin-ports/fmt",
+                "12.2.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = { version = \"^2\", optional = true }\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        let err = load_conversions(dir.path()).unwrap_err();
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("which no committed port version satisfies"),
+            "{message}"
+        );
+    }
+
+    /// Cabin permits the same name under both kinds, and selection
+    /// joins their requirements into one `VersionReq`, so disjoint
+    /// ranges are unsatisfiable together even though each half
+    /// matches a different committed version.
+    #[test]
+    fn disjoint_requirements_across_kinds_are_diagnosed() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "fmt",
+            "12.2.0",
+            &package_manifest(
+                "cabin-ports/fmt",
+                "12.2.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = \"^1\"\n\n\
+                 [dev-dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n\n",
+            ),
+        );
+        // BOTH majors are committed, so each requirement is
+        // independently satisfiable - only the conjunction is not.
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "2.0.0",
+            &package_manifest("cabin-ports/zlib", "2.0.0", ""),
+        );
+        let err = load_conversions(dir.path()).unwrap_err();
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("which no committed port version satisfies"),
+            "{message}"
+        );
+    }
+
+    /// An optional dependency the default features leave off is never
+    /// resolved beside the dev edge - ordinary commands omit it and
+    /// `cabin test` still leaves it disabled - so their requirements
+    /// are checked separately, not conjoined.  Conjoining would
+    /// reject a port every default invocation resolves fine.
+    #[test]
+    fn an_inactive_optional_is_not_conjoined_with_the_dev_requirement() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "fmt",
+            "12.2.0",
+            &package_manifest(
+                "cabin-ports/fmt",
+                "12.2.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = { version = \"^1\", optional = true }\n\n\
+                 [dev-dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "2.0.0",
+            &package_manifest("cabin-ports/zlib", "2.0.0", ""),
+        );
+        let conversions = load_conversions(dir.path()).unwrap();
+        assert_eq!(conversions.len(), 3);
+    }
+
+    /// The same name across kinds is fine when one version satisfies
+    /// both requirements - the check is a conjunction, not a ban.
+    #[test]
+    fn compatible_requirements_across_kinds_are_accepted() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        write_package(
+            dir.path(),
+            "fmt",
+            "12.2.0",
+            &package_manifest(
+                "cabin-ports/fmt",
+                "12.2.0",
+                "[dependencies]\n\"cabin-ports/zlib\" = \"^1\"\n\n\
+                 [dev-dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n\n",
+            ),
+        );
+        write_package(
+            dir.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
+        let conversions = load_conversions(dir.path()).unwrap();
+        assert_eq!(conversions.len(), 2);
     }
 
     #[test]
