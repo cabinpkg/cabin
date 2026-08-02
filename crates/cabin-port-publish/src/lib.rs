@@ -17,8 +17,7 @@
 //!   decide what is already published).
 //!
 //! The committed recipes are inputs only: the conversion rewrites a
-//! copy of each overlay, and the builtin-port layer keeps working
-//! unchanged.
+//! copy of each overlay, never the committed file.
 
 use std::path::PathBuf;
 

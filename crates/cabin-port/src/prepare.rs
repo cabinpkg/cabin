@@ -62,17 +62,13 @@ pub enum PortFetchSource {
     InMemoryArchive(Vec<u8>),
 }
 
-/// Where a port's recipe came from.  Determines whether
-/// `ensure_overlay` reads the overlay text from disk (`PortDir`)
-/// or from a `cabin_port::builtin::BuiltinPort` (`Builtin`).
+/// Where a port's recipe came from: the directory `ensure_overlay`
+/// reads the overlay text from.
 #[derive(Debug, Clone)]
 pub enum PortOrigin {
     /// Filesystem recipe: `<port_dir>/port.toml` plus the
     /// overlay manifest at the descriptor's relative path.
     PortDir(PathBuf),
-    /// Bundled recipe by name.  The overlay text comes from
-    /// `cabin_port::builtin::lookup(name, &req).overlay_toml`.
-    Builtin(&'static str),
 }
 
 /// One port to materialize.
@@ -146,9 +142,6 @@ pub struct PortProvenance {
     pub strip_prefix: Option<String>,
     /// Absolute path to the overlay manifest inside the port
     /// directory (i.e. `port_dir.join(overlay.relative_path)`).
-    /// `Some(<absolute path>)` for a filesystem (`PortDir`) port;
-    /// `None` for a bundled (`Builtin`) port which has no on-disk
-    /// overlay file.
     pub overlay_manifest: Option<PathBuf>,
 }
 
@@ -162,7 +155,7 @@ pub struct PortProvenance {
 /// archive; [`PortError::ChecksumMismatch`] when fetched bytes do not
 /// hash to the declared SHA-256; [`PortError::MissingStripPrefix`] or
 /// [`PortError::Extract`] from extraction; [`PortError::MissingOverlayManifest`]
-/// or [`PortError::UnknownBuiltin`] when the overlay cannot be sourced;
+/// when the overlay cannot be sourced;
 /// [`PortError::OverlayManifestParse`], [`PortError::OverlayMissingPackage`],
 /// or [`PortError::OverlayIdentityMismatch`] from the identity cross-check;
 /// and [`PortError::Fs`] for any underlying filesystem error.
@@ -271,10 +264,8 @@ fn prepare_one(
     }
     write_marker(&source_dir, &plan_fingerprint)?;
 
-    let overlay_manifest = match &entry.origin {
-        PortOrigin::PortDir(dir) => Some(dir.join(&entry.descriptor.overlay.relative_path)),
-        PortOrigin::Builtin(_) => None,
-    };
+    let PortOrigin::PortDir(dir) = &entry.origin;
+    let overlay_manifest = Some(dir.join(&entry.descriptor.overlay.relative_path));
     Ok(PreparedPort {
         name: entry.descriptor.name.clone(),
         version: entry.descriptor.version.clone(),
@@ -502,20 +493,20 @@ fn apply_copies(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     Ok(())
 }
 
-/// One declared patch, resolved to its bytes: from the port
-/// directory for a filesystem recipe, from the embedded table for a
-/// bundled one.
+/// One declared patch, resolved to its bytes from the port
+/// directory.
 struct ResolvedPatch {
     rel_path: Utf8PathBuf,
     bytes: Vec<u8>,
 }
 
 /// Reject a declared patch path whose `patches/` component or leaf is
-/// a symlink, WITHOUT following links - matching the bundled pipeline
-/// (`build.rs` rejects every symlink via `symlink_metadata`).  An
-/// in-tree link (`patches/x -> ../real.patch`) canonicalizes inside
-/// the port directory and reads a regular file, so containment alone
-/// would accept a recipe shape the bundled path refuses.
+/// a symlink, WITHOUT following links.  Declared patch entries are
+/// exempt from the registry verifier's tree comparison, so a followed
+/// link would smuggle uncommitted host-local bytes into a verified
+/// package.  An in-tree link (`patches/x -> ../real.patch`)
+/// canonicalizes inside the port directory and reads a regular file,
+/// so containment alone would accept it.
 fn reject_symlinked_patch_path(
     entry: &PortEntry,
     port_dir: &Path,
@@ -561,88 +552,64 @@ fn reject_symlinked_patch_path(
 fn resolve_patch_plan(entry: &PortEntry) -> Result<Vec<ResolvedPatch>, PortError> {
     let mut plan = Vec::with_capacity(entry.descriptor.patches.len());
     for rel_path in &entry.descriptor.patches {
-        let (bytes, display_path) = match &entry.origin {
-            PortOrigin::PortDir(port_dir) => {
-                let path = port_dir.join(rel_path.as_std_path());
-                reject_symlinked_patch_path(entry, port_dir, rel_path, &path)?;
-                // Resolve the real file and require it to stay inside
-                // the port directory.  Canonicalizing follows every
-                // symlink on the way - the leaf `patches/x`, an
-                // intermediate `patches/` that is itself a symlink, or
-                // any `..` - so a link escaping the port directory
-                // (which would read and then publish bytes from
-                // outside it, breaking the `patches/<file>`
-                // containment) is rejected.  Kept as defense in depth
-                // behind the symlink rejection above.
-                let canonical = match path.canonicalize() {
-                    Ok(canonical) => canonical,
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                        let (name, version) = entry.identity();
-                        return Err(PortError::MissingPatchFile {
-                            name,
-                            version,
-                            path,
-                        });
-                    }
-                    Err(source) => return Err(PortError::Fs { path, source }),
-                };
-                let canonical_port = port_dir.canonicalize().with_path(port_dir)?;
-                let meta = fs::metadata(&canonical).with_path(&canonical)?;
-                // Beyond containment and regular-file-ness, require the
-                // declared path to match the on-disk spelling
-                // case-exactly, matching the case-sensitive bundled
-                // lookup (`builtin::lookup`) and a Linux checkout: a
-                // case-insensitive host would otherwise accept
-                // `patches/Fix.patch` for an on-disk `patches/fix.patch`
-                // and prepare a recipe the bundled path and the
-                // verifier reject.
-                let case_exact = cabin_artifact::path_is_case_exact(port_dir, rel_path.as_str())
-                    .with_path(port_dir)?;
-                if !canonical.starts_with(&canonical_port)
-                    || !meta.file_type().is_file()
-                    || !case_exact
-                {
-                    return Err(PortError::UnsafePatchPath {
-                        path: port_dir.clone(),
-                        value: rel_path.to_string(),
-                    });
-                }
-                // Bound the read: an over-cap patch must fail without
-                // first allocating the whole file.
-                if meta.len() > cabin_core::MAX_PATCH_BYTES as u64 {
-                    let (name, version) = entry.identity();
-                    return Err(PortError::PatchTooLarge {
-                        name,
-                        version,
-                        path,
-                        size: usize::try_from(meta.len()).unwrap_or(usize::MAX),
-                        limit: cabin_core::MAX_PATCH_BYTES,
-                    });
-                }
-                (fs::read(&canonical).with_path(&canonical)?, path)
+        let PortOrigin::PortDir(port_dir) = &entry.origin;
+        let path = port_dir.join(rel_path.as_std_path());
+        reject_symlinked_patch_path(entry, port_dir, rel_path, &path)?;
+        // Resolve the real file and require it to stay inside
+        // the port directory.  Canonicalizing follows every
+        // symlink on the way - the leaf `patches/x`, an
+        // intermediate `patches/` that is itself a symlink, or
+        // any `..` - so a link escaping the port directory
+        // (which would read and then publish bytes from
+        // outside it, breaking the `patches/<file>`
+        // containment) is rejected.  Kept as defense in depth
+        // behind the symlink rejection above.
+        let canonical = match path.canonicalize() {
+            Ok(canonical) => canonical,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let (name, version) = entry.identity();
+                return Err(PortError::MissingPatchFile {
+                    name,
+                    version,
+                    path,
+                });
             }
-            PortOrigin::Builtin(name) => {
-                let pinned = semver::VersionReq::parse(&format!("={}", entry.descriptor.version))
-                    .expect("descriptor.version is a valid SemVer; the `=` requirement parses");
-                let embedded = crate::builtin::lookup(name, &pinned)
-                    .and_then(|recipe| {
-                        recipe
-                            .patches
-                            .iter()
-                            .find(|(path, _)| *path == rel_path.as_str())
-                    })
-                    .map(|(_, bytes)| bytes.to_vec());
-                let Some(bytes) = embedded else {
-                    let (name, version) = entry.identity();
-                    return Err(PortError::MissingPatchFile {
-                        name,
-                        version,
-                        path: PathBuf::from(format!("<builtin>/{rel_path}")),
-                    });
-                };
-                (bytes, PathBuf::from(format!("<builtin>/{rel_path}")))
-            }
+            Err(source) => return Err(PortError::Fs { path, source }),
         };
+        let canonical_port = port_dir.canonicalize().with_path(port_dir)?;
+        let meta = fs::metadata(&canonical).with_path(&canonical)?;
+        // Beyond containment and regular-file-ness, require the
+        // declared path to match the on-disk spelling
+        // case-exactly: a case-insensitive host (macOS, Windows)
+        // would otherwise accept `patches/Fix.patch` for an
+        // on-disk `patches/fix.patch`, so the same committed recipe
+        // would publish from one host and fail on a case-sensitive
+        // checkout - host-dependent behavior on the path that
+        // produces published bytes.
+        let case_exact =
+            cabin_artifact::path_is_case_exact(port_dir, rel_path.as_str()).with_path(port_dir)?;
+        if !canonical.starts_with(&canonical_port) || !meta.file_type().is_file() || !case_exact {
+            return Err(PortError::UnsafePatchPath {
+                path: port_dir.clone(),
+                value: rel_path.to_string(),
+            });
+        }
+        // Bound the read: an over-cap patch must fail without
+        // first allocating the whole file.
+        if meta.len() > cabin_core::MAX_PATCH_BYTES as u64 {
+            let (name, version) = entry.identity();
+            return Err(PortError::PatchTooLarge {
+                name,
+                version,
+                path,
+                size: usize::try_from(meta.len()).unwrap_or(usize::MAX),
+                limit: cabin_core::MAX_PATCH_BYTES,
+            });
+        }
+        let (bytes, display_path) = (fs::read(&canonical).with_path(&canonical)?, path);
+        // Backstop for a file that grew between the `fs::metadata`
+        // stat above and this read: the pre-read cap saw the old
+        // length.
         if bytes.len() > cabin_core::MAX_PATCH_BYTES {
             let (name, version) = entry.identity();
             return Err(PortError::PatchTooLarge {
@@ -729,34 +696,22 @@ fn apply_patches(
 
 fn ensure_overlay(entry: &PortEntry, source_dir: &Path) -> Result<(), PortError> {
     let overlay_dest = source_dir.join("cabin.toml");
-    let overlay_bytes: Vec<u8> = match &entry.origin {
-        PortOrigin::PortDir(port_dir) => {
-            let overlay_source = port_dir.join(&entry.descriptor.overlay.relative_path);
-            if !overlay_source.is_file() {
-                let (name, version) = entry.identity();
-                return Err(PortError::MissingOverlayManifest {
-                    name,
-                    version,
-                    path: overlay_source,
-                });
-            }
-            fs::read(&overlay_source).with_path(&overlay_source)?
-        }
-        PortOrigin::Builtin(name) => {
-            // Pin the lookup to the version `build_plan_entries` already
-            // resolved, so this fetch returns the same recipe in the
-            // multi-version future. (With one bundled entry per name today,
-            // the result is unchanged; the pin makes the code correct
-            // whenever BUILTIN grows past size 1.)
-            let pinned = semver::VersionReq::parse(&format!("={}", entry.descriptor.version))
-                .expect("descriptor.version is a valid SemVer; the `=` requirement parses");
-            let recipe =
-                crate::builtin::lookup(name, &pinned).ok_or_else(|| PortError::UnknownBuiltin {
-                    name: (*name).to_owned(),
-                })?;
-            recipe.overlay_toml.as_bytes().to_vec()
-        }
-    };
+    let PortOrigin::PortDir(port_dir) = &entry.origin;
+    let overlay_source = port_dir.join(&entry.descriptor.overlay.relative_path);
+    // Checked before the read so a missing overlay surfaces as the
+    // typed `MissingOverlayManifest`, not a bare io error.
+    if !overlay_source.is_file() {
+        let (name, version) = entry.identity();
+        return Err(PortError::MissingOverlayManifest {
+            name,
+            version,
+            path: overlay_source,
+        });
+    }
+    let overlay_bytes = fs::read(&overlay_source).with_path(&overlay_source)?;
+    // Unconditional: a warm cache hit skips the copy and patch steps
+    // but still refreshes the overlay, which
+    // `cross_check_overlay_identity` reads back.
     write_atomic(&overlay_dest, &overlay_bytes).with_path(&overlay_dest)?;
     Ok(())
 }
@@ -1273,44 +1228,6 @@ mod tests {
     }
 
     #[test]
-    fn prepares_port_from_builtin_origin() {
-        use crate::builtin::lookup;
-        let dir = TempDir::new().unwrap();
-        let (archive, hex) = make_archive(
-            &dir.path().join("downloads"),
-            "zlib-1.3.1.tar.gz",
-            &[
-                ("zlib-1.3.1/zlib.h", "// stub\n"),
-                ("zlib-1.3.1/zlib.c", "// stub\n"),
-            ],
-        );
-        let descriptor = make_descriptor(Url::from_file_path(&archive).unwrap(), &hex);
-        let cache = PortCache::new(dir.path().join("cache"));
-        // The descriptor identity must match the bundled zlib overlay's
-        // [package] block (zlib 1.3.1) so the identity cross-check passes.
-        assert_eq!(descriptor.name.as_str(), "zlib");
-        assert_eq!(descriptor.version, Version::new(1, 3, 1));
-        assert!(
-            lookup("zlib", &semver::VersionReq::parse(">=0").unwrap()).is_some(),
-            "zlib must be bundled"
-        );
-        let plan = PortPlan {
-            entries: vec![PortEntry {
-                descriptor,
-                origin: PortOrigin::Builtin("zlib"),
-                source: PortFetchSource::LocalArchive(archive),
-            }],
-        };
-        let result = prepare(&plan, &cache, PortPrepareOptions::default()).unwrap();
-        assert_eq!(result.ports.len(), 1);
-        let prepared = &result.ports[0];
-        let overlay = std::fs::read_to_string(prepared.source_dir.join("cabin.toml")).unwrap();
-        assert!(overlay.contains("name = \"zlib\""), "overlay: {overlay}");
-        assert!(overlay.contains("target.zlib"), "overlay: {overlay}");
-        assert!(matches!(&prepared.origin, PortOrigin::Builtin("zlib")));
-    }
-
-    #[test]
     fn applies_copy_step_into_extracted_tree() {
         use crate::model::CopyStep;
         let dir = TempDir::new().unwrap();
@@ -1768,9 +1685,8 @@ mod tests {
     fn rejects_an_in_tree_symlinked_patch_file() {
         // A link whose target stays INSIDE the port directory passes
         // canonicalize-containment and reads a regular file - but the
-        // bundled pipeline (`build.rs`) rejects every symlink, so the
-        // filesystem path must too or the two accept different
-        // recipe shapes.
+        // published archive must carry the committed regular file
+        // itself, never what a link points at.
         let dir = TempDir::new().unwrap();
         let (plan, cache) = patched_plan_with_symlink(&dir, |port_dir| {
             fs::create_dir_all(port_dir.join("patches")).unwrap();
