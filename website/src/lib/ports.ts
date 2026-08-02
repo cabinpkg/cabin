@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PackageRecord } from "./types";
@@ -37,6 +37,16 @@ const PORTS_DIR = resolvePortsDir();
 // live-registry build dependency.
 const REGISTRY_SCOPE = "cabin-ports";
 
+// The publisher's core version components are Rust `u64`s, so a
+// grammatically valid number above this is still refused there.
+const U64_MAX = 18446744073709551615n;
+
+// The official SemVer 2.0.0 grammar (semver.org), which is what the
+// publisher's `semver::Version` parser implements.  Capture groups 1-3
+// are the core numbers, range-checked separately below.
+const SEMVER =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+
 export function loadPortsAsPackageRecords(): Promise<PackageRecord[]> {
     return loadPortsFromDir(PORTS_DIR);
 }
@@ -64,10 +74,25 @@ export async function loadPortsFromDir(
         const portDir = join(portsDir, portName);
         for (const version of await listDirectories(portDir)) {
             const manifestPath = join(portDir, version, "cabin.toml");
-            if (!existsSync(manifestPath)) {
-                // An auxiliary directory (the publisher skips these
-                // too).
+            // Discovery mirrors `plan.rs::discover_ports`, whose
+            // `is_file()` FOLLOWS links: a version directory whose
+            // `cabin.toml` does not resolve to a regular file - absent,
+            // dangling, or a directory - is skipped, not diagnosed.
+            // Being stricter here would fail the site build on a tree
+            // that publishes fine.
+            const resolved = await statOrNull(manifestPath);
+            if (resolved === null || !resolved.isFile()) {
                 continue;
+            }
+            // It resolves to a file, so the publisher WOULD load it -
+            // and `plan.rs::load_package` then refuses a symlink,
+            // because the manifest carries the package's identity and
+            // provenance and must be the committed file itself.
+            const marker = await lstat(manifestPath);
+            if (!marker.isFile()) {
+                throw new Error(
+                    `${manifestPath} is not a regular file; a port's manifest must be committed directly, not through a symlink.`,
+                );
             }
             const record = await loadPackageRecord(
                 manifestPath,
@@ -90,6 +115,13 @@ export async function loadPortsFromDir(
             seen.add(key);
             records.push(record);
         }
+    }
+
+    // The publisher refuses an empty tree rather than publishing
+    // nothing; a site that silently rendered zero package pages would
+    // look like a successful build of a broken checkout.
+    if (records.length === 0) {
+        throw new Error(`No ports found under ${portsDir}.`);
     }
 
     return records;
@@ -148,6 +180,33 @@ async function loadPackageRecord(
     if (version !== versionDir) {
         throw new Error(
             `${manifestPath} declares version ${version}, which disagrees with its "${versionDir}/" directory.`,
+        );
+    }
+    // The publisher parses this into a typed `semver::Version`, so a
+    // string the resolver could never match must fail the build here
+    // rather than render a package page nobody can depend on.
+    //
+    // The SemVer 2.0.0 grammar itself, NOT node-semver's `valid()`,
+    // which accepts a leading `v` and surrounding whitespace Rust
+    // rejects and rejects integers above `Number.MAX_SAFE_INTEGER`
+    // Rust accepts.  The core numbers are then range-checked with
+    // `BigInt` - unbounded, so this stays exact rather than trading
+    // one precision limit for another - because the publisher parses
+    // them as `u64`.
+    //
+    // Ceiling, deliberate: this is the version only.  Full manifest
+    // validity (targets, features, standards) stays the publisher's
+    // job - reimplementing Cabin's manifest parser in TypeScript is
+    // the duplication this loader exists to avoid.
+    const core = SEMVER.exec(version);
+    if (core === null) {
+        throw new Error(
+            `${manifestPath} declares version "${version}", which is not a valid SemVer version.`,
+        );
+    }
+    if (core.slice(1, 4).some((part) => BigInt(part) > U64_MAX)) {
+        throw new Error(
+            `${manifestPath} declares version "${version}", whose major, minor or patch number exceeds the u64 the publisher parses it as.`,
         );
     }
 
@@ -250,12 +309,39 @@ export function scopedPackageName(portName: string, context: string): string {
     return `${REGISTRY_SCOPE}/${lower}`;
 }
 
+// Committed regular directories only, matching the publisher
+// (plan.rs::read_sorted_dirs): a symlinked name or version directory
+// would source published metadata from outside the committed tree, so
+// it fails the build rather than being skipped.  `readdir`'s
+// `isDirectory()` is false for a symlink, so a plain filter would drop
+// one silently instead of diagnosing it.
 async function listDirectories(parent: string): Promise<string[]> {
     const entries = await readdir(parent, { withFileTypes: true });
-    return entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort();
+    const names: string[] = [];
+    for (const entry of entries) {
+        if (entry.isSymbolicLink()) {
+            const target = join(parent, entry.name);
+            if (await directoryExists(target)) {
+                throw new Error(
+                    `${target} is a symlinked directory; ports must be committed as regular directories.`,
+                );
+            }
+            continue;
+        }
+        if (entry.isDirectory()) {
+            names.push(entry.name);
+        }
+    }
+    return names.sort();
+}
+
+// `stat` follows symlinks, matching Rust's `Path::is_file()`.
+async function statOrNull(path: string) {
+    try {
+        return await stat(path);
+    } catch {
+        return null;
+    }
 }
 
 async function directoryExists(path: string): Promise<boolean> {

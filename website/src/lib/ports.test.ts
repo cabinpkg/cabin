@@ -2,7 +2,7 @@
 // committed-tree tests pin that the website presents exactly the
 // identities the cabin-port-publish tool would publish.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,6 +11,18 @@ import {
     loadPortsFromDir,
     scopedPackageName,
 } from "./ports.ts";
+
+function packageManifest(name = "cabin-ports/fmt", version = "12.2.0"): string {
+    return `[package]
+name = "${name}"
+version = "${version}"
+
+[package.upstream]
+url = "https://example.com/fmt-${version}.tar.gz"
+sha256 = "${"b".repeat(64)}"
+format = "tar.gz"
+`;
+}
 
 test("every committed port loads as a canonical cabin-ports identity", async () => {
     const records = await loadPortsAsPackageRecords();
@@ -253,6 +265,189 @@ format = "tar.gz"
         await assert.rejects(
             () => loadPortsFromDir(dir),
             /disagrees with its directory identity/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a symlinked port directory fails the build", async () => {
+    // The publisher refuses one (plan.rs::read_sorted_dirs) because a
+    // link sources published metadata from outside the committed tree.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const outside = join(dir, "outside", "fmt", "12.2.0");
+        await mkdir(outside, { recursive: true });
+        await writeFile(join(outside, "cabin.toml"), packageManifest());
+        const ports = join(dir, "ports");
+        await mkdir(ports, { recursive: true });
+        await symlink(join(dir, "outside", "fmt"), join(ports, "fmt"));
+        await assert.rejects(
+            () => loadPortsFromDir(ports),
+            /is a symlinked directory/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a symlinked manifest fails the build", async () => {
+    // Following it would let published metadata come from outside the
+    // version directory; the publisher refuses it too.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        await writeFile(join(dir, "outside.toml"), packageManifest());
+        const portDir = join(dir, "ports", "fmt", "12.2.0");
+        await mkdir(portDir, { recursive: true });
+        await symlink(join(dir, "outside.toml"), join(portDir, "cabin.toml"));
+        await assert.rejects(
+            () => loadPortsFromDir(join(dir, "ports")),
+            /is not a regular file/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a dangling or directory cabin.toml symlink is skipped, not diagnosed", async () => {
+    // `plan.rs::discover_ports` uses `is_file()`, which FOLLOWS links:
+    // neither of these resolves to a regular file, so the publisher
+    // skips the version directory. Throwing here would fail the site
+    // build on a tree that publishes fine.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const dangling = join(dir, "fmt", "12.2.0");
+        await mkdir(dangling, { recursive: true });
+        await symlink(join(dir, "nowhere.toml"), join(dangling, "cabin.toml"));
+
+        const toDir = join(dir, "fmt", "12.3.0");
+        await mkdir(join(toDir, "target"), { recursive: true });
+        await symlink(join(toDir, "target"), join(toDir, "cabin.toml"));
+
+        const good = join(dir, "zlib", "1.3.1");
+        await mkdir(good, { recursive: true });
+        await writeFile(
+            join(good, "cabin.toml"),
+            packageManifest("cabin-ports/zlib", "1.3.1"),
+        );
+
+        const records = await loadPortsFromDir(dir);
+        assert.deepEqual(
+            records.map((r) => r.name),
+            ["cabin-ports/zlib"],
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a version above MAX_SAFE_INTEGER but within u64 still loads", async () => {
+    // node-semver rejects integers above Number.MAX_SAFE_INTEGER, which
+    // Rust's u64-backed parser accepts; the loader must not be the
+    // stricter of the two.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const version = "9007199254740993.0.0";
+        const portDir = join(dir, "fmt", version);
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", version),
+        );
+        const records = await loadPortsFromDir(dir);
+        assert.equal(records[0].version, version);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a core version above u64::MAX fails the build", async () => {
+    // Grammatically valid SemVer, but the publisher parses the core
+    // numbers as u64 and refuses it - so a page for a version that can
+    // never publish must not render.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const version = "18446744073709551616.0.0";
+        const portDir = join(dir, "fmt", version);
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", version),
+        );
+        await assert.rejects(() => loadPortsFromDir(dir), /exceeds the u64/);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("the exact u64::MAX core version still loads", async () => {
+    // The boundary itself is valid for the publisher, so the loader
+    // must not be off by one.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const version = "18446744073709551615.0.0";
+        const portDir = join(dir, "fmt", version);
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", version),
+        );
+        const records = await loadPortsFromDir(dir);
+        assert.equal(records[0].version, version);
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a leading-v version fails the build", async () => {
+    // node-semver's valid() accepts "v1.2.3"; Rust's parser does not.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const portDir = join(dir, "fmt", "v1.2.3");
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", "v1.2.3"),
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /is not a valid SemVer version/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("an empty ports tree fails the build", async () => {
+    // The publisher refuses it rather than publishing nothing; a site
+    // rendering zero package pages would look like a clean build of a
+    // broken checkout.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        await mkdir(join(dir, "ports"), { recursive: true });
+        await assert.rejects(
+            () => loadPortsFromDir(join(dir, "ports")),
+            /No ports found under/,
+        );
+    } finally {
+        await rm(dir, { recursive: true, force: true });
+    }
+});
+
+test("a version that is not valid SemVer fails the build", async () => {
+    // The publisher parses this into a typed semver::Version, so a
+    // string the resolver could never match must not render a page.
+    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
+    try {
+        const portDir = join(dir, "fmt", "12.2");
+        await mkdir(portDir, { recursive: true });
+        await writeFile(
+            join(portDir, "cabin.toml"),
+            packageManifest("cabin-ports/fmt", "12.2"),
+        );
+        await assert.rejects(
+            () => loadPortsFromDir(dir),
+            /is not a valid SemVer version/,
         );
     } finally {
         await rm(dir, { recursive: true, force: true });
