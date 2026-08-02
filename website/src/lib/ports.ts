@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PackageRecord } from "./types";
 
-// The foundation-port recipes live inside the cabin-port crate at
+// The foundation ports live inside the cabin-port crate at
 // crates/cabin-port/ports/.  Resolve that directory by walking up from the
 // current working directory to the nearest ancestor that contains it, so it
 // works whether the build runs from website/ (local `npm run build`, CI) or the
@@ -92,10 +92,10 @@ export async function loadPortsFromDir(
         let sawRecipe = false;
         let sawPackage = false;
         for (const version of await listDirectories(portDir)) {
-            // Two committed shapes coexist while the recipe layer
-            // collapses: a recipe pair (port.toml + overlay) and a
-            // provenance-bearing package manifest.  A port.toml marks
-            // the former; a bare cabin.toml the latter.
+            // Every committed port is a provenance-bearing package
+            // manifest; the recipe pair (port.toml + overlay) is still
+            // supported and still covered by the fixture tests.  A
+            // port.toml marks a recipe; a bare cabin.toml a package.
             const portTomlPath = join(portDir, version, "port.toml");
             const manifestPath = join(portDir, version, "cabin.toml");
             const isRecipe = existsSync(portTomlPath);

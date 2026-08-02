@@ -68,9 +68,9 @@ pub fn stage_ports_registry(ports_dir: &Path, cache_dir: &Path, work_dir: &Path)
     stage(ports_dir, cache_dir, work_dir, ArchiveFetch::CacheOnly)
 }
 
-/// The committed `crates/cabin-port/ports/` tree - both committed
-/// shapes - staged into one immutable file registry shared by every
-/// test in the calling process.  Staging downloads the pinned real upstream
+/// The committed `crates/cabin-port/ports/` tree staged into one
+/// immutable file registry shared by every test in the calling
+/// process.  Staging downloads the pinned real upstream
 /// archives, so callers must be `#[ignore = "requires external
 /// network"]` tests; sharing one registry keeps the ignored example
 /// suite from re-downloading the whole set per test.

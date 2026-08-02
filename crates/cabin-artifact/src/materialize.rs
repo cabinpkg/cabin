@@ -5,13 +5,12 @@
 //! `docs/manifest.md` pins as normative.
 //!
 //! Today the registry verifier replays every declaration through
-//! this module.  It is built as the one shared pipeline for the
-//! ports publisher too: package-shape staging adopts it as the
-//! recipe layer collapses into provenance-bearing packages, at
-//! which point a byte the publisher assembles is a byte the
-//! verifier derives.  Until that migration lands, bundled recipe
-//! preparation (`cabin-port`) remains a separate implementation on
-//! its way out.  Only what genuinely differs stays with the caller:
+//! this module.  It is the one shared pipeline for the ports
+//! publisher too: every committed port is package-shaped and stages
+//! through it, so a byte the publisher assembles is a byte the
+//! verifier derives.  The publisher's retained recipe path
+//! (`cabin-port`) remains a separate implementation, on its way
+//! out.  Only what genuinely differs stays with the caller:
 //! where patch bytes come from, and what happens to the assembled
 //! tree afterwards.
 //!

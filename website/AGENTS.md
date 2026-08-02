@@ -11,13 +11,12 @@ from 22.18).
 - Package pages are generated at build time from
   `../crates/cabin-port/ports/<name>/<version>/` (curated foundation
   ports) - no database or API, and no live-registry build dependency.
-  While the recipe layer collapses into provenance-bearing packages,
-  a version directory carries one of two shapes and `src/lib/ports.ts`
-  loads one `PackageRecord` from either: a recipe (`port.toml` +
-  overlay, the `[source]` pin surfacing as `upstream` provenance) or a
-  migrated package (a single `cabin.toml` whose `[package.upstream]`
-  supplies the same provenance; its display fields are null - the
-  manifest carries none - so those UI sections hide). Both mirror the
+  Every committed version directory is a provenance-bearing package (a
+  single `cabin.toml` whose `[package.upstream]` supplies the record's
+  provenance; its display fields are null - the manifest carries none -
+  so those UI sections hide).  `src/lib/ports.ts` also still loads the
+  recipe shape (`port.toml` + overlay, the `[source]` pin surfacing as
+  `upstream`), which nothing is committed in today. Both mirror the
   `cabin-port-publish` identity rules: the record name is the scoped
   registry name `cabin-ports/<lowercase name>`, the version is the
   upstream version verbatim (packaging corrections are registry

@@ -149,7 +149,7 @@ if [[ -n "$base" ]]; then
     exit 0
   fi
   grep -qE '^(crates/|examples/|Cargo\.|\.cargo/|rust-toolchain)' <<<"$changed" || rust_changed=0
-  # The website build also loads the foundation-port recipes
+  # The website build also loads the foundation ports
   # (website/src/lib/ports.ts reads crates/cabin-port/ports/).
   grep -qE '^(website/|docs/|crates/cabin-port/ports/)' <<<"$changed" || web_changed=0
   grep -qE '^(docs/|CONTRIBUTING\.md|INSTALL\.md)' <<<"$changed" || docs_changed=0

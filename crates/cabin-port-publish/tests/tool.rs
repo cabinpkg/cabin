@@ -184,9 +184,8 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
          \"c11\"\ndeps = [\"cabin-ports/zlib\"]\n",
     );
 
-    // A third port, already migrated to a provenance-bearing package
-    // directory: recipes and packages coexist in one tree while the
-    // collapse lands, and one dry-run must stage both shapes.
+    // A third port as a provenance-bearing package directory: the
+    // publisher accepts both shapes, and one dry-run must stage both.
     let (fastlz_bytes, fastlz_hex) = make_tar_gz(&[
         (
             "fastlz-0.5.0/fastlz.h",

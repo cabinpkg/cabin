@@ -16,7 +16,7 @@ name: Ports Publish
 # carry, and divergent bytes for an already-published version land as
 # a new packaging revision - a change there must run the ports
 # preflight (and republish) too, or it surfaces weeks later as a
-# blocked publish on an unrelated recipe PR.
+# blocked publish on an unrelated ports PR.
 on:
   push:
     branches: [main]

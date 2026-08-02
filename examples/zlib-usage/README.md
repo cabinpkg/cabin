@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/zlib` registry package,
 published from the committed `crates/cabin-port/ports/zlib/1.3.1/`
-recipe.  The program links against zlib and prints
+package directory.  The program links against zlib and prints
 `zlibVersion()`.
 
 This is **not** itself a port and does not vendor or copy zlib

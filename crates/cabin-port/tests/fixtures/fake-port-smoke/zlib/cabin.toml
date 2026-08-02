@@ -1,13 +1,16 @@
-[package.upstream]
-url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
-sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
-format = "tar.gz"
-strip-prefix = "zlib-1.3.1"
+# Overlay for the hermetic fake zlib port: the same shape the
+# committed recipe had before zlib migrated to a package, so the
+# registry-ports tests keep exercising the recipe machinery (fetch,
+# extract, overlay, build) against sources they fully control.
+#
+# The fake archive stubs every declared source except zutil.c, so the
+# source list must stay the recipe's 15-source set for
+# `stub_declared_sources_except` to generate the same tree.
 [package]
-name = "cabin-ports/zlib"
+name = "zlib"
 version = "1.3.1"
 
-[target.z]
+[target.zlib]
 type = "library"
 sources = [
   "adler32.c",
