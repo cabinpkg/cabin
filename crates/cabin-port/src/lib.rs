@@ -22,7 +22,6 @@
 //!   extension picks the format (`.zip` opts in, everything else
 //!   is `.tar.gz`).
 
-pub mod builtin;
 pub mod cache;
 pub mod error;
 pub mod model;
