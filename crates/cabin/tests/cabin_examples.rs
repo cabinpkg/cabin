@@ -258,7 +258,7 @@ fn workspace_basic_runs_selected_package() {
 }
 
 // Real-upstream registry examples are external-network smoke tests:
-// each one stages the committed `crates/cabin-port/ports/` tree into
+// each one stages the committed `ports/` tree into
 // a local file registry through the publisher
 // pipeline (one shared staging per test process, downloading the
 // pinned upstream archives) and consumes the published

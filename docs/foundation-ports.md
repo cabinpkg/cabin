@@ -1,9 +1,9 @@
 # Foundation ports
 
 Foundation ports are **curated packages** that adapt important existing C/C++ libraries - libraries
-that do not yet ship a native `cabin.toml` - to Cabin's build model.  Their sources live under the
-cabin-port crate's
-[`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/)
+that do not yet ship a native `cabin.toml` - to Cabin's build model.  Their sources live in the
+repository-root
+[`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/)
 directory and are explicitly **not** a public registry; this directory is closed to arbitrary
 submissions and is intended to be retired incrementally as upstreams adopt native `cabin.toml`.
 
@@ -36,7 +36,7 @@ A port is an ordinary Cabin package directory: one `cabin.toml`, plus a `patches
 when it declares any.
 
 ```
-crates/cabin-port/ports/<name>/<version>/
+ports/<name>/<version>/
   cabin.toml - the published manifest: scoped identity,
                    [package.upstream] provenance, and the
                    upstream sources described as Cabin targets
@@ -313,7 +313,7 @@ port should be retired.  The retirement steps are:
 
 1. Switch downstream `[dependencies]` entries from `"cabin-ports/<name>"` to the appropriate
    `path` / `version` / `workspace` form pointing at the new upstream-maintained package.
-2. Delete the `crates/cabin-port/ports/<name>/<version>/` directory.
-3. Update `crates/cabin-port/ports/README.md`
+2. Delete the `ports/<name>/<version>/` directory.
+3. Update `ports/README.md`
    to remove the entry from the "Available ports" list.
 4. Note the retirement in the relevant release notes.

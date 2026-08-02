@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/uthash` registry package,
 published from the curated
-[`crates/cabin-port/ports/uthash/2.4.0/`](../../crates/cabin-port/ports/uthash/2.4.0/)
+[`ports/uthash/2.4.0/`](../../ports/uthash/2.4.0/)
 package directory.  The program includes the header-only uthash macro library,
 adds one entry to a hash table keyed by a string field, looks it up,
 and prints the value plus the library version.

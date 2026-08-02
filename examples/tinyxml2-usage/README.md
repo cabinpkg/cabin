@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/tinyxml2` registry
 package, published from the curated
-[`crates/cabin-port/ports/tinyxml2/11.0.0/`](../../crates/cabin-port/ports/tinyxml2/11.0.0/)
+[`ports/tinyxml2/11.0.0/`](../../ports/tinyxml2/11.0.0/)
 package directory.  The program links against tinyxml2 (a C++ library), parses
 a small XML document, and prints an element's text plus the
 compiled-in tinyxml2 version.

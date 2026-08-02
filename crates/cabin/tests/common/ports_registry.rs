@@ -68,7 +68,7 @@ pub fn stage_ports_registry(ports_dir: &Path, cache_dir: &Path, work_dir: &Path)
     stage(ports_dir, cache_dir, work_dir, ArchiveFetch::CacheOnly)
 }
 
-/// The committed `crates/cabin-port/ports/` tree staged into one
+/// The committed `ports/` tree staged into one
 /// immutable file registry shared by every test in the calling
 /// process.  Staging downloads the pinned real upstream
 /// archives, so callers must be `#[ignore = "requires external
@@ -81,7 +81,7 @@ pub fn committed_ports_registry() -> &'static Path {
             let root = assert_fs::TempDir::new().expect("committed-ports staging dir");
             let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("..")
-                .join("cabin-port")
+                .join("..")
                 .join("ports");
             let registry = stage(
                 &ports_dir,

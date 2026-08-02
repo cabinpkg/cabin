@@ -22,7 +22,7 @@ every package through the registry API.
 options:
   --index-url <URL>   registry index URL (required with --publish)
   --ports-dir <PATH>  ports directory (default: the repository's
-                      crates/cabin-port/ports)
+                      ports)
   --cache-dir <PATH>  cabin cache root for upstream archives
                       (default: CABIN_CACHE_DIR, CABIN_CACHE_HOME, or
                       the platform cache directory + /cabin)
@@ -149,7 +149,7 @@ fn parse_args() -> Result<Parsed> {
 fn default_ports_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("cabin-port")
+        .join("..")
         .join("ports")
 }
 

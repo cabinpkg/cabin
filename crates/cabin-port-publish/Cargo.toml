@@ -7,7 +7,7 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Repository tool that publishes foundation ports as cabin-ports registry packages"
 # Repository-owned maintainer tooling: the tool reads the committed
-# `crates/cabin-port/ports/` tree, so a published copy would have
+# `ports/` tree, so a published copy would have
 # nothing to operate on.
 publish = false
 

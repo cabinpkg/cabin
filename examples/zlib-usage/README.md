@@ -1,7 +1,7 @@
 # zlib-usage
 
 A consumer example for the `cabin-ports/zlib` registry package,
-published from the committed `crates/cabin-port/ports/zlib/1.3.1/`
+published from the committed `ports/zlib/1.3.1/`
 package directory.  The program links against zlib and prints
 `zlibVersion()`.
 

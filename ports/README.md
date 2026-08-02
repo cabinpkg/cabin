@@ -6,7 +6,7 @@ C/C++ libraries - libraries that do not yet ship a native `cabin.toml` - to Cabi
 Every `<name>/<version>/` directory is a single `cabin.toml` carrying the canonical scoped identity
 (`cabin-ports/<name>`) and a complete `[package.upstream]` block, plus its `patches/` when it
 declares any.  It publishes verbatim: editing a byte here - a comment included - changes the
-published archive.  See [`docs/foundation-ports.md`](../../../docs/foundation-ports.md).
+published archive.  See [`docs/foundation-ports.md`](../docs/foundation-ports.md).
 
 Ports reach consumers as published `cabin-ports/*` registry packages; nothing in this directory is
 consumed from a user's manifest directly.  To publish one, the tool downloads the archive, verifies
@@ -45,7 +45,7 @@ patches = ["patches/0001-fix-msvc-build.patch"]
 Patches apply in declared order, after every copy step, and application is byte-exact:
 fixed `-p1` strip, no fuzz, no offset search, no newline normalization, text diffs only.  Like
 the copy steps, this is declarative transformation, never a script; a patch that does not apply
-fails the materialization.  See [`foundation-ports.md`](../../../docs/foundation-ports.md) for the
+fails the materialization.  See [`foundation-ports.md`](../docs/foundation-ports.md) for the
 full rules.
 
 Retiring a specific *version* of a foundation port removes `ports/<name>/<version>/`; retiring an
@@ -72,7 +72,7 @@ entire port removes the whole `ports/<name>/` directory.
   build through Cabin: build-system fixes and portability tweaks, never feature changes or
   divergence from upstream behavior.
 - A `library` target that embodies a well-known native library claims its identity with
-  [`links`](../../../docs/manifest.md#links) (`zlib` claims `"z"`), judged against upstream
+  [`links`](../docs/manifest.md#links) (`zlib` claims `"z"`), judged against upstream
   conventions.  Header-only ports claim nothing, and an alternative implementation with its own
   symbol namespace claims its own identity (`miniz` claims `"miniz"`, not `"z"`).
 - A foundation port should be **retired** once its upstream project ships and maintains a native

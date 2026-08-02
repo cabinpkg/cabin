@@ -6,7 +6,7 @@ target passes when `main()` returns `0`), this example is the one to read for te
 framework: a fixture (`TEST_F`), value assertions (`EXPECT_DOUBLE_EQ`), and exception assertions
 (`EXPECT_THROW`) against a small statistics library, linked against the `cabin-ports/googletest`
 registry package, published from the curated
-[`crates/cabin-port/ports/googletest/`](../../crates/cabin-port/ports/googletest) package
+[`ports/googletest/`](../../ports/googletest) package
 directory.
 
 One command does everything:

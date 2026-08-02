@@ -1,5 +1,5 @@
 //! Repository tool that publishes the curated foundation ports
-//! (`crates/cabin-port/ports/`) as ordinary registry packages under
+//! (`ports/`) as ordinary registry packages under
 //! the `cabin-ports` scope.  Every committed port is a package
 //! directory, published verbatim.
 //!

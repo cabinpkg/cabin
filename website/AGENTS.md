@@ -9,7 +9,7 @@ from 22.18).
 ## Data sources
 
 - Package pages are generated at build time from
-  `../crates/cabin-port/ports/<name>/<version>/` (curated foundation
+  `../ports/<name>/<version>/` (curated foundation
   ports) - no database or API, and no live-registry build dependency.
   Every committed version directory is a provenance-bearing package (a
   single `cabin.toml` whose `[package.upstream]` supplies the record's
@@ -59,7 +59,7 @@ from 22.18).
 2. Never resolve repo paths via `import.meta.url`: under `astro build`,
    modules are bundled into `dist/.prerender/chunks/` at a different depth
    than `src/`, so relative offsets that work in `astro dev` break in the
-   build. `src/lib/ports.ts` finds `crates/cabin-port/ports/` by walking up
+   build. `src/lib/ports.ts` finds `ports/` by walking up
    from `process.cwd()` (cwd is `website/` both locally and in CI) - keep it
    cwd-based.
 

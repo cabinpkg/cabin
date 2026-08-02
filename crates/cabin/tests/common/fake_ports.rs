@@ -178,7 +178,7 @@ impl FakePortBuilder {
     /// The committed manifest of a provenance-bearing package: the
     /// fixture's own `[package]` / `[target.*]` body with a
     /// `[package.upstream]` block stamped on top, exactly the shape a
-    /// port directory carries in `crates/cabin-port/ports/`.
+    /// port directory carries in `ports/`.
     fn package_manifest(&self, sha256: &str, archive_name: &str) -> String {
         let strip_prefix = self
             .archive_prefix

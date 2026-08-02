@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/googletest` registry
 package, published from the curated
-[`crates/cabin-port/ports/googletest/1.17.0/`](../../crates/cabin-port/ports/googletest/1.17.0/)
+[`ports/googletest/1.17.0/`](../../ports/googletest/1.17.0/)
 package directory.  The package has a small `calc` library and one `test`
 target that links GoogleTest.  The dependency is a
 `[dev-dependencies]` entry: `cabin test` activates dev dependencies
