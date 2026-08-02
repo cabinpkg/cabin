@@ -1,9 +1,8 @@
 // Fills the homepage's registry stats band from the public stats
-// endpoint. The band itself is static (the build-time ports figure),
-// and only the registry tiles ship hidden, revealed after a
-// successful fetch - so a script-less or offline view is a clean
-// static band, not placeholder dashes, and on sm+ viewports the
-// reveal fills the already-rendered grid row without moving the page.
+// endpoint. Every figure in the band is registry data, so the band
+// ships hidden and is revealed only after a successful fetch - a
+// script-less or offline view drops the band entirely rather than
+// showing an empty strip or placeholder dashes.
 import { formatCount } from "../lib/format";
 import { getRegistryStats } from "../lib/stats";
 
@@ -27,5 +26,6 @@ if (band instanceof HTMLElement) {
                 tile.hidden = false;
             }
         }
+        band.hidden = false;
     });
 }

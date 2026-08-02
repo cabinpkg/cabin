@@ -9,12 +9,6 @@ import {
     INSTALL_DOC_URL,
     SITE_DESCRIPTION,
 } from "../lib/constants";
-import { getLatestPackages } from "../lib/packages";
-
-// The one build-time figure in the stats band: foundation ports are
-// repo data, not registry data, so their count never needs a fetch.
-const portCount = (await getLatestPackages()).length;
-
 interface Feature {
     icon: IconName;
     title: string;
@@ -126,15 +120,14 @@ const quickstartOutput = "Hello from Cabin";
         </div>
     </section>
 
-    <section class="border-b border-line bg-night-raised">
+    <section
+        class="border-b border-line bg-night-raised"
+        data-registry-stats
+        hidden
+    >
         <div
-            class="container-shell grid grid-cols-2 gap-x-10 gap-y-6 py-8 sm:grid-cols-4"
-            data-registry-stats
+            class="container-shell grid grid-cols-2 gap-x-10 gap-y-6 py-8 sm:grid-cols-3"
         >
-            <div>
-                <p class="spec-label">Foundation ports</p>
-                <p class="mt-2 font-mono text-2xl text-ink">{portCount}</p>
-            </div>
             <div data-stat-tile hidden>
                 <p class="spec-label">Registry packages</p>
                 <p class="mt-2 font-mono text-2xl text-ink" data-stat-packages>
