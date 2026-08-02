@@ -381,10 +381,13 @@ else
 fi
 
 if [[ "$web_changed" -eq 1 ]]; then
-  launch "npm ci && npm run lint && npm run build (website/)" \
-    bash -c 'cd website && npm ci && npm run lint && npm run build'
+  # `npm test` runs here too, matching website.yml: it is the only
+  # check over src/lib/, so omitting it let the local gate print
+  # "local CI green" on a change that lands red in CI.
+  launch "npm ci && npm run lint && npm test && npm run build (website/)" \
+    bash -c 'cd website && npm ci && npm run lint && npm test && npm run build'
 else
-  echo "skipping website lint/build: no website/ or docs/ changes since main"
+  echo "skipping website lint/test/build: no website/, docs/ or ports/ changes since main"
 fi
 
 if [[ "${#phase_pids[@]}" -gt 0 ]]; then

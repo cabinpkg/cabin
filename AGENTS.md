@@ -37,9 +37,10 @@ same change and treat the architecture doc as authoritative.
   `npm ci && npm run lint && npm run build && npm test` (build runs
   typecheck, Astro build, CSP checks, and docs-link checks). For docs-only
   changes, run only the checks matching the touched surface.
-- `scripts/ci.sh` does not run `npm test`, but `website.yml` does, so the
-  local gate can be green while CI is red. Run it by hand for changes that
-  touch what `website/src/lib/` reads - the ports tree included.
+- `scripts/ci.sh` runs the same four website commands `website.yml` does,
+  scoped to changes touching `website/`, `docs/` or `ports/`. Outside that
+  scope it skips them, so a change that reaches the site another way still
+  needs them by hand.
 - Commit subjects follow Conventional Commits, lower-case, at or under 100
   characters (commitlint runs in CI).
 - Do not edit `typos.toml` or add allowlist entries unless a reviewer
