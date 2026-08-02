@@ -13,7 +13,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use cabin_port::PortCache;
 use cabin_port_publish::plan;
 use cabin_port_publish::preflight::{ArchiveFetch, stage_conversion};
 
@@ -109,11 +108,11 @@ fn stage(ports_dir: &Path, cache_dir: &Path, work_dir: &Path, fetch: ArchiveFetc
     let conversions = plan::load_conversions(ports_dir).expect("load committed ports");
     let registry_dir = work_dir.join("registry");
     let sources_dir = work_dir.join("src");
-    let port_cache = PortCache::new(cache_dir.join("ports"));
+    let ports_cache = cache_dir.join("ports");
     for conversion in &conversions {
         stage_conversion(
             conversion,
-            &port_cache,
+            &ports_cache,
             &sources_dir,
             &registry_dir,
             fetch,

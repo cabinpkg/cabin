@@ -5,8 +5,7 @@
 //! so the transformation is identical on every platform and between
 //! the producer and the verifier.  The ports publisher and the
 //! registry's external verifier (`cabin-registry-verify`) both reach
-//! it through [`materialize_upstream`](crate::materialize_upstream);
-//! `cabin-port`'s foundation-port preparation calls it directly.
+//! it through [`materialize_upstream`](crate::materialize_upstream).
 //! That symmetry is the whole point:
 //! application is deliberately strict so two runs over the same bytes
 //! can never disagree.
@@ -1118,9 +1117,7 @@ fn check_output_size(
 /// every host, so a case-mismatched path a case-insensitive
 /// filesystem would resolve is reported absent - matching the Linux
 /// verifier's case-sensitive lookup and keeping behavior
-/// platform-independent.  Shared with `cabin-port`, which applies the
-/// same rule to a declared patch file's path in the recipe directory.
-/// The trees involved hold no symlinks (extraction skips them), so a
+/// platform-independent.  The trees involved hold no symlinks (extraction skips them), so a
 /// plain per-component `read_dir` scan is sufficient.
 ///
 /// # Errors

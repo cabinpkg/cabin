@@ -48,7 +48,6 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
-  cabin-port/        foundation-port recipe parser + materialization pipeline
   cabin-port-publish/ repository tool: publishes committed ports to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
@@ -443,29 +442,6 @@ Actions workflow, never by users.  The crate must:
 - treat archive-caused failures as verdicts and environment-caused failures as errors that
   leave the version pending (fail safe).
 
-### `cabin-port`
-
-Owns the foundation-port recipe layer: parsing `port.toml`, the checksum-addressed port cache, and
-the materialization pipeline that turns a pinned upstream archive plus an overlay manifest into an
-ordinary package directory.  Only the port cache still has a caller; see below.  The crate must:
-
-- never reach into HTTP - like `cabin-artifact`, it accepts archive bytes via a typed
-  `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in the publisher;
-- never reimplement extraction safety.  Decompression-bomb caps, symlink handling, and
-  path-traversal protection belong to `cabin-artifact::safe_extract_tar_gz` /
-  `cabin-artifact::safe_extract_zip`; `cabin-port` picks the extractor from the `[source].url` path
-  extension (`.zip` opts in, everything else is `.tar.gz`) and calls it with the declared
-  `strip_prefix`, but does not duplicate the security rules.  Port extraction opts into skipping
-  symlink entries (upstream tarballs commonly carry convenience symlinks; nothing is materialized
-  for a skipped entry), while package archives keep the strict reject-symlinks default.
-
-Nothing consumes the recipe layer any more: every committed port declares `[package.upstream]` and
-stages through `cabin-artifact::materialize_upstream`, so only the checksum-addressed archive cache
-still has a caller (the publisher's).  A manifest cannot name a port specially either - the
-dependency forms that could were removed, so the syntax now dies in the manifest parser's generic
-unknown-field rejection.  See [`foundation-ports.md`](foundation-ports.md) for the policy and the
-port package rules.
-
 ### `cabin-port-publish`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
@@ -474,8 +450,8 @@ publishes every committed foundation port as an ordinary registry package under 
 registry packages").  Every committed port is a package directory (a single `cabin.toml` with a
 complete `[package.upstream]`), published verbatim and staged through
 `cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays.  It
-composes existing layers instead of duplicating them: `cabin-port` for the checksum-addressed
-archive cache, `cabin-artifact` for materialization, `cabin-package` + `cabin-publish` +
+composes existing layers instead of duplicating them: `cabin-artifact` for materialization,
+`cabin-package` + `cabin-publish` +
 `cabin-registry-file` for staging and the temporary preflight registry, the real `cabin` binary
 for the preflight builds, and `cabin-index-http` + `cabin-credentials` + `cabin-registry-api` for
 the remote upload.  The crate must:
@@ -707,8 +683,7 @@ abstraction.
 - Domain-specific error mapping stays with each consumer so the destination path and user-facing
   context remain in the surfaced diagnostic.  `cabin-lockfile` maps write failures to
   `LockfileError`, `cabin-ninja` to `NinjaError`, `cabin-package` scaffold writes to
-  `ScaffoldError`, `cabin-artifact` extraction and path-safety failures to `ArtifactError`, and
-  `cabin-port` unsafe recipe paths to `PortError`.
+  `ScaffoldError`, and `cabin-artifact` extraction and path-safety failures to `ArtifactError`.
 
 The crate must not own:
 

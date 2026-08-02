@@ -72,7 +72,6 @@ assert_fs = { workspace = true }
 cabin-toolchain = { workspace = true }
 cabin-fmt = { workspace = true, features = ["test-fake-formatter"] }
 cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
-cabin-port = { workspace = true }
 # Path-only on purpose (not a workspace dependency): the publisher is
 # `publish = false`, and a version-less path dev-dependency is
 # stripped by `cargo publish`, so `cabinpkg` stays publishable while

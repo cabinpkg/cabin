@@ -958,8 +958,8 @@ fn is_portable_relative_path(path: &Path) -> bool {
 /// itself (nothing to extract).  Returns
 /// [`ArtifactError::MissingStripPrefix`] when an entry's first
 /// component does not match the declared prefix; this surfaces
-/// the actionable diagnostic the user can fix by correcting
-/// `port.toml`.
+/// the actionable diagnostic the user can fix by correcting the
+/// declared `[package.upstream].strip-prefix`.
 fn resolve_safe_target(
     entry_path: &Path,
     dest: &Path,

@@ -8,11 +8,9 @@
 //! archive and checks the published tree against it
 //! (`docs/remote-registry.md`, "The verifier's checks").
 //!
-//! The shape deliberately mirrors a foundation-port recipe's
-//! `[source]` + `[[copy]]` tables (`cabin-port`): a pinned HTTPS
-//! archive, a SHA-256, an optional single-component strip prefix,
-//! and declarative file-to-file copy steps.  Unlike a port recipe
-//! this is *published* metadata, so the URL is restricted to
+//! The declaration is a pinned HTTPS archive, a SHA-256, an optional
+//! single-component strip prefix, and declarative file-to-file copy
+//! steps.  It is *published* metadata, so the URL is restricted to
 //! credential-free HTTPS and the archive format is declared
 //! explicitly instead of inferred from the URL.
 
@@ -255,14 +253,12 @@ pub fn collision_fold(value: &str) -> String {
 /// leave that path's bytes unverified.
 ///
 /// `plan_paths` is the flat list of every copy step's `from` then
-/// `to`.  Public so a foundation-port recipe (`cabin-port`) applies
-/// the same rule at parse time that this declaration enforces, rather
-/// than deferring the collision to publish-time conversion.
+/// `to`.
 ///
 /// # Errors
 /// [`UpstreamError::TooManyPatches`], [`UpstreamError::UnsafePatchPath`],
 /// or [`UpstreamError::ConflictingPatchPath`].
-pub fn validate_patch_plan(patches: &[String], plan_paths: &[&str]) -> Result<(), UpstreamError> {
+fn validate_patch_plan(patches: &[String], plan_paths: &[&str]) -> Result<(), UpstreamError> {
     if patches.len() > MAX_PATCH_FILES {
         return Err(UpstreamError::TooManyPatches {
             count: patches.len(),
