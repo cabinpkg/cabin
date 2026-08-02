@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail};
-use cabin_port::{ArchiveKind, PortCache};
 use cabin_publish::RegistryPublishWorkflow;
 
 use crate::plan::PortConversion;
@@ -71,13 +70,13 @@ pub fn preflight(request: &PreflightRequest<'_>) -> Result<PreflightReport> {
     }
     let registry_dir = run_dir.join("registry");
     let sources_dir = run_dir.join("src");
-    let port_cache = PortCache::new(request.cache_dir.join("ports"));
+    let ports_cache = request.cache_dir.join("ports");
 
     let mut package_dirs = Vec::with_capacity(request.conversions.len());
     for conversion in request.conversions {
         let (package_dir, report) = stage_conversion(
             conversion,
-            &port_cache,
+            &ports_cache,
             &sources_dir,
             &registry_dir,
             ArchiveFetch::CacheOrDownload,
@@ -139,13 +138,13 @@ pub enum ArchiveFetch {
 /// staging / publish-lint rejection / file-registry write.
 pub fn stage_conversion(
     conversion: &PortConversion,
-    port_cache: &PortCache,
+    ports_cache: &Path,
     sources_dir: &Path,
     registry_dir: &Path,
     fetch: ArchiveFetch,
     new_revision: bool,
 ) -> Result<(PathBuf, cabin_publish::RegistryPublishReport)> {
-    let package_dir = materialize(conversion, port_cache, sources_dir, fetch)?;
+    let package_dir = materialize(conversion, ports_cache, sources_dir, fetch)?;
     let report = cabin_publish::publish_to_file_registry(RegistryPublishWorkflow {
         manifest_path: &package_dir.join("cabin.toml"),
         registry_dir,
@@ -168,7 +167,7 @@ pub fn stage_conversion(
 /// shared port cache are never mutated.
 fn materialize(
     conversion: &PortConversion,
-    port_cache: &PortCache,
+    ports_cache: &Path,
     sources_dir: &Path,
     fetch: ArchiveFetch,
 ) -> Result<PathBuf> {
@@ -186,7 +185,7 @@ fn materialize(
             package_dir.display()
         );
     }
-    materialize_package(conversion, port_cache, &package_dir, fetch)?;
+    materialize_package(conversion, ports_cache, &package_dir, fetch)?;
 
     // Written LAST, deliberately: the upstream archive extracts on
     // top of `package_dir`, so an upstream shipping its own root
@@ -203,12 +202,12 @@ fn materialize(
 /// committed patch files on top at their declared paths.
 fn materialize_package(
     conversion: &PortConversion,
-    port_cache: &PortCache,
+    ports_cache: &Path,
     package_dir: &Path,
     fetch: ArchiveFetch,
 ) -> Result<()> {
     let upstream = conversion.upstream.as_ref();
-    let archive = resolve_package_archive(conversion, port_cache, fetch)?;
+    let archive = resolve_package_archive(conversion, ports_cache, fetch)?;
     fs::create_dir_all(package_dir)
         .with_context(|| format!("creating {}", package_dir.display()))?;
 
@@ -280,16 +279,12 @@ fn committed_patch_path(conversion: &PortConversion, path: &camino::Utf8Path) ->
 /// downloads into the shared content-addressed cache slot.
 fn resolve_package_archive(
     conversion: &PortConversion,
-    port_cache: &PortCache,
+    ports_cache: &Path,
     fetch: ArchiveFetch,
 ) -> Result<PathBuf> {
     let upstream = conversion.upstream.as_ref();
     let expected_hex = upstream.sha256_hex();
-    let kind = match upstream.format() {
-        cabin_core::UpstreamFormat::TarGz => ArchiveKind::TarGz,
-        cabin_core::UpstreamFormat::Zip => ArchiveKind::Zip,
-    };
-    let cached = port_cache.archive_path(expected_hex, kind);
+    let cached = cached_archive_path(ports_cache, expected_hex, upstream.format());
     if archive_matches(&cached, expected_hex)? {
         return Ok(cached);
     }
@@ -333,6 +328,25 @@ fn resolve_package_archive(
     fs::write(&staging, &bytes).with_context(|| format!("writing {}", staging.display()))?;
     fs::rename(&staging, &cached).with_context(|| format!("moving into {}", cached.display()))?;
     Ok(cached)
+}
+
+/// Content-addressed slot for a pinned upstream archive under the
+/// ports cache root (`<cache>/ports`), keyed by the declared SHA-256
+/// and the declared format's manifest spelling.  This subtree is the
+/// publisher's own: `cabin-artifact` caches registry package archives
+/// at `<cache>/archives` instead, and an ordinary build never fetches
+/// an `[package.upstream]` archive at all.  Keeping the layout stable
+/// is what lets repeat publisher runs - and the hermetic test
+/// fixtures that pre-seed it - reuse a download instead of refetching.
+fn cached_archive_path(
+    ports_cache: &Path,
+    hex: &str,
+    format: cabin_core::UpstreamFormat,
+) -> PathBuf {
+    ports_cache
+        .join("archives")
+        .join("sha256")
+        .join(format!("{hex}.{}", format.as_str()))
 }
 
 /// `Ok(true)` when a cached archive exists and hashes to
@@ -576,7 +590,7 @@ mod tests {
         let dir = assert_fs::TempDir::new().unwrap();
         let err = stage_conversion(
             &conversion(&["z"]),
-            &PortCache::new(dir.path().join("cache/ports")),
+            &dir.path().join("cache/ports"),
             &dir.path().join("src"),
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,
@@ -651,7 +665,7 @@ mod tests {
 
         let package_dir = materialize(
             &conversion,
-            &PortCache::new(cache),
+            &cache,
             &dir.path().join("src"),
             ArchiveFetch::CacheOnly,
         )
@@ -673,7 +687,7 @@ mod tests {
         fs::create_dir_all(&stale).unwrap();
         let err = stage_conversion(
             &conversion(&["z"]),
-            &PortCache::new(dir.path().join("cache/ports")),
+            &dir.path().join("cache/ports"),
             &sources_dir,
             &dir.path().join("registry"),
             ArchiveFetch::CacheOnly,

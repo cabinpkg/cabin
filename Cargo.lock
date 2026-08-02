@@ -231,7 +231,6 @@ dependencies = [
  "cabinpkg-manifest",
  "cabinpkg-ninja",
  "cabinpkg-package",
- "cabinpkg-port",
  "cabinpkg-port-publish",
  "cabinpkg-publish",
  "cabinpkg-registry-api",
@@ -500,26 +499,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cabinpkg-port"
-version = "0.17.0"
-dependencies = [
- "assert_fs",
- "cabinpkg-artifact",
- "cabinpkg-core",
- "cabinpkg-fs",
- "cabinpkg-manifest",
- "camino",
- "flate2",
- "semver",
- "serde",
- "sha2",
- "tar",
- "thiserror",
- "toml",
- "url",
-]
-
-[[package]]
 name = "cabinpkg-port-publish"
 version = "0.17.0"
 dependencies = [
@@ -530,7 +509,6 @@ dependencies = [
  "cabinpkg-env",
  "cabinpkg-index-http",
  "cabinpkg-manifest",
- "cabinpkg-port",
  "cabinpkg-publish",
  "cabinpkg-registry-api",
  "camino",

@@ -33,8 +33,8 @@ pub fn is_safe_relative_path(path: &Path) -> bool {
 /// component is `Normal` or `CurDir`.
 ///
 /// Intended for user-authored relative paths that must name a
-/// file, such as a port overlay manifest path.  Rejects the empty
-/// path in addition to the rejections in [`is_safe_relative_path`].
+/// file.  Rejects the empty path in addition to the rejections in
+/// [`is_safe_relative_path`].
 pub fn is_non_empty_safe_relative_path(path: &Path) -> bool {
     !path.as_os_str().is_empty() && is_safe_relative_path(path)
 }

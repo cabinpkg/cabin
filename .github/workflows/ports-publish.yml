@@ -30,7 +30,6 @@ on:
       - "Cargo.toml"
       - "ports/**"
       - "crates/cabin-artifact/**"
-      - "crates/cabin-port/**"
       - "crates/cabin-port-publish/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
@@ -48,7 +47,6 @@ on:
       - "Cargo.toml"
       - "ports/**"
       - "crates/cabin-artifact/**"
-      - "crates/cabin-port/**"
       - "crates/cabin-port-publish/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
@@ -181,7 +179,7 @@ jobs:
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
               .github/workflows/ports-publish.yml Cargo.lock \
               Cargo.toml ports/ crates/cabin-artifact/ \
-              crates/cabin-port/ crates/cabin-port-publish/ \
+              crates/cabin-port-publish/ \
               crates/cabin-core/ crates/cabin-manifest/ \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/)" ]; then

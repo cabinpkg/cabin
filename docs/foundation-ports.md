@@ -263,7 +263,7 @@ archives, so a rerun stays a no-op either way.
 ### Publish automation
 
 The workflow `.github/workflows/ports-publish.yml` automates the tool.  Pull requests that touch
-the ports tree, the `cabin-port` pipeline, or the publisher run the complete `--dry-run` preflight
+the ports tree, the publisher, or the crates whose bytes it packages run the complete `--dry-run` preflight
 with no secrets; pushes to `main` with such changes publish the set to
 `https://registry.cabinpkg.com`; manual dispatch from `main` republishes everything, which is
 the recovery path after a pre-launch registry wipe (dispatching the workflow on any other ref
