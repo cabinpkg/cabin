@@ -1,11 +1,11 @@
 //! Port discovery and publication planning.
 //!
 //! Scans the committed `ports/` directory and orders the results so
-//! every port is published after the ports it depends on.  Two
-//! committed shapes coexist while the recipe layer collapses: a
-//! recipe pair (`port.toml` + overlay, converted by
-//! [`crate::convert`]) and a provenance-bearing package manifest,
-//! published verbatim.
+//! every port is published after the ports it depends on.  Every
+//! committed port is a provenance-bearing package manifest, published
+//! verbatim; a recipe pair (`port.toml` + overlay, converted by
+//! [`crate::convert`]) is still accepted and still exercised by the
+//! test fixtures.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -24,10 +24,10 @@ use crate::convert::{self, ConvertRequest, RecipeSummary, convert_overlay, summa
 pub struct PortConversion {
     /// `ports/<name>/<version>/` source directory.
     pub recipe_dir: PathBuf,
-    /// How this port is committed today.  Ports migrate one at a
-    /// time from a recipe pair (`port.toml` + overlay) to a single
-    /// provenance-bearing package manifest, so both shapes coexist
-    /// in the tree until the last one lands.
+    /// How this port is committed.  Every committed port is a
+    /// provenance-bearing package manifest; a recipe pair
+    /// (`port.toml` + overlay) is still accepted, and the test
+    /// fixtures still exercise it.
     pub source: PortSource,
     /// Scoped registry name (`cabin-ports/<lowercase>`).
     pub scoped_name: PackageName,
@@ -888,8 +888,14 @@ mod tests {
     /// The committed ports are the tool's real inputs; loading them
     /// end-to-end (no archives needed — conversion is pure) pins the
     /// requirements that name concrete ports.
+    ///
+    /// Also pins the SHAPE of the committed tree: every port is a
+    /// provenance-bearing package.  The recipe path stays supported
+    /// (the fixtures below exercise it), so nothing else would fail
+    /// if a `port.toml` were committed again - this assertion is the
+    /// check that catches it.
     #[test]
-    fn committed_recipes_all_convert() {
+    fn committed_ports_all_load() {
         let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("cabin-port")
@@ -897,9 +903,17 @@ mod tests {
         let conversions = load_conversions(&ports_dir).unwrap();
         assert!(
             conversions.len() >= 17,
-            "expected every committed recipe, got {}",
+            "expected every committed port, got {}",
             conversions.len()
         );
+        for conversion in &conversions {
+            assert!(
+                matches!(conversion.source, PortSource::Package { .. }),
+                "{} is committed as a recipe; every committed port is a \
+                 provenance-bearing package",
+                conversion.recipe_dir.display()
+            );
+        }
 
         let by_name: BTreeMap<&str, &PortConversion> = conversions
             .iter()

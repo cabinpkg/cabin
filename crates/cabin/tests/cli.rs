@@ -2815,6 +2815,3 @@ fn port_subcommand_is_rejected() {
         .failure()
         .stderr(predicate::str::contains("unrecognized subcommand 'port'"));
 }
-
-#[path = "cli/foundation_port_zlib.rs"]
-mod foundation_port_zlib;

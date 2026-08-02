@@ -49,13 +49,11 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   cabin-port/        foundation-port recipe parser + materialization pipeline
-    ports/           curated foundation ports, in two shapes while the
-                     recipe layer collapses into packages
+    ports/           curated foundation ports
       README.md      foundation-port policy + retirement plan
-      <name>/<version>/  a recipe (port.toml + overlay), converted at publish
-                     time; or a migrated package (cabin.toml with
-                     [package.upstream]), published verbatim
-  cabin-port-publish/ repository tool: publishes committed ports (recipes or packages) to cabin-ports
+      <name>/<version>/  a provenance-bearing package: cabin.toml with
+                     [package.upstream], published verbatim
+  cabin-port-publish/ repository tool: publishes committed ports to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -300,7 +298,9 @@ pipeline: checksum pin, hardened extraction, declared copy steps, then declared 
 collision-folded check that no declared patch path shadows a produced file), with a typed split
 between publisher-determined defects (`MaterializeDefect`) and environmental failures.  The
 registry verifier replays every `[package.upstream]` declaration through it, and the ports
-publisher adopts the same pipeline as recipes collapse into provenance-bearing packages.  The crate must:
+publisher stages every committed port through it.  The publisher's retained recipe path is the
+one exception - it materializes through `cabin-port`'s separate implementation, so a hardening
+change here does not reach it.  The crate must:
 
 - not run the resolver;
 - not write Ninja;
@@ -430,9 +430,9 @@ Actions workflow, never by users.  The crate must:
   entry is retained), and a cap violation is a rejection, never an OOM.  The upstream-provenance
   pass is the one deliberate extraction: a pinned upstream archive whose digest already matched
   is replayed through `cabin-artifact::materialize_upstream` - checksum, hardened extraction,
-  copies, and patches in one shared pipeline, the same bounded code path the collapse of
-  recipes into provenance-bearing packages routes the publisher through - because the tree
-  comparison needs the exact materialization semantics the producer uses;
+  copies, and patches in one shared pipeline, the same bounded code path every committed
+  (package-shaped) port is staged through - because the tree comparison needs the exact
+  materialization semantics the producer uses;
 - reuse `cabin-package`'s seams instead of duplicating them: the publishability rules
   (`validate_publishable`), the canonical-metadata derivation (`canonical_metadata`), and the
   archive include / exclude walk (`collect_package_files`, for the expected upstream tree) are
@@ -470,10 +470,10 @@ the syntax now dies in the manifest parser's generic unknown-field rejection.  S
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
 publishes every committed foundation port as an ordinary registry package under the
 `cabin-ports` scope (see [`foundation-ports.md`](foundation-ports.md), "Publishing ports as
-registry packages").  While the recipe layer collapses into provenance-bearing packages, the
-committed tree carries two shapes side by side and the tool handles both: a recipe pair
-(`port.toml` + overlay) is converted, prepared through `cabin-port`, and published under its
-derived scoped identity; a migrated package directory (a single `cabin.toml` with a complete
+registry packages").  Every committed port is a provenance-bearing package directory; the tool
+also still accepts a recipe pair (`port.toml` + overlay), converting it, preparing it through
+`cabin-port`, and publishing it under its derived scoped identity.  A package directory (a single
+`cabin.toml` with a complete
 `[package.upstream]`) is published verbatim and staged through
 `cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays.  It
 composes existing layers instead of duplicating them: `cabin-port` for

@@ -7,9 +7,9 @@
 //! block is the declaration to enforce.  This pass:
 //!
 //! 1. materializes the declaration through
-//!    [`cabin_artifact::materialize_upstream`] - the pipeline the
-//!    ports publisher adopts as recipes collapse into
-//!    provenance-bearing packages: checksum pin, hardened
+//!    [`cabin_artifact::materialize_upstream`] - the same pipeline
+//!    the ports publisher stages every committed port through
+//!    (its retained recipe path is separate): checksum pin, hardened
 //!    extraction (`strip_prefix` matching, symlinks skipped), copy
 //!    steps, then the declared patches, applied byte-exactly with
 //!    the patch bytes retained from the published archive - so

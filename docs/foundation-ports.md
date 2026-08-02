@@ -32,9 +32,10 @@ directly: the recipes below are a *publishing* input, and a manifest that tries 
 
 ## Anatomy of a foundation port recipe
 
-A recipe is a directory containing two files, plus an optional `patches/` subdirectory.  Only zlib
-is still committed this way; every other port has migrated to a single provenance-bearing
-`cabin.toml` (see "Migration to provenance-bearing packages" below):
+A recipe is a directory containing two files, plus an optional `patches/` subdirectory.  **No port
+is committed this way any more** - every one has migrated to a single provenance-bearing
+`cabin.toml` (see "Migration to provenance-bearing packages" below).  The publisher still accepts
+the shape, and this section documents it until that path is removed:
 
 ```
 crates/cabin-port/ports/<name>/<version>/
@@ -45,7 +46,9 @@ crates/cabin-port/ports/<name>/<version>/
                    [source].patches
 ```
 
-For example, zlib 1.3.1 lives at `crates/cabin-port/ports/zlib/1.3.1/`.
+zlib 1.3.1 was the last port committed this way, at
+`crates/cabin-port/ports/zlib/1.3.1/`; that directory now holds a package manifest, so the layout
+above is historical.
 
 ### `port.toml` schema
 
@@ -79,7 +82,7 @@ to = "pnglibconf.h"
 | --- | --- | --- |
 | `[port].name` | yes | Must equal the overlay manifest's `[package].name`. |
 | `[port].version` | yes | SemVer string; must equal the overlay manifest's `[package].version`. |
-| `[port].description` / `license` / `homepage` / `upstream` | no | Plain documentation fields.  Carried into the published package's metadata. |
+| `[port].description` / `license` / `homepage` / `upstream` | no | Plain documentation fields, read by the schema parser and **not** published: the conversion never copies them into the package manifest. |
 | `[source].type` | yes | Only `"archive"` is supported.  Every other value (`git`, `tag`, `branch`, `latest`, …) is rejected with `unsupported source type`. |
 | `[source].url` | yes | `https://` URL pointing at the upstream archive.  The parser also accepts `file://` and `http://`, but a recipe is a publishing input: published provenance must pin a credential-free `https://` URL, so either of those fails the conversion.  A URL whose path ends in `.zip` (case-insensitive) is treated as a zip archive; every other URL is treated as a `.tar.gz`.  Zip support exists for upstreams whose only official release artifact is a zip (miniz's amalgamation, for example); prefer `.tar.gz` when the upstream publishes one. |
 | `[source].sha256` | yes | Lower-case 64-character hex digest.  Upper-case and wrong-length values are rejected. |
@@ -180,8 +183,12 @@ alternative implementation with its own symbol namespace claims its own identity
 
 ## Materialization pipeline
 
-Materializing a recipe is what the publisher does before packaging it, and is the same pipeline the
-hosted registry's verifier replays against a published package's `[package.upstream]` declaration:
+Materializing a recipe is what the publisher does before packaging it, through
+`cabin_port::prepare`.  It is a *separate* implementation from
+[`cabin_artifact::materialize_upstream`](architecture.md), the pipeline a migrated package stages
+through and the one the hosted registry's verifier replays against a published package's
+`[package.upstream]` declaration - so a hardening change to the shared materializer does **not**
+reach this path:
 
 1. Load the `port.toml` and validate it.
 2. Fetch the pinned archive.  Published provenance pins an `https://` URL, downloaded via the
@@ -285,19 +292,21 @@ archive reuse the same on-disk tree.
 
 ## Migration to provenance-bearing packages
 
-The recipe tree is collapsing into ordinary package directories: a port
-migrates by replacing its `port.toml` + overlay pair with a single
+The recipe tree has collapsed into ordinary package directories: a port
+migrated by replacing its `port.toml` + overlay pair with a single
 `cabin.toml` that carries the canonical scoped identity
 (`cabin-ports/<name>`), the full `[package.upstream]` provenance block
 (pinned archive, checksum, strip prefix, copies, and declared patch
-files), and the same targets the overlay described. Both shapes coexist
-under `crates/cabin-port/ports/` while the migration lands, one port at
-a time:
+files), and the same targets the overlay described. **Every port has
+now migrated**, so `crates/cabin-port/ports/` holds package directories
+only:
 
-- A directory with a `port.toml` is a recipe: converted at publish time.
 - A directory with only a `cabin.toml` is a migrated package: published
   verbatim (nothing is converted) and materialized through the same
   shared pipeline the registry verifier replays.
+- A directory with a `port.toml` is a recipe, converted at publish time.
+  The publisher still accepts the shape and the test fixtures still
+  exercise it; nothing is committed in it.
 
 Both shapes publish to the same place, so the shape a port is committed
 in is invisible to consumers.
@@ -320,9 +329,8 @@ and the rest by a C++ one, so a package mixing the two is probed from
 both languages.
 
 The publisher orders publication across both shapes by dependency, in
-either direction: a migrated package may depend on a port still
-committed as a recipe, and a recipe's overlay may depend on a migrated
-package.  There is no longer a port-specific edge - a recipe reaches
+either direction, so a recipe and a package may depend on each other.
+There is no longer a port-specific edge - a recipe reaches
 another port through an ordinary scoped registry dependency, exactly
 as any other package would, and that edge orders publication and
 enters the cycle and satisfiability checks like any other.
@@ -331,14 +339,13 @@ enters the cycle and satisfiability checks like any other.
 
 The repository tool `cabin-port-publish` (`crates/cabin-port-publish`, a `publish = false`
 workspace crate that is not part of the shipped `cabin` binary) publishes every committed port as
-an ordinary registry package under the **`cabin-ports`** scope.  A port still committed as a recipe
-is converted (the recipe stays the source of truth; the tool rewrites a copy of each overlay); a
-migrated package directory is published verbatim, from the manifest committed in it.  For a recipe
-the rewrite is:
+an ordinary registry package under the **`cabin-ports`** scope.  Every committed port is now a
+migrated package directory, published verbatim from the manifest committed in it.  The tool also
+still accepts a recipe, converting it (the recipe stays the source of truth; the tool rewrites a
+copy of each overlay).  For a recipe the rewrite would be:
 
 - **Identity.**  `cabin-ports/<lowercase name>` - the registry name grammar is lowercase, so a
-  recipe named `Foo` would convert to `cabin-ports/foo`; every port still committed as a recipe is
-  already lowercase, so the fold is a no-op for them today.  The published version is the upstream
+  recipe named `Foo` would convert to `cabin-ports/foo`.  The published version is the upstream
   version, verbatim.  A migrated package meets the same rule from the other direction: its
   committed manifest declares the scoped name itself, and the publisher refuses one that does not
   fold onto its directory - which is what keeps the mixed-case directories coherent (`cJSON/` must
@@ -418,12 +425,13 @@ repository.
 ### Packaging revisions
 
 A published version always preserves the upstream version, and the bytes published under it are
-immutable.  A recipe-only correction - an overlay fix, a `[[copy]]` addition, a new or revised
-patch under `[source].patches` - therefore reaches the
+immutable.  A packaging-only correction - a manifest fix, a `[[package.upstream.copy]]` addition, a
+new or revised patch under `[package.upstream].patches` - therefore reaches the
 registry as a new [packaging revision](package-index.md#packaging-revisions) of the same version:
 the archive's changed bytes give it a new revision id, and both revisions stay listed and
-fetchable.  There is no version-string marker and no sidecar file to maintain; edit the recipe and
-merge it.
+fetchable.  There is no version-string marker and no sidecar file to maintain; edit the port's
+committed `cabin.toml` and merge it.  It publishes verbatim, so a comment is a byte change like
+any other.
 
 Consumers are unaffected until they ask to be.  A lockfile that already pins the old revision keeps
 resolving and fetching exactly those bytes; a fresh resolution, or an explicit `cabin update`, picks
@@ -433,7 +441,7 @@ Because the publisher always passes `--new-revision`, the merged change *is* the
 signal - for a migrated package directory that includes an edit to the committed manifest itself,
 which publishes verbatim.  A correction landing on `main` is by construction a deliberate respin,
 and a rerun over an unchanged tree still produces byte-identical archives and stays a no-op.  A revision may not
-change what resolution consumes, so a correction that alters the converted package's
+change what resolution consumes, so a correction that alters the published package's
 `dependencies`, `features`, or `standards` is not a respin - it needs a new upstream version.
 `links` is the one-way exception: a respin may stamp a claim table onto a version published
 without one (that is how existing ports gained their identities), but changing or removing an

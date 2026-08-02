@@ -18,7 +18,10 @@ const FAKE_ZLIB_H: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/zlib.h");
 const FAKE_ZLIB_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/zutil.c");
-const ZLIB_OVERLAY: &str = include_str!("../../../cabin-port/ports/zlib/1.3.1/cabin.toml");
+// zlib is committed as a package, not a recipe, so its manifest no
+// longer describes a recipe overlay; the fake port carries its own.
+const ZLIB_OVERLAY: &str =
+    include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/cabin.toml");
 const ZLIB_MAIN_C: &str =
     include_str!("../../../cabin-port/tests/fixtures/fake-port-smoke/zlib/main.c");
 

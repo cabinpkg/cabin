@@ -218,8 +218,7 @@ manifest = "cabin.toml"
 test("a migrated package directory loads from its committed manifest", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
     try {
-        // A recipe and a migrated package coexist in one tree while
-        // the collapse lands, so the loader must read both shapes.
+        // The loader must read both accepted shapes from one tree.
         const recipeDir = join(dir, "zlib", "1.3.1");
         await mkdir(recipeDir, { recursive: true });
         await writeFile(

@@ -19,7 +19,6 @@ use cabin_build::Dialect;
 
 mod fake_ports;
 mod foundation_port_smoke;
-mod port_schema;
 mod ports_registry;
 
 #[allow(unused_imports)]
@@ -28,8 +27,6 @@ pub use fake_ports::{FakeArchiveServer, FakePortRepo};
 pub use foundation_port_smoke::{
     PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,
 };
-#[allow(unused_imports)]
-pub use port_schema::{assert_tar_gz_source, load_real_port_and_assert_schema};
 #[allow(unused_imports)]
 pub use ports_registry::{RegistryConsumer, committed_ports_registry, stage_ports_registry};
 
