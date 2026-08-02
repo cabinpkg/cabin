@@ -311,7 +311,7 @@ where
 /// selected `app`.
 ///
 /// Only dependency kinds that participate in ordinary resolution
-/// (`Normal`, `Build`, `Tool`) are included.  Dev dependencies are
+/// are included, which today means `Normal`.  Dev dependencies are
 /// excluded so a workspace member's dev-only requirement cannot
 /// break an ordinary `cabin build` / `cabin fetch`.  System
 /// dependencies never reach this path because they are never
