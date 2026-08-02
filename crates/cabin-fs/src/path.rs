@@ -19,24 +19,13 @@ use std::path::{Component, Path};
 /// has decayed to nothing (for example, an archive entry whose only
 /// component was a `strip_prefix` and is now empty) is lexically
 /// safe to skip, and callers that distinguish "empty" from "unsafe"
-/// can do so explicitly.  Use [`is_non_empty_safe_relative_path`]
-/// when the caller requires the path to name an actual file.
+/// can do so explicitly.
 pub fn is_safe_relative_path(path: &Path) -> bool {
     if path.is_absolute() {
         return false;
     }
     path.components()
         .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
-}
-
-/// Returns true when `path` is non-empty, relative, and every
-/// component is `Normal` or `CurDir`.
-///
-/// Intended for user-authored relative paths that must name a
-/// file.  Rejects the empty path in addition to the rejections in
-/// [`is_safe_relative_path`].
-pub fn is_non_empty_safe_relative_path(path: &Path) -> bool {
-    !path.as_os_str().is_empty() && is_safe_relative_path(path)
 }
 
 /// Returns true when `value` is a single, non-empty path component
@@ -202,9 +191,7 @@ mod tests {
 
     #[test]
     fn safe_relative_path_accepts_empty_path() {
-        // The empty path carries no escape risk on its own; callers
-        // that need a named file should use
-        // `is_non_empty_safe_relative_path` instead.  Archive
+        // The empty path carries no escape risk on its own.  Archive
         // extraction relies on the empty case being safe so that an
         // entry that decays to nothing after `strip_prefix` can be
         // skipped rather than rejected.
@@ -236,31 +223,6 @@ mod tests {
     #[test]
     fn safe_relative_path_rejects_windows_unc_prefix() {
         assert!(!is_safe_relative_path(Path::new(r"\\server\share\foo")));
-    }
-
-    #[test]
-    fn non_empty_safe_relative_path_accepts_simple_name() {
-        assert!(is_non_empty_safe_relative_path(Path::new("foo")));
-    }
-
-    #[test]
-    fn non_empty_safe_relative_path_accepts_nested_name() {
-        assert!(is_non_empty_safe_relative_path(Path::new("foo/bar")));
-    }
-
-    #[test]
-    fn non_empty_safe_relative_path_rejects_empty_path() {
-        assert!(!is_non_empty_safe_relative_path(Path::new("")));
-    }
-
-    #[test]
-    fn non_empty_safe_relative_path_rejects_unix_absolute() {
-        assert!(!is_non_empty_safe_relative_path(Path::new("/etc/passwd")));
-    }
-
-    #[test]
-    fn non_empty_safe_relative_path_rejects_parent_component() {
-        assert!(!is_non_empty_safe_relative_path(Path::new("../escape")));
     }
 
     #[test]
