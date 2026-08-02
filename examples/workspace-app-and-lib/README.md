@@ -3,7 +3,7 @@
 A Cabin workspace whose internal library carries an external dependency:
 
 - `packages/greeter` - a `library` that depends on the `cabin-ports/fmt` registry package,
-  published from the curated [`crates/cabin-port/ports/fmt/`](../../crates/cabin-port/ports/fmt)
+  published from the curated [`ports/fmt/`](../../ports/fmt)
   package directory, and formats its greeting with `fmt::format`.
 - `packages/app` - an `executable` that depends on `greeter` through a path dependency and prints
   the greeting.

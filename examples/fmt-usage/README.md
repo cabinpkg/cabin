@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/fmt` registry package,
 published from the curated
-[`crates/cabin-port/ports/fmt/12.2.0/`](../../crates/cabin-port/ports/fmt/12.2.0/)
+[`ports/fmt/12.2.0/`](../../ports/fmt/12.2.0/)
 package directory.  The program links against {fmt} (a C++ formatting
 library), prints `FMT_VERSION`, and formats a greeting through
 `fmt::format`.

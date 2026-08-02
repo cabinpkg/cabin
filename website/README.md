@@ -7,7 +7,7 @@ A package registry website for Cabin, a package manager and build system for C/C
 ### Architecture
 
 This site is a fully static Astro build. Package data comes from the local
-port definitions under `../crates/cabin-port/ports/` at build time, package
+port definitions under `../ports/` at build time, package
 detail pages are pre-rendered, and `/packages.json` is generated for
 client-side search.
 

@@ -2,7 +2,7 @@
 
 A miniature todo-list app on the `cabin-ports/sqlite3` registry package (the amalgamation),
 published from the curated
-[`crates/cabin-port/ports/sqlite3/`](../../crates/cabin-port/ports/sqlite3) package
+[`ports/sqlite3/`](../../ports/sqlite3) package
 directory.  Where
 [`sqlite3-usage/`](../sqlite3-usage) is the minimal consumption smoke test, this example walks the
 shape of a real SQLite program from C: open a database, run DDL and DML through `sqlite3_exec`,

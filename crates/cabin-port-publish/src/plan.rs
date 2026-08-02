@@ -698,7 +698,7 @@ mod tests {
     fn committed_ports_all_load() {
         let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
-            .join("cabin-port")
+            .join("..")
             .join("ports");
         let conversions = load_conversions(&ports_dir).unwrap();
         assert!(

@@ -1,14 +1,14 @@
 # png-info
 
 A tiny PNG inspector built on the `cabin-ports/libpng` registry package, published from the
-curated [`crates/cabin-port/ports/libpng/`](../../crates/cabin-port/ports/libpng) package
+curated [`ports/libpng/`](../../ports/libpng) package
 directory.  The
 program encodes a 2x2 RGBA image to an in-memory PNG with libpng's simplified write API, decodes
 it back, and prints the dimensions, channel count, and encoded size - the information a `png-info`
 tool would report for a file on disk.
 
 The point of the example is the **transitive C dependency**: the published libpng package declares
-`"cabin-ports/zlib" = "^1.3"` (see [`zlib`](../../crates/cabin-port/ports/zlib)), and this package
+`"cabin-ports/zlib" = "^1.3"` (see [`zlib`](../../ports/zlib)), and this package
 declares only `cabin-ports/libpng`.  The DEFLATE stream inside the PNG is produced and consumed by
 zlib code that arrives - headers and archive both - through the `libpng -> zlib` dependency edge,
 and the final `zlibVersion()` call compiles and links purely through that edge.  Where

@@ -19,7 +19,7 @@ check`, `cabin fmt` / `cabin tidy`, `pkg-config`-driven ``system = true` deps`, 
 new --bin` / `--lib` scaffold parity, `cabin version` plus `cabin --list`, `cabin add` / `cabin
 remove` manifest editing, `cabin clean`, and the curated foundation-port layer -
 version-pinned upstream C/C++ libraries under
-[`crates/cabin-port/ports/`](https://github.com/cabinpkg/cabin/tree/main/crates/cabin-port/ports/),
+[`ports/`](https://github.com/cabinpkg/cabin/tree/main/ports/),
 published to the registry under the `cabin-ports` scope
 (see [`foundation-ports.md`](foundation-ports.md)).
 
@@ -49,10 +49,6 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   cabin-port/        foundation-port recipe parser + materialization pipeline
-    ports/           curated foundation ports
-      README.md      foundation-port policy + retirement plan
-      <name>/<version>/  a provenance-bearing package: cabin.toml with
-                     [package.upstream], published verbatim
   cabin-port-publish/ repository tool: publishes committed ports to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
@@ -71,6 +67,10 @@ crates/
   cabin-tidy/        run-clang-tidy runner used by `cabin tidy`
   cabin-system-deps/ pkg-config runner used by ``system = true` deps`
   cabin/             `cabin` binary, command dispatch
+ports/               curated foundation ports
+  README.md          foundation-port policy + retirement plan
+  <name>/<version>/  a provenance-bearing package: cabin.toml with
+                     [package.upstream], published verbatim
 docs/
   architecture.md    this file
   manifest.md        cabin.toml schema reference

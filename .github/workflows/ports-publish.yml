@@ -28,6 +28,7 @@ on:
       # change) change the archive bytes the registry holds immutable.
       - "Cargo.lock"
       - "Cargo.toml"
+      - "ports/**"
       - "crates/cabin-artifact/**"
       - "crates/cabin-port/**"
       - "crates/cabin-port-publish/**"
@@ -45,6 +46,7 @@ on:
       # change) change the archive bytes the registry holds immutable.
       - "Cargo.lock"
       - "Cargo.toml"
+      - "ports/**"
       - "crates/cabin-artifact/**"
       - "crates/cabin-port/**"
       - "crates/cabin-port-publish/**"
@@ -96,7 +98,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/cabin-cache/ports/archives
-          key: ports-archives-${{ hashFiles('crates/cabin-port/ports/**/port.toml', 'crates/cabin-port/ports/**/cabin.toml') }}
+          key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}
           restore-keys: ports-archives-
 
       - name: Build cabin and the publisher
@@ -149,7 +151,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/cabin-cache/ports/archives
-          key: ports-archives-${{ hashFiles('crates/cabin-port/ports/**/port.toml', 'crates/cabin-port/ports/**/cabin.toml') }}
+          key: ports-archives-${{ hashFiles('ports/**/cabin.toml') }}
           restore-keys: ports-archives-
 
       - name: Build cabin and the publisher
@@ -178,7 +180,7 @@ jobs:
           git fetch --quiet origin main
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
               .github/workflows/ports-publish.yml Cargo.lock \
-              Cargo.toml crates/cabin-artifact/ \
+              Cargo.toml ports/ crates/cabin-artifact/ \
               crates/cabin-port/ crates/cabin-port-publish/ \
               crates/cabin-core/ crates/cabin-manifest/ \
               crates/cabin-package/ crates/cabin-publish/ \

@@ -10,11 +10,11 @@ User-facing runnable Cabin example projects, one per subdirectory.  Each example
   directory.
 - `crates/<name>/examples/` - **Cargo example targets for the Rust crates.** None exist today; this
   is where they would go if added.
-- `crates/cabin-port/ports/` - **curated foundation ports.** Port directories that adapt real
+- `ports/` - **curated foundation ports.** Port directories that adapt real
   upstream C/C++ libraries that do not yet ship a native `cabin.toml`, and the source the
   `cabin-ports/*` registry packages these examples depend on are published from.  Each is
   committed as a provenance-bearing package.  Not example projects; see
-  [`../crates/cabin-port/ports/README.md`](../crates/cabin-port/ports/README.md).
+  [`../ports/README.md`](../ports/README.md).
 
 ## Available examples
 

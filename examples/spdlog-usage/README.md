@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/spdlog` registry package,
 published from the curated
-[`crates/cabin-port/ports/spdlog/1.17.0/`](../../crates/cabin-port/ports/spdlog/1.17.0/)
+[`ports/spdlog/1.17.0/`](../../ports/spdlog/1.17.0/)
 package directory.  The program uses spdlog in its upstream-default
 header-only form, logs one message through `spdlog::info`, and
 prints the compiled-in spdlog version.

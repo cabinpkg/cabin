@@ -4,14 +4,14 @@ import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PackageRecord } from "./types";
 
-// The foundation ports live inside the cabin-port crate at
-// crates/cabin-port/ports/.  Resolve that directory by walking up from the
+// The foundation ports live at the repository root under ports/.
+// Resolve that directory by walking up from the
 // current working directory to the nearest ancestor that contains it, so it
 // works whether the build runs from website/ (local `npm run build`, CI) or the
 // repo root.  We avoid import.meta.url because `astro build` bundles this
 // module into dist/.prerender/chunks/ at a different depth than this source
 // file.
-const PORTS_SUBPATH = join("crates", "cabin-port", "ports");
+const PORTS_SUBPATH = "ports";
 function resolvePortsDir(): string {
     let dir = process.cwd();
     let parent = dirname(dir);
@@ -49,7 +49,7 @@ export async function loadPortsFromDir(
 ): Promise<PackageRecord[]> {
     if (!(await directoryExists(portsDir))) {
         throw new Error(
-            `Ports directory not found at ${portsDir}. Expected crates/cabin-port/ports/ in the cabin repository.`,
+            `Ports directory not found at ${portsDir}. Expected ports/ in the cabin repository.`,
         );
     }
 

@@ -148,10 +148,13 @@ if [[ -n "$base" ]]; then
     echo "no changes since $(git rev-parse --short "$base"); nothing to check"
     exit 0
   fi
-  grep -qE '^(crates/|examples/|Cargo\.|\.cargo/|rust-toolchain)' <<<"$changed" || rust_changed=0
+  # `ports/` counts as a Rust surface: the publisher's
+  # `committed_ports_all_load` and the CLI's registry fixtures stage the
+  # committed tree, so a ports-only change still has to run the Rust gate.
+  grep -qE '^(crates/|examples/|ports/|Cargo\.|\.cargo/|rust-toolchain)' <<<"$changed" || rust_changed=0
   # The website build also loads the foundation ports
-  # (website/src/lib/ports.ts reads crates/cabin-port/ports/).
-  grep -qE '^(website/|docs/|crates/cabin-port/ports/)' <<<"$changed" || web_changed=0
+  # (website/src/lib/ports.ts reads ports/).
+  grep -qE '^(website/|docs/|ports/)' <<<"$changed" || web_changed=0
   grep -qE '^(docs/|CONTRIBUTING\.md|INSTALL\.md)' <<<"$changed" || docs_changed=0
 fi
 

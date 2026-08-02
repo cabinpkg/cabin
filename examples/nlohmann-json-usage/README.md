@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/nlohmann_json` registry
 package, published from the curated
-[`crates/cabin-port/ports/nlohmann_json/3.12.0/`](../../crates/cabin-port/ports/nlohmann_json/3.12.0/)
+[`ports/nlohmann_json/3.12.0/`](../../ports/nlohmann_json/3.12.0/)
 package directory.  The program includes the header-only JSON for Modern C++
 library, parses a small document, and prints two fields plus the
 compiled-in library version.

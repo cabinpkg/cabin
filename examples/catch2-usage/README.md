@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/catch2` registry package,
 published from the curated
-[`crates/cabin-port/ports/catch2/3.15.1/`](../../crates/cabin-port/ports/catch2/3.15.1/)
+[`ports/catch2/3.15.1/`](../../ports/catch2/3.15.1/)
 package directory.  The package has a small `calc` library and one `test`
 target whose source only defines `TEST_CASE`s - the package's
 amalgamated translation unit supplies Catch2's default `main()`.

@@ -107,7 +107,7 @@ doubt, the architecture document wins.
 ## Foundation ports
 
 Port policy and schema live in
-[`crates/cabin-port/ports/README.md`](crates/cabin-port/ports/README.md) and
+[`ports/README.md`](ports/README.md) and
 [`docs/foundation-ports.md`](docs/foundation-ports.md).  Every port is committed as a
 provenance-bearing package (a bare `cabin.toml`, published verbatim).  After changing a port, run the repository
 tool's local preflight, which stages every committed port as its `cabin-ports/<name>` registry

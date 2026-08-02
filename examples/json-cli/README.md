@@ -2,7 +2,7 @@
 
 A miniature manifest-inspector built on the header-only `cabin-ports/nlohmann_json` registry
 package, published from the curated
-[`crates/cabin-port/ports/nlohmann_json/`](../../crates/cabin-port/ports/nlohmann_json)
+[`ports/nlohmann_json/`](../../ports/nlohmann_json)
 package directory.
 Where [`nlohmann-json-usage/`](../nlohmann-json-usage) is the minimal consumption smoke test, this
 example walks a realistic JSON round trip: parse a document, read typed values out of nested

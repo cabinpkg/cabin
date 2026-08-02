@@ -2,9 +2,9 @@
 
 A small command-line app that combines three `cabin-ports/*` registry packages in one binary:
 
-- [`cabin-ports/cli11`](../../crates/cabin-port/ports/CLI11) parses `--name` / `--count` flags.
-- [`cabin-ports/fmt`](../../crates/cabin-port/ports/fmt) formats the greeting lines.
-- [`cabin-ports/spdlog`](../../crates/cabin-port/ports/spdlog) logs what the app is about to do.
+- [`cabin-ports/cli11`](../../ports/CLI11) parses `--name` / `--count` flags.
+- [`cabin-ports/fmt`](../../ports/fmt) formats the greeting lines.
+- [`cabin-ports/spdlog`](../../ports/spdlog) logs what the app is about to do.
 
 Each one is an ordinary scoped registry package, published to the Cabin registry from the curated
 port directory it links to by the repository tool `cabin-port-publish`.  See

@@ -2,7 +2,7 @@
 
 A consumer example for the `cabin-ports/miniz` registry package,
 published from the curated
-[`crates/cabin-port/ports/miniz/3.1.2/`](../../crates/cabin-port/ports/miniz/3.1.2/)
+[`ports/miniz/3.1.2/`](../../ports/miniz/3.1.2/)
 package directory.  The program links against miniz, round-trips a string
 through `mz_compress` / `mz_uncompress`, and prints the decompressed
 text plus `mz_version()`.
