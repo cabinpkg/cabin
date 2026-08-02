@@ -139,7 +139,7 @@ Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
 ## Packaging revisions
 
-A registry version can be published more than once - a corrected recipe for the same upstream
+A registry version can be published more than once - corrected packaging of the same upstream
 release lands as a new [packaging revision](package-index.md#packaging-revisions) of it, never as
 replaced bytes.  There is no separate lockfile field for this: **`checksum` is the pin**, because a
 revision id is its digest's first 16 hex characters.

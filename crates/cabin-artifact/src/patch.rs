@@ -1,11 +1,13 @@
 //! Byte-exact unified-diff application for declared upstream patch
 //! files.
 //!
-//! Both consumers of a patch declaration - foundation-port
-//! preparation (`cabin-port`) and the registry's external verifier
-//! (`cabin-registry-verify`) - apply patches through this module, so
-//! the transformation is identical on every platform and between the
-//! producer and the verifier.  That symmetry is the whole point:
+//! Every application of a patch declaration goes through this module,
+//! so the transformation is identical on every platform and between
+//! the producer and the verifier.  The ports publisher and the
+//! registry's external verifier (`cabin-registry-verify`) both reach
+//! it through [`materialize_upstream`](crate::materialize_upstream);
+//! `cabin-port`'s foundation-port preparation calls it directly.
+//! That symmetry is the whole point:
 //! application is deliberately strict so two runs over the same bytes
 //! can never disagree.
 //!

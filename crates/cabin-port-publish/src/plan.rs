@@ -3,9 +3,7 @@
 //! Scans the committed `ports/` directory and orders the results so
 //! every port is published after the ports it depends on.  Every
 //! committed port is a provenance-bearing package manifest, published
-//! verbatim; a recipe pair (`port.toml` + overlay, converted by
-//! [`crate::convert`]) is still accepted and still exercised by the
-//! test fixtures.
+//! verbatim.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -13,22 +11,18 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use cabin_core::{DependencySource, PackageName, UpstreamProvenance};
-use cabin_port::PortDescriptor;
 use semver::Version;
 
-use crate::convert::{self, ConvertRequest, RecipeSummary, convert_overlay, summarize};
+/// Registry scope every port publishes under.
+const REGISTRY_SCOPE: &str = "cabin-ports";
 
-/// One committed port, ready to materialize and publish - converted
-/// from a recipe, or taken verbatim from a migrated package.
+/// One committed port, ready to materialize and publish.
 #[derive(Debug)]
 pub struct PortConversion {
     /// `ports/<name>/<version>/` source directory.
-    pub recipe_dir: PathBuf,
-    /// How this port is committed.  Every committed port is a
-    /// provenance-bearing package manifest; a recipe pair
-    /// (`port.toml` + overlay) is still accepted, and the test
-    /// fixtures still exercise it.
-    pub source: PortSource,
+    pub committed_dir: PathBuf,
+    /// The declared provenance the shared materializer runs.
+    pub upstream: Box<UpstreamProvenance>,
     /// Scoped registry name (`cabin-ports/<lowercase>`).
     pub scoped_name: PackageName,
     /// Version the conversion publishes: the upstream version,
@@ -36,8 +30,8 @@ pub struct PortConversion {
     /// a new registry revision (derived from the archive bytes), so
     /// no version-string axis exists here.
     pub published_version: Version,
-    /// The manifest text that publishes: converted from a recipe's
-    /// overlay, or the migrated package's own file verbatim.
+    /// The manifest text that publishes: the committed file,
+    /// verbatim.
     pub manifest: String,
     /// Inter-port dependencies this package publishes with — the
     /// publication-order edges, requirement included so ordering can
@@ -61,33 +55,6 @@ pub struct PortConversion {
     /// which the probe leaves unlinked - and refuses the reference as
     /// ambiguous when there is more than one.
     pub sole_library_target: bool,
-}
-
-/// How a committed port supplies its identity and provenance.
-#[derive(Debug, Clone)]
-pub enum PortSource {
-    /// A recipe pair: `port.toml` pins the upstream archive and the
-    /// overlay `cabin.toml` describes the targets.  The published
-    /// manifest is converted from the overlay.
-    Recipe(Box<PortDescriptor>),
-    /// A package directory: the committed `cabin.toml` already
-    /// carries the canonical scoped identity and a complete
-    /// `[package.upstream]` block, and is published verbatim.
-    Package {
-        /// The declared provenance the shared materializer runs.
-        upstream: Box<UpstreamProvenance>,
-    },
-}
-
-impl PortSource {
-    /// The recipe descriptor, when this port is still a recipe.
-    #[must_use]
-    pub fn descriptor(&self) -> Option<&PortDescriptor> {
-        match self {
-            Self::Recipe(descriptor) => Some(descriptor),
-            Self::Package { .. } => None,
-        }
-    }
 }
 
 /// The `c-standard` / `cxx-standard` a generated probe consumer must
@@ -118,156 +85,66 @@ pub struct PortDependencyEdge {
     pub req: semver::VersionReq,
 }
 
-/// Scan `ports_dir` - converting every recipe, taking every migrated
-/// package manifest verbatim - and return the conversions in
-/// publication order (dependencies first; name-sorted within a rank,
-/// versions ascending within a name).
+/// The scoped registry name for a port: `cabin-ports/<lowercase>`.
 ///
 /// # Errors
-/// Returns an error when the directory cannot be read, any recipe
-/// fails to load or convert, converted names collide, or the
-/// inter-port dependency graph has a cycle.
+/// Returns an error when the lowercased name does not satisfy the
+/// canonical registry grammar (`[a-z0-9][a-z0-9_-]*`), which the
+/// hosted registry and the publish gates both enforce.
+fn scoped_package_name(port_name: &str) -> Result<PackageName> {
+    let lower = port_name.to_lowercase();
+    let canonical = lower
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && lower
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+    if !canonical {
+        bail!(
+            "port name `{port_name}` does not lowercase to a canonical registry package name \
+             (`[a-z0-9][a-z0-9_-]*`)"
+        );
+    }
+    PackageName::new(format!("{REGISTRY_SCOPE}/{lower}"))
+        .map_err(|err| anyhow!("scoped name for port `{port_name}` is invalid: {err}"))
+}
+
+/// Scan `ports_dir` and return every committed port in publication
+/// order (dependencies first; name-sorted within a rank, versions
+/// ascending within a name).
+///
+/// # Errors
+/// Returns an error when the directory cannot be read, any port fails
+/// to load, published names collide, or the inter-port dependency
+/// graph has a cycle.
 pub fn load_conversions(ports_dir: &Path) -> Result<Vec<PortConversion>> {
-    let (recipes, packages) = discover_ports(ports_dir)?;
-    if recipes.is_empty() && packages.is_empty() {
+    let packages = discover_ports(ports_dir)?;
+    if packages.is_empty() {
         bail!("no ports found under {}", ports_dir.display());
     }
 
-    // First pass: parse everything and summarize each port so the
-    // recipe path can rename its own targets and refuse a port
-    // committed in both shapes.
-    let mut summaries: BTreeMap<String, RecipeSummary> = BTreeMap::new();
-    let (loaded_packages, package_dir_names) = load_packages(packages, &mut summaries)?;
-    let mut loaded = Vec::new();
-    for recipe_dir in recipes {
-        let descriptor = cabin_port::load_port(recipe_dir.join("port.toml"))
-            .with_context(|| format!("loading {}", recipe_dir.join("port.toml").display()))?;
-        let overlay_path = recipe_dir.join(&descriptor.overlay.relative_path);
-        let overlay_text = fs::read_to_string(&overlay_path)
-            .with_context(|| format!("reading {}", overlay_path.display()))?;
-        let parsed = cabin_manifest::parse_manifest_str(&overlay_text)
-            .with_context(|| format!("parsing {}", overlay_path.display()))?;
-        let package = parsed
-            .package
-            .ok_or_else(|| anyhow!("{} has no [package] table", overlay_path.display()))?;
-        let port_name = descriptor.name.as_str().to_owned();
-        // A port migrates all of its versions in one change, so one
-        // name never legitimately spans both committed shapes - a
-        // half-migrated port would take its rewrite summary from
-        // whichever shape loaded first and mask real disagreements.
-        if package_dir_names.contains(&port_name) {
-            bail!(
-                "port `{port_name}` is committed both as a recipe and as a package; \
-                 migrate all of a port's versions together"
-            );
-        }
-        let summary = summarize(&port_name, &package)?;
-        if let Some(previous) = summaries.get(&port_name) {
-            // Two versions of one port summarize identically as long
-            // as their converted target sets agree; a disagreement
-            // would make dependency rewriting ambiguous.
-            if previous.library_like_target_keys != summary.library_like_target_keys {
-                bail!(
-                    "recipe versions of port `{port_name}` disagree on their library-like \
-                     targets; dependency rewriting needs one consistent target set"
-                );
-            }
-        } else {
-            summaries.insert(port_name.clone(), summary);
-        }
-        loaded.push((recipe_dir, descriptor, overlay_text));
-    }
-
-    ensure_distinct_scoped_names(&summaries)?;
-
-    // Second pass: convert.
+    let mut scoped_by_dir: BTreeMap<String, PackageName> = BTreeMap::new();
     let mut conversions = Vec::new();
-    for (recipe_dir, descriptor, overlay_text) in loaded {
-        let request = ConvertRequest {
-            descriptor: &descriptor,
-            overlay_text: &overlay_text,
-            summaries: &summaries,
-        };
-        let manifest = convert_overlay(&request)
-            .with_context(|| format!("converting {}", recipe_dir.display()))?;
-        // Edges come from the CONVERTED manifest, which is what
-        // publishes: an overlay reaches another port the same way any
-        // package does, through a scoped registry dependency.
-        let converted = cabin_manifest::parse_manifest_str(&manifest)
-            .with_context(|| format!("re-parsing the conversion of {}", recipe_dir.display()))?
-            .package
-            .ok_or_else(|| {
-                anyhow!(
-                    "the conversion of {} has no [package] table",
-                    recipe_dir.display()
-                )
-            })?;
-        let dependencies = registry_edges(&converted, &recipe_dir.join("cabin.toml"))?;
-        let summary = &summaries[descriptor.name.as_str()];
-        let scoped_name = summary.scoped.clone();
-        let library_like_target_keys = summary.library_like_target_keys.clone();
-        let published_version = descriptor.version.clone();
-        conversions.push(PortConversion {
-            recipe_dir,
-            source: PortSource::Recipe(Box::new(descriptor)),
-            probe_standards: ProbeStandards::default(),
-            scoped_name,
-            published_version,
-            manifest,
-            dependencies,
-            // A recipe's summary carries every library-like target of
-            // its overlay, gated or not, so the probed keys are the
-            // whole set.
-            sole_library_target: library_like_target_keys.len() == 1,
-            library_like_target_keys,
-        });
+    for package_dir in packages {
+        let conversion = load_package(&package_dir)?;
+        let dir_name = dir_name(package_dir.parent().unwrap_or(&package_dir))?;
+        scoped_by_dir
+            .entry(dir_name)
+            .or_insert_with(|| conversion.scoped_name.clone());
+        conversions.push(conversion);
     }
-    conversions.extend(loaded_packages);
 
+    ensure_distinct_scoped_names(&scoped_by_dir)?;
     ensure_requirements_satisfiable(&conversions)?;
     ensure_unique_identities(&conversions)?;
     order_by_dependencies(conversions)
 }
 
-/// First pass over the migrated package directories: load each one
-/// and record its published identity under its (lowercase) directory
-/// name.  Versions are deliberately NOT required to agree on their
-/// library-like targets - each publishes verbatim and is probed on
-/// its own targets.
-fn load_packages(
-    packages: Vec<PathBuf>,
-    summaries: &mut BTreeMap<String, RecipeSummary>,
-) -> Result<(Vec<PortConversion>, BTreeSet<String>)> {
-    let mut loaded_packages = Vec::new();
-    let mut package_dir_names = BTreeSet::new();
-    for package_dir in packages {
-        let package = load_package(&package_dir)?;
-        let dir_name = dir_name(package_dir.parent().unwrap_or(&package_dir))?;
-        package_dir_names.insert(dir_name.clone());
-        // Deliberately no port-wide target-set agreement across a
-        // migrated port's versions, unlike recipes: each package
-        // manifest publishes verbatim and is probed on its own
-        // targets, so a newer upstream that adds or renames a library
-        // is publishable.  The summary carries the scoped identity
-        // for diagnostics and for the both-shapes check below.
-        //
-        // Ceiling, deliberate: the first version's target set wins.
-        // Picking the set of the version a requirement selects means
-        // resolving that requirement here, which is the resolver's
-        // job, not the publisher's.
-        summaries.entry(dir_name).or_insert_with(|| RecipeSummary {
-            scoped: package.scoped_name.clone(),
-            library_like_target_keys: package.library_like_target_keys.clone(),
-        });
-        loaded_packages.push(package);
-    }
-    Ok((loaded_packages, package_dir_names))
-}
-
-/// Load one already-migrated package directory: the committed
-/// manifest is the published manifest, so nothing is converted.  The
-/// directory layout is the identity, and a disagreement fails loudly
-/// rather than publishing under a surprising name.
+/// Load one committed port directory: the committed manifest is the
+/// published manifest, so nothing is rewritten.  The directory layout
+/// is the identity, and a disagreement fails loudly rather than
+/// publishing under a surprising name.
 fn load_package(package_dir: &Path) -> Result<PortConversion> {
     let manifest_path = package_dir.join("cabin.toml");
     // The manifest is the package's identity and provenance, so it
@@ -297,15 +174,15 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
         Some(parent) => dir_name(parent)?,
         None => String::new(),
     };
-    if package.name.scope() != Some(convert::REGISTRY_SCOPE) {
+    if package.name.scope() != Some(REGISTRY_SCOPE) {
         bail!(
             "{} declares `{}`; port packages must publish under the `{}` scope",
             manifest_path.display(),
             package.name.as_str(),
-            convert::REGISTRY_SCOPE
+            REGISTRY_SCOPE
         );
     }
-    let expected = convert::scoped_package_name(&name_dir)
+    let expected = scoped_package_name(&name_dir)
         .with_context(|| format!("package directory `{name_dir}/`"))?;
     if package.name != expected {
         bail!(
@@ -367,10 +244,8 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
     })?;
 
     Ok(PortConversion {
-        recipe_dir: package_dir.to_path_buf(),
-        source: PortSource::Package {
-            upstream: Box::new(upstream),
-        },
+        committed_dir: package_dir.to_path_buf(),
+        upstream: Box::new(upstream),
         probe_standards,
         scoped_name: package.name.clone(),
         published_version: package.version.clone(),
@@ -383,13 +258,6 @@ fn load_package(package_dir: &Path) -> Result<PortConversion> {
 
 /// The publication-order edges a published manifest declares, and the
 /// validation every port package's dependency table must pass.
-///
-/// Both committed shapes go through this: a migrated package declares
-/// its edges directly, and a recipe's converted manifest carries the
-/// scoped dependencies its overlay named.  A recipe reaching another
-/// port through the registry needs the ordering edge for exactly the
-/// same reason a package does - the preflight probe-builds each
-/// conversion against the registry the moment it is staged.
 fn registry_edges(
     package: &cabin_core::Package,
     manifest_path: &Path,
@@ -421,13 +289,13 @@ fn registry_edges(
         }
         match &dep.source {
             DependencySource::Version(req) => {
-                if dep.name.scope() != Some(convert::REGISTRY_SCOPE) {
+                if dep.name.scope() != Some(REGISTRY_SCOPE) {
                     bail!(
                         "{} depends on `{}`; port packages may only depend on other `{}/*` \
                          packages",
                         manifest_path.display(),
                         dep.name.as_str(),
-                        convert::REGISTRY_SCOPE
+                        REGISTRY_SCOPE
                     );
                 }
                 // Every dependency is validated above, whatever its
@@ -572,8 +440,7 @@ fn probe_standards(
     // here would duplicate the standard-compatibility engine inside
     // scaffolding the migration deletes.  A composed floor above the
     // probe's therefore surfaces as Cabin's own compatibility error
-    // at preflight rather than as a diagnosis here - the same
-    // behavior recipes have always had.
+    // at preflight rather than as a diagnosis here.
     Ok(ProbeStandards {
         c: join_interface(c_targets.iter().map(|t| declared(t).0))?,
         cxx: join_interface(cxx_targets.iter().map(|t| declared(t).1))?,
@@ -614,17 +481,17 @@ fn dir_name(dir: &Path) -> Result<String> {
         .ok_or_else(|| anyhow!("{} has no UTF-8 directory name", dir.display()))
 }
 
-/// Two distinct recipe names must not fold onto one scoped name
-/// (`cJSON/` next to `cjson/` would silently merge under
+/// Two distinct port directory names must not fold onto one scoped
+/// name (`cJSON/` next to `cjson/` would silently merge under
 /// `cabin-ports/cjson`).
-fn ensure_distinct_scoped_names(summaries: &BTreeMap<String, RecipeSummary>) -> Result<()> {
+fn ensure_distinct_scoped_names(scoped_by_dir: &BTreeMap<String, PackageName>) -> Result<()> {
     let mut scoped_owners: BTreeMap<&str, &str> = BTreeMap::new();
-    for (port_name, summary) in summaries {
-        if let Some(previous) = scoped_owners.insert(summary.scoped.as_str(), port_name) {
+    for (port_name, scoped) in scoped_by_dir {
+        if let Some(previous) = scoped_owners.insert(scoped.as_str(), port_name) {
             bail!(
-                "ports `{previous}` and `{port_name}` both convert to `{}`; converted names \
+                "ports `{previous}` and `{port_name}` both publish as `{}`; published names \
                  must stay distinct",
-                summary.scoped.as_str()
+                scoped.as_str()
             );
         }
     }
@@ -636,11 +503,6 @@ fn ensure_distinct_scoped_names(summaries: &BTreeMap<String, RecipeSummary>) -> 
 /// would fail resolution later with a worse error.  An unsatisfiable
 /// edge must fail here with its real diagnosis, not surface as a
 /// phantom "dependency cycle" when ordering never drains the node.
-///
-/// Both shapes are checked together, against the whole committed
-/// tree: a scoped name's base is the lowercase fold of a port's name
-/// (`cJSON` publishes as `cabin-ports/cjson`), so this runs entirely
-/// over published identities.
 fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()> {
     let mut published: BTreeMap<&str, Vec<&Version>> = BTreeMap::new();
     for conversion in conversions {
@@ -658,7 +520,7 @@ fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()>
                 bail!(
                     "{} depends on `{}` with requirement `{}`, which no committed port \
                      version satisfies",
-                    conversion.recipe_dir.display(),
+                    conversion.committed_dir.display(),
                     dep.scoped.as_str(),
                     dep.req
                 );
@@ -668,23 +530,19 @@ fn ensure_requirements_satisfiable(conversions: &[PortConversion]) -> Result<()>
     Ok(())
 }
 
-/// Split `ports/<name>/<version>/` directories by shape: a
-/// `port.toml` marks a recipe, a bare `cabin.toml` a migrated
-/// provenance-bearing package.
-fn discover_ports(ports_dir: &Path) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
-    let mut recipes = Vec::new();
+/// Every `ports/<name>/<version>/` directory holding a committed
+/// `cabin.toml` - the one shape a port is committed in.
+fn discover_ports(ports_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut packages = Vec::new();
     let names = read_sorted_dirs(ports_dir)?;
     for name_dir in names {
         for version_dir in read_sorted_dirs(&name_dir)? {
-            if version_dir.join("port.toml").is_file() {
-                recipes.push(version_dir);
-            } else if version_dir.join("cabin.toml").is_file() {
+            if version_dir.join("cabin.toml").is_file() {
                 packages.push(version_dir);
             }
         }
     }
-    Ok((recipes, packages))
+    Ok(packages)
 }
 
 fn read_sorted_dirs(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -725,7 +583,7 @@ fn ensure_unique_identities(conversions: &[PortConversion]) -> Result<()> {
         );
         if !seen.insert(identity) {
             bail!(
-                "two recipes convert to `{} {}`; converted identities must be unique",
+                "two ports publish as `{} {}`; published identities must be unique",
                 conversion.scoped_name.as_str(),
                 conversion.published_version
             );
@@ -790,92 +648,34 @@ mod tests {
     use assert_fs::TempDir;
     use assert_fs::prelude::*;
 
-    const SHA: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
-
-    fn write_recipe(
-        root: &assert_fs::fixture::ChildPath,
-        name: &str,
-        version: &str,
-        overlay_extra: &str,
-    ) {
-        let dir = root.child(format!("{name}/{version}"));
-        dir.child("port.toml")
-            .write_str(&format!(
-                "[port]\nname = \"{name}\"\nversion = \"{version}\"\n\n[source]\ntype = \
-                 \"archive\"\nurl = \"https://example.com/{name}-{version}.tar.gz\"\nsha256 = \
-                 \"{SHA}\"\nstrip_prefix = \"{name}-{version}\"\n\n[overlay]\nmanifest = \
-                 \"cabin.toml\"\n"
-            ))
-            .unwrap();
-        dir.child("cabin.toml")
-            .write_str(&format!(
-                "[package]\nname = \"{name}\"\nversion = \"{version}\"\n{overlay_extra}\n\
-                 [target.{name}]\ntype = \"library\"\nsources = [\"{name}.c\"]\nc-standard = \
-                 \"c11\"\n"
-            ))
-            .unwrap();
-    }
-
-    /// A recipe reaches another port the only way anything can now -
-    /// through a scoped registry dependency in its overlay - and that
-    /// edge has to order publication.  The preflight probe-builds each
-    /// conversion against the registry the moment it is staged, so a
-    /// dependent staged first fails on a package that is not there yet.
     #[test]
-    fn a_recipe_registry_dependency_orders_publication() {
-        let dir = TempDir::new().unwrap();
-        let ports = dir.child("ports");
-        // `apng` sorts before `zlib`, so only the edge can invert it.
-        write_recipe(
-            &ports,
-            "apng",
-            "1.0.0",
-            "\n[dependencies]\n\"cabin-ports/zlib\" = \"^1.3\"\n",
-        );
-        write_recipe(&ports, "zlib", "1.3.1", "");
-        let conversions = load_conversions(ports.path()).unwrap();
-        let names: Vec<&str> = conversions.iter().map(|c| c.scoped_name.as_str()).collect();
-        assert_eq!(names, ["cabin-ports/zlib", "cabin-ports/apng"]);
+    fn scoped_names_lowercase_under_the_ports_scope() {
         assert_eq!(
-            conversions[1]
-                .dependencies
-                .iter()
-                .map(|dep| (dep.scoped.as_str(), dep.req.to_string()))
-                .collect::<Vec<_>>(),
-            [("cabin-ports/zlib", "^1.3".to_owned())]
+            scoped_package_name("cJSON").unwrap().as_str(),
+            "cabin-ports/cjson"
         );
-    }
-
-    /// The same validation a migrated package's edges get: a recipe
-    /// whose overlay names a version nothing publishes fails with the
-    /// real diagnosis, not a phantom cycle.
-    #[test]
-    fn an_unsatisfiable_recipe_dependency_is_diagnosed_as_such() {
-        let dir = TempDir::new().unwrap();
-        let ports = dir.child("ports");
-        write_recipe(
-            &ports,
-            "apng",
-            "1.0.0",
-            "\n[dependencies]\n\"cabin-ports/zlib\" = \"^2\"\n",
+        assert_eq!(
+            scoped_package_name("nlohmann_json").unwrap().as_str(),
+            "cabin-ports/nlohmann_json"
         );
-        write_recipe(&ports, "zlib", "1.3.1", "");
-        let err = load_conversions(ports.path()).unwrap_err();
-        let message = format!("{err:#}");
-        assert!(
-            message.contains("which no committed port version satisfies"),
-            "{message}"
-        );
+        // `.` is valid in a local package name but not in the
+        // registry grammar, so the publisher refuses it up front.
+        assert!(scoped_package_name("foo.bar").is_err());
     }
 
     /// A stray `packaging-revision` sidecar (the removed mechanism)
-    /// is just an unknown file in the recipe directory: discovery
+    /// is just an unknown file in the port directory: discovery
     /// ignores it and the published version stays the upstream one.
     #[test]
     fn stray_packaging_revision_sidecars_are_ignored() {
         let dir = TempDir::new().unwrap();
         let ports = dir.child("ports");
-        write_recipe(&ports, "zlib", "1.3.1", "");
+        write_package(
+            ports.path(),
+            "zlib",
+            "1.3.1",
+            &package_manifest("cabin-ports/zlib", "1.3.1", ""),
+        );
         ports
             .child("zlib/1.3.1")
             .child("packaging-revision")
@@ -890,10 +690,10 @@ mod tests {
     /// requirements that name concrete ports.
     ///
     /// Also pins the SHAPE of the committed tree: every port is a
-    /// provenance-bearing package.  The recipe path stays supported
-    /// (the fixtures below exercise it), so nothing else would fail
-    /// if a `port.toml` were committed again - this assertion is the
-    /// check that catches it.
+    /// provenance-bearing package.  Discovery now ignores a version
+    /// directory that holds only a `port.toml`, so a reintroduced
+    /// recipe would publish as nothing at all rather than fail - this
+    /// assertion is the check that catches it.
     #[test]
     fn committed_ports_all_load() {
         let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -906,13 +706,20 @@ mod tests {
             "expected every committed port, got {}",
             conversions.len()
         );
-        for conversion in &conversions {
-            assert!(
-                matches!(conversion.source, PortSource::Package { .. }),
-                "{} is committed as a recipe; every committed port is a \
-                 provenance-bearing package",
-                conversion.recipe_dir.display()
-            );
+        let mut pending = vec![ports_dir.clone()];
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else {
+                    assert!(
+                        path.file_name() != Some("port.toml".as_ref()),
+                        "{} is a recipe; every committed port is a provenance-bearing package",
+                        path.display()
+                    );
+                }
+            }
         }
 
         let by_name: BTreeMap<&str, &PortConversion> = conversions
@@ -944,7 +751,7 @@ mod tests {
             cli11.manifest
         );
 
-        // libpng orders after zlib, which its overlay names through
+        // libpng orders after zlib, which its manifest names through
         // the bare scoped shorthand.
         let zlib_pos = conversions
             .iter()
@@ -977,7 +784,7 @@ mod tests {
             libpng.manifest
         );
 
-        // Provenance is stamped everywhere, and no converted
+        // Provenance is declared everywhere, and no published
         // manifest keeps an upper-case identity.
         for conversion in &conversions {
             assert!(
@@ -992,7 +799,7 @@ mod tests {
             );
         }
 
-        // Deterministic: a second scan converts byte-identically.
+        // Deterministic: a second scan loads byte-identically.
         let again = load_conversions(&ports_dir).unwrap();
         for (a, b) in conversions.iter().zip(&again) {
             assert_eq!(a.scoped_name, b.scoped_name);

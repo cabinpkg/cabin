@@ -30,7 +30,6 @@ cabin-publish = { workspace = true }
 camino = { workspace = true }
 etcetera = { workspace = true }
 semver = { workspace = true }
-toml_edit = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

@@ -109,11 +109,8 @@ and do not add speculative flexibility.
 - Green checks only cover the surfaces they touch. Before calling a change
   verified, name which check would have failed had the change been wrong;
   if none would, the change is unverified.
-- A **migrated package** directory under a ports tree (a bare `cabin.toml`,
-  no `port.toml`) is published **verbatim**: editing it - a comment
-  included - changes the published archive bytes.  A recipe's overlay is a
-  rewritten input instead, so the same edit reaches the archive only through
-  the conversion.
+- A **port** directory under a ports tree is published **verbatim**: editing
+  it - a comment included - changes the published archive bytes.
   A byte-only correction is a packaging revision; an edit that changes what
   resolution consumes (`dependencies`, `features`, `standards`) is not a
   revision at all and needs a new upstream version, with `links` stamping

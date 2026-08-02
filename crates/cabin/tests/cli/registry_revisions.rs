@@ -114,7 +114,7 @@ fn respins_keep_existing_pins_and_new_consumers_get_the_latest_revision() {
     let pinned = locked_checksum(&lockfile_a);
     assert_eq!(&pinned["sha256:".len()..][..16], first_rev);
 
-    // A recipe correction lands as a new revision.
+    // A packaging correction lands as a new revision.
     publish_fmt(&dir.path().join("pkg"), &registry, "2", true);
     let (second_rev, all) = fmt_revisions(&registry);
     assert_ne!(first_rev, second_rev);

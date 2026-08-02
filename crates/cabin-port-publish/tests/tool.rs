@@ -1,6 +1,6 @@
 //! End-to-end tests for the `cabin-port-publish` binary.
 //!
-//! Offline by default: every recipe pins an `https://` URL (the
+//! Offline by default: every port pins an `https://` URL (the
 //! provenance rules require it) whose archive is pre-seeded into the
 //! port cache, so the cache-first fetch never touches the network.
 //! The `--publish` test serves a fake registry on a loopback
@@ -114,29 +114,10 @@ fn seed_port_cache(cache_dir: &Path, bytes: &[u8], hex: &str) {
     file.write_all(bytes).unwrap();
 }
 
-fn write_recipe(
-    ports: &assert_fs::fixture::ChildPath,
-    name: &str,
-    version: &str,
-    sha256: &str,
-    overlay: &str,
-) {
-    let dir = ports.child(format!("{name}/{version}"));
-    dir.child("port.toml")
-        .write_str(&format!(
-            "[port]\nname = \"{name}\"\nversion = \"{version}\"\n\n[source]\ntype = \
-             \"archive\"\nurl = \"https://ports.invalid/{name}-{version}.tar.gz\"\nsha256 = \
-             \"{sha256}\"\nstrip_prefix = \"{name}-{version}\"\n\n[overlay]\nmanifest = \
-             \"cabin.toml\"\n"
-        ))
-        .unwrap();
-    dir.child("cabin.toml").write_str(overlay).unwrap();
-}
-
-/// Two fake ports: `zlib`, still a recipe (exercises the `z` native
-/// target key), and `libpng`, already migrated and depending on it -
-/// a cross-shape edge, which orders publication like any other
-/// scoped registry dependency.  Returns the ports dir and the seeded
+/// Three fake ports: `zlib` (a sole library target keyed `z`),
+/// `libpng` depending on it through an ordinary scoped registry
+/// dependency, and `fastlz`, whose upstream only compiles once its
+/// declared patch has run.  Returns the ports dir and the seeded
 /// cache dir.
 fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
     let ports = dir.child("ports");
@@ -153,13 +134,14 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
         ),
     ]);
     seed_port_cache(cache.path(), &zlib_bytes, &zlib_hex);
-    write_recipe(
+    write_port_package(
         &ports,
         "zlib",
         "1.3.1",
         &zlib_hex,
-        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \
-         \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\n",
+        &[],
+        "[target.z]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = \
+         [\".\"]\nc-standard = \"c11\"\n",
     );
     let (libpng_bytes, libpng_hex) = make_tar_gz(&[
         (
@@ -184,8 +166,6 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
          \"c11\"\ndeps = [\"cabin-ports/zlib\"]\n",
     );
 
-    // A third port as a provenance-bearing package directory: the
-    // publisher accepts both shapes, and one dry-run must stage both.
     let (fastlz_bytes, fastlz_hex) = make_tar_gz(&[
         (
             "fastlz-0.5.0/fastlz.h",
@@ -225,9 +205,8 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
     (ports.to_path_buf(), cache.to_path_buf())
 }
 
-/// Publication order: the dependency before the dependent, with both
-/// committed shapes in one run (the migrated `fastlz` package has no
-/// dependencies, so it drains in the first rank by name).
+/// Publication order: the dependency before the dependent (`fastlz`
+/// has no dependencies, so it drains in the first rank by name).
 fn assert_publication_order(stdout: &str) {
     let Some(order) = stdout
         .lines()
@@ -249,13 +228,13 @@ fn assert_publication_order(stdout: &str) {
     let _ = position("cabin-ports/fastlz 0.5.0");
 }
 
-/// The migrated package staged from its committed manifest, was
-/// published verbatim (identity, provenance, and target key all
-/// straight from the file), and probe-built from the registry.  Its
+/// The port staged from its committed manifest, was published
+/// verbatim (identity, provenance, and target key all straight from
+/// the file), and probe-built from the registry.  Its
 /// upstream source does not compile unpatched, so the probe artifact
 /// existing is proof the declared patch ran through the shared
 /// materializer.
-fn assert_migrated_package_round_trip(registry: &std::path::Path, work: &std::path::Path) {
+fn assert_patched_package_round_trip(registry: &std::path::Path, work: &std::path::Path) {
     let fastlz_index: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(registry.join("packages/cabin-ports/fastlz.json")).unwrap(),
     )
@@ -275,7 +254,7 @@ fn assert_migrated_package_round_trip(registry: &std::path::Path, work: &std::pa
     );
 }
 
-/// Write an already-migrated port: one committed `cabin.toml`
+/// Write a committed port: one `cabin.toml`
 /// carrying the canonical scoped identity and complete
 /// `[package.upstream]` provenance, published verbatim.
 fn write_port_package(
@@ -454,7 +433,7 @@ fn dry_run_preflights_against_a_temporary_file_registry() {
         libpng_probe.display()
     );
 
-    assert_migrated_package_round_trip(&registry, &work);
+    assert_patched_package_round_trip(&registry, &work);
 
     // Dry run performs no remote mutation and reports completion.
     assert!(stdout.contains("dry run complete"), "{stdout}");
@@ -666,7 +645,7 @@ fn publish_uploads_every_package_in_dependency_order() {
     // Dependency order: fastlz (no deps, first by name) and zlib
     // upload before libpng, all framed bodies non-trivial (metadata
     // JSON + zip archive).  Every upload opts into new revisions: a
-    // changed committed recipe IS the deliberate intent to respin its
+    // changed committed manifest IS the deliberate intent to respin its
     // published version.
     assert_eq!(
         puts.iter()
@@ -765,13 +744,14 @@ fn a_failed_preflight_makes_no_remote_mutation() {
         ),
     ]);
     seed_port_cache(cache.path(), &zlib_bytes, &zlib_hex);
-    write_recipe(
+    write_port_package(
         &ports,
         "zlib",
         "1.3.1",
         &zlib_hex,
-        "[package]\nname = \"zlib\"\nversion = \"1.3.1\"\n\n[target.zlib]\ntype = \
-         \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = [\".\"]\nc-standard = \"c11\"\n",
+        &[],
+        "[target.z]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = \
+         [\".\"]\nc-standard = \"c11\"\n",
     );
     let (libpng_bytes, libpng_hex) = make_tar_gz(&[(
         "libpng-1.6.50/png.c",

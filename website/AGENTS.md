@@ -14,14 +14,16 @@ from 22.18).
   Every committed version directory is a provenance-bearing package (a
   single `cabin.toml` whose `[package.upstream]` supplies the record's
   provenance; its display fields are null - the manifest carries none -
-  so those UI sections hide).  `src/lib/ports.ts` also still loads the
-  recipe shape (`port.toml` + overlay, the `[source]` pin surfacing as
-  `upstream`), which nothing is committed in today. Both mirror the
-  `cabin-port-publish` identity rules: the record name is the scoped
-  registry name `cabin-ports/<lowercase name>`, the version is the
-  upstream version verbatim (packaging corrections are registry
-  revisions, never a version-string suffix). One port never spans both
-  shapes; directories with neither marker are skipped. `src/lib/packages.ts` does grouping,
+  so those UI sections hide).  `src/lib/ports.ts` still carries a code
+  path for the retired recipe shape (`port.toml` + overlay, the
+  `[source]` pin surfacing as `upstream`); nothing is committed in it
+  and `cabin-port-publish` no longer accepts it, so do not build on
+  that path. The loader mirrors the `cabin-port-publish` identity
+  rules: the record name is the scoped registry name
+  `cabin-ports/<lowercase name>`, the version is the upstream version
+  verbatim (packaging corrections are registry revisions, never a
+  version-string suffix). Directories with no `cabin.toml` are
+  skipped. `src/lib/packages.ts` does grouping,
   latest-version selection, route generation, and the search index (loader
   memoized: one disk read per build). `src/pages/packages.json.ts` is the
   search-index endpoint.
@@ -69,7 +71,7 @@ from 22.18).
 - Routes: `/packages/<group>/<name>` (latest) and
   `/packages/<group>/<name>/<version>`. A package name is exactly two
   non-empty slash-separated segments. The ports' group is the real registry
-  scope: a `port.toml` named `zlib` becomes
+  scope: a port directory named `zlib` becomes
   `PackageRecord.name = "cabin-ports/zlib"` -> `/packages/cabin-ports/zlib`;
   the full quoted scoped name is what goes in a consumer's `cabin.toml`.
 - Port pages have no README, edition, or publish date; those UI sections are

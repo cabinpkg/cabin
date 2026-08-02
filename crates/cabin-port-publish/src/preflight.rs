@@ -2,9 +2,9 @@
 //! temporary file registry, and build every port *from that
 //! registry* in publication order.
 //!
-//! The preflight is the gate in front of any remote mutation: a
-//! recipe that cannot fetch, extract, package, publish, resolve, or
-//! compile locally never reaches the registry API.
+//! The preflight is the gate in front of any remote mutation: a port
+//! that cannot fetch, extract, package, publish, resolve, or compile
+//! locally never reaches the registry API.
 //!
 //! Each port is exercised through a generated probe package that
 //! depends on the just-published version, so the build consumes the
@@ -20,12 +20,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail};
-use cabin_port::{
-    ArchiveKind, PortCache, PortEntry, PortFetchSource, PortOrigin, PortPlan, PortPrepareOptions,
-};
+use cabin_port::{ArchiveKind, PortCache};
 use cabin_publish::RegistryPublishWorkflow;
 
-use crate::plan::{PortConversion, PortSource};
+use crate::plan::PortConversion;
 
 /// Preflight inputs.
 #[derive(Debug)]
@@ -166,15 +164,8 @@ pub fn stage_conversion(
 }
 
 /// Materialize one conversion into a staging directory and write the
-/// manifest that publishes with it.  A recipe runs through the
-/// standard port pipeline (checksum, safe extraction, strip-prefix,
-/// `[[copy]]`, overlay identity cross-check) and gets the converted
-/// manifest; a migrated package runs the shared
-/// `materialize_upstream` pipeline instead and keeps its committed
-/// manifest verbatim.  Only the recipe-specific conversion and
-/// overlay handling differ - both shapes fetch, verify, materialize,
-/// and patch.  The committed sources and the shared port cache are
-/// never mutated.
+/// manifest that publishes with it.  The committed sources and the
+/// shared port cache are never mutated.
 fn materialize(
     conversion: &PortConversion,
     port_cache: &PortCache,
@@ -184,59 +175,40 @@ fn materialize(
     let package_dir = sources_dir
         .join(conversion.scoped_name.base_name())
         .join(conversion.published_version.to_string());
-    // `copy_tree` overlays without clearing, so a directory left by a
-    // previous run could smuggle stale files into the packaged
-    // archive.  The preflight owns and clears its whole scratch root;
-    // any other caller must supply a fresh one.
+    // Materialization extracts on top of this directory without ever
+    // clearing it, so a directory left by a previous run could
+    // smuggle stale files into the packaged archive.  The preflight
+    // owns and clears its whole scratch root; any other caller must
+    // supply a fresh one.
     if package_dir.exists() {
         bail!(
             "package directory {} already exists; stage into a fresh sources directory",
             package_dir.display()
         );
     }
-    match &conversion.source {
-        PortSource::Recipe(descriptor) => {
-            let source = resolve_fetch_source(conversion, port_cache, fetch)?;
-            let plan = PortPlan {
-                entries: vec![PortEntry {
-                    descriptor: (**descriptor).clone(),
-                    origin: PortOrigin::PortDir(conversion.recipe_dir.clone()),
-                    source,
-                }],
-            };
-            let prepared = cabin_port::prepare(&plan, port_cache, PortPrepareOptions::default())
-                .with_context(|| format!("preparing {}", conversion.recipe_dir.display()))?;
-            let prepared = prepared
-                .ports
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow!("prepare returned no ports"))?;
-            copy_tree(&prepared.source_dir, &package_dir)?;
-        }
-        PortSource::Package { upstream } => {
-            materialize_package(conversion, upstream, port_cache, &package_dir, fetch)?;
-        }
-    }
+    materialize_package(conversion, port_cache, &package_dir, fetch)?;
 
-    // The committed manifest is what publishes: converted from the
-    // overlay for a recipe, the package's own file otherwise.
+    // Written LAST, deliberately: the upstream archive extracts on
+    // top of `package_dir`, so an upstream shipping its own root
+    // `cabin.toml` would otherwise overwrite the committed manifest
+    // and publish in its place.
     fs::write(package_dir.join("cabin.toml"), &conversion.manifest)
         .with_context(|| format!("writing the manifest into {}", package_dir.display()))?;
     Ok(package_dir)
 }
 
-/// Materialize a provenance-bearing package through the shared
+/// Materialize a port's declared provenance through the shared
 /// pipeline (`cabin_artifact::materialize_upstream`) - the same
 /// implementation the registry verifier replays - then lay the
 /// committed patch files on top at their declared paths.
 fn materialize_package(
     conversion: &PortConversion,
-    upstream: &cabin_core::UpstreamProvenance,
     port_cache: &PortCache,
     package_dir: &Path,
     fetch: ArchiveFetch,
 ) -> Result<()> {
-    let archive = resolve_package_archive(conversion, upstream, port_cache, fetch)?;
+    let upstream = conversion.upstream.as_ref();
+    let archive = resolve_package_archive(conversion, port_cache, fetch)?;
     fs::create_dir_all(package_dir)
         .with_context(|| format!("creating {}", package_dir.display()))?;
 
@@ -245,7 +217,7 @@ fn materialize_package(
     let mut fetch_patch = |path: &camino::Utf8Path| {
         let committed = committed_patch_path(conversion, path).map_err(|err| {
             cabin_artifact::MaterializeError::Io {
-                path: conversion.recipe_dir.join(path.as_std_path()),
+                path: conversion.committed_dir.join(path.as_std_path()),
                 source: std::io::Error::other(format!("{err:#}")),
             }
         })?;
@@ -288,7 +260,7 @@ fn materialize_package(
 /// bytes entering the published archive must be the committed
 /// regular files themselves, never something a link points at.
 fn committed_patch_path(conversion: &PortConversion, path: &camino::Utf8Path) -> Result<PathBuf> {
-    let mut current = conversion.recipe_dir.clone();
+    let mut current = conversion.committed_dir.clone();
     for component in path.as_str().split('/') {
         current.push(component);
         if let Ok(metadata) = fs::symlink_metadata(&current)
@@ -303,15 +275,15 @@ fn committed_patch_path(conversion: &PortConversion, path: &camino::Utf8Path) ->
     Ok(current)
 }
 
-/// The pinned archive for a package, cache-first: a cached archive
-/// whose bytes hash to the declared SHA-256 is reused, otherwise it
-/// downloads into the same content-addressed slot recipes use.
+/// The pinned archive for a port, cache-first: a cached archive whose
+/// bytes hash to the declared SHA-256 is reused, otherwise it
+/// downloads into the shared content-addressed cache slot.
 fn resolve_package_archive(
     conversion: &PortConversion,
-    upstream: &cabin_core::UpstreamProvenance,
     port_cache: &PortCache,
     fetch: ArchiveFetch,
 ) -> Result<PathBuf> {
+    let upstream = conversion.upstream.as_ref();
     let expected_hex = upstream.sha256_hex();
     let kind = match upstream.format() {
         cabin_core::UpstreamFormat::TarGz => ArchiveKind::TarGz,
@@ -363,47 +335,6 @@ fn resolve_package_archive(
     Ok(cached)
 }
 
-/// Resolve where the pinned upstream archive's bytes come from,
-/// mirroring the CLI's cache-first policy: a cached archive whose
-/// bytes hash to the declared SHA-256 is reused; otherwise the
-/// archive downloads with the same 5-hop redirect budget
-/// foundation-port fetches use (a miss under
-/// [`ArchiveFetch::CacheOnly`] is an error instead).  Conversion already validated every
-/// recipe URL as credential-free HTTPS (the provenance rules), so no
-/// other scheme reaches this point.
-fn resolve_fetch_source(
-    conversion: &PortConversion,
-    port_cache: &PortCache,
-    fetch: ArchiveFetch,
-) -> Result<PortFetchSource> {
-    let descriptor = conversion
-        .source
-        .descriptor()
-        .ok_or_else(|| anyhow!("a package port has no recipe source to fetch"))?;
-    let source = &descriptor.source;
-    let expected_hex = source.sha256.to_hex();
-    let cached = port_cache.archive_path(&expected_hex, ArchiveKind::from_url(&source.url));
-    if archive_matches(&cached, &expected_hex)? {
-        return Ok(PortFetchSource::LocalArchive(cached));
-    }
-    if fetch == ArchiveFetch::CacheOnly {
-        bail!(
-            "no cached archive for {} {} at {} and downloads are disabled; seed the port cache \
-             before staging",
-            descriptor.name.as_str(),
-            descriptor.version,
-            cached.display()
-        );
-    }
-    let client = cabin_index_http::HttpClient::with_redirect_budget(5);
-    let label = format!("{}-{}", descriptor.name.as_str(), descriptor.version);
-    let bytes = client
-        .download(source.url.as_str(), &label)
-        .map_err(|err| anyhow!("failed to download {}: {err}", source.url))?;
-    println!("fetched {} ({} bytes)", source.url, bytes.len());
-    Ok(PortFetchSource::InMemoryArchive(bytes))
-}
-
 /// `Ok(true)` when a cached archive exists and hashes to
 /// `expected_hex`; a missing file is a clean miss, any other read
 /// failure surfaces.
@@ -423,32 +354,10 @@ fn archive_matches(path: &Path, expected_hex: &str) -> Result<bool> {
     Ok(actual == expected_hex)
 }
 
-/// Recursively copy the prepared source tree.  Prepared trees hold
-/// only regular files and directories (the extractors skip symlink
-/// entries and reject other special entries), so a plain walk is
-/// exhaustive.
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
-    fs::create_dir_all(to).with_context(|| format!("creating {}", to.display()))?;
-    for entry in fs::read_dir(from).with_context(|| format!("reading {}", from.display()))? {
-        let entry = entry.with_context(|| format!("reading {}", from.display()))?;
-        let source = entry.path();
-        let target = to.join(entry.file_name());
-        let kind = entry
-            .file_type()
-            .with_context(|| format!("inspecting {}", source.display()))?;
-        if kind.is_dir() {
-            copy_tree(&source, &target)?;
-        } else {
-            fs::copy(&source, &target).with_context(|| format!("copying {}", source.display()))?;
-        }
-    }
-    Ok(())
-}
-
 /// Build the port from the preflight registry through a generated
 /// probe package that depends on the exact published version.  The
 /// probe's standards (`c11` / `c++17`) sit at or above every
-/// committed recipe's interface floor.  `--offline` enforces that
+/// committed port's interface floor.  `--offline` enforces that
 /// the file registry and the run-local cache satisfy the whole
 /// build.
 fn build_probe_against_registry(
@@ -606,27 +515,22 @@ fn probe_manifest(conversion: &PortConversion) -> String {
 mod tests {
     use super::*;
     use crate::plan::{PortConversion, PortDependencyEdge};
-    use cabin_port::{ArchiveSource, OverlayManifest, PortChecksum, PortDescriptor, PortMetadata};
 
     fn conversion(target_keys: &[&str]) -> PortConversion {
         PortConversion {
             probe_standards: crate::plan::ProbeStandards::default(),
-            recipe_dir: PathBuf::from("ports/zlib/1.3.1"),
-            source: PortSource::Recipe(Box::new(PortDescriptor {
-                name: cabin_core::PackageName::new("zlib").unwrap(),
-                version: semver::Version::new(1, 3, 1),
-                metadata: PortMetadata::default(),
-                source: ArchiveSource {
-                    url: url::Url::parse("https://example.com/zlib-1.3.1.tar.gz").unwrap(),
-                    sha256: PortChecksum::parse_hex(&"a".repeat(64)).unwrap(),
-                    strip_prefix: None,
-                },
-                overlay: OverlayManifest {
-                    relative_path: camino::Utf8PathBuf::from("cabin.toml"),
-                },
-                copies: Vec::new(),
-                patches: Vec::new(),
-            })),
+            committed_dir: PathBuf::from("ports/zlib/1.3.1"),
+            upstream: Box::new(
+                cabin_core::UpstreamProvenance::new(
+                    "https://ports.invalid/zlib-1.3.1.tar.gz",
+                    &"a".repeat(64),
+                    "tar.gz",
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap(),
+            ),
             scoped_name: cabin_core::PackageName::new("cabin-ports/zlib").unwrap(),
             published_version: semver::Version::new(1, 3, 1),
             manifest: String::new(),
@@ -655,7 +559,7 @@ mod tests {
         .unwrap();
 
         let mut conversion = conversion(&["z"]);
-        conversion.recipe_dir = package_dir;
+        conversion.committed_dir = package_dir;
         let err =
             committed_patch_path(&conversion, camino::Utf8Path::new("patches/0001-fix.patch"))
                 .unwrap_err();
@@ -670,13 +574,8 @@ mod tests {
     #[test]
     fn cache_only_staging_fails_on_a_cache_miss_without_downloading() {
         let dir = assert_fs::TempDir::new().unwrap();
-        let mut conversion = conversion(&["z"]);
-        if let PortSource::Recipe(descriptor) = &mut conversion.source {
-            descriptor.source.url =
-                url::Url::parse("https://ports.invalid/zlib-1.3.1.tar.gz").unwrap();
-        }
         let err = stage_conversion(
-            &conversion,
+            &conversion(&["z"]),
             &PortCache::new(dir.path().join("cache/ports")),
             &dir.path().join("src"),
             &dir.path().join("registry"),
@@ -686,7 +585,7 @@ mod tests {
         .unwrap_err();
         let message = format!("{err:#}");
         assert!(
-            message.contains("no cached archive for zlib 1.3.1")
+            message.contains("no cached archive for cabin-ports/zlib 1.3.1")
                 && message.contains("downloads are disabled"),
             "{message}"
         );
@@ -696,7 +595,74 @@ mod tests {
         );
     }
 
-    /// `copy_tree` overlays without clearing, so staging into a
+    /// Build a gzipped tarball from `(path, contents)` entries and
+    /// return `(bytes, sha256_hex)`.
+    fn tar_gz(entries: &[(&str, &str)]) -> (Vec<u8>, String) {
+        use sha2::Digest as _;
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        for (rel, body) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, rel, body.as_bytes())
+                .unwrap();
+        }
+        let bytes = builder.into_inner().unwrap().finish().unwrap();
+        let hex = cabin_core::hash::hex_digest(&sha2::Sha256::digest(&bytes));
+        (bytes, hex)
+    }
+
+    /// The committed manifest is written *after* materialization, so
+    /// an upstream archive shipping its own root `cabin.toml` cannot
+    /// displace what publishes.  Nothing else covers that ordering:
+    /// no committed port's upstream ships one, so hoisting the write
+    /// would move no published digest.
+    #[test]
+    fn an_upstream_root_manifest_never_displaces_the_committed_one() {
+        const COMMITTED: &str = "[package]\nname = \"cabin-ports/zlib\"\nversion = \"1.3.1\"\n";
+        let dir = assert_fs::TempDir::new().unwrap();
+        let (bytes, hex) = tar_gz(&[
+            (
+                "zlib-1.3.1/cabin.toml",
+                "[package]\nname = \"upstream-decoy\"\nversion = \"9.9.9\"\n",
+            ),
+            ("zlib-1.3.1/zlib.c", "int z(void) { return 0; }\n"),
+        ]);
+        let cache = dir.path().join("cache/ports");
+        let slot = cache.join("archives/sha256").join(format!("{hex}.tar.gz"));
+        fs::create_dir_all(slot.parent().unwrap()).unwrap();
+        fs::write(&slot, &bytes).unwrap();
+
+        let mut conversion = conversion(&["z"]);
+        *conversion.upstream = cabin_core::UpstreamProvenance::new(
+            "https://ports.invalid/zlib-1.3.1.tar.gz",
+            &hex,
+            "tar.gz",
+            Some("zlib-1.3.1".to_owned()),
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        conversion.manifest = COMMITTED.to_owned();
+
+        let package_dir = materialize(
+            &conversion,
+            &PortCache::new(cache),
+            &dir.path().join("src"),
+            ArchiveFetch::CacheOnly,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(package_dir.join("cabin.toml")).unwrap(),
+            COMMITTED
+        );
+    }
+
+    /// Materialization extracts without clearing, so staging into a
     /// package directory left by a previous run must refuse instead
     /// of packaging stale files.
     #[test]

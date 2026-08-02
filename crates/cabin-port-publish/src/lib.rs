@@ -1,8 +1,7 @@
 //! Repository tool that publishes the curated foundation ports
 //! (`crates/cabin-port/ports/`) as ordinary registry packages under
 //! the `cabin-ports` scope.  Every committed port is a package
-//! directory, published verbatim; the tool also accepts a recipe,
-//! converting it, and the test fixtures still exercise that path.
+//! directory, published verbatim.
 //!
 //! The tool has exactly two modes, both of which run the complete
 //! local preflight (materialize every port, publish it into a
@@ -16,14 +15,13 @@
 //!   public index hides pending versions, so it cannot be used to
 //!   decide what is already published).
 //!
-//! A recipe is an input only: the conversion rewrites a copy of its
-//! overlay, never the committed file.
+//! The committed tree is an input only: every port materializes into
+//! a scratch directory, never in place.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
-pub mod convert;
 pub mod plan;
 pub mod preflight;
 pub mod remote;
@@ -46,7 +44,7 @@ pub enum Mode {
 #[derive(Debug)]
 pub struct Options {
     pub mode: Mode,
-    /// `ports/` directory to publish, in either committed shape.
+    /// `ports/` directory to publish.
     pub ports_dir: PathBuf,
     /// Cabin cache root (upstream archives are reused from and
     /// cached into `<cache>/ports`).

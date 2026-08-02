@@ -541,7 +541,6 @@ dependencies = [
  "sha2",
  "tar",
  "tiny_http",
- "toml_edit",
  "url",
 ]
 

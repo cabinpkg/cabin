@@ -73,9 +73,8 @@ their per-target overrides ([Language standards](language-standards.md)).
 ### `[package.upstream]`
 
 An optional machine-verifiable claim that the package's source tree came from a pinned upstream
-archive.  The shape mirrors a foundation-port recipe's `[source]` and `[[copy]]` tables
-([`foundation-ports.md`](foundation-ports.md)), with published-metadata restrictions: the URL must
-be credential-free HTTPS and the archive format is declared explicitly, never inferred from the URL.
+archive.  The URL must be credential-free HTTPS and the archive format is declared explicitly,
+never inferred from the URL.  Every [foundation port](foundation-ports.md) declares one.
 
 ```toml
 [package.upstream]
