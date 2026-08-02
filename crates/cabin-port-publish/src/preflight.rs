@@ -549,6 +549,7 @@ mod tests {
             published_version: semver::Version::new(1, 3, 1),
             manifest: String::new(),
             dependencies: Vec::<PortDependencyEdge>::new(),
+            declared_requirements: Vec::<crate::plan::DeclaredRequirement>::new(),
             library_like_target_keys: target_keys.iter().map(|k| (*k).to_owned()).collect(),
             sole_library_target: target_keys.len() == 1,
         }
