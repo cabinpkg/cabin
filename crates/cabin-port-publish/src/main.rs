@@ -13,8 +13,8 @@ const USAGE: &str = "\
 usage: cabin-port-publish (--dry-run | --publish --index-url <URL>) [options]
 
 Publishes the committed foundation ports as `cabin-ports/<name>` registry
-packages: a recipe is converted, a migrated package directory is published
-verbatim.  Both modes run the complete local preflight
+packages, each from the `cabin.toml` committed in it, verbatim.  Both
+modes run the complete local preflight
 (materialize, package, publish into a temporary file registry, build
 every port against it in publication order); --publish then uploads
 every package through the registry API.

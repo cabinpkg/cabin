@@ -118,14 +118,7 @@ entire port removes the whole `ports/<name>/` directory.
 
 The repository tool `cabin-port-publish` (`crates/cabin-port-publish`; not part of the shipped
 `cabin` binary) publishes every port in this directory as an ordinary registry package under the
-`cabin-ports` scope.  Every port here is a package; the tool also accepts the recipe shape, which
-the test fixtures still exercise.
-
-A **recipe** is converted: `cabin-ports/<lowercase name>` at the upstream version, with
-`[package.upstream]` provenance stamped from `port.toml`, target keys renamed to the intended
-native artifact stems (zlib's sole library target publishes as `z`).  The committed recipe is never
-mutated - the conversion rewrites a copy.  No port in this directory is committed that way any
-more.
+`cabin-ports` scope.
 
 Every committed port is published **verbatim**: its `cabin.toml` already carries the canonical
 identity, provenance, and target names, so nothing is rewritten.  Its sources are materialized

@@ -297,7 +297,7 @@ Server-side behavior is part of the contract:
   `features`, and `standards` are identical across every revision of a version, so a respin can
   never alter a decision the resolver already made.  A change to any of them is a new version, not a
   revision.  `links` joins the contract with a one-way rule: a revision may add a claim table to a
-  version published without one (identities are stamped onto already-published versions as recipes
+  version published without one (identities are stamped onto already-published versions as packages
   adopt the key - note this retroactively applies to every packaging revision of the version, older
   pinned revisions included, whose archived manifests may predate the declaration), but an existing
   table can never be changed or removed by a respin.  `cabin publish --registry-dir` rejects a

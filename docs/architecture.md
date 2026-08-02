@@ -298,9 +298,8 @@ pipeline: checksum pin, hardened extraction, declared copy steps, then declared 
 collision-folded check that no declared patch path shadows a produced file), with a typed split
 between publisher-determined defects (`MaterializeDefect`) and environmental failures.  The
 registry verifier replays every `[package.upstream]` declaration through it, and the ports
-publisher stages every committed port through it.  The publisher's retained recipe path is the
-one exception - it materializes through `cabin-port`'s separate implementation, so a hardening
-change here does not reach it.  The crate must:
+publisher stages every committed port through it - one implementation, no second path.  The crate
+must:
 
 - not run the resolver;
 - not write Ninja;
@@ -448,7 +447,7 @@ Actions workflow, never by users.  The crate must:
 
 Owns the foundation-port recipe layer: parsing `port.toml`, the checksum-addressed port cache, and
 the materialization pipeline that turns a pinned upstream archive plus an overlay manifest into an
-ordinary package directory for the publisher to package.  The crate must:
+ordinary package directory.  Only the port cache still has a caller; see below.  The crate must:
 
 - never reach into HTTP - like `cabin-artifact`, it accepts archive bytes via a typed
   `PortFetchSource` (LocalArchive / InMemoryArchive); the HTTP path lives in the publisher;
@@ -460,30 +459,28 @@ ordinary package directory for the publisher to package.  The crate must:
   symlink entries (upstream tarballs commonly carry convenience symlinks; nothing is materialized
   for a skipped entry), while package archives keep the strict reject-symlinks default.
 
-Foundation-port recipes are a publishing input, not published metadata: `cabin-publish` never
-archives them, and a manifest cannot name one - the dependency forms that could were removed, so
-the syntax now dies in the manifest parser's generic unknown-field rejection.  See
-[`foundation-ports.md`](foundation-ports.md) for the policy, the schema, and the migration.
+Nothing consumes the recipe layer any more: every committed port declares `[package.upstream]` and
+stages through `cabin-artifact::materialize_upstream`, so only the checksum-addressed archive cache
+still has a caller (the publisher's).  A manifest cannot name a port specially either - the
+dependency forms that could were removed, so the syntax now dies in the manifest parser's generic
+unknown-field rejection.  See [`foundation-ports.md`](foundation-ports.md) for the policy and the
+port package rules.
 
 ### `cabin-port-publish`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
 publishes every committed foundation port as an ordinary registry package under the
 `cabin-ports` scope (see [`foundation-ports.md`](foundation-ports.md), "Publishing ports as
-registry packages").  Every committed port is a provenance-bearing package directory; the tool
-also still accepts a recipe pair (`port.toml` + overlay), converting it, preparing it through
-`cabin-port`, and publishing it under its derived scoped identity.  A package directory (a single
-`cabin.toml` with a complete
-`[package.upstream]`) is published verbatim and staged through
+registry packages").  Every committed port is a package directory (a single `cabin.toml` with a
+complete `[package.upstream]`), published verbatim and staged through
 `cabin-artifact::materialize_upstream` - the same pipeline the registry verifier replays.  It
-composes existing layers instead of duplicating them: `cabin-port` for
-recipe parsing and the archive/prepare pipeline, `cabin-artifact` for package-shape
-materialization, `cabin-package` + `cabin-publish` +
+composes existing layers instead of duplicating them: `cabin-port` for the checksum-addressed
+archive cache, `cabin-artifact` for materialization, `cabin-package` + `cabin-publish` +
 `cabin-registry-file` for staging and the temporary preflight registry, the real `cabin` binary
 for the preflight builds, and `cabin-index-http` + `cabin-credentials` + `cabin-registry-api` for
 the remote upload.  The crate must:
 
-- never mutate the committed recipes or overlays - conversion rewrites a copy;
+- never mutate the committed ports - every one materializes into a scratch directory;
 - never bypass the local preflight before a remote mutation;
 - never skip uploads based on the public index (pending versions are hidden there); the registry's
   byte-identical idempotency is the only dedupe.

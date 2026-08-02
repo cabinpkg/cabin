@@ -1646,7 +1646,7 @@ fn publish_reports_no_op_and_conflict_outcomes() {
         "expected the conflict explanation in: {stderr}"
     );
     // The diagnostic explains the packaging-revision mechanism: the
-    // opt-in is the intended path for recipe-only corrections.
+    // opt-in is the intended path for packaging-only corrections.
     assert!(
         flat_contains(&stderr, "published revisions are immutable"),
         "expected the immutability explanation in: {stderr}"

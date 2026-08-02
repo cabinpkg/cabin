@@ -285,7 +285,7 @@ fn ensure_resolver_metadata_unchanged(
     // `links` is resolver-consumed too, but with a one-way rule: a
     // revision may add a claim table where the version had none
     // (identities are stamped onto already-published versions as the
-    // feature reaches recipes), while changing or removing an
+    // feature reaches ports), while changing or removing an
     // existing one would flip resolution outcomes under a pinned
     // graph and still requires a new version.  The hosted registry
     // enforces the same rule in its publish preflight and SQL guards.
@@ -786,7 +786,7 @@ mod tests {
 
     /// The `links` revision rule is one-way: a new packaging revision
     /// may add a claim table to a version published without one (the
-    /// stamping path for already-published recipes), but changing or
+    /// stamping path for already-published ports), but changing or
     /// removing an existing table still requires a new version.
     #[test]
     fn revisions_may_add_but_not_change_or_remove_links() {

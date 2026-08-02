@@ -80,8 +80,7 @@ package sits orders of magnitude below every limit, and a test packages every ex
 on every platform CI covers.
 
 Extraction is atomic within a run.  The tree is built in a sibling scratch directory unique to the
-process and renamed into place only after it extracts, validates, and — for a cold-cache foundation
-port — finishes its copies, overlay, and identity cross-check.  A rejected archive therefore leaves
+process and renamed into place only after it extracts and validates.  A rejected archive therefore leaves
 no partial source tree, no completion marker, and no scratch directory behind.  This is the
 guarantee that matters for the hostile-archive threat model, and it holds regardless of concurrency.
 

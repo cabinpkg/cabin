@@ -86,9 +86,9 @@ jobs:
           sudo apt-get install -y ninja-build gcc g++
 
       # Restored archives are never trusted: the tool re-hashes every
-      # cached archive against the SHA-256 its port pins - a recipe's
-      # `[source]`, a migrated package's `[package.upstream]` - before
-      # use, and re-downloads on mismatch (cabin-port-publish::preflight),
+      # cached archive against the SHA-256 its port's `[package.upstream]`
+      # pins before use, and re-downloads on mismatch
+      # (cabin-port-publish::preflight),
       # so this cache saves bandwidth without vouching for bytes. Only
       # archives/ is cached - extracted sources/ trees are not
       # integrity-checked on reuse and stay run-local.
