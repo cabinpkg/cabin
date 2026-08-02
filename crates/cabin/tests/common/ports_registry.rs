@@ -2,9 +2,9 @@
 //! `cabin-ports/*` packages.
 //!
 //! Fixtures are generated through the publisher's own pipeline
-//! (`cabin_port_publish`): recipe discovery + conversion via
-//! `plan::load_conversions`, then materialization + file-registry
-//! publish via `preflight::stage_conversion`.  Tests therefore
+//! (`cabin_port_publish`): discovery via `plan::load_conversions`,
+//! then materialization + file-registry publish via
+//! `preflight::stage_conversion`.  Tests therefore
 //! consume byte-identical packages to what `cabin-port-publish`
 //! stages, instead of hand-written index metadata that could drift
 //! from the real conversion rules.
@@ -57,12 +57,12 @@ impl RegistryConsumer<'_> {
     }
 }
 
-/// Publish every port under `ports_dir` - converting the recipes,
-/// taking the migrated packages verbatim - into `<work_dir>/registry`,
+/// Publish every port under `ports_dir` verbatim into
+/// `<work_dir>/registry`,
 /// returning the registry path for `--index-path`.  Cache-only on
 /// purpose: every port's archive must already be seeded into
 /// `cache_dir` (see
-/// `FakePort::pin_https_source_and_seed_cache`), so a fixture
+/// `FakePort::seed_archive_into_cache`), so a fixture
 /// regression fails loudly instead of attempting the network.
 pub fn stage_ports_registry(ports_dir: &Path, cache_dir: &Path, work_dir: &Path) -> PathBuf {
     stage(ports_dir, cache_dir, work_dir, ArchiveFetch::CacheOnly)
@@ -106,7 +106,7 @@ struct StagedCommitted {
 }
 
 fn stage(ports_dir: &Path, cache_dir: &Path, work_dir: &Path, fetch: ArchiveFetch) -> PathBuf {
-    let conversions = plan::load_conversions(ports_dir).expect("convert port recipes");
+    let conversions = plan::load_conversions(ports_dir).expect("load committed ports");
     let registry_dir = work_dir.join("registry");
     let sources_dir = work_dir.join("src");
     let port_cache = PortCache::new(cache_dir.join("ports"));

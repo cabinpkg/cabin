@@ -22,7 +22,7 @@ mod foundation_port_smoke;
 mod ports_registry;
 
 #[allow(unused_imports)]
-pub use fake_ports::{FakeArchiveServer, FakePortRepo};
+pub use fake_ports::FakePortRepo;
 #[allow(unused_imports)]
 pub use foundation_port_smoke::{
     PortBuildRun, PortCacheLifecycle, run_port_build_then_run, run_port_cache_lifecycle,

@@ -1,16 +1,17 @@
-# Overlay for the hermetic fake zlib port: the same shape the
-# committed recipe had before zlib migrated to a package, so the
-# registry-ports tests keep exercising the recipe machinery (fetch,
-# extract, overlay, build) against sources they fully control.
+# Manifest for the hermetic fake zlib port: the shape a committed port
+# carries, so the registry-ports tests exercise the publish pipeline
+# (fetch, extract, materialize, build) against sources they fully
+# control.  `[package.upstream]` is stamped on at build time by
+# `FakePortBuilder`, which owns the generated archive's checksum.
 #
 # The fake archive stubs every declared source except zutil.c, so the
-# source list must stay the recipe's 15-source set for
+# source list must stay this 15-source set for
 # `stub_declared_sources_except` to generate the same tree.
 [package]
-name = "zlib"
+name = "cabin-ports/zlib"
 version = "1.3.1"
 
-[target.zlib]
+[target.z]
 type = "library"
 sources = [
   "adler32.c",
