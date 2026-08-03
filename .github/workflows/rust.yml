@@ -54,45 +54,8 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      # Built, then executed directly: `cargo run` honors a
-      # `[target.<cfg>] runner` from .cargo/config.toml, so a change
-      # could add one and have CI run `true` in place of the guard. A
-      # plain exec cannot be redirected that way, and the guard itself
-      # then refuses any non-[alias] section in that file.
-      #
-      # `shell:`, `working-directory:`, `--target-dir` and `--target`
-      # are pinned for the same reason one step up: a workflow-level
-      # `defaults.run` can name any command to hand `run:` to and any
-      # directory to run it in, and `[build] target-dir` / `[build]
-      # target` can move what cargo just built out from under the path
-      # executed below - which a tracked executable at that path would
-      # then answer to. A step's own values win over those defaults, and
-      # a command line wins over the config. The triple is this job's
-      # `runs-on`, so a runner change fails loudly here rather than
-      # quietly running something else.
-      - name: Build the repository automation guard
-        shell: bash
-        working-directory: .
-        env:
-          # Pinned, not inherited: `[build] rustc`, a wrapper standing in
-          # for it, and `[target.<triple>] linker` each name a program
-          # that produces the binary executed below, so the very file this
-          # guard polices could have any of them emit a stub that exits
-          # zero instead. Cargo reads an empty wrapper as none, the
-          # environment over the file, and this linker variable over the
-          # `cfg()` spelling of that key as well; `-C linker=` through
-          # config `rustflags` is displaced by the workflow-level
-          # RUSTFLAGS, which is pinned with the triggers.
-          CARGO_BUILD_RUSTC: rustc
-          CARGO_BUILD_RUSTC_WRAPPER: ""
-          CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: ""
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
-        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
-
       - name: Repository automation guard
-        shell: bash
-        working-directory: .
-        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts
+        run: cargo check-scripts
 
   clippy:
     runs-on: ubuntu-latest

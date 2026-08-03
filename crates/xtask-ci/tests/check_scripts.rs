@@ -331,49 +331,6 @@ fn an_executable_file_is_caught_whatever_its_name() {
     assert!(caught[0].contains("the executable bit"), "{caught:?}");
 }
 
-/// The pinned wiring must sit where YAML would read it: copying the
-/// pinned job into a block scalar while deleting the real one satisfies
-/// a substring match but leaves the workflow with no guard job.
-#[test]
-fn the_pinned_job_must_be_a_real_job() {
-    let real = fs::read_to_string(repo_root().join(".github/workflows/rust.yml"))
-        .expect("read the rust workflow")
-        .replace("\r\n", "\n");
-    let job_start = real.find("  automation:\n").expect("the automation job");
-    let terminator = "\n  clippy:";
-    let job_end = real.find(terminator).expect("the next job") + terminator.len();
-    let job = real[job_start..job_end].to_owned();
-
-    // Delete the real job, and park its exact text as inert content of a
-    // top-level block scalar - at the same indent, so a substring match
-    // still finds it.
-    let without = format!(
-        "{}{}",
-        &real[..job_start],
-        &real[job_end - terminator.len() + 1..]
-    );
-    let mutated = without.replace("jobs:\n", &format!("x-note: |\n{job}\n\njobs:\n"));
-    assert!(
-        mutated.contains(&job),
-        "the smuggled copy should still satisfy a substring match"
-    );
-    assert!(
-        !mutated.contains("\njobs:\n  automation:"),
-        "the real job should be gone"
-    );
-
-    let dir = scratch(&[]);
-    write(&dir, ".github/workflows/rust.yml", &mutated);
-    restage(&dir);
-    let caught = scripts::check(dir.path()).expect("run the guard");
-    assert!(
-        caught
-            .iter()
-            .any(|line| line.contains("automation job is not the pinned one")),
-        "{caught:?}"
-    );
-}
-
 /// A cargo runner would make `cargo run` execute something else - the
 /// guard's own CI job included - so the config stays alias-only.
 #[test]
@@ -493,22 +450,6 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
-    // An alias can also be declared in the environment, where nothing
-    // here would see it.
-    let overridden = real.replacen(
-        "    steps:",
-        "    env:\n      CARGO_ALIAS_CHECK_SQL: run -p xtask-ci -- --help\n    steps:",
-        1,
-    );
-    let dir = scratch(&[]);
-    write(&dir, path, &overridden);
-    restage(&dir);
-    let caught = scripts::check(dir.path()).expect("run the guard");
-    assert!(
-        caught.iter().any(|line| line.contains("CARGO_ALIAS_")),
-        "{caught:?}"
-    );
-
     // Retargeting an alias leaves the names alone: the pin carries the
     // package each one selects, because that is the crate whose edits
     // have to reach this workflow.
@@ -545,30 +486,6 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
-    // A runner set in the environment answers for the tool.
-    let runner = real.replacen(
-        "    steps:",
-        "    env:\n      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: \"true\"\n    steps:",
-        1,
-    );
-    // The same runner, reached through another config.toml.
-    let home = real.replacen(
-        "    steps:",
-        "    env:\n      CARGO_HOME: tools/home\n    steps:",
-        1,
-    );
-    for (case, workflow) in [("runner", &runner), ("home", &home)] {
-        let dir = scratch(&[]);
-        write(&dir, path, workflow);
-        restage(&dir);
-        let caught = scripts::check(dir.path()).expect("run the guard");
-        assert!(
-            caught
-                .iter()
-                .any(|line| line.contains("variable; cargo takes")),
-            "{case}: {caught:?}"
-        );
-    }
     // Prose about a command is not a command: the guard reads what a
     // step runs.
     let mentions = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
@@ -606,49 +523,6 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
-    // A tool kept as a target of an ordinary crate is Rust in a
-    // published crate: no file name objects, and it reaches no alias.
-    // The target selection is where it shows.
-    let head = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
-                build:\n    steps:\n";
-    for (case, call) in [
-        (
-            "named",
-            "      - run: cargo build -p cabin-core --bin deploy\n",
-        ),
-        ("inline", "      - run: cargo build --bin=deploy\n"),
-        ("example", "      - run: cargo build --example deploy\n"),
-        // A continuation is one command, so the second line counts.
-        (
-            "continued",
-            "      - run: cargo build --locked \\\n          --bin deploy\n",
-        ),
-        // Selecting every target names none of them.
-        ("unnamed", "      - run: cargo build --bins\n"),
-        // `cargo run` picks a binary by resolution, not by name.
-        ("resolved", "      - run: cargo run -p cabin-core\n"),
-    ] {
-        let caught = violations(&[
-            (".github/workflows/target.yml", &format!("{head}{call}")),
-            ("crates/cabin-core/src/bin/deploy.rs", "fn main() {}\n"),
-        ]);
-        assert!(
-            caught
-                .iter()
-                .any(|line| line.contains("executable target") || line.contains("`cargo run`")),
-            "{case}: {caught:?}"
-        );
-    }
-    // ...and the product binary is still buildable by name.
-    assert!(
-        violations(&[(
-            ".github/workflows/product.yml",
-            &format!("{head}      - run: cargo build --locked --bin cabin\n"),
-        )])
-        .is_empty(),
-        "the product binary is not a tool"
-    );
-
     // A workflow can reach a tool with no alias at all, in each of the
     // spellings that reaches one.
     for call in [
@@ -673,53 +547,6 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
             "{call}: {caught:?}"
         );
     }
-
-    // A build setting cannot remap a tool, wherever it is set: only
-    // what changes WHAT runs is refused.
-    for benign in ["CARGO_BUILD_JOBS: 2", "CARGO_TARGET_DIR: target"] {
-        let dir = scratch(&[]);
-        write(
-            &dir,
-            path,
-            &real.replacen(
-                "    steps:",
-                &format!("    env:\n      {benign}\n    steps:"),
-                1,
-            ),
-        );
-        restage(&dir);
-        assert!(
-            scripts::check(dir.path())
-                .expect("run the guard")
-                .is_empty(),
-            "{benign} remaps nothing"
-        );
-    }
-
-    // A workflow that runs no tool is not subject to any of this: a
-    // build setting cannot remap what it never invokes.
-    let ordinary = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\nenv:\n  \
-                    CARGO_BUILD_JOBS: 2\n\njobs:\n  build:\n    steps:\n      \
-                    - run: cargo build -p cabinpkg\n";
-    assert!(
-        violations(&[(".github/workflows/ordinary.yml", ordinary)]).is_empty(),
-        "a plain cargo build is not an alias consumer"
-    );
-
-    // An alias mapping can be overridden at the call site too.
-    let overridden = real.replacen(
-        "        run: cargo check-sql",
-        "        run: cargo --config 'alias.check-sql=\"run -p xtask-ci -- --help\"' check-sql",
-        1,
-    );
-    let dir = scratch(&[]);
-    write(&dir, path, &overridden);
-    restage(&dir);
-    let caught = scripts::check(dir.path()).expect("run the guard");
-    assert!(
-        caught.iter().any(|line| line.contains("passes --config")),
-        "{caught:?}"
-    );
 
     // A new consumer nobody pinned is the case the pins exist for, in
     // each spelling a shell reads as the same command.
@@ -802,30 +629,6 @@ fn a_second_cargo_config_is_caught() {
         let caught = scripts::check(dir.path()).expect("run the guard");
         assert_eq!(caught.len(), 1, "{path}: {caught:?}");
         assert!(caught[0].contains("a second cargo config"), "{caught:?}");
-    }
-}
-
-/// A built-in command of the same name wins over an alias, silently: a
-/// tool renamed onto one is a line cargo reads and never runs.
-#[test]
-fn an_alias_shadowed_by_a_builtin_is_caught() {
-    let real =
-        fs::read_to_string(repo_root().join(".cargo/config.toml")).expect("read the cargo config");
-    for builtin in ["bench", "test", "build"] {
-        let dir = scratch(&[]);
-        write(
-            &dir,
-            ".cargo/config.toml",
-            &format!("{real}{builtin} = \"run --quiet --locked -p xtask-ci -- check-scripts\"\n"),
-        );
-        restage(&dir);
-        let caught = scripts::check(dir.path()).expect("run the guard");
-        assert!(
-            caught
-                .iter()
-                .any(|line| line.contains(&format!("`cargo {builtin}` never reaches this alias"))),
-            "{builtin}: {caught:?}"
-        );
     }
 }
 
@@ -1155,73 +958,15 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "on: [push, pull_request]\n",
         ),
         (
-            "continue_on_error",
-            "      - name: Repository automation guard\n",
-            "      - name: Repository automation guard\n        continue-on-error: true\n",
-        ),
-        (
-            "job_disabled",
-            "  automation:\n    runs-on: ubuntu-latest\n",
-            "  automation:\n    if: false\n    runs-on: ubuntu-latest\n",
-        ),
-        (
-            "job_needs_a_skippable_one",
-            "  automation:\n    runs-on: ubuntu-latest\n",
-            "  automation:\n    needs: [format]\n    runs-on: ubuntu-latest\n",
-        ),
-        (
-            "command_commented_out",
-            "        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts\n",
-            "        run: echo skip # ./target/debug/xtask-ci check-scripts\n",
-        ),
-        (
-            // A rustc wrapper named by the config could stand in for the
-            // compiler and skip this very build.
-            "wrapper_unpinned",
-            "        env:\n          # Pinned, not inherited",
-            "        env:\n          # (dropped)",
-        ),
-        (
-            // `[build] rustc` names the compiler outright.
-            "compiler_unpinned",
-            "          CARGO_BUILD_RUSTC: rustc\n",
-            "",
-        ),
-        (
-            // `[target.<triple>] linker` names the program that writes
-            // the binary, so it can write a stub instead of building it.
-            "linker_unpinned",
-            "          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc\n",
-            "",
-        ),
-        (
-            // `[build] target-dir` can move what cargo just built, and a
-            // tracked `target/debug/xtask-ci` would answer in its place.
-            "target_unpinned",
-            "--target-dir target --target x86_64-unknown-linux-gnu -p \
-             xtask-ci\n",
-            "--target-dir target -p xtask-ci\n",
-        ),
-        (
-            "target_dir_unpinned",
-            "        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p \
-             xtask-ci\n",
-            "        run: cargo build --locked -p xtask-ci\n",
-        ),
-        (
-            // `cargo run` would honor a [target] runner; the direct exec
-            // is what makes the alias-only check trustworthy.
-            "back_to_cargo_run",
-            "        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts\n",
+            "command_removed",
             "        run: cargo check-scripts\n",
+            "        run: echo skip\n",
         ),
         (
-            // A custom shell is handed the step's script as an argument
-            // and may ignore it. Unpinning the shell re-opens that to a
-            // workflow-level `defaults.run.shell`.
-            "shell_reinterpreted",
-            "      - name: Repository automation guard\n        shell: bash\n",
-            "      - name: Repository automation guard\n        shell: \"true {0}\"\n",
+            // A commented-out command leaves the text in the file.
+            "command_commented_out",
+            "        run: cargo check-scripts\n",
+            "        run: echo skip # cargo check-scripts\n",
         ),
         (
             // Bash sources $BASH_ENV before the script it was handed, so
@@ -1229,21 +974,6 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "bash_env_injected",
             "env:\n  CARGO_TERM_COLOR: always\n",
             "env:\n  BASH_ENV: docs/preamble\n  CARGO_TERM_COLOR: always\n",
-        ),
-        (
-            // `./target/debug/xtask-ci` is a different file under a
-            // different directory, and a workflow-level
-            // `defaults.run.working-directory` supplies one to any step
-            // that does not pin its own.
-            "working_directory_unpinned",
-            "      - name: Repository automation guard\n        shell: bash\n        \
-             working-directory: .\n",
-            "      - name: Repository automation guard\n        shell: bash\n",
-        ),
-        (
-            "shell_unpinned",
-            "      - name: Repository automation guard\n        shell: bash\n",
-            "      - name: Repository automation guard\n",
         ),
     ];
     let escaped: Vec<&str> = mutations

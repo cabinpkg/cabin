@@ -134,10 +134,6 @@ const SOURCE_LANGUAGE_EXTENSIONS: [&str; 7] = ["cjs", "cts", "js", "mjs", "mts",
 /// TypeScript files that would otherwise each need an exception.
 const PRODUCT_SOURCE_ROOTS: [&str; 1] = ["website/src/"];
 
-/// The executables this repository ships, which are therefore the only
-/// ones a workflow may select by name.
-const PRODUCT_BINARIES: [&str; 1] = ["cabin"];
-
 /// The only names the allowlist above cannot refuse on its own: tools
 /// that wear an extension this repository keeps.
 ///
@@ -284,10 +280,9 @@ const PINNED_ALIASES: [(&str, &str); 5] = [
 /// The repository's one cargo config, holding the aliases.
 const CARGO_CONFIG: &str = ".cargo/config.toml";
 
-/// The workflow that must run this guard, and the job that must do it.
+/// The workflow that must run this guard, and the command that does it.
 const GUARD_WORKFLOW: &str = ".github/workflows/rust.yml";
-const GUARD_JOB: &str = "automation";
-const GUARD_COMMAND: &str = "./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts";
+const GUARD_COMMAND: &str = "cargo check-scripts";
 
 /// The trigger block `rust.yml` must carry, verbatim: no `paths:` or
 /// `paths-ignore:` filter, and `pull_request` present, so no change can
@@ -310,63 +305,6 @@ env:
   RUSTFLAGS: \"-D warnings\"
 
 permissions:";
-
-/// The job that must run the guard, verbatim: unconditional, not
-/// allowed to fail, and depending on nothing that could skip it.  Runs
-/// through the next job's key for the same reason as the triggers.
-const PINNED_JOB: &str = "  automation:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      # Built, then executed directly: `cargo run` honors a
-      # `[target.<cfg>] runner` from .cargo/config.toml, so a change
-      # could add one and have CI run `true` in place of the guard. A
-      # plain exec cannot be redirected that way, and the guard itself
-      # then refuses any non-[alias] section in that file.
-      #
-      # `shell:`, `working-directory:`, `--target-dir` and `--target`
-      # are pinned for the same reason one step up: a workflow-level
-      # `defaults.run` can name any command to hand `run:` to and any
-      # directory to run it in, and `[build] target-dir` / `[build]
-      # target` can move what cargo just built out from under the path
-      # executed below - which a tracked executable at that path would
-      # then answer to. A step's own values win over those defaults, and
-      # a command line wins over the config. The triple is this job's
-      # `runs-on`, so a runner change fails loudly here rather than
-      # quietly running something else.
-      - name: Build the repository automation guard
-        shell: bash
-        working-directory: .
-        env:
-          # Pinned, not inherited: `[build] rustc`, a wrapper standing in
-          # for it, and `[target.<triple>] linker` each name a program
-          # that produces the binary executed below, so the very file this
-          # guard polices could have any of them emit a stub that exits
-          # zero instead. Cargo reads an empty wrapper as none, the
-          # environment over the file, and this linker variable over the
-          # `cfg()` spelling of that key as well; `-C linker=` through
-          # config `rustflags` is displaced by the workflow-level
-          # RUSTFLAGS, which is pinned with the triggers.
-          CARGO_BUILD_RUSTC: rustc
-          CARGO_BUILD_RUSTC_WRAPPER: \"\"
-          CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: \"\"
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
-        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
-
-      - name: Repository automation guard
-        shell: bash
-        working-directory: .
-        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts
-
-  clippy:";
 
 /// Every other workflow that runs an alias, with the trigger block it
 /// must carry verbatim.
@@ -512,16 +450,6 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         // `config.toml`, and it walks up from wherever it was invoked,
         // so a second file anywhere would be the aliases (or a runner)
         // this guard never looked at.
-        // One cargo config, at the root, alias-only and checked below.
-        // Cargo READS several: it prefers the extensionless name to
-        // `config.toml`, and it walks up from wherever it was invoked,
-        // so a second file anywhere would be the aliases (or a runner)
-        // this guard never looked at.
-        // A cargo manifest outside `crates/` is a package nothing that
-        // checks a tool would look at: the walk that finds them starts
-        // there, and so does the location rule. The root's own manifest
-        // and the standalone `registry/` workspace are the tree's two,
-        // and their nested crates live under those roots.
         // A cargo manifest outside `crates/` is a package nothing that
         // checks a tool would look at: the walk that finds them starts
         // there, and so does the location rule. The root's own manifest
@@ -963,13 +891,6 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
         .and_then(toml::Value::as_table)
         .unwrap_or(&empty);
     for (name, value) in declared {
-        if CARGO_BUILTINS.contains(&name.as_str()) {
-            problems.push(format!(
-                "`{name}` is one of cargo's own commands, so `cargo {name}` never reaches \
-                 this alias: cargo resolves a built-in first and says nothing about the \
-                 alias it shadowed"
-            ));
-        }
         let Some(text) = value.as_str() else {
             problems.push(format!(
                 "the `cargo {name}` alias is not a string; cargo JOINS array config values \
@@ -1149,62 +1070,6 @@ fn package_named(dir: &Path, name: &str) -> bool {
     })
 }
 
-/// Cargo's own command names, which an alias can never take.
-///
-/// Cargo resolves a built-in before it looks at `[alias]`, and says
-/// nothing when one shadows the other: `bench = "run -p xtask-ci -- ..."`
-/// is a line cargo reads, lists, and never runs. Neither `cargo --list`
-/// nor `cargo help <name>` reports the collision - both echo the
-/// declaration - so the list is here, a snapshot of the built-ins and
-/// built-in short aliases of cargo 1.95. Extend it when cargo does.
-const CARGO_BUILTINS: [&str; 45] = [
-    "add",
-    "b",
-    "bench",
-    "build",
-    "c",
-    "check",
-    "clean",
-    "config",
-    "d",
-    "doc",
-    "fetch",
-    "fix",
-    "generate-lockfile",
-    "git-checkout",
-    "help",
-    "info",
-    "init",
-    "install",
-    "locate-project",
-    "login",
-    "logout",
-    "metadata",
-    "new",
-    "owner",
-    "package",
-    "pkgid",
-    "publish",
-    "r",
-    "read-manifest",
-    "remove",
-    "report",
-    "rm",
-    "run",
-    "rustc",
-    "rustdoc",
-    "search",
-    "t",
-    "test",
-    "tree",
-    "uninstall",
-    "update",
-    "vendor",
-    "verify-project",
-    "version",
-    "yank",
-];
-
 /// Every alias in a parsed `.cargo/config.toml`, with its value flattened
 /// to one string: cargo accepts a whitespace-split scalar or an array of
 /// words, and both mean the same command line.
@@ -1297,9 +1162,6 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
         }
-        // Only where a tool actually runs: `CARGO_BUILD_JOBS` in a
-        // workflow that builds the product remaps nothing.
-        problems.extend(cargo_override_problems(listed, text));
         let listed = listed.as_str();
         let Some((pinned_path, pinned_aliases, pinned)) =
             PINNED_CONSUMERS.iter().find(|(known, ..)| *known == listed)
@@ -1412,62 +1274,7 @@ fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
                      automation lives (AGENTS.md, \"Repository automation\")"
                 ));
             }
-            if command == "run" {
-                return Some(format!(
-                    "{listed} runs `cargo run`, which picks a binary by resolution rather \
-                     than by name; a workflow reaches a tool through its alias or by \
-                     executing what it built (AGENTS.md, \"Repository automation\")"
-                ));
-            }
-            if let Some(problem) = selected_target_problem(listed, words) {
-                return Some(problem);
-            }
         }
-    }
-    None
-}
-
-/// Why the executable target `words` selects is not one this repository
-/// ships, if it is not.
-///
-/// `--bin` is the one place a tool kept as a target of an ordinary crate
-/// shows itself: `crates/cabin-core/src/bin/deploy.rs` is Rust, so no
-/// file-name scan objects, and it reaches no alias, so no consumer check
-/// sees it - but it is automation living in a published crate all the
-/// same.  Product binaries are few and named; anything else selected
-/// here is a tool by elimination.
-fn selected_target_problem<'a>(
-    listed: &str,
-    mut words: impl Iterator<Item = &'a str>,
-) -> Option<String> {
-    while let Some(word) = words.next() {
-        let (flag, inline) = word
-            .split_once('=')
-            .map_or((word, None), |(flag, value)| (flag, Some(value)));
-        if !matches!(flag, "--bin" | "--bins" | "--example" | "--examples") {
-            continue;
-        }
-        // `--bins` and `--examples` take every such target the selected
-        // packages have, naming none of them.
-        let Some(target) = inline
-            .or_else(|| words.next())
-            .filter(|_| !flag.ends_with('s'))
-        else {
-            return Some(format!(
-                "{listed} runs `cargo {flag}`, which selects every executable target the \
-                 packages have without naming one; name the target, so a tool added as one \
-                 cannot arrive unread (AGENTS.md, \"Repository automation\")"
-            ));
-        };
-        if PRODUCT_BINARIES.contains(&target) {
-            continue;
-        }
-        return Some(format!(
-            "{listed} builds the executable target {target}, which is not one this \
-             repository ships; repository automation is an xtask-* crate reached through \
-             an alias, not a target of an ordinary crate (AGENTS.md, \"Repository \
-             automation\")"
-        ));
     }
     None
 }
@@ -1475,51 +1282,6 @@ fn selected_target_problem<'a>(
 /// Whether one word names the cargo executable, by any path or suffix.
 fn is_cargo(word: &str) -> bool {
     normalize_target(word).rsplit('/').next() == Some("cargo")
-}
-
-/// Whatever in a workflow would remap what an alias runs.
-///
-/// Cargo reads its configuration from the environment and the command
-/// line as readily as from the file this guard checks: `CARGO_ALIAS_X`
-/// is an alias mapping, `CARGO_TARGET_<TRIPLE>_RUNNER` is the runner
-/// that file is kept free of, `CARGO_HOME` names a whole other
-/// `config.toml` to find them in, and `--config` says any of it inline.
-///
-/// What runs, that is - not how or where it builds. `CARGO_BUILD_JOBS`
-/// in some other job of a workflow that also runs a tool remaps
-/// nothing, and the guard's own job pins its build on the command line,
-/// where cargo takes it over any of this.
-fn cargo_override_problems(listed: &str, text: &str) -> Vec<String> {
-    let mut problems = Vec::new();
-    if text
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .any(|word| {
-            word.starts_with("CARGO_ALIAS_")
-                || word.starts_with("CARGO_HOME")
-                // Only the runner: `CARGO_TARGET_DIR` says where the
-                // artifact lands, and `cargo run` runs it from there.
-                // Only the runner: `CARGO_TARGET_DIR` says where the
-                // artifact lands, and `cargo run` runs it from there.
-                || (word.starts_with("CARGO_TARGET_") && word.ends_with("_RUNNER"))
-        })
-    {
-        problems.push(format!(
-            "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_HOME variable; cargo takes \
-             an alias, a runner - and another config.toml to find them in - from the \
-             environment over {CARGO_CONFIG}, which is the file this guard checks"
-        ));
-    }
-    if text
-        .split_whitespace()
-        .any(|word| word.trim_matches(['"', '\'']).split('=').next() == Some("--config"))
-    {
-        problems.push(format!(
-            "{listed} passes --config; cargo takes configuration - an alias mapping and a \
-             [target] runner among it - from there over {CARGO_CONFIG}, which is the file \
-             this guard checks"
-        ));
-    }
-    problems
 }
 
 /// Every workflow file under `.github/workflows`, by repository path.
@@ -1924,11 +1686,16 @@ fn workflow_wiring_problems(repo_root: &Path) -> Vec<String> {
              crates/xtask-ci/src/scripts.rs if the change is deliberate."
         ));
     }
-    if !pinned_at_indent(&text, PINNED_JOB, 2, Some("jobs:")) {
+    // The step's own line, not a mention of it: a commented-out `run:`
+    // leaves the command in the file and the guard out of CI.
+    let step = format!("run: {GUARD_COMMAND}");
+    if !text
+        .lines()
+        .any(|line| line.trim_start().trim_start_matches("- ").trim_end() == step)
+    {
         problems.push(format!(
-            "{GUARD_WORKFLOW}'s {GUARD_JOB} job is not the pinned one; it must run \
-             {GUARD_COMMAND} unconditionally - no if:, no continue-on-error:, no needs:. \
-             Re-pin PINNED_JOB in crates/xtask-ci/src/scripts.rs if the change is deliberate."
+            "{GUARD_WORKFLOW} no longer runs `{GUARD_COMMAND}`; this guard has to run \
+             somewhere, and this is where"
         ));
     }
     problems

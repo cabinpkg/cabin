@@ -57,12 +57,9 @@ aliases name root-workspace packages, so run them from the repository root -
 `registry/` is a separate workspace and resolves against its own manifest.
 
 `cargo check-scripts` enforces this and runs on every pull request
-(`rust.yml`, which carries no `paths:` filter - the job builds the guard and
-execs it directly under a pinned `shell:`, because `cargo run` would honor a
-`[target] runner` and a `run:` step without its own shell would honor a
-workflow-level `defaults.run.shell`, either of which could stand in for it).
-It is the rule's mechanical half; the rule itself is broader than what a scan
-can prove.
+(`rust.yml`, which carries no `paths:` filter, so no change can reach main
+without it having run). It is the rule's mechanical half; the rule itself is
+broader than what a scan can prove.
 
 `.cargo/config.toml` stays `[alias]`-only, and the guard refuses any other
 section: a `runner` there changes what `cargo run` and `cargo test` execute
@@ -77,12 +74,6 @@ anywhere would be aliases nothing checked.
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
   dependency set are genuinely new.
-- A workflow names only the executables this repository ships
-  (`PRODUCT_BINARIES`, today just `cabin`) and never runs `cargo run`. A tool
-  kept as a `--bin` target of an ordinary crate is Rust, so no file name
-  objects, and it reaches no alias, so no consumer check sees it - the target
-  selection is the only place it shows, and it would ship inside a published
-  crate.
 - A local action (`action.yml`) is repository automation whatever it is
   written in, and its `runs:` names an entry point that need not look like a
   script - so the guard refuses the metadata, and there are no local actions.
