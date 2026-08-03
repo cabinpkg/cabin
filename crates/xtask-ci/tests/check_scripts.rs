@@ -632,6 +632,28 @@ fn a_second_cargo_config_is_caught() {
     }
 }
 
+/// The guard is defined over tracked content, so a scratch crate a
+/// developer has not committed is not one of the repository's: failing
+/// the local run over one would make the guard answer for uncommitted
+/// files.
+#[test]
+fn an_untracked_crate_is_not_part_of_the_repository() {
+    let dir = scratch(&[]);
+    write(
+        &dir,
+        "crates/rogue/Cargo.toml",
+        "[package]\nname = \"rogue\"\nversion = \"0.1.0\"\npublish = false\n",
+    );
+    // Deliberately not restaged: the crate is on disk and out of the
+    // index, which is what an experiment in progress looks like.
+    assert!(
+        scripts::check(dir.path())
+            .expect("run the guard")
+            .is_empty(),
+        "an untracked manifest is not part of the repository"
+    );
+}
+
 /// The aliases are the repository's tool surface, so they are checked
 /// from their own side too: a tool added as an ordinary package with an
 /// alias pointed at it never lands under `crates/xtask-*` for the crate

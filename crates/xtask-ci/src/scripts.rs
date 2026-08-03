@@ -995,7 +995,7 @@ fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
         .and_then(toml::Value::as_table);
     // Every crate, at any depth, that is not itself a tool: a shipped
     // one nested under `crates/libs/` reaches the binary the same way.
-    let dirs: Vec<String> = workspace_crates(repo_root)
+    let dirs: Vec<String> = workspace_crates(repo_root)?
         .into_iter()
         .filter(|(_, package, _)| !package.starts_with("xtask-"))
         .map(|(dir, ..)| dir)
@@ -1133,7 +1133,7 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     // workflow builds and runs itself: retargeting an alias leaves its
     // name alone while pointing it at a crate the filters here never
     // mentioned, and a direct call names no alias at all.
-    let tools = xtask_packages(repo_root);
+    let tools = xtask_packages(repo_root)?;
     let runs = alias_consumers(&texts, |text| {
         let reached = aliases
             .iter()
@@ -1373,64 +1373,71 @@ fn calls(text: &str) -> Vec<&str> {
 /// be called anything wherever it sits, and a tool hiding under an
 /// ordinary directory name is exactly what the location rule is for.
 /// Nested manifests count - `crates/tools/ci` is no less a crate for
-/// being two levels down - so the walk goes all the way. `registry/` is
-/// a separate workspace of its own and is not part of this.
-fn workspace_crates(repo_root: &Path) -> Vec<(String, String, bool)> {
-    let crates = repo_root.join("crates");
+/// being two levels down. `registry/` is a separate workspace of its own
+/// and is not part of this.
+///
+/// The manifests come from the index, like everything else here: a
+/// scratch crate a developer has not committed is not something this
+/// repository ships, and failing the local run over one would make the
+/// guard answer for uncommitted files.
+///
+/// # Errors
+///
+/// Fails when the index cannot be read.
+fn workspace_crates(repo_root: &Path) -> Result<Vec<(String, String, bool)>> {
     let root = manifest(&repo_root.join("Cargo.toml")).unwrap_or(toml::Value::Boolean(false));
     let mut found = Vec::new();
-    let mut pending = vec![(String::new(), crates)];
-    while let Some((prefix, dir)) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+    for entry in index_entries(repo_root)? {
+        let Some(listed) = entry
+            .path
+            .strip_prefix("crates/")
+            .and_then(|rest| rest.strip_suffix("/Cargo.toml"))
+        else {
             continue;
         };
-        for entry in entries.filter_map(Result::ok) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !entry.path().is_dir() || name == "target" {
-                continue;
-            }
-            let listed = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}/{name}")
-            };
-            if let Ok(manifest) = manifest(&entry.path().join("Cargo.toml"))
-                && let Some(package) = manifest.get("package")
-                && let Some(package_name) = package.get("name").and_then(toml::Value::as_str)
-            {
-                let publish = package.get("publish");
-                // `publish.workspace = true` says the answer lives in
-                // the root manifest, and there it is a plain boolean.
-                let publish = if publish
-                    .and_then(|publish| publish.get("workspace"))
-                    .and_then(toml::Value::as_bool)
-                    .unwrap_or_default()
-                {
-                    root.get("workspace")
-                        .and_then(|workspace| workspace.get("package"))
-                        .and_then(|package| package.get("publish"))
-                } else {
-                    publish
-                };
-                let private = publish
-                    .and_then(toml::Value::as_bool)
-                    .is_some_and(|publish| !publish);
-                found.push((listed.clone(), package_name.to_owned(), private));
-            }
-            pending.push((listed, entry.path()));
-        }
+        let Ok(manifest) = manifest(&repo_root.join(&entry.path)) else {
+            continue;
+        };
+        let Some(package) = manifest.get("package") else {
+            continue;
+        };
+        let Some(package_name) = package.get("name").and_then(toml::Value::as_str) else {
+            continue;
+        };
+        let publish = package.get("publish");
+        // `publish.workspace = true` says the answer lives in the root
+        // manifest, and there it is a plain boolean.
+        let publish = if publish
+            .and_then(|publish| publish.get("workspace"))
+            .and_then(toml::Value::as_bool)
+            .unwrap_or_default()
+        {
+            root.get("workspace")
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("publish"))
+        } else {
+            publish
+        };
+        let private = publish
+            .and_then(toml::Value::as_bool)
+            .is_some_and(|publish| !publish);
+        found.push((listed.to_owned(), package_name.to_owned(), private));
     }
     found.sort();
-    found
+    Ok(found)
 }
 
 /// The tool crates this repository has, as (directory, package name).
-fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
-    workspace_crates(repo_root)
+///
+/// # Errors
+///
+/// Fails when the index cannot be read.
+fn xtask_packages(repo_root: &Path) -> Result<Vec<(String, String)>> {
+    Ok(workspace_crates(repo_root)?
         .into_iter()
         .filter(|(_, name, _)| name.starts_with("xtask-"))
         .map(|(dir, name, _)| (dir, name))
-        .collect()
+        .collect())
 }
 
 /// One word of a command line as the thing it names: `-pxtask-foo` is
@@ -1547,7 +1554,7 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
     // `publish = false` is what a tool is, in this workspace: every
     // crate that ships is published, so a private one is maintainer
     // tooling whatever it calls itself - and tooling is an xtask crate.
-    for (dir, package, private) in workspace_crates(repo_root) {
+    for (dir, package, private) in workspace_crates(repo_root)? {
         let tool = package.starts_with("xtask-");
         if tool && dir != package {
             problems.push(format!(
