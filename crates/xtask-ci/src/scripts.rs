@@ -219,6 +219,9 @@ const WEBSITE_SCRIPTS: [&str; 6] = [
     "website/scripts/verify-progressive-independence.test.mjs",
 ];
 
+/// The repository's one cargo config, holding the aliases.
+const CARGO_CONFIG: &str = ".cargo/config.toml";
+
 /// The workflow that must run this guard, and the job that must do it.
 const GUARD_WORKFLOW: &str = ".github/workflows/rust.yml";
 const GUARD_JOB: &str = "automation";
@@ -304,6 +307,24 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
 
     for entry in &entries {
         let path = entry.path.as_str();
+        // One cargo config, at the root, alias-only and checked below.
+        // Cargo READS several: it prefers the extensionless name to
+        // `config.toml`, and it walks up from wherever it was invoked,
+        // so a second file anywhere would be the aliases (or a runner)
+        // this guard never looked at.
+        // One cargo config, at the root, alias-only and checked below.
+        // Cargo READS several: it prefers the extensionless name to
+        // `config.toml`, and it walks up from wherever it was invoked,
+        // so a second file anywhere would be the aliases (or a runner)
+        // this guard never looked at.
+        if is_cargo_config(path) && path != CARGO_CONFIG {
+            violations.push(format!(
+                "{path} is a second cargo config; cargo prefers `config` to `config.toml` and \
+                 reads one per directory on the way up, so only {CARGO_CONFIG} may exist \
+                 (AGENTS.md, \"Repository automation\")"
+            ));
+            continue;
+        }
         if let Some((_, owner, mode, pinned)) =
             LEGACY_SCRIPTS.iter().find(|(known, ..)| *known == path)
         {
@@ -453,6 +474,13 @@ fn entry_problem(repo_root: &Path, entry: &Entry) -> Option<String> {
     }
 }
 
+/// Whether cargo would read `path` as configuration: either name, in any
+/// `.cargo/` directory.
+fn is_cargo_config(path: &str) -> bool {
+    let mut parts = path.rsplit('/');
+    matches!(parts.next(), Some("config" | "config.toml")) && parts.next() == Some(".cargo")
+}
+
 /// Whatever makes one index entry repository automation by its kind
 /// alone - which an exception for a file does not excuse, because every
 /// exception was written for a checked-in regular file.
@@ -584,7 +612,7 @@ fn first_line_shebang(path: &Path) -> Result<bool> {
 /// make `cargo run` execute something else entirely - so the CI job
 /// could report success having run `true` instead of this guard.
 fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
-    let path = repo_root.join(".cargo/config.toml");
+    let path = repo_root.join(CARGO_CONFIG);
     if !path.is_file() {
         return Ok(vec![
             ".cargo/config.toml is missing; it is where the aliases live".to_owned(),
@@ -696,7 +724,7 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         .and_then(toml::Value::as_array)
         .map(|list| list.iter().filter_map(toml::Value::as_str).collect())
         .unwrap_or_default();
-    let config = manifest(&repo_root.join(".cargo/config.toml"))?;
+    let config = manifest(&repo_root.join(CARGO_CONFIG))?;
     let aliases = aliases(&config);
 
     let mut problems = Vec::new();

@@ -333,6 +333,24 @@ fn a_non_alias_cargo_config_section_is_caught() {
     assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
 }
 
+/// The alias-only check is worth only as much as the guarantee that the
+/// checked file is the config cargo reads: cargo prefers the
+/// extensionless name, and reads one per directory on the way up.
+#[test]
+fn a_second_cargo_config_is_caught() {
+    let hostile = "[target.'cfg(all())']\nrunner = \"true\"\n";
+    for path in [
+        ".cargo/config",
+        "registry/.cargo/config.toml",
+        "registry/.cargo/config",
+        "crates/xtask-ci/.cargo/config.toml",
+    ] {
+        let caught = violations(&[(path, hostile)]);
+        assert_eq!(caught.len(), 1, "{path}: {caught:?}");
+        assert!(caught[0].contains("a second cargo config"), "{caught:?}");
+    }
+}
+
 /// The aliases are the repository's tool surface, so they are checked
 /// from their own side too: a tool added as an ordinary package with an
 /// alias pointed at it never lands under `crates/xtask-*` for the crate

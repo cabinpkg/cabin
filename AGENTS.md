@@ -69,7 +69,10 @@ section: a `runner` there changes what `cargo run` and `cargo test` execute
 repository-wide, and a `[build]` key also reaches the `registry/` workspace.
 Every alias must run an `xtask-*` package, which is the rule read from the
 alias side: a tool added as an ordinary package with an alias pointed at it
-would never land under `crates/xtask-*` for the crate scan to see.
+would never land under `crates/xtask-*` for the crate scan to see. It is also
+the only cargo config in the tree - cargo prefers the extensionless
+`.cargo/config` and reads one per directory on the way up, so a second file
+anywhere would be aliases nothing checked.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
