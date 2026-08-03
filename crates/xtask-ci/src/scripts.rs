@@ -306,9 +306,10 @@ const PINNED_JOB: &str = "  automation:
 /// Pinning the text sidesteps the semantics - any edit here is a
 /// conscious re-pin, and re-pinning is where a reviewer checks the two
 /// inputs are still covered.
-const PINNED_CONSUMERS: [(&str, &str); 2] = [
+const PINNED_CONSUMERS: [(&str, &[&str], &str); 2] = [
     (
         ".github/workflows/ports-publish.yml",
+        &["port-publish"],
         r#"on:
   push:
     branches: [main]
@@ -355,6 +356,7 @@ permissions:"#,
     ),
     (
         ".github/workflows/registry.yml",
+        &["check-deploy", "check-r2", "check-sql"],
         r#"on:
   push:
     branches: [ main ]
@@ -508,7 +510,7 @@ pub fn source_roots() -> Vec<&'static str> {
 #[must_use]
 pub fn pinned_workflows() -> Vec<&'static str> {
     std::iter::once(GUARD_WORKFLOW)
-        .chain(PINNED_CONSUMERS.iter().map(|(path, _)| *path))
+        .chain(PINNED_CONSUMERS.iter().map(|(path, ..)| *path))
         .collect()
 }
 
@@ -856,21 +858,21 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         let text = std::fs::read_to_string(&workflow)
             .with_context(|| format!("read {}", workflow.display()))?
             .replace("\r\n", "\n");
-        let Some(alias) = aliases
+        // Alias order is the config's, which cargo keeps sorted, so the
+        // pinned list reads the same way.
+        let run: Vec<&str> = aliases
             .iter()
             .map(|(alias, _)| alias.as_str())
-            .find(|alias| runs_alias(&text, alias))
-        else {
-            continue;
-        };
-        if listed == GUARD_WORKFLOW {
+            .filter(|alias| runs_alias(&text, alias))
+            .collect();
+        if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
         }
-        let Some((pinned_path, pinned)) =
-            PINNED_CONSUMERS.iter().find(|(known, _)| *known == listed)
+        let Some((pinned_path, pinned_aliases, pinned)) =
+            PINNED_CONSUMERS.iter().find(|(known, ..)| *known == listed)
         else {
             problems.push(format!(
-                "{listed} runs `cargo {alias}` with no pinned trigger block; add one to \
+                "{listed} runs {run:?} with no pinned trigger block; add one to \
                  PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs, so that dropping \
                  {CARGO_CONFIG} or the tool's crate from its filters cannot pass unread \
                  (AGENTS.md, \"Repository automation\")"
@@ -878,15 +880,28 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
             continue;
         };
         pinned_seen.insert(*pinned_path);
+        // The aliases are pinned beside the block: a pin taken for one
+        // tool says nothing about the crate of a tool added later, and
+        // adding a call leaves the trigger block itself untouched.
+        // The aliases are pinned beside the block: a pin taken for one
+        // tool says nothing about the crate of a tool added later, and
+        // adding a call leaves the trigger block itself untouched.
+        if run != *pinned_aliases {
+            problems.push(format!(
+                "{listed} runs {run:?}, but its trigger block was pinned for \
+                 {pinned_aliases:?}; check that every one of those crates is still in its \
+                 filters, then re-pin PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs"
+            ));
+        }
         if !pinned_at_indent(&text, pinned, 0, None) {
             problems.push(format!(
-                "{listed}'s trigger block is not the pinned one, and it runs `cargo {alias}`; \
-                 check that {CARGO_CONFIG} and the tool's crate are still in every filter, \
+                "{listed}'s trigger block is not the pinned one, and it runs {run:?}; \
+                 check that {CARGO_CONFIG} and each tool's crate are still in every filter, \
                  then re-pin PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs"
             ));
         }
     }
-    for (listed, _) in PINNED_CONSUMERS {
+    for (listed, ..) in PINNED_CONSUMERS {
         if !pinned_seen.contains(listed) {
             problems.push(format!(
                 "{listed} is pinned as an alias consumer but runs no alias; \

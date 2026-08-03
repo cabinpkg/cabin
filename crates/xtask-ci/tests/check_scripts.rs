@@ -400,6 +400,25 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         .collect();
     assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
 
+    // A pin is taken for the tools the workflow ran when it was taken:
+    // adding a call to another one leaves the block itself untouched.
+    let dir = scratch(&[]);
+    let called = "        run: cargo check-sql";
+    assert!(real.contains(called), "mutation target not in {path}");
+    write(
+        &dir,
+        path,
+        &real.replacen(
+            called,
+            "        run: |\n          cargo check-sql\n          cargo port-publish",
+            1,
+        ),
+    );
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("was pinned for"), "{caught:?}");
+
     // A new consumer nobody pinned is the case the pins exist for.
     let fresh = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                  guard:\n    steps:\n      - run: cargo check-sql;\n";
