@@ -1258,11 +1258,14 @@ fn fold_scalars(text: &str) -> String {
             folded.push('\n');
         }
         let trimmed = line.trim_end();
-        let last = trimmed.rsplit(' ').next().unwrap_or(trimmed);
+        // A block scalar header may carry a comment, and the indicator
+        // is still the indicator behind it.
+        let header = trimmed.split(" #").next().unwrap_or(trimmed).trim_end();
+        let last = header.rsplit(' ').next().unwrap_or(header);
         if matches!(last, ">" | ">-" | ">+") {
             open = Some(indent);
             // The indicator is punctuation, not a word of the command.
-            folded.push_str(&trimmed[..trimmed.len() - last.len()]);
+            folded.push_str(&header[..header.len() - last.len()]);
         } else {
             folded.push_str(line);
         }

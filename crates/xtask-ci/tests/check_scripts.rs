@@ -508,15 +508,20 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     );
 
     // A folded scalar is one command spread over lines: read line by
-    // line, neither of them says what it runs.
-    let folded = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
-                  build:\n    steps:\n      - run: >\n          cargo\n          \
-                  \"${{ matrix.stem }}-${{ matrix.kind }}\"\n";
-    let caught = violations(&[(".github/workflows/folded.yml", folded)]);
-    assert!(
-        caught.iter().any(|line| line.contains("assembled from an")),
-        "{caught:?}"
-    );
+    // line, neither of them says what it runs. The indicator is still
+    // the indicator behind a comment.
+    for header in ["run: >", "run: >-", "run: > # assembled below"] {
+        let folded = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                      build:\n    steps:\n      - "
+            .to_owned()
+            + header
+            + "\n          cargo\n          \"${{ matrix.stem }}-${{ matrix.kind }}\"\n";
+        let caught = violations(&[(".github/workflows/folded.yml", folded.as_str())]);
+        assert!(
+            caught.iter().any(|line| line.contains("assembled from an")),
+            "{header}: {caught:?}"
+        );
+    }
 
     // Rust compiled outside cargo belongs to no crate and no alias.
     let loose = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
