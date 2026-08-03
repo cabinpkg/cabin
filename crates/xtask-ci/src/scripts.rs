@@ -1157,9 +1157,13 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
             .iter()
             .filter(|(alias, _)| runs_alias(text, alias))
             .map(|(alias, value)| format!("{alias}={}", alias_package(value).unwrap_or("?")));
+        // Below `jobs:`, because that is where a workflow does things:
+        // above it, `crates/xtask-foo/Cargo.toml` is a trigger path
+        // saying when to run, which is the opposite of running it.
+        let body = text.split_once("\njobs:").map_or(text, |(_, jobs)| jobs);
         let direct = tools
             .iter()
-            .filter(|(_, tool)| uses_tool(text, tool))
+            .filter(|(_, tool)| uses_tool(body, tool))
             .map(|(_, tool)| format!("direct={tool}"));
         reached.chain(direct).collect()
     });
@@ -1589,9 +1593,13 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         let path = format!("crates/{name}");
         // A glob member (`crates/*`) covers it too; anything else has to
         // name it exactly.
+        // `./crates/x` and `crates/x` are the same member to cargo, and
+        // an `exclude` that reads as neither is one cargo honors and
+        // this would not.
         let covers = |list: &[String]| {
             list.iter().any(|entry| {
-                *entry == path
+                let entry = entry.strip_prefix("./").unwrap_or(entry);
+                entry == path
                     || entry
                         .strip_suffix('*')
                         .is_some_and(|prefix| path.starts_with(prefix))

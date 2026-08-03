@@ -486,6 +486,17 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
+    // A trigger path says WHEN to run, which is the opposite of
+    // running it: an exact one names the tool's files without the
+    // wildcard that gives the glob away.
+    let filtered = "on:\n  pull_request:\n    paths:\n      \
+                    - \"crates/xtask-port-publish/Cargo.toml\"\n\njobs:\n  \
+                    build:\n    steps:\n      - run: cargo build -p cabinpkg\n";
+    assert!(
+        violations(&[(".github/workflows/filtered.yml", filtered)]).is_empty(),
+        "a trigger path is not an invocation"
+    );
+
     // Prose about a command is not a command: the guard reads what a
     // step runs.
     let mentions = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
@@ -1179,18 +1190,21 @@ fn an_xtask_crate_off_the_convention_is_caught() {
     );
     assert!(inherited.is_empty(), "{inherited:?}");
 
-    // `exclude` takes back what the glob swept in.
-    let excluded = base(
-        good_manifest,
-        "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/xtask-demo\"]\n",
-        good_alias,
-    );
-    assert!(
-        excluded
-            .iter()
-            .any(|line| line.contains("not a member of the root workspace")),
-        "{excluded:?}"
-    );
+    // `exclude` takes back what the glob swept in - in either of the
+    // spellings cargo reads as the same directory.
+    for spelling in ["crates/xtask-demo", "./crates/xtask-demo"] {
+        let excluded = base(
+            good_manifest,
+            &format!("[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"{spelling}\"]\n"),
+            good_alias,
+        );
+        assert!(
+            excluded
+                .iter()
+                .any(|line| line.contains("not a member of the root workspace")),
+            "{spelling}: {excluded:?}"
+        );
+    }
 
     let missing_member = base(good_manifest, "[workspace]\nmembers = []\n", good_alias);
     assert!(
