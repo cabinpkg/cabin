@@ -50,6 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
+  xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
   xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
@@ -462,6 +463,18 @@ the remote upload.  The crate must:
 - never bypass the local preflight before a remote mutation;
 - never skip uploads based on the public index (pending versions are hidden there); the registry's
   byte-identical idempotency is the only dedupe.
+
+### `xtask-registry-fixtures`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
+builds this checkout's `cabin` and packages the publish-conformance fixtures, reached through the
+`cargo gen-fixtures` alias.  The pairs are real `cabin package` output, which is the point: the
+`conformance` job in `registry.yml` feeds them through the registry's own publish validation, so
+the client's canonical bytes and the server's schema cannot silently drift.  The crate must:
+
+- package with the binary built from this checkout, never an installed `cabin`;
+- write its fixtures only into the caller-supplied output directory, and author their sources in
+  a scratch directory it owns.
 
 ### `xtask-registry-guard`
 
