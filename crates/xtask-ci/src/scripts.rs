@@ -52,6 +52,16 @@
 //! uses non-ASCII homoglyphs would not match; and content comes
 //! from the working tree, so a locally-staged-but-rewritten file reads
 //! as its on-disk bytes (CI checks out clean, which is the authority).
+//!
+//! It does not defend its own invocation, which is the deliberate one.
+//! `PINNED_TRIGGERS` keeps `rust.yml` running on every pull request and
+//! the check below keeps its `run:` line, but an `if:` on the job, a
+//! `continue-on-error:`, or a `CARGO_ALIAS_CHECK_SCRIPTS` in the
+//! environment all leave the guard green having run nothing.  Pinning
+//! the job verbatim caught those and cost more to read than the rule it
+//! protects; no other job here is pinned that way either, so a change
+//! that switches this one off is as visible in review as one that
+//! switches off the tests.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
