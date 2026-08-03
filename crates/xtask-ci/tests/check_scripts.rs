@@ -575,18 +575,44 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
             "{case}: {caught:?}"
         );
     }
-    // A workflow can reach a tool with no alias at all.
-    let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
-                  build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \
-                  - run: ./target/debug/xtask-port-publish --dry-run\n      \
-                  - run: cargo run --package=xtask-port-publish -- --help\n      \
-                  - run: cargo run --manifest-path crates/xtask-port-publish/Cargo.toml\n";
-    let caught = violations(&[(".github/workflows/direct.yml", direct)]);
+    // A workflow can reach a tool with no alias at all, in each of the
+    // spellings that reaches one.
+    for call in [
+        "      - run: cargo build -p xtask-port-publish\n",
+        "      - run: ./target/debug/xtask-port-publish --dry-run\n",
+        "      - run: cargo run --package=xtask-port-publish -- --help\n",
+        "      - run: cargo run --manifest-path crates/xtask-port-publish/Cargo.toml\n",
+        "      - run: cargo run -pxtask-port-publish -- --dry-run\n",
+        "      - run: ./target/debug/xtask-port-publish.exe --dry-run\n",
+    ] {
+        let direct = format!(
+            "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+             build:\n    steps:\n{call}"
+        );
+        let caught = violations(&[(".github/workflows/direct.yml", &direct)]);
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains("direct=xtask-port-publish")),
+            "{call}: {caught:?}"
+        );
+    }
+
+    // A build setting cannot remap a tool, wherever it is set: only
+    // what changes WHAT runs is refused.
+    let jobs = real.replacen(
+        "    steps:",
+        "    env:\n      CARGO_BUILD_JOBS: 2\n    steps:",
+        1,
+    );
+    let dir = scratch(&[]);
+    write(&dir, path, &jobs);
+    restage(&dir);
     assert!(
-        caught
-            .iter()
-            .any(|line| line.contains("direct=xtask-port-publish")),
-        "{caught:?}"
+        scripts::check(dir.path())
+            .expect("run the guard")
+            .is_empty(),
+        "a parallelism setting remaps nothing"
     );
 
     // A workflow that runs no tool is not subject to any of this: a
@@ -1175,6 +1201,17 @@ fn an_xtask_crate_off_the_convention_is_caught() {
             .iter()
             .any(|line| line.contains("crates/tools declares the package xtask-rogue")),
         "{hidden:?}"
+    );
+
+    // A package outside crates/ is one no tool check would look at.
+    let outside = violations(&[(
+        "tools/Cargo.toml",
+        "[package]\nname = \"runner\"\nversion = \"0.1.0\"\n",
+    )]);
+    assert_eq!(outside.len(), 1, "{outside:?}");
+    assert!(
+        outside[0].contains("cargo manifest outside crates/"),
+        "{outside:?}"
     );
 
     // Nesting is not a hiding place: a crate two levels down is a

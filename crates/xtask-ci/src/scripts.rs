@@ -487,6 +487,28 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         // `config.toml`, and it walks up from wherever it was invoked,
         // so a second file anywhere would be the aliases (or a runner)
         // this guard never looked at.
+        // A cargo manifest outside `crates/` is a package nothing that
+        // checks a tool would look at: the walk that finds them starts
+        // there, and so does the location rule. The root's own manifest
+        // and the standalone `registry/` workspace are the tree's two,
+        // and their nested crates live under those roots.
+        // A cargo manifest outside `crates/` is a package nothing that
+        // checks a tool would look at: the walk that finds them starts
+        // there, and so does the location rule. The root's own manifest
+        // and the standalone `registry/` workspace are the tree's two,
+        // and their nested crates live under those roots.
+        if path.rsplit('/').next() == Some("Cargo.toml")
+            && !path.starts_with("crates/")
+            && !path.starts_with("registry/")
+            && path != "Cargo.toml"
+        {
+            violations.push(format!(
+                "{path} is a cargo manifest outside crates/; a package here is a crate the \
+                 tool checks never see, and repository automation is a crates/xtask-* crate \
+                 (AGENTS.md, \"Repository automation\")"
+            ));
+            continue;
+        }
         if is_cargo_config(path) && path != CARGO_CONFIG {
             violations.push(format!(
                 "{path} is a second cargo config; cargo prefers `config` to `config.toml` and \
@@ -1248,29 +1270,27 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// Cargo reads its configuration from the environment and the command
 /// line as readily as from the file this guard checks: `CARGO_ALIAS_X`
 /// is an alias mapping, `CARGO_TARGET_<TRIPLE>_RUNNER` is the runner
-/// that file is kept free of, `CARGO_BUILD_*` moves what gets built and
-/// where, `CARGO_HOME` names a whole other `config.toml` to find them
-/// in, and `--config` says any of it inline.
+/// that file is kept free of, `CARGO_HOME` names a whole other
+/// `config.toml` to find them in, and `--config` says any of it inline.
+///
+/// What runs, that is - not how or where it builds. `CARGO_BUILD_JOBS`
+/// in some other job of a workflow that also runs a tool remaps
+/// nothing, and the guard's own job pins its build on the command line,
+/// where cargo takes it over any of this.
 fn cargo_override_problems(listed: &str, text: &str) -> Vec<String> {
     let mut problems = Vec::new();
     if text
         .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
         .any(|word| {
-            [
-                "CARGO_ALIAS_",
-                "CARGO_TARGET_",
-                "CARGO_BUILD_",
-                "CARGO_HOME",
-            ]
-            .iter()
-            .any(|known| word.starts_with(known))
+            ["CARGO_ALIAS_", "CARGO_TARGET_", "CARGO_HOME"]
+                .iter()
+                .any(|known| word.starts_with(known))
         })
     {
         problems.push(format!(
-            "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_/CARGO_HOME variable; \
-             cargo takes an alias, a runner, a build directory - and another config.toml to \
-             find them in - from the environment over {CARGO_CONFIG}, which is the file this \
-             guard checks"
+            "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_HOME variable; cargo takes \
+             an alias, a runner - and another config.toml to find them in - from the \
+             environment over {CARGO_CONFIG}, which is the file this guard checks"
         ));
     }
     if text
@@ -1435,6 +1455,16 @@ fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+/// One word of a command line as the thing it names: `-pxtask-foo` is
+/// the package, `xtask-foo.exe` is the binary.
+fn normalize_target(word: &str) -> &str {
+    let word = word
+        .strip_prefix("-p")
+        .filter(|rest| !rest.is_empty())
+        .unwrap_or(word);
+    word.strip_suffix(".exe").unwrap_or(word)
+}
+
 /// Whether `text` names a tool crate as a thing to build or run.
 ///
 /// An alias is not the only way to reach one: `cargo build -p xtask-foo`
@@ -1443,7 +1473,7 @@ fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
 /// trigger path (`crates/xtask-foo/**`) is not a use of it.
 fn uses_tool(text: &str, tool: &str) -> bool {
     let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
-    text.split(separator).any(|word| {
+    text.split(separator).map(normalize_target).any(|word| {
         // The last component names the binary
         // (`./target/debug/xtask-foo`); an inner one names the crate
         // (`--manifest-path crates/xtask-foo/Cargo.toml`). A glob is a
