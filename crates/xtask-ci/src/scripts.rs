@@ -1423,9 +1423,14 @@ fn workspace_crates(repo_root: &Path) -> Result<Vec<(String, String, bool)>> {
         } else {
             publish
         };
-        let private = publish
-            .and_then(toml::Value::as_bool)
-            .is_some_and(|publish| !publish);
+        let private = publish.is_some_and(|publish| match publish {
+            toml::Value::Boolean(allowed) => !allowed,
+            // `publish = []` names no registry to publish to, which is
+            // cargo's other way of saying the crate does not ship:
+            // `cargo publish` refuses it in the same words.
+            toml::Value::Array(registries) => registries.is_empty(),
+            _ => false,
+        });
         found.push((listed.to_owned(), package_name.to_owned(), private));
     }
     found.sort();
