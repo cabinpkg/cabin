@@ -36,9 +36,24 @@ fn scratch(files: &[(&str, &str)]) -> assert_fs::TempDir {
         .into_iter()
         .map(|root| format!("{root}placeholder.ts"))
         .collect();
-    let mut all: Vec<(&str, &str)> = Vec::new();
+    // Every aliased tool must sit at crates/<name>, so a scratch tree
+    // carries a stub of each: the guard reads the location, not the
+    // code, and a tree without them is not this repository.
+    let stubs: Vec<(String, String)> = scripts::aliased_packages(&repo_root())
+        .expect("read the aliases")
+        .into_iter()
+        .map(|name| {
+            (
+                format!("crates/{name}/Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\npublish = false\n"),
+            )
+        })
+        .collect();
+    let mut all: Vec<(&str, &str)> =
+        vec![("Cargo.toml", "[workspace]\nmembers = [\"crates/*\"]\n")];
     all.extend(real.iter().map(|(p, c)| (p.as_str(), c.as_str())));
     all.extend(roots.iter().map(|path| (path.as_str(), "export {};\n")));
+    all.extend(stubs.iter().map(|(p, c)| (p.as_str(), c.as_str())));
     all.extend_from_slice(files);
     let dir = bare_scratch(&all);
     // `LEGACY_SCRIPTS` pins the index mode as well as the blob id, so the
@@ -472,6 +487,12 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
             "array",
             "repo-task = [\"run\", \"-p\", \"repo-task\", \"--\"]\n",
         ),
+        // The convention is a name AND a place: a package may be called
+        // `xtask-anything` while living outside crates/.
+        (
+            "xtask_name_elsewhere",
+            "repo-task = \"run --locked -p xtask-bypass --\"\n",
+        ),
         // An alias that selects no package at all runs whatever the
         // working directory resolves to.
         ("no_package", "repo-task = \"run --bin repo-task --\"\n"),
@@ -832,7 +853,7 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         scripts::check(dir.path()).expect("run the guard")
     };
     let good_manifest = "[package]\nname = \"xtask-demo\"\npublish = false\n";
-    let good_root = "[workspace]\nmembers = [\"crates/xtask-demo\"]\n";
+    let good_root = "[workspace]\nmembers = [\"crates/*\"]\n";
     let good_alias = "demo = \"run -p xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, good_alias).is_empty());
 

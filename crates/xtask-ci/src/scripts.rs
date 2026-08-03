@@ -508,6 +508,19 @@ pub fn source_roots() -> Vec<&'static str> {
     PRODUCT_SOURCE_ROOTS.to_vec()
 }
 
+/// Every package the repository's aliases select.
+///
+/// # Errors
+///
+/// Fails when `.cargo/config.toml` cannot be read or parsed.
+pub fn aliased_packages(repo_root: &Path) -> Result<Vec<String>> {
+    let config = manifest(&repo_root.join(CARGO_CONFIG))?;
+    Ok(aliases(&config)
+        .iter()
+        .filter_map(|(_, value)| alias_package(value).map(ToOwned::to_owned))
+        .collect())
+}
+
 /// Every workflow whose trigger block the guard pins, the guard's own
 /// included.
 #[must_use]
@@ -767,14 +780,25 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
     // on its own it would let a tool land as any other package with an
     // alias pointed at it.
     for (name, value) in aliases(&config) {
-        match alias_package(&value) {
-            Some(package) if package.starts_with("xtask-") => {}
-            _ => problems.push(format!(
-                "the `cargo {name}` alias does not run an xtask package (`-p xtask-<name>`); \
-                 repository automation is an xtask crate reached through an alias, and an \
-                 alias onto anything else is that rule routed around \
+        // The name AND the place: a package may be called anything
+        // wherever it sits, so `xtask-` on its own would let a tool live
+        // outside `crates/` and never meet the crate scan below.
+        let placed = alias_package(&value).is_some_and(|package| {
+            package.starts_with("xtask-")
+                && repo_root
+                    .join("crates")
+                    .join(package)
+                    .join("Cargo.toml")
+                    .is_file()
+        });
+        if !placed {
+            problems.push(format!(
+                "the `cargo {name}` alias does not run a crates/xtask-* package \
+                 (`-p xtask-<name>`, with the crate at crates/xtask-<name>); repository \
+                 automation is an xtask crate reached through an alias, and an alias onto \
+                 anything else is that rule routed around \
                  (AGENTS.md, \"Repository automation\")"
-            )),
+            ));
         }
     }
     Ok(problems)
