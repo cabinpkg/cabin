@@ -1355,28 +1355,40 @@ fn calls(text: &str) -> Vec<&str> {
 /// Read from the manifests, not from the directory names: a package may
 /// be called anything wherever it sits, and a tool hiding under an
 /// ordinary directory name is exactly what the location rule is for.
+/// Nested manifests count - `crates/tools/ci` is no less a crate for
+/// being two levels down - so the walk goes all the way. `registry/` is
+/// a separate workspace of its own and is not part of this.
 fn workspace_crates(repo_root: &Path) -> Vec<(String, String, bool)> {
     let crates = repo_root.join("crates");
-    let Ok(entries) = std::fs::read_dir(&crates) else {
-        return Vec::new();
-    };
-    let mut found: Vec<(String, String, bool)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter_map(|dir| {
-            let manifest = manifest(&crates.join(&dir).join("Cargo.toml")).ok()?;
-            let package = manifest.get("package")?;
-            let name = package
-                .get("name")
-                .and_then(toml::Value::as_str)?
-                .to_owned();
-            let private = package
-                .get("publish")
-                .and_then(toml::Value::as_bool)
-                .is_some_and(|publish| !publish);
-            Some((dir, name, private))
-        })
-        .collect();
+    let mut found = Vec::new();
+    let mut pending = vec![(String::new(), crates)];
+    while let Some((prefix, dir)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !entry.path().is_dir() || name == "target" {
+                continue;
+            }
+            let listed = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if let Ok(manifest) = manifest(&entry.path().join("Cargo.toml"))
+                && let Some(package) = manifest.get("package")
+                && let Some(package_name) = package.get("name").and_then(toml::Value::as_str)
+            {
+                let private = package
+                    .get("publish")
+                    .and_then(toml::Value::as_bool)
+                    .is_some_and(|publish| !publish);
+                found.push((listed.clone(), package_name.to_owned(), private));
+            }
+            pending.push((listed, entry.path()));
+        }
+    }
     found.sort();
     found
 }

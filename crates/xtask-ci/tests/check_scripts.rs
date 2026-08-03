@@ -1156,6 +1156,19 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         "{hidden:?}"
     );
 
+    // Nesting is not a hiding place: a crate two levels down is a
+    // crate.
+    let nested = violations(&[(
+        "crates/tools/ci/Cargo.toml",
+        "[package]\nname = \"xtask-rogue\"\npublish = false\n",
+    )]);
+    assert!(
+        nested
+            .iter()
+            .any(|line| line.contains("crates/tools/ci declares the package xtask-rogue")),
+        "{nested:?}"
+    );
+
     // A private crate is maintainer tooling whatever it calls itself:
     // everything this workspace ships is published.
     let private = violations(&[(
