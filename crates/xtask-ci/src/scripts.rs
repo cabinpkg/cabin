@@ -805,21 +805,23 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
             ));
             continue;
         };
-        // The name AND the place AND the manifest: a package may be
-        // called anything wherever it sits, so any one of the three on
-        // its own would let a tool live where the crate scan never
-        // looks, or leave an alias naming a package nothing declares.
-        let reachable = alias_package(text).is_some_and(|package| {
-            package.starts_with("xtask-")
-                && package_named(&repo_root.join("crates").join(package), package)
-        });
+        // The subcommand AND the name AND the place AND the manifest: an
+        // alias that builds a tool without running it still exits zero,
+        // and a package may be called anything wherever it sits, so any
+        // one of the four on its own would let a tool live where the
+        // crate scan never looks, or leave an alias that runs nothing.
+        let reachable = text.split_whitespace().next() == Some("run")
+            && alias_package(text).is_some_and(|package| {
+                package.starts_with("xtask-")
+                    && package_named(&repo_root.join("crates").join(package), package)
+            });
         if !reachable {
             problems.push(format!(
-                "the `cargo {name}` alias does not run a crates/xtask-* package \
-                 (`-p xtask-<name>`, declared by crates/xtask-<name>/Cargo.toml); repository \
-                 automation is an xtask crate reached through an alias, and an alias onto \
-                 anything else is that rule routed around \
-                 (AGENTS.md, \"Repository automation\")"
+                "the `cargo {name}` alias does not RUN a crates/xtask-* package \
+                 (`run ... -p xtask-<name>`, declared by crates/xtask-<name>/Cargo.toml); \
+                 repository automation is an xtask crate reached through an alias, and an \
+                 alias that runs anything else - or merely builds it - is that rule routed \
+                 around (AGENTS.md, \"Repository automation\")"
             ));
         }
     }
@@ -1077,6 +1079,11 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // (`run: >`) or continued (`cargo \`), putting the command and its
     // argument on different lines of the YAML.
     let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}\\".contains(c);
+    // Cargo may be reached by path (`~/.cargo/bin/cargo`, `cargo.exe`).
+    let is_cargo = |word: &str| {
+        let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
+        base == "cargo" || base == "cargo.exe"
+    };
     let mut words = text.split(separator).filter(|word| !word.is_empty());
     let (mut cargo, mut named) = (false, false);
     // Both present, in either order and anywhere in the file: a command
@@ -1084,7 +1091,7 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // (`env: {CMD: check-sql}` … `run: cargo "$CMD"`), which leaves no
     // literal alias after the word `cargo` to look for.
     words.any(|word| {
-        cargo |= word == "cargo";
+        cargo |= is_cargo(word);
         named |= word == alias;
         cargo && named
     })

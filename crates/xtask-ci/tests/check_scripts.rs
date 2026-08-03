@@ -476,6 +476,9 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: cargo check-sql>/dev/null\n",
         // Assembled from a variable: nothing literal follows `cargo`.
         "    env:\n      CMD: check-sql\n    steps:\n      - run: cargo \"$CMD\"\n",
+        // Cargo reached by path, and by its Windows name.
+        "      - run: ~/.cargo/bin/cargo check-sql\n",
+        "      - run: cargo.exe check-sql\n",
     ] {
         let caught = violations(&[(".github/workflows/consumer.yml", &format!("{head}{call}"))]);
         assert_eq!(caught.len(), 1, "{call}: {caught:?}");
@@ -544,6 +547,11 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
         // An alias that selects no package at all runs whatever the
         // working directory resolves to.
         ("no_package", "repo-task = \"run --bin repo-task --\"\n"),
+        // Building a tool is not running it, and exits zero either way.
+        (
+            "builds_without_running",
+            "repo-task = \"build --quiet --locked -p xtask-ci\"\n",
+        ),
         // An array alias is not the same declaration: cargo joins array
         // values across config layers instead of overriding them.
         (
