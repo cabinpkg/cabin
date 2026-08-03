@@ -834,17 +834,21 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
         // `crates/<name>` is only the right place to look while the
         // alias resolves against the root workspace; another manifest
         // can hold a package of the same name.
-        // `crates/<name>` is only the right place to look while the
-        // alias resolves against the root workspace; another manifest
-        // can hold a package of the same name.
-        if text
+        // An alias may not move the ground the rest of these checks
+        // stand on: `--manifest-path` resolves the package in another
+        // workspace, where the same name is another package, and
+        // `--config` can set the `[target] runner` the alias file is
+        // kept free of - either way the tool named here is not what
+        // runs.
+        for flag in text
             .split_whitespace()
             .take_while(|word| *word != "--")
-            .any(|word| word.split('=').next() == Some("--manifest-path"))
+            .filter(|word| matches!(word.split('=').next(), Some("--manifest-path" | "--config")))
         {
+            let flag = flag.split('=').next().unwrap_or(flag);
             problems.push(format!(
-                "the `cargo {name}` alias sets --manifest-path; the aliases resolve against \
-                 the root workspace, and a package name means something else in another one"
+                "the `cargo {name}` alias passes {flag}; the aliases resolve against the root \
+                 workspace and the alias-only {CARGO_CONFIG}, and this moves both"
             ));
         }
         // The subcommand AND the name AND the place AND the manifest: an

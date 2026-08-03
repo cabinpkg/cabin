@@ -615,6 +615,16 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
             "another_workspace_joined",
             "repo-task = \"run --manifest-path=tools/Cargo.toml -p xtask-ci --\"\n",
         ),
+        // `--config` reaches the [target] runner the alias file is kept
+        // free of, so the tool named here need not be what runs.
+        (
+            "config_override",
+            "repo-task = \"run --config tools/runner.toml -p xtask-ci --\"\n",
+        ),
+        (
+            "config_override_inline",
+            "repo-task = \"run --config=target.'cfg(all())'.runner='true' -p xtask-ci --\"\n",
+        ),
         // An array alias is not the same declaration: cargo joins array
         // values across config layers instead of overriding them.
         (
