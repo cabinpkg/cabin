@@ -797,6 +797,13 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
         .and_then(toml::Value::as_table)
         .unwrap_or(&empty);
     for (name, value) in declared {
+        if CARGO_BUILTINS.contains(&name.as_str()) {
+            problems.push(format!(
+                "`{name}` is one of cargo's own commands, so `cargo {name}` never reaches \
+                 this alias: cargo resolves a built-in first and says nothing about the \
+                 alias it shadowed"
+            ));
+        }
         let Some(text) = value.as_str() else {
             problems.push(format!(
                 "the `cargo {name}` alias is not a string; cargo JOINS array config values \
@@ -928,6 +935,62 @@ fn package_named(dir: &Path, name: &str) -> bool {
             == Some(name)
     })
 }
+
+/// Cargo's own command names, which an alias can never take.
+///
+/// Cargo resolves a built-in before it looks at `[alias]`, and says
+/// nothing when one shadows the other: `bench = "run -p xtask-ci -- ..."`
+/// is a line cargo reads, lists, and never runs. Neither `cargo --list`
+/// nor `cargo help <name>` reports the collision - both echo the
+/// declaration - so the list is here, a snapshot of the built-ins and
+/// built-in short aliases of cargo 1.95. Extend it when cargo does.
+const CARGO_BUILTINS: [&str; 45] = [
+    "add",
+    "b",
+    "bench",
+    "build",
+    "c",
+    "check",
+    "clean",
+    "config",
+    "d",
+    "doc",
+    "fetch",
+    "fix",
+    "generate-lockfile",
+    "git-checkout",
+    "help",
+    "info",
+    "init",
+    "install",
+    "locate-project",
+    "login",
+    "logout",
+    "metadata",
+    "new",
+    "owner",
+    "package",
+    "pkgid",
+    "publish",
+    "r",
+    "read-manifest",
+    "remove",
+    "report",
+    "rm",
+    "run",
+    "rustc",
+    "rustdoc",
+    "search",
+    "t",
+    "test",
+    "tree",
+    "uninstall",
+    "update",
+    "vendor",
+    "verify-project",
+    "version",
+    "yank",
+];
 
 /// Every alias in a parsed `.cargo/config.toml`, with its value flattened
 /// to one string: cargo accepts a whitespace-split scalar or an array of

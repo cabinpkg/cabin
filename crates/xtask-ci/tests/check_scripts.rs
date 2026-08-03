@@ -515,6 +515,30 @@ fn a_second_cargo_config_is_caught() {
     }
 }
 
+/// A built-in command of the same name wins over an alias, silently: a
+/// tool renamed onto one is a line cargo reads and never runs.
+#[test]
+fn an_alias_shadowed_by_a_builtin_is_caught() {
+    let real =
+        fs::read_to_string(repo_root().join(".cargo/config.toml")).expect("read the cargo config");
+    for builtin in ["bench", "test", "build"] {
+        let dir = scratch(&[]);
+        write(
+            &dir,
+            ".cargo/config.toml",
+            &format!("{real}{builtin} = \"run --quiet --locked -p xtask-ci -- check-scripts\"\n"),
+        );
+        restage(&dir);
+        let caught = scripts::check(dir.path()).expect("run the guard");
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains(&format!("`cargo {builtin}` never reaches this alias"))),
+            "{builtin}: {caught:?}"
+        );
+    }
+}
+
 /// The aliases are the repository's tool surface, so they are checked
 /// from their own side too: a tool added as an ordinary package with an
 /// alias pointed at it never lands under `crates/xtask-*` for the crate
