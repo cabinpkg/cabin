@@ -618,9 +618,18 @@ fn entry_problem(repo_root: &Path, entry: &Entry) -> Option<String> {
 
 /// Whether cargo would read `path` as configuration: either name, in any
 /// `.cargo/` directory.
+///
+/// Case-insensitively, because Windows and macOS resolve `.Cargo/Config`
+/// to the path cargo looks for while git records the name as typed.
 fn is_cargo_config(path: &str) -> bool {
     let mut parts = path.rsplit('/');
-    matches!(parts.next(), Some("config" | "config.toml")) && parts.next() == Some(".cargo")
+    let name = parts.next().unwrap_or_default();
+    ["config", "config.toml"]
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(name))
+        && parts
+            .next()
+            .is_some_and(|parent| parent.eq_ignore_ascii_case(".cargo"))
 }
 
 /// Whatever makes one index entry repository automation by its kind
@@ -779,22 +788,32 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
     // crates/xtask-* scan can only see crates that already sit there, so
     // on its own it would let a tool land as any other package with an
     // alias pointed at it.
-    for (name, value) in aliases(&config) {
-        // The name AND the place: a package may be called anything
-        // wherever it sits, so `xtask-` on its own would let a tool live
-        // outside `crates/` and never meet the crate scan below.
-        let placed = alias_package(&value).is_some_and(|package| {
+    let empty = toml::value::Table::new();
+    let declared = table
+        .get("alias")
+        .and_then(toml::Value::as_table)
+        .unwrap_or(&empty);
+    for (name, value) in declared {
+        let Some(text) = value.as_str() else {
+            problems.push(format!(
+                "the `cargo {name}` alias is not a string; cargo JOINS array config values \
+                 across layers, so an array here would become the ARGUMENTS of a same-named \
+                 alias in a developer's ~/.cargo/config.toml rather than the command"
+            ));
+            continue;
+        };
+        // The name AND the place AND the manifest: a package may be
+        // called anything wherever it sits, so any one of the three on
+        // its own would let a tool live where the crate scan never
+        // looks, or leave an alias naming a package nothing declares.
+        let reachable = alias_package(text).is_some_and(|package| {
             package.starts_with("xtask-")
-                && repo_root
-                    .join("crates")
-                    .join(package)
-                    .join("Cargo.toml")
-                    .is_file()
+                && package_named(&repo_root.join("crates").join(package), package)
         });
-        if !placed {
+        if !reachable {
             problems.push(format!(
                 "the `cargo {name}` alias does not run a crates/xtask-* package \
-                 (`-p xtask-<name>`, with the crate at crates/xtask-<name>); repository \
+                 (`-p xtask-<name>`, declared by crates/xtask-<name>/Cargo.toml); repository \
                  automation is an xtask crate reached through an alias, and an alias onto \
                  anything else is that rule routed around \
                  (AGENTS.md, \"Repository automation\")"
@@ -802,6 +821,17 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(problems)
+}
+
+/// Whether the crate at `dir` declares itself to be `name`.
+fn package_named(dir: &Path, name: &str) -> bool {
+    manifest(&dir.join("Cargo.toml")).is_ok_and(|manifest| {
+        manifest
+            .get("package")
+            .and_then(|package| package.get("name"))
+            .and_then(toml::Value::as_str)
+            == Some(name)
+    })
 }
 
 /// Every alias in a parsed `.cargo/config.toml`, with its value flattened

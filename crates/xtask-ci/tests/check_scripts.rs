@@ -126,6 +126,33 @@ fn git(dir: &assert_fs::TempDir, args: &[&str]) {
     );
 }
 
+/// Stage `contents` at `path` in the index alone, leaving the working
+/// tree as it is: the guard reads the index, and some paths cannot be
+/// written next to what they collide with.
+fn stage_blob(dir: &assert_fs::TempDir, path: &str, contents: &str) {
+    let scratch_file = dir.path().join(".staged-blob");
+    fs::write(&scratch_file, contents).expect("write the blob source");
+    let output = StdCommand::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["hash-object", "-w", "--"])
+        .arg(&scratch_file)
+        .output()
+        .expect("run git hash-object");
+    assert!(output.status.success(), "git hash-object failed");
+    fs::remove_file(&scratch_file).expect("drop the blob source");
+    let oid = String::from_utf8(output.stdout).expect("git output");
+    git(
+        dir,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("100644,{},{path}", oid.trim()),
+        ],
+    );
+}
+
 fn write(dir: &assert_fs::TempDir, path: &str, contents: &str) {
     let full = dir.path().join(path);
     if let Some(parent) = full.parent() {
@@ -468,6 +495,17 @@ fn a_second_cargo_config_is_caught() {
         assert_eq!(caught.len(), 1, "{path}: {caught:?}");
         assert!(caught[0].contains("a second cargo config"), "{caught:?}");
     }
+    // Windows and macOS resolve these to the paths cargo reads, while
+    // git records the name as it was typed. Staged straight into the
+    // index: on those same filesystems the file cannot be WRITTEN
+    // beside its sibling, which is the point.
+    for path in [".Cargo/config", ".cargo/Config.toml"] {
+        let dir = scratch(&[]);
+        stage_blob(&dir, path, hostile);
+        let caught = scripts::check(dir.path()).expect("run the guard");
+        assert_eq!(caught.len(), 1, "{path}: {caught:?}");
+        assert!(caught[0].contains("a second cargo config"), "{caught:?}");
+    }
 }
 
 /// The aliases are the repository's tool surface, so they are checked
@@ -493,15 +531,34 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
             "xtask_name_elsewhere",
             "repo-task = \"run --locked -p xtask-bypass --\"\n",
         ),
+        // ...and a crates/xtask-* directory may declare any name at
+        // all, leaving the alias naming a package nothing provides.
+        (
+            "crate_declares_another_name",
+            "repo-task = \"run --locked -p xtask-misnamed --\"\n",
+        ),
         // An alias that selects no package at all runs whatever the
         // working directory resolves to.
         ("no_package", "repo-task = \"run --bin repo-task --\"\n"),
+        // An array alias is not the same declaration: cargo joins array
+        // values across config layers instead of overriding them.
+        (
+            "array_value",
+            "repo-task = [\"run\", \"--locked\", \"-p\", \"xtask-ci\", \"--\"]\n",
+        ),
     ];
     let escaped: Vec<&str> = cases
         .iter()
         .filter(|(_, alias)| {
             let dir = scratch(&[]);
             write(&dir, ".cargo/config.toml", &format!("{real}{alias}"));
+            // A crate at the conventional path that declares another
+            // name: everything about it is right except what it is.
+            write(
+                &dir,
+                "crates/xtask-misnamed/Cargo.toml",
+                "[package]\nname = \"ordinary-tool\"\npublish = false\n",
+            );
             restage(&dir);
             !scripts::check(dir.path())
                 .expect("run the guard")
