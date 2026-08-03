@@ -37,9 +37,12 @@
 //! (`node tools/deploy.data`) passes the file scan - the workflow-block
 //! scan is what catches the caller; `website/src/**/*.ts` is website
 //! source and is not scanned as tooling; a file name whose extension
-//! uses non-ASCII homoglyphs would not match; and content comes from the
-//! working tree, so a locally-staged-but-rewritten file reads as its
-//! on-disk bytes (CI checks out clean, which is the authority).
+//! uses non-ASCII homoglyphs would not match; `TOOLING_EXTENSIONS` names
+//! the languages somebody thought of, so one nobody did is caught by the
+//! executable bit, a shebang or its caller rather than its name, and the
+//! list takes the next language the day it appears; and content comes
+//! from the working tree, so a locally-staged-but-rewritten file reads
+//! as its on-disk bytes (CI checks out clean, which is the authority).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -54,7 +57,7 @@ use anyhow::{Context as _, Result, bail};
 ///
 /// Checked against every dot-separated component after the first, so a
 /// template (`deploy.sh.in`) cannot launder one.
-const TOOLING_EXTENSIONS: [&str; 29] = [
+const TOOLING_EXTENSIONS: [&str; 34] = [
     "applescript",
     "awk",
     "bash",
@@ -66,6 +69,7 @@ const TOOLING_EXTENSIONS: [&str; 29] = [
     "fish",
     "groovy",
     "jl",
+    "jse",
     "ksh",
     "lua",
     "nu",
@@ -83,6 +87,10 @@ const TOOLING_EXTENSIONS: [&str; 29] = [
     "sh",
     "tcl",
     "tcsh",
+    "vbe",
+    "vbs",
+    "wsf",
+    "wsh",
     "zsh",
 ];
 
@@ -586,7 +594,7 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
     let Some(table) = config.as_table() else {
         return Ok(vec![".cargo/config.toml is not a table".to_owned()]);
     };
-    Ok(table
+    let mut problems: Vec<String> = table
         .keys()
         .filter(|key| key.as_str() != "alias")
         .map(|key| {
@@ -596,7 +604,64 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
                  included, and reaches the registry workspace as well)"
             )
         })
-        .collect())
+        .collect();
+    // Checked from the alias side as well as the crate side: the
+    // crates/xtask-* scan can only see crates that already sit there, so
+    // on its own it would let a tool land as any other package with an
+    // alias pointed at it.
+    for (name, value) in aliases(&config) {
+        match alias_package(&value) {
+            Some(package) if package.starts_with("xtask-") => {}
+            _ => problems.push(format!(
+                "the `cargo {name}` alias does not run an xtask package (`-p xtask-<name>`); \
+                 repository automation is an xtask crate reached through an alias, and an \
+                 alias onto anything else is that rule routed around \
+                 (AGENTS.md, \"Repository automation\")"
+            )),
+        }
+    }
+    Ok(problems)
+}
+
+/// Every alias in a parsed `.cargo/config.toml`, with its value flattened
+/// to one string: cargo accepts a whitespace-split scalar or an array of
+/// words, and both mean the same command line.
+fn aliases(config: &toml::Value) -> Vec<(String, String)> {
+    let Some(table) = config.get("alias").and_then(toml::Value::as_table) else {
+        return Vec::new();
+    };
+    table
+        .iter()
+        .map(|(name, value)| {
+            let words = match value {
+                toml::Value::String(text) => text.clone(),
+                toml::Value::Array(words) => words
+                    .iter()
+                    .filter_map(toml::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => String::new(),
+            };
+            (name.clone(), words)
+        })
+        .collect()
+}
+
+/// The package an alias selects, in any of the spellings cargo accepts.
+fn alias_package(value: &str) -> Option<&str> {
+    let mut words = value.split_whitespace();
+    while let Some(word) = words.next() {
+        let selected = match word {
+            "-p" | "--package" => words.next(),
+            _ => word
+                .strip_prefix("--package=")
+                .or_else(|| word.strip_prefix("-p").filter(|rest| !rest.is_empty())),
+        };
+        if selected.is_some() {
+            return selected;
+        }
+    }
+    None
 }
 
 /// Whatever is wrong with the shape of the `xtask-*` crates: the
@@ -631,25 +696,8 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         .and_then(toml::Value::as_array)
         .map(|list| list.iter().filter_map(toml::Value::as_str).collect())
         .unwrap_or_default();
-    let aliases = manifest(&repo_root.join(".cargo/config.toml"))?;
-    let aliases: Vec<String> = aliases
-        .get("alias")
-        .and_then(toml::Value::as_table)
-        .map(|table| {
-            table
-                .values()
-                .map(|value| match value {
-                    toml::Value::String(text) => text.clone(),
-                    toml::Value::Array(words) => words
-                        .iter()
-                        .filter_map(toml::Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                    _ => String::new(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let config = manifest(&repo_root.join(".cargo/config.toml"))?;
+    let aliases = aliases(&config);
 
     let mut problems = Vec::new();
     for name in names {
@@ -679,7 +727,7 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
         if !aliases
             .iter()
-            .any(|alias| alias.contains(&format!("-p {name} --")))
+            .any(|(_, value)| value.contains(&format!("-p {name} --")))
         {
             problems.push(format!(
                 "{path} has no cargo alias in .cargo/config.toml; \

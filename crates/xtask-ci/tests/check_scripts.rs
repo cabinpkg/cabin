@@ -169,6 +169,13 @@ fn a_reintroduced_script_is_caught() {
         ("powershell_module", "tools/release.psm1", "Write-Host 1\n"),
         ("powershell_manifest", "tools/release.psd1", "@{}\n"),
         ("windows_batch", "tools/release.bat", "@echo off\n"),
+        // Windows Script Host: `cscript tools/release.vbs` runs it with
+        // nothing installed.
+        ("vbscript", "tools/release.vbs", "WScript.Echo 1\n"),
+        ("vbscript_encoded", "tools/release.vbe", "#@~^AAAA==\n"),
+        ("windows_script_file", "tools/release.wsf", "<job/>\n"),
+        ("windows_script_host", "tools/release.wsh", "[ScriptFile]\n"),
+        ("jscript_encoded", "tools/release.jse", "#@~^AAAA==\n"),
         ("windows_cmd", "tools/release.cmd", "@echo off\n"),
         ("zsh", "tools/release.zsh", "print hi\n"),
         ("ksh", "tools/release.ksh", "print hi\n"),
@@ -320,6 +327,43 @@ fn a_non_alias_cargo_config_section_is_caught() {
                 .expect("run the guard")
                 .iter()
                 .any(|line| line.contains("must stay [alias]-only"))
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
+}
+
+/// The aliases are the repository's tool surface, so they are checked
+/// from their own side too: a tool added as an ordinary package with an
+/// alias pointed at it never lands under `crates/xtask-*` for the crate
+/// scan to see.
+#[test]
+fn an_alias_onto_a_non_xtask_package_is_caught() {
+    let real =
+        fs::read_to_string(repo_root().join(".cargo/config.toml")).expect("read the cargo config");
+    let cases: &[(&str, &str)] = &[
+        ("plain", "repo-task = \"run --locked -p repo-task --\"\n"),
+        ("long_flag", "repo-task = \"run --package repo-task --\"\n"),
+        ("joined", "repo-task = \"run -prepo-task --\"\n"),
+        ("equals", "repo-task = \"run --package=repo-task --\"\n"),
+        (
+            "array",
+            "repo-task = [\"run\", \"-p\", \"repo-task\", \"--\"]\n",
+        ),
+        // An alias that selects no package at all runs whatever the
+        // working directory resolves to.
+        ("no_package", "repo-task = \"run --bin repo-task --\"\n"),
+    ];
+    let escaped: Vec<&str> = cases
+        .iter()
+        .filter(|(_, alias)| {
+            let dir = scratch(&[]);
+            write(&dir, ".cargo/config.toml", &format!("{real}{alias}"));
+            restage(&dir);
+            !scripts::check(dir.path())
+                .expect("run the guard")
+                .iter()
+                .any(|line| line.contains("`cargo repo-task` alias"))
         })
         .map(|(name, _)| *name)
         .collect();

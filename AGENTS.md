@@ -67,6 +67,9 @@ can prove.
 `.cargo/config.toml` stays `[alias]`-only, and the guard refuses any other
 section: a `runner` there changes what `cargo run` and `cargo test` execute
 repository-wide, and a `[build]` key also reaches the `registry/` workspace.
+Every alias must run an `xtask-*` package, which is the rule read from the
+alias side: a tool added as an ordinary package with an alias pointed at it
+would never land under `crates/xtask-*` for the crate scan to see.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
