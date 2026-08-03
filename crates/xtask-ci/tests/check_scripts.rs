@@ -551,6 +551,21 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
+    // A runner set in the environment answers for the tool.
+    let runner = real.replacen(
+        "    steps:",
+        "    env:\n      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: \"true\"\n    steps:",
+        1,
+    );
+    let dir = scratch(&[]);
+    write(&dir, path, &runner);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught.iter().any(|line| line.contains("CARGO_TARGET_")),
+        "{caught:?}"
+    );
+
     // A workflow can reach a tool with no alias at all.
     let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                   build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \
@@ -1127,6 +1142,19 @@ fn an_xtask_crate_off_the_convention_is_caught() {
     // alias this crate is reached through.
     let long_form = "demo = \"run --package xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, long_form).is_empty());
+
+    // A tool crate under an ordinary directory name is a tool nothing
+    // that checks one would look at.
+    let hidden = violations(&[(
+        "crates/tools/Cargo.toml",
+        "[package]\nname = \"xtask-rogue\"\npublish = false\n",
+    )]);
+    assert!(
+        hidden
+            .iter()
+            .any(|line| line.contains("crates/tools declares the package xtask-rogue")),
+        "{hidden:?}"
+    );
 
     // `publish` may be inherited from the workspace, where it is the
     // plain boolean this rule wants.

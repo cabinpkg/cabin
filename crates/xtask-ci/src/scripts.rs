@@ -1174,24 +1174,30 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
             .map(|(alias, value)| format!("{alias}={}", alias_package(value).unwrap_or("?")));
         let direct = tools
             .iter()
-            .filter(|tool| uses_tool(text, tool))
-            .map(|tool| format!("direct={tool}"));
+            .filter(|(_, tool)| uses_tool(text, tool))
+            .map(|(_, tool)| format!("direct={tool}"));
         reached.chain(direct).collect()
     });
 
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
-        // Cargo reads `[alias] x` from CARGO_ALIAS_X as readily as from
-        // the file, so a workflow that sets one has an alias mapping
-        // this guard never saw.
+        // Cargo reads its configuration from the environment as readily
+        // as from the file: CARGO_ALIAS_X is an alias mapping,
+        // CARGO_TARGET_<TRIPLE>_RUNNER is the runner that file is kept
+        // free of, and CARGO_BUILD_* moves what gets built and where.
         if text
             .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-            .any(|word| word.starts_with("CARGO_ALIAS_"))
+            .any(|word| {
+                ["CARGO_ALIAS_", "CARGO_TARGET_", "CARGO_BUILD_"]
+                    .iter()
+                    .any(|known| word.starts_with(known))
+            })
         {
             problems.push(format!(
-                "{listed} sets a CARGO_ALIAS_* variable; cargo takes an alias from the \
-                 environment over {CARGO_CONFIG}, which is the file this guard checks"
+                "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_ variable; cargo \
+                 takes an alias, a runner and a build directory from the environment over \
+                 {CARGO_CONFIG}, which is the file this guard checks"
             ));
         }
         // The same override, spelled at the call site.
@@ -1344,18 +1350,32 @@ fn calls(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The tool crates this repository has, by package name.
-fn xtask_packages(repo_root: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(repo_root.join("crates")) else {
+/// The tool crates this repository has, as (directory, package name).
+///
+/// Read from the manifests, not from the directory names: a package may
+/// be called anything wherever it sits, and a tool hiding under an
+/// ordinary directory name is exactly what the location rule is for.
+fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
+    let crates = repo_root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates) else {
         return Vec::new();
     };
-    let mut names: Vec<String> = entries
+    let mut found: Vec<(String, String)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.starts_with("xtask-"))
+        .filter_map(|dir| {
+            let manifest = manifest(&crates.join(&dir).join("Cargo.toml")).ok()?;
+            let name = manifest
+                .get("package")
+                .and_then(|package| package.get("name"))
+                .and_then(toml::Value::as_str)
+                .filter(|name| name.starts_with("xtask-"))?
+                .to_owned();
+            Some((dir, name))
+        })
         .collect();
-    names.sort();
-    names
+    found.sort();
+    found
 }
 
 /// Whether `text` names a tool crate as a thing to build or run.
@@ -1450,6 +1470,17 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
     let aliases = aliases(&config);
 
     let mut problems = Vec::new();
+    // Found by manifest, not by directory name: `crates/tools` calling
+    // itself `xtask-rogue` is a tool the directory scan below would
+    // never look at, and an alias could reach it by package name.
+    for (dir, package) in xtask_packages(repo_root) {
+        if dir != package {
+            problems.push(format!(
+                "crates/{dir} declares the package {package}; a tool crate lives at \
+                 crates/<its own name>, which is where everything that checks one looks"
+            ));
+        }
+    }
     for name in names {
         let path = format!("crates/{name}");
         // A glob member (`crates/*`) covers it too; anything else has to
