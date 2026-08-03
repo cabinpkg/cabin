@@ -48,7 +48,7 @@
 //! from the working tree, so a locally-staged-but-rewritten file reads
 //! as its on-disk bytes (CI checks out clean, which is the authority).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -285,15 +285,18 @@ const PINNED_JOB: &str = "  automation:
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
       #
-      # `shell:` and `working-directory:` are pinned for the same
-      # reason one step up: a workflow-level `defaults.run` can name any
-      # command to hand `run:` to, and any directory to run it in - and
-      # `./target/debug/xtask-ci` means something else under a different
-      # one. A step's own values win over those defaults.
+      # `shell:`, `working-directory:` and `--target-dir` are pinned for
+      # the same reason one step up: a workflow-level `defaults.run` can
+      # name any command to hand `run:` to and any directory to run it
+      # in, and `[build] target-dir` can move what cargo just built out
+      # from under the path executed below - which a tracked
+      # `target/debug/xtask-ci` would then answer to. A step's own values
+      # win over those defaults, and a command-line --target-dir wins
+      # over the config.
       - name: Build the repository automation guard
         shell: bash
         working-directory: .
-        run: cargo build --locked -p xtask-ci
+        run: cargo build --locked --target-dir target -p xtask-ci
 
       - name: Repository automation guard
         shell: bash
@@ -1105,8 +1108,7 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         .collect();
     workflows.sort();
 
-    let mut problems = Vec::new();
-    let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
+    let mut texts: BTreeMap<String, String> = BTreeMap::new();
     for workflow in workflows {
         let listed = format!(
             ".github/workflows/{}",
@@ -1115,16 +1117,60 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         let text = std::fs::read_to_string(&workflow)
             .with_context(|| format!("read {}", workflow.display()))?
             .replace("\r\n", "\n");
-        // Alias order is the config's, which cargo keeps sorted, so the
-        // pinned list reads the same way.
-        let run: Vec<&str> = aliases
-            .iter()
-            .map(|(alias, _)| alias.as_str())
-            .filter(|alias| runs_alias(&text, alias))
+        texts.insert(listed, text);
+    }
+    // Alias order is the config's, which cargo keeps sorted, so the
+    // pinned list reads the same way.
+    let names: Vec<&str> = aliases.iter().map(|(alias, _)| alias.as_str()).collect();
+    let mut runs: BTreeMap<&str, BTreeSet<&str>> = texts
+        .iter()
+        .map(|(listed, text)| {
+            let run = names
+                .iter()
+                .copied()
+                .filter(|alias| runs_alias(text, alias))
+                .collect();
+            (listed.as_str(), run)
+        })
+        .collect();
+    // A reusable workflow runs under its CALLER's triggers, so the
+    // caller is a consumer too - `jobs.<id>.uses: ./.github/workflows/x`
+    // is the edge. Repeated to a fixed point, because a caller can call
+    // a caller.
+    loop {
+        let mut grew = false;
+        for (listed, text) in &texts {
+            let called: Vec<&str> = calls(text)
+                .into_iter()
+                .filter(|called| texts.contains_key(*called))
+                .collect();
+            let inherited: BTreeSet<&str> = called
+                .iter()
+                .flat_map(|called| runs.get(*called).cloned().unwrap_or_default())
+                .collect();
+            let mine = runs.entry(listed.as_str()).or_default();
+            let before = mine.len();
+            mine.extend(inherited);
+            grew |= mine.len() != before;
+        }
+        if !grew {
+            break;
+        }
+    }
+
+    let mut problems = Vec::new();
+    let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
+    for (listed, text) in &texts {
+        let run: Vec<&str> = runs
+            .get(listed.as_str())
+            .into_iter()
+            .flatten()
+            .copied()
             .collect();
         if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
         }
+        let listed = listed.as_str();
         let Some((pinned_path, pinned_aliases, pinned)) =
             PINNED_CONSUMERS.iter().find(|(known, ..)| *known == listed)
         else {
@@ -1140,9 +1186,6 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         // The aliases are pinned beside the block: a pin taken for one
         // tool says nothing about the crate of a tool added later, and
         // adding a call leaves the trigger block itself untouched.
-        // The aliases are pinned beside the block: a pin taken for one
-        // tool says nothing about the crate of a tool added later, and
-        // adding a call leaves the trigger block itself untouched.
         if run != *pinned_aliases {
             problems.push(format!(
                 "{listed} runs {run:?}, but its trigger block was pinned for \
@@ -1150,7 +1193,7 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
                  filters, then re-pin PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs"
             ));
         }
-        if !pinned_at_indent(&text, pinned, 0, None) {
+        if !pinned_at_indent(text, pinned, 0, None) {
             problems.push(format!(
                 "{listed}'s trigger block is not the pinned one, and it runs {run:?}; \
                  check that {CARGO_CONFIG} and each tool's crate are still in every filter, \
@@ -1167,6 +1210,17 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(problems)
+}
+
+/// The local workflows a workflow calls, as `.github/workflows/<name>`.
+///
+/// `jobs.<id>.uses: ./.github/workflows/x.yml` runs `x.yml` under THIS
+/// workflow's triggers, so whatever it runs, this one runs.
+fn calls(text: &str) -> Vec<&str> {
+    text.split_whitespace()
+        .filter_map(|word| word.trim_matches(['"', '\'']).strip_prefix("./"))
+        .filter(|path| path.starts_with(".github/workflows/"))
+        .collect()
 }
 
 /// Whether `text` invokes `cargo <alias>` on any line.

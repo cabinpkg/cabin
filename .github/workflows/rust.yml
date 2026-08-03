@@ -60,15 +60,18 @@ jobs:
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
       #
-      # `shell:` and `working-directory:` are pinned for the same
-      # reason one step up: a workflow-level `defaults.run` can name any
-      # command to hand `run:` to, and any directory to run it in - and
-      # `./target/debug/xtask-ci` means something else under a different
-      # one. A step's own values win over those defaults.
+      # `shell:`, `working-directory:` and `--target-dir` are pinned for
+      # the same reason one step up: a workflow-level `defaults.run` can
+      # name any command to hand `run:` to and any directory to run it
+      # in, and `[build] target-dir` can move what cargo just built out
+      # from under the path executed below - which a tracked
+      # `target/debug/xtask-ci` would then answer to. A step's own values
+      # win over those defaults, and a command-line --target-dir wins
+      # over the config.
       - name: Build the repository automation guard
         shell: bash
         working-directory: .
-        run: cargo build --locked -p xtask-ci
+        run: cargo build --locked --target-dir target -p xtask-ci
 
       - name: Repository automation guard
         shell: bash

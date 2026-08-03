@@ -482,6 +482,23 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("was pinned for"), "{caught:?}");
 
+    // A reusable workflow runs under its caller's triggers, so the
+    // caller is a consumer too, however little it says itself.
+    let reusable = "on:\n  workflow_call:\n\njobs:\n  guard:\n    steps:\n      \
+                    - run: cargo check-sql\n";
+    let caller = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                  call:\n    uses: ./.github/workflows/reusable.yml\n";
+    let caught = violations(&[
+        (".github/workflows/reusable.yml", reusable),
+        (".github/workflows/caller.yml", caller),
+    ]);
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.starts_with(".github/workflows/caller.yml")),
+        "{caught:?}"
+    );
+
     // A new consumer nobody pinned is the case the pins exist for, in
     // each spelling a shell reads as the same command.
     let head = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
@@ -896,6 +913,13 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "command_commented_out",
             "        run: ./target/debug/xtask-ci check-scripts\n",
             "        run: echo skip # ./target/debug/xtask-ci check-scripts\n",
+        ),
+        (
+            // `[build] target-dir` can move what cargo just built, and a
+            // tracked `target/debug/xtask-ci` would answer in its place.
+            "target_dir_unpinned",
+            "        run: cargo build --locked --target-dir target -p xtask-ci\n",
+            "        run: cargo build --locked -p xtask-ci\n",
         ),
         (
             // `cargo run` would honor a [target] runner; the direct exec
