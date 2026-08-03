@@ -346,6 +346,47 @@ fn a_non_alias_cargo_config_section_is_caught() {
     assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
 }
 
+/// A filtered workflow that runs an alias must list the alias file and
+/// the tool's crate, or editing either one skips the job that would have
+/// caught the edit.
+#[test]
+fn a_filtered_alias_consumer_must_list_what_it_runs() {
+    let both = "on:\n  pull_request:\n    paths:\n      - \".cargo/config.toml\"\n      \
+                - \"crates/xtask-registry-guard/**\"\n\njobs:\n  guard:\n    steps:\n      \
+                - run: cargo check-sql\n";
+    assert!(
+        violations(&[(".github/workflows/consumer.yml", both)]).is_empty(),
+        "a filtered consumer that lists both is the shape the rule asks for"
+    );
+    // Unfiltered runs on everything, so there is nothing to list.
+    let unfiltered = "on:\n  pull_request:\n\njobs:\n  guard:\n    steps:\n      \
+                      - run: cargo check-sql\n";
+    assert!(violations(&[(".github/workflows/consumer.yml", unfiltered)]).is_empty());
+
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "no_alias_file",
+            "      - \".cargo/config.toml\"\n",
+            ".cargo/config.toml",
+        ),
+        (
+            "no_crate",
+            "      - \"crates/xtask-registry-guard/**\"\n",
+            "crates/xtask-registry-guard/",
+        ),
+    ];
+    for (name, dropped, missing) in cases {
+        let caught = violations(&[(".github/workflows/consumer.yml", &both.replace(dropped, ""))]);
+        assert_eq!(caught.len(), 1, "{name}: {caught:?}");
+        assert!(caught[0].contains(missing), "{name}: {caught:?}");
+    }
+    // A paths-ignore filter cannot be read as covering them at all.
+    let ignored = both.replace("    paths:\n", "    paths-ignore:\n");
+    let caught = violations(&[(".github/workflows/consumer.yml", &ignored)]);
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("paths-ignore"), "{caught:?}");
+}
+
 /// The alias-only check is worth only as much as the guarantee that the
 /// checked file is the config cargo reads: cargo prefers the
 /// extensionless name, and reads one per directory on the way up.
