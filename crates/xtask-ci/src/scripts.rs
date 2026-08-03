@@ -665,11 +665,14 @@ fn mode_problem(entry: &Entry) -> Option<String> {
 /// Why `path`'s name alone makes it a tool, if it does.
 fn name_problem(path: &str) -> Option<String> {
     let name = Path::new(path).file_name()?.to_str()?;
-    if TOOLING_NAMES
+    // The name itself, or the name a template suffix is hiding:
+    // `make -f Makefile.in` runs it as readily as `make` runs `Makefile`.
+    let stem = name.split_once('.').map_or(name, |(stem, _)| stem);
+    if let Some(known) = TOOLING_NAMES
         .into_iter()
-        .any(|known| known.eq_ignore_ascii_case(name))
+        .find(|known| known.eq_ignore_ascii_case(name) || known.eq_ignore_ascii_case(stem))
     {
-        return Some(format!("{name} is repository automation"));
+        return Some(format!("{known} is repository automation"));
     }
     let in_source_root = PRODUCT_SOURCE_ROOTS
         .into_iter()
@@ -818,6 +821,22 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
             ));
             continue;
         };
+        // `crates/<name>` is only the right place to look while the
+        // alias resolves against the root workspace; another manifest
+        // can hold a package of the same name.
+        // `crates/<name>` is only the right place to look while the
+        // alias resolves against the root workspace; another manifest
+        // can hold a package of the same name.
+        if text
+            .split_whitespace()
+            .take_while(|word| *word != "--")
+            .any(|word| word.split('=').next() == Some("--manifest-path"))
+        {
+            problems.push(format!(
+                "the `cargo {name}` alias sets --manifest-path; the aliases resolve against \
+                 the root workspace, and a package name means something else in another one"
+            ));
+        }
         // The subcommand AND the name AND the place AND the manifest: an
         // alias that builds a tool without running it still exits zero,
         // and a package may be called anything wherever it sits, so any

@@ -217,6 +217,12 @@ fn a_reintroduced_script_is_caught() {
         ("powershell_module", "tools/release.psm1", "Write-Host 1\n"),
         ("powershell_manifest", "tools/release.psd1", "@{}\n"),
         ("windows_batch", "tools/release.bat", "@echo off\n"),
+        // A template suffix hides the name, not what make reads.
+        (
+            "makefile_template",
+            "tools/Makefile.in",
+            "all:\n\techo hi\n",
+        ),
         // Windows Script Host: `cscript tools/release.vbs` runs it with
         // nothing installed.
         ("vbscript", "tools/release.vbs", "WScript.Echo 1\n"),
@@ -585,6 +591,16 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
         (
             "selector_after_the_separator",
             "repo-task = \"run --bin cabin -- --help -p xtask-ci\"\n",
+        ),
+        // Another manifest is another workspace, where the same package
+        // name is a different package.
+        (
+            "another_workspace",
+            "repo-task = \"run --manifest-path tools/Cargo.toml -p xtask-ci --\"\n",
+        ),
+        (
+            "another_workspace_joined",
+            "repo-task = \"run --manifest-path=tools/Cargo.toml -p xtask-ci --\"\n",
         ),
         // An array alias is not the same declaration: cargo joins array
         // values across config layers instead of overriding them.
