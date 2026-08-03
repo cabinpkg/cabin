@@ -1477,7 +1477,11 @@ fn normalize_target(word: &str) -> &str {
 /// surely as `cargo foo` is. Matched on the last path component, so a
 /// trigger path (`crates/xtask-foo/**`) is not a use of it.
 fn uses_tool(text: &str, tool: &str) -> bool {
-    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
+    // `#` among them: a fully qualified package spec puts the name on
+    // either side of it (`path+file:///repo/crates/xtask-foo#0.1.0`,
+    // `path+file:///repo#xtask-foo@0.1.0`), so splitting there leaves
+    // the name to be found whichever form it took.
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\#".contains(c);
     text.split(separator).map(normalize_target).any(|word| {
         // The last component names the binary
         // (`./target/debug/xtask-foo`); an inner one names the crate

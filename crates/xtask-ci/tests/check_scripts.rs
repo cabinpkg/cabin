@@ -532,8 +532,12 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: cargo run --manifest-path crates/xtask-port-publish/Cargo.toml\n",
         "      - run: cargo run -pxtask-port-publish -- --dry-run\n",
         "      - run: ./target/debug/xtask-port-publish.exe --dry-run\n",
-        // A package spec carries a version the name does not.
+        // A package spec carries a version the name does not, and a
+        // fully qualified one carries a URL as well - with the name on
+        // either side of the `#`.
         "      - run: cargo run -p xtask-port-publish@0.17.0 -- --help\n",
+        "      - run: cargo run -p path+file:///w/crates/xtask-port-publish#0.17.0\n",
+        "      - run: cargo run -p path+file:///w#xtask-port-publish@0.17.0\n",
     ] {
         let direct = format!(
             "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
