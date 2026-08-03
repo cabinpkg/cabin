@@ -1123,13 +1123,18 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         "{hidden:?}"
     );
 
-    // A package outside crates/ is one no tool check would look at.
-    // `registry/` excepts its own workspace manifest, not a tree.
-    for path in ["tools/Cargo.toml", "registry/tools/Cargo.toml"] {
+    // A package outside crates/<name>/ is one no tool check would look
+    // at. `registry/` excepts its own workspace manifest, not a tree,
+    // and `crates/` itself is not a crate directory.
+    for path in [
+        "tools/Cargo.toml",
+        "registry/tools/Cargo.toml",
+        "crates/Cargo.toml",
+    ] {
         let outside = violations(&[(path, "[package]\nname = \"runner\"\nversion = \"0.1.0\"\n")]);
         assert_eq!(outside.len(), 1, "{path}: {outside:?}");
         assert!(
-            outside[0].contains("cargo manifest outside crates/"),
+            outside[0].contains("cargo manifest outside crates/<name>/"),
             "{outside:?}"
         );
     }

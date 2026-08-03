@@ -468,20 +468,22 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         // `config.toml`, and it walks up from wherever it was invoked,
         // so a second file anywhere would be the aliases (or a runner)
         // this guard never looked at.
-        // A cargo manifest outside `crates/` is a package nothing that
-        // checks a tool would look at: the walk that finds them starts
-        // there, and so does the location rule. The root's own manifest
-        // and the standalone `registry/` workspace are the tree's two,
-        // and their nested crates live under those roots.
+        // A cargo manifest outside `crates/<name>/` is a package nothing
+        // that checks a tool would look at: the scan that finds them
+        // reads that shape, and so does the location rule. `crates/`
+        // itself is one of those places - a package rooted there has no
+        // crate directory to be named after. The root's own manifest and
+        // the standalone `registry/` workspace are the tree's two, and
+        // their nested crates live under those roots.
         if path.rsplit('/').next() == Some("Cargo.toml")
-            && !path.starts_with("crates/")
+            && (!path.starts_with("crates/") || path == "crates/Cargo.toml")
             && path != "registry/Cargo.toml"
             && path != "Cargo.toml"
         {
             violations.push(format!(
-                "{path} is a cargo manifest outside crates/; a package here is a crate the \
-                 tool checks never see, and repository automation is a crates/xtask-* crate \
-                 (AGENTS.md, \"Repository automation\")"
+                "{path} is a cargo manifest outside crates/<name>/; a package here is a crate \
+                 the tool checks never see, and repository automation is a crates/xtask-* \
+                 crate (AGENTS.md, \"Repository automation\")"
             ));
             continue;
         }
@@ -1484,6 +1486,12 @@ fn normalize_target(word: &str) -> &str {
 /// (`crates/*task-*` is a member list this workspace could be written
 /// with), and reading only the trailing form would report every tool
 /// outside a workspace it is in.
+///
+/// `*` and nothing else, which is what a member list is written with.
+/// A pattern using cargo's rarer glob syntax (`?`, `[a-z]`) reads here
+/// as no match, so the crate reports as no member: wrong, and wrong in
+/// the direction that stops the gate rather than the direction that
+/// lets a tool through.
 fn matches_glob(pattern: &str, path: &str) -> bool {
     let mut rest = path;
     let mut pieces = pattern.split('*');
