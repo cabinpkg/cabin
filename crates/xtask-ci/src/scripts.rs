@@ -1233,6 +1233,43 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     Ok(problems)
 }
 
+/// A workflow with its folded block scalars folded, the way YAML folds
+/// them.
+///
+/// `run: >` followed by indented lines is ONE command: read line by
+/// line it is neither a command nor its arguments, which is enough to
+/// hide `cargo` from the word that says what it runs. A literal scalar
+/// (`run: |`) keeps its newlines and is left alone, because there each
+/// line really is its own command.
+fn fold_scalars(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    let mut open: Option<usize> = None;
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        if let Some(outer) = open {
+            if line.trim().is_empty() || indent > outer {
+                folded.push(' ');
+                folded.push_str(line.trim());
+                continue;
+            }
+            open = None;
+        }
+        if !folded.is_empty() {
+            folded.push('\n');
+        }
+        let trimmed = line.trim_end();
+        let last = trimmed.rsplit(' ').next().unwrap_or(trimmed);
+        if matches!(last, ">" | ">-" | ">+") {
+            open = Some(indent);
+            // The indicator is punctuation, not a word of the command.
+            folded.push_str(&trimmed[..trimmed.len() - last.len()]);
+        } else {
+            folded.push_str(line);
+        }
+    }
+    folded
+}
+
 /// Whether a workflow runs Rust in a way this guard cannot read.
 ///
 /// Two shapes, both of which put automation where nothing can check it:
@@ -1245,8 +1282,9 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
     // A shell continuation makes one command out of two lines, so a
     // flag on the second line is as much a part of it as one on the
-    // first.
-    let joined = text.replace("\\\n", " ");
+    // first, and a folded YAML scalar (`run: >`) says the same thing
+    // one level up.
+    let joined = fold_scalars(text).replace("\\\n", " ");
     for line in joined.lines() {
         // What a step runs, not what it says about it: a `#` comment
         // that mentions rustc is prose, and the key is not the command.

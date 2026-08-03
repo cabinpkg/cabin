@@ -507,6 +507,17 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "a comment naming rustc is not an invocation"
     );
 
+    // A folded scalar is one command spread over lines: read line by
+    // line, neither of them says what it runs.
+    let folded = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                  build:\n    steps:\n      - run: >\n          cargo\n          \
+                  \"${{ matrix.stem }}-${{ matrix.kind }}\"\n";
+    let caught = violations(&[(".github/workflows/folded.yml", folded)]);
+    assert!(
+        caught.iter().any(|line| line.contains("assembled from an")),
+        "{caught:?}"
+    );
+
     // Rust compiled outside cargo belongs to no crate and no alias.
     let loose = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                  build:\n    steps:\n      - run: rustc tools/deploy.rs -o deploy && ./deploy\n";
