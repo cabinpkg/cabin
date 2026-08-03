@@ -467,11 +467,13 @@ the remote upload.  The crate must:
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the static guards `registry.yml` runs on every pull request, reached through the
-`cargo check-sql` and `cargo check-r2` aliases.  They read the committed `registry/` tree and nothing else: no
-credentials, no network, no mutation - which is what separates them from the operator tooling
-that has all three.  Each guard is lexical rather than syntactic, a regression tripwire that
-forces diff review at a seam (`registry/docs/architecture.md`, "Why no ORM" and "The cost
-governor"), and each states its own ceiling in its module documentation.  The crate must:
+`cargo check-sql`, `cargo check-r2` and `cargo check-deploy` aliases.  They read the committed `registry/` tree - and, for the deploy guard,
+the bundle `worker-build` just produced - and nothing else: no credentials, no network, no
+mutation, which is what separates them from the operator tooling that has all three.  The two
+source guards are lexical rather than syntactic, regression tripwires that force diff review at
+a seam (`registry/docs/architecture.md`, "Why no ORM" and "The cost governor"); the deploy
+guard parses `wrangler.jsonc` structurally and scans the bundle lexically.  Each states its own
+ceiling in its module documentation.  The crate must:
 
 - never acquire a credential, open a socket, or write outside a caller-supplied directory;
 - keep the comment/string blanker in one place - two drifting copies of what makes the scans

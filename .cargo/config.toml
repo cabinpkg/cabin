@@ -19,6 +19,7 @@
 # scalar there, and a global array turns into a loud merge error.
 
 [alias]
+check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 port-publish = "run --quiet --locked -p xtask-port-publish --"

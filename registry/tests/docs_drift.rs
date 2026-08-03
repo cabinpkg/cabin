@@ -118,7 +118,6 @@ fn the_operator_scripts_stay_documented() {
         "scripts/backup-audit.sh",
         "scripts/migrate.sh",
         "scripts/diagnose.sh",
-        "scripts/check-deploy.sh",
     ]
     .into_iter()
     .filter(|script| {

@@ -2409,6 +2409,7 @@ dependencies = [
  "assert_cmd",
  "assert_fs",
  "predicates",
+ "serde_json",
 ]
 
 [[package]]
