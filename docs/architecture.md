@@ -50,6 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
+  xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
   xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
   cabin-publish/     publish-workflow orchestration
@@ -463,6 +464,23 @@ the remote upload.  The crate must:
 - never bypass the local preflight before a remote mutation;
 - never skip uploads based on the public index (pending versions are hidden there); the registry's
   byte-identical idempotency is the only dedupe.
+
+### `xtask-registry-admin`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the operator commands an incident or a maintenance window needs against the live
+registry, reached through their own `cargo registry-*` aliases.  They hold the operator's
+credentials and talk to the running service, which is what separates them from the static guards
+in `xtask-registry-guard`.  Every wrangler invocation goes through one pinned constructor, so no
+command can reach an unpinned CLI.  The crate must:
+
+- keep `registry/docs/runbook.md`'s disclosure rule: diagnostics carry counts, modes, timestamps
+  and version identifiers, never tokens, checksums, package names or user data.  The single
+  object key they print is whatever `meta.last_backup_key` holds, which only the backup job
+  writes and only ever as `backup::dump_object_key`'s `d1/<date>.sql`;
+- treat an answer they cannot parse as a failure.  An empty result set is not one: it is an
+  answer about the database, and each read judges its own — the service-state read prints no
+  rows, the counts read refuses — as the two `node` snippets they replace did.
 
 ### `xtask-registry-fixtures`
 

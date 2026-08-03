@@ -1,0 +1,34 @@
+[package]
+name = "xtask-registry-admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: operator commands against the hosted registry"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the commands act on this checkout's registry
+# configuration and the operator's own credentials, so a published copy
+# would have neither.
+publish = false
+
+[lib]
+name = "xtask_registry_admin"
+
+[[bin]]
+name = "xtask-registry-admin"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+cabin-core = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+predicates = "3"
+
+[lints]
+workspace = true
