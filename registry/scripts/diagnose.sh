@@ -18,11 +18,11 @@ set -euo pipefail
 cd "$(dirname -- "${BASH_SOURCE[0]}")/.."
 . scripts/lib.sh
 
-step "deploy configuration (scripts/check-deploy.sh)"
-if bash scripts/check-deploy.sh >/dev/null 2>&1; then
+step "deploy configuration (cargo check-deploy)"
+if (cd .. && cargo check-deploy) >/dev/null 2>&1; then
   echo "    config OK"
 else
-  echo "    CONFIG CHECK FAILED - run scripts/check-deploy.sh for detail"
+  echo "    CONFIG CHECK FAILED - run cargo check-deploy from the repository root for detail"
 fi
 stamp="$(cat migrations/*.sql | shasum -a 256 | cut -d' ' -f1)"
 if [[ "$stamp" == "$(cat migrations-applied)" ]]; then

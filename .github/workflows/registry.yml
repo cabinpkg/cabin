@@ -107,7 +107,8 @@ jobs:
       # After the build so the bundle export check runs against the
       # artifact wrangler would actually deploy.
       - name: Deploy-config guard
-        run: bash scripts/check-deploy.sh --require-bundle
+        run: cargo check-deploy --require-bundle
+        working-directory: .
 
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the

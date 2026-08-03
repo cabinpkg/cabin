@@ -1053,13 +1053,13 @@ bans the generic accessors (`get_binding`, `unchecked_into`) outright
 diff review at the seam, not a proof of admission; JS-reflection
 acquisition (`Reflect::get` over the raw env plus a checked cast)
 remains deliberate-evasion territory that only code review catches -
-and `scripts/check-deploy.sh`
+and `cargo check-deploy`
 refuses a `wrangler.jsonc` whose bindings, Durable Object lifecycle,
 crons, or `GOVERNOR_*`/`BUDGET_*` vars no longer match what the code
 deploys against - including the bundle-export check that would
 otherwise fail only at `wrangler deploy` time. Both run in CI
 (`registry.yml`) and are themselves regression-tested
-(`crates/xtask-registry-guard/tests/`, `tests/check_deploy_guard.rs`).
+(`crates/xtask-registry-guard/tests/`).
 
 **What stays best-effort on purpose.** Workers requests and D1 rows
 are revealed by the platform only after the fact, so they keep the

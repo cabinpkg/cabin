@@ -459,7 +459,7 @@ in-code defaults (`src/governor.rs`):
 | `GOVERNOR_R2_CLASS_B_INFRA_MONTH` | 200,000 | `b_infra` - replication/dump reads |
 
 A limit var only takes effect through `wrangler.jsonc` `vars` and a
-deploy; `scripts/check-deploy.sh` (also a CI step) refuses a var whose
+deploy; `cargo check-deploy` (also a CI step) refuses a var whose
 name is not one of the ten above or whose value does not parse as a
 u64, because a misspelled name is silently ignored and an unparsable
 value fails closed to a zero limit in production.
@@ -656,7 +656,7 @@ class must only ever be migrated by `renamed_classes`/
 `transferred_classes` - never dropped and recreated, and never a
 `deleted_classes` migration on a launched registry - because a class
 delete destroys the SQLite storage and the monthly operation windows
-cannot be rebuilt. `scripts/check-deploy.sh` (a CI step after the
+cannot be rebuilt. `cargo check-deploy` (a CI step after the
 Worker build, runnable locally any time) enforces the static half of
 all of this before a deploy can: bindings present, the `v1` migration
 verbatim, no `deleted_classes` for a bound class, no mixing of the
@@ -674,7 +674,7 @@ cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
 RUSTFLAGS="-D warnings" cargo test --locked
 (cd .. && cargo check-sql && cargo check-r2)
 cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
-bash scripts/check-deploy.sh --require-bundle
+(cd .. && cargo check-deploy --require-bundle)
 
 # 2. The full local smoke run (wrangler dev; several minutes). Wipe
 #    local state first so the ledger and edge cache start empty.

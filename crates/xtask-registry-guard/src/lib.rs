@@ -13,6 +13,7 @@
 //! that force review at a seam, not proofs.  Each module states its own
 //! ceiling.
 
+pub mod deploy;
 pub mod lexical;
 pub mod r2;
 pub mod source;

@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
-use xtask_registry_guard::{r2, registry_dir, sql};
+use xtask_registry_guard::{deploy, r2, registry_dir, sql};
 
 const USAGE: &str = "\
-usage: xtask-registry-guard <check-sql|check-r2> [--registry-dir <PATH>]
+usage: xtask-registry-guard <GUARD> [options]
 
 Static guards over the hosted registry Worker's sources.  Each prints
 every violation it finds and exits non-zero when there is one.
@@ -18,8 +18,13 @@ guards:
   check-sql   executed SQL must stay inside src/sql.rs
   check-r2    R2 bucket handles may only be acquired in the pinned,
               governor-admitting functions
+  check-deploy  wrangler.jsonc still declares what the code deploys
+              against (and, when built, the bundle exports every bound
+              Durable Object class)
 
 options:
+  --require-bundle       check-deploy only: a missing build/index.js is
+                         a failure rather than a skipped check
   --registry-dir <PATH>  the registry checkout to inspect (default: the
                          `registry/` of this tool's own checkout)
   -h, --help             show this help
@@ -47,12 +52,14 @@ fn run() -> Result<bool> {
         return Ok(true);
     }
     let mut directory = None;
+    let mut require_bundle = false;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "-h" | "--help" => {
                 print!("{USAGE}");
                 return Ok(true);
             }
+            "--require-bundle" => require_bundle = true,
             "--registry-dir" => {
                 directory =
                     Some(PathBuf::from(arguments.next().ok_or_else(|| {
@@ -63,6 +70,25 @@ fn run() -> Result<bool> {
         }
     }
     let directory = directory.unwrap_or_else(registry_dir);
+
+    if guard == "check-deploy" {
+        let report = deploy::check(&directory, require_bundle);
+        for note in &report.notes {
+            println!("{note}");
+        }
+        for failure in &report.failures {
+            eprintln!("{failure}");
+        }
+        if let Some(summary) = report.summary {
+            eprintln!("FAIL: {summary}");
+            return Ok(false);
+        }
+        println!("deploy config OK");
+        return Ok(true);
+    }
+    if require_bundle {
+        bail!("--require-bundle is only meaningful for check-deploy\n\n{USAGE}");
+    }
 
     let (violations, remedy) = match guard.as_str() {
         "check-sql" => (
