@@ -482,12 +482,31 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("was pinned for"), "{caught:?}");
 
+    // Retargeting an alias leaves the names alone: the pin carries the
+    // package each one selects, because that is the crate whose edits
+    // have to reach this workflow.
+    let dir = scratch(&[]);
+    let config = fs::read_to_string(repo_root().join(".cargo/config.toml"))
+        .expect("read the cargo config")
+        .replace(
+            "-p xtask-registry-guard -- check-sql",
+            "-p xtask-ci -- check-sql",
+        );
+    write(&dir, ".cargo/config.toml", &config);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught.iter().any(|line| line.contains("was pinned for")),
+        "{caught:?}"
+    );
+
     // A reusable workflow runs under its caller's triggers, so the
     // caller is a consumer too, however little it says itself.
     let reusable = "on:\n  workflow_call:\n\njobs:\n  guard:\n    steps:\n      \
                     - run: cargo check-sql\n";
+    // Flow style leaves punctuation attached to the path.
     let caller = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
-                  call:\n    uses: ./.github/workflows/reusable.yml\n";
+                  call: { uses: ./.github/workflows/reusable.yml, secrets: inherit }\n";
     let caught = violations(&[
         (".github/workflows/reusable.yml", reusable),
         (".github/workflows/caller.yml", caller),

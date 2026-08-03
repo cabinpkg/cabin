@@ -319,7 +319,7 @@ const PINNED_JOB: &str = "  automation:
 const PINNED_CONSUMERS: [(&str, &[&str], &str); 2] = [
     (
         ".github/workflows/ports-publish.yml",
-        &["port-publish"],
+        &["port-publish=xtask-port-publish"],
         r#"on:
   push:
     branches: [main]
@@ -366,7 +366,11 @@ permissions:"#,
     ),
     (
         ".github/workflows/registry.yml",
-        &["check-deploy", "check-r2", "check-sql"],
+        &[
+            "check-deploy=xtask-registry-guard",
+            "check-r2=xtask-registry-guard",
+            "check-sql=xtask-registry-guard",
+        ],
         r#"on:
   push:
     branches: [ main ]
@@ -1097,15 +1101,26 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     // pinned list reads the same way.
     let names: Vec<&str> = aliases.iter().map(|(alias, _)| alias.as_str()).collect();
     let runs = alias_consumers(&texts, &names);
+    // Pinned as `alias=package`: retargeting an existing alias leaves
+    // the names alone while pointing them at a crate the filters here
+    // never mentioned.
+    let selects = |alias: &str| {
+        let package = aliases
+            .iter()
+            .find(|(name, _)| name == alias)
+            .and_then(|(_, value)| alias_package(value))
+            .unwrap_or("?");
+        format!("{alias}={package}")
+    };
 
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
-        let run: Vec<&str> = runs
+        let run: Vec<String> = runs
             .get(listed.as_str())
             .into_iter()
             .flatten()
-            .copied()
+            .map(|alias| selects(alias))
             .collect();
         if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
@@ -1126,7 +1141,12 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         // The aliases are pinned beside the block: a pin taken for one
         // tool says nothing about the crate of a tool added later, and
         // adding a call leaves the trigger block itself untouched.
-        if run != *pinned_aliases {
+        if run
+            != pinned_aliases
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
+        {
             problems.push(format!(
                 "{listed} runs {run:?}, but its trigger block was pinned for \
                  {pinned_aliases:?}; check that every one of those crates is still in its \
@@ -1234,7 +1254,10 @@ fn alias_consumers<'a>(
 /// workflow's triggers, so whatever it runs, this one runs.
 fn calls(text: &str) -> Vec<&str> {
     text.split_whitespace()
-        .filter_map(|word| word.trim_matches(['"', '\'']).strip_prefix("./"))
+        .filter_map(|word| {
+            word.trim_matches(['"', '\'', ',', '{', '}', '[', ']'])
+                .strip_prefix("./")
+        })
         .filter(|path| path.starts_with(".github/workflows/"))
         .collect()
 }
