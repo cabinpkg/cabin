@@ -753,20 +753,28 @@ fn index_entries(repo_root: &Path) -> Result<Vec<Entry>> {
 /// honors.
 fn first_line_shebang(path: &Path) -> Result<bool> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    // The inner-attribute spelling is only Rust's in a Rust file: every
+    // shell treats `#![ignored]` as a comment and runs the lines under
+    // it, so the exemption stops at the extension.
+    let rust = path.extension().is_some_and(|kind| kind == "rs");
     // A byte-order mark before `#!` stops the kernel but not a human
     // running `sh file`.
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
-    let Some(rest) = bytes.strip_prefix(b"#!") else {
+    let Some(after) = bytes.strip_prefix(b"#!") else {
         return Ok(false);
     };
-    let line = rest.split(|&byte| byte == b'\n').next().unwrap_or_default();
+    let line = after
+        .split(|&byte| byte == b'\n')
+        .next()
+        .unwrap_or_default();
     // `#! [allow(dead_code)]` is an inner attribute too: the space is
     // legal Rust, and only what follows it tells the two apart.
-    let start = line
+    let interpreter = line
         .iter()
         .position(|byte| !byte.is_ascii_whitespace())
-        .unwrap_or(line.len());
-    Ok(!line[start..].is_empty() && !line[start..].starts_with(b"["))
+        .map_or(&[][..], |start| &line[start..]);
+    let attribute = rust && interpreter.starts_with(b"[");
+    Ok(!interpreter.is_empty() && !attribute)
 }
 
 /// Whatever is wrong with `.cargo/config.toml` beyond the aliases.
@@ -1171,7 +1179,7 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // whole file is one stream because a `run:` block can be folded
     // (`run: >`) or continued (`cargo \`), putting the command and its
     // argument on different lines of the YAML.
-    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}\\".contains(c);
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],\\".contains(c);
     // Cargo may be reached by path (`~/.cargo/bin/cargo`, `cargo.exe`).
     let is_cargo = |word: &str| {
         let base = word.rsplit(['/', '\\']).next().unwrap_or(word);

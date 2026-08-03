@@ -226,6 +226,13 @@ fn a_reintroduced_script_is_caught() {
         // `make -f` reads a file by any name at all.
         ("make_fragment", "tools/build.mk", "all:\n\techo hi\n"),
         ("make_suffix", "tools/build.make", "all:\n\techo hi\n"),
+        // Only Rust reads `#![...]` as an attribute; a shell reads it as
+        // a comment and runs what follows.
+        (
+            "attribute_shaped_shell",
+            "tools/deploy",
+            "#![ignored]\nrm -rf /tmp/x\n",
+        ),
         // Windows Script Host: `cscript tools/release.vbs` runs it with
         // nothing installed.
         ("vbscript", "tools/release.vbs", "WScript.Echo 1\n"),
@@ -490,6 +497,9 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: cargo check-sql>/dev/null\n",
         // Assembled from a variable: nothing literal follows `cargo`.
         "    env:\n      CMD: check-sql\n    steps:\n      - run: cargo \"$CMD\"\n",
+        // A matrix value carries brackets and an expression.
+        "    strategy:\n      matrix:\n        command: [check-sql]\n    steps:\n      \
+         - run: cargo ${{ matrix.command }}\n",
         // Cargo reached by path, and by its Windows name.
         "      - run: ~/.cargo/bin/cargo check-sql\n",
         "      - run: cargo.exe check-sql\n",
