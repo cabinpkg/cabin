@@ -352,7 +352,12 @@ const PINNED_JOB: &str = "  automation:
 const PINNED_CONSUMERS: [(&str, &[&str], &str); 2] = [
     (
         ".github/workflows/ports-publish.yml",
-        &["port-publish=xtask-port-publish"],
+        &[
+            // The publish job builds the tool directly as well as
+            // reaching it through the alias.
+            "direct=xtask-port-publish",
+            "port-publish=xtask-port-publish",
+        ],
         r#"on:
   push:
     branches: [main]
@@ -1157,21 +1162,22 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     }
     let aliases = aliases(&manifest(&path)?);
     let texts = workflow_texts(repo_root)?;
-    // Alias order is the config's, which cargo keeps sorted, so the
-    // pinned list reads the same way.
-    let names: Vec<&str> = aliases.iter().map(|(alias, _)| alias.as_str()).collect();
-    let runs = alias_consumers(&texts, &names);
-    // Pinned as `alias=package`: retargeting an existing alias leaves
-    // the names alone while pointing them at a crate the filters here
-    // never mentioned.
-    let selects = |alias: &str| {
-        let package = aliases
+    // Labeled `alias=package`, or `direct=package` for a tool a
+    // workflow builds and runs itself: retargeting an alias leaves its
+    // name alone while pointing it at a crate the filters here never
+    // mentioned, and a direct call names no alias at all.
+    let tools = xtask_packages(repo_root);
+    let runs = alias_consumers(&texts, |text| {
+        let reached = aliases
             .iter()
-            .find(|(name, _)| name == alias)
-            .and_then(|(_, value)| alias_package(value))
-            .unwrap_or("?");
-        format!("{alias}={package}")
-    };
+            .filter(|(alias, _)| runs_alias(text, alias))
+            .map(|(alias, value)| format!("{alias}={}", alias_package(value).unwrap_or("?")));
+        let direct = tools
+            .iter()
+            .filter(|tool| uses_tool(text, tool))
+            .map(|tool| format!("direct={tool}"));
+        reached.chain(direct).collect()
+    });
 
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
@@ -1188,11 +1194,22 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
                  environment over {CARGO_CONFIG}, which is the file this guard checks"
             ));
         }
-        let run: Vec<String> = runs
+        // The same override, spelled at the call site.
+        if text
+            .split_whitespace()
+            .any(|word| word.trim_matches(['"', '\'']).split('=').next() == Some("--config"))
+        {
+            problems.push(format!(
+                "{listed} passes --config; cargo takes configuration - an alias mapping and \
+                 a [target] runner among it - from there over {CARGO_CONFIG}, which is the \
+                 file this guard checks"
+            ));
+        }
+        let run: Vec<&str> = runs
             .get(listed.as_str())
             .into_iter()
             .flatten()
-            .map(|alias| selects(alias))
+            .map(String::as_str)
             .collect();
         if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
@@ -1286,30 +1303,23 @@ fn workflow_texts(repo_root: &Path) -> Result<BTreeMap<String, String>> {
 /// A reusable workflow runs under its CALLER's triggers, so the caller
 /// is a consumer too - `jobs.<id>.uses: ./.github/workflows/x` is the
 /// edge. Taken to a fixed point, because a caller can call a caller.
-fn alias_consumers<'a>(
-    texts: &'a BTreeMap<String, String>,
-    names: &[&'a str],
-) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
-    let mut runs: BTreeMap<&str, BTreeSet<&str>> = texts
+fn alias_consumers(
+    texts: &BTreeMap<String, String>,
+    labels: impl Fn(&str) -> BTreeSet<String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut runs: BTreeMap<String, BTreeSet<String>> = texts
         .iter()
-        .map(|(listed, text)| {
-            let run = names
-                .iter()
-                .copied()
-                .filter(|alias| runs_alias(text, alias))
-                .collect();
-            (listed.as_str(), run)
-        })
+        .map(|(listed, text)| (listed.clone(), labels(text)))
         .collect();
     loop {
         let mut grew = false;
         for (listed, text) in texts {
-            let inherited: BTreeSet<&str> = calls(text)
+            let inherited: BTreeSet<String> = calls(text)
                 .into_iter()
                 .filter_map(|called| runs.get(called).cloned())
                 .flatten()
                 .collect();
-            let mine = runs.entry(listed.as_str()).or_default();
+            let mine = runs.entry(listed.clone()).or_default();
             let before = mine.len();
             mine.extend(inherited);
             grew |= mine.len() != before;
@@ -1332,6 +1342,33 @@ fn calls(text: &str) -> Vec<&str> {
         })
         .filter(|path| path.starts_with(".github/workflows/"))
         .collect()
+}
+
+/// The tool crates this repository has, by package name.
+fn xtask_packages(repo_root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(repo_root.join("crates")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("xtask-"))
+        .collect();
+    names.sort();
+    names
+}
+
+/// Whether `text` names a tool crate as a thing to build or run.
+///
+/// An alias is not the only way to reach one: `cargo build -p xtask-foo`
+/// and `./target/debug/xtask-foo` are a workflow consuming that crate as
+/// surely as `cargo foo` is. Matched on the last path component, so a
+/// trigger path (`crates/xtask-foo/**`) is not a use of it.
+fn uses_tool(text: &str, tool: &str) -> bool {
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],\\".contains(c);
+    text.split(separator)
+        .filter_map(|word| word.rsplit('/').next())
+        .any(|word| word == tool)
 }
 
 /// Whether `text` invokes `cargo <alias>` on any line.

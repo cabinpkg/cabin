@@ -551,6 +551,33 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
+    // A workflow can reach a tool with no alias at all.
+    let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                  build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \
+                  - run: ./target/debug/xtask-port-publish --dry-run\n";
+    let caught = violations(&[(".github/workflows/direct.yml", direct)]);
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.contains("direct=xtask-port-publish")),
+        "{caught:?}"
+    );
+
+    // An alias mapping can be overridden at the call site too.
+    let overridden = real.replacen(
+        "        run: cargo check-sql",
+        "        run: cargo --config 'alias.check-sql=\"run -p xtask-ci -- --help\"' check-sql",
+        1,
+    );
+    let dir = scratch(&[]);
+    write(&dir, path, &overridden);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught.iter().any(|line| line.contains("passes --config")),
+        "{caught:?}"
+    );
+
     // A new consumer nobody pinned is the case the pins exist for, in
     // each spelling a shell reads as the same command.
     let head = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
