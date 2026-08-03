@@ -1274,14 +1274,17 @@ fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
             // The first word that is not a flag is the subcommand -
             // except the value of a flag that takes one separately,
             // which is a word `-Z script tools/deploy.rs` would
-            // otherwise offer up in place of the file it runs.
+            // otherwise offer up in place of the file it runs. Every
+            // global option of cargo 1.97 that takes a value, from
+            // `cargo --help`; a closed list, unlike the flags a
+            // subcommand takes after it.
             let mut command = None;
             while let Some(next) = words.next() {
                 if next.starts_with('+') {
                     continue;
                 }
                 if next.starts_with('-') {
-                    if matches!(next, "-Z" | "-C" | "--config") {
+                    if matches!(next, "-Z" | "-C" | "--config" | "--color" | "--explain") {
                         words.next();
                     }
                     continue;

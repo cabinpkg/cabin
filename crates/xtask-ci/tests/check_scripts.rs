@@ -522,7 +522,7 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     // Cargo can run a loose source file too, given the flag for it -
     // in either spelling, the separated one putting a word of its own
     // where the subcommand would be.
-    for flag in ["-Zscript", "-Z script"] {
+    for flag in ["-Zscript", "-Z script", "--color always -Z script"] {
         let script = format!(
             "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
              build:\n    steps:\n      - run: cargo +nightly {flag} tools/deploy.rs\n"
