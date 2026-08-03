@@ -1,8 +1,9 @@
 //! Regression cases for the repository-automation guard: it runs against
 //! a scratch git repository holding synthetic files, so every way a
-//! non-Rust script could come back - a tooling extension, a bare tool
-//! name, an executable bit, an interpreter shebang, an edit to a script
-//! that is only tolerated as-is, or CI wiring quietly switched off -
+//! non-Rust script could come back - an extension this repository does
+//! not keep, no extension at all, an executable bit, an interpreter
+//! shebang, an edit to a script that is only tolerated as-is, or CI
+//! wiring quietly switched off -
 //! stays caught, and the shapes that are source or data stay accepted.
 //! An untested guard is the one that rots.
 
@@ -206,71 +207,56 @@ fn source_and_data_pass() {
 
 #[test]
 fn a_reintroduced_script_is_caught() {
-    // Each is a distinct way non-Rust automation could come back.
+    // One case per way a file can be refused, not one per language: the
+    // scan asks whether the name is a kind of file this repository
+    // keeps, so `.sh`, `.py` and `.psd1` are the same single answer and
+    // proving it once proves it for all of them.
     let cases: &[(&str, &str, &str)] = &[
-        ("bash", "tools/deploy.sh", "#!/usr/bin/env bash\necho hi\n"),
-        ("perl", "tools/scan.pl", "use strict;\n"),
-        ("perl_module", "tools/lexical.pm", "1;\n"),
-        ("python", "tools/release.py", "import sys\n"),
-        ("ruby", "tools/release.rb", "puts 1\n"),
-        ("powershell", "tools/release.ps1", "Write-Host 1\n"),
-        ("powershell_module", "tools/release.psm1", "Write-Host 1\n"),
-        ("powershell_manifest", "tools/release.psd1", "@{}\n"),
-        ("windows_batch", "tools/release.bat", "@echo off\n"),
-        // A template suffix hides the name, not what make reads.
+        ("unlisted_extension", "tools/deploy.sh", "echo hi\n"),
+        // The reason the list runs this direction: nobody enumerating
+        // scripting languages writes down Kotlin scripts, and the
+        // allowlist never had to.
+        ("unenumerated_language", "tools/deploy.kts", "println(1)\n"),
+        // Case does not launder an extension.
+        ("uppercase_extension", "tools/Deploy.SH", "echo hi\n"),
+        // Every component is checked, not just the last, or a kind this
+        // repository does keep would launder one that it does not.
         (
-            "makefile_template",
-            "tools/Makefile.in",
-            "all:\n\techo hi\n",
-        ),
-        // `make -f` reads a file by any name at all.
-        ("make_fragment", "tools/build.mk", "all:\n\techo hi\n"),
-        ("make_suffix", "tools/build.make", "all:\n\techo hi\n"),
-        // Only Rust reads `#![...]` as an attribute; a shell reads it as
-        // a comment and runs what follows.
-        (
-            "attribute_shaped_shell",
-            "tools/deploy",
-            "#![ignored]\nrm -rf /tmp/x\n",
-        ),
-        // Windows Script Host: `cscript tools/release.vbs` runs it with
-        // nothing installed.
-        ("vbscript", "tools/release.vbs", "WScript.Echo 1\n"),
-        ("vbscript_encoded", "tools/release.vbe", "#@~^AAAA==\n"),
-        ("windows_script_file", "tools/release.wsf", "<job/>\n"),
-        ("windows_script_host", "tools/release.wsh", "[ScriptFile]\n"),
-        ("jscript_encoded", "tools/release.jse", "#@~^AAAA==\n"),
-        ("windows_cmd", "tools/release.cmd", "@echo off\n"),
-        ("zsh", "tools/release.zsh", "print hi\n"),
-        ("ksh", "tools/release.ksh", "print hi\n"),
-        ("dash", "tools/release.dash", "echo hi\n"),
-        ("fish", "tools/release.fish", "echo hi\n"),
-        ("lua", "tools/release.lua", "print(1)\n"),
-        ("tcl", "tools/release.tcl", "puts 1\n"),
-        ("awk", "tools/release.awk", "BEGIN { print 1 }\n"),
-        // JavaScript driving the repository is automation like any
-        // other; only the website's own listed scripts are exempt.
-        ("node", "tools/release.mjs", "console.log(1);\n"),
-        ("node_cjs", "tools/release.cjs", "console.log(1);\n"),
-        // TypeScript is a source language, but only inside the
-        // website source root; a build tool written in it is a tool.
-        ("typescript", "tools/deploy.ts", "export {};\n"),
-        ("typescript_jsx", "tools/deploy.tsx", "export {};\n"),
-        ("typescript_module", "tools/deploy.mts", "export {};\n"),
-        // ...and a shell script is a script even inside it.
-        (
-            "shell_in_the_source_root",
-            "website/src/build.sh",
+            "script_behind_a_kept_kind",
+            "tools/deploy.sh.md",
             "echo hi\n",
+        ),
+        // Nothing about the file says what runs it - which is what
+        // `Makefile`, `justfile` and `Rakefile` have in common, and what
+        // `sh tools/deploy` needs none of.
+        ("nothing_says_what_it_is", "tools/deploy", "echo hi\n"),
+        ("makefile", "Makefile", "all:\n\tcargo build\n"),
+        // A leading dot starts no stem, so the whole name is the kind.
+        ("dotfile_tool", ".envrc", "export PATH=$PATH:./bin\n"),
+        // TypeScript and JavaScript are source INSIDE the website source
+        // root and tooling outside it; the website's own build scripts
+        // are excepted by exact path, and an unlisted one is not.
+        (
+            "typescript_outside_the_root",
+            "tools/deploy.ts",
+            "export {};\n",
         ),
         (
             "node_outside_the_website_list",
             "website/scripts/release-tag.mjs",
             "console.log(1);\n",
         ),
+        // ...and a shell script is a script even inside the root.
+        (
+            "shell_in_the_source_root",
+            "website/src/build.sh",
+            "echo hi\n",
+        ),
         // A local action is automation whose entry point is whatever its
         // metadata says - `runs.main` can name a file with no telling
-        // extension at all, so the metadata is what gets refused.
+        // extension at all, so the metadata is what gets refused. Its
+        // own extension is one this repository keeps, so the name is
+        // what has to catch it.
         (
             "local_action",
             ".github/actions/deploy/action.yml",
@@ -281,12 +267,8 @@ fn a_reintroduced_script_is_caught() {
             ".github/actions/deploy/action.yaml",
             "runs:\n  using: composite\n",
         ),
-        // The extension is a disguise; the shebang is what runs it.
-        (
-            "shebang_no_extension",
-            "tools/release",
-            "#!/bin/sh\necho hi\n",
-        ),
+        // Shebangs, on names the allowlist accepts, so each of these
+        // proves the shebang reader and nothing else.
         (
             "shebang_data_extension",
             "tools/release.txt",
@@ -294,19 +276,29 @@ fn a_reintroduced_script_is_caught() {
         ),
         // A shebang with a space, and the relative-interpreter form the
         // kernel rejects but `bash file` honors.
-        ("spaced_shebang", "tools/spaced", "#! /bin/sh\necho hi\n"),
-        ("relative_shebang", "tools/relative", "#!bash\necho hi\n"),
+        (
+            "spaced_shebang",
+            "tools/spaced.txt",
+            "#! /bin/sh\necho hi\n",
+        ),
+        (
+            "relative_shebang",
+            "tools/relative.txt",
+            "#!bash\necho hi\n",
+        ),
         // A byte-order mark stops the kernel, not a human running it.
-        ("bom_shebang", "tools/bom", "\u{feff}#!/bin/sh\necho hi\n"),
-        // Case does not launder an extension.
-        ("uppercase_extension", "tools/Deploy.SH", "echo hi\n"),
-        // Neither does a template suffix.
-        ("template_suffix", "tools/deploy.sh.in", "echo hi\n"),
-        // Bare names that are tools in their own right.
-        ("makefile", "Makefile", "all:\n\tcargo build\n"),
-        ("justfile", "justfile", "all:\n  cargo build\n"),
-        ("envrc", ".envrc", "export PATH=$PATH:./bin\n"),
-        ("rakefile", "Rakefile", "task :default\n"),
+        (
+            "bom_shebang",
+            "tools/bom.txt",
+            "\u{feff}#!/bin/sh\necho hi\n",
+        ),
+        // Only Rust reads `#![...]` as an attribute; a shell reads it as
+        // a comment and runs what follows.
+        (
+            "attribute_shaped_shell",
+            "tools/deploy.txt",
+            "#![ignored]\nrm -rf /tmp/x\n",
+        ),
     ];
     let escaped: Vec<&str> = cases
         .iter()
@@ -326,9 +318,11 @@ fn a_reintroduced_script_is_caught() {
 fn an_executable_file_is_caught_whatever_its_name() {
     use std::os::unix::fs::PermissionsExt as _;
 
+    // A name the allowlist accepts, so the executable bit is the only
+    // thing left to catch it.
     let dir = scratch(&[]);
-    write(&dir, "tools/deploy", "cd /tmp\ncurl example.com | sh\n");
-    let path = dir.path().join("tools/deploy");
+    write(&dir, "docs/deploy.md", "cd /tmp\ncurl example.com | sh\n");
+    let path = dir.path().join("docs/deploy.md");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
     restage(&dir);
 
@@ -914,9 +908,11 @@ fn the_source_roots_hold_tracked_source() {
 #[cfg(unix)]
 #[test]
 fn a_symlink_to_an_excepted_script_is_caught() {
+    // Named as something the allowlist keeps, so the second path an
+    // excepted script gains is all this proves.
     let dir = scratch(&[]);
-    fs::create_dir_all(dir.path().join("tools")).expect("create tools/");
-    std::os::unix::fs::symlink("../scripts/ci.sh", dir.path().join("tools/ci")).expect("symlink");
+    fs::create_dir_all(dir.path().join("docs")).expect("create docs/");
+    std::os::unix::fs::symlink("../scripts/ci.sh", dir.path().join("docs/ci.md")).expect("symlink");
     restage(&dir);
     let caught = scripts::check(dir.path()).expect("run the guard");
     assert_eq!(caught.len(), 1, "{caught:?}");
@@ -1060,8 +1056,8 @@ fn the_committed_tree_passes() {
 /// checkout that silently reported success would be worse than no guard.
 #[test]
 fn an_unreadable_tracked_file_is_a_violation() {
-    let dir = scratch(&[("tools/data.bin", "harmless\n")]);
-    fs::remove_file(dir.path().join("tools/data.bin")).expect("remove the worktree copy");
+    let dir = scratch(&[("docs/data.txt", "harmless\n")]);
+    fs::remove_file(dir.path().join("docs/data.txt")).expect("remove the worktree copy");
     let caught = scripts::check(dir.path()).expect("run the guard");
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("cannot clear it"), "{caught:?}");
@@ -1146,6 +1142,13 @@ fn switching_the_guard_off_in_ci_is_caught() {
             // `[build] rustc` names the compiler outright.
             "compiler_unpinned",
             "          CARGO_BUILD_RUSTC: rustc\n",
+            "",
+        ),
+        (
+            // `[target.<triple>] linker` names the program that writes
+            // the binary, so it can write a stub instead of building it.
+            "linker_unpinned",
+            "          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc\n",
             "",
         ),
         (
@@ -1463,7 +1466,7 @@ fn the_binary_reports_and_exits_non_zero() {
         .assert()
         .failure()
         .stdout(contains(
-            "tools/deploy.sh: a .sh script is repository automation",
+            "tools/deploy.sh: .sh is not a kind of file this repository keeps",
         ))
         .stderr(contains("crates/xtask-* command"));
 

@@ -83,7 +83,14 @@ anywhere would be aliases nothing checked.
 - **No non-Rust repository automation, whatever the language.** The list is
   open, not a menu: Bash, `sh`, `zsh`, Perl, Python, Ruby, PowerShell, batch,
   `make`, `just`, and JavaScript written to drive the repository are all the
-  same answer, and so is the next one somebody thinks of. Do not put
+  same answer, and so is the next one somebody thinks of. Because that list
+  is open, the guard scans the other way round: `DATA_EXTENSIONS` and
+  `ALLOWED_NAMES` in `crates/xtask-ci/src/scripts.rs` name the kinds of file
+  this repository *keeps*, and a tracked file that is none of them is
+  refused - so a language nobody anticipated is caught on the same footing
+  as `.sh`. Adding a kind is a reviewer's decision about whether it is data
+  or a tool, which is why the list is short and closed over the tree. Do not
+  put
   substantial logic (loops, conditionals, functions, traps, heredocs,
   embedded `node -` / `python3 -` / `perl -e`) in a workflow `run:` block
   either - call an alias instead. Plain invocations (`cargo build`, `npm ci`,

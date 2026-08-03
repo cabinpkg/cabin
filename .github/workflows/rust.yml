@@ -74,13 +74,19 @@ jobs:
         shell: bash
         working-directory: .
         env:
-          # Pinned, not inherited: `[build] rustc` names the compiler
-          # and a wrapper stands in for it, so either - named by the very
-          # file this guard polices - could skip building it. Cargo reads
-          # an empty wrapper as none, and the environment over the file.
+          # Pinned, not inherited: `[build] rustc`, a wrapper standing in
+          # for it, and `[target.<triple>] linker` each name a program
+          # that produces the binary executed below, so the very file this
+          # guard polices could have any of them emit a stub that exits
+          # zero instead. Cargo reads an empty wrapper as none, the
+          # environment over the file, and this linker variable over the
+          # `cfg()` spelling of that key as well; `-C linker=` through
+          # config `rustflags` is displaced by the workflow-level
+          # RUSTFLAGS, which is pinned with the triggers.
           CARGO_BUILD_RUSTC: rustc
           CARGO_BUILD_RUSTC_WRAPPER: ""
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: ""
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
         run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
 
       - name: Repository automation guard

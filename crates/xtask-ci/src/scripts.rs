@@ -6,11 +6,14 @@
 //! from coming back.  It reads git's index - paths, file modes, and blob
 //! ids - and refuses:
 //!
-//! - a tooling extension, in any component of the file name, so
-//!   `deploy.sh.in` is caught as well as `deploy.sh`;
-//! - a bare name that is itself a tool (`Makefile`, `justfile`), local
-//!   action metadata included: `action.yml` names the entry point
-//!   GitHub runs, which need not look like a script;
+//! - a file name that is not a KIND OF FILE THIS REPOSITORY KEEPS - an
+//!   allowlist, so `deploy.sh` is refused for the same reason as
+//!   `deploy.kt` and `Makefile`, and a template suffix (`deploy.sh.in`)
+//!   launders neither;
+//! - local action metadata (`action.yml`) and a task runner
+//!   (`Taskfile.yml`), which carry an extension this repository does
+//!   keep: a local action names the entry point GitHub runs, which need
+//!   not look like a script;
 //! - the executable bit, which is what makes an extensionless,
 //!   shebang-less file runnable as `./tools/deploy`;
 //! - an interpreter shebang on the first line;
@@ -36,15 +39,14 @@
 //! ponytail: a tracked-content scan, not a sandbox.  Ceilings, stated so
 //! nobody mistakes them for coverage: this reads TRACKED FILES, so shell
 //! written inside a workflow `run:` block is not scanned at all, and
-//! neither is automation smuggled in as a data file and run through an
-//! interpreter argument (`node tools/deploy.data`) - AGENTS.md forbids
-//! both, and until the workflow-block scan lands, review is what
-//! enforces that half; `website/src/**/*.ts` is website
+//! neither is automation smuggled in as one of the kinds of file this
+//! repository does keep and run through an interpreter argument (`node
+//! tools/deploy.json`) - AGENTS.md forbids both, and until the
+//! workflow-block scan lands, review is what enforces that half, with
+//! the executable bit and the shebang catching the rest;
+//! `website/src/**/*.ts` is website
 //! source and is not scanned as tooling; a file name whose extension
-//! uses non-ASCII homoglyphs would not match; `TOOLING_EXTENSIONS` names
-//! the languages somebody thought of, so one nobody did is caught by the
-//! executable bit, a shebang or its caller rather than its name, and the
-//! list takes the next language the day it appears; and content comes
+//! uses non-ASCII homoglyphs would not match; and content comes
 //! from the working tree, so a locally-staged-but-rewritten file reads
 //! as its on-disk bytes (CI checks out clean, which is the authority).
 
@@ -54,50 +56,69 @@ use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
-/// File-name components that make a tracked file executable tooling
-/// wherever it sits.  None of these is a source language in this
-/// repository, so there is nothing to weigh: a `.sh` under
-/// `website/src/` is as much a script as one under `tools/`.
+/// Every kind of file this repository keeps, by extension.
 ///
-/// Checked against every dot-separated component after the first, so a
-/// template (`deploy.sh.in`) cannot launder one.
-const TOOLING_EXTENSIONS: [&str; 36] = [
-    "applescript",
-    "awk",
-    "bash",
-    "bat",
-    "cmd",
-    "csh",
-    "dash",
-    "expect",
-    "fish",
-    "groovy",
-    "jl",
-    "jse",
-    "ksh",
-    "lua",
-    "make",
-    "mk",
-    "nu",
-    "php",
-    "pl",
-    "pm",
-    "ps1",
-    "psd1",
-    "psm1",
-    "py",
-    "pyw",
-    "rake",
-    "rb",
-    "sed",
-    "sh",
-    "tcl",
-    "tcsh",
-    "vbe",
-    "vbs",
-    "wsf",
-    "wsh",
-    "zsh",
+/// An ALLOWLIST, and that direction is the whole point.  A list of
+/// scripting languages is open - it grows with every language anyone
+/// ever writes a tool in, and the one nobody listed is the one that gets
+/// through.  The kinds of file a repository keeps are closed: this tree
+/// has about thirty and gains one only when a change introduces a
+/// genuinely new kind, which is exactly when a reviewer should be
+/// deciding whether that kind is data or a tool.  So `.sh` is refused
+/// for the same reason `.kt` is - not because either was foreseen, but
+/// because neither is a kind of file this repository keeps.
+///
+/// Checked against every extension-shaped component after the first, so
+/// a template (`deploy.sh.in`) cannot launder one.
+const DATA_EXTENSIONS: [&str; 28] = [
+    "astro",
+    "c",
+    "cc",
+    "cpp",
+    "css",
+    "dockerignore",
+    "gitignore",
+    "h",
+    "hpp",
+    "ico",
+    "json",
+    "jsonc",
+    "lean",
+    "lock",
+    "md",
+    "node-version",
+    "png",
+    // A verbatim upstream file in the fake-libpng test fixture.
+    "prebuilt",
+    "rs",
+    "sql",
+    "svg",
+    // VHS recording script for the README demo - declarative, and named
+    // as not-automation by AGENTS.md.
+    "tape",
+    "toml",
+    "txt",
+    "webmanifest",
+    "yaml",
+    "yml",
+    "zip",
+];
+
+/// Name components this repository writes BEFORE the extension
+/// (`env.d.ts`, `astro.config.ts`, `avatar.test.ts`).  Allowed only in
+/// that position: a component is a kind of file only when it is last.
+const INFIX_COMPONENTS: [&str; 3] = ["config", "d", "test"];
+
+/// The extensionless files this repository keeps.  Nothing else may be
+/// extensionless: that is what refuses `Makefile`, `justfile` and
+/// `Rakefile` without naming any of them.
+const ALLOWED_NAMES: [&str; 6] = [
+    "Dockerfile",
+    "LICENSE",
+    "_headers",
+    "_redirects",
+    "lean-toolchain",
+    "migrations-applied",
 ];
 
 /// Languages this repository writes BOTH product source and tooling in.
@@ -113,26 +134,17 @@ const SOURCE_LANGUAGE_EXTENSIONS: [&str; 7] = ["cjs", "cts", "js", "mjs", "mts",
 /// TypeScript files that would otherwise each need an exception.
 const PRODUCT_SOURCE_ROOTS: [&str; 1] = ["website/src/"];
 
-/// Bare file names that are a tool without needing an extension.
+/// The only names the allowlist above cannot refuse on its own: tools
+/// that wear an extension this repository keeps.
 ///
-/// `action.yml` earns its place for a different reason than the rest: a
-/// local action is repository automation by definition, and its `runs:`
-/// names the entry point GitHub executes - a file that need not look
-/// like a script at all (`main: deploy.data`). Refusing the metadata
-/// refuses the whole shape, which is why nothing here has to guess what
-/// an entry point is.
-const TOOLING_NAMES: [&str; 10] = [
-    ".envrc",
-    "GNUmakefile",
-    "Justfile",
-    "Makefile",
-    "Rakefile",
-    "Taskfile.yml",
-    "action.yaml",
-    "action.yml",
-    "justfile",
-    "makefile",
-];
+/// A local action is repository automation by definition, and its
+/// `runs:` names the entry point GitHub executes - a file that need not
+/// look like a script at all (`main: deploy.data`). Refusing the
+/// metadata refuses the whole shape, which is why nothing here has to
+/// guess what an entry point is. Everything else that used to be listed
+/// here - `Makefile`, `justfile`, `.envrc` - is refused for having no
+/// kind at all.
+const TOOLING_NAMES: [&str; 3] = ["Taskfile.yml", "action.yaml", "action.yml"];
 
 /// Shell tooling that predates the `xtask-*` convention, by exact path,
 /// each with the crate that will absorb it and the index mode and git
@@ -330,13 +342,19 @@ const PINNED_JOB: &str = "  automation:
         shell: bash
         working-directory: .
         env:
-          # Pinned, not inherited: `[build] rustc` names the compiler
-          # and a wrapper stands in for it, so either - named by the very
-          # file this guard polices - could skip building it. Cargo reads
-          # an empty wrapper as none, and the environment over the file.
+          # Pinned, not inherited: `[build] rustc`, a wrapper standing in
+          # for it, and `[target.<triple>] linker` each name a program
+          # that produces the binary executed below, so the very file this
+          # guard polices could have any of them emit a stub that exits
+          # zero instead. Cargo reads an empty wrapper as none, the
+          # environment over the file, and this linker variable over the
+          # `cfg()` spelling of that key as well; `-C linker=` through
+          # config `rustflags` is displaced by the workflow-level
+          # RUSTFLAGS, which is pinned with the triggers.
           CARGO_BUILD_RUSTC: rustc
           CARGO_BUILD_RUSTC_WRAPPER: \"\"
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: \"\"
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
         run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
 
       - name: Repository automation guard
@@ -741,11 +759,22 @@ fn mode_problem(entry: &Entry) -> Option<String> {
     }
 }
 
+/// Whether `component` names a kind of file at all.  A version
+/// (`smoke-withdep-0.2.0.json`) and a route parameter
+/// (`[...slug].astro`) both split into components no reader would call
+/// an extension, and no interpreter is selected by one.
+fn is_extension_shaped(component: &str) -> bool {
+    component.starts_with(|first: char| first.is_ascii_alphabetic())
+        && component
+            .chars()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == '-')
+}
+
 /// Why `path`'s name alone makes it a tool, if it does.
 fn name_problem(path: &str) -> Option<String> {
     let name = Path::new(path).file_name()?.to_str()?;
     // The name itself, or the name a template suffix is hiding:
-    // `make -f Makefile.in` runs it as readily as `make` runs `Makefile`.
+    // `make -f Taskfile.yml.in` runs it as readily as the plain name.
     let stem = name.split_once('.').map_or(name, |(stem, _)| stem);
     if let Some(known) = TOOLING_NAMES
         .into_iter()
@@ -756,28 +785,65 @@ fn name_problem(path: &str) -> Option<String> {
     let in_source_root = PRODUCT_SOURCE_ROOTS
         .into_iter()
         .any(|root| path.starts_with(root));
-    // Every component after the first: `deploy.sh.in` is a shell script
-    // behind a template suffix.
-    name.split('.').skip(1).find_map(|component| {
-        if let Some(known) = TOOLING_EXTENSIONS
-            .into_iter()
-            .find(|known| known.eq_ignore_ascii_case(component))
-        {
-            return Some(format!("a .{known} script is repository automation"));
-        }
-        if in_source_root {
+    let kinds: Vec<&str> = name
+        .split('.')
+        .skip(1)
+        .filter(|component| is_extension_shaped(component))
+        .collect();
+    let Some((last, infixes)) = kinds.split_last() else {
+        if ALLOWED_NAMES.contains(&name) {
             return None;
         }
-        SOURCE_LANGUAGE_EXTENSIONS
+        return Some(format!(
+            "{name} has no extension, and is not one of the extensionless files this \
+             repository keeps; an extensionless tracked file is a tool unless \
+             ALLOWED_NAMES in crates/xtask-ci/src/scripts.rs says otherwise"
+        ));
+    };
+    // Every component, not just the last: `deploy.sh.md` would otherwise
+    // read as markdown.
+    for (component, allow_infix) in infixes
+        .iter()
+        .map(|infix| (*infix, true))
+        .chain([(*last, false)])
+    {
+        let known = DATA_EXTENSIONS
             .into_iter()
-            .find(|known| known.eq_ignore_ascii_case(component))
-            .map(|known| {
+            .chain(
+                in_source_root
+                    .then_some(SOURCE_LANGUAGE_EXTENSIONS)
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(
+                allow_infix
+                    .then_some(INFIX_COMPONENTS)
+                    .into_iter()
+                    .flatten(),
+            )
+            .any(|known| known.eq_ignore_ascii_case(component));
+        if known {
+            continue;
+        }
+        return Some(
+            if SOURCE_LANGUAGE_EXTENSIONS
+                .into_iter()
+                .any(|source| source.eq_ignore_ascii_case(component))
+            {
                 format!(
-                    "a .{known} file outside {} is repository automation, not source",
+                    ".{component} outside {} is repository automation, not source",
                     PRODUCT_SOURCE_ROOTS.join(" or ")
                 )
-            })
-    })
+            } else {
+                format!(
+                    ".{component} is not a kind of file this repository keeps; \
+                     if it is data or source, add it to DATA_EXTENSIONS in \
+                     crates/xtask-ci/src/scripts.rs"
+                )
+            },
+        );
+    }
+    None
 }
 
 /// Every entry of git's index under `repo_root`.
