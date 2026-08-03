@@ -36,6 +36,7 @@ members = [
   # tools reached through the aliases in .cargo/config.toml, never part of
   # the shipped surface (AGENTS.md, "Repository automation").
   "crates/xtask-port-publish",
+  "crates/xtask-registry-guard",
 ]
 default-members = ["crates/cabin"]
 # The hosted registry service is a standalone wasm32-targeted workspace

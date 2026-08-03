@@ -672,7 +672,7 @@ mutates production until the merge itself.
 cargo fmt --all -- --check && cargo clippy --all-targets --locked -- -D warnings
 cargo clippy --target wasm32-unknown-unknown --locked -- -D warnings
 RUSTFLAGS="-D warnings" cargo test --locked
-bash scripts/check-sql.sh && bash scripts/check-r2.sh
+(cd .. && cargo check-sql && cargo check-r2)
 cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 bash scripts/check-deploy.sh --require-bundle
 
