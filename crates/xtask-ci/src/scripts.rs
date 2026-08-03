@@ -248,10 +248,17 @@ const PINNED_JOB: &str = "  automation:
       # could add one and have CI run `true` in place of the guard. A
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
+      #
+      # `shell:` is pinned for the same reason one step up: a
+      # workflow-level `defaults.run.shell` can name any command and
+      # have `run:` handed to it, which would report success without
+      # running anything. A step's own shell wins over that default.
       - name: Build the repository automation guard
+        shell: bash
         run: cargo build --locked -p xtask-ci
 
       - name: Repository automation guard
+        shell: bash
         run: ./target/debug/xtask-ci check-scripts
 
   clippy:";
@@ -295,6 +302,11 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
             continue;
         }
         if website.contains(path) {
+            // Path-pinned, not content-pinned: what these files say is
+            // the website's business. What they *are* is not - a
+            // symlink here would hand an excepted script a second path,
+            // and the exception is for a checked-in npm script.
+            violations.extend(mode_problem(entry));
             continue;
         }
         violations.extend(entry_problem(repo_root, entry));
@@ -398,14 +410,36 @@ fn exception_list_problems() -> Vec<String> {
     problems
 }
 
+/// What to do instead, appended to the diagnostics that name a file the
+/// guard will not have.
+const REMEDY: &str = "write it as a crates/xtask-* command with a cargo alias \
+                      (AGENTS.md, \"Repository automation\")";
+
 /// Whatever makes one index entry repository automation.
 fn entry_problem(repo_root: &Path, entry: &Entry) -> Option<String> {
     let path = entry.path.as_str();
-    let remedy = "write it as a crates/xtask-* command with a cargo alias \
-                  (AGENTS.md, \"Repository automation\")";
     if let Some(reason) = name_problem(path) {
-        return Some(format!("{path}: {reason}; {remedy}"));
+        return Some(format!("{path}: {reason}; {REMEDY}"));
     }
+    if let Some(problem) = mode_problem(entry) {
+        return Some(problem);
+    }
+    match first_line_shebang(&repo_root.join(path)) {
+        Ok(true) => Some(format!(
+            "{path}: an interpreter shebang makes this repository automation; {REMEDY}"
+        )),
+        Ok(false) => None,
+        Err(err) => Some(format!(
+            "{path}: tracked but not readable, so the guard cannot clear it ({err:#})"
+        )),
+    }
+}
+
+/// Whatever makes one index entry repository automation by its kind
+/// alone - which an exception for a file does not excuse, because every
+/// exception was written for a checked-in regular file.
+fn mode_problem(entry: &Entry) -> Option<String> {
+    let path = entry.path.as_str();
     match entry.mode.as_str() {
         // A gitlink hides a whole tree from this scan.
         "160000" => Some(format!(
@@ -418,21 +452,13 @@ fn entry_problem(repo_root: &Path, entry: &Entry) -> Option<String> {
         // outright costs nothing and bounds what an exception covers.
         "120000" => Some(format!(
             "{path}: a tracked symlink can alias any file, including an excepted one, \
-             giving it a second path this guard does not list; {remedy}"
+             giving it a second path this guard does not list; {REMEDY}"
         )),
         "100755" => Some(format!(
             "{path}: the executable bit makes this runnable as a script, \
-             whatever its name; {remedy}"
+             whatever its name; {REMEDY}"
         )),
-        _ => match first_line_shebang(&repo_root.join(path)) {
-            Ok(true) => Some(format!(
-                "{path}: an interpreter shebang makes this repository automation; {remedy}"
-            )),
-            Ok(false) => None,
-            Err(err) => Some(format!(
-                "{path}: tracked but not readable, so the guard cannot clear it ({err:#})"
-            )),
-        },
+        _ => None,
     }
 }
 

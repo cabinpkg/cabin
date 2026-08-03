@@ -59,10 +59,17 @@ jobs:
       # could add one and have CI run `true` in place of the guard. A
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
+      #
+      # `shell:` is pinned for the same reason one step up: a
+      # workflow-level `defaults.run.shell` can name any command and
+      # have `run:` handed to it, which would report success without
+      # running anything. A step's own shell wins over that default.
       - name: Build the repository automation guard
+        shell: bash
         run: cargo build --locked -p xtask-ci
 
       - name: Repository automation guard
+        shell: bash
         run: ./target/debug/xtask-ci check-scripts
 
   clippy:

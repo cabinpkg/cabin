@@ -58,9 +58,11 @@ aliases name root-workspace packages, so run them from the repository root -
 
 `cargo check-scripts` enforces this and runs on every pull request
 (`rust.yml`, which carries no `paths:` filter - the job builds the guard and
-execs it directly, because `cargo run` would honor a `[target] runner` that
-could stand in for it). It is the rule's mechanical half; the rule itself is
-broader than what a scan can prove.
+execs it directly under a pinned `shell:`, because `cargo run` would honor a
+`[target] runner` and a `run:` step without its own shell would honor a
+workflow-level `defaults.run.shell`, either of which could stand in for it).
+It is the rule's mechanical half; the rule itself is broader than what a scan
+can prove.
 
 `.cargo/config.toml` stays `[alias]`-only, and the guard refuses any other
 section: a `runner` there changes what `cargo run` and `cargo test` execute
@@ -110,6 +112,10 @@ They live in `crates/xtask-ci/src/scripts.rs`:
   `website/AGENTS.md`. Not a migration queue: these may change freely, so
   they pin a path only. They are still listed one by one, because a
   `website/**` pattern is exactly the shape this repository refuses to have.
+
+Either list excuses a file, never a kind of thing: an entry replaced by a
+symlink, a submodule, or an executable is a violation at any path, since a
+symlink would give an excepted script a second name the guard clears.
 
 One exception is not yet mechanical, and is therefore the narrowest one
 written down: the PowerShell in the **`windows-msvc-autodiscovery` job of

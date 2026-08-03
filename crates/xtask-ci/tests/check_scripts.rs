@@ -356,6 +356,40 @@ fn a_symlink_to_an_excepted_script_is_caught() {
     assert!(caught[0].contains("a tracked symlink"), "{caught:?}");
 }
 
+/// An exception covers a path, not every kind of thing that path could
+/// be: swapping an excepted file for a symlink would alias whatever it
+/// points at into the tree under a name the guard clears.
+#[cfg(unix)]
+#[test]
+fn an_exception_swapped_for_a_symlink_is_caught() {
+    for path in ["website/astro.config.ts", "scripts/ci.sh"] {
+        let dir = scratch(&[]);
+        fs::remove_file(dir.path().join(path)).expect("drop the excepted file");
+        std::os::unix::fs::symlink("../scripts/ci.sh", dir.path().join(path)).expect("symlink");
+        // Stage just this path: a full restage would try to chmod +x a
+        // symlink, which git refuses.
+        git(&dir, &["add", "-A", path]);
+        let caught = scripts::check(dir.path()).expect("run the guard");
+        assert_eq!(caught.len(), 1, "{path}: {caught:?}");
+        assert!(caught[0].starts_with(path), "{caught:?}");
+    }
+}
+
+/// The same for the executable bit, which the website list does not pin
+/// the way the legacy list pins a mode alongside its blob id.
+#[cfg(unix)]
+#[test]
+fn a_website_exception_made_executable_is_caught() {
+    let dir = scratch(&[]);
+    git(
+        &dir,
+        &["update-index", "--chmod=+x", "website/astro.config.ts"],
+    );
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("the executable bit"), "{caught:?}");
+}
+
 /// The exceptions are exact paths: a sibling script in the same
 /// directory, or the same name elsewhere, is not covered by them.
 #[test]
@@ -540,6 +574,19 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "back_to_cargo_run",
             "        run: ./target/debug/xtask-ci check-scripts\n",
             "        run: cargo check-scripts\n",
+        ),
+        (
+            // A custom shell is handed the step's script as an argument
+            // and may ignore it. Unpinning the shell re-opens that to a
+            // workflow-level `defaults.run.shell`.
+            "shell_reinterpreted",
+            "      - name: Repository automation guard\n        shell: bash\n",
+            "      - name: Repository automation guard\n        shell: \"true {0}\"\n",
+        ),
+        (
+            "shell_unpinned",
+            "      - name: Repository automation guard\n        shell: bash\n",
+            "      - name: Repository automation guard\n",
         ),
     ];
     let escaped: Vec<&str> = mutations
