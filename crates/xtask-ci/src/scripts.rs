@@ -1206,6 +1206,10 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
+        // Not a consumer question: Rust compiled outside cargo, or a
+        // command nothing can read, is automation off the convention
+        // wherever it appears.
+        problems.extend(unreadable_invocation(listed, text));
         let run: Vec<&str> = runs
             .get(listed.as_str())
             .into_iter()
@@ -1263,6 +1267,52 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(problems)
+}
+
+/// Whether a workflow runs Rust in a way this guard cannot read.
+///
+/// Two shapes, both of which put automation where nothing can check it:
+/// `rustc tools/deploy.rs -o deploy` compiles a loose source file that
+/// belongs to no crate and no alias, and `cargo ${{ matrix.stem }}-...`
+/// assembles a subcommand out of expression fragments, so the alias it
+/// runs is not in the file at all. Neither is refused for what it might
+/// be doing - they are refused because the rule wants automation named
+/// plainly enough to check.
+fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`<>[],=\\".contains(c);
+    for line in text.lines() {
+        let mut words = line.split(separator).filter(|word| !word.is_empty());
+        while let Some(word) = words.next() {
+            if normalize_target(word).rsplit('/').next() == Some("rustc") {
+                return Some(format!(
+                    "{listed} runs rustc; a loose .rs file compiled in a workflow belongs to \
+                     no crate and no alias, which is where repository automation lives \
+                     (AGENTS.md, \"Repository automation\")"
+                ));
+            }
+            if !is_cargo(word) {
+                continue;
+            }
+            // The first word that is not a flag is the subcommand.
+            if let Some(command) = words
+                .clone()
+                .find(|next| !next.starts_with('-') && !next.starts_with('+'))
+                && command.contains("${{")
+            {
+                return Some(format!(
+                    "{listed} runs `cargo {command}`, a subcommand assembled from an \
+                     expression; name the alias literally, so what this workflow runs can \
+                     be read here"
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// Whether one word names the cargo executable, by any path or suffix.
+fn is_cargo(word: &str) -> bool {
+    normalize_target(word).rsplit('/').next() == Some("cargo")
 }
 
 /// Whatever in a workflow would remap what an alias runs.
@@ -1507,11 +1557,6 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // (`run: >`) or continued (`cargo \`), putting the command and its
     // argument on different lines of the YAML.
     let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
-    // Cargo may be reached by path (`~/.cargo/bin/cargo`, `cargo.exe`).
-    let is_cargo = |word: &str| {
-        let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
-        base == "cargo" || base == "cargo.exe"
-    };
     let mut words = text.split(separator).filter(|word| !word.is_empty());
     let (mut cargo, mut named) = (false, false);
     // Both present, in either order and anywhere in the file: a command

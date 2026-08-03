@@ -575,6 +575,18 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
             "{case}: {caught:?}"
         );
     }
+    // Rust compiled outside cargo belongs to no crate and no alias.
+    let loose = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                 build:\n    steps:\n      - run: rustc tools/deploy.rs -o deploy && ./deploy\n";
+    let caught = violations(&[
+        (".github/workflows/loose.yml", loose),
+        ("tools/deploy.rs", "fn main() {}\n"),
+    ]);
+    assert!(
+        caught.iter().any(|line| line.contains("runs rustc")),
+        "{caught:?}"
+    );
+
     // A workflow can reach a tool with no alias at all, in each of the
     // spellings that reaches one.
     for call in [
@@ -670,9 +682,29 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: cargo.exe check-sql\n",
     ] {
         let caught = violations(&[(".github/workflows/consumer.yml", &format!("{head}{call}"))]);
-        assert_eq!(caught.len(), 1, "{call}: {caught:?}");
-        assert!(caught[0].contains("no pinned trigger block"), "{caught:?}");
+        // Not an exact count: an expression-assembled command is also
+        // refused for being unreadable, which is a second true thing to
+        // say about the same line.
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains("no pinned trigger block")),
+            "{call}: {caught:?}"
+        );
     }
+    // A subcommand assembled from fragments matches no alias at all, so
+    // the unreadable-invocation rule is what catches it.
+    let fragments = "    strategy:\n      matrix:\n        stem: [check]\n                             kind: [sql]\n    steps:\n                           - run: cargo ${{ matrix.stem }}-${{ matrix.kind }}\n";
+    let caught = violations(&[(
+        ".github/workflows/consumer.yml",
+        &format!("{head}{fragments}"),
+    )]);
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.contains("assembled from an expression")),
+        "{caught:?}"
+    );
 }
 
 /// The alias-only check is worth only as much as the guarantee that the
