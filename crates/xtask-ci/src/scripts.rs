@@ -40,9 +40,12 @@
 //! nobody mistakes them for coverage: this reads TRACKED FILES, so shell
 //! written inside a workflow `run:` block is not scanned at all, and
 //! neither is automation smuggled in as one of the kinds of file this
-//! repository does keep and run through an interpreter argument (`node
-//! tools/deploy.json`) - AGENTS.md forbids both, and until the
-//! workflow-block scan lands, review is what enforces that half, with
+//! repository does keep and then handed to something that runs it - an
+//! interpreter argument (`node tools/deploy.json`) or a compiler (`cc
+//! tools/deploy.c && ./deploy`), the C kinds being kept because this is
+//! a C/C++ package manager whose examples and fixtures are written in
+//! them.  AGENTS.md forbids both, and until the workflow-block scan
+//! lands, review is what enforces that half, with
 //! the executable bit and the shebang catching the rest;
 //! `website/src/**/*.ts` is website
 //! source and is not scanned as tooling; a file name whose extension
