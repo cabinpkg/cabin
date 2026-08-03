@@ -1045,7 +1045,7 @@ the full usage snapshot, giving `wrangler tail` the ledger next to the
 analytics evaluation it audits.
 
 **CI guardrails.** Two lexical guards keep the governed-R2 invariant
-reviewable as the code grows: `scripts/check-r2.sh` pins the typed
+reviewable as the code grows: `cargo check-r2` pins the typed
 acquisition spellings (`env.bucket` in every direct form) to an
 allowlisted, reviewed function with its exact acquisition count, and
 bans the generic accessors (`get_binding`, `unchecked_into`) outright
@@ -1059,7 +1059,7 @@ crons, or `GOVERNOR_*`/`BUDGET_*` vars no longer match what the code
 deploys against - including the bundle-export check that would
 otherwise fail only at `wrangler deploy` time. Both run in CI
 (`registry.yml`) and are themselves regression-tested
-(`tests/check_r2_guard.rs`, `tests/check_deploy_guard.rs`).
+(`crates/xtask-registry-guard/tests/`, `tests/check_deploy_guard.rs`).
 
 **What stays best-effort on purpose.** Workers requests and D1 rows
 are revealed by the platform only after the fact, so they keep the
@@ -1241,7 +1241,7 @@ would actually buy is covered without one:
   executed statement is a named const in `src/sql.rs`, and
   `tests/sql_validation.rs` prepares each one with `rusqlite` against
   the real schema, freshly migrated from zero (D1 speaks `SQLite`'s
-  dialect for everything the service uses). `scripts/check-sql.sh`,
+  dialect for everything the service uses). `cargo check-sql`,
   run by CI, keeps executed SQL from growing outside that module.
 - Dynamic query construction does not exist today; if it ever
   genuinely grows, the designated escape hatch is `sea-query` (a

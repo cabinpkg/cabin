@@ -10,7 +10,7 @@
 //! (`tests/sql_validation.rs`) can prepare each one against the real,
 //! from-zero migrated schema - catching typos, wrong column names, and
 //! schema drift at test time - and so the CI guard
-//! (`scripts/check-sql.sh`) can keep new call sites from bypassing it.
+//! (`cargo check-sql`) can keep new call sites from bypassing it.
 //! See `docs/architecture.md`, "Why no ORM".
 
 /// Declares one documented `pub const` per statement and collects every

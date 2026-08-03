@@ -50,6 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
+  xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -461,6 +462,22 @@ the remote upload.  The crate must:
 - never bypass the local preflight before a remote mutation;
 - never skip uploads based on the public index (pending versions are hidden there); the registry's
   byte-identical idempotency is the only dedupe.
+
+### `xtask-registry-guard`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the static guards `registry.yml` runs on every pull request, reached through the
+`cargo check-sql` and `cargo check-r2` aliases.  They read the committed `registry/` tree and nothing else: no
+credentials, no network, no mutation - which is what separates them from the operator tooling
+that has all three.  Each guard is lexical rather than syntactic, a regression tripwire that
+forces diff review at a seam (`registry/docs/architecture.md`, "Why no ORM" and "The cost
+governor"), and each states its own ceiling in its module documentation.  The crate must:
+
+- never acquire a credential, open a socket, or write outside a caller-supplied directory;
+- keep the comment/string blanker in one place - two drifting copies of what makes the scans
+  evasion-resistant would be an evasion vector of their own;
+- report violations as data and leave printing and exit codes to the binary, so the guards stay
+  testable without spawning a process.
 
 ### `cabin-publish`
 

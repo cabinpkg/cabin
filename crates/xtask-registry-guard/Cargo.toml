@@ -1,0 +1,30 @@
+[package]
+name = "xtask-registry-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: static guards over the registry Worker's sources and deploy configuration"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the guards read the committed `registry/` tree, so a
+# published copy would have nothing to inspect.
+publish = false
+
+[lib]
+name = "xtask_registry_guard"
+
+[[bin]]
+name = "xtask-registry-guard"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+predicates = "3"
+
+[lints]
+workspace = true
