@@ -482,6 +482,23 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("was pinned for"), "{caught:?}");
 
+    // The package an alias selects is not all of what it does: the same
+    // crate reached with `-- --help` exits zero having checked nothing.
+    let dir = scratch(&[]);
+    let helpful = fs::read_to_string(repo_root().join(".cargo/config.toml"))
+        .expect("read the cargo config")
+        .replace(
+            "-p xtask-registry-guard -- check-sql",
+            "-p xtask-registry-guard -- --help",
+        );
+    write(&dir, ".cargo/config.toml", &helpful);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught.iter().any(|line| line.contains("it is pinned as")),
+        "{caught:?}"
+    );
+
     // An alias can also be declared in the environment, where nothing
     // here would see it.
     let overridden = real.replacen(
@@ -955,21 +972,28 @@ fn switching_the_guard_off_in_ci_is_caught() {
         ),
         (
             "command_commented_out",
-            "        run: ./target/debug/xtask-ci check-scripts\n",
+            "        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts\n",
             "        run: echo skip # ./target/debug/xtask-ci check-scripts\n",
         ),
         (
             // `[build] target-dir` can move what cargo just built, and a
             // tracked `target/debug/xtask-ci` would answer in its place.
+            "target_unpinned",
+            "--target-dir target --target x86_64-unknown-linux-gnu -p \
+             xtask-ci\n",
+            "--target-dir target -p xtask-ci\n",
+        ),
+        (
             "target_dir_unpinned",
-            "        run: cargo build --locked --target-dir target -p xtask-ci\n",
+            "        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p \
+             xtask-ci\n",
             "        run: cargo build --locked -p xtask-ci\n",
         ),
         (
             // `cargo run` would honor a [target] runner; the direct exec
             // is what makes the alias-only check trustworthy.
             "back_to_cargo_run",
-            "        run: ./target/debug/xtask-ci check-scripts\n",
+            "        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts\n",
             "        run: cargo check-scripts\n",
         ),
         (
@@ -1060,7 +1084,13 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         write(&dir, "Cargo.toml", root);
         write(&dir, ".cargo/config.toml", &format!("{real}{alias}"));
         restage(&dir);
-        scripts::check(dir.path()).expect("run the guard")
+        scripts::check(dir.path())
+            .expect("run the guard")
+            .into_iter()
+            // A test alias is not one of the repository's, so it is not
+            // in PINNED_ALIASES; this test is about the crate's shape.
+            .filter(|line| !line.contains("`cargo demo` alias is not pinned"))
+            .collect::<Vec<_>>()
     };
     let good_manifest = "[package]\nname = \"xtask-demo\"\npublish = false\n";
     let good_root = "[workspace]\nmembers = [\"crates/*\"]\n";
@@ -1070,6 +1100,15 @@ fn an_xtask_crate_off_the_convention_is_caught() {
     // alias this crate is reached through.
     let long_form = "demo = \"run --package xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, long_form).is_empty());
+
+    // `publish` may be inherited from the workspace, where it is the
+    // plain boolean this rule wants.
+    let inherited = base(
+        "[package]\nname = \"xtask-demo\"\npublish.workspace = true\n",
+        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
+        good_alias,
+    );
+    assert!(inherited.is_empty(), "{inherited:?}");
 
     // `exclude` takes back what the glob swept in.
     let excluded = base(

@@ -60,23 +60,25 @@ jobs:
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
       #
-      # `shell:`, `working-directory:` and `--target-dir` are pinned for
-      # the same reason one step up: a workflow-level `defaults.run` can
-      # name any command to hand `run:` to and any directory to run it
-      # in, and `[build] target-dir` can move what cargo just built out
-      # from under the path executed below - which a tracked
-      # `target/debug/xtask-ci` would then answer to. A step's own values
-      # win over those defaults, and a command-line --target-dir wins
-      # over the config.
+      # `shell:`, `working-directory:`, `--target-dir` and `--target`
+      # are pinned for the same reason one step up: a workflow-level
+      # `defaults.run` can name any command to hand `run:` to and any
+      # directory to run it in, and `[build] target-dir` / `[build]
+      # target` can move what cargo just built out from under the path
+      # executed below - which a tracked executable at that path would
+      # then answer to. A step's own values win over those defaults, and
+      # a command line wins over the config. The triple is this job's
+      # `runs-on`, so a runner change fails loudly here rather than
+      # quietly running something else.
       - name: Build the repository automation guard
         shell: bash
         working-directory: .
-        run: cargo build --locked --target-dir target -p xtask-ci
+        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
 
       - name: Repository automation guard
         shell: bash
         working-directory: .
-        run: ./target/debug/xtask-ci check-scripts
+        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts
 
   clippy:
     runs-on: ubuntu-latest

@@ -234,13 +234,44 @@ const WEBSITE_SCRIPTS: [&str; 6] = [
     "website/scripts/verify-progressive-independence.test.mjs",
 ];
 
+/// Every alias, with the command it must be, verbatim.
+///
+/// The package an alias selects is not the whole of what it does: the
+/// same crate reached with `-- --help` exits zero having checked
+/// nothing, and a job that runs it stays green. Pinning the command
+/// makes any edit to one - a retarget, an added flag, a changed
+/// subcommand - a reviewer's decision, the way editing a legacy script
+/// is, and a new alias has to be added here to exist at all.
+const PINNED_ALIASES: [(&str, &str); 5] = [
+    (
+        "check-deploy",
+        "run --quiet --locked -p xtask-registry-guard -- check-deploy",
+    ),
+    (
+        "check-r2",
+        "run --quiet --locked -p xtask-registry-guard -- check-r2",
+    ),
+    (
+        "check-scripts",
+        "run --quiet --locked -p xtask-ci -- check-scripts",
+    ),
+    (
+        "check-sql",
+        "run --quiet --locked -p xtask-registry-guard -- check-sql",
+    ),
+    (
+        "port-publish",
+        "run --quiet --locked -p xtask-port-publish --",
+    ),
+];
+
 /// The repository's one cargo config, holding the aliases.
 const CARGO_CONFIG: &str = ".cargo/config.toml";
 
 /// The workflow that must run this guard, and the job that must do it.
 const GUARD_WORKFLOW: &str = ".github/workflows/rust.yml";
 const GUARD_JOB: &str = "automation";
-const GUARD_COMMAND: &str = "./target/debug/xtask-ci check-scripts";
+const GUARD_COMMAND: &str = "./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts";
 
 /// The trigger block `rust.yml` must carry, verbatim: no `paths:` or
 /// `paths-ignore:` filter, and `pull_request` present, so no change can
@@ -285,23 +316,25 @@ const PINNED_JOB: &str = "  automation:
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
       #
-      # `shell:`, `working-directory:` and `--target-dir` are pinned for
-      # the same reason one step up: a workflow-level `defaults.run` can
-      # name any command to hand `run:` to and any directory to run it
-      # in, and `[build] target-dir` can move what cargo just built out
-      # from under the path executed below - which a tracked
-      # `target/debug/xtask-ci` would then answer to. A step's own values
-      # win over those defaults, and a command-line --target-dir wins
-      # over the config.
+      # `shell:`, `working-directory:`, `--target-dir` and `--target`
+      # are pinned for the same reason one step up: a workflow-level
+      # `defaults.run` can name any command to hand `run:` to and any
+      # directory to run it in, and `[build] target-dir` / `[build]
+      # target` can move what cargo just built out from under the path
+      # executed below - which a tracked executable at that path would
+      # then answer to. A step's own values win over those defaults, and
+      # a command line wins over the config. The triple is this job's
+      # `runs-on`, so a runner change fails loudly here rather than
+      # quietly running something else.
       - name: Build the repository automation guard
         shell: bash
         working-directory: .
-        run: cargo build --locked --target-dir target -p xtask-ci
+        run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
 
       - name: Repository automation guard
         shell: bash
         working-directory: .
-        run: ./target/debug/xtask-ci check-scripts
+        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts
 
   clippy:";
 
@@ -872,6 +905,19 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
                  one of those"
             ));
         }
+        match PINNED_ALIASES.iter().find(|(known, _)| known == name) {
+            Some((_, pinned)) if pinned == &text => {}
+            Some((_, pinned)) => problems.push(format!(
+                "the `cargo {name}` alias is `{text}`, but it is pinned as `{pinned}`; \
+                 check that it still RUNS the tool rather than exiting zero past it, then \
+                 re-pin PINNED_ALIASES in crates/xtask-ci/src/scripts.rs"
+            )),
+            None => problems.push(format!(
+                "the `cargo {name}` alias is not pinned; add it to PINNED_ALIASES in \
+                 crates/xtask-ci/src/scripts.rs, so that what it runs is read once by a \
+                 reviewer and cannot drift after"
+            )),
+        }
         // The subcommand AND the name AND the place AND the manifest: an
         // alias that builds a tool without running it still exits zero,
         // and a package may be called anything wherever it sits, so any
@@ -1390,6 +1436,19 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         let publish = manifest
             .get("package")
             .and_then(|package| package.get("publish"));
+        // `publish.workspace = true` says the answer lives in the root
+        // manifest, and there it is a plain boolean.
+        let inherited = publish
+            .and_then(|publish| publish.get("workspace"))
+            .and_then(toml::Value::as_bool)
+            .unwrap_or_default();
+        let publish = if inherited {
+            root.get("workspace")
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("publish"))
+        } else {
+            publish
+        };
         if publish.and_then(toml::Value::as_bool) != Some(false) {
             problems.push(format!(
                 "{path} must be publish = false; repository tooling is not shipped"
