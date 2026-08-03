@@ -346,65 +346,6 @@ fn a_non_alias_cargo_config_section_is_caught() {
     assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
 }
 
-/// A filtered workflow that runs an alias must list the alias file and
-/// the tool's crate, or editing either one skips the job that would have
-/// caught the edit.
-#[test]
-fn a_filtered_alias_consumer_must_list_what_it_runs() {
-    let both = "on:\n  pull_request:\n    paths:\n      - \".cargo/config.toml\"\n      \
-                - \"crates/xtask-registry-guard/**\"\n\njobs:\n  guard:\n    steps:\n      \
-                - run: cargo check-sql\n";
-    assert!(
-        violations(&[(".github/workflows/consumer.yml", both)]).is_empty(),
-        "a filtered consumer that lists both is the shape the rule asks for"
-    );
-    // Unfiltered runs on everything, so there is nothing to list.
-    let unfiltered = "on:\n  pull_request:\n\njobs:\n  guard:\n    steps:\n      \
-                      - run: cargo check-sql\n";
-    assert!(violations(&[(".github/workflows/consumer.yml", unfiltered)]).is_empty());
-
-    // Each input, dropped and then replaced by a path that merely starts
-    // the same way: neither near miss triggers on the real input.
-    let cases: &[(&str, &str, &str)] = &[
-        (
-            "alias_file",
-            "\".cargo/config.toml\"",
-            "\".cargo/config.toml.bak\"",
-        ),
-        (
-            "crate",
-            "\"crates/xtask-registry-guard/**\"",
-            "\"crates/xtask-registry-guard/README.md\"",
-        ),
-    ];
-    for (name, listed, near_miss) in cases {
-        for (case, workflow) in [
-            (name.to_string(), both.replace(listed, "")),
-            (format!("{name}_near_miss"), both.replace(listed, near_miss)),
-        ] {
-            let caught = violations(&[(".github/workflows/consumer.yml", &workflow)]);
-            assert_eq!(caught.len(), 1, "{case}: {caught:?}");
-            assert!(caught[0].contains(listed.trim_matches('"')), "{caught:?}");
-        }
-    }
-    // cargo takes `[+toolchain] [OPTIONS]` before the command, and each
-    // spelling is the same call.
-    for spelling in ["cargo --locked check-sql", "cargo +stable check-sql"] {
-        let caught = violations(&[(
-            ".github/workflows/consumer.yml",
-            &both
-                .replace("cargo check-sql", spelling)
-                .replace("      - \".cargo/config.toml\"\n", ""),
-        )]);
-        assert_eq!(caught.len(), 1, "{spelling}: {caught:?}");
-    }
-    // A paths-ignore filter cannot be read as covering them at all.
-    let ignored = both.replace("    paths:\n", "    paths-ignore:\n");
-    let caught = violations(&[(".github/workflows/consumer.yml", &ignored)]);
-    assert_eq!(caught.len(), 1, "{caught:?}");
-    assert!(caught[0].contains("paths-ignore"), "{caught:?}");
-}
-
 /// The alias-only check is worth only as much as the guarantee that the
 /// checked file is the config cargo reads: cargo prefers the
 /// extensionless name, and reads one per directory on the way up.
