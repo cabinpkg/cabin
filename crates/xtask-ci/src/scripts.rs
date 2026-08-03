@@ -1290,33 +1290,25 @@ fn is_cargo(word: &str) -> bool {
 ///
 /// Fails when one cannot be read.
 fn workflow_texts(repo_root: &Path) -> Result<BTreeMap<String, String>> {
-    let dir = repo_root.join(".github/workflows");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Ok(BTreeMap::new());
-    };
-    let mut workflows: Vec<std::path::PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            matches!(
-                path.extension().and_then(std::ffi::OsStr::to_str),
-                Some("yml" | "yaml")
-            )
-        })
-        .collect();
-    workflows.sort();
     let mut texts = BTreeMap::new();
-    for workflow in workflows {
-        let listed = format!(
-            ".github/workflows/{}",
-            workflow.file_name().unwrap_or_default().to_string_lossy()
-        );
+    // From the index, like the crates: a scratch workflow a developer
+    // has not committed runs nowhere, and this guard answers for what
+    // the repository has.
+    for entry in index_entries(repo_root)? {
+        let is_workflow = entry.path.starts_with(".github/workflows/")
+            && Path::new(&entry.path).extension().is_some_and(|kind| {
+                kind.eq_ignore_ascii_case("yml") || kind.eq_ignore_ascii_case("yaml")
+            });
+        if !is_workflow {
+            continue;
+        }
+        let path = repo_root.join(&entry.path);
         // Windows checkouts normalize to CRLF; the pins are written with
         // the line endings the repository stores.
-        let text = std::fs::read_to_string(&workflow)
-            .with_context(|| format!("read {}", workflow.display()))?
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("read {}", path.display()))?
             .replace("\r\n", "\n");
-        texts.insert(listed, text);
+        texts.insert(entry.path, text);
     }
     Ok(texts)
 }
@@ -1510,21 +1502,17 @@ fn runs_alias(text: &str, alias: &str) -> bool {
 /// does not appear in one at all.
 fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
     let crates = repo_root.join("crates");
-    let Ok(entries) = std::fs::read_dir(&crates) else {
-        return Ok(Vec::new());
-    };
-    let mut names: Vec<String> = Vec::new();
-    for entry in entries {
-        let entry = entry.with_context(|| format!("read {}", crates.display()))?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("xtask-") && entry.path().join("Cargo.toml").is_file() {
-            names.push(name);
-        }
-    }
+    let found = workspace_crates(repo_root)?;
+    // By directory name, because that is what the rest of this checks:
+    // whether the crate at `crates/xtask-<name>` is built and reachable.
+    let names: Vec<String> = found
+        .iter()
+        .map(|(dir, ..)| dir.clone())
+        .filter(|dir| dir.starts_with("xtask-"))
+        .collect();
     if names.is_empty() {
         return Ok(Vec::new());
     }
-    names.sort();
 
     let root = manifest(&repo_root.join("Cargo.toml"))?;
     let paths = |key: &str| -> Vec<String> {
@@ -1548,13 +1536,13 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
 
     let mut problems = Vec::new();
     // Found by manifest, not by directory name: `crates/tools` calling
-    // itself `xtask-rogue` is a tool the directory scan below would
+    // itself `xtask-rogue` is a tool the name-keyed loop below would
     // never look at, and an alias could reach it by package name.
     //
     // `publish = false` is what a tool is, in this workspace: every
     // crate that ships is published, so a private one is maintainer
     // tooling whatever it calls itself - and tooling is an xtask crate.
-    for (dir, package, private) in workspace_crates(repo_root)? {
+    for (dir, package, private) in found {
         let tool = package.starts_with("xtask-");
         if tool && dir != package {
             problems.push(format!(

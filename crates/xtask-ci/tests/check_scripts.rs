@@ -637,20 +637,41 @@ fn a_second_cargo_config_is_caught() {
 /// the local run over one would make the guard answer for uncommitted
 /// files.
 #[test]
-fn an_untracked_crate_is_not_part_of_the_repository() {
-    let dir = scratch(&[]);
-    write(
-        &dir,
-        "crates/rogue/Cargo.toml",
-        "[package]\nname = \"rogue\"\nversion = \"0.1.0\"\npublish = false\n",
-    );
-    // Deliberately not restaged: the crate is on disk and out of the
-    // index, which is what an experiment in progress looks like.
+fn an_untracked_file_is_not_part_of_the_repository() {
+    // Both spellings of a scratch crate - a name the rules have
+    // something to say about, and one they have more to say about - and
+    // a scratch workflow, which runs an alias nothing pinned.
+    let manifest = |name: &str| {
+        (
+            format!("crates/{name}/Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\npublish = false\n"),
+        )
+    };
+    let cases = [
+        manifest("rogue"),
+        manifest("xtask-scratch"),
+        (
+            ".github/workflows/scratch.yml".to_owned(),
+            "on: push\njobs:\n  x:\n    steps:\n      - run: cargo check-sql\n".to_owned(),
+        ),
+    ];
+    let caught: Vec<String> = cases
+        .into_iter()
+        .filter(|(path, contents)| {
+            let dir = scratch(&[]);
+            write(&dir, path, contents);
+            // Deliberately not restaged: the file is on disk and out of
+            // the index, which is what an experiment in progress looks
+            // like.
+            !scripts::check(dir.path())
+                .expect("run the guard")
+                .is_empty()
+        })
+        .map(|(path, _)| path)
+        .collect();
     assert!(
-        scripts::check(dir.path())
-            .expect("run the guard")
-            .is_empty(),
-        "an untracked manifest is not part of the repository"
+        caught.is_empty(),
+        "the guard answered for untracked files: {caught:?}"
     );
 }
 
