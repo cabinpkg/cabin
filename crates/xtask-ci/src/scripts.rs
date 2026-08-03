@@ -499,7 +499,7 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         // and their nested crates live under those roots.
         if path.rsplit('/').next() == Some("Cargo.toml")
             && !path.starts_with("crates/")
-            && !path.starts_with("registry/")
+            && path != "registry/Cargo.toml"
             && path != "Cargo.toml"
         {
             violations.push(format!(
@@ -1282,9 +1282,13 @@ fn cargo_override_problems(listed: &str, text: &str) -> Vec<String> {
     if text
         .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
         .any(|word| {
-            ["CARGO_ALIAS_", "CARGO_TARGET_", "CARGO_HOME"]
-                .iter()
-                .any(|known| word.starts_with(known))
+            word.starts_with("CARGO_ALIAS_")
+                || word.starts_with("CARGO_HOME")
+                // Only the runner: `CARGO_TARGET_DIR` says where the
+                // artifact lands, and `cargo run` runs it from there.
+                // Only the runner: `CARGO_TARGET_DIR` says where the
+                // artifact lands, and `cargo run` runs it from there.
+                || (word.starts_with("CARGO_TARGET_") && word.ends_with("_RUNNER"))
         })
     {
         problems.push(format!(
@@ -1462,6 +1466,11 @@ fn normalize_target(word: &str) -> &str {
         .strip_prefix("-p")
         .filter(|rest| !rest.is_empty())
         .unwrap_or(word);
+    // `-p name@version` is a package spec, and the version is not part
+    // of what it names.
+    // `-p name@version` is a package spec, and the version is not part
+    // of what it names.
+    let word = word.split('@').next().unwrap_or(word);
     word.strip_suffix(".exe").unwrap_or(word)
 }
 
