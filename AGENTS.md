@@ -113,9 +113,11 @@ They live in `crates/xtask-ci/src/scripts.rs`:
   they pin a path only. They are still listed one by one, because a
   `website/**` pattern is exactly the shape this repository refuses to have.
 
-Either list excuses a file, never a kind of thing: an entry replaced by a
-symlink, a submodule, or an executable is a violation at any path, since a
-symlink would give an excepted script a second name the guard clears.
+Either list excuses a file, never a kind of thing. A legacy entry pins its
+mode beside its blob id, so it stays the file the exception was written for -
+executable or not, as it stands today. A website entry, pinning only a path,
+may change freely but may not become a symlink, a submodule, or an executable:
+a symlink would hand an excepted script a second name the guard clears.
 
 One exception is not yet mechanical, and is therefore the narrowest one
 written down: the PowerShell in the **`windows-msvc-autodiscovery` job of

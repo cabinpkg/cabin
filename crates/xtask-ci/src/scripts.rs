@@ -221,12 +221,22 @@ const GUARD_COMMAND: &str = "./target/debug/xtask-ci check-scripts";
 /// reach main without this guard having run.  The pin runs THROUGH the
 /// next key, so a filter appended after the block cannot hide behind a
 /// still-matching prefix.
+///
+/// It carries the workflow-level `env:` block for a second reason: those
+/// variables reach the guard's steps, and a shell reads some of them
+/// before it reads the script it was handed.  `BASH_ENV` naming a
+/// tracked file that says `exit 0` would leave both steps green without
+/// building or running anything.
 const PINNED_TRIGGERS: &str = "on:
   push:
     branches: [main]
   pull_request:
 
-env:";
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: \"-D warnings\"
+
+permissions:";
 
 /// The job that must run the guard, verbatim: unconditional, not
 /// allowed to fail, and depending on nothing that could skip it.  Runs
@@ -743,10 +753,10 @@ fn workflow_wiring_problems(repo_root: &Path) -> Vec<String> {
     let mut problems = Vec::new();
     if !pinned_at_indent(&text, PINNED_TRIGGERS, 0, None) {
         problems.push(format!(
-            "{GUARD_WORKFLOW}'s trigger block is not the pinned one; it must stay unfiltered \
-             (no paths:/paths-ignore:) and keep pull_request, or a change could route around \
-             the guard. Re-pin PINNED_TRIGGERS in crates/xtask-ci/src/scripts.rs if the change \
-             is deliberate."
+            "{GUARD_WORKFLOW}'s trigger and env blocks are not the pinned ones; the triggers \
+             must stay unfiltered (no paths:/paths-ignore:) and keep pull_request, and a \
+             workflow-level variable reaches the guard's own steps. Re-pin PINNED_TRIGGERS in \
+             crates/xtask-ci/src/scripts.rs if the change is deliberate."
         ));
     }
     if !pinned_at_indent(&text, PINNED_JOB, 2, Some("jobs:")) {

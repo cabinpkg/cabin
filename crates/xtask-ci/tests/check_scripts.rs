@@ -584,6 +584,13 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "      - name: Repository automation guard\n        shell: \"true {0}\"\n",
         ),
         (
+            // Bash sources $BASH_ENV before the script it was handed, so
+            // a workflow-level variable can end the step green.
+            "bash_env_injected",
+            "env:\n  CARGO_TERM_COLOR: always\n",
+            "env:\n  BASH_ENV: docs/preamble\n  CARGO_TERM_COLOR: always\n",
+        ),
+        (
             "shell_unpinned",
             "      - name: Repository automation guard\n        shell: bash\n",
             "      - name: Repository automation guard\n",
