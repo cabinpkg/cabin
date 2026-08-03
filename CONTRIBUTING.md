@@ -30,6 +30,7 @@ cargo build --workspace
 cargo fmt --all --verbose -- --check
 taplo fmt --check
 typos
+cargo check-scripts
 cargo clippy --workspace --all-targets --all-features --locked --verbose -- -D warnings
 RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --locked --verbose
 RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features --locked --no-fail-fast --verbose -- --show-output

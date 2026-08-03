@@ -49,6 +49,7 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
+  xtask-ci/          repository tool: checks that keep this repo's own automation honest
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
   cabin-publish/     publish-workflow orchestration
@@ -462,6 +463,23 @@ the remote upload.  The crate must:
 - never bypass the local preflight before a remote mutation;
 - never skip uploads based on the public index (pending versions are hidden there); the registry's
   byte-identical idempotency is the only dedupe.
+
+### `xtask-ci`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the checks that keep this repository's own automation honest, reached through the
+`cargo check-scripts` alias.  It reads the git index (paths, file modes and blob ids) and the
+working tree for content: no credentials, no network, no mutation.  `check-scripts` is the mechanical half of the "Repository
+automation" rule in `AGENTS.md` - it scans every tracked path for a tooling extension or an
+interpreter shebang, and carries the shrinking list of shell that predates the convention.
+The crate must:
+
+- keep every exception an exact path (or an exact workflow step), never a pattern: a pattern
+  keeps covering whatever replaces the file it was written for;
+- report an exception whose file is gone as a violation, so migrating a script deletes its
+  exception in the same change;
+- run somewhere unfiltered - a policy check a change can route around by touching only
+  unfiltered files is not a check.
 
 ### `xtask-registry-guard`
 

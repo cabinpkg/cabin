@@ -38,6 +38,25 @@ jobs:
         - name: Check TOML formatting
           run: taplo fmt --check
 
+  # Repository policy, not code quality: this job proves the repo's own
+  # automation is still Rust behind a cargo alias. It lives in rust.yml
+  # because rust.yml has no `paths:` filter - a guard that a change can
+  # route around by touching only unfiltered files is not a guard.
+  automation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Repository automation guard
+        run: cargo check-scripts
+
   clippy:
     runs-on: ubuntu-latest
 

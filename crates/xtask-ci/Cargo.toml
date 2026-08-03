@@ -1,0 +1,31 @@
+[package]
+name = "xtask-ci"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: the checks that keep this repository's own automation honest"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): it inspects the committed tree, so a published copy
+# would have nothing to operate on.
+publish = false
+
+[lib]
+name = "xtask_ci"
+
+[[bin]]
+name = "xtask-ci"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+predicates = "3"
+
+[lints]
+workspace = true

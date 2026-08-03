@@ -20,6 +20,7 @@
 
 [alias]
 check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
+check-scripts = "run --quiet --locked -p xtask-ci -- check-scripts"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 port-publish = "run --quiet --locked -p xtask-port-publish --"

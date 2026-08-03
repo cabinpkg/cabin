@@ -56,24 +56,58 @@ Repository automation belongs in Rust. Each tool is a private
 aliases name root-workspace packages, so run them from the repository root -
 `registry/` is a separate workspace and resolves against its own manifest.
 
-`scripts/ci.sh` and the tools under `registry/scripts/` predate this
-convention and are being moved into it. They are the only shell and Perl
-tooling this repository keeps; do not extend them and do not add more.
+`cargo check-scripts` enforces this and runs on every pull request
+(`rust.yml`, which carries no `paths:` filter). It is the rule's mechanical
+half; the rule itself is broader than what a scan can prove.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
-  dependency set are genuinely new. Do not add a shell or Perl script, and do
-  not put substantial logic (loops, conditionals, functions, traps,
-  heredocs, embedded `node -` / `python3 -` / `perl -e`) in a workflow
-  `run:` block - call an alias instead. Plain invocations (`cargo build`,
-  `npm ci`, package installation) stay inline.
-- The rule covers repository tooling only. Product source (`crates/cabin*`,
-  `registry/src/`), website source and its npm scripts, the `Dockerfile`,
-  `demo.tape`, and devcontainer provisioning are not repository automation
-  and are unaffected.
+  dependency set are genuinely new.
+- **No non-Rust repository automation, whatever the language.** The list is
+  open, not a menu: Bash, `sh`, `zsh`, Perl, Python, Ruby, PowerShell, batch,
+  `make`, `just`, and JavaScript written to drive the repository are all the
+  same answer, and so is the next one somebody thinks of. Do not put
+  substantial logic (loops, conditionals, functions, traps, heredocs,
+  embedded `node -` / `python3 -` / `perl -e`) in a workflow `run:` block
+  either - call an alias instead. Plain invocations (`cargo build`, `npm ci`,
+  package installation) stay inline.
+- **What is not automation** is declarative source and data, wherever it
+  lives: product source (`crates/cabin*`, `registry/src/`), the website's
+  TypeScript and Astro sources, `examples/` and `ports/`, the `Dockerfile`,
+  `demo.tape`, and `devcontainer.json`. The distinction is the artifact, not
+  the directory - a shell script under `.devcontainer/` is still a script,
+  and a `.js`/`.mjs` file anywhere is treated as a tool, so the website's own
+  build checks are listed one by one below rather than exempted by folder.
 - A workflow that runs an alias needs `.cargo/config.toml` and the tool's
   crate directory in its trigger paths, or an edit there silently stops
   reaching the job it feeds.
+
+### Temporary exceptions
+
+Every exception is an exact path, and `cargo check-scripts` reports one whose
+file is gone - so whatever removes the file deletes its exception in the same
+change. Never a wildcard: a pattern outlives the file it was written for.
+They live in `crates/xtask-ci/src/scripts.rs`:
+
+- `LEGACY_SCRIPTS` - the shell under `registry/scripts/` and `scripts/ci.sh`
+  that predates the convention, each entry naming the crate that will absorb
+  it **and pinning its git blob id**. Editing one of these scripts changes
+  the id and fails the guard: they are tolerated as they stand, not as a
+  place to put new shell. Re-pinning is a reviewer's decision, taken when the
+  edit is part of migrating the script.
+- `WEBSITE_SCRIPTS` - the site's own npm-driven build checks, owned by
+  `website/AGENTS.md`. Not a migration queue: these may change freely, so
+  they pin a path only. They are still listed one by one, because a
+  `website/**` pattern is exactly the shape this repository refuses to have.
+
+One exception is not yet mechanical, and is therefore the narrowest one
+written down: the PowerShell in the **`windows-msvc-autodiscovery` job of
+`rust.yml`**, in the step named *"Build cabin and run examples without a
+pre-activated MSVC env"*. It is more than a premise check - it guards that
+`INCLUDE`/`LIB` are unset, then loops over two examples propagating
+`$LASTEXITCODE` - and it stays only because that premise has to be tested on
+the Windows runner before any Rust is built. That exact step and no other:
+do not grow it, and do not add PowerShell anywhere else.
 
 ## Engineering Principles
 
