@@ -102,7 +102,12 @@ anywhere would be aliases nothing checked.
   and a shell script inside one is still a script.
 - A workflow that runs an alias needs `.cargo/config.toml` and the tool's
   crate directory in its trigger paths, or an edit there silently stops
-  reaching the job it feeds.
+  reaching the job it feeds. Whether a filter still covers them is a
+  question about GitHub's ordered pattern matching, not one a scan can
+  answer, so the guard pins each such trigger block verbatim
+  (`PINNED_CONSUMERS`): any edit is a re-pin, and re-pinning is where the
+  reviewer checks the two are still there. A workflow that runs an alias
+  and is pinned nowhere is refused.
 
 ### Temporary exceptions
 

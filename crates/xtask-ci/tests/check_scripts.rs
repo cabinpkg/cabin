@@ -22,7 +22,8 @@ fn scratch(files: &[(&str, &str)]) -> assert_fs::TempDir {
     // function of the bytes, so a placeholder would read as an edit.
     let real: Vec<(String, String)> = scripts::exceptions()
         .into_iter()
-        .chain([".github/workflows/rust.yml", ".cargo/config.toml"])
+        .chain(scripts::pinned_workflows())
+        .chain([".cargo/config.toml"])
         .map(|path| {
             let contents = fs::read_to_string(repo_root().join(path))
                 .unwrap_or_else(|err| panic!("read {path}: {err}"));
@@ -344,6 +345,67 @@ fn a_non_alias_cargo_config_section_is_caught() {
         .map(|(name, _)| *name)
         .collect();
     assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
+}
+
+/// A workflow that runs an alias has to keep the alias file and the
+/// tool's crate in its filters. Whether it still does is a question
+/// about GitHub's ordered pattern matching, so the block is pinned
+/// instead: every edit to it is a re-pin, wherever it is spelled.
+#[test]
+fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
+    let path = ".github/workflows/registry.yml";
+    let real = fs::read_to_string(repo_root().join(path))
+        .expect("read the registry workflow")
+        .replace("\r\n", "\n");
+    let mutations: &[(&str, &str, &str)] = &[
+        // The two inputs the rule is about, dropped from one filter.
+        (
+            "alias_file_dropped",
+            "      # On the config search path of the registry workspace too.\n      \
+             - \".cargo/config.toml\"\n",
+            "",
+        ),
+        (
+            "crate_dropped",
+            "      - \"crates/xtask-registry-guard/**\"\n",
+            "",
+        ),
+        // Ordered patterns: a later negation cancels an earlier entry.
+        (
+            "crate_negated",
+            "      - \"crates/xtask-registry-guard/**\"\n",
+            "      - \"crates/xtask-registry-guard/**\"\n      \
+             - \"!crates/xtask-registry-guard/**\"\n",
+        ),
+        // Flow style says the same thing in text that shares nothing.
+        (
+            "flow_style",
+            "on:\n  push:\n    branches: [ main ]\n",
+            "on: { push: { branches: [main] },\n",
+        ),
+    ];
+    let escaped: Vec<&str> = mutations
+        .iter()
+        .filter(|(name, from, to)| {
+            assert!(real.contains(from), "{name}: mutation target not in {path}");
+            let dir = scratch(&[]);
+            write(&dir, path, &real.replacen(from, to, 1));
+            restage(&dir);
+            !scripts::check(dir.path())
+                .expect("run the guard")
+                .iter()
+                .any(|line| line.contains("trigger block is not the pinned one"))
+        })
+        .map(|(name, ..)| *name)
+        .collect();
+    assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
+
+    // A new consumer nobody pinned is the case the pins exist for.
+    let fresh = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                 guard:\n    steps:\n      - run: cargo check-sql;\n";
+    let caught = violations(&[(".github/workflows/consumer.yml", fresh)]);
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("no pinned trigger block"), "{caught:?}");
 }
 
 /// The alias-only check is worth only as much as the guarantee that the
@@ -717,17 +779,22 @@ fn chmodding_a_legacy_script_is_caught() {
 /// not the convention the rule names.
 #[test]
 fn an_xtask_crate_off_the_convention_is_caught() {
-    let base = |manifest: &str, root: &str, aliases: &str| {
+    // The repository's own aliases stay: the workflows copied into the
+    // scratch tree run them, and a tree where they do not exist is not
+    // the tree this test is about.
+    let real =
+        fs::read_to_string(repo_root().join(".cargo/config.toml")).expect("read the cargo config");
+    let base = |manifest: &str, root: &str, alias: &str| {
         let dir = scratch(&[]);
         write(&dir, "crates/xtask-demo/Cargo.toml", manifest);
         write(&dir, "Cargo.toml", root);
-        write(&dir, ".cargo/config.toml", aliases);
+        write(&dir, ".cargo/config.toml", &format!("{real}{alias}"));
         restage(&dir);
         scripts::check(dir.path()).expect("run the guard")
     };
     let good_manifest = "[package]\nname = \"xtask-demo\"\npublish = false\n";
     let good_root = "[workspace]\nmembers = [\"crates/xtask-demo\"]\n";
-    let good_alias = "[alias]\ndemo = \"run -p xtask-demo -- demo\"\n";
+    let good_alias = "demo = \"run -p xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, good_alias).is_empty());
 
     let missing_member = base(good_manifest, "[workspace]\nmembers = []\n", good_alias);
@@ -744,7 +811,7 @@ fn an_xtask_crate_off_the_convention_is_caught() {
             .any(|line| line.contains("publish = false")),
         "{publishable:?}"
     );
-    let unaliased = base(good_manifest, good_root, "[alias]\n");
+    let unaliased = base(good_manifest, good_root, "");
     assert!(
         unaliased.iter().any(|line| line.contains("no cargo alias")),
         "{unaliased:?}"

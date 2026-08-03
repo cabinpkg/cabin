@@ -295,6 +295,109 @@ const PINNED_JOB: &str = "  automation:
 
   clippy:";
 
+/// Every other workflow that runs an alias, with the trigger block it
+/// must carry verbatim.
+///
+/// The alias file and the tool's crate have to stay in these filters, or
+/// editing either one stops reaching the job it feeds. Whether they
+/// still do is not something a scan can decide: GitHub evaluates an
+/// ordered pattern list, where a later `!crates/<tool>/**` cancels an
+/// earlier entry, and the whole block can be written in flow style.
+/// Pinning the text sidesteps the semantics - any edit here is a
+/// conscious re-pin, and re-pinning is where a reviewer checks the two
+/// inputs are still covered.
+const PINNED_CONSUMERS: [(&str, &str); 2] = [
+    (
+        ".github/workflows/ports-publish.yml",
+        r#"on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ports-publish.yml"
+      # The publish steps run the `cargo port-publish` alias.
+      - ".cargo/config.toml"
+      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
+      # lock-only bumps of byte-producing dependencies (zip, flate2)
+      # or workspace-manifest feature flips (which need no lockfile
+      # change) change the archive bytes the registry holds immutable.
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "ports/**"
+      - "crates/cabin-artifact/**"
+      - "crates/xtask-port-publish/**"
+      - "crates/cabin-core/**"
+      - "crates/cabin-manifest/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+  pull_request:
+    paths:
+      - ".github/workflows/ports-publish.yml"
+      # The publish steps run the `cargo port-publish` alias.
+      - ".cargo/config.toml"
+      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
+      # lock-only bumps of byte-producing dependencies (zip, flate2)
+      # or workspace-manifest feature flips (which need no lockfile
+      # change) change the archive bytes the registry holds immutable.
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "ports/**"
+      - "crates/cabin-artifact/**"
+      - "crates/xtask-port-publish/**"
+      - "crates/cabin-core/**"
+      - "crates/cabin-manifest/**"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+  workflow_dispatch:
+
+permissions:"#,
+    ),
+    (
+        ".github/workflows/registry.yml",
+        r#"on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/registry.yml"
+      # On the config search path of the registry workspace too.
+      - ".cargo/config.toml"
+      - "registry/**"
+      # The guard the build job runs, plus the root manifest that
+      # keeps it a workspace member: dropping it there would remove the
+      # guard and its tests from `cargo test --workspace` at the same
+      # time, and nothing else here would notice. Cargo.lock is
+      # deliberately not listed - it moves on every dependency bump and
+      # cannot remove a member on its own.
+      - "crates/xtask-registry-guard/**"
+      - "Cargo.toml"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+      - "crates/cabin-core/**"
+  pull_request:
+    paths:
+      - ".github/workflows/registry.yml"
+      # On the config search path of the registry workspace too.
+      - ".cargo/config.toml"
+      - "registry/**"
+      # The guard the build job runs, plus the root manifest that
+      # keeps it a workspace member: dropping it there would remove the
+      # guard and its tests from `cargo test --workspace` at the same
+      # time, and nothing else here would notice. Cargo.lock is
+      # deliberately not listed - it moves on every dependency bump and
+      # cannot remove a member on its own.
+      - "crates/xtask-registry-guard/**"
+      - "Cargo.toml"
+      - "crates/cabin-package/**"
+      - "crates/cabin-publish/**"
+      - "crates/cabin-registry-api/**"
+      - "crates/cabin-core/**"
+
+permissions:"#,
+    ),
+];
+
 /// One entry of git's index.
 struct Entry {
     mode: String,
@@ -390,6 +493,7 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
     violations.extend(cargo_config_problems(repo_root)?);
     violations.extend(xtask_crate_problems(repo_root)?);
     violations.extend(workflow_wiring_problems(repo_root));
+    violations.extend(alias_consumer_problems(repo_root)?);
     Ok(violations)
 }
 
@@ -397,6 +501,15 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
 #[must_use]
 pub fn source_roots() -> Vec<&'static str> {
     PRODUCT_SOURCE_ROOTS.to_vec()
+}
+
+/// Every workflow whose trigger block the guard pins, the guard's own
+/// included.
+#[must_use]
+pub fn pinned_workflows() -> Vec<&'static str> {
+    std::iter::once(GUARD_WORKFLOW)
+        .chain(PINNED_CONSUMERS.iter().map(|(path, _)| *path))
+        .collect()
 }
 
 /// Every path the guard excepts today, from both lists.
@@ -701,6 +814,106 @@ fn alias_package(value: &str) -> Option<&str> {
         }
     }
     None
+}
+
+/// Whatever would let an edit to an alias or its tool stop reaching the
+/// job it feeds.
+///
+/// Every workflow that runs an alias is either the guard's own, whose
+/// triggers are pinned above, or one of `PINNED_CONSUMERS`. A workflow
+/// that runs one and is in neither is the case this exists for: its
+/// filter could name anything, and nothing here would notice.
+fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
+    let path = repo_root.join(CARGO_CONFIG);
+    if !path.is_file() {
+        // Reported once, by the check that owns that file.
+        return Ok(Vec::new());
+    }
+    let aliases = aliases(&manifest(&path)?);
+    let dir = repo_root.join(".github/workflows");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(Vec::new());
+    };
+    let mut workflows: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            matches!(
+                path.extension().and_then(std::ffi::OsStr::to_str),
+                Some("yml" | "yaml")
+            )
+        })
+        .collect();
+    workflows.sort();
+
+    let mut problems = Vec::new();
+    let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
+    for workflow in workflows {
+        let listed = format!(
+            ".github/workflows/{}",
+            workflow.file_name().unwrap_or_default().to_string_lossy()
+        );
+        let text = std::fs::read_to_string(&workflow)
+            .with_context(|| format!("read {}", workflow.display()))?
+            .replace("\r\n", "\n");
+        let Some(alias) = aliases
+            .iter()
+            .map(|(alias, _)| alias.as_str())
+            .find(|alias| runs_alias(&text, alias))
+        else {
+            continue;
+        };
+        if listed == GUARD_WORKFLOW {
+            continue;
+        }
+        let Some((pinned_path, pinned)) =
+            PINNED_CONSUMERS.iter().find(|(known, _)| *known == listed)
+        else {
+            problems.push(format!(
+                "{listed} runs `cargo {alias}` with no pinned trigger block; add one to \
+                 PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs, so that dropping \
+                 {CARGO_CONFIG} or the tool's crate from its filters cannot pass unread \
+                 (AGENTS.md, \"Repository automation\")"
+            ));
+            continue;
+        };
+        pinned_seen.insert(*pinned_path);
+        if !pinned_at_indent(&text, pinned, 0, None) {
+            problems.push(format!(
+                "{listed}'s trigger block is not the pinned one, and it runs `cargo {alias}`; \
+                 check that {CARGO_CONFIG} and the tool's crate are still in every filter, \
+                 then re-pin PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs"
+            ));
+        }
+    }
+    for (listed, _) in PINNED_CONSUMERS {
+        if !pinned_seen.contains(listed) {
+            problems.push(format!(
+                "{listed} is pinned as an alias consumer but runs no alias; \
+                 delete its entry from PINNED_CONSUMERS in crates/xtask-ci/src/scripts.rs"
+            ));
+        }
+    }
+    Ok(problems)
+}
+
+/// Whether `text` invokes `cargo <alias>` on any line.
+///
+/// Read as whole words rather than as `cargo <alias>` literally, because
+/// cargo takes `[+toolchain] [OPTIONS]` before the command and a shell
+/// puts its own punctuation around both. The looseness cuts one way on
+/// purpose: a mention in a comment counts too, and pinning the triggers
+/// of a workflow that does not run an alias costs nothing, while missing
+/// one that does costs the job.
+fn runs_alias(text: &str, alias: &str) -> bool {
+    let shell = ['"', '\'', ';', '&', '|', '(', ')', '`', '$', '{', '}'];
+    text.lines().any(|line| {
+        let mut words = line
+            .split_whitespace()
+            .map(|word| word.trim_matches(shell))
+            .skip_while(|word| *word != "cargo");
+        words.next().is_some() && words.any(|word| word == alias)
+    })
 }
 
 /// Whatever is wrong with the shape of the `xtask-*` crates: the
