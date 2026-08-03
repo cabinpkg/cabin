@@ -48,16 +48,17 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail};
 
 /// File-name components that make a tracked file executable tooling
-/// rather than source or data.
+/// wherever it sits.  None of these is a source language in this
+/// repository, so there is nothing to weigh: a `.sh` under
+/// `website/src/` is as much a script as one under `tools/`.
 ///
 /// Checked against every dot-separated component after the first, so a
 /// template (`deploy.sh.in`) cannot launder one.
-const TOOLING_EXTENSIONS: [&str; 32] = [
+const TOOLING_EXTENSIONS: [&str; 29] = [
     "applescript",
     "awk",
     "bash",
     "bat",
-    "cjs",
     "cmd",
     "csh",
     "dash",
@@ -65,10 +66,8 @@ const TOOLING_EXTENSIONS: [&str; 32] = [
     "fish",
     "groovy",
     "jl",
-    "js",
     "ksh",
     "lua",
-    "mjs",
     "nu",
     "php",
     "pl",
@@ -86,6 +85,19 @@ const TOOLING_EXTENSIONS: [&str; 32] = [
     "tcsh",
     "zsh",
 ];
+
+/// Languages this repository writes BOTH product source and tooling in.
+/// Outside a product-source root they are tooling like any other; inside
+/// one they are the website's own source.
+const SOURCE_LANGUAGE_EXTENSIONS: [&str; 7] = ["cjs", "cts", "js", "mjs", "mts", "ts", "tsx"];
+
+/// Where this repository keeps product source written in a language it
+/// also writes tooling in.  This is the RULE'S DOMAIN, not a tolerated
+/// violation: `website/src/` is the site itself, which
+/// `website/AGENTS.md` owns.  Kept to exact prefixes, checked to be
+/// non-empty in the tree, and deliberately tiny - it buys back 46
+/// TypeScript files that would otherwise each need an exception.
+const PRODUCT_SOURCE_ROOTS: [&str; 1] = ["website/src/"];
 
 /// Bare file names that are a tool without needing an extension.
 const TOOLING_NAMES: [&str; 8] = [
@@ -190,7 +202,8 @@ const LEGACY_SCRIPTS: [(&str, &str, &str, &str); 12] = [
 /// freely, and they pin a path rather than a blob id. They are listed
 /// one by one anyway - the alternative is a `website/**` pattern, which
 /// is exactly the shape this guard refuses to have.
-const WEBSITE_SCRIPTS: [&str; 5] = [
+const WEBSITE_SCRIPTS: [&str; 6] = [
+    "website/astro.config.ts",
     "website/scripts/lib/find-html-files.mjs",
     "website/scripts/verify-docs-links.mjs",
     "website/scripts/verify-no-inline-scripts.mjs",
@@ -295,9 +308,24 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
 
+    for root in PRODUCT_SOURCE_ROOTS {
+        if !tracked.iter().any(|path| path.starts_with(root)) {
+            violations.push(format!(
+                "{root} is declared a product-source root but tracks nothing; \
+                 delete it from PRODUCT_SOURCE_ROOTS in crates/xtask-ci/src/scripts.rs"
+            ));
+        }
+    }
+
     violations.extend(xtask_crate_problems(repo_root)?);
     violations.extend(workflow_wiring_problems(repo_root));
     Ok(violations)
+}
+
+/// The product-source roots the rule's domain carves out.
+#[must_use]
+pub fn source_roots() -> Vec<&'static str> {
+    PRODUCT_SOURCE_ROOTS.to_vec()
 }
 
 /// Every path the guard excepts today, from both lists.
@@ -323,6 +351,19 @@ pub fn pending() -> Vec<(&'static str, &'static str)> {
 /// Whatever is wrong with the exception lists themselves.
 fn exception_list_problems() -> Vec<String> {
     let mut problems = Vec::new();
+    if !PRODUCT_SOURCE_ROOTS
+        .windows(2)
+        .all(|pair| pair[0] < pair[1])
+    {
+        problems.push("PRODUCT_SOURCE_ROOTS must stay sorted and free of duplicates".to_owned());
+    }
+    for root in PRODUCT_SOURCE_ROOTS {
+        if !root.ends_with('/') {
+            problems.push(format!(
+                "PRODUCT_SOURCE_ROOTS entry {root} must end in / so it cannot match a sibling"
+            ));
+        }
+    }
     let lists = [
         (
             "LEGACY_SCRIPTS",
@@ -395,13 +436,30 @@ fn name_problem(path: &str) -> Option<String> {
     {
         return Some(format!("{name} is repository automation"));
     }
+    let in_source_root = PRODUCT_SOURCE_ROOTS
+        .into_iter()
+        .any(|root| path.starts_with(root));
     // Every component after the first: `deploy.sh.in` is a shell script
     // behind a template suffix.
     name.split('.').skip(1).find_map(|component| {
-        TOOLING_EXTENSIONS
+        if let Some(known) = TOOLING_EXTENSIONS
             .into_iter()
             .find(|known| known.eq_ignore_ascii_case(component))
-            .map(|known| format!("a .{known} script is repository automation"))
+        {
+            return Some(format!("a .{known} script is repository automation"));
+        }
+        if in_source_root {
+            return None;
+        }
+        SOURCE_LANGUAGE_EXTENSIONS
+            .into_iter()
+            .find(|known| known.eq_ignore_ascii_case(component))
+            .map(|known| {
+                format!(
+                    "a .{known} file outside {} is repository automation, not source",
+                    PRODUCT_SOURCE_ROOTS.join(" or ")
+                )
+            })
     })
 }
 
@@ -562,6 +620,43 @@ fn manifest(path: &Path) -> Result<toml::Value> {
     toml::from_str(&text).with_context(|| format!("parse {}", path.display()))
 }
 
+/// Whether `pinned` appears where YAML would actually read it: starting
+/// at a line boundary, indented exactly `indent`, and (when `under` is
+/// given) with that top-level key as the nearest column-0 line above it.
+///
+/// A plain substring match is not enough. Copying the pinned text into a
+/// block scalar (`name: |`) while deleting the real key satisfies
+/// `contains` while YAML sees inert string content - but a block
+/// scalar's body must be indented deeper than its own key, so content at
+/// a fixed shallow indent under the right top-level key cannot be inside
+/// one.
+fn pinned_at_indent(text: &str, pinned: &str, indent: usize, under: Option<&str>) -> bool {
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(pinned) {
+        let at = from + offset;
+        from = at + 1;
+        if at != 0 && !text[..at].ends_with('\n') {
+            continue;
+        }
+        if text[at..].chars().take_while(|c| *c == ' ').count() != indent {
+            continue;
+        }
+        let Some(parent) = under else {
+            return true;
+        };
+        // The nearest line above that starts in column 0 is the block
+        // this text belongs to.
+        let enclosing = text[..at]
+            .lines()
+            .rev()
+            .find(|line| !line.is_empty() && !line.starts_with([' ', '#']));
+        if enclosing == Some(parent) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Whatever would stop this guard from actually running in CI.
 ///
 /// A check a change can switch off in the same change is not a check, so
@@ -580,7 +675,7 @@ fn workflow_wiring_problems(repo_root: &Path) -> Vec<String> {
     // the line endings the repository stores.
     let text = text.replace("\r\n", "\n");
     let mut problems = Vec::new();
-    if !text.contains(PINNED_TRIGGERS) {
+    if !pinned_at_indent(&text, PINNED_TRIGGERS, 0, None) {
         problems.push(format!(
             "{GUARD_WORKFLOW}'s trigger block is not the pinned one; it must stay unfiltered \
              (no paths:/paths-ignore:) and keep pull_request, or a change could route around \
@@ -588,7 +683,7 @@ fn workflow_wiring_problems(repo_root: &Path) -> Vec<String> {
              is deliberate."
         ));
     }
-    if !text.contains(PINNED_JOB) {
+    if !pinned_at_indent(&text, PINNED_JOB, 2, Some("jobs:")) {
         problems.push(format!(
             "{GUARD_WORKFLOW}'s {GUARD_JOB} job is not the pinned one; it must run \
              {GUARD_COMMAND} unconditionally - no if:, no continue-on-error:, no needs:. \

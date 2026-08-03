@@ -71,13 +71,18 @@ half; the rule itself is broader than what a scan can prove.
   embedded `node -` / `python3 -` / `perl -e`) in a workflow `run:` block
   either - call an alias instead. Plain invocations (`cargo build`, `npm ci`,
   package installation) stay inline.
-- **What is not automation** is declarative source and data, wherever it
-  lives: product source (`crates/cabin*`, `registry/src/`), the website's
-  TypeScript and Astro sources, `examples/` and `ports/`, the `Dockerfile`,
-  `demo.tape`, and `devcontainer.json`. The distinction is the artifact, not
-  the directory - a shell script under `.devcontainer/` is still a script,
-  and a `.js`/`.mjs` file anywhere is treated as a tool, so the website's own
-  build checks are listed one by one below rather than exempted by folder.
+- **What is not automation** is declarative source and data: product source
+  (`crates/cabin*`, `registry/src/`), `examples/` and `ports/`, the
+  `Dockerfile`, `demo.tape`, and `devcontainer.json`. The distinction is the
+  artifact, not the directory - a shell script under `.devcontainer/` is
+  still a script.
+- TypeScript and JavaScript are the one ambiguous case, because the website
+  is written in them and so is some tooling. The rule's domain is drawn by
+  `PRODUCT_SOURCE_ROOTS` in `crates/xtask-ci/src/scripts.rs` - today just
+  `website/src/`, the site itself. Inside a root, `.ts`/`.tsx`/`.js`/`.mjs`
+  is source; outside one it is a tool, which is why the website's own build
+  checks are listed by exact path below. A root is scope, not an exception,
+  and a shell script inside one is still a script.
 - A workflow that runs an alias needs `.cargo/config.toml` and the tool's
   crate directory in its trigger paths, or an edit there silently stops
   reaching the job it feeds.

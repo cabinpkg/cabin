@@ -29,8 +29,15 @@ fn scratch(files: &[(&str, &str)]) -> assert_fs::TempDir {
             (path.to_owned(), contents)
         })
         .collect();
+    // Each product-source root must hold something, or the guard reports
+    // it stale like any other declaration that stopped binding.
+    let roots: Vec<String> = scripts::source_roots()
+        .into_iter()
+        .map(|root| format!("{root}placeholder.ts"))
+        .collect();
     let mut all: Vec<(&str, &str)> = Vec::new();
     all.extend(real.iter().map(|(p, c)| (p.as_str(), c.as_str())));
+    all.extend(roots.iter().map(|path| (path.as_str(), "export {};\n")));
     all.extend_from_slice(files);
     let dir = bare_scratch(&all);
     // `LEGACY_SCRIPTS` pins the index mode as well as the blob id, so the
@@ -125,6 +132,9 @@ fn source_and_data_pass() {
         ("crates/cabin/tests/cli.rs", "#![cfg(unix)]\nfn main() {}\n"),
         ("website/src/pages/index.astro", "---\n---\n<html></html>\n"),
         ("website/src/lib/ports.ts", "export const ports = [];\n"),
+        ("website/src/scripts/home-stats.ts", "export {};\n"),
+        // Source languages are source INSIDE the website source root.
+        ("website/src/lib/helper.mjs", "export const x = 1;\n"),
         ("Dockerfile", "FROM rust:1\nRUN cargo build\n"),
         ("demo.tape", "Type \"cabin build\"\n"),
         ("docs/architecture.md", "# Architecture\n"),
@@ -171,6 +181,17 @@ fn a_reintroduced_script_is_caught() {
         // other; only the website's own listed scripts are exempt.
         ("node", "tools/release.mjs", "console.log(1);\n"),
         ("node_cjs", "tools/release.cjs", "console.log(1);\n"),
+        // TypeScript is a source language, but only inside the
+        // website source root; a build tool written in it is a tool.
+        ("typescript", "tools/deploy.ts", "export {};\n"),
+        ("typescript_jsx", "tools/deploy.tsx", "export {};\n"),
+        ("typescript_module", "tools/deploy.mts", "export {};\n"),
+        // ...and a shell script is a script even inside it.
+        (
+            "shell_in_the_source_root",
+            "website/src/build.sh",
+            "echo hi\n",
+        ),
         (
             "node_outside_the_website_list",
             "website/scripts/release-tag.mjs",
@@ -230,6 +251,65 @@ fn an_executable_file_is_caught_whatever_its_name() {
     let caught = scripts::check(dir.path()).expect("run the guard");
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("the executable bit"), "{caught:?}");
+}
+
+/// The pinned wiring must sit where YAML would read it: copying the
+/// pinned job into a block scalar while deleting the real one satisfies
+/// a substring match but leaves the workflow with no guard job.
+#[test]
+fn the_pinned_job_must_be_a_real_job() {
+    let real = fs::read_to_string(repo_root().join(".github/workflows/rust.yml"))
+        .expect("read the rust workflow")
+        .replace("\r\n", "\n");
+    let job_start = real.find("  automation:\n").expect("the automation job");
+    let terminator = "\n  clippy:";
+    let job_end = real.find(terminator).expect("the next job") + terminator.len();
+    let job = real[job_start..job_end].to_owned();
+
+    // Delete the real job, and park its exact text as inert content of a
+    // top-level block scalar - at the same indent, so a substring match
+    // still finds it.
+    let without = format!(
+        "{}{}",
+        &real[..job_start],
+        &real[job_end - terminator.len() + 1..]
+    );
+    let mutated = without.replace("jobs:\n", &format!("x-note: |\n{job}\n\njobs:\n"));
+    assert!(
+        mutated.contains(&job),
+        "the smuggled copy should still satisfy a substring match"
+    );
+    assert!(
+        !mutated.contains("\njobs:\n  automation:"),
+        "the real job should be gone"
+    );
+
+    let dir = scratch(&[]);
+    write(&dir, ".github/workflows/rust.yml", &mutated);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.contains("automation job is not the pinned one")),
+        "{caught:?}"
+    );
+}
+
+/// A source root that names nothing is a rule that stopped binding.
+#[test]
+fn the_source_roots_hold_tracked_source() {
+    assert!(violations(&[]).is_empty(), "a seeded scratch tree is clean");
+    let workflow = fs::read_to_string(repo_root().join(".github/workflows/rust.yml"))
+        .expect("read the rust workflow");
+    let bare = bare_scratch(&[(".github/workflows/rust.yml", &workflow)]);
+    let caught = scripts::check(bare.path()).expect("run the guard");
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.contains("declared a product-source root but tracks nothing")),
+        "a root that holds nothing should report stale: {caught:?}"
+    );
 }
 
 /// A symlink would give an excepted script a second path the list does
@@ -295,13 +375,15 @@ fn a_stale_exception_is_a_violation() {
     let stale = scripts::check(dir.path()).expect("run the guard");
     assert_eq!(
         stale.len(),
-        scripts::exceptions().len(),
-        "every exception should report as stale in an empty tree: {stale:?}"
+        scripts::exceptions().len() + scripts::source_roots().len(),
+        "every exception and source root should report stale in an empty tree: {stale:?}"
     );
-    assert!(
+    assert_eq!(
         stale
             .iter()
-            .all(|line| line.contains("delete its exception")),
+            .filter(|line| line.contains("delete its exception"))
+            .count(),
+        scripts::exceptions().len(),
         "{stale:?}"
     );
 }
