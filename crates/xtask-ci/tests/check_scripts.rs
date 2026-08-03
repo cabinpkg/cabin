@@ -988,6 +988,24 @@ fn a_shipped_crate_depending_on_a_tool_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("never part of what ships"), "{caught:?}");
 
+    // A rename can also live in the workspace table the crate inherits.
+    let inherited = violations(&[
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\"]\n\n\
+             [workspace.dependencies]\nguard = { package = \"xtask-ci\", path = \"crates/xtask-ci\" }\n",
+        ),
+        (
+            "crates/cabin/Cargo.toml",
+            "[package]\nname = \"cabin\"\n\n[dependencies]\nguard.workspace = true\n",
+        ),
+    ]);
+    assert_eq!(inherited.len(), 1, "{inherited:?}");
+    assert!(
+        inherited[0].contains("never part of what ships"),
+        "{inherited:?}"
+    );
+
     // A dev-dependency is test-only, which is how crates/cabin reaches
     // the publisher for its registry fixtures.
     let dev = "[package]\nname = \"cabin\"\n\n[dev-dependencies]\n\

@@ -34,10 +34,12 @@
 //! in the same change.
 //!
 //! ponytail: a tracked-content scan, not a sandbox.  Ceilings, stated so
-//! nobody mistakes them for coverage: automation smuggled in as a data
-//! file and run through an interpreter argument
-//! (`node tools/deploy.data`) passes the file scan - the workflow-block
-//! scan is what catches the caller; `website/src/**/*.ts` is website
+//! nobody mistakes them for coverage: this reads TRACKED FILES, so shell
+//! written inside a workflow `run:` block is not scanned at all, and
+//! neither is automation smuggled in as a data file and run through an
+//! interpreter argument (`node tools/deploy.data`) - AGENTS.md forbids
+//! both, and until the workflow-block scan lands, review is what
+//! enforces that half; `website/src/**/*.ts` is website
 //! source and is not scanned as tooling; a file name whose extension
 //! uses non-ASCII homoglyphs would not match; `TOOLING_EXTENSIONS` names
 //! the languages somebody thought of, so one nobody did is caught by the
@@ -841,6 +843,13 @@ fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
     let Ok(entries) = std::fs::read_dir(&crates) else {
         return Ok(Vec::new());
     };
+    // `dep.workspace = true` carries no package name of its own: the
+    // root table holds it, rename included.
+    let root = manifest(&repo_root.join("Cargo.toml"))?;
+    let inherited = root
+        .get("workspace")
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(toml::Value::as_table);
     let mut dirs: Vec<String> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
@@ -854,11 +863,19 @@ fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
         let manifest = manifest(&crates.join(&dir).join("Cargo.toml"))?;
         for (kind, table) in dependency_tables(&manifest) {
             // The table key is the name the crate refers to it by; a
-            // `package = ` field says what it actually depends on.
-            let named = table.iter().filter_map(|(key, spec)| {
+            // `package = ` field - here or in the workspace table this
+            // one inherits from - says what it actually depends on.
+            let named = table.iter().map(|(key, spec)| {
+                let inherited = spec
+                    .get("workspace")
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or_default()
+                    .then(|| inherited.and_then(|table| table.get(key)))
+                    .flatten();
                 spec.get("package")
+                    .or_else(|| inherited.and_then(|spec| spec.get("package")))
                     .and_then(toml::Value::as_str)
-                    .or(Some(key.as_str()))
+                    .unwrap_or(key.as_str())
             });
             for tool in named.filter(|name| name.starts_with("xtask-")) {
                 problems.push(format!(
