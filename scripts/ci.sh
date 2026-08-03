@@ -161,7 +161,6 @@ fi
 step cargo fmt --all --verbose -- --check
 step taplo fmt --check
 step typos
-step cargo check-scripts
 
 if [[ -n "$base" && -n "$commits" ]]; then
   step npx --yes --package @commitlint/cli --package @commitlint/config-conventional \

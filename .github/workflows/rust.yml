@@ -54,8 +54,16 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      # Built, then executed directly: `cargo run` honors a
+      # `[target.<cfg>] runner` from .cargo/config.toml, so a change
+      # could add one and have CI run `true` in place of the guard. A
+      # plain exec cannot be redirected that way, and the guard itself
+      # then refuses any non-[alias] section in that file.
+      - name: Build the repository automation guard
+        run: cargo build --locked -p xtask-ci
+
       - name: Repository automation guard
-        run: cargo check-scripts
+        run: ./target/debug/xtask-ci check-scripts
 
   clippy:
     runs-on: ubuntu-latest

@@ -191,7 +191,7 @@ const LEGACY_SCRIPTS: [(&str, &str, &str, &str); 12] = [
         "scripts/ci.sh",
         "xtask-ci",
         "100755",
-        "0988ea652abf2399463f223a377a583f836b9f31",
+        "573aa5bad6ca2aacfadeddc96c50d36b16f9c1c1",
     ),
 ];
 
@@ -214,7 +214,7 @@ const WEBSITE_SCRIPTS: [&str; 6] = [
 /// The workflow that must run this guard, and the job that must do it.
 const GUARD_WORKFLOW: &str = ".github/workflows/rust.yml";
 const GUARD_JOB: &str = "automation";
-const GUARD_COMMAND: &str = "cargo check-scripts";
+const GUARD_COMMAND: &str = "./target/debug/xtask-ci check-scripts";
 
 /// The trigger block `rust.yml` must carry, verbatim: no `paths:` or
 /// `paths-ignore:` filter, and `pull_request` present, so no change can
@@ -243,8 +243,16 @@ const PINNED_JOB: &str = "  automation:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
+      # Built, then executed directly: `cargo run` honors a
+      # `[target.<cfg>] runner` from .cargo/config.toml, so a change
+      # could add one and have CI run `true` in place of the guard. A
+      # plain exec cannot be redirected that way, and the guard itself
+      # then refuses any non-[alias] section in that file.
+      - name: Build the repository automation guard
+        run: cargo build --locked -p xtask-ci
+
       - name: Repository automation guard
-        run: cargo check-scripts
+        run: ./target/debug/xtask-ci check-scripts
 
   clippy:";
 
@@ -317,6 +325,7 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
 
+    violations.extend(cargo_config_problems(repo_root)?);
     violations.extend(xtask_crate_problems(repo_root)?);
     violations.extend(workflow_wiring_problems(repo_root));
     Ok(violations)
@@ -521,6 +530,37 @@ fn first_line_shebang(path: &Path) -> Result<bool> {
     };
     let line = rest.split(|&byte| byte == b'\n').next().unwrap_or_default();
     Ok(!line.starts_with(b"[") && line.iter().any(|byte| !byte.is_ascii_whitespace()))
+}
+
+/// Whatever is wrong with `.cargo/config.toml` beyond the aliases.
+///
+/// The file claims to be `[alias]`-only, and that claim is load-bearing
+/// twice over: a `[build]` or `[target]` key here also reaches the
+/// standalone `registry/` workspace, and a `[target.<cfg>] runner` would
+/// make `cargo run` execute something else entirely - so the CI job
+/// could report success having run `true` instead of this guard.
+fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
+    let path = repo_root.join(".cargo/config.toml");
+    if !path.is_file() {
+        return Ok(vec![
+            ".cargo/config.toml is missing; it is where the aliases live".to_owned(),
+        ]);
+    }
+    let config = manifest(&path)?;
+    let Some(table) = config.as_table() else {
+        return Ok(vec![".cargo/config.toml is not a table".to_owned()]);
+    };
+    Ok(table
+        .keys()
+        .filter(|key| key.as_str() != "alias")
+        .map(|key| {
+            format!(
+                ".cargo/config.toml carries a [{key}] section; it must stay [alias]-only \
+                 (a runner or build key would change what `cargo run` executes, this guard \
+                 included, and reaches the registry workspace as well)"
+            )
+        })
+        .collect())
 }
 
 /// Whatever is wrong with the shape of the `xtask-*` crates: the

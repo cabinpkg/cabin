@@ -22,7 +22,7 @@ fn scratch(files: &[(&str, &str)]) -> assert_fs::TempDir {
     // function of the bytes, so a placeholder would read as an edit.
     let real: Vec<(String, String)> = scripts::exceptions()
         .into_iter()
-        .chain([".github/workflows/rust.yml"])
+        .chain([".github/workflows/rust.yml", ".cargo/config.toml"])
         .map(|path| {
             let contents = fs::read_to_string(repo_root().join(path))
                 .unwrap_or_else(|err| panic!("read {path}: {err}"));
@@ -296,6 +296,36 @@ fn the_pinned_job_must_be_a_real_job() {
     );
 }
 
+/// A cargo runner would make `cargo run` execute something else - the
+/// guard's own CI job included - so the config stays alias-only.
+#[test]
+fn a_non_alias_cargo_config_section_is_caught() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "runner",
+            "[alias]\ndemo = \"run -p xtask-demo -- demo\"\n\n[target.'cfg(all())']\nrunner = \"true\"\n",
+        ),
+        (
+            "build",
+            "[alias]\ndemo = \"run -p xtask-demo -- demo\"\n\n[build]\nrustflags = [\"-C\", \"panic=abort\"]\n",
+        ),
+    ];
+    let escaped: Vec<&str> = cases
+        .iter()
+        .filter(|(_, config)| {
+            let dir = scratch(&[]);
+            write(&dir, ".cargo/config.toml", config);
+            restage(&dir);
+            !scripts::check(dir.path())
+                .expect("run the guard")
+                .iter()
+                .any(|line| line.contains("must stay [alias]-only"))
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(escaped.is_empty(), "the guard accepted {escaped:?}");
+}
+
 /// A source root that names nothing is a rule that stopped binding.
 #[test]
 fn the_source_roots_hold_tracked_source() {
@@ -375,7 +405,8 @@ fn a_stale_exception_is_a_violation() {
     let stale = scripts::check(dir.path()).expect("run the guard");
     assert_eq!(
         stale.len(),
-        scripts::exceptions().len() + scripts::source_roots().len(),
+        // Every exception, every source root, and the missing alias file.
+        scripts::exceptions().len() + scripts::source_roots().len() + 1,
         "every exception and source root should report stale in an empty tree: {stale:?}"
     );
     assert_eq!(
@@ -500,8 +531,15 @@ fn switching_the_guard_off_in_ci_is_caught() {
         ),
         (
             "command_commented_out",
+            "        run: ./target/debug/xtask-ci check-scripts\n",
+            "        run: echo skip # ./target/debug/xtask-ci check-scripts\n",
+        ),
+        (
+            // `cargo run` would honor a [target] runner; the direct exec
+            // is what makes the alias-only check trustworthy.
+            "back_to_cargo_run",
+            "        run: ./target/debug/xtask-ci check-scripts\n",
             "        run: cargo check-scripts\n",
-            "        run: echo skip # cargo check-scripts\n",
         ),
     ];
     let escaped: Vec<&str> = mutations

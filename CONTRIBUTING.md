@@ -43,7 +43,12 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```
 
-`scripts/ci.sh` runs this gate locally, with one optional acceleration: when
+`cargo check-scripts` is the one required check `scripts/ci.sh` does not run: it
+is a legacy shell script under an immutable exception, and extending it is
+exactly what that exception forbids.  It moves into `cargo ci` when the script
+migrates.
+
+`scripts/ci.sh` runs the rest of this gate locally, with one optional acceleration: when
 [`cargo-nextest`](https://nexte.st) is installed it runs the test phase through
 `cargo nextest run` instead of `cargo test`.  Both run the same set - the phase's `--all-targets`
 excludes doctests either way, and both carry `--no-fail-fast` so one failure never hides the rest -

@@ -57,8 +57,14 @@ aliases name root-workspace packages, so run them from the repository root -
 `registry/` is a separate workspace and resolves against its own manifest.
 
 `cargo check-scripts` enforces this and runs on every pull request
-(`rust.yml`, which carries no `paths:` filter). It is the rule's mechanical
-half; the rule itself is broader than what a scan can prove.
+(`rust.yml`, which carries no `paths:` filter - the job builds the guard and
+execs it directly, because `cargo run` would honor a `[target] runner` that
+could stand in for it). It is the rule's mechanical half; the rule itself is
+broader than what a scan can prove.
+
+`.cargo/config.toml` stays `[alias]`-only, and the guard refuses any other
+section: a `runner` there changes what `cargo run` and `cargo test` execute
+repository-wide, and a `[build]` key also reaches the `registry/` workspace.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
