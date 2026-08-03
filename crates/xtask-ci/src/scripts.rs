@@ -1182,42 +1182,7 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
-        // Cargo reads its configuration from the environment as readily
-        // as from the file: CARGO_ALIAS_X is an alias mapping,
-        // CARGO_TARGET_<TRIPLE>_RUNNER is the runner that file is kept
-        // free of, CARGO_BUILD_* moves what gets built and where, and
-        // CARGO_HOME names a whole other config.toml to read them from.
-        if text
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-            .any(|word| {
-                [
-                    "CARGO_ALIAS_",
-                    "CARGO_TARGET_",
-                    "CARGO_BUILD_",
-                    "CARGO_HOME",
-                ]
-                .iter()
-                .any(|known| word.starts_with(known))
-            })
-        {
-            problems.push(format!(
-                "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_/CARGO_HOME \
-                 variable; cargo takes an alias, a runner, a build directory - and another \
-                 config.toml to find them in - from the environment over {CARGO_CONFIG}, \
-                 which is the file this guard checks"
-            ));
-        }
-        // The same override, spelled at the call site.
-        if text
-            .split_whitespace()
-            .any(|word| word.trim_matches(['"', '\'']).split('=').next() == Some("--config"))
-        {
-            problems.push(format!(
-                "{listed} passes --config; cargo takes configuration - an alias mapping and \
-                 a [target] runner among it - from there over {CARGO_CONFIG}, which is the \
-                 file this guard checks"
-            ));
-        }
+        problems.extend(cargo_override_problems(listed, text));
         let run: Vec<&str> = runs
             .get(listed.as_str())
             .into_iter()
@@ -1272,6 +1237,49 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(problems)
+}
+
+/// Whatever in a workflow would remap what an alias runs.
+///
+/// Cargo reads its configuration from the environment and the command
+/// line as readily as from the file this guard checks: `CARGO_ALIAS_X`
+/// is an alias mapping, `CARGO_TARGET_<TRIPLE>_RUNNER` is the runner
+/// that file is kept free of, `CARGO_BUILD_*` moves what gets built and
+/// where, `CARGO_HOME` names a whole other `config.toml` to find them
+/// in, and `--config` says any of it inline.
+fn cargo_override_problems(listed: &str, text: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    if text
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .any(|word| {
+            [
+                "CARGO_ALIAS_",
+                "CARGO_TARGET_",
+                "CARGO_BUILD_",
+                "CARGO_HOME",
+            ]
+            .iter()
+            .any(|known| word.starts_with(known))
+        })
+    {
+        problems.push(format!(
+            "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_/CARGO_HOME variable; \
+             cargo takes an alias, a runner, a build directory - and another config.toml to \
+             find them in - from the environment over {CARGO_CONFIG}, which is the file this \
+             guard checks"
+        ));
+    }
+    if text
+        .split_whitespace()
+        .any(|word| word.trim_matches(['"', '\'']).split('=').next() == Some("--config"))
+    {
+        problems.push(format!(
+            "{listed} passes --config; cargo takes configuration - an alias mapping and a \
+             [target] runner among it - from there over {CARGO_CONFIG}, which is the file \
+             this guard checks"
+        ));
+    }
+    problems
 }
 
 /// Every workflow file under `.github/workflows`, by repository path.
