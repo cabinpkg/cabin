@@ -1350,32 +1350,44 @@ fn calls(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The tool crates this repository has, as (directory, package name).
+/// Every crate under `crates/`, as (directory, package name, private).
 ///
 /// Read from the manifests, not from the directory names: a package may
 /// be called anything wherever it sits, and a tool hiding under an
 /// ordinary directory name is exactly what the location rule is for.
-fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
+fn workspace_crates(repo_root: &Path) -> Vec<(String, String, bool)> {
     let crates = repo_root.join("crates");
     let Ok(entries) = std::fs::read_dir(&crates) else {
         return Vec::new();
     };
-    let mut found: Vec<(String, String)> = entries
+    let mut found: Vec<(String, String, bool)> = entries
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter_map(|dir| {
             let manifest = manifest(&crates.join(&dir).join("Cargo.toml")).ok()?;
-            let name = manifest
-                .get("package")
-                .and_then(|package| package.get("name"))
-                .and_then(toml::Value::as_str)
-                .filter(|name| name.starts_with("xtask-"))?
+            let package = manifest.get("package")?;
+            let name = package
+                .get("name")
+                .and_then(toml::Value::as_str)?
                 .to_owned();
-            Some((dir, name))
+            let private = package
+                .get("publish")
+                .and_then(toml::Value::as_bool)
+                .is_some_and(|publish| !publish);
+            Some((dir, name, private))
         })
         .collect();
     found.sort();
     found
+}
+
+/// The tool crates this repository has, as (directory, package name).
+fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
+    workspace_crates(repo_root)
+        .into_iter()
+        .filter(|(_, name, _)| name.starts_with("xtask-"))
+        .map(|(dir, name, _)| (dir, name))
+        .collect()
 }
 
 /// Whether `text` names a tool crate as a thing to build or run.
@@ -1473,11 +1485,23 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
     // Found by manifest, not by directory name: `crates/tools` calling
     // itself `xtask-rogue` is a tool the directory scan below would
     // never look at, and an alias could reach it by package name.
-    for (dir, package) in xtask_packages(repo_root) {
-        if dir != package {
+    //
+    // `publish = false` is what a tool is, in this workspace: every
+    // crate that ships is published, so a private one is maintainer
+    // tooling whatever it calls itself - and tooling is an xtask crate.
+    for (dir, package, private) in workspace_crates(repo_root) {
+        let tool = package.starts_with("xtask-");
+        if tool && dir != package {
             problems.push(format!(
                 "crates/{dir} declares the package {package}; a tool crate lives at \
                  crates/<its own name>, which is where everything that checks one looks"
+            ));
+        }
+        if private && !tool {
+            problems.push(format!(
+                "crates/{dir} declares {package} publish = false but is not an xtask crate; \
+                 a private crate here is maintainer tooling, which is a crates/xtask-* crate \
+                 reached through an alias (AGENTS.md, \"Repository automation\")"
             ));
         }
     }

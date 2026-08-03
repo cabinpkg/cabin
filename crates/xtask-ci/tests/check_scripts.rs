@@ -1156,6 +1156,19 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         "{hidden:?}"
     );
 
+    // A private crate is maintainer tooling whatever it calls itself:
+    // everything this workspace ships is published.
+    let private = violations(&[(
+        "crates/tools/Cargo.toml",
+        "[package]\nname = \"runner\"\npublish = false\n",
+    )]);
+    assert!(
+        private
+            .iter()
+            .any(|line| line.contains("publish = false but is not an xtask crate")),
+        "{private:?}"
+    );
+
     // `publish` may be inherited from the workspace, where it is the
     // plain boolean this rule wants.
     let inherited = base(
