@@ -569,7 +569,8 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     // A workflow can reach a tool with no alias at all.
     let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                   build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \
-                  - run: ./target/debug/xtask-port-publish --dry-run\n";
+                  - run: ./target/debug/xtask-port-publish --dry-run\n      \
+                  - run: cargo run --package=xtask-port-publish -- --help\n";
     let caught = violations(&[(".github/workflows/direct.yml", direct)]);
     assert!(
         caught
@@ -1256,6 +1257,15 @@ fn a_shipped_crate_depending_on_a_tool_is_caught() {
     let caught = violations(&[("crates/cabin/Cargo.toml", renamed)]);
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("never part of what ships"), "{caught:?}");
+
+    // A shipped crate can be nested too.
+    let nested = violations(&[(
+        "crates/libs/shipper/Cargo.toml",
+        "[package]\nname = \"shipper\"\n\n[dependencies]\n\
+         guard = { package = \"xtask-ci\", path = \"../../xtask-ci\" }\n",
+    )]);
+    assert_eq!(nested.len(), 1, "{nested:?}");
+    assert!(nested[0].contains("never part of what ships"), "{nested:?}");
 
     // A rename can also live in the workspace table the crate inherits.
     let inherited = violations(&[

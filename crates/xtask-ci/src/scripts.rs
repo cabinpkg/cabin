@@ -960,9 +960,9 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// from the binary, SOME shipped crate has to name it.
 fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
     let crates = repo_root.join("crates");
-    let Ok(entries) = std::fs::read_dir(&crates) else {
+    if !crates.is_dir() {
         return Ok(Vec::new());
-    };
+    }
     // `dep.workspace = true` carries no package name of its own: the
     // root table holds it, rename included.
     let root = manifest(&repo_root.join("Cargo.toml"))?;
@@ -970,13 +970,13 @@ fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
         .get("workspace")
         .and_then(|workspace| workspace.get("dependencies"))
         .and_then(toml::Value::as_table);
-    let mut dirs: Vec<String> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| !name.starts_with("xtask-"))
-        .filter(|name| crates.join(name).join("Cargo.toml").is_file())
+    // Every crate, at any depth, that is not itself a tool: a shipped
+    // one nested under `crates/libs/` reaches the binary the same way.
+    let dirs: Vec<String> = workspace_crates(repo_root)
+        .into_iter()
+        .filter(|(_, package, _)| !package.starts_with("xtask-"))
+        .map(|(dir, ..)| dir)
         .collect();
-    dirs.sort();
 
     let mut problems = Vec::new();
     for dir in dirs {
@@ -1409,7 +1409,7 @@ fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
 /// surely as `cargo foo` is. Matched on the last path component, so a
 /// trigger path (`crates/xtask-foo/**`) is not a use of it.
 fn uses_tool(text: &str, tool: &str) -> bool {
-    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],\\".contains(c);
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
     text.split(separator)
         .filter_map(|word| word.rsplit('/').next())
         .any(|word| word == tool)
@@ -1429,7 +1429,7 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // whole file is one stream because a `run:` block can be folded
     // (`run: >`) or continued (`cargo \`), putting the command and its
     // argument on different lines of the YAML.
-    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],\\".contains(c);
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
     // Cargo may be reached by path (`~/.cargo/bin/cargo`, `cargo.exe`).
     let is_cargo = |word: &str| {
         let base = word.rsplit(['/', '\\']).next().unwrap_or(word);
