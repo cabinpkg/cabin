@@ -587,6 +587,21 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
+    // Cargo can run a loose source file too, given the flag for it.
+    let script = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                  build:\n    steps:\n      \
+                  - run: cargo +nightly -Zscript tools/deploy.rs\n";
+    let caught = violations(&[
+        (".github/workflows/script.yml", script),
+        ("tools/deploy.rs", "fn main() {}\n"),
+    ]);
+    assert!(
+        caught
+            .iter()
+            .any(|line| line.contains("single-file cargo script")),
+        "{caught:?}"
+    );
+
     // A workflow can reach a tool with no alias at all, in each of the
     // spellings that reaches one.
     for call in [
@@ -694,17 +709,24 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     }
     // A subcommand assembled from fragments matches no alias at all, so
     // the unreadable-invocation rule is what catches it.
-    let fragments = "    strategy:\n      matrix:\n        stem: [check]\n                             kind: [sql]\n    steps:\n                           - run: cargo ${{ matrix.stem }}-${{ matrix.kind }}\n";
-    let caught = violations(&[(
-        ".github/workflows/consumer.yml",
-        &format!("{head}{fragments}"),
-    )]);
-    assert!(
-        caught
-            .iter()
-            .any(|line| line.contains("assembled from an expression")),
-        "{caught:?}"
-    );
+    for fragments in [
+        "    strategy:\n      matrix:\n        stem: [check]\n        kind: [sql]\n    \
+         steps:\n      - run: cargo ${{ matrix.stem }}-${{ matrix.kind }}\n",
+        // The shell assembles one the same way.
+        "    env:\n      STEM: check\n      KIND: sql\n    steps:\n      \
+         - run: cargo \"$STEM-$KIND\"\n",
+    ] {
+        let caught = violations(&[(
+            ".github/workflows/consumer.yml",
+            &format!("{head}{fragments}"),
+        )]);
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains("assembled from an expression")),
+            "{fragments}: {caught:?}"
+        );
+    }
 }
 
 /// The alias-only check is worth only as much as the guarantee that the

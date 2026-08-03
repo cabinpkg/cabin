@@ -1294,15 +1294,32 @@ fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
                 continue;
             }
             // The first word that is not a flag is the subcommand.
-            if let Some(command) = words
+            let Some(command) = words
                 .clone()
                 .find(|next| !next.starts_with('-') && !next.starts_with('+'))
-                && command.contains("${{")
-            {
+            else {
+                continue;
+            };
+            // `$FOO` and `${{ matrix.foo }}` alike: whatever the command
+            // turns out to be, it is not in the file.
+            if command.contains('$') {
                 return Some(format!(
                     "{listed} runs `cargo {command}`, a subcommand assembled from an \
                      expression; name the alias literally, so what this workflow runs can \
                      be read here"
+                ));
+            }
+            // `cargo -Zscript tools/deploy.rs` runs a loose source file
+            // as a single-file package: a crate with no manifest, no
+            // name and no alias.
+            if std::path::Path::new(command)
+                .extension()
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("rs"))
+            {
+                return Some(format!(
+                    "{listed} runs `cargo {command}`, a single-file cargo script; a loose \
+                     .rs file belongs to no crate and no alias, which is where repository \
+                     automation lives (AGENTS.md, \"Repository automation\")"
                 ));
             }
         }
