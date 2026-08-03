@@ -379,8 +379,11 @@ fn a_non_repository_refuses() {
 /// same change.
 #[test]
 fn switching_the_guard_off_in_ci_is_caught() {
+    // Windows checkouts normalize to CRLF; the mutations below are
+    // written with the line endings the repository stores.
     let real = fs::read_to_string(repo_root().join(".github/workflows/rust.yml"))
-        .expect("read the rust workflow");
+        .expect("read the rust workflow")
+        .replace("\r\n", "\n");
     let mutations: &[(&str, &str, &str)] = &[
         (
             "paths_filter",
