@@ -738,7 +738,8 @@ ledger's own invariants: entries the older code does not recognize
 keep holding their allowance (conservative, never spend), and the
 reconciliation cron keeps settling the primary pool from D1 either
 way. If the rollback was prompted by suspected accounting corruption,
-stop before rolling back and capture `scripts/diagnose.sh` output plus
+stop before rolling back and capture `cargo registry-diagnose` output (from
+the repository root) plus
 `scripts/governor.sh usage` first - Cloudflare's 30-day Durable Object
 point-in-time recovery ("Known ceilings" above) needs the incident
 time, and a rollback does not restore DO state.
@@ -1102,9 +1103,11 @@ after a `SELECT ... FROM` as a join constraint and rejects the upsert.)
 `req=<id> method=<m> path=<p> status=<s> token=<token-row-id|->`. Tokens and
 token hashes are never logged.
 
-For an incident report or a bug thread, `scripts/diagnose.sh` gathers
+For an incident report or a bug thread, `cargo registry-diagnose`, run from
+the repository root, gathers
 the shareable aggregate state in one pass - config and stamp status,
 service mode, corpus and queue counts, the governor snapshot (with
 `REGISTRY_VERIFY_TOKEN`), and the deployment list - and deliberately
-prints no tokens, object keys, content checksums, package names, or
-user data.
+prints no tokens, content checksums, package names, or user data. The
+one object key it carries is `meta.last_backup_key`, which the backup
+job writes as `d1/<date>.sql` and nothing else writes at all.

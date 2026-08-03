@@ -117,7 +117,6 @@ fn the_operator_scripts_stay_documented() {
         "scripts/governor.sh",
         "scripts/backup-audit.sh",
         "scripts/migrate.sh",
-        "scripts/diagnose.sh",
     ]
     .into_iter()
     .filter(|script| {
@@ -134,6 +133,31 @@ fn the_operator_scripts_stay_documented() {
         undocumented.is_empty(),
         "docs/runbook.md never mentions: {undocumented:?}"
     );
+}
+
+/// The same pin for the operator commands that have migrated out of
+/// `scripts/` into `crates/xtask-registry-admin`: the alias exists and
+/// the runbook names it. It stays here, outside the crate it guards,
+/// because a test inside that crate would be deleted along with the
+/// thing whose absence it is meant to catch.
+#[test]
+fn the_operator_commands_stay_documented() {
+    const COMMANDS: [(&str, &str); 1] = [("registry-diagnose", "xtask-registry-admin")];
+
+    let runbook = read("docs/runbook.md");
+    let aliases =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.cargo/config.toml"))
+            .expect("read ../.cargo/config.toml");
+    for (alias, package) in COMMANDS {
+        assert!(
+            aliases.contains(&format!("{alias} = \"run --quiet --locked -p {package} --")),
+            "the {alias} alias is gone; remove it from this pin and the runbook together"
+        );
+        assert!(
+            runbook.contains(&format!("cargo {alias}")),
+            "docs/runbook.md never mentions cargo {alias}"
+        );
+    }
 }
 
 /// The smoke scenarios that prove the governor's operational behavior
