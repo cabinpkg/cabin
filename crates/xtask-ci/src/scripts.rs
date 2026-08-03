@@ -44,7 +44,12 @@
 //! interpreter argument (`node tools/deploy.json`) or a compiler (`cc
 //! tools/deploy.c && ./deploy`), the C kinds being kept because this is
 //! a C/C++ package manager whose examples and fixtures are written in
-//! them.  AGENTS.md forbids both, and until the workflow-block scan
+//! them.  What `unreadable_invocation` reads of those blocks is a skim
+//! and not a parse, for the same reason the file scan is an allowlist:
+//! the wrappers that can stand in front of a command (`rustup run
+//! stable rustc …`, `env`, `nice`, `sh -c`) are an open list, so
+//! enumerating them buys a little and promises a lot.  AGENTS.md
+//! forbids all of it, and until the workflow-block scan
 //! lands, review is what enforces that half, with
 //! the executable bit and the shebang catching the rest;
 //! `website/src/**/*.ts` is website
