@@ -232,6 +232,20 @@ fn an_executable_file_is_caught_whatever_its_name() {
     assert!(caught[0].contains("the executable bit"), "{caught:?}");
 }
 
+/// A symlink would give an excepted script a second path the list does
+/// not carry.
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_an_excepted_script_is_caught() {
+    let dir = scratch(&[]);
+    fs::create_dir_all(dir.path().join("tools")).expect("create tools/");
+    std::os::unix::fs::symlink("../scripts/ci.sh", dir.path().join("tools/ci")).expect("symlink");
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("a tracked symlink"), "{caught:?}");
+}
+
 /// The exceptions are exact paths: a sibling script in the same
 /// directory, or the same name elsewhere, is not covered by them.
 #[test]

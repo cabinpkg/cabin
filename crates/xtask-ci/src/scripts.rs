@@ -12,6 +12,7 @@
 //! - the executable bit, which is what makes an extensionless,
 //!   shebang-less file runnable as `./tools/deploy`;
 //! - an interpreter shebang on the first line;
+//! - a symlink, which would give any file a second, unlisted path;
 //! - a submodule, whose contents this guard cannot see.
 //!
 //! Two exact-path lists carve out what exists today, and nothing else
@@ -361,8 +362,14 @@ fn entry_problem(repo_root: &Path, entry: &Entry) -> Option<String> {
             "{path}: a submodule's contents cannot be inspected by this guard; \
              vendor what you need instead (AGENTS.md, \"Repository automation\")"
         )),
-        // A symlink's bytes are its target path, not a script.
-        "120000" => None,
+        // A symlink aliases whatever it points at - including an
+        // excepted script, which would give that exception a second,
+        // unlisted path. There are none in this tree, so refusing
+        // outright costs nothing and bounds what an exception covers.
+        "120000" => Some(format!(
+            "{path}: a tracked symlink can alias any file, including an excepted one, \
+             giving it a second path this guard does not list; {remedy}"
+        )),
         "100755" => Some(format!(
             "{path}: the executable bit makes this runnable as a script, \
              whatever its name; {remedy}"
