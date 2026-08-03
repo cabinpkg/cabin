@@ -33,6 +33,7 @@ surfaces.
 ## Repository shape today
 
 ```
+.cargo/config.toml   cargo aliases for the xtask-* repository tools
 crates/
   cabin-core/        stable internal data model
   cabin-manifest/    cabin.toml parsing
@@ -48,7 +49,7 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
-  cabin-port-publish/ repository tool: publishes committed ports to cabin-ports
+  xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -442,7 +443,7 @@ Actions workflow, never by users.  The crate must:
 - treat archive-caused failures as verdicts and environment-caused failures as errors that
   leave the version pending (fail safe).
 
-### `cabin-port-publish`
+### `xtask-port-publish`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary) that
 publishes every committed foundation port as an ordinary registry package under the

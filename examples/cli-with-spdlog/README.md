@@ -7,7 +7,7 @@ A small command-line app that combines three `cabin-ports/*` registry packages i
 - [`cabin-ports/spdlog`](../../ports/spdlog) logs what the app is about to do.
 
 Each one is an ordinary scoped registry package, published to the Cabin registry from the curated
-port directory it links to by the repository tool `cabin-port-publish`.  See
+port directory it links to by the repository tool `xtask-port-publish`.  See
 [`docs/foundation-ports.md`](../../docs/foundation-ports.md).
 
 The spdlog package is header-only and defaults to its **bundled** {fmt} copy.  Cabin propagates

@@ -15,7 +15,7 @@ from 22.18).
   single `cabin.toml` whose `[package.upstream]` supplies the record's
   provenance; its display fields are null - the manifest carries none -
   so those UI sections hide).  `src/lib/ports.ts` mirrors the
-  `cabin-port-publish` identity
+  `xtask-port-publish` identity
   rules: the record name is the scoped registry name
   `cabin-ports/<lowercase name>`, the version is the upstream version
   verbatim (packaging corrections are registry revisions, never a

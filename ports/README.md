@@ -116,7 +116,7 @@ entire port removes the whole `ports/<name>/` directory.
 
 ## Publishing ports as `cabin-ports/*` registry packages
 
-The repository tool `cabin-port-publish` (`crates/cabin-port-publish`; not part of the shipped
+The repository tool `xtask-port-publish` (`crates/xtask-port-publish`; not part of the shipped
 `cabin` binary) publishes every port in this directory as an ordinary registry package under the
 `cabin-ports` scope.
 
@@ -127,8 +127,8 @@ port through an ordinary scoped registry dependency.
 
 ```console
 $ cargo build -p cabinpkg
-$ cargo run -p cabinpkg-port-publish -- --dry-run     # full local preflight, no remote mutation
-$ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.cabinpkg.com
+$ cargo port-publish --dry-run     # full local preflight, no remote mutation
+$ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
 CI automates the tool (`.github/workflows/ports-publish.yml`): pull requests touching this

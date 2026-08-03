@@ -19,6 +19,8 @@ same change and treat the architecture doc as authoritative.
 - `website/` - Astro site for `cabinpkg.com`; also renders `docs/`. Read
   `website/AGENTS.md` before changing website code or docs rendering.
 - `examples/` - runnable Cabin packages covered by CLI integration tests.
+- `.cargo/config.toml` - the Cargo aliases that expose the `xtask-*`
+  repository tools. See "Repository Automation".
 - `RELEASING.md` - maintainer release procedure. Do not infer release rules
   from CI alone, and do not change cargo-dist, binstall, publish, or release
   workflow behavior as part of unrelated work.
@@ -45,6 +47,33 @@ same change and treat the architecture doc as authoritative.
   characters (commitlint runs in CI).
 - Do not edit `typos.toml` or add allowlist entries unless a reviewer
   explicitly asks. Fix the spelling instead.
+
+## Repository Automation
+
+Repository automation belongs in Rust. Each tool is a private
+`crates/xtask-<name>` crate (`publish = false`, never part of the shipped
+`cabin` binary), reached through a Cargo alias in `.cargo/config.toml`. The
+aliases name root-workspace packages, so run them from the repository root -
+`registry/` is a separate workspace and resolves against its own manifest.
+
+`scripts/ci.sh` and the tools under `registry/scripts/` predate this
+convention and are being moved into it. They are the only shell and Perl
+tooling this repository keeps; do not extend them and do not add more.
+
+- New automation becomes a subcommand of the `xtask-*` crate that already
+  owns that responsibility, or a new crate when the responsibility *and* the
+  dependency set are genuinely new. Do not add a shell or Perl script, and do
+  not put substantial logic (loops, conditionals, functions, traps,
+  heredocs, embedded `node -` / `python3 -` / `perl -e`) in a workflow
+  `run:` block - call an alias instead. Plain invocations (`cargo build`,
+  `npm ci`, package installation) stay inline.
+- The rule covers repository tooling only. Product source (`crates/cabin*`,
+  `registry/src/`), website source and its npm scripts, the `Dockerfile`,
+  `demo.tape`, and devcontainer provisioning are not repository automation
+  and are unaffected.
+- A workflow that runs an alias needs `.cargo/config.toml` and the tool's
+  crate directory in its trigger paths, or an edit there silently stops
+  reaching the job it feeds.
 
 ## Engineering Principles
 

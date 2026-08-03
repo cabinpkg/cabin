@@ -2,7 +2,7 @@ name: Ports Publish
 
 # Publishes the committed foundation ports as `cabin-ports/*`
 # registry packages through the repository tool
-# (crates/cabin-port-publish). Pull requests run the complete
+# (crates/xtask-port-publish). Pull requests run the complete
 # preflight as a dry-run with no secrets; pushes to main publish the
 # published set; manual dispatch from main republishes everything (the
 # recovery path after a pre-launch registry wipe - dispatching any
@@ -22,6 +22,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/ports-publish.yml"
+      # The publish steps run the `cargo port-publish` alias.
+      - ".cargo/config.toml"
       # Cargo.lock / root Cargo.toml: the tool builds --locked, and
       # lock-only bumps of byte-producing dependencies (zip, flate2)
       # or workspace-manifest feature flips (which need no lockfile
@@ -30,7 +32,7 @@ on:
       - "Cargo.toml"
       - "ports/**"
       - "crates/cabin-artifact/**"
-      - "crates/cabin-port-publish/**"
+      - "crates/xtask-port-publish/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
       - "crates/cabin-package/**"
@@ -39,6 +41,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/ports-publish.yml"
+      # The publish steps run the `cargo port-publish` alias.
+      - ".cargo/config.toml"
       # Cargo.lock / root Cargo.toml: the tool builds --locked, and
       # lock-only bumps of byte-producing dependencies (zip, flate2)
       # or workspace-manifest feature flips (which need no lockfile
@@ -47,7 +51,7 @@ on:
       - "Cargo.toml"
       - "ports/**"
       - "crates/cabin-artifact/**"
-      - "crates/cabin-port-publish/**"
+      - "crates/xtask-port-publish/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
       - "crates/cabin-package/**"
@@ -88,7 +92,7 @@ jobs:
       # Restored archives are never trusted: the tool re-hashes every
       # cached archive against the SHA-256 its port's `[package.upstream]`
       # pins before use, and re-downloads on mismatch
-      # (cabin-port-publish::preflight),
+      # (xtask-port-publish::preflight),
       # so this cache saves bandwidth without vouching for bytes. Only
       # archives/ is cached - extracted sources/ trees are not
       # integrity-checked on reuse and stay run-local.
@@ -100,12 +104,11 @@ jobs:
           restore-keys: ports-archives-
 
       - name: Build cabin and the publisher
-        run: cargo build --locked -p cabinpkg -p cabinpkg-port-publish
+        run: cargo build --locked -p cabinpkg -p xtask-port-publish
 
       - name: Run the publisher dry-run
         run: |
-          cargo run --locked -p cabinpkg-port-publish -- \
-            --dry-run --cache-dir "$RUNNER_TEMP/cabin-cache"
+          cargo port-publish --dry-run --cache-dir "$RUNNER_TEMP/cabin-cache"
 
   publish:
     # The repository guard keeps forks (which have no
@@ -153,7 +156,7 @@ jobs:
           restore-keys: ports-archives-
 
       - name: Build cabin and the publisher
-        run: cargo build --locked -p cabinpkg -p cabinpkg-port-publish
+        run: cargo build --locked -p cabinpkg -p xtask-port-publish
 
       # Checked immediately before the publish command, after the long
       # build: the concurrency group serializes runs but does not
@@ -177,9 +180,10 @@ jobs:
         run: |
           git fetch --quiet origin main
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
-              .github/workflows/ports-publish.yml Cargo.lock \
+              .github/workflows/ports-publish.yml .cargo/config.toml \
+              Cargo.lock \
               Cargo.toml ports/ crates/cabin-artifact/ \
-              crates/cabin-port-publish/ \
+              crates/xtask-port-publish/ \
               crates/cabin-core/ crates/cabin-manifest/ \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/)" ]; then
@@ -287,8 +291,8 @@ jobs:
       - name: Publish to registry.cabinpkg.com
         if: steps.freshness.outputs.superseded != 'true'
         run: |
-          cargo run --locked -p cabinpkg-port-publish -- \
-            --publish --index-url https://registry.cabinpkg.com \
+          cargo port-publish --publish \
+            --index-url https://registry.cabinpkg.com \
             --cache-dir "$RUNNER_TEMP/cabin-cache"
         env:
           # The repository secret is named for the cabin-ports scope it

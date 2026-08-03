@@ -115,8 +115,12 @@ package, publishes the set into a temporary file registry, and builds each port 
 
 ```console
 cargo build -p cabinpkg
-cargo run -p cabinpkg-port-publish -- --dry-run
+cargo port-publish --dry-run
 ```
+
+`cargo port-publish` is one of the repository-local aliases in
+`.cargo/config.toml` (AGENTS.md, "Repository Automation"); it resolves the
+root-workspace `xtask-port-publish` package, so run it from the repository root.
 
 Maintainers publish with `--publish --index-url <registry>`; a byte-only correction to an
 already-published version reaches the registry as a new packaging revision of the same version,

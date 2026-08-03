@@ -2,10 +2,10 @@
 //! `cabin-ports/*` packages.
 //!
 //! Fixtures are generated through the publisher's own pipeline
-//! (`cabin_port_publish`): discovery via `plan::load_conversions`,
+//! (`xtask_port_publish`): discovery via `plan::load_conversions`,
 //! then materialization + file-registry publish via
 //! `preflight::stage_conversion`.  Tests therefore
-//! consume byte-identical packages to what `cabin-port-publish`
+//! consume byte-identical packages to what `xtask-port-publish`
 //! stages, instead of hand-written index metadata that could drift
 //! from the real conversion rules.
 
@@ -13,8 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use cabin_port_publish::plan;
-use cabin_port_publish::preflight::{ArchiveFetch, stage_conversion};
+use xtask_port_publish::plan;
+use xtask_port_publish::preflight::{ArchiveFetch, stage_conversion};
 
 /// Writer for a small executable package consuming `cabin-ports/*`
 /// registry dependencies, shared by the registry-ports test modules.

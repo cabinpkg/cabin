@@ -1,6 +1,6 @@
 // node:test suite for the foundation-port loader (`npm test`).  The
 // committed-tree tests pin that the website presents exactly the
-// identities the cabin-port-publish tool would publish.
+// identities the xtask-port-publish tool would publish.
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ test("mixed-case port directories lowercase like the publisher", async () => {
     // cJSON and CLI11 are the committed mixed-case directories, and
     // both must fold onto the lowercase scoped name; renaming them is
     // a deliberate identity change and should update this test
-    // alongside cabin-port-publish.
+    // alongside xtask-port-publish.
     assert.ok(names.includes("cabin-ports/cjson"));
     assert.ok(names.includes("cabin-ports/cli11"));
     assert.ok(names.includes("cabin-ports/zlib"));

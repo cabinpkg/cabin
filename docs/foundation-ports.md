@@ -198,7 +198,7 @@ shared materializer, and are catalogued with
 
 ## Publishing ports as registry packages
 
-The repository tool `cabin-port-publish` (`crates/cabin-port-publish`, a `publish = false`
+The repository tool `xtask-port-publish` (`crates/xtask-port-publish`, a `publish = false`
 workspace crate that is not part of the shipped `cabin` binary) publishes every committed port as
 an ordinary registry package under the **`cabin-ports`** scope, verbatim from the manifest
 committed in it.  The rules that manifest must meet:
@@ -247,8 +247,8 @@ upstream sources - are for.
 
 ```console
 $ cargo build -p cabinpkg
-$ cargo run -p cabinpkg-port-publish -- --dry-run
-$ cargo run -p cabinpkg-port-publish -- --publish --index-url https://registry.cabinpkg.com
+$ cargo port-publish --dry-run
+$ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
 `--dry-run` stops after the preflight.  `--publish` performs the same preflight and then uploads

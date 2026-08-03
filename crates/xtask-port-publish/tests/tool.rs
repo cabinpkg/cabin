@@ -1,4 +1,4 @@
-//! End-to-end tests for the `cabin-port-publish` binary.
+//! End-to-end tests for the `xtask-port-publish` binary.
 //!
 //! Offline by default: every port pins an `https://` URL (the
 //! provenance rules require it) whose archive is pre-seeded into the
@@ -20,11 +20,11 @@ const SCOPE_ZLIB_INDEX: &str = "packages/cabin-ports/zlib.json";
 
 /// The tool's own binary (built by cargo for this crate's tests).
 fn tool() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_cabin-port-publish"))
+    Command::new(env!("CARGO_BIN_EXE_xtask-port-publish"))
 }
 
 /// The `cabin` binary from the same target directory, built on
-/// demand: a package-scoped `cargo test -p cabinpkg-port-publish`
+/// demand: a package-scoped `cargo test -p xtask-port-publish`
 /// does not build the sibling `cabinpkg` executable, so relying on
 /// the full-workspace run having built it would make these tests
 /// order-dependent.  Cargo releases the target-directory lock before
@@ -32,7 +32,7 @@ fn tool() -> Command {
 /// already present (the CI gate builds `--all-targets` first) the
 /// nested invocation is a fast no-op.
 fn cabin_binary() -> PathBuf {
-    let path = Path::new(env!("CARGO_BIN_EXE_cabin-port-publish"))
+    let path = Path::new(env!("CARGO_BIN_EXE_xtask-port-publish"))
         .parent()
         .expect("tool binary has a parent directory")
         .join(format!("cabin{}", std::env::consts::EXE_SUFFIX));

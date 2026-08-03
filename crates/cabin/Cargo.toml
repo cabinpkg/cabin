@@ -77,7 +77,7 @@ cabin-ninja = { workspace = true, features = ["test-fake-ninja"] }
 # stripped by `cargo publish`, so `cabinpkg` stays publishable while
 # its tests generate registry fixtures through the real conversion
 # pipeline.
-cabin-port-publish = { package = "cabinpkg-port-publish", path = "../cabin-port-publish" }
+xtask-port-publish = { path = "../xtask-port-publish" }
 cabin-system-deps = { workspace = true, features = ["test-fake-pkg-config"] }
 cabin-tidy = { workspace = true, features = ["test-fake-tidy"] }
 flate2 = { workspace = true }

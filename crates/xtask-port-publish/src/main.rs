@@ -1,4 +1,4 @@
-//! `cabin-port-publish` — repository tool that publishes the curated
+//! `xtask-port-publish` — repository tool that publishes the curated
 //! foundation ports as `cabin-ports/<name>` registry packages.  See the library crate for the pipeline; this shim owns
 //! argument parsing (hand-rolled: `clap` stays in the `cabin` crate)
 //! and default resolution.
@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use cabin_port_publish::{Mode, Options, run};
+use xtask_port_publish::{Mode, Options, run};
 
 const USAGE: &str = "\
-usage: cabin-port-publish (--dry-run | --publish --index-url <URL>) [options]
+usage: xtask-port-publish (--dry-run | --publish --index-url <URL>) [options]
 
 Publishes the committed foundation ports as `cabin-ports/<name>` registry
 packages, each from the `cabin.toml` committed in it, verbatim.  Both
@@ -133,7 +133,7 @@ fn parse_args() -> Result<Parsed> {
         },
         work_dir: match work_dir {
             Some(dir) => dir,
-            None => std::env::temp_dir().join(format!("cabin-port-publish-{}", std::process::id())),
+            None => std::env::temp_dir().join(format!("xtask-port-publish-{}", std::process::id())),
         },
         cabin: match cabin {
             Some(path) => path,
