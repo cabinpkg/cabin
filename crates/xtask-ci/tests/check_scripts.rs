@@ -472,6 +472,8 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         // the command and its argument on different lines.
         "      - run: |\n          cargo \\\n            check-sql\n",
         "      - run: >\n          cargo\n          check-sql\n",
+        // Redirection needs no space around it.
+        "      - run: cargo check-sql>/dev/null\n",
     ] {
         let caught = violations(&[(".github/workflows/consumer.yml", &format!("{head}{call}"))]);
         assert_eq!(caught.len(), 1, "{call}: {caught:?}");
@@ -913,6 +915,10 @@ fn an_xtask_crate_off_the_convention_is_caught() {
     let good_root = "[workspace]\nmembers = [\"crates/*\"]\n";
     let good_alias = "demo = \"run -p xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, good_alias).is_empty());
+    // `-p` and `--package` select the same package, so both are the
+    // alias this crate is reached through.
+    let long_form = "demo = \"run --package xtask-demo -- demo\"\n";
+    assert!(base(good_manifest, good_root, long_form).is_empty());
 
     let missing_member = base(good_manifest, "[workspace]\nmembers = []\n", good_alias);
     assert!(
@@ -933,6 +939,38 @@ fn an_xtask_crate_off_the_convention_is_caught() {
         unaliased.iter().any(|line| line.contains("no cargo alias")),
         "{unaliased:?}"
     );
+}
+
+/// `publish = false` keeps a tool off the registry, not out of the
+/// binary: what ships must not depend on one.
+#[test]
+fn a_shipped_crate_depending_on_a_tool_is_caught() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "dependency",
+            "[package]\nname = \"cabin\"\n\n[dependencies]\nxtask-ci = { path = \"../xtask-ci\" }\n",
+        ),
+        (
+            "build_dependency",
+            "[package]\nname = \"cabin\"\n\n[build-dependencies]\n\
+             xtask-ci = { path = \"../xtask-ci\" }\n",
+        ),
+        (
+            "per_target_dependency",
+            "[package]\nname = \"cabin\"\n\n[target.'cfg(unix)'.dependencies]\n\
+             xtask-ci = { path = \"../xtask-ci\" }\n",
+        ),
+    ];
+    for (name, manifest) in cases {
+        let caught = violations(&[("crates/cabin/Cargo.toml", manifest)]);
+        assert_eq!(caught.len(), 1, "{name}: {caught:?}");
+        assert!(caught[0].contains("never part of what ships"), "{caught:?}");
+    }
+    // A dev-dependency is test-only, which is how crates/cabin reaches
+    // the publisher for its registry fixtures.
+    let dev = "[package]\nname = \"cabin\"\n\n[dev-dependencies]\n\
+               xtask-ci = { path = \"../xtask-ci\" }\n";
+    assert!(violations(&[("crates/cabin/Cargo.toml", dev)]).is_empty());
 }
 
 /// The binary reports violations on stdout, names the remedy on stderr,

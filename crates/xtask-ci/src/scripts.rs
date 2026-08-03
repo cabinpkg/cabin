@@ -497,6 +497,7 @@ pub fn check(repo_root: &Path) -> Result<Vec<String>> {
 
     violations.extend(cargo_config_problems(repo_root)?);
     violations.extend(xtask_crate_problems(repo_root)?);
+    violations.extend(shipped_dependency_problems(repo_root)?);
     violations.extend(workflow_wiring_problems(repo_root));
     violations.extend(alias_consumer_problems(repo_root)?);
     Ok(violations)
@@ -823,6 +824,74 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
     Ok(problems)
 }
 
+/// Whatever would compile a tool into what ships.
+///
+/// `publish = false` keeps an xtask crate off the registry; it does not
+/// keep it out of the binary. A normal or build dependency on one from
+/// any other crate puts it in the product's graph, which is what "never
+/// part of the shipped `cabin` binary" means. A DEV dependency does not
+/// - it is test-only, and `cargo publish` strips a version-less path one
+/// - which is how `crates/cabin` reaches the publisher to build its
+/// registry fixtures.
+///
+/// One direct edge is enough to look for: for a tool to be reachable
+/// from the binary, SOME shipped crate has to name it.
+fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
+    let crates = repo_root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates) else {
+        return Ok(Vec::new());
+    };
+    let mut dirs: Vec<String> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| !name.starts_with("xtask-"))
+        .filter(|name| crates.join(name).join("Cargo.toml").is_file())
+        .collect();
+    dirs.sort();
+
+    let mut problems = Vec::new();
+    for dir in dirs {
+        let manifest = manifest(&crates.join(&dir).join("Cargo.toml"))?;
+        for (kind, table) in dependency_tables(&manifest) {
+            for tool in table.keys().filter(|name| name.starts_with("xtask-")) {
+                problems.push(format!(
+                    "crates/{dir} carries {tool} as a {kind}; an xtask crate is maintainer \
+                     tooling and never part of what ships (a dev-dependency is fine - it is \
+                     test-only, and cargo publish strips a version-less path one)"
+                ));
+            }
+        }
+    }
+    Ok(problems)
+}
+
+/// The dependency tables of a manifest that reach the built artifact,
+/// per-target ones included, with the name each goes by.
+fn dependency_tables(manifest: &toml::Value) -> Vec<(&'static str, &toml::value::Table)> {
+    let kinds = ["dependencies", "build-dependencies"];
+    let direct = kinds.into_iter().filter_map(move |kind| {
+        manifest
+            .get(kind)
+            .and_then(toml::Value::as_table)
+            .map(|table| (kind, table))
+    });
+    let per_target = manifest
+        .get("target")
+        .and_then(toml::Value::as_table)
+        .into_iter()
+        .flat_map(move |targets| {
+            targets.values().flat_map(move |target| {
+                kinds.into_iter().filter_map(move |kind| {
+                    target
+                        .get(kind)
+                        .and_then(toml::Value::as_table)
+                        .map(|table| (kind, table))
+                })
+            })
+        });
+    direct.chain(per_target).collect()
+}
+
 /// Whether the crate at `dir` declares itself to be `name`.
 fn package_named(dir: &Path, name: &str) -> bool {
     manifest(&dir.join("Cargo.toml")).is_ok_and(|manifest| {
@@ -978,13 +1047,15 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// of a workflow that does not run an alias costs nothing, while missing
 /// one that does costs the job.
 fn runs_alias(text: &str, alias: &str) -> bool {
-    let shell = ['"', '\'', ';', '&', '|', '(', ')', '`', '$', '{', '}', '\\'];
-    // Whole file, not line by line: a `run:` block can be folded
-    // (`run: >`) or continued (`cargo \`), and either puts the command
-    // and its argument on different lines of the YAML.
+    // Split on shell punctuation as well as whitespace: a redirection
+    // needs no space around it (`cargo check-sql>/dev/null`), and the
+    // whole file is one stream because a `run:` block can be folded
+    // (`run: >`) or continued (`cargo \`), putting the command and its
+    // argument on different lines of the YAML.
+    let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}\\".contains(c);
     let mut words = text
-        .split_whitespace()
-        .map(|word| word.trim_matches(shell))
+        .split(separator)
+        .filter(|word| !word.is_empty())
         .skip_while(|word| *word != "cargo");
     words.next().is_some() && words.any(|word| word == alias)
 }
@@ -1052,7 +1123,7 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
         if !aliases
             .iter()
-            .any(|(_, value)| value.contains(&format!("-p {name} --")))
+            .any(|(_, value)| alias_package(value) == Some(name.as_str()))
         {
             problems.push(format!(
                 "{path} has no cargo alias in .cargo/config.toml; \
