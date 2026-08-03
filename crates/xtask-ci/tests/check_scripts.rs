@@ -419,12 +419,22 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("was pinned for"), "{caught:?}");
 
-    // A new consumer nobody pinned is the case the pins exist for.
-    let fresh = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
-                 guard:\n    steps:\n      - run: cargo check-sql;\n";
-    let caught = violations(&[(".github/workflows/consumer.yml", fresh)]);
-    assert_eq!(caught.len(), 1, "{caught:?}");
-    assert!(caught[0].contains("no pinned trigger block"), "{caught:?}");
+    // A new consumer nobody pinned is the case the pins exist for, in
+    // each spelling a shell reads as the same command.
+    let head = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                guard:\n    steps:\n";
+    for call in [
+        "      - run: cargo check-sql;\n",
+        "      - run: cargo --locked check-sql\n",
+        // A backslash continuation, and a folded block scalar: both put
+        // the command and its argument on different lines.
+        "      - run: |\n          cargo \\\n            check-sql\n",
+        "      - run: >\n          cargo\n          check-sql\n",
+    ] {
+        let caught = violations(&[(".github/workflows/consumer.yml", &format!("{head}{call}"))]);
+        assert_eq!(caught.len(), 1, "{call}: {caught:?}");
+        assert!(caught[0].contains("no pinned trigger block"), "{caught:?}");
+    }
 }
 
 /// The alias-only check is worth only as much as the guarantee that the
@@ -745,6 +755,16 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "bash_env_injected",
             "env:\n  CARGO_TERM_COLOR: always\n",
             "env:\n  BASH_ENV: docs/preamble\n  CARGO_TERM_COLOR: always\n",
+        ),
+        (
+            // `./target/debug/xtask-ci` is a different file under a
+            // different directory, and a workflow-level
+            // `defaults.run.working-directory` supplies one to any step
+            // that does not pin its own.
+            "working_directory_unpinned",
+            "      - name: Repository automation guard\n        shell: bash\n        \
+             working-directory: .\n",
+            "      - name: Repository automation guard\n        shell: bash\n",
         ),
         (
             "shell_unpinned",

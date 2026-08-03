@@ -281,16 +281,19 @@ const PINNED_JOB: &str = "  automation:
       # plain exec cannot be redirected that way, and the guard itself
       # then refuses any non-[alias] section in that file.
       #
-      # `shell:` is pinned for the same reason one step up: a
-      # workflow-level `defaults.run.shell` can name any command and
-      # have `run:` handed to it, which would report success without
-      # running anything. A step's own shell wins over that default.
+      # `shell:` and `working-directory:` are pinned for the same
+      # reason one step up: a workflow-level `defaults.run` can name any
+      # command to hand `run:` to, and any directory to run it in - and
+      # `./target/debug/xtask-ci` means something else under a different
+      # one. A step's own values win over those defaults.
       - name: Build the repository automation guard
         shell: bash
+        working-directory: .
         run: cargo build --locked -p xtask-ci
 
       - name: Repository automation guard
         shell: bash
+        working-directory: .
         run: ./target/debug/xtask-ci check-scripts
 
   clippy:";
@@ -921,14 +924,15 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// of a workflow that does not run an alias costs nothing, while missing
 /// one that does costs the job.
 fn runs_alias(text: &str, alias: &str) -> bool {
-    let shell = ['"', '\'', ';', '&', '|', '(', ')', '`', '$', '{', '}'];
-    text.lines().any(|line| {
-        let mut words = line
-            .split_whitespace()
-            .map(|word| word.trim_matches(shell))
-            .skip_while(|word| *word != "cargo");
-        words.next().is_some() && words.any(|word| word == alias)
-    })
+    let shell = ['"', '\'', ';', '&', '|', '(', ')', '`', '$', '{', '}', '\\'];
+    // Whole file, not line by line: a `run:` block can be folded
+    // (`run: >`) or continued (`cargo \`), and either puts the command
+    // and its argument on different lines of the YAML.
+    let mut words = text
+        .split_whitespace()
+        .map(|word| word.trim_matches(shell))
+        .skip_while(|word| *word != "cargo");
+    words.next().is_some() && words.any(|word| word == alias)
 }
 
 /// Whatever is wrong with the shape of the `xtask-*` crates: the
