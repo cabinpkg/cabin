@@ -408,6 +408,8 @@ permissions:"#,
             "check-deploy=xtask-registry-guard",
             "check-r2=xtask-registry-guard",
             "check-sql=xtask-registry-guard",
+            // The deploy job names the guard's crate directly as well.
+            "direct=xtask-registry-guard",
         ],
         r#"on:
   push:
@@ -1182,7 +1184,6 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
-        problems.extend(cargo_override_problems(listed, text));
         let run: Vec<&str> = runs
             .get(listed.as_str())
             .into_iter()
@@ -1192,6 +1193,9 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         if run.is_empty() || listed == GUARD_WORKFLOW {
             continue;
         }
+        // Only where a tool actually runs: `CARGO_BUILD_JOBS` in a
+        // workflow that builds the product remaps nothing.
+        problems.extend(cargo_override_problems(listed, text));
         let listed = listed.as_str();
         let Some((pinned_path, pinned_aliases, pinned)) =
             PINNED_CONSUMERS.iter().find(|(known, ..)| *known == listed)
@@ -1375,6 +1379,7 @@ fn calls(text: &str) -> Vec<&str> {
 /// a separate workspace of its own and is not part of this.
 fn workspace_crates(repo_root: &Path) -> Vec<(String, String, bool)> {
     let crates = repo_root.join("crates");
+    let root = manifest(&repo_root.join("Cargo.toml")).unwrap_or(toml::Value::Boolean(false));
     let mut found = Vec::new();
     let mut pending = vec![(String::new(), crates)];
     while let Some((prefix, dir)) = pending.pop() {
@@ -1395,8 +1400,21 @@ fn workspace_crates(repo_root: &Path) -> Vec<(String, String, bool)> {
                 && let Some(package) = manifest.get("package")
                 && let Some(package_name) = package.get("name").and_then(toml::Value::as_str)
             {
-                let private = package
-                    .get("publish")
+                let publish = package.get("publish");
+                // `publish.workspace = true` says the answer lives in
+                // the root manifest, and there it is a plain boolean.
+                let publish = if publish
+                    .and_then(|publish| publish.get("workspace"))
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or_default()
+                {
+                    root.get("workspace")
+                        .and_then(|workspace| workspace.get("package"))
+                        .and_then(|package| package.get("publish"))
+                } else {
+                    publish
+                };
+                let private = publish
                     .and_then(toml::Value::as_bool)
                     .is_some_and(|publish| !publish);
                 found.push((listed.clone(), package_name.to_owned(), private));
@@ -1425,9 +1443,14 @@ fn xtask_packages(repo_root: &Path) -> Vec<(String, String)> {
 /// trigger path (`crates/xtask-foo/**`) is not a use of it.
 fn uses_tool(text: &str, tool: &str) -> bool {
     let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}[],=\\".contains(c);
-    text.split(separator)
-        .filter_map(|word| word.rsplit('/').next())
-        .any(|word| word == tool)
+    text.split(separator).any(|word| {
+        // The last component names the binary
+        // (`./target/debug/xtask-foo`); an inner one names the crate
+        // (`--manifest-path crates/xtask-foo/Cargo.toml`). A glob is a
+        // trigger path rather than a use of it.
+        word.rsplit('/').next() == Some(tool)
+            || (!word.contains('*') && word.split('/').any(|part| part == tool))
+    })
 }
 
 /// Whether `text` invokes `cargo <alias>` on any line.

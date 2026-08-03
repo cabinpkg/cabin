@@ -579,13 +579,24 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                   build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \
                   - run: ./target/debug/xtask-port-publish --dry-run\n      \
-                  - run: cargo run --package=xtask-port-publish -- --help\n";
+                  - run: cargo run --package=xtask-port-publish -- --help\n      \
+                  - run: cargo run --manifest-path crates/xtask-port-publish/Cargo.toml\n";
     let caught = violations(&[(".github/workflows/direct.yml", direct)]);
     assert!(
         caught
             .iter()
             .any(|line| line.contains("direct=xtask-port-publish")),
         "{caught:?}"
+    );
+
+    // A workflow that runs no tool is not subject to any of this: a
+    // build setting cannot remap what it never invokes.
+    let ordinary = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\nenv:\n  \
+                    CARGO_BUILD_JOBS: 2\n\njobs:\n  build:\n    steps:\n      \
+                    - run: cargo build -p cabinpkg\n";
+    assert!(
+        violations(&[(".github/workflows/ordinary.yml", ordinary)]).is_empty(),
+        "a plain cargo build is not an alias consumer"
     );
 
     // An alias mapping can be overridden at the call site too.
@@ -1177,6 +1188,25 @@ fn an_xtask_crate_off_the_convention_is_caught() {
             .iter()
             .any(|line| line.contains("crates/tools/ci declares the package xtask-rogue")),
         "{nested:?}"
+    );
+
+    // Privacy may be inherited too, and an ordinary name does not make
+    // a private crate product.
+    let inherited_privately = violations(&[
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\npublish = false\n",
+        ),
+        (
+            "crates/tools/Cargo.toml",
+            "[package]\nname = \"runner\"\npublish.workspace = true\n",
+        ),
+    ]);
+    assert!(
+        inherited_privately
+            .iter()
+            .any(|line| line.contains("publish = false but is not an xtask crate")),
+        "{inherited_privately:?}"
     );
 
     // A private crate is maintainer tooling whatever it calls itself:
