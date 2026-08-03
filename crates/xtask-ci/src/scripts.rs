@@ -1092,71 +1092,11 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let aliases = aliases(&manifest(&path)?);
-    let dir = repo_root.join(".github/workflows");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return Ok(Vec::new());
-    };
-    let mut workflows: Vec<std::path::PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            matches!(
-                path.extension().and_then(std::ffi::OsStr::to_str),
-                Some("yml" | "yaml")
-            )
-        })
-        .collect();
-    workflows.sort();
-
-    let mut texts: BTreeMap<String, String> = BTreeMap::new();
-    for workflow in workflows {
-        let listed = format!(
-            ".github/workflows/{}",
-            workflow.file_name().unwrap_or_default().to_string_lossy()
-        );
-        let text = std::fs::read_to_string(&workflow)
-            .with_context(|| format!("read {}", workflow.display()))?
-            .replace("\r\n", "\n");
-        texts.insert(listed, text);
-    }
+    let texts = workflow_texts(repo_root)?;
     // Alias order is the config's, which cargo keeps sorted, so the
     // pinned list reads the same way.
     let names: Vec<&str> = aliases.iter().map(|(alias, _)| alias.as_str()).collect();
-    let mut runs: BTreeMap<&str, BTreeSet<&str>> = texts
-        .iter()
-        .map(|(listed, text)| {
-            let run = names
-                .iter()
-                .copied()
-                .filter(|alias| runs_alias(text, alias))
-                .collect();
-            (listed.as_str(), run)
-        })
-        .collect();
-    // A reusable workflow runs under its CALLER's triggers, so the
-    // caller is a consumer too - `jobs.<id>.uses: ./.github/workflows/x`
-    // is the edge. Repeated to a fixed point, because a caller can call
-    // a caller.
-    loop {
-        let mut grew = false;
-        for (listed, text) in &texts {
-            let called: Vec<&str> = calls(text)
-                .into_iter()
-                .filter(|called| texts.contains_key(*called))
-                .collect();
-            let inherited: BTreeSet<&str> = called
-                .iter()
-                .flat_map(|called| runs.get(*called).cloned().unwrap_or_default())
-                .collect();
-            let mine = runs.entry(listed.as_str()).or_default();
-            let before = mine.len();
-            mine.extend(inherited);
-            grew |= mine.len() != before;
-        }
-        if !grew {
-            break;
-        }
-    }
+    let runs = alias_consumers(&texts, &names);
 
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
@@ -1210,6 +1150,82 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(problems)
+}
+
+/// Every workflow file under `.github/workflows`, by repository path.
+///
+/// # Errors
+///
+/// Fails when one cannot be read.
+fn workflow_texts(repo_root: &Path) -> Result<BTreeMap<String, String>> {
+    let dir = repo_root.join(".github/workflows");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(BTreeMap::new());
+    };
+    let mut workflows: Vec<std::path::PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            matches!(
+                path.extension().and_then(std::ffi::OsStr::to_str),
+                Some("yml" | "yaml")
+            )
+        })
+        .collect();
+    workflows.sort();
+    let mut texts = BTreeMap::new();
+    for workflow in workflows {
+        let listed = format!(
+            ".github/workflows/{}",
+            workflow.file_name().unwrap_or_default().to_string_lossy()
+        );
+        // Windows checkouts normalize to CRLF; the pins are written with
+        // the line endings the repository stores.
+        let text = std::fs::read_to_string(&workflow)
+            .with_context(|| format!("read {}", workflow.display()))?
+            .replace("\r\n", "\n");
+        texts.insert(listed, text);
+    }
+    Ok(texts)
+}
+
+/// Which aliases each workflow runs, its callees' included.
+///
+/// A reusable workflow runs under its CALLER's triggers, so the caller
+/// is a consumer too - `jobs.<id>.uses: ./.github/workflows/x` is the
+/// edge. Taken to a fixed point, because a caller can call a caller.
+fn alias_consumers<'a>(
+    texts: &'a BTreeMap<String, String>,
+    names: &[&'a str],
+) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
+    let mut runs: BTreeMap<&str, BTreeSet<&str>> = texts
+        .iter()
+        .map(|(listed, text)| {
+            let run = names
+                .iter()
+                .copied()
+                .filter(|alias| runs_alias(text, alias))
+                .collect();
+            (listed.as_str(), run)
+        })
+        .collect();
+    loop {
+        let mut grew = false;
+        for (listed, text) in texts {
+            let inherited: BTreeSet<&str> = calls(text)
+                .into_iter()
+                .filter_map(|called| runs.get(called).cloned())
+                .flatten()
+                .collect();
+            let mine = runs.entry(listed.as_str()).or_default();
+            let before = mine.len();
+            mine.extend(inherited);
+            grew |= mine.len() != before;
+        }
+        if !grew {
+            return runs;
+        }
+    }
 }
 
 /// The local workflows a workflow calls, as `.github/workflows/<name>`.

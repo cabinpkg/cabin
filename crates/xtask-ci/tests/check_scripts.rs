@@ -466,13 +466,13 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     // A pin is taken for the tools the workflow ran when it was taken:
     // adding a call to another one leaves the block itself untouched.
     let dir = scratch(&[]);
-    let called = "        run: cargo check-sql";
-    assert!(real.contains(called), "mutation target not in {path}");
+    let one_call = "        run: cargo check-sql";
+    assert!(real.contains(one_call), "mutation target not in {path}");
     write(
         &dir,
         path,
         &real.replacen(
-            called,
+            one_call,
             "        run: |\n          cargo check-sql\n          cargo port-publish",
             1,
         ),
