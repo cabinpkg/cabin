@@ -638,7 +638,7 @@ rules, the artifact read gate, and the verdict body live in
   re-counts a re-uploaded blob. Per-user storage quotas and the usage
   endpoint's stored sum exclude rejected rows the same way.
 
-Conformance is enforced from the monorepo: `scripts/gen-fixtures.sh` builds
+Conformance is enforced from the monorepo: `cargo gen-fixtures` builds
 the in-tree `cabin` binary and packages real fixture pairs, which the
 `conformance` CI job (and a frozen pair under `tests/fixtures/`) feeds
 through the full server-side validation path, so the client's canonical

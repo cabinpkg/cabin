@@ -36,6 +36,7 @@ members = [
   # tools reached through the aliases in .cargo/config.toml, never part of
   # the shipped surface (AGENTS.md, "Repository automation").
   "crates/xtask-port-publish",
+  "crates/xtask-registry-fixtures",
   "crates/xtask-registry-guard",
 ]
 default-members = ["crates/cabin"]
@@ -71,6 +72,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
 shlex = "2"
 tar = "0.4"
+tempfile = "3"
 termcolor = "1"
 thiserror = "2"
 tiny_http = "0.12"

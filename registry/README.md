@@ -108,14 +108,15 @@ flow). Prerequisites: `rustup target add wasm32-unknown-unknown`
 and Node (for the pinned `npx --yes wrangler@4.112.0`); `worker-build`
 installs itself on first build.
 
-`scripts/gen-fixtures.sh <dir>` builds the in-tree `cabin` binary and
+`cargo gen-fixtures <dir>`, run from the repository root (the alias names a
+root-workspace package), builds the in-tree `cabin` binary and
 packages real archive + canonical-metadata pairs; the `#[ignore]`d
 conformance test in `tests/publish_validation.rs` feeds them through the
 server's publish validation (`CABIN_REGISTRY_FIXTURES=<dir> cargo test --
 --include-ignored`). CI runs it whenever the registry or the client's
 publish-pipeline crates change. The frozen pair under `tests/fixtures/` is a
 checked-in copy of its `withdep` output for offline unit tests; regenerate it
-with the script when the canonical metadata format changes intentionally.
+with the alias when the canonical metadata format changes intentionally.
 
 This directory is a standalone Cargo workspace, excluded from the root
 workspace: `cargo build`/`cargo test` at the repository root never touch it.

@@ -18,6 +18,8 @@ on:
       # deliberately not listed - it moves on every dependency bump and
       # cannot remove a member on its own.
       - "crates/xtask-registry-guard/**"
+      # The fixture generator the conformance job runs.
+      - "crates/xtask-registry-fixtures/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -36,6 +38,8 @@ on:
       # deliberately not listed - it moves on every dependency bump and
       # cannot remove a member on its own.
       - "crates/xtask-registry-guard/**"
+      # The fixture generator the conformance job runs.
+      - "crates/xtask-registry-fixtures/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -132,7 +136,7 @@ jobs:
             registry
 
       - name: Generate fixtures with the in-tree cabin
-        run: bash registry/scripts/gen-fixtures.sh "$RUNNER_TEMP/fixtures"
+        run: cargo gen-fixtures "$RUNNER_TEMP/fixtures"
 
       - name: Validate the generated fixtures against the server rules
         working-directory: registry
@@ -185,7 +189,7 @@ jobs:
           git fetch --quiet origin main
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
               .github/workflows/registry.yml .cargo/config.toml registry/ \
-              crates/xtask-registry-guard/ Cargo.toml \
+              crates/xtask-registry-guard/ crates/xtask-registry-fixtures/ Cargo.toml \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/ crates/cabin-core/)" ]; then
             echo "superseded=true" >> "$GITHUB_OUTPUT"

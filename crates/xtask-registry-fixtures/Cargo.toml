@@ -1,0 +1,31 @@
+[package]
+name = "xtask-registry-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: publish-conformance fixtures built with the in-tree cabin binary"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the generator builds this checkout's `cabin`, so a
+# published copy would have nothing to build.
+publish = false
+
+[lib]
+name = "xtask_registry_fixtures"
+
+[[bin]]
+name = "xtask-registry-fixtures"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+predicates = "3"
+
+[lints]
+workspace = true
