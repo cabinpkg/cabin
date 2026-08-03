@@ -482,6 +482,22 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
     assert_eq!(caught.len(), 1, "{caught:?}");
     assert!(caught[0].contains("was pinned for"), "{caught:?}");
 
+    // An alias can also be declared in the environment, where nothing
+    // here would see it.
+    let overridden = real.replacen(
+        "    steps:",
+        "    env:\n      CARGO_ALIAS_CHECK_SQL: run -p xtask-ci -- --help\n    steps:",
+        1,
+    );
+    let dir = scratch(&[]);
+    write(&dir, path, &overridden);
+    restage(&dir);
+    let caught = scripts::check(dir.path()).expect("run the guard");
+    assert!(
+        caught.iter().any(|line| line.contains("CARGO_ALIAS_")),
+        "{caught:?}"
+    );
+
     // Retargeting an alias leaves the names alone: the pin carries the
     // package each one selects, because that is the crate whose edits
     // have to reach this workflow.
@@ -660,6 +676,15 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
         (
             "config_override_inline",
             "repo-task = \"run --config=target.'cfg(all())'.runner='true' -p xtask-ci --\"\n",
+        ),
+        // A target of the package that is not its tool.
+        (
+            "another_target",
+            "repo-task = \"run -p xtask-ci --example noop --\"\n",
+        ),
+        (
+            "another_bin",
+            "repo-task = \"run -p xtask-ci --bin other --\"\n",
         ),
         // An array alias is not the same declaration: cargo joins array
         // values across config layers instead of overriding them.

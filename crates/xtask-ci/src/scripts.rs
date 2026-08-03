@@ -843,19 +843,33 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
         // can hold a package of the same name.
         // An alias may not move the ground the rest of these checks
         // stand on: `--manifest-path` resolves the package in another
-        // workspace, where the same name is another package, and
-        // `--config` can set the `[target] runner` the alias file is
-        // kept free of - either way the tool named here is not what
-        // runs.
+        // workspace, where the same name is another package, `--config`
+        // can set the `[target] runner` the alias file is kept free of,
+        // and `--example`/`--bin` run a target of the package that is
+        // not its tool - each leaves the crate named here standing for
+        // something that never runs.
         for flag in text
             .split_whitespace()
             .take_while(|word| *word != "--")
-            .filter(|word| matches!(word.split('=').next(), Some("--manifest-path" | "--config")))
+            .filter(|word| {
+                matches!(
+                    word.split('=').next(),
+                    Some(
+                        "--manifest-path"
+                            | "--config"
+                            | "--bin"
+                            | "--example"
+                            | "--test"
+                            | "--bench"
+                    )
+                )
+            })
         {
             let flag = flag.split('=').next().unwrap_or(flag);
             problems.push(format!(
-                "the `cargo {name}` alias passes {flag}; the aliases resolve against the root \
-                 workspace and the alias-only {CARGO_CONFIG}, and this moves both"
+                "the `cargo {name}` alias passes {flag}; an alias runs its crate's own tool, \
+                 against the root workspace and the alias-only {CARGO_CONFIG}, and this moves \
+                 one of those"
             ));
         }
         // The subcommand AND the name AND the place AND the manifest: an
@@ -1116,6 +1130,18 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     let mut problems = Vec::new();
     let mut pinned_seen: BTreeSet<&str> = BTreeSet::new();
     for (listed, text) in &texts {
+        // Cargo reads `[alias] x` from CARGO_ALIAS_X as readily as from
+        // the file, so a workflow that sets one has an alias mapping
+        // this guard never saw.
+        if text
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .any(|word| word.starts_with("CARGO_ALIAS_"))
+        {
+            problems.push(format!(
+                "{listed} sets a CARGO_ALIAS_* variable; cargo takes an alias from the \
+                 environment over {CARGO_CONFIG}, which is the file this guard checks"
+            ));
+        }
         let run: Vec<String> = runs
             .get(listed.as_str())
             .into_iter()
