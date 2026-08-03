@@ -474,6 +474,8 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: >\n          cargo\n          check-sql\n",
         // Redirection needs no space around it.
         "      - run: cargo check-sql>/dev/null\n",
+        // Assembled from a variable: nothing literal follows `cargo`.
+        "    env:\n      CMD: check-sql\n    steps:\n      - run: cargo \"$CMD\"\n",
     ] {
         let caught = violations(&[(".github/workflows/consumer.yml", &format!("{head}{call}"))]);
         assert_eq!(caught.len(), 1, "{call}: {caught:?}");
@@ -920,6 +922,19 @@ fn an_xtask_crate_off_the_convention_is_caught() {
     let long_form = "demo = \"run --package xtask-demo -- demo\"\n";
     assert!(base(good_manifest, good_root, long_form).is_empty());
 
+    // `exclude` takes back what the glob swept in.
+    let excluded = base(
+        good_manifest,
+        "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/xtask-demo\"]\n",
+        good_alias,
+    );
+    assert!(
+        excluded
+            .iter()
+            .any(|line| line.contains("not a member of the root workspace")),
+        "{excluded:?}"
+    );
+
     let missing_member = base(good_manifest, "[workspace]\nmembers = []\n", good_alias);
     assert!(
         missing_member
@@ -966,6 +981,13 @@ fn a_shipped_crate_depending_on_a_tool_is_caught() {
         assert_eq!(caught.len(), 1, "{name}: {caught:?}");
         assert!(caught[0].contains("never part of what ships"), "{caught:?}");
     }
+    // A rename changes the key, not what is depended on.
+    let renamed = "[package]\nname = \"cabin\"\n\n[dependencies]\n\
+                   guard = { package = \"xtask-ci\", path = \"../xtask-ci\" }\n";
+    let caught = violations(&[("crates/cabin/Cargo.toml", renamed)]);
+    assert_eq!(caught.len(), 1, "{caught:?}");
+    assert!(caught[0].contains("never part of what ships"), "{caught:?}");
+
     // A dev-dependency is test-only, which is how crates/cabin reaches
     // the publisher for its registry fixtures.
     let dev = "[package]\nname = \"cabin\"\n\n[dev-dependencies]\n\

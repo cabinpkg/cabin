@@ -829,9 +829,9 @@ fn cargo_config_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// `publish = false` keeps an xtask crate off the registry; it does not
 /// keep it out of the binary. A normal or build dependency on one from
 /// any other crate puts it in the product's graph, which is what "never
-/// part of the shipped `cabin` binary" means. A DEV dependency does not
-/// - it is test-only, and `cargo publish` strips a version-less path one
-/// - which is how `crates/cabin` reaches the publisher to build its
+/// part of the shipped `cabin` binary" means. A DEV dependency does not:
+/// it is test-only, and `cargo publish` strips a version-less path one,
+/// which is how `crates/cabin` reaches the publisher to build its
 /// registry fixtures.
 ///
 /// One direct edge is enough to look for: for a tool to be reachable
@@ -853,7 +853,14 @@ fn shipped_dependency_problems(repo_root: &Path) -> Result<Vec<String>> {
     for dir in dirs {
         let manifest = manifest(&crates.join(&dir).join("Cargo.toml"))?;
         for (kind, table) in dependency_tables(&manifest) {
-            for tool in table.keys().filter(|name| name.starts_with("xtask-")) {
+            // The table key is the name the crate refers to it by; a
+            // `package = ` field says what it actually depends on.
+            let named = table.iter().filter_map(|(key, spec)| {
+                spec.get("package")
+                    .and_then(toml::Value::as_str)
+                    .or(Some(key.as_str()))
+            });
+            for tool in named.filter(|name| name.starts_with("xtask-")) {
                 problems.push(format!(
                     "crates/{dir} carries {tool} as a {kind}; an xtask crate is maintainer \
                      tooling and never part of what ships (a dev-dependency is fine - it is \
@@ -1053,11 +1060,17 @@ fn runs_alias(text: &str, alias: &str) -> bool {
     // (`run: >`) or continued (`cargo \`), putting the command and its
     // argument on different lines of the YAML.
     let separator = |c: char| c.is_whitespace() || "\"';&|()`$<>{}\\".contains(c);
-    let mut words = text
-        .split(separator)
-        .filter(|word| !word.is_empty())
-        .skip_while(|word| *word != "cargo");
-    words.next().is_some() && words.any(|word| word == alias)
+    let mut words = text.split(separator).filter(|word| !word.is_empty());
+    let (mut cargo, mut named) = (false, false);
+    // Both present, in either order and anywhere in the file: a command
+    // can be assembled from a variable or a matrix value
+    // (`env: {CMD: check-sql}` … `run: cargo "$CMD"`), which leaves no
+    // literal alias after the word `cargo` to look for.
+    words.any(|word| {
+        cargo |= word == "cargo";
+        named |= word == alias;
+        cargo && named
+    })
 }
 
 /// Whatever is wrong with the shape of the `xtask-*` crates: the
@@ -1085,13 +1098,23 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
     }
     names.sort();
 
-    let members = manifest(&repo_root.join("Cargo.toml"))?;
-    let members: Vec<&str> = members
-        .get("workspace")
-        .and_then(|workspace| workspace.get("members"))
-        .and_then(toml::Value::as_array)
-        .map(|list| list.iter().filter_map(toml::Value::as_str).collect())
-        .unwrap_or_default();
+    let root = manifest(&repo_root.join("Cargo.toml"))?;
+    let paths = |key: &str| -> Vec<String> {
+        root.get("workspace")
+            .and_then(|workspace| workspace.get(key))
+            .and_then(toml::Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(toml::Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let members = paths("members");
+    // `exclude` wins over a glob in `members`, so a tool can be swept in
+    // by `crates/*` and taken straight back out again.
+    let excluded = paths("exclude");
     let config = manifest(&repo_root.join(CARGO_CONFIG))?;
     let aliases = aliases(&config);
 
@@ -1100,12 +1123,15 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         let path = format!("crates/{name}");
         // A glob member (`crates/*`) covers it too; anything else has to
         // name it exactly.
-        let member = members.iter().any(|entry| {
-            *entry == path
-                || entry
-                    .strip_suffix('*')
-                    .is_some_and(|prefix| path.starts_with(prefix))
-        });
+        let covers = |list: &[String]| {
+            list.iter().any(|entry| {
+                *entry == path
+                    || entry
+                        .strip_suffix('*')
+                        .is_some_and(|prefix| path.starts_with(prefix))
+            })
+        };
+        let member = covers(&members) && !covers(&excluded);
         if !member {
             problems.push(format!(
                 "{path} is not a member of the root workspace; \
