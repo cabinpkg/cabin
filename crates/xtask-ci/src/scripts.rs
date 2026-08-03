@@ -134,6 +134,10 @@ const SOURCE_LANGUAGE_EXTENSIONS: [&str; 7] = ["cjs", "cts", "js", "mjs", "mts",
 /// TypeScript files that would otherwise each need an exception.
 const PRODUCT_SOURCE_ROOTS: [&str; 1] = ["website/src/"];
 
+/// The executables this repository ships, which are therefore the only
+/// ones a workflow may select by name.
+const PRODUCT_BINARIES: [&str; 1] = ["cabin"];
+
 /// The only names the allowlist above cannot refuse on its own: tools
 /// that wear an extension this repository keeps.
 ///
@@ -1353,7 +1357,11 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// be doing - they are refused because the rule wants automation named
 /// plainly enough to check.
 fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
-    for line in text.lines() {
+    // A shell continuation makes one command out of two lines, so a
+    // flag on the second line is as much a part of it as one on the
+    // first.
+    let joined = text.replace("\\\n", " ");
+    for line in joined.lines() {
         // What a step runs, not what it says about it: a `#` comment
         // that mentions rustc is prose, and the key is not the command.
         let line = line.split(" #").next().unwrap_or(line);
@@ -1404,7 +1412,62 @@ fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
                      automation lives (AGENTS.md, \"Repository automation\")"
                 ));
             }
+            if command == "run" {
+                return Some(format!(
+                    "{listed} runs `cargo run`, which picks a binary by resolution rather \
+                     than by name; a workflow reaches a tool through its alias or by \
+                     executing what it built (AGENTS.md, \"Repository automation\")"
+                ));
+            }
+            if let Some(problem) = selected_target_problem(listed, words) {
+                return Some(problem);
+            }
         }
+    }
+    None
+}
+
+/// Why the executable target `words` selects is not one this repository
+/// ships, if it is not.
+///
+/// `--bin` is the one place a tool kept as a target of an ordinary crate
+/// shows itself: `crates/cabin-core/src/bin/deploy.rs` is Rust, so no
+/// file-name scan objects, and it reaches no alias, so no consumer check
+/// sees it - but it is automation living in a published crate all the
+/// same.  Product binaries are few and named; anything else selected
+/// here is a tool by elimination.
+fn selected_target_problem<'a>(
+    listed: &str,
+    mut words: impl Iterator<Item = &'a str>,
+) -> Option<String> {
+    while let Some(word) = words.next() {
+        let (flag, inline) = word
+            .split_once('=')
+            .map_or((word, None), |(flag, value)| (flag, Some(value)));
+        if !matches!(flag, "--bin" | "--bins" | "--example" | "--examples") {
+            continue;
+        }
+        // `--bins` and `--examples` take every such target the selected
+        // packages have, naming none of them.
+        let Some(target) = inline
+            .or_else(|| words.next())
+            .filter(|_| !flag.ends_with('s'))
+        else {
+            return Some(format!(
+                "{listed} runs `cargo {flag}`, which selects every executable target the \
+                 packages have without naming one; name the target, so a tool added as one \
+                 cannot arrive unread (AGENTS.md, \"Repository automation\")"
+            ));
+        };
+        if PRODUCT_BINARIES.contains(&target) {
+            continue;
+        }
+        return Some(format!(
+            "{listed} builds the executable target {target}, which is not one this \
+             repository ships; repository automation is an xtask-* crate reached through \
+             an alias, not a target of an ordinary crate (AGENTS.md, \"Repository \
+             automation\")"
+        ));
     }
     None
 }

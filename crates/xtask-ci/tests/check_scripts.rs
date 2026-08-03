@@ -606,6 +606,49 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "{caught:?}"
     );
 
+    // A tool kept as a target of an ordinary crate is Rust in a
+    // published crate: no file name objects, and it reaches no alias.
+    // The target selection is where it shows.
+    let head = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                build:\n    steps:\n";
+    for (case, call) in [
+        (
+            "named",
+            "      - run: cargo build -p cabin-core --bin deploy\n",
+        ),
+        ("inline", "      - run: cargo build --bin=deploy\n"),
+        ("example", "      - run: cargo build --example deploy\n"),
+        // A continuation is one command, so the second line counts.
+        (
+            "continued",
+            "      - run: cargo build --locked \\\n          --bin deploy\n",
+        ),
+        // Selecting every target names none of them.
+        ("unnamed", "      - run: cargo build --bins\n"),
+        // `cargo run` picks a binary by resolution, not by name.
+        ("resolved", "      - run: cargo run -p cabin-core\n"),
+    ] {
+        let caught = violations(&[
+            (".github/workflows/target.yml", &format!("{head}{call}")),
+            ("crates/cabin-core/src/bin/deploy.rs", "fn main() {}\n"),
+        ]);
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains("executable target") || line.contains("`cargo run`")),
+            "{case}: {caught:?}"
+        );
+    }
+    // ...and the product binary is still buildable by name.
+    assert!(
+        violations(&[(
+            ".github/workflows/product.yml",
+            &format!("{head}      - run: cargo build --locked --bin cabin\n"),
+        )])
+        .is_empty(),
+        "the product binary is not a tool"
+    );
+
     // A workflow can reach a tool with no alias at all, in each of the
     // spellings that reaches one.
     for call in [

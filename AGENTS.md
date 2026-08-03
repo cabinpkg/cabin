@@ -77,6 +77,12 @@ anywhere would be aliases nothing checked.
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
   dependency set are genuinely new.
+- A workflow names only the executables this repository ships
+  (`PRODUCT_BINARIES`, today just `cabin`) and never runs `cargo run`. A tool
+  kept as a `--bin` target of an ordinary crate is Rust, so no file name
+  objects, and it reaches no alias, so no consumer check sees it - the target
+  selection is the only place it shows, and it would ship inside a published
+  crate.
 - A local action (`action.yml`) is repository automation whatever it is
   written in, and its `runs:` names an entry point that need not look like a
   script - so the guard refuses the metadata, and there are no local actions.
