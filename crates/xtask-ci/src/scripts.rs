@@ -825,22 +825,25 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
             let Some(package) = alias_package(value).filter(|p| p.starts_with("xtask-")) else {
                 continue;
             };
-            let crate_dir = format!("crates/{package}/");
+            let crate_glob = format!("crates/{package}/**");
             for (keyword, items) in &filters {
                 if *keyword == "paths-ignore" {
                     problems.push(format!(
                         ".github/workflows/{name} runs `cargo {alias}` behind a paths-ignore \
                          filter; this guard cannot read one as covering {CARGO_CONFIG} and \
-                         {crate_dir}, so use paths:"
+                         {crate_glob}, so use paths:"
                     ));
                     continue;
                 }
-                for required in [CARGO_CONFIG, crate_dir.as_str()] {
-                    if !items.iter().any(|item| item.starts_with(required)) {
+                // Matched whole, not by prefix: `.cargo/config.toml.bak`
+                // and `crates/<crate>/README.md` are both prefixes of
+                // nothing that would trigger on the real inputs.
+                for required in [CARGO_CONFIG, crate_glob.as_str()] {
+                    if !items.iter().any(|item| item == required) {
                         problems.push(format!(
                             ".github/workflows/{name} runs `cargo {alias}` but its paths filter \
-                             does not list {required}; an edit there would skip the job it feeds \
-                             (AGENTS.md, \"Repository automation\")"
+                             does not list `{required}`; an edit there would skip the job it \
+                             feeds (AGENTS.md, \"Repository automation\")"
                         ));
                     }
                 }
@@ -850,15 +853,20 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
     Ok(problems)
 }
 
-/// Whether `text` invokes `cargo <alias>`, and not a longer alias that
-/// merely starts the same way.
+/// Whether `text` invokes `cargo <alias>` on any line.
+///
+/// Read as whole words rather than as `cargo <alias>` literally, because
+/// cargo takes `[+toolchain] [OPTIONS]` before the command and every one
+/// of those spellings is the same call. The looseness cuts one way on
+/// purpose: a mention in a comment counts too, and asking for the
+/// trigger paths of a call that is not there costs a line of YAML, while
+/// missing a real one costs the job.
 fn runs_alias(text: &str, alias: &str) -> bool {
-    let needle = format!("cargo {alias}");
-    text.match_indices(&needle).any(|(at, _)| {
-        text[at + needle.len()..]
-            .chars()
-            .next()
-            .is_none_or(|next| !next.is_alphanumeric() && next != '-' && next != '_')
+    text.lines().any(|line| {
+        let mut words = line
+            .split_whitespace()
+            .skip_while(|word| word.trim_end_matches(['"', '\'']) != "cargo");
+        words.next().is_some() && words.any(|word| word.trim_matches(['"', '\'']) == alias)
     })
 }
 

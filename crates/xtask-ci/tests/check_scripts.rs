@@ -363,22 +363,40 @@ fn a_filtered_alias_consumer_must_list_what_it_runs() {
                       - run: cargo check-sql\n";
     assert!(violations(&[(".github/workflows/consumer.yml", unfiltered)]).is_empty());
 
+    // Each input, dropped and then replaced by a path that merely starts
+    // the same way: neither near miss triggers on the real input.
     let cases: &[(&str, &str, &str)] = &[
         (
-            "no_alias_file",
-            "      - \".cargo/config.toml\"\n",
-            ".cargo/config.toml",
+            "alias_file",
+            "\".cargo/config.toml\"",
+            "\".cargo/config.toml.bak\"",
         ),
         (
-            "no_crate",
-            "      - \"crates/xtask-registry-guard/**\"\n",
-            "crates/xtask-registry-guard/",
+            "crate",
+            "\"crates/xtask-registry-guard/**\"",
+            "\"crates/xtask-registry-guard/README.md\"",
         ),
     ];
-    for (name, dropped, missing) in cases {
-        let caught = violations(&[(".github/workflows/consumer.yml", &both.replace(dropped, ""))]);
-        assert_eq!(caught.len(), 1, "{name}: {caught:?}");
-        assert!(caught[0].contains(missing), "{name}: {caught:?}");
+    for (name, listed, near_miss) in cases {
+        for (case, workflow) in [
+            (name.to_string(), both.replace(listed, "")),
+            (format!("{name}_near_miss"), both.replace(listed, near_miss)),
+        ] {
+            let caught = violations(&[(".github/workflows/consumer.yml", &workflow)]);
+            assert_eq!(caught.len(), 1, "{case}: {caught:?}");
+            assert!(caught[0].contains(listed.trim_matches('"')), "{caught:?}");
+        }
+    }
+    // cargo takes `[+toolchain] [OPTIONS]` before the command, and each
+    // spelling is the same call.
+    for spelling in ["cargo --locked check-sql", "cargo +stable check-sql"] {
+        let caught = violations(&[(
+            ".github/workflows/consumer.yml",
+            &both
+                .replace("cargo check-sql", spelling)
+                .replace("      - \".cargo/config.toml\"\n", ""),
+        )]);
+        assert_eq!(caught.len(), 1, "{spelling}: {caught:?}");
     }
     // A paths-ignore filter cannot be read as covering them at all.
     let ignored = both.replace("    paths:\n", "    paths-ignore:\n");
