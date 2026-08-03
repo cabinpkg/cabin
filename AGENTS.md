@@ -77,6 +77,9 @@ anywhere would be aliases nothing checked.
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the
   dependency set are genuinely new.
+- A local action (`action.yml`) is repository automation whatever it is
+  written in, and its `runs:` names an entry point that need not look like a
+  script - so the guard refuses the metadata, and there are no local actions.
 - **No non-Rust repository automation, whatever the language.** The list is
   open, not a menu: Bash, `sh`, `zsh`, Perl, Python, Ruby, PowerShell, batch,
   `make`, `just`, and JavaScript written to drive the repository are all the

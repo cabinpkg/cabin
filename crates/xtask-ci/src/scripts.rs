@@ -8,7 +8,9 @@
 //!
 //! - a tooling extension, in any component of the file name, so
 //!   `deploy.sh.in` is caught as well as `deploy.sh`;
-//! - a bare name that is itself a tool (`Makefile`, `justfile`);
+//! - a bare name that is itself a tool (`Makefile`, `justfile`), local
+//!   action metadata included: `action.yml` names the entry point
+//!   GitHub runs, which need not look like a script;
 //! - the executable bit, which is what makes an extensionless,
 //!   shebang-less file runnable as `./tools/deploy`;
 //! - an interpreter shebang on the first line;
@@ -108,13 +110,22 @@ const SOURCE_LANGUAGE_EXTENSIONS: [&str; 7] = ["cjs", "cts", "js", "mjs", "mts",
 const PRODUCT_SOURCE_ROOTS: [&str; 1] = ["website/src/"];
 
 /// Bare file names that are a tool without needing an extension.
-const TOOLING_NAMES: [&str; 8] = [
+///
+/// `action.yml` earns its place for a different reason than the rest: a
+/// local action is repository automation by definition, and its `runs:`
+/// names the entry point GitHub executes - a file that need not look
+/// like a script at all (`main: deploy.data`). Refusing the metadata
+/// refuses the whole shape, which is why nothing here has to guess what
+/// an entry point is.
+const TOOLING_NAMES: [&str; 10] = [
     ".envrc",
     "GNUmakefile",
     "Justfile",
     "Makefile",
     "Rakefile",
     "Taskfile.yml",
+    "action.yaml",
+    "action.yml",
     "justfile",
     "makefile",
 ];

@@ -204,6 +204,19 @@ fn a_reintroduced_script_is_caught() {
             "website/scripts/release-tag.mjs",
             "console.log(1);\n",
         ),
+        // A local action is automation whose entry point is whatever its
+        // metadata says - `runs.main` can name a file with no telling
+        // extension at all, so the metadata is what gets refused.
+        (
+            "local_action",
+            ".github/actions/deploy/action.yml",
+            "runs:\n  using: node20\n  main: deploy.data\n",
+        ),
+        (
+            "local_action_yaml",
+            ".github/actions/deploy/action.yaml",
+            "runs:\n  using: composite\n",
+        ),
         // The extension is a disguise; the shebang is what runs it.
         (
             "shebang_no_extension",
