@@ -575,6 +575,16 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
             "{case}: {caught:?}"
         );
     }
+    // Prose about a command is not a command: the guard reads what a
+    // step runs.
+    let mentions = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
+                    build:\n    steps:\n      # rustc is not run here, only named\n      \
+                    - run: cargo build -p cabinpkg # not rustc either\n";
+    assert!(
+        violations(&[(".github/workflows/prose.yml", mentions)]).is_empty(),
+        "a comment naming rustc is not an invocation"
+    );
+
     // Rust compiled outside cargo belongs to no crate and no alias.
     let loose = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                  build:\n    steps:\n      - run: rustc tools/deploy.rs -o deploy && ./deploy\n";
@@ -1124,6 +1134,13 @@ fn switching_the_guard_off_in_ci_is_caught() {
             "command_commented_out",
             "        run: ./target/x86_64-unknown-linux-gnu/debug/xtask-ci check-scripts\n",
             "        run: echo skip # ./target/debug/xtask-ci check-scripts\n",
+        ),
+        (
+            // A rustc wrapper named by the config could stand in for the
+            // compiler and skip this very build.
+            "wrapper_unpinned",
+            "        env:\n          # Emptied, not inherited",
+            "        env:\n          # (dropped)",
         ),
         (
             // `[build] target-dir` can move what cargo just built, and a

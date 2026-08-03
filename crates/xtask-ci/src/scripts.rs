@@ -329,6 +329,12 @@ const PINNED_JOB: &str = "  automation:
       - name: Build the repository automation guard
         shell: bash
         working-directory: .
+        env:
+          # Emptied, not inherited: a wrapper stands in for rustc, so one
+          # named by the very file this guard polices could skip building
+          # it. Cargo reads an empty value as none.
+          CARGO_BUILD_RUSTC_WRAPPER: \"\"
+          CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: \"\"
         run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
 
       - name: Repository automation guard
@@ -1279,24 +1285,32 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
 /// be doing - they are refused because the rule wants automation named
 /// plainly enough to check.
 fn unreadable_invocation(listed: &str, text: &str) -> Option<String> {
-    let separator = |c: char| c.is_whitespace() || "\"';&|()`<>[],=\\".contains(c);
     for line in text.lines() {
-        let mut words = line.split(separator).filter(|word| !word.is_empty());
-        while let Some(word) = words.next() {
-            if normalize_target(word).rsplit('/').next() == Some("rustc") {
+        // What a step runs, not what it says about it: a `#` comment
+        // that mentions rustc is prose, and the key is not the command.
+        let line = line.split(" #").next().unwrap_or(line);
+        let line = line.split_once("run:").map_or(line, |(_, rest)| rest);
+        // One command per shell operator.
+        for segment in line.split(['&', '|', ';']) {
+            let mut words = segment
+                .split_whitespace()
+                .map(|word| normalize_target(word.trim_matches(['"', '\'', '(', ')'])))
+                .filter(|word| !word.is_empty());
+            let Some(head) = words.next() else {
+                continue;
+            };
+            if head.rsplit('/').next() == Some("rustc") {
                 return Some(format!(
                     "{listed} runs rustc; a loose .rs file compiled in a workflow belongs to \
                      no crate and no alias, which is where repository automation lives \
                      (AGENTS.md, \"Repository automation\")"
                 ));
             }
-            if !is_cargo(word) {
+            if !is_cargo(head) {
                 continue;
             }
             // The first word that is not a flag is the subcommand.
-            let Some(command) = words
-                .clone()
-                .find(|next| !next.starts_with('-') && !next.starts_with('+'))
+            let Some(command) = words.find(|next| !next.starts_with('-') && !next.starts_with('+'))
             else {
                 continue;
             };
