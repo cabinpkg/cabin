@@ -1,0 +1,22 @@
+# Repository-local cargo aliases for the `xtask-*` maintainer tools
+# (AGENTS.md, "Repository automation").
+#
+# `[alias]` only, deliberately: this file is on the config search path of
+# the standalone `registry/` workspace too, so a `[build]` or `[target]`
+# key here would also change how the Worker is built - which is why
+# `.cargo/config.toml` is a trigger path of registry.yml.
+#
+# Every alias names a ROOT-workspace package, so it resolves anywhere
+# inside the root workspace but not from `registry/`, which cargo
+# resolves against its own manifest. Run the aliases from the repository
+# root; the tools themselves locate what they operate on from their own
+# manifest directory, never from the working directory.
+#
+# Scalar (whitespace-split) alias values, not arrays: cargo JOINS array
+# config values across layers instead of overriding them, so a same-named
+# array alias in a developer's ~/.cargo/config.toml would stay the command
+# and turn these tokens into its arguments. A scalar here overrides a
+# scalar there, and a global array turns into a loud merge error.
+
+[alias]
+port-publish = "run --quiet --locked -p xtask-port-publish --"

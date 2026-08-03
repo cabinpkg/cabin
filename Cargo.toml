@@ -20,7 +20,6 @@ members = [
   "crates/cabin-manifest",
   "crates/cabin-ninja",
   "crates/cabin-package",
-  "crates/cabin-port-publish",
   "crates/cabin-publish",
   "crates/cabin-registry-api",
   "crates/cabin-registry-file",
@@ -33,6 +32,10 @@ members = [
   "crates/cabin-toolchain",
   "crates/cabin-vendor",
   "crates/cabin-workspace",
+  # Repository tooling. `xtask-*` crates are `publish = false` maintainer
+  # tools reached through the aliases in .cargo/config.toml, never part of
+  # the shipped surface (AGENTS.md, "Repository automation").
+  "crates/xtask-port-publish",
 ]
 default-members = ["crates/cabin"]
 # The hosted registry service is a standalone wasm32-targeted workspace

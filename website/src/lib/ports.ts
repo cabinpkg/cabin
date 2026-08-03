@@ -32,7 +32,7 @@ function resolvePortsDir(): string {
 const PORTS_DIR = resolvePortsDir();
 
 // The registry identity every port publishes under, mirroring the
-// cabin-port-publish conversion (crates/cabin-port-publish): the site must
+// xtask-port-publish conversion (crates/xtask-port-publish): the site must
 // present exactly the names and versions the registry serves, without a
 // live-registry build dependency.
 const REGISTRY_SCOPE = "cabin-ports";
@@ -293,7 +293,7 @@ function dependencyRequirement(
     return { name, req };
 }
 
-// The publisher's identity rule (cabin-port-publish::plan::
+// The publisher's identity rule (xtask-port-publish::plan::
 // scoped_package_name): lowercase the port name and require the
 // canonical registry grammar `[a-z0-9][a-z0-9_-]*`, so cJSON becomes
 // cabin-ports/cjson and a name the registry would reject fails the

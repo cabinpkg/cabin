@@ -8,6 +8,8 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/registry.yml"
+      # On the config search path of the registry workspace too.
+      - ".cargo/config.toml"
       - "registry/**"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -16,6 +18,8 @@ on:
   pull_request:
     paths:
       - ".github/workflows/registry.yml"
+      # On the config search path of the registry workspace too.
+      - ".cargo/config.toml"
       - "registry/**"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -155,7 +159,7 @@ jobs:
         run: |
           git fetch --quiet origin main
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
-              .github/workflows/registry.yml registry/ \
+              .github/workflows/registry.yml .cargo/config.toml registry/ \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/ crates/cabin-core/)" ]; then
             echo "superseded=true" >> "$GITHUB_OUTPUT"

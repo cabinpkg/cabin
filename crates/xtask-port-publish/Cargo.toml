@@ -1,5 +1,5 @@
 [package]
-name = "cabinpkg-port-publish"
+name = "xtask-port-publish"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,10 +12,10 @@ description = "Repository tool that publishes foundation ports as cabin-ports re
 publish = false
 
 [lib]
-name = "cabin_port_publish"
+name = "xtask_port_publish"
 
 [[bin]]
-name = "cabin-port-publish"
+name = "xtask-port-publish"
 path = "src/main.rs"
 
 [dependencies]

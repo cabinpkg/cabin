@@ -231,7 +231,6 @@ dependencies = [
  "cabinpkg-manifest",
  "cabinpkg-ninja",
  "cabinpkg-package",
- "cabinpkg-port-publish",
  "cabinpkg-publish",
  "cabinpkg-registry-api",
  "cabinpkg-resolver",
@@ -260,6 +259,7 @@ dependencies = [
  "tiny_http",
  "url",
  "which",
+ "xtask-port-publish",
  "zip",
 ]
 
@@ -496,30 +496,6 @@ dependencies = [
  "sha2",
  "thiserror",
  "zip",
-]
-
-[[package]]
-name = "cabinpkg-port-publish"
-version = "0.17.0"
-dependencies = [
- "anyhow",
- "assert_fs",
- "cabinpkg-artifact",
- "cabinpkg-core",
- "cabinpkg-env",
- "cabinpkg-index-http",
- "cabinpkg-manifest",
- "cabinpkg-publish",
- "cabinpkg-registry-api",
- "camino",
- "etcetera",
- "flate2",
- "semver",
- "serde_json",
- "sha2",
- "tar",
- "tiny_http",
- "url",
 ]
 
 [[package]]
@@ -2399,6 +2375,30 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "xtask-port-publish"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_fs",
+ "cabinpkg-artifact",
+ "cabinpkg-core",
+ "cabinpkg-env",
+ "cabinpkg-index-http",
+ "cabinpkg-manifest",
+ "cabinpkg-publish",
+ "cabinpkg-registry-api",
+ "camino",
+ "etcetera",
+ "flate2",
+ "semver",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tiny_http",
+ "url",
 ]
 
 [[package]]
