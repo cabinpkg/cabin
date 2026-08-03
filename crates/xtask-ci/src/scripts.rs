@@ -61,7 +61,7 @@ use anyhow::{Context as _, Result, bail};
 ///
 /// Checked against every dot-separated component after the first, so a
 /// template (`deploy.sh.in`) cannot launder one.
-const TOOLING_EXTENSIONS: [&str; 34] = [
+const TOOLING_EXTENSIONS: [&str; 36] = [
     "applescript",
     "awk",
     "bash",
@@ -76,6 +76,8 @@ const TOOLING_EXTENSIONS: [&str; 34] = [
     "jse",
     "ksh",
     "lua",
+    "make",
+    "mk",
     "nu",
     "php",
     "pl",

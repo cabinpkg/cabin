@@ -223,6 +223,9 @@ fn a_reintroduced_script_is_caught() {
             "tools/Makefile.in",
             "all:\n\techo hi\n",
         ),
+        // `make -f` reads a file by any name at all.
+        ("make_fragment", "tools/build.mk", "all:\n\techo hi\n"),
+        ("make_suffix", "tools/build.make", "all:\n\techo hi\n"),
         // Windows Script Host: `cscript tools/release.vbs` runs it with
         // nothing installed.
         ("vbscript", "tools/release.vbs", "WScript.Echo 1\n"),
