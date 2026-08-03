@@ -755,7 +755,13 @@ fn first_line_shebang(path: &Path) -> Result<bool> {
         return Ok(false);
     };
     let line = rest.split(|&byte| byte == b'\n').next().unwrap_or_default();
-    Ok(!line.starts_with(b"[") && line.iter().any(|byte| !byte.is_ascii_whitespace()))
+    // `#! [allow(dead_code)]` is an inner attribute too: the space is
+    // legal Rust, and only what follows it tells the two apart.
+    let start = line
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(line.len());
+    Ok(!line[start..].is_empty() && !line[start..].starts_with(b"["))
 }
 
 /// Whatever is wrong with `.cargo/config.toml` beyond the aliases.
@@ -1018,7 +1024,10 @@ fn aliases(config: &toml::Value) -> Vec<(String, String)> {
 
 /// The package an alias selects, in any of the spellings cargo accepts.
 fn alias_package(value: &str) -> Option<&str> {
-    let mut words = value.split_whitespace();
+    // Everything after `--` is the runee's own arguments: an alias that
+    // runs something else can carry a `-p xtask-*` there and mean
+    // nothing by it.
+    let mut words = value.split_whitespace().take_while(|word| *word != "--");
     while let Some(word) = words.next() {
         let selected = match word {
             "-p" | "--package" => words.next(),

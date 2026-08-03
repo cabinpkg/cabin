@@ -171,8 +171,13 @@ fn violations(files: &[(&str, &str)]) -> Vec<String> {
 fn source_and_data_pass() {
     let accepted = violations(&[
         ("crates/cabin/src/lib.rs", "//! the binary\n"),
-        // A Rust inner attribute opens with `#!` and is not a shebang.
+        // A Rust inner attribute opens with `#!` and is not a shebang,
+        // with or without the space that spelling allows.
         ("crates/cabin/tests/cli.rs", "#![cfg(unix)]\nfn main() {}\n"),
+        (
+            "crates/cabin/tests/spaced.rs",
+            "#! [allow(dead_code)]\nfn main() {}\n",
+        ),
         ("website/src/pages/index.astro", "---\n---\n<html></html>\n"),
         ("website/src/lib/ports.ts", "export const ports = [];\n"),
         ("website/src/scripts/home-stats.ts", "export {};\n"),
@@ -575,6 +580,11 @@ fn an_alias_onto_a_non_xtask_package_is_caught() {
         (
             "builds_without_running",
             "repo-task = \"build --quiet --locked -p xtask-ci\"\n",
+        ),
+        // Everything after `--` belongs to whatever is being run.
+        (
+            "selector_after_the_separator",
+            "repo-task = \"run --bin cabin -- --help -p xtask-ci\"\n",
         ),
         // An array alias is not the same declaration: cargo joins array
         // values across config layers instead of overriding them.
