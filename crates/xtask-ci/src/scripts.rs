@@ -576,6 +576,9 @@ fn workflow_wiring_problems(repo_root: &Path) -> Vec<String> {
             "{GUARD_WORKFLOW} is missing; it is where this guard runs"
         )];
     };
+    // Windows checkouts normalize to CRLF, and the pins are written with
+    // the line endings the repository stores.
+    let text = text.replace("\r\n", "\n");
     let mut problems = Vec::new();
     if !text.contains(PINNED_TRIGGERS) {
         problems.push(format!(
