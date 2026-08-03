@@ -549,6 +549,8 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "      - run: cargo run -p xtask-port-publish@0.17.0 -- --help\n",
         "      - run: cargo run -p path+file:///w/crates/xtask-port-publish#0.17.0\n",
         "      - run: cargo run -p path+file:///w#xtask-port-publish@0.17.0\n",
+        // Cargo still takes the colon spelling of a version.
+        "      - run: cargo run -p xtask-port-publish:0.17.0 -- --dry-run\n",
     ] {
         let direct = format!(
             "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
@@ -1205,6 +1207,19 @@ fn an_xtask_crate_off_the_convention_is_caught() {
             "{spelling}: {excluded:?}"
         );
     }
+
+    // A glob may sit anywhere in a member pattern, not only at its end.
+    let mid_glob = base(
+        good_manifest,
+        "[workspace]\nmembers = [\"crates/*task-*\"]\n",
+        good_alias,
+    );
+    assert!(
+        !mid_glob
+            .iter()
+            .any(|line| line.contains("not a member of the root workspace")),
+        "{mid_glob:?}"
+    );
 
     let missing_member = base(good_manifest, "[workspace]\nmembers = []\n", good_alias);
     assert!(

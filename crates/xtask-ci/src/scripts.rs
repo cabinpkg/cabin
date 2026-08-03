@@ -1468,10 +1468,44 @@ fn normalize_target(word: &str) -> &str {
         .unwrap_or(word);
     // `-p name@version` is a package spec, and the version is not part
     // of what it names.
-    // `-p name@version` is a package spec, and the version is not part
-    // of what it names.
     let word = word.split('@').next().unwrap_or(word);
+    // `name:version` says the same thing, and cargo still takes it. Only
+    // before a version, so the `:` of a `file:///` URL stays where it is.
+    let word = match word.rsplit_once(':') {
+        Some((name, version)) if version.starts_with(|c: char| c.is_ascii_digit()) => name,
+        _ => word,
+    };
     word.strip_suffix(".exe").unwrap_or(word)
+}
+
+/// Whether `path` matches a workspace member pattern.
+///
+/// Cargo takes a glob anywhere in the pattern, not only at its end
+/// (`crates/*task-*` is a member list this workspace could be written
+/// with), and reading only the trailing form would report every tool
+/// outside a workspace it is in.
+fn matches_glob(pattern: &str, path: &str) -> bool {
+    let mut rest = path;
+    let mut pieces = pattern.split('*');
+    let Some(first) = pieces.next() else {
+        return false;
+    };
+    let Some(tail) = rest.strip_prefix(first) else {
+        return false;
+    };
+    rest = tail;
+    let pieces: Vec<&str> = pieces.collect();
+    let Some((last, middles)) = pieces.split_last() else {
+        // No glob at all: the pattern is the path.
+        return rest.is_empty();
+    };
+    for piece in middles {
+        let Some(at) = rest.find(piece) else {
+            return false;
+        };
+        rest = &rest[at + piece.len()..];
+    }
+    rest.len() >= last.len() && rest.ends_with(last)
 }
 
 /// Whether `text` names a tool crate as a thing to build or run.
@@ -1597,13 +1631,8 @@ fn xtask_crate_problems(repo_root: &Path) -> Result<Vec<String>> {
         // an `exclude` that reads as neither is one cargo honors and
         // this would not.
         let covers = |list: &[String]| {
-            list.iter().any(|entry| {
-                let entry = entry.strip_prefix("./").unwrap_or(entry);
-                entry == path
-                    || entry
-                        .strip_suffix('*')
-                        .is_some_and(|prefix| path.starts_with(prefix))
-            })
+            list.iter()
+                .any(|entry| matches_glob(entry.strip_prefix("./").unwrap_or(entry), &path))
         };
         let member = covers(&members) && !covers(&excluded);
         if !member {
