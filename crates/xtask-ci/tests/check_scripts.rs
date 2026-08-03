@@ -1139,8 +1139,14 @@ fn switching_the_guard_off_in_ci_is_caught() {
             // A rustc wrapper named by the config could stand in for the
             // compiler and skip this very build.
             "wrapper_unpinned",
-            "        env:\n          # Emptied, not inherited",
+            "        env:\n          # Pinned, not inherited",
             "        env:\n          # (dropped)",
+        ),
+        (
+            // `[build] rustc` names the compiler outright.
+            "compiler_unpinned",
+            "          CARGO_BUILD_RUSTC: rustc\n",
+            "",
         ),
         (
             // `[build] target-dir` can move what cargo just built, and a

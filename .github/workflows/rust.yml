@@ -74,9 +74,11 @@ jobs:
         shell: bash
         working-directory: .
         env:
-          # Emptied, not inherited: a wrapper stands in for rustc, so one
-          # named by the very file this guard polices could skip building
-          # it. Cargo reads an empty value as none.
+          # Pinned, not inherited: `[build] rustc` names the compiler
+          # and a wrapper stands in for it, so either - named by the very
+          # file this guard polices - could skip building it. Cargo reads
+          # an empty wrapper as none, and the environment over the file.
+          CARGO_BUILD_RUSTC: rustc
           CARGO_BUILD_RUSTC_WRAPPER: ""
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER: ""
         run: cargo build --locked --target-dir target --target x86_64-unknown-linux-gnu -p xtask-ci
