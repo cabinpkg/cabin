@@ -557,15 +557,24 @@ fn an_alias_consumer_off_its_pinned_triggers_is_caught() {
         "    env:\n      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: \"true\"\n    steps:",
         1,
     );
-    let dir = scratch(&[]);
-    write(&dir, path, &runner);
-    restage(&dir);
-    let caught = scripts::check(dir.path()).expect("run the guard");
-    assert!(
-        caught.iter().any(|line| line.contains("CARGO_TARGET_")),
-        "{caught:?}"
+    // The same runner, reached through another config.toml.
+    let home = real.replacen(
+        "    steps:",
+        "    env:\n      CARGO_HOME: tools/home\n    steps:",
+        1,
     );
-
+    for (case, workflow) in [("runner", &runner), ("home", &home)] {
+        let dir = scratch(&[]);
+        write(&dir, path, workflow);
+        restage(&dir);
+        let caught = scripts::check(dir.path()).expect("run the guard");
+        assert!(
+            caught
+                .iter()
+                .any(|line| line.contains("variable; cargo takes")),
+            "{case}: {caught:?}"
+        );
+    }
     // A workflow can reach a tool with no alias at all.
     let direct = "on:\n  pull_request:\n    paths:\n      - \"docs/**\"\n\njobs:\n  \
                   build:\n    steps:\n      - run: cargo build -p xtask-port-publish\n      \

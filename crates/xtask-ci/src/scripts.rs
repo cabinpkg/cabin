@@ -1185,19 +1185,26 @@ fn alias_consumer_problems(repo_root: &Path) -> Result<Vec<String>> {
         // Cargo reads its configuration from the environment as readily
         // as from the file: CARGO_ALIAS_X is an alias mapping,
         // CARGO_TARGET_<TRIPLE>_RUNNER is the runner that file is kept
-        // free of, and CARGO_BUILD_* moves what gets built and where.
+        // free of, CARGO_BUILD_* moves what gets built and where, and
+        // CARGO_HOME names a whole other config.toml to read them from.
         if text
             .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
             .any(|word| {
-                ["CARGO_ALIAS_", "CARGO_TARGET_", "CARGO_BUILD_"]
-                    .iter()
-                    .any(|known| word.starts_with(known))
+                [
+                    "CARGO_ALIAS_",
+                    "CARGO_TARGET_",
+                    "CARGO_BUILD_",
+                    "CARGO_HOME",
+                ]
+                .iter()
+                .any(|known| word.starts_with(known))
             })
         {
             problems.push(format!(
-                "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_ variable; cargo \
-                 takes an alias, a runner and a build directory from the environment over \
-                 {CARGO_CONFIG}, which is the file this guard checks"
+                "{listed} sets a CARGO_ALIAS_/CARGO_TARGET_/CARGO_BUILD_/CARGO_HOME \
+                 variable; cargo takes an alias, a runner, a build directory - and another \
+                 config.toml to find them in - from the environment over {CARGO_CONFIG}, \
+                 which is the file this guard checks"
             ));
         }
         // The same override, spelled at the call site.
