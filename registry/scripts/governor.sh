@@ -315,7 +315,7 @@ case "$command" in
           echo "verify with scripts/governor.sh compare before moving on" >&2
           ;;
         backup)
-          echo "run scripts/backup-backfill.sh so the drain re-ledgers it" >&2
+          echo "run cargo registry-backup-backfill from the repository root so the drain re-ledgers it" >&2
           ;;
         dump)
           echo "the nightly dump job re-commits its objects; audit with scripts/backup-audit.sh" >&2

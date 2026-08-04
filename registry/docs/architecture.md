@@ -1066,7 +1066,7 @@ are revealed by the platform only after the fact, so they keep the
 breaker's approximate, cron-driven treatment - presenting them as
 hard-enforced would be a lie. Download counters are approximate
 telemetry ("Download counts") and never part of the ledger. And the
-operator's out-of-band tools (`scripts/backup-backfill.sh`, wipes,
+operator's out-of-band tools (`cargo registry-backup-backfill`, wipes,
 restores) run outside the Worker and are deliberately ungoverned:
 reconciliation absorbs their effects conservatively.
 
@@ -1091,8 +1091,8 @@ recovery"):
   `backup`-pool reservation settled on success), shared checksums
   collapse onto one row, a rejection that lands after the enqueue
   retires the row without copying, and rows older than an hour raise
-  the backup-health alert. `scripts/backup-backfill.sh` is the manual
-  recovery path; it deliberately leaves queue rows for the drain to
+  the backup-health alert. `cargo registry-backup-backfill` is the
+  manual recovery path; it deliberately leaves queue rows for the drain to
   settle. No code path deletes from
   the backup bucket's `blobs/sha256/` namespace, so the replicated
   blobs are append-only: a deletion in the primary - malicious or

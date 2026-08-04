@@ -417,12 +417,14 @@ pub fn alert(freshness: Freshness, stale_backups: u64) -> Option<String> {
         0 => {}
         1 => parts.push(
             "1 verified archive blob is overdue for backup replication \
-             (check the drain; scripts/backup-backfill.sh recovers by hand)"
+             (check the drain; `cargo registry-backup-backfill` from the repository \
+             root recovers by hand)"
                 .to_owned(),
         ),
         n => parts.push(format!(
             "{n} verified archive blobs are overdue for backup replication \
-             (check the drain; scripts/backup-backfill.sh recovers by hand)"
+             (check the drain; `cargo registry-backup-backfill` from the repository \
+             root recovers by hand)"
         )),
     }
     if parts.is_empty() {

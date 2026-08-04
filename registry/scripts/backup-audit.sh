@@ -135,7 +135,7 @@ const missing = verified
   .filter((row) => !blobs.has(`blobs/sha256/${row.checksum}`))
   .map((row) => `blobs/sha256/${row.checksum}`);
 section("verified blobs missing from the backup", missing,
-  `queue depth is ${pending}; if rows are stale, run scripts/backup-backfill.sh`,
+  `queue depth is ${pending}; if rows are stale, run cargo registry-backup-backfill from the repository root`,
   true);
 const wrongSize = verified
   .filter((row) => blobs.has(`blobs/sha256/${row.checksum}`)
@@ -143,7 +143,7 @@ const wrongSize = verified
   .map((row) => `blobs/sha256/${row.checksum} `
     + `(backup ${blobs.get(`blobs/sha256/${row.checksum}`)} B, recorded ${row.size} B)`);
 section("backup copies whose size disagrees with the recorded archive", wrongSize,
-  "a truncated or overwritten copy; re-copy via scripts/backup-backfill.sh after deleting it",
+  "a truncated or overwritten copy; re-copy via cargo registry-backup-backfill (repository root) after deleting it",
   true);
 
 // History the current verified set does not name: legitimate under the
@@ -187,7 +187,8 @@ if (fs.existsSync(`${work}/snapshot.json`)) {
     + `bucket d1/:    ${dumpBytes} B / ${dumpObjects.length} object(s)`);
   if (backup.bytes < blobBytes || dump.bytes < dumpBytes) {
     console.log("    the ledger understates the bucket - it must stay an upper bound;"
-      + " run scripts/backup-backfill.sh (backup pool) and investigate dumps");
+      + " run cargo registry-backup-backfill from the repository root (backup pool)"
+      + " and investigate dumps");
     failed = true;
   }
 }

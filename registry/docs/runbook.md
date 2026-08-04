@@ -630,8 +630,9 @@ Durable Object point-in-time recovery is the first-line fix, restoring
 the object to just before the loss. Reconciliation only repopulates
 **storage**: the **primary** rows rebuild from D1 - run
 `scripts/governor.sh reconcile` immediately rather than waiting up to
-15 minutes for the breaker cron's pass; `scripts/backup-backfill.sh`
-re-ledgers the **backup** pool (its queue rows walk every verified
+15 minutes for the breaker cron's pass; `cargo
+registry-backup-backfill` (from the repository root) re-ledgers the
+**backup** pool (its queue rows walk every verified
 blob through the drain); and the **dump** entries regrow only as
 nightly dumps land - `scripts/backup-audit.sh` audits the `d1/`
 prefix against the usage snapshot if the gap matters before retention
@@ -928,7 +929,8 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   deletes invalid dumps and prunes past retention - that is its own
   bookkeeping, not a reclaim path.) Queue rows older than an hour raise the
   breaker's backup-health alert;
-  `scripts/backup-backfill.sh` is the manual recovery path (it copies
+  `cargo registry-backup-backfill`, run from the repository root, is
+  the manual recovery path (it copies
   every verified blob the backup lacks and deliberately leaves queue
   rows for the Worker's drain to settle, governor ledger included).
   Run the backfill once when seeding backups over existing data.
@@ -1020,8 +1022,8 @@ list; each later option covers a case the earlier one cannot.
 3. **Primary-bucket data loss** (bucket deleted or objects destroyed):
    the backup bucket is the artifact store of last resort. Recreate the
    primary bucket, then copy `blobs/sha256/*` back (the inverse of
-   `scripts/backup-backfill.sh` - same loop with source and destination
-   swapped, driven by the checksums in D1), and restore D1 from Time
+   `cargo registry-backup-backfill` - same loop with source and
+   destination swapped, driven by the checksums in D1), and restore D1 from Time
    Travel or the newest dump as above. Because blobs are
    content-addressed and never mutated, the copied-back objects are
    byte-identical to what clients pinned in lockfiles.

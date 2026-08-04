@@ -23,6 +23,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]

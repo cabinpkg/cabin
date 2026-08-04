@@ -13,7 +13,9 @@ Operator commands against the hosted registry, run from the repository
 root through their Cargo aliases.
 
 commands:
-  diagnose   safe diagnostics bundle (`cargo registry-diagnose`)
+  backup-backfill  copy verified blobs missing from the backup bucket
+                   (`cargo registry-backup-backfill`)
+  diagnose         safe diagnostics bundle (`cargo registry-diagnose`)
 
 options:
   -h, --help  show this help
@@ -42,6 +44,7 @@ fn run() -> Result<()> {
             print!("{USAGE}");
             Ok(())
         }
+        "backup-backfill" => xtask_registry_admin::backfill::run(),
         "diagnose" => xtask_registry_admin::diagnose::run(),
         other => bail!("unknown command: {other}\n\n{USAGE}"),
     }
