@@ -44,7 +44,7 @@ directly via Node's type stripping).
 
 - `npm run dev` / `npm run typecheck` (`astro check`) / `npm run lint` (Biome) /
   `npm run fmt` (Biome `--write`) / `npm test` (`node --test` over
-  `src/**/*.test.ts` and `scripts/**/*.test.mjs`).  `scripts/ci.sh` runs
+  `src/**/*.test.ts` and `scripts/**/*.test.mjs`).  `cargo ci` runs
   lint, test and build when a change touches `website/`, `docs/` or
   `ports/`.
 - `npm run build` = `npm run typecheck && astro build && npm run verify`; writes

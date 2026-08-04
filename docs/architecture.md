@@ -49,6 +49,7 @@ crates/
   cabin-lockfile/    cabin.lock reader / writer / validator
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
+  xtask-ci/          repository tool: the local mirror of the CI gate
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
@@ -529,6 +530,31 @@ the client's canonical bytes and the server's schema cannot silently drift.  The
 - package with the binary built from this checkout, never an installed `cabin`;
 - write its fixtures only into the caller-supplied output directory, and author their sources in
   a scratch directory it owns.
+
+### `xtask-ci`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the local mirror of the CI gate, reached through the `cargo ci` alias.  It scopes the
+expensive checks to the surfaces a change touches and runs the independent cargo phases
+concurrently, each in its own `CARGO_TARGET_DIR` - cargo's target-dir lock is exclusive, so a
+shared directory would serialize them right back.  `cargo ci --hook` is the agent Stop-hook
+adapter.  The crate must:
+
+- never report green on a surface it did not check.  Scoping is what makes the gate fast, and
+  scoping a check out of a run that would have failed it is the one bug that lets red land on
+  main - so an unknown merge base runs everything rather than guessing;
+- resolve the repository at runtime, not from its own compile-time manifest directory: the gate
+  checks the tree it is invoked in, which is what keeps it correct inside a `git worktree`;
+- keep the Stop-hook adapter infallible.  Every path exits 0 and stdout carries only the JSON
+  decision, because a non-zero exit reads as "the hook crashed" rather than as a verdict.
+
+One ceiling comes with being a cargo target inside the workspace it checks: `cargo ci --hook` has
+to resolve and build `xtask-ci` before the adapter runs at all, so a workspace that does not
+compile - or a stale lockfile under `--locked` - fails the hook before it can turn that into a
+block decision.  The shell adapter it replaces was already running when the inner gate hit the
+same failure, and converted it.  A hook that cannot build is still visible (the agent reports the
+hook error), but it does not block the stop, so a red workspace is the one state where the gate
+must be run by hand.
 
 ### `xtask-registry-guard`
 

@@ -22,6 +22,7 @@
 check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
+ci = "run --quiet --locked -p xtask-ci --"
 gen-fixtures = "run --quiet --locked -p xtask-registry-fixtures --"
 registry-backup-audit = "run --quiet --locked -p xtask-registry-admin -- backup-audit"
 registry-backup-backfill = "run --quiet --locked -p xtask-registry-admin -- backup-backfill"
