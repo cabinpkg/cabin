@@ -192,19 +192,11 @@ fn governor_ledger() -> Result<()> {
         step("governor ledger: skipped (REGISTRY_VERIFY_TOKEN unset)");
         return Ok(());
     };
-    step("governor ledger (scripts/governor.sh usage)");
-    let snapshot = output(
-        Command::new("bash")
-            .args(["scripts/governor.sh", "usage"])
-            .env("REGISTRY_VERIFY_TOKEN", token)
-            .stderr(Stdio::inherit())
-            .current_dir(registry_dir()),
-    );
-    for line in snapshot
-        .context("read the governor usage snapshot")?
-        .lines()
-        .skip(1)
-    {
+    // The token is read from the environment by the governor itself;
+    // this only decides whether the section runs at all.
+    let _ = token;
+    step("governor ledger (cargo registry-governor usage)");
+    for line in crate::governor::usage_lines().context("read the governor usage snapshot")? {
         println!("    {line}");
     }
     Ok(())

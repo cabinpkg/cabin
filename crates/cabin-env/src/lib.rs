@@ -143,6 +143,21 @@ pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 /// names from one place.
 pub const CABIN_API_ORIGIN: &str = "CABIN_API_ORIGIN";
 
+/// Escape hatch for the governor release's extra confirmation on the
+/// BACKUP pool.  Set to exactly `1` to skip the prompt.  Releasing
+/// backup-pool accounting marks an incident rather than maintenance,
+/// which is why it carries a prompt the other pools do not.  Read by
+/// the repository's own maintainer tooling
+/// (`xtask-registry-admin`), never by the shipped `cabin` binary.
+pub const CABIN_GOVERNOR_RELEASE_BACKUP_YES: &str = "CABIN_GOVERNOR_RELEASE_BACKUP_YES";
+
+/// Escape hatch for the governor ledger wipe's confirmation.  Set to
+/// exactly `1` to skip the prompt; every evidence gate behind it still
+/// runs, including the launch guard.  Read by the repository's own
+/// maintainer tooling (`xtask-registry-admin`), never by the shipped
+/// `cabin` binary.
+pub const CABIN_GOVERNOR_WIPE_YES: &str = "CABIN_GOVERNOR_WIPE_YES";
+
 /// Number of parallel jobs the build backend should use.
 /// Cargo-style: positive integer, `0` is rejected.  Cabin
 /// reads this env var when `--jobs` is not on the command

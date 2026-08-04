@@ -200,7 +200,8 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, "Post-wipe re-provisioning"):
      OAuth app grant survives the wipe, so re-claims grant immediately)
   3. mint a verify-scoped token FIRST and update the GitHub secret
      (gh secret set REGISTRY_VERIFY_TOKEN)
-  4. run scripts/governor.sh wipe with it BEFORE minting any
+  4. run cargo registry-governor wipe (from the repository root) with it
+     BEFORE minting any
      publish-capable token - its no-delayed-publisher evidence gate
      requires zero live publish tokens (refused once launched)
   5. only then mint publish tokens and update their secrets

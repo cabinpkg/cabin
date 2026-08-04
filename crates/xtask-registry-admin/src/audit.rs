@@ -9,7 +9,7 @@
 //! dumps), and an object the current verified set does not name may be
 //! legitimate history (a pre-wipe backup, an older restore's blobs), so
 //! cleanup is an operator decision made per object with
-//! `wrangler r2 object delete` plus `scripts/governor.sh release`,
+//! `wrangler r2 object delete` plus `cargo registry-governor release`,
 //! never a bulk sweep.
 //!
 //! Requires `CLOUDFLARE_API_TOKEN` (the R2 listing) and wrangler auth
@@ -187,7 +187,7 @@ fn list(token: &str, account: &str) -> Result<Vec<Object>> {
 /// `ureq` returns the 3xx as `Ok` with this set, which is what `curl`
 /// did too: the listing then fails to parse and the ledger read fails
 /// its status check, each with the body the redirect carried.
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().redirects(0).build()
 }
 
@@ -235,7 +235,7 @@ fn page(body: &str) -> Result<(Vec<Object>, String)> {
 /// `encodeURIComponent`, because the cursor goes into a query string
 /// and R2 hands back base64 - `+`, `/` and `=` all change meaning
 /// there.
-fn encode_uri_component(value: &str) -> String {
+pub(crate) fn encode_uri_component(value: &str) -> String {
     use std::fmt::Write as _;
 
     let mut encoded = String::with_capacity(value.len());

@@ -113,7 +113,7 @@ fn every_script_the_runbook_references_exists() {
 #[test]
 fn the_operator_scripts_stay_documented() {
     let runbook = read("docs/runbook.md");
-    let undocumented: Vec<&str> = ["scripts/governor.sh", "scripts/migrate.sh"]
+    let undocumented: Vec<&str> = ["scripts/migrate.sh"]
         .into_iter()
         .filter(|script| {
             assert!(
@@ -138,10 +138,11 @@ fn the_operator_scripts_stay_documented() {
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 5] = [
+    const COMMANDS: [(&str, &str); 6] = [
         ("registry-backup-audit", "xtask-registry-admin"),
         ("registry-backup-backfill", "xtask-registry-admin"),
         ("registry-diagnose", "xtask-registry-admin"),
+        ("registry-governor", "xtask-registry-admin"),
         ("registry-launch-guard", "xtask-registry-admin"),
         ("registry-restore-drill", "xtask-registry-admin"),
     ];

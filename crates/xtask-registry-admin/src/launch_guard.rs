@@ -26,17 +26,16 @@
 //! shadow, turning every refusal into a silent success.  A compiled
 //! binary has no such dispatch.
 //!
-//! One thing it is worse at, until its callers are Rust too.  While
-//! `registry/scripts/wipe.sh` and `registry/scripts/governor.sh` are
-//! shell, they reach this through `cargo run`, which the environment
-//! can redirect - `CARGO_TARGET_<TRIPLE>_RUNNER`, or a `cargo` earlier
-//! on `PATH` - so the guard can be made not to run at all.  The shell
-//! guard had the same shape of hole through `npx`, which a fake on
-//! `PATH` answered for; this widens it rather than opening it, and it
-//! closes when those two scripts migrate and the call becomes
-//! [`run`] itself.  Neither form defends against whoever sets the
-//! environment: the guard exists to stop a launched registry and a
-//! stale config, not its own operator.
+//! One thing it is worse at, until its last caller is Rust too.
+//! While `registry/scripts/wipe.sh` is shell it reaches this through
+//! `cargo run`, which the environment can redirect -
+//! `CARGO_TARGET_<TRIPLE>_RUNNER`, or a `cargo` earlier on `PATH` - so
+//! the guard can be made not to run at all.  The shell guard had the
+//! same shape of hole through `npx`, which a fake on `PATH` answered
+//! for; this widens it rather than opening it, and it closes when that
+//! script migrates and the call becomes [`run`] itself.  Neither form
+//! defends against whoever sets the environment: the guard exists to
+//! stop a launched registry and a stale config, not its own operator.
 //!
 //! Ceilings, where this deliberately stops short of the shell it
 //! replaces.  All are fail-closed - the guard refuses where the shell

@@ -28,4 +28,5 @@ registry-backup-backfill = "run --quiet --locked -p xtask-registry-admin -- back
 registry-diagnose = "run --quiet --locked -p xtask-registry-admin -- diagnose"
 registry-restore-drill = "run --quiet --locked -p xtask-registry-admin -- restore-drill"
 registry-launch-guard = "run --quiet --locked -p xtask-registry-admin -- launch-guard"
+registry-governor = "run --quiet --locked -p xtask-registry-admin -- governor"
 port-publish = "run --quiet --locked -p xtask-port-publish --"

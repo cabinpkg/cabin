@@ -20,6 +20,11 @@ commands:
   backup-backfill  copy verified blobs missing from the backup bucket
                    (`cargo registry-backup-backfill`)
   diagnose         safe diagnostics bundle (`cargo registry-diagnose`)
+  governor <usage|compare|reconcile [--keys]|release <pool> <key>|wipe>
+                   the cost governor's ledger: inspect, compare against
+                   D1, rebuild increase-only, release an entry against
+                   evidence, or reset it pre-launch
+                   (`cargo registry-governor`)
   launch-guard <--remote|--local>
                    refuse unless meta.launched is 'false'; destructive
                    maintenance runs this first
@@ -58,6 +63,7 @@ fn run() -> Result<()> {
         ("backup-audit", ["--keys"]) => xtask_registry_admin::audit::run(true),
         ("backup-backfill", []) => xtask_registry_admin::backfill::run(),
         ("diagnose", []) => xtask_registry_admin::diagnose::run(),
+        ("governor", rest) => governor(rest),
         ("launch-guard", [mode]) => {
             let Some(mode) = xtask_registry_admin::launch_guard::Mode::parse(mode) else {
                 bail!("launch guard: unknown mode: {mode} (expected --remote or --local)");
@@ -69,4 +75,32 @@ fn run() -> Result<()> {
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
         (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
     }
+}
+
+/// The governor's own argument surface, which the shell spelled as a
+/// `case` over `$2` and `$3`.
+fn governor(rest: &[&str]) -> Result<()> {
+    use xtask_registry_admin::governor::{Action, Pool};
+
+    let action = match rest {
+        ["usage"] => Action::Usage,
+        ["compare"] => Action::Compare,
+        ["reconcile"] => Action::Reconcile { keys: false },
+        ["reconcile", "--keys"] => Action::Reconcile { keys: true },
+        ["release", pool, key] => {
+            let Some(pool) = Pool::parse(pool) else {
+                bail!("usage: cargo registry-governor release <primary|backup|dump> <key>");
+            };
+            Action::Release {
+                pool,
+                key: (*key).to_owned(),
+            }
+        }
+        ["wipe"] => Action::Wipe,
+        _ => bail!(
+            "usage: cargo registry-governor <usage|compare|reconcile [--keys]|\
+             release <pool> <key>|wipe>"
+        ),
+    };
+    xtask_registry_admin::governor::run(&action)
 }

@@ -508,6 +508,12 @@ command can reach an unpinned CLI.  The crate must:
   `cabin-registry` carries the id `wrangler.jsonc` binds, so a read here and a `d1 delete` by
   name cannot reach different databases.  It prints nothing when it passes, because the scripts
   that run it are mid-sentence when they do;
+- prove absence before releasing ledger allowance, never infer it.  The governor's `release` and
+  `wipe` shrink the cost ledger, and an understating ledger admits writes past the true R2 cap,
+  so a listing that fails - an unparsable page, a row carrying no key, an unencodable prefix - is
+  an error and never an empty answer.  The key grammar checked before the listing is part of that
+  guard rather than input hygiene: it bounds how many objects can share the key as a prefix, which
+  is what makes a single page proof;
 - never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
   current verified set does not name is reported as history for an operator to judge per object,
   never swept.

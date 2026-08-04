@@ -253,7 +253,8 @@ What it does, in order:
    you of: the ledger still accounts for the deleted primary blobs
    (conservative, so nothing overspends, but admission runs against
    ghosts). Sign in, mint a verify-scoped token, and run
-   `scripts/governor.sh wipe` with it (`REGISTRY_VERIFY_TOKEN` plus
+   `cargo registry-governor wipe` (from the repository root) with it
+   (`REGISTRY_VERIFY_TOKEN` plus
    `CLOUDFLARE_API_TOKEN` in the environment): it re-runs the launch
    guard, proves the primary bucket really carries no `blobs/` objects
    (an interrupted sweep would otherwise leave the fresh ledger
@@ -301,7 +302,8 @@ round trip (drilled 2026-07-29):
    app grant survives the wipe, so an org-backed re-claim grants
    immediately - no third-party-access dance the second time.
 3. Mint a **verify** token and `gh secret set REGISTRY_VERIFY_TOKEN`.
-4. Run `scripts/governor.sh wipe` with it **before any publish-capable
+4. Run `cargo registry-governor wipe`, from the repository root, with it
+   **before any publish-capable
    token exists**: its no-delayed-publisher evidence gate requires zero
    live publish tokens (revoked ones no longer count).
 5. Only then mint publish tokens (`gh secret set CABIN_PORTS_TOKEN`).
@@ -498,13 +500,13 @@ mismatch(es)` when the ledger carries entries D1 does not prove live.
 On demand (with a verify-scoped token in `REGISTRY_VERIFY_TOKEN`):
 
 ```sh
-scripts/governor.sh usage      # the snapshot, readable
-scripts/governor.sh compare    # ledger totals against D1's live view
+(cd .. && cargo registry-governor usage)      # the snapshot, readable
+(cd .. && cargo registry-governor compare)    # ledger totals against D1's live view
 ```
 
 `usage` renders `GET /api/v1/admin/governor` (Bearer, `verify` scope);
 `compare` also sums D1's live and verified blob views and says which
-direction any divergence runs and which script fixes it. Both are
+direction any divergence runs and which command fixes it. Both are
 read-only and safe on a live registry. The first `usage` after a
 deploy that introduces the class also serves as initialization: the
 named object is created on first use and applies its schema
@@ -515,8 +517,8 @@ increase-only: it records every live blob as committed usage and only
 *reports* the rest. It runs on every breaker cron pass, and on demand:
 
 ```sh
-scripts/governor.sh reconcile          # divergence counts, and settles
-scripts/governor.sh reconcile --keys   # ...with the divergent keys
+(cd .. && cargo registry-governor reconcile)          # divergence counts, and settles
+(cd .. && cargo registry-governor reconcile --keys)   # ...with the divergent keys
 ```
 
 (the endpoint action is `POST {"reconcile":true}`; it answers the
@@ -528,10 +530,10 @@ evidence. To release one: delete the object if it still exists
 (dashboard or `npx --yes wrangler@4.112.0 r2 object delete`), then:
 
 ```sh
-scripts/governor.sh release primary blobs/sha256/<hex>
+(cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
 ```
 
-The script is the evidence rule made executable (with
+The command is the evidence rule made executable (with
 `CLOUDFLARE_API_TOKEN` for the R2 checks): it refuses while the object
 still exists in R2, refuses while any non-rejected D1 version still
 references the checksum, and treats an API failure as "absence not
@@ -556,13 +558,13 @@ npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
 # wait ~5 minutes: the mode cache (60 s) plus in-flight upload time -
 # after a publish's reservation, the put is server-paced (the body is
 # already consumed), so the reserve-to-put gap is not client-extendable
-scripts/governor.sh release primary blobs/sha256/<hex>
+(cd .. && cargo registry-governor release primary blobs/sha256/<hex>)
 npx --yes wrangler@4.112.0 d1 execute DB --remote --command \
   "UPDATE meta SET value = '<the mode noted above>' WHERE key = 'service_mode'"
 ```
 
 Mind the clock: the breaker cron overwrites the manual override within
-15 minutes, so finish the release inside one window (the script
+15 minutes, so finish the release inside one window (the command
 re-checks the mode right before it posts and refuses if the override
 lapsed). As a backstop it re-checks the key after the release and, if
 it somehow reappeared, runs a reconcile - which can re-ledger the
@@ -580,7 +582,7 @@ typed confirmation (the backup blobs are append-only, so a gone
 backup object is an incident, not maintenance). Never drive the raw
 endpoint by hand - it cannot check R2 or the service mode for you.
 The endpoint's remaining action,
-`{"wipe":true}` (`scripts/governor.sh wipe`), clears the
+`{"wipe":true}` (`cargo registry-governor wipe`), clears the
 primary storage rows and the daily fairness windows (backup, dump, and
 the monthly operation windows all survive - the operation counters
 mirror already-metered R2 spend and cannot be rebuilt) and only works
@@ -639,7 +641,8 @@ budget re-opens on top of ops already metered - Cloudflare's 30-day
 Durable Object point-in-time recovery is the first-line fix, restoring
 the object to just before the loss. Reconciliation only repopulates
 **storage**: the **primary** rows rebuild from D1 - run
-`scripts/governor.sh reconcile` immediately rather than waiting up to
+`cargo registry-governor reconcile` (from the repository root) immediately
+rather than waiting up to
 15 minutes for the breaker cron's pass; `cargo
 registry-backup-backfill` (from the repository root) re-ledgers the
 **backup** pool (its queue rows walk every verified
@@ -699,8 +702,8 @@ npx --yes wrangler@4.112.0 deployments list
 
 # 4. Post-deploy validation (see "Deploy skew" for the smoke curls):
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
-REGISTRY_VERIFY_TOKEN=... scripts/governor.sh usage
-REGISTRY_VERIFY_TOKEN=... scripts/governor.sh compare
+(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor usage)
+(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor compare)
 ```
 
 What the local smoke run proves, and what it cannot: `wrangler dev`
@@ -712,7 +715,8 @@ runs cannot prove is the production **edge** cache's behavior -
 per-colo entries, eviction under memory pressure, TTL interaction with
 the immutable headers. The exact remote verification: with a real
 token, download one verified artifact twice and compare
-`scripts/governor.sh usage` before and after - the first read may
+`cargo registry-governor usage` (from the repository root) before and
+after - the first read may
 charge `b_ordinary` once (a miss), the second must not move it (a
 hit); on a cold colo or after eviction both charge, which is the
 governed-and-budgeted path working, not a bug.
@@ -740,8 +744,8 @@ npx --yes wrangler@4.112.0 deployments list   # find the target version
 npx --yes wrangler@4.112.0 rollback           # interactive; or pass the version id
 # then validate exactly like a deploy:
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
-REGISTRY_VERIFY_TOKEN=... scripts/governor.sh usage
-REGISTRY_VERIFY_TOKEN=... scripts/governor.sh compare
+(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor usage)
+(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor compare)
 ```
 
 The newer accounting state a rollback leaves behind is safe by the
@@ -751,7 +755,8 @@ reconciliation cron keeps settling the primary pool from D1 either
 way. If the rollback was prompted by suspected accounting corruption,
 stop before rolling back and capture `cargo registry-diagnose` output (from
 the repository root) plus
-`scripts/governor.sh usage` first - Cloudflare's 30-day Durable Object
+`cargo registry-governor usage`, from the repository root, first -
+Cloudflare's 30-day Durable Object
 point-in-time recovery ("Known ceilings" above) needs the incident
 time, and a rollback does not restore DO state.
 
@@ -950,7 +955,7 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   current verified set (append-only history from before a wipe or an
   older restore - reported because each holds backup-pool allowance,
   never deleted by tooling; removing one is a per-object operator
-  decision paired with `scripts/governor.sh release`), dumps without a
+  decision paired with `cargo registry-governor release`), dumps without a
   validating sidecar, sidecars without their dump, and - given a
   verify token - the governor's backup and dump pools against the
   bucket's actual contents.
@@ -1084,7 +1089,8 @@ is never invisible spend: the crashed publish's reservation keeps
 representing the bytes, reconciliation reports the entry as
 `unreferenced` on every pass, and the cleanup is the operator pairing -
 delete the object (dashboard or `npx --yes wrangler@4.112.0 r2 object
-delete`), then `scripts/governor.sh release primary <key>` ("The cost
+delete`), then `cargo registry-governor release primary <key>` from the
+repository root ("The cost
 governor"). There is deliberately
 no automatic garbage collection, and the reclaim path never releases
 primary ledger entries on its own - a successful delete of a
