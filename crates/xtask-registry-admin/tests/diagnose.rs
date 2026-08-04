@@ -170,3 +170,28 @@ fn an_empty_result_reaches_the_caller_to_judge() {
     let empty = results(r#"[{"results":[],"success":true}]"#).unwrap();
     assert!(empty.is_empty(), "the counts section refuses this");
 }
+
+/// The drill takes no arguments at all, as the shell did - it refused
+/// even `--help`, because the pre-cutover form took an environment
+/// argument and silently acting on the sole remaining deployment is
+/// the one thing it must not do.
+#[test]
+fn the_restore_drill_takes_no_arguments() {
+    let admin = || Command::cargo_bin("xtask-registry-admin").unwrap();
+    admin()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("cargo registry-restore-drill"));
+    for refused in [
+        vec!["restore-drill", "production"],
+        vec!["restore-drill", "--help"],
+        vec!["restore-drill", "--keys"],
+    ] {
+        admin()
+            .args(&refused)
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("unexpected argument"));
+    }
+}

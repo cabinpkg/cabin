@@ -1126,8 +1126,9 @@ recovery"):
 
 First-line recovery is D1 Time Travel (always on; 7-day retention on
 the free plan), then the exported dumps, then the backup bucket's blobs
-as the artifact store of last resort; `scripts/restore-drill.sh`
-rehearses the dump-import path against a scratch database. The backup
+as the artifact store of last resort; `cargo registry-restore-drill`
+(from the repository root) rehearses the dump-import path against a
+scratch database. The backup
 bucket doubles stored blob bytes account-wide, which is why the default
 storage budget above sits under half the free limit.
 

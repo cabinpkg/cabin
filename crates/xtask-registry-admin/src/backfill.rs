@@ -36,7 +36,7 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, bail};
 
-use crate::{BACKUP_BUCKET as BACKUP, output, results, step, wrangler};
+use crate::{BACKUP_BUCKET as BACKUP, Nullish, column_lines, output, results, step, wrangler};
 
 const PRIMARY: &str = "cabin-registry-blobs";
 
@@ -68,44 +68,6 @@ pub fn is_checksum(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// The lines `d1_column` fed the copy loop: one `console.log` per row,
-/// captured by `$(...)` and split by `while IFS= read -r`.
-#[must_use]
-pub fn column_lines(
-    rows: &[serde_json::Map<String, serde_json::Value>],
-    column: &str,
-) -> Vec<String> {
-    let mut text = String::new();
-    for row in rows {
-        // `console.log` is not the `${...}` the diagnostics bundle
-        // used: it prints a string verbatim and renders anything else
-        // through Node's inspect, which the checksum grammar then
-        // refuses. This is not inspect's exact text - an array renders
-        // `["b"]` where Node wrote `[ 'b' ]` - but nothing it can
-        // produce matches the grammar, and rendering rather than
-        // refusing here keeps the refusal where the shell had it:
-        // inside the loop, after the rows before it were copied.
-        match row.get(column) {
-            Some(serde_json::Value::String(value)) => text.push_str(value),
-            Some(other) => text.push_str(&other.to_string()),
-            None => text.push_str("undefined"),
-        }
-        text.push('\n');
-    }
-    // Bash cannot hold a NUL in a variable: command substitution drops
-    // it, so `<32 hex>\0<32 hex>` reached the loop as 64 hex digits and
-    // passed the grammar below.
-    text.retain(|character| character != '\0');
-    // `$(...)` strips trailing newlines and nothing else, and the loop
-    // splits on those that remain - so an empty enumeration still
-    // yields the single blank line the here-string fed it, and a value
-    // carrying a newline still becomes two iterations.
-    text.trim_end_matches('\n')
-        .split('\n')
-        .map(str::to_owned)
-        .collect()
 }
 
 /// Runs the backfill.
@@ -145,7 +107,7 @@ pub fn run() -> Result<()> {
     ]))?;
     let mut copied = 0_u32;
     let mut present = 0_u32;
-    for checksum in column_lines(&results(&answer)?, "checksum") {
+    for checksum in column_lines(&results(&answer)?, "checksum", Nullish::Printed) {
         // The shell skipped the blank line its here-string produced for
         // an empty enumeration, then refused anything else unexpected.
         if checksum.is_empty() {

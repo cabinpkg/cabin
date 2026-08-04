@@ -489,6 +489,16 @@ command can reach an unpinned CLI.  The crate must:
 - never read a partial answer as a whole one.  The R2 REST listing is cursor-paginated, and a
   page that reports itself truncated without saying where to resume fails the audit rather than
   standing in for the whole bucket;
+- create no database but the drill's own, and always attempt to take that one back down.  The
+  backfill does
+  write to the live database - it upserts the `backup_pending` rows the Worker's drain
+  retires - but the restore drill only reads it, to compare it against the scratch
+  `cabin-registry-drill` it imports the dump into.  The two are addressed differently on
+  purpose: the live side by the `DB` binding out of `wrangler.jsonc`, the scratch side by its
+  account-level name, so a disagreement between config and account cannot pass for a restore.
+  The drill refuses to run when a scratch database already exists, and attempts the teardown on
+  every path that returns, a failed comparison included.  Attempts, not guarantees: a delete
+  that itself fails leaves the database, as the shell's `|| true` did;
 - never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
   current verified set does not name is reported as history for an operator to judge per object,
   never swept.

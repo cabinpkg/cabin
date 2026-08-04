@@ -343,7 +343,8 @@ stale. Risky changes (migrations, storage-format work, breaker changes)
 are rehearsed against a temporary scratch deployment recreated from this
 directory's `wrangler.jsonc` and `migrations/` - deploy under scratch
 names (worker, database, buckets), run the rehearsal, tear it down. The
-restore drill's scratch database (`scripts/restore-drill.sh`) is the
+restore drill's scratch database (`cargo registry-restore-drill`, run
+from the repository root) is the
 existing example of the pattern.
 
 ## Budget breaker and service mode
@@ -1005,7 +1006,8 @@ list; each later option covers a case the earlier one cannot.
 2. **Accidental database loss** (database deleted, or overwritten beyond
    Time Travel's window): create a fresh database, import the newest
    dump, re-point the config, redeploy - exactly what
-   `scripts/restore-drill.sh` rehearses against a scratch database:
+   `cargo registry-restore-drill` (from the repository root) rehearses
+   against a scratch database:
    download `meta.last_backup_key`... except after a real loss that
    meta row is gone too; list the backup bucket's `d1/` prefix and take
    the newest date **whose `.sha256` sidecar exists and verifies**. The
@@ -1041,7 +1043,8 @@ restore is minutes; a dump import plus redeploy is well under an hour
 is bounded by object count - budget roughly an hour per few thousand
 blobs with the wrangler loop, less with an S3-compatible bulk tool.
 
-**Rehearsal.** `scripts/restore-drill.sh` downloads the latest
+**Rehearsal.** `cargo registry-restore-drill`, run from the repository
+root, downloads the latest
 dump, verifies the sidecar checksum, imports it into a scratch D1
 database (`cabin-registry-drill`), compares per-table row counts against
 the live database, spot-checks one revision's `metadata_json`
