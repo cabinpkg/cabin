@@ -209,10 +209,12 @@ case "$command" in
       console.log(`D1 verified:    ${d1.verified_bytes} B in ${d1.verified_objects} blob(s)`);
       console.log(
         "    (the backup pool may legitimately exceed the verified view: the BACKUP\n" +
-        "    bucket is append-only and keeps history; scripts/backup-audit.sh audits it)");
+        "    bucket is append-only and keeps history; cargo registry-backup-audit,\n" +
+        "    from the repository root, audits it)");
       console.log(`dump ledger:    ${dump.bytes} B in ${dump.objects} object(s)`);
       console.log(
-        "    (audit the d1/ prefix against this with scripts/backup-audit.sh)");
+        "    (audit the d1/ prefix against this with cargo registry-backup-audit,\n" +
+        "    run from the repository root)");
     ' "$body.snapshot" "$body.d1"
     rm -f "$body.snapshot" "$body.d1"
     ;;
@@ -318,7 +320,7 @@ case "$command" in
           echo "run cargo registry-backup-backfill from the repository root so the drain re-ledgers it" >&2
           ;;
         dump)
-          echo "the nightly dump job re-commits its objects; audit with scripts/backup-audit.sh" >&2
+          echo "the nightly dump job re-commits its objects; audit with cargo registry-backup-audit from the repository root" >&2
           ;;
       esac
       exit 1
