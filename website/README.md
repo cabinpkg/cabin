@@ -91,7 +91,7 @@ website itself holds no sessions and no secrets.
   signed-out and error states against real API responses; end-to-end
   sign-in happens on production.
 - The session API client lives in `src/lib/account.ts`; `npm test` runs
-  its `node:test` suite directly on Node (>= 22.18).
+  its `node:test` suite directly on Node (the version in `.node-version`).
 - `/dashboard/source` is the source viewer: it range-reads a published
   version's zip archive through the registry's session source route and
   parses the container client-side (`src/lib/sourceArchive.ts`, tested

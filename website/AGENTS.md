@@ -2,9 +2,9 @@
 
 Rules for `website/`, the fully static Astro site for
 [cabinpkg.com](https://cabinpkg.com). The repo-root `AGENTS.md` still
-applies. Run all commands from `website/`. Node >= 22.18 (the account
-test suite runs `.ts` files directly via Node's type stripping, default
-from 22.18).
+applies. Run all commands from `website/`. Node 24.19.0, pinned in
+`website/.node-version` (the account test suite runs `.ts` files
+directly via Node's type stripping).
 
 ## Data sources
 
