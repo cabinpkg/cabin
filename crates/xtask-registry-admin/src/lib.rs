@@ -6,10 +6,14 @@
 //! guards in `xtask-registry-guard` - those read committed sources,
 //! take no credentials and mutate nothing.
 //!
-//! Every command shells out to the pinned `wrangler` through
-//! [`wrangler`]: the CLI is the only supported path to D1 and R2 from
-//! outside the Worker.
+//! D1 and the R2 object commands go through the pinned `wrangler`
+//! ([`wrangler`]), the only supported path to them from outside the
+//! Worker.  Listing a bucket is the exception: wrangler exposes no
+//! command for it, so the audit calls Cloudflare's R2 REST API
+//! directly with the operator's `CLOUDFLARE_API_TOKEN`, as the `curl`
+//! in the shell it replaces did.
 
+pub mod audit;
 pub mod backfill;
 pub mod diagnose;
 
@@ -22,6 +26,12 @@ use anyhow::{Context, Result, bail};
 /// `.github/workflows/registry.yml` (`wranglerVersion`) pin it
 /// independently; all three move together.
 pub const WRANGLER: &str = "wrangler@4.112.0";
+
+/// The BACKUP bucket, which more than one command reaches: the
+/// backfill writes to it and the audit reads it.  Its `blobs/`
+/// namespace is append-only (`registry/docs/runbook.md`, "Disaster
+/// recovery"), so nothing here ever deletes from it.
+pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The repository this tool was built from.
 ///
@@ -39,6 +49,41 @@ pub fn repo_root() -> PathBuf {
 #[must_use]
 pub fn registry_dir() -> PathBuf {
     repo_root().join("registry")
+}
+
+/// The Cloudflare account the registry is deployed to, read from
+/// `wrangler.jsonc` for the REST calls wrangler exposes no command
+/// for.
+///
+/// # Errors
+///
+/// If `wrangler.jsonc` cannot be read, or declares no such id.
+pub fn account_id() -> Result<String> {
+    let path = registry_dir().join("wrangler.jsonc");
+    let text =
+        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    declared_account_id(&text).context("CF_ACCOUNT_ID not found in wrangler.jsonc")
+}
+
+/// The account id a wrangler config declares, matched the way the
+/// shell's regex matched it: the first `"CF_ACCOUNT_ID":` followed by
+/// 32 lower-case hex digits in quotes.  A config that binds the id
+/// some other way (an expression, a separate vars file) is not one
+/// this can read, and saying so beats calling the API with a guess.
+#[must_use]
+pub fn declared_account_id(text: &str) -> Option<String> {
+    text.match_indices("\"CF_ACCOUNT_ID\":")
+        .find_map(|(index, matched)| {
+            let rest = text[index + matched.len()..]
+                .trim_start()
+                .strip_prefix('"')?;
+            let id = rest.get(..32)?;
+            (rest.get(32..33) == Some("\"")
+                && id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+            .then(|| id.to_owned())
+        })
 }
 
 /// `wrangler`, pinned, run from `registry/`.  Held apart from the

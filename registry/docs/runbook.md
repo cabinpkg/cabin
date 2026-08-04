@@ -634,9 +634,9 @@ the object to just before the loss. Reconciliation only repopulates
 registry-backup-backfill` (from the repository root) re-ledgers the
 **backup** pool (its queue rows walk every verified
 blob through the drain); and the **dump** entries regrow only as
-nightly dumps land - `scripts/backup-audit.sh` audits the `d1/`
-prefix against the usage snapshot if the gap matters before retention
-cycles it out. On a launched registry, hold publishes until that
+nightly dumps land - `cargo registry-backup-audit` (from the
+repository root) audits the `d1/` prefix against the usage snapshot if
+the gap matters before retention cycles it out. On a launched registry, hold publishes until that
 reconcile lands, so the empty ledger cannot admit a write past the
 true R2 cap in the interim.
 
@@ -934,7 +934,8 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   every verified blob the backup lacks and deliberately leaves queue
   rows for the Worker's drain to settle, governor ledger included).
   Run the backfill once when seeding backups over existing data.
-  `scripts/backup-audit.sh` is the read-only inverse: it lists the
+  `cargo registry-backup-audit`, run from the repository root, is the
+  read-only inverse: it lists the
   bucket and reports verified blobs missing a copy, blobs beyond the
   current verified set (append-only history from before a wipe or an
   older restore - reported because each holds backup-pool allowance,

@@ -2410,10 +2410,13 @@ dependencies = [
  "assert_cmd",
  "assert_fs",
  "cabinpkg-core",
+ "cabinpkg-env",
  "predicates",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "ureq",
 ]
 
 [[package]]

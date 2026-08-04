@@ -113,22 +113,18 @@ fn every_script_the_runbook_references_exists() {
 #[test]
 fn the_operator_scripts_stay_documented() {
     let runbook = read("docs/runbook.md");
-    let undocumented: Vec<&str> = [
-        "scripts/governor.sh",
-        "scripts/backup-audit.sh",
-        "scripts/migrate.sh",
-    ]
-    .into_iter()
-    .filter(|script| {
-        assert!(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join(script)
-                .exists(),
-            "{script} is gone; remove it from this pin and the runbook together"
-        );
-        !runbook.contains(script)
-    })
-    .collect();
+    let undocumented: Vec<&str> = ["scripts/governor.sh", "scripts/migrate.sh"]
+        .into_iter()
+        .filter(|script| {
+            assert!(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join(script)
+                    .exists(),
+                "{script} is gone; remove it from this pin and the runbook together"
+            );
+            !runbook.contains(script)
+        })
+        .collect();
     assert!(
         undocumented.is_empty(),
         "docs/runbook.md never mentions: {undocumented:?}"
@@ -142,7 +138,8 @@ fn the_operator_scripts_stay_documented() {
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 2] = [
+    const COMMANDS: [(&str, &str); 3] = [
+        ("registry-backup-audit", "xtask-registry-admin"),
         ("registry-backup-backfill", "xtask-registry-admin"),
         ("registry-diagnose", "xtask-registry-admin"),
     ];

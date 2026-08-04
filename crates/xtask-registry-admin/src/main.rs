@@ -13,6 +13,10 @@ Operator commands against the hosted registry, run from the repository
 root through their Cargo aliases.
 
 commands:
+  backup-audit [--keys]
+                   read-only audit of the backup bucket, listing the
+                   divergent keys with --keys
+                   (`cargo registry-backup-audit`)
   backup-backfill  copy verified blobs missing from the backup bucket
                    (`cargo registry-backup-backfill`)
   diagnose         safe diagnostics bundle (`cargo registry-diagnose`)
@@ -36,16 +40,18 @@ fn run() -> Result<()> {
     let Some(command) = arguments.next() else {
         bail!("no command named\n\n{USAGE}");
     };
-    if let Some(extra) = arguments.next() {
-        bail!("unexpected argument: {extra}\n\n{USAGE}");
-    }
-    match command.as_str() {
-        "-h" | "--help" => {
+    let rest: Vec<String> = arguments.collect();
+    let rest: Vec<&str> = rest.iter().map(String::as_str).collect();
+    match (command.as_str(), rest.as_slice()) {
+        ("-h" | "--help", []) => {
             print!("{USAGE}");
             Ok(())
         }
-        "backup-backfill" => xtask_registry_admin::backfill::run(),
-        "diagnose" => xtask_registry_admin::diagnose::run(),
-        other => bail!("unknown command: {other}\n\n{USAGE}"),
+        ("backup-audit", []) => xtask_registry_admin::audit::run(false),
+        ("backup-audit", ["--keys"]) => xtask_registry_admin::audit::run(true),
+        ("backup-backfill", []) => xtask_registry_admin::backfill::run(),
+        ("diagnose", []) => xtask_registry_admin::diagnose::run(),
+        (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
+        (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
     }
 }

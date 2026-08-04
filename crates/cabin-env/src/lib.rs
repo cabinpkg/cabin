@@ -134,6 +134,15 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 /// project.  Read by the `cabin-credentials` crate.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
+/// Origin of the hosted registry's API, for pointing an operator
+/// command at a scratch deployment instead of production.  Read by the
+/// repository's own maintainer tooling (`xtask-registry-admin`), never
+/// by the shipped `cabin` binary - the client reaches a registry
+/// through its index configuration, not through this.  The name lives
+/// here because every `CABIN_*` reader in the workspace agrees on
+/// names from one place.
+pub const CABIN_API_ORIGIN: &str = "CABIN_API_ORIGIN";
+
 /// Number of parallel jobs the build backend should use.
 /// Cargo-style: positive integer, `0` is rejected.  Cabin
 /// reads this env var when `--jobs` is not on the command

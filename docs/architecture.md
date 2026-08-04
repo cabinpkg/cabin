@@ -474,13 +474,24 @@ credentials and talk to the running service, which is what separates them from t
 in `xtask-registry-guard`.  Every wrangler invocation goes through one pinned constructor, so no
 command can reach an unpinned CLI.  The crate must:
 
-- keep `registry/docs/runbook.md`'s disclosure rule: diagnostics carry counts, modes, timestamps
-  and version identifiers, never tokens, checksums, package names or user data.  The single
-  object key they print is whatever `meta.last_backup_key` holds, which only the backup job
-  writes and only ever as `backup::dump_object_key`'s `d1/<date>.sql`;
+- keep `registry/docs/runbook.md`'s disclosure rule where it governs.  It governs what is meant
+  to leave the operator's terminal: `cargo registry-diagnose` gathers a report for an incident
+  thread, so it carries counts, modes, timestamps and version identifiers, never tokens,
+  checksums, package names or user data, and the single object key it prints is whatever
+  `meta.last_backup_key` holds - only the backup job writes it, and only ever as
+  `backup::dump_object_key`'s `d1/<date>.sql`.  The audit is the deliberate exception, because an
+  operator cannot act on a divergence without the keys naming it, and those keys are content
+  checksums: `--keys` prints them on request, and a listing the audit cannot paginate carries the
+  page body into its error either way.  Neither is shareable output;
 - treat an answer they cannot parse as a failure.  An empty result set is not one: it is an
   answer about the database, and each read judges its own — the service-state read prints no
-  rows, the counts read refuses — as the two `node` snippets they replace did.
+  rows, the counts read refuses — as the two `node` snippets they replace did;
+- never read a partial answer as a whole one.  The R2 REST listing is cursor-paginated, and a
+  page that reports itself truncated without saying where to resume fails the audit rather than
+  standing in for the whole bucket;
+- never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
+  current verified set does not name is reported as history for an operator to judge per object,
+  never swept.
 
 ### `xtask-registry-fixtures`
 
