@@ -142,7 +142,10 @@ fn the_operator_scripts_stay_documented() {
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 1] = [("registry-diagnose", "xtask-registry-admin")];
+    const COMMANDS: [(&str, &str); 2] = [
+        ("registry-backup-backfill", "xtask-registry-admin"),
+        ("registry-diagnose", "xtask-registry-admin"),
+    ];
 
     let runbook = read("docs/runbook.md");
     let aliases =

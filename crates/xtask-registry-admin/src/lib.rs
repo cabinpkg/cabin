@@ -10,6 +10,7 @@
 //! [`wrangler`]: the CLI is the only supported path to D1 and R2 from
 //! outside the Worker.
 
+pub mod backfill;
 pub mod diagnose;
 
 use std::path::{Path, PathBuf};
@@ -52,6 +53,10 @@ pub fn wrangler(arguments: &[&str]) -> Command {
         // the operator's terminal, and a caller that wants them quiet
         // says so itself.
         .stderr(Stdio::inherit())
+        // `Command::output` would give the child no stdin at all,
+        // where every one of these ran attached to the operator's
+        // terminal.
+        .stdin(Stdio::inherit())
         .current_dir(registry_dir());
     command
 }

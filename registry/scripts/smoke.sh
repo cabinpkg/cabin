@@ -1300,7 +1300,7 @@ done
 # an idempotent no-op heals a reclaim-raced primary blob (the retry
 # holds the bytes), while the append-only backup bucket is never
 # rewritten by the publish path - a lost backup object is
-# scripts/backup-backfill.sh territory.
+# `cargo registry-backup-backfill` territory.
 step "an idempotent re-publish heals the primary blob only"
 wrangler r2 object delete "cabin-registry-backup/blobs/sha256/$blob_hash" --local >/dev/null
 wrangler r2 object delete "cabin-registry-blobs/blobs/sha256/$blob_hash" --local >/dev/null
