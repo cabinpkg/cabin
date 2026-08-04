@@ -338,7 +338,10 @@ case "$command" in
       [[ "$answer" == "governor-wipe" ]] || fail "not confirmed"
     fi
     step "launch guard"
-    scripts/launch-guard.sh --remote
+    # From the repository root, and not through the alias; the same
+    # note on scripts/wipe.sh covers why, and what it does not defend
+    # against.
+    (cd .. && cargo run --quiet --locked -p xtask-registry-admin -- launch-guard --remote)
     # A delayed publisher (request in flight since before the registry
     # wipe) could still land a put after the emptiness check below.
     # The freshly-wiped database normally holds no publish-capable

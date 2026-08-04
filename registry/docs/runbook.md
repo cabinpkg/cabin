@@ -25,7 +25,8 @@ infrastructure cutover.
   changes need real migrations. The flag is flipped exactly once, by
   hand, as a launch-checklist item (see "Launch checklist"), and every
   destructive maintenance path checks it first and refuses while it is
-  `'true'` (the launch guard, `scripts/launch-guard.sh`).
+  `'true'` (the launch guard, `cargo registry-launch-guard`, run from
+  the repository root).
 
 ## Zone security prerequisite
 
@@ -121,6 +122,14 @@ through `scripts/wipe.sh` (which reapplies from zero and refreshes the
 stamp itself), post-launch it must become a new migration file.
 Hand-refreshing the stamp bypasses those checks; don't.
 
+Because the stamp covers migration *content*, an applied file's
+comments are frozen with its SQL: a rename elsewhere in the repository
+cannot be swept into one without either a pre-launch wipe or a new
+migration. `migrations/0001_init.sql` still names the guard by its
+pre-migration script path for that reason - read
+`cargo registry-launch-guard` as current, and an applied migration's
+prose as a record of what was true when it was applied.
+
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
 `cabinpkg.com/login`, `cabinpkg.com/callback*` (which also covers the
@@ -204,7 +213,7 @@ before diagnosing.
 `scripts/wipe.sh` scripts the whole procedure and is the guarded
 destructive path: it refuses to run unless the live `meta.launched` row
 is exactly `'false'` (missing row or unreadable flag also refuse -
-fail-safe; `scripts/launch-guard.sh`, host-target-tested in
+fail-safe; `cargo registry-launch-guard`, host-target-tested in
 `tests/launch_guard.rs` and exercised end to end by the smoke test).
 What it does, in order:
 

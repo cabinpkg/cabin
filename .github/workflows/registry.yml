@@ -20,6 +20,11 @@ on:
       - "crates/xtask-registry-guard/**"
       # The fixture generator the conformance job runs.
       - "crates/xtask-registry-fixtures/**"
+      # The launch guard the wipe path runs, whose integration test
+      # lives in this workspace: the guard moved out of registry/, so
+      # without this a change to it would skip the test that proves
+      # wipe.sh still refuses.
+      - "crates/xtask-registry-admin/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -40,6 +45,11 @@ on:
       - "crates/xtask-registry-guard/**"
       # The fixture generator the conformance job runs.
       - "crates/xtask-registry-fixtures/**"
+      # The launch guard the wipe path runs, whose integration test
+      # lives in this workspace: the guard moved out of registry/, so
+      # without this a change to it would skip the test that proves
+      # wipe.sh still refuses.
+      - "crates/xtask-registry-admin/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -189,7 +199,8 @@ jobs:
           git fetch --quiet origin main
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
               .github/workflows/registry.yml .cargo/config.toml registry/ \
-              crates/xtask-registry-guard/ crates/xtask-registry-fixtures/ Cargo.toml \
+              crates/xtask-registry-guard/ crates/xtask-registry-fixtures/ \
+              crates/xtask-registry-admin/ Cargo.toml \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/ crates/cabin-core/)" ]; then
             echo "superseded=true" >> "$GITHUB_OUTPUT"

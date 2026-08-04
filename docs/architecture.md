@@ -499,6 +499,15 @@ command can reach an unpinned CLI.  The crate must:
   The drill refuses to run when a scratch database already exists, and attempts the teardown on
   every path that returns, a failed comparison included.  Attempts, not guarantees: a delete
   that itself fails leaves the database, as the shell's `|| true` did;
+- stay fail-safe where a command guards a destructive one.  The launch guard succeeds only when
+  `meta.launched` says `false` - the string, or anything whose JavaScript coercion is that
+  string, which is what the shell it replaces compared and what keeps the encoding wide while
+  the meaning stays narrow: `true`, `null`, `0` and `''` all refuse, as does every value that
+  is not one of those spellings.  A missing row, an unreadable database and an unparsable
+  answer refuse too, and in remote mode it first proves the account's
+  `cabin-registry` carries the id `wrangler.jsonc` binds, so a read here and a `d1 delete` by
+  name cannot reach different databases.  It prints nothing when it passes, because the scripts
+  that run it are mid-sentence when they do;
 - never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
   current verified set does not name is reported as history for an operator to judge per object,
   never swept.
