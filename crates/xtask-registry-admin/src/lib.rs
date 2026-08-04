@@ -16,6 +16,7 @@
 pub mod audit;
 pub mod backfill;
 pub mod diagnose;
+pub mod launch_guard;
 pub mod restore_drill;
 
 use std::path::{Path, PathBuf};
@@ -73,18 +74,62 @@ pub fn account_id() -> Result<String> {
 /// this can read, and saying so beats calling the API with a guess.
 #[must_use]
 pub fn declared_account_id(text: &str) -> Option<String> {
-    text.match_indices("\"CF_ACCOUNT_ID\":")
-        .find_map(|(index, matched)| {
-            let rest = text[index + matched.len()..]
-                .trim_start()
-                .strip_prefix('"')?;
-            let id = rest.get(..32)?;
-            (rest.get(32..33) == Some("\"")
-                && id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-            .then(|| id.to_owned())
-        })
+    declared(text, "CF_ACCOUNT_ID", 32, |byte| {
+        byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+    })
+}
+
+/// The D1 database id a wrangler config binds, matched the way the
+/// launch guard's regex matched it: the first `"database_id":`
+/// followed by 36 characters of lower-case hex or `-` in quotes.
+///
+/// Ceiling, carried over deliberately: this checks the alphabet and
+/// the width, never the 8-4-4-4-12 shape, so 36 hyphens satisfy it -
+/// and it reads a commented-out binding as live, because a `//` line
+/// is still text.  The guard compares the answer against the account's
+/// own id, and two ids that agree are what it needs; a malformed one
+/// agrees with nothing.
+#[must_use]
+pub fn declared_database_id(text: &str) -> Option<String> {
+    declared(text, "database_id", 36, |byte| {
+        byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) || byte == b'-'
+    })
+}
+
+/// The first `"<key>":` in `text` followed by exactly `width`
+/// characters of `alphabet` in quotes, as an unanchored regex found
+/// it: a candidate that does not fit the shape is skipped, not fatal,
+/// so a later occurrence still wins.
+fn declared(text: &str, key: &str, width: usize, alphabet: fn(u8) -> bool) -> Option<String> {
+    let needle = format!("\"{key}\":");
+    text.match_indices(&needle).find_map(|(index, matched)| {
+        let rest = text[index + matched.len()..]
+            .trim_start_matches(js_whitespace)
+            .strip_prefix('"')?;
+        let value = rest.get(..width)?;
+        (rest.get(width..width + 1) == Some("\"") && value.bytes().all(alphabet))
+            .then(|| value.to_owned())
+    })
+}
+
+/// JavaScript's `\s`, which `str::trim_start` is not: `char::
+/// is_whitespace` trims U+0085 where the regex does not, and the regex
+/// consumes U+FEFF where `is_whitespace` does not.  Both shells matched
+/// their config ids with `\s*`, and a config-id matcher that lands on a
+/// different candidate than the shell did is exactly how the launch
+/// guard could cross-check the wrong database.
+fn js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
 }
 
 /// `wrangler`, pinned, run from `registry/`.  Held apart from the

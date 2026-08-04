@@ -4,7 +4,7 @@
 # "Wipe procedure (pre-launch only)"): drop and recreate the database,
 # reapply all migrations, delete the primary bucket's archive blobs,
 # bump the registry generation, and redeploy. Pre-launch only: the
-# launch guard (scripts/launch-guard.sh) refuses once meta.launched is
+# launch guard (cargo registry-launch-guard) refuses once meta.launched is
 # 'true'. The deployed BACKUP bucket is never touched.
 #
 #   scripts/wipe.sh             # the deployed registry (asks to confirm)
@@ -48,7 +48,22 @@ fi
 # database named cabin-registry are the same database, so the reads
 # here and the `d1 delete` below cannot diverge.
 step "launch guard"
-scripts/launch-guard.sh "$mode"
+# From the repository root, because the guard is a root-workspace
+# package; the subshell leaves this script in registry/ where every
+# relative path below resolves. Spelled out rather than through the
+# `registry-launch-guard` alias on purpose: a Cargo alias is
+# overridable by CARGO_ALIAS_<NAME> in the environment, which would
+# turn the guard into whatever that names. `run` is a built-in and
+# cannot be shadowed that way.
+#
+# It is still reachable through the environment - a `cargo` earlier on
+# PATH, or CARGO_TARGET_<TRIPLE>_RUNNER, replaces what runs. So was the
+# shell guard this replaces: it reached wrangler through `npx`, and a
+# fake `npx` on PATH answered its query. Neither is a boundary against
+# whoever sets the environment; both are a fail-safe against a launched
+# registry and a stale config. The hop disappears when this script is
+# itself Rust and the guard is a function call.
+(cd .. && cargo run --quiet --locked -p xtask-registry-admin -- launch-guard "$mode")
 
 # The pre-wipe generation feeds the post-wipe bump: every authenticated
 # response echoes x-cabin-registry-generation, so clients and smoke runs

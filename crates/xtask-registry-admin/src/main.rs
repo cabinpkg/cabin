@@ -20,6 +20,10 @@ commands:
   backup-backfill  copy verified blobs missing from the backup bucket
                    (`cargo registry-backup-backfill`)
   diagnose         safe diagnostics bundle (`cargo registry-diagnose`)
+  launch-guard <--remote|--local>
+                   refuse unless meta.launched is 'false'; destructive
+                   maintenance runs this first
+                   (`cargo registry-launch-guard`)
   restore-drill    restore the latest dump into a scratch database and
                    compare it against the live one
                    (`cargo registry-restore-drill`)
@@ -54,6 +58,13 @@ fn run() -> Result<()> {
         ("backup-audit", ["--keys"]) => xtask_registry_admin::audit::run(true),
         ("backup-backfill", []) => xtask_registry_admin::backfill::run(),
         ("diagnose", []) => xtask_registry_admin::diagnose::run(),
+        ("launch-guard", [mode]) => {
+            let Some(mode) = xtask_registry_admin::launch_guard::Mode::parse(mode) else {
+                bail!("launch guard: unknown mode: {mode} (expected --remote or --local)");
+            };
+            xtask_registry_admin::launch_guard::run(mode)
+        }
+        ("launch-guard", []) => bail!("usage: cargo registry-launch-guard <--remote|--local>"),
         ("restore-drill", []) => xtask_registry_admin::restore_drill::run(),
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
         (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
