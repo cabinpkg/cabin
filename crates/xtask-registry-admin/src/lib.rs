@@ -16,6 +16,7 @@
 pub mod audit;
 pub mod backfill;
 pub mod diagnose;
+pub mod restore_drill;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -163,6 +164,77 @@ pub fn key_value(row: &serde_json::Map<String, serde_json::Value>) -> Result<(St
         bail!("a key/value row carries no `key` and `value` pair");
     };
     Ok((display(key), display(value)))
+}
+
+/// What each shell's `console.log` did with a column that is JSON
+/// `null` or absent, which is the only respect in which their
+/// otherwise identical read loops differ.
+#[derive(Clone, Copy)]
+pub enum Nullish {
+    /// `console.log(row[column])`, as `backup-backfill.sh` wrote it:
+    /// `null` and a missing key print themselves.
+    Printed,
+    /// `console.log(row[column] ?? "")`, as `restore-drill.sh` wrote
+    /// it: both become a blank line, and so does an empty string -
+    /// the three are indistinguishable downstream, which is what lets
+    /// a NULL in a `||` concatenation take the same branch as no rows
+    /// at all.
+    Empty,
+}
+
+/// The raw stdout of one `console.log` per row - the form the shell
+/// redirected straight into a file, NULs and all.
+///
+/// Ceiling: this is not Node's inspect text.  An array renders
+/// `["b"]` where Node wrote `[ 'b' ]`; a D1 BLOB column (an array of
+/// byte numbers) renders on one line where Node truncated it across
+/// several; and a non-integer number takes its JSON form, so `-0.0`
+/// and `1.0` render as themselves where Node printed `-0` and `1`.
+/// The last of those needs a `REAL` column, and no caller reads one -
+/// the only `REAL` in the schema is `rl_tokens`.  Otherwise every
+/// caller either matches the value against a grammar that refuses
+/// these forms, or compares two of them against each other, where the
+/// two render alike.
+#[must_use]
+pub fn column_text(
+    rows: &[serde_json::Map<String, serde_json::Value>],
+    column: &str,
+    nullish: Nullish,
+) -> String {
+    let mut text = String::new();
+    for row in rows {
+        match (row.get(column), nullish) {
+            (Some(serde_json::Value::String(value)), _) => text.push_str(value),
+            (None | Some(serde_json::Value::Null), Nullish::Empty) => {}
+            (Some(other), _) => text.push_str(&other.to_string()),
+            (None, Nullish::Printed) => text.push_str("undefined"),
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// The same read loop as it reached a `while IFS= read -r` loop:
+/// through `$(...)`, which strips trailing newlines and nothing else.
+#[must_use]
+pub fn column_lines(
+    rows: &[serde_json::Map<String, serde_json::Value>],
+    column: &str,
+    nullish: Nullish,
+) -> Vec<String> {
+    let mut text = column_text(rows, column, nullish);
+    // Bash cannot hold a NUL in a variable: command substitution drops
+    // it, so `<32 hex>\0<32 hex>` reached the loop as 64 hex digits and
+    // passed the backfill's grammar. A redirection to a file keeps it,
+    // which is why only this half strips.
+    text.retain(|character| character != '\0');
+    // The here-string that fed the loop appended one newline, so an
+    // empty enumeration still yields a single blank line, and a value
+    // carrying a newline still becomes two iterations.
+    text.trim_end_matches('\n')
+        .split('\n')
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The rows of a `wrangler d1 execute --json` response.

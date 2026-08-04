@@ -1,7 +1,8 @@
 //! The backfill's offline half.  The copy loop itself needs an
 //! authenticated operator and two live buckets, which no test has.
 
-use xtask_registry_admin::backfill::{column_lines, is_checksum};
+use xtask_registry_admin::backfill::is_checksum;
+use xtask_registry_admin::{Nullish, column_lines};
 
 /// The backfill refuses any checksum the shell's `^[0-9a-f]{64}$` would
 /// have refused: the value becomes an R2 key it writes to, so an
@@ -28,8 +29,13 @@ fn the_backfill_takes_only_lower_case_sha256() {
 /// one stopped the run - are the behavior.
 #[test]
 fn the_enumeration_splits_as_the_pipeline_split_it() {
-    let lines =
-        |json: &str| column_lines(&xtask_registry_admin::results(json).unwrap(), "checksum");
+    let lines = |json: &str| {
+        column_lines(
+            &xtask_registry_admin::results(json).unwrap(),
+            "checksum",
+            Nullish::Printed,
+        )
+    };
 
     assert_eq!(
         lines(r#"[{"results":[{"checksum":"a"},{"checksum":"b"}],"success":true}]"#),

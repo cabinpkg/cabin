@@ -20,6 +20,9 @@ commands:
   backup-backfill  copy verified blobs missing from the backup bucket
                    (`cargo registry-backup-backfill`)
   diagnose         safe diagnostics bundle (`cargo registry-diagnose`)
+  restore-drill    restore the latest dump into a scratch database and
+                   compare it against the live one
+                   (`cargo registry-restore-drill`)
 
 options:
   -h, --help  show this help
@@ -51,6 +54,7 @@ fn run() -> Result<()> {
         ("backup-audit", ["--keys"]) => xtask_registry_admin::audit::run(true),
         ("backup-backfill", []) => xtask_registry_admin::backfill::run(),
         ("diagnose", []) => xtask_registry_admin::diagnose::run(),
+        ("restore-drill", []) => xtask_registry_admin::restore_drill::run(),
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
         (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
     }
