@@ -16,6 +16,7 @@
 pub mod audit;
 pub mod backfill;
 pub mod diagnose;
+pub mod governor;
 pub mod launch_guard;
 pub mod restore_drill;
 

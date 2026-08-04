@@ -122,8 +122,8 @@ pub fn run() -> Result<()> {
         "SELECT value FROM meta WHERE key = 'last_backup_key'",
         "value",
     )?;
-    // Never the sidecar: `governor.sh` admits `.sha256` on the same
-    // shape, and this deliberately does not.
+    // Never the sidecar: the governor's release grammar admits
+    // `.sha256` on the same shape, and this deliberately does not.
     let Some(dump_name) = dump_name(&key) else {
         bail!("meta.last_backup_key is missing or malformed: '{key}' (has a dump run?)");
     };
@@ -412,8 +412,9 @@ mod tests {
     use super::*;
 
     /// Exactly the keys the shell's ERE matched, and no others.  The
-    /// sidecar key is the one that matters: `governor.sh` admits it on
-    /// the same shape, and a drill that imported a 64-byte checksum
+    /// sidecar key is the one that matters: the governor's release
+    /// grammar admits it on the same shape, and a drill that imported a
+    /// 64-byte checksum
     /// file as a dump would restore an empty database and then report
     /// every table as a mismatch.
     #[test]
