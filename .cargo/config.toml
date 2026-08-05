@@ -33,3 +33,4 @@ registry-launch-guard = "run --quiet --locked -p xtask-registry-admin -- launch-
 registry-governor = "run --quiet --locked -p xtask-registry-admin -- governor"
 registry-smoke = "run --quiet --locked -p xtask-registry-smoke --"
 port-publish = "run --quiet --locked -p xtask-port-publish --"
+workflow-superseded = "run --quiet --locked -p xtask-workflow-guard -- superseded"
