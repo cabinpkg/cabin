@@ -208,7 +208,8 @@ jobs:
           if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
               .github/workflows/registry.yml .cargo/config.toml registry/ \
               crates/xtask-registry-guard/ crates/xtask-registry-fixtures/ \
-              crates/xtask-registry-admin/ Cargo.toml \
+              crates/xtask-registry-admin/ crates/xtask-registry-smoke/ \
+              Cargo.toml \
               crates/cabin-package/ crates/cabin-publish/ \
               crates/cabin-registry-api/ crates/cabin-core/)" ]; then
             echo "superseded=true" >> "$GITHUB_OUTPUT"
