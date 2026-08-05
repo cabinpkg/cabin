@@ -9,11 +9,14 @@
 //! Read-only.  Requires wrangler auth; with `REGISTRY_VERIFY_TOKEN` set
 //! it also includes the governor's usage snapshot (aggregates only).
 
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use sha2::{Digest as _, Sha256};
+// The `migrations/*.sql` glob rule lives with the deploy gate it feeds
+// (`xtask-workflow-guard`); reading the stamp through the same function
+// is what keeps this bundle's PENDING verdict aligned with the gate's.
+use xtask_workflow_guard::migrations_pending::migration_files;
 
 use crate::{display, key_value, output, registry_dir, repo_root, results, step, wrangler};
 
@@ -126,34 +129,6 @@ pub fn run() -> Result<()> {
 /// Whether the applied-migrations stamp still matches the migrations,
 /// which is what gates deploys (`registry.yml`, "Skip until changed D1
 /// migrations are applied by hand").
-/// The files `migrations/*.sql` expands to, in the order the shell
-/// concatenated them.
-///
-/// # Errors
-///
-/// If the directory cannot be read.
-pub fn migration_files(directory: &std::path::Path) -> Result<Vec<PathBuf>> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(directory)
-        .with_context(|| format!("read {}", directory.display()))?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<_, _>>()
-        .with_context(|| format!("read {}", directory.display()))?;
-    files.retain(|path| {
-        let Some(name) = path.file_name().and_then(std::ffi::OsStr::to_str) else {
-            return false;
-        };
-        // A bash glob skips dotfiles unless `dotglob` is set, so an
-        // operator's `.draft.sql` scratch file is outside the stamp.
-        // `registry.yml`'s deploy gate and `scripts/migrate.sh` hash
-        // the same glob; counting one here would report PENDING while
-        // deploys stay unblocked.
-        !name.starts_with('.') && path.extension().is_some_and(|kind| kind == "sql")
-    });
-    // A glob expands sorted; `read_dir` does not.
-    files.sort();
-    Ok(files)
-}
-
 fn migrations_stamp() -> Result<()> {
     let registry = registry_dir();
     let files = migration_files(&registry.join("migrations"))?;

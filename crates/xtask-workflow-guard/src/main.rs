@@ -17,6 +17,11 @@ commands:
                    record `superseded=true` in $GITHUB_OUTPUT when
                    origin/main carries a commit after $GITHUB_SHA
                    touching any given path (`cargo workflow-superseded`)
+  migrations-pending
+                   record `pending=true` in $GITHUB_OUTPUT when the
+                   committed D1 migrations no longer match the stamp in
+                   registry/migrations-applied
+                   (`cargo workflow-migrations-pending`)
 
 options:
   -h, --help  show this help
@@ -44,6 +49,10 @@ fn run() -> Result<()> {
             Ok(())
         }
         "superseded" => xtask_workflow_guard::superseded::run(&paths(&rest)?),
+        "migrations-pending" => match rest.first() {
+            None => xtask_workflow_guard::migrations_pending::run(),
+            Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
+        },
         other => bail!("unknown command: {other}\n\n{USAGE}"),
     }
 }

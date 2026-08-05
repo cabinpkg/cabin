@@ -20,6 +20,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+cabin-core = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }

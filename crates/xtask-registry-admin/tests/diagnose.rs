@@ -88,30 +88,6 @@ fn a_row_that_is_not_a_key_value_pair_is_an_error() {
     );
 }
 
-/// `cat migrations/*.sql` is a bash glob: it skips dotfiles, and so
-/// must the stamp.  `registry.yml`'s deploy gate hashes the same glob,
-/// so counting an operator's `.draft.sql` scratch file would report
-/// PENDING while deploys were in fact unblocked.
-#[test]
-fn the_migration_stamp_globs_as_the_shell_globbed() {
-    let directory = assert_fs::TempDir::new().unwrap();
-    for name in [
-        "0002_b.sql",
-        "0001_a.sql",
-        ".draft.sql",
-        "notes.txt",
-        "no_extension",
-    ] {
-        std::fs::write(directory.join(name), b"").unwrap();
-    }
-    let names: Vec<String> = xtask_registry_admin::diagnose::migration_files(directory.path())
-        .unwrap()
-        .iter()
-        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names, ["0001_a.sql", "0002_b.sql"], "a glob expands sorted");
-}
-
 #[test]
 fn the_command_is_required() {
     Command::cargo_bin("xtask-registry-admin")
