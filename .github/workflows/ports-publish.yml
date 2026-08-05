@@ -33,6 +33,10 @@ on:
       - "ports/**"
       - "crates/cabin-artifact/**"
       - "crates/xtask-port-publish/**"
+      # The freshness guard the publish job runs, which decides whether
+      # this run is still the newest one: without this an edit to the
+      # guard would not reach the job it gates.
+      - "crates/xtask-workflow-guard/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
       - "crates/cabin-package/**"
@@ -52,6 +56,10 @@ on:
       - "ports/**"
       - "crates/cabin-artifact/**"
       - "crates/xtask-port-publish/**"
+      # The freshness guard the publish job runs, which decides whether
+      # this run is still the newest one: without this an edit to the
+      # guard would not reach the job it gates.
+      - "crates/xtask-workflow-guard/**"
       - "crates/cabin-core/**"
       - "crates/cabin-manifest/**"
       - "crates/cabin-package/**"
@@ -175,20 +183,26 @@ jobs:
       # edits of one published version inside a single run's window,
       # and the recovery is the newer commit's own run: its upload
       # supersedes the stale revision (docs/foundation-ports.md).
+      # The path list below must stay the trigger paths above:
+      # crates/xtask-workflow-guard/tests/path_parity.rs fails when the
+      # three lists disagree.
       - name: Skip when superseded by a newer ports commit
         id: freshness
         run: |
-          git fetch --quiet origin main
-          if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
-              .github/workflows/ports-publish.yml .cargo/config.toml \
-              Cargo.lock \
-              Cargo.toml ports/ crates/cabin-artifact/ \
-              crates/xtask-port-publish/ \
-              crates/cabin-core/ crates/cabin-manifest/ \
-              crates/cabin-package/ crates/cabin-publish/ \
-              crates/cabin-registry-api/)" ]; then
-            echo "superseded=true" >> "$GITHUB_OUTPUT"
-          fi
+          cargo workflow-superseded \
+            --path .github/workflows/ports-publish.yml \
+            --path .cargo/config.toml \
+            --path Cargo.lock \
+            --path Cargo.toml \
+            --path ports/ \
+            --path crates/cabin-artifact/ \
+            --path crates/xtask-port-publish/ \
+            --path crates/xtask-workflow-guard/ \
+            --path crates/cabin-core/ \
+            --path crates/cabin-manifest/ \
+            --path crates/cabin-package/ \
+            --path crates/cabin-publish/ \
+            --path crates/cabin-registry-api/
 
       # A commit can change both the publish client and the Worker's
       # accepted metadata schema (registry/src mirrors the canonical
