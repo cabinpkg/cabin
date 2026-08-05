@@ -1,0 +1,29 @@
+[package]
+name = "xtask-dist"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: release packaging steps for dist.yml"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the steps stage a release archive out of the build
+# outputs of the run that invoked them, so a published copy would have
+# nothing to package.
+publish = false
+
+[lib]
+name = "xtask_dist"
+
+[[bin]]
+name = "xtask-dist"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+
+[lints]
+workspace = true

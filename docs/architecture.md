@@ -50,6 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-ci/          repository tool: the local mirror of the CI gate
+  xtask-dist/        repository tool: release packaging steps for dist.yml
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
@@ -638,6 +639,30 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 - state every property inherited from the shell it replaced in its module documentation - the
   freshness guard's `git rev-list` sat in an `if` condition, where `set -e` is suppressed, so a
   `rev-list` that errors answers "not superseded" and leaves the step green.
+
+### `xtask-dist`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the release-packaging steps of `dist.yml`, reached through the `cargo dist-package`
+alias.  It is the one-to-one Rust port of that workflow's "Package binary" step: it stages
+`target/<triple>/release/cabin` (`cabin.exe` on Windows), `README.md` and `LICENSE` into
+`cabin-<version>-<triple>/`, archives that directory, and prints the archive's path.  The version
+is the ref name for a tag build and `dev-<sha[..12]>` for every other ref type, which is what
+keeps a branch build's artifacts from claiming a release name.  The crate must:
+
+- keep the archive names and formats a cargo-binstall contract: `tar -cJf` on Unix and
+  `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because
+  `crates/cabin/Cargo.toml` declares `pkg-fmt = "txz"` and compressing in Rust would change the
+  published bytes for no gain;
+- read no `GITHUB_*` context and write no `$GITHUB_ENV` - that is `xtask-workflow-guard`'s
+  reserved surface, so the run's version context arrives as arguments and the answer leaves on
+  stdout for the step to record;
+- build and test on every runner in the matrix, Windows included, which is why the
+  `RUNNER_OS` branches are `cfg!(windows)` at the entry point and a threaded argument below it;
+- state every property inherited from the shell it replaced in its module documentation - this
+  block set `-euo pipefail` itself where the guards ported before ran under GitHub's default
+  `run:` shell, so an unset `$GITHUB_REF_NAME` killed the step where a set-but-empty one was a
+  value that got spliced in.
 
 ### `cabin-publish`
 

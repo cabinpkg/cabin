@@ -110,32 +110,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          target="${{ matrix.target }}"
-
-          version="${GITHUB_REF_NAME}"
-          if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]; then
-            version="dev-${GITHUB_SHA::12}"
-          fi
-
-          bin="cabin"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            bin="cabin.exe"
-          fi
-
-          package="cabin-${version}-${target}"
-
-          mkdir -p "$package"
-          cp "target/${target}/release/${bin}" "$package/"
-          cp README.md LICENSE "$package/"
-
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            package_path="${package}.zip"
-            powershell -NoProfile -Command \
-              "Compress-Archive -Path '${package}' -DestinationPath '${package_path}' -Force"
-          else
-            package_path="${package}.tar.xz"
-            tar -cJf "${package_path}" "$package"
-          fi
+          package_path="$(cargo dist-package --target "${{ matrix.target }}" \
+            --ref-name "$GITHUB_REF_NAME" --ref-type "${GITHUB_REF_TYPE:-}" \
+            --sha "$GITHUB_SHA")"
 
           echo "PACKAGE_PATH=${package_path}" >> "$GITHUB_ENV"
 
