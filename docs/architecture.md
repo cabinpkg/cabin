@@ -55,6 +55,7 @@ crates/
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
   xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
   xtask-registry-smoke/ repository tool: the registry smoke test against local wrangler dev
+  xtask-workflow-guard/ repository tool: guards over a GitHub Actions run's own context
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -605,6 +606,26 @@ ceiling in its module documentation.  The crate must:
   evasion-resistant would be an evasion vector of their own;
 - report violations as data and leave printing and exit codes to the binary, so the guards stay
   testable without spawning a process.
+
+### `xtask-workflow-guard`
+
+Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
+holding the guards that keep an out-of-order or premature workflow run from mutating a shared
+resource, decided from git history and the GitHub Actions run context.  `cargo
+workflow-superseded` is the one-to-one Rust port of `registry.yml`'s freshness guard: it answers
+whether `origin/main` already carries a commit after `$GITHUB_SHA` touching any `--path`, and
+records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
+older run from deploying over a newer one.  The crate must:
+
+- stay the only crate that reads `GITHUB_*` context, writes `$GITHUB_OUTPUT` / `$GITHUB_ENV`, or
+  calls the GitHub REST API, and hold no secret beyond the run's own `GITHUB_TOKEN`;
+- never touch the registry - it decides whether a mutation may proceed, and performs none;
+- keep each guard's `--path` list identical to the `paths:` filter of the workflow that runs it,
+  which `tests/path_parity.rs` pins across all three copies: the lists were hand-maintained
+  duplicates before the port and had already drifted apart;
+- state every property inherited from the shell it replaced in its module documentation - the
+  freshness guard's `git rev-list` sat in an `if` condition, where `set -e` is suppressed, so a
+  `rev-list` that errors answers "not superseded" and leaves the step green.
 
 ### `cabin-publish`
 

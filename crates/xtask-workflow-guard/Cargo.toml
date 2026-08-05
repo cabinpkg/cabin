@@ -1,0 +1,28 @@
+[package]
+name = "xtask-workflow-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: guards over a GitHub Actions run's own context"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the guards read the `GITHUB_*` context of the workflow
+# run that spawned them, so a published copy would have no run to guard.
+publish = false
+
+[lib]
+name = "xtask_workflow_guard"
+
+[[bin]]
+name = "xtask-workflow-guard"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+
+[lints]
+workspace = true

@@ -2549,6 +2549,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask-workflow-guard"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_fs",
+]
+
+[[package]]
 name = "yoke"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
