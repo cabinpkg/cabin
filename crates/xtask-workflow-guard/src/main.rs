@@ -22,6 +22,9 @@ commands:
                    committed D1 migrations no longer match the stamp in
                    registry/migrations-applied
                    (`cargo workflow-migrations-pending`)
+  await-deploy     wait for a successful main Registry deploy whose head
+                   contains $GITHUB_SHA, or for one of the answers that
+                   ends the wait early (`cargo workflow-await-deploy`)
 
 options:
   -h, --help  show this help
@@ -29,7 +32,7 @@ options:
 
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
@@ -37,7 +40,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<()> {
+/// The guards answer in `$GITHUB_OUTPUT` and exit 0; `await-deploy`
+/// carries an exit status of its own, which is the step's answer.
+fn run() -> Result<ExitCode> {
     let mut arguments = std::env::args().skip(1);
     let Some(command) = arguments.next() else {
         bail!("no command named\n\n{USAGE}");
@@ -46,11 +51,17 @@ fn run() -> Result<()> {
     match command.as_str() {
         "-h" | "--help" if rest.is_empty() => {
             print!("{USAGE}");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
-        "superseded" => xtask_workflow_guard::superseded::run(&paths(&rest)?),
+        "superseded" => {
+            xtask_workflow_guard::superseded::run(&paths(&rest)?).map(|()| ExitCode::SUCCESS)
+        }
         "migrations-pending" => match rest.first() {
-            None => xtask_workflow_guard::migrations_pending::run(),
+            None => xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS),
+            Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
+        },
+        "await-deploy" => match rest.first() {
+            None => Ok(xtask_workflow_guard::await_deploy::run()),
             Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
         },
         other => bail!("unknown command: {other}\n\n{USAGE}"),
