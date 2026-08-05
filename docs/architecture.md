@@ -611,15 +611,22 @@ ceiling in its module documentation.  The crate must:
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the guards that keep an out-of-order or premature workflow run from mutating a shared
-resource, decided from git history and the GitHub Actions run context.  `cargo
+resource, decided from repository files, git history and the GitHub Actions run context.  `cargo
 workflow-superseded` is the one-to-one Rust port of `registry.yml`'s freshness guard: it answers
 whether `origin/main` already carries a commit after `$GITHUB_SHA` touching any `--path`, and
 records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
-older run from deploying over a newer one.  The crate must:
+older run from deploying over a newer one.  `cargo workflow-migrations-pending` is the same for
+`registry.yml`'s migrations gate: it recomputes the stamp over `registry/migrations/*.sql` and
+records `pending=true` when `registry/migrations-applied` no longer matches, which is what keeps
+a deploy from activating Worker code built for a schema the operator has not applied by hand.
+The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate, and
+`xtask-registry-admin`'s diagnose bundle consumes the same function.  The crate must:
 
 - stay the only crate that reads `GITHUB_*` context, writes `$GITHUB_OUTPUT` / `$GITHUB_ENV`, or
   calls the GitHub REST API, and hold no secret beyond the run's own `GITHUB_TOKEN`;
-- never touch the registry - it decides whether a mutation may proceed, and performs none;
+- never touch the live registry service and never perform the mutation it gates - it reads
+  committed repository state (git history, `registry/migrations/*.sql`) and the run's own
+  context, and only decides whether the mutation may proceed;
 - keep each guard's `--path` list identical to the `paths:` filter of the workflow that runs it,
   which `tests/path_parity.rs` pins across all three copies: the lists were hand-maintained
   duplicates before the port and had already drifted apart;

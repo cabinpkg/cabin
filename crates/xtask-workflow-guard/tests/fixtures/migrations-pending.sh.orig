@@ -1,0 +1,4 @@
+stamp=$(cat registry/migrations/*.sql | sha256sum | cut -d' ' -f1)
+if [ "$stamp" != "$(cat registry/migrations-applied)" ]; then
+  echo "pending=true" >> "$GITHUB_OUTPUT"
+fi

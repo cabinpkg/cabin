@@ -33,8 +33,6 @@
 //! propagated git's own (128 for an unreachable remote), matching the
 //! precedent the `registry-verify` port set.
 
-use std::fs::OpenOptions;
-use std::io::Write as _;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
@@ -73,16 +71,6 @@ fn range(sha: &str) -> String {
     format!("{sha}..origin/main")
 }
 
-/// The bytes `$(...)` yields for L2: command substitution drops NUL
-/// bytes and strips every trailing newline.
-fn substitute(mut stdout: Vec<u8>) -> Vec<u8> {
-    stdout.retain(|byte| *byte != 0);
-    while stdout.last() == Some(&b'\n') {
-        stdout.pop();
-    }
-    stdout
-}
-
 /// L1. The one fail-safe step: a standalone command under `set -e`.
 fn fetch_origin_main() -> Result<()> {
     let status = Command::new("git")
@@ -108,24 +96,14 @@ fn newer_commit(range: &str, paths: &[String]) -> Result<Vec<u8>> {
         .context("spawning `git rev-list`")?
         .wait_with_output()
         .context("waiting for `git rev-list`")?;
-    Ok(substitute(output.stdout))
+    Ok(crate::substitute(output.stdout))
 }
 
 /// L9, reachable only in the positive case - the redirect lives inside
 /// the `if`, so an unset `GITHUB_OUTPUT` fails the step there and
 /// nowhere else.
 fn record_superseded() -> Result<()> {
-    let path = std::env::var("GITHUB_OUTPUT").unwrap_or_default();
-    if path.is_empty() {
-        bail!("GITHUB_OUTPUT is unset; cannot record `superseded=true`");
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .with_context(|| format!("opening {path} for append"))?;
-    file.write_all(OUTPUT_LINE.as_bytes())
-        .with_context(|| format!("writing to {path}"))
+    crate::append_github_output(OUTPUT_LINE)
 }
 
 #[cfg(test)]
@@ -136,22 +114,6 @@ mod tests {
     fn an_unset_sha_leaves_git_reading_the_range_as_head() {
         assert_eq!(range(""), "..origin/main");
         assert_eq!(range("deadbeef"), "deadbeef..origin/main");
-    }
-
-    #[test]
-    fn substitution_strips_every_trailing_newline() {
-        assert_eq!(substitute(b"abc\n".to_vec()), b"abc");
-        assert_eq!(substitute(b"abc\n\n\n".to_vec()), b"abc");
-        assert_eq!(substitute(b"\n".to_vec()), b"");
-        assert!(substitute(Vec::new()).is_empty());
-    }
-
-    #[test]
-    fn substitution_drops_nul_bytes() {
-        assert_eq!(substitute(b"a\0b\n".to_vec()), b"ab");
-        // A capture of nothing but NULs is empty, so it answers "not
-        // superseded" exactly as the shell's `[ -n "" ]` did.
-        assert!(substitute(b"\0\0".to_vec()).is_empty());
     }
 
     #[test]
