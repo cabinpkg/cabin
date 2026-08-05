@@ -2472,6 +2472,8 @@ version = "0.17.0"
 dependencies = [
  "anyhow",
  "assert_fs",
+ "cabinpkg-core",
+ "sha2",
 ]
 
 [[package]]

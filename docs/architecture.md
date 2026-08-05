@@ -643,12 +643,15 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 ### `xtask-dist`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the release-packaging steps of `dist.yml`, reached through the `cargo dist-package`
-alias.  It is the one-to-one Rust port of that workflow's "Package binary" step: it stages
-`target/<triple>/release/cabin` (`cabin.exe` on Windows), `README.md` and `LICENSE` into
-`cabin-<version>-<triple>/`, archives that directory, and prints the archive's path.  The version
-is the ref name for a tag build and `dev-<sha[..12]>` for every other ref type, which is what
-keeps a branch build's artifacts from claiming a release name.  The crate must:
+holding the release-packaging steps of `dist.yml`.  `cargo dist-package` is the one-to-one Rust
+port of that workflow's "Package binary" step: it stages `target/<triple>/release/cabin`
+(`cabin.exe` on Windows), `README.md` and `LICENSE` into `cabin-<version>-<triple>/`, archives
+that directory, and prints the archive's path.  The version is the ref name for a tag build and
+`dev-<sha[..12]>` for every other ref type, which is what keeps a branch build's artifacts from
+claiming a release name.  `cargo dist-checksums` is the same for the "Generate checksums" step:
+it writes `sha256sum -b`'s exact line for every release archive in the working directory to
+`<archive>.sha256` and `sha256.sum`, and prints the summary that becomes the step's log.  The
+crate must:
 
 - keep the archive names and formats a cargo-binstall contract: `tar -cJf` on Unix and
   `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because

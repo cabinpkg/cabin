@@ -8,4 +8,5 @@
 //! instead, and it writes no `$GITHUB_ENV`: it prints what it made and
 //! leaves the workflow to record it.
 
+pub mod checksums;
 pub mod package;

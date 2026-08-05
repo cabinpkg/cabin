@@ -105,19 +105,23 @@ use std::process::Command;
 
 use anyhow::{Result, anyhow, bail};
 
-/// The command line the `cargo dist-package` alias reaches.
+/// The command line the `dist-*` aliases reach.
 pub const USAGE: &str = "\
-usage: xtask-dist package --target <TRIPLE> --ref-name <NAME> --sha <SHA>
-                          [--ref-type <TYPE>]
+usage: xtask-dist <COMMAND>
 
 Release packaging steps for .github/workflows/dist.yml, run from a
 workflow step through their Cargo aliases.
 
 commands:
-  package          stage target/<TRIPLE>/release/cabin, README.md and
+  package --target <TRIPLE> --ref-name <NAME> --sha <SHA>
+          [--ref-type <TYPE>]
+                   stage target/<TRIPLE>/release/cabin, README.md and
                    LICENSE into cabin-<VERSION>-<TRIPLE>/, archive that
                    directory, and print the archive's path to stdout
                    (`cargo dist-package`)
+  checksums        write <archive>.sha256 and sha256.sum for every
+                   release archive in the working directory and print
+                   the summary (`cargo dist-checksums`)
 
 options:
   --target <TRIPLE>  the target triple the release binary was built for
