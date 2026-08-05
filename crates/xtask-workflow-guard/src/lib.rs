@@ -14,6 +14,7 @@ use std::io::Write as _;
 
 use anyhow::{Context as _, Result, bail};
 
+pub mod await_deploy;
 pub mod migrations_pending;
 pub mod superseded;
 
