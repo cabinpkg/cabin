@@ -27,9 +27,9 @@ same change and treat the architecture doc as authoritative.
 
 ## Checks
 
-- `bash scripts/ci.sh` runs the CI gate locally, scoping expensive checks to
+- `cargo ci` runs the CI gate locally, scoping expensive checks to
   the surfaces changed relative to `origin/main`. Agent stop hooks run
-  `scripts/ci.sh --hook`, which blocks one attempt to stop while the gate is
+  `cargo ci --hook`, which blocks one attempt to stop while the gate is
   red; a second stop is let through with a warning (`stop_hook_active`).
 - The exact per-command shapes are in `CONTRIBUTING.md` "Required checks".
   Mirror the flags verbatim: `--all-features`, `--locked`,
@@ -39,7 +39,7 @@ same change and treat the architecture doc as authoritative.
   `npm ci && npm run lint && npm run build && npm test` (build runs
   typecheck, Astro build, CSP checks, and docs-link checks). For docs-only
   changes, run only the checks matching the touched surface.
-- `scripts/ci.sh` runs the same four website commands `website.yml` does,
+- `cargo ci` runs the same four website commands `website.yml` does,
   scoped to changes touching `website/`, `docs/` or `ports/`. Outside that
   scope it skips them, so a change that reaches the site another way still
   needs them by hand.
@@ -56,9 +56,9 @@ Repository automation belongs in Rust. Each tool is a private
 aliases name root-workspace packages, so run them from the repository root -
 `registry/` is a separate workspace and resolves against its own manifest.
 
-`scripts/ci.sh` and the tools under `registry/scripts/` predate this
-convention and are being moved into it. They are the only shell and Perl
-tooling this repository keeps; do not extend them and do not add more.
+The tools under `registry/scripts/` predate this convention and are being
+moved into it. They are the only shell tooling this repository keeps; do
+not extend them and do not add more.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the

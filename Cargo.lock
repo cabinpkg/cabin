@@ -2379,6 +2379,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask-ci"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "assert_fs",
+ "libc",
+ "predicates",
+]
+
+[[package]]
 name = "xtask-port-publish"
 version = "0.17.0"
 dependencies = [

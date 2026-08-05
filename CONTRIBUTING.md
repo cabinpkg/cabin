@@ -42,7 +42,7 @@ npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --from origin/main --to HEAD --verbose
 ```
 
-`scripts/ci.sh` runs this gate locally, with one optional acceleration: when
+`cargo ci` runs this gate locally, with one optional acceleration: when
 [`cargo-nextest`](https://nexte.st) is installed it runs the test phase through
 `cargo nextest run` instead of `cargo test`.  Both run the same set - the phase's `--all-targets`
 excludes doctests either way, and both carry `--no-fail-fast` so one failure never hides the rest -
