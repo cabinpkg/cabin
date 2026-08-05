@@ -86,10 +86,10 @@ package under the scope.
 cargo test                                # host-target unit tests
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-unknown-unknown -- -D warnings
-CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh   # end-to-end, local
+(cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)  # end-to-end, local
 ```
 
-`scripts/smoke.sh` runs two `wrangler dev` instances over shared local
+`cargo registry-smoke` runs two `wrangler dev` instances over shared local
 D1/R2 state under `.wrangler/` - one per hostname role - and checks
 `/healthz`, the mutation surface's uniform `401` with its byte-identical
 `WWW-Authenticate` challenge, the hostname dispatch (no read plane on the

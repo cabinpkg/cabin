@@ -1,0 +1,40 @@
+[package]
+name = "xtask-registry-smoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Repository tool: the registry smoke test against local wrangler dev"
+# Repository-owned maintainer tooling (AGENTS.md, "Repository
+# automation"): the run drives two local `wrangler dev` instances over
+# this checkout's registry configuration, so a published copy would
+# have nothing to smoke.
+publish = false
+
+[lib]
+name = "xtask_registry_smoke"
+
+[[bin]]
+name = "xtask-registry-smoke"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+ureq = { workspace = true }
+xtask-ci = { path = "../xtask-ci" }
+xtask-registry-admin = { path = "../xtask-registry-admin" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+assert_fs = { workspace = true }
+predicates = "3"
+
+[lints]
+workspace = true

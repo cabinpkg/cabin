@@ -25,6 +25,10 @@ on:
       # without this a change to it would skip the test that proves
       # wipe.sh still refuses.
       - "crates/xtask-registry-admin/**"
+      # The smoke run this workspace's docs_drift pins: it moved out of
+      # registry/scripts/, so without this an edit to it would skip the
+      # test that keeps its alias and its governor legs documented.
+      - "crates/xtask-registry-smoke/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"
@@ -50,6 +54,10 @@ on:
       # without this a change to it would skip the test that proves
       # wipe.sh still refuses.
       - "crates/xtask-registry-admin/**"
+      # The smoke run this workspace's docs_drift pins: it moved out of
+      # registry/scripts/, so without this an edit to it would skip the
+      # test that keeps its alias and its governor legs documented.
+      - "crates/xtask-registry-smoke/**"
       - "Cargo.toml"
       - "crates/cabin-package/**"
       - "crates/cabin-publish/**"

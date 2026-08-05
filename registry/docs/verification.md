@@ -17,6 +17,13 @@
 > `/api/v1/packages/<scope>/<name>/<version>`) documented in
 > `docs/remote-registry.md`; the lifecycle observations and conclusions
 > are unchanged.
+>
+> **Historical note (2026-08-05).** The local smoke run the transcripts
+> below invoke as `scripts/smoke.sh` is now `cargo registry-smoke`
+> (`crates/xtask-registry-smoke`), run from the repository root.  The
+> invocations are left verbatim as what was executed at the time - the
+> run these sections record predates the migration - and the
+> observations and conclusions are unchanged.
 
 # Dev Environment Verification (2026-07-09)
 

@@ -199,7 +199,7 @@ fn refuses_when_launched() {
     let message = stderr(&output);
     assert!(message.contains("launched"), "stderr: {message}");
     assert!(message.contains("forbidden"), "stderr: {message}");
-    // `registry/scripts/smoke.sh` greps a refused wipe's output for
+    // `cargo registry-smoke` greps a refused wipe's output for
     // exactly this substring; it is load-bearing, not decoration.
     assert!(
         message.contains("meta.launched = 'true'"),

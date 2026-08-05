@@ -693,7 +693,7 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 # 2. The full local smoke run (wrangler dev; several minutes). Wipe
 #    local state first so the ledger and edge cache start empty.
 CABIN_WIPE_YES=1 scripts/wipe.sh --local
-CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke scripts/smoke.sh
+(cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
 # 3. Merge to main; CI's build + conformance jobs gate deploy-registry
 #    (skipped while the migrations stamp is pending - scripts/migrate.sh).

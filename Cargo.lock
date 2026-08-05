@@ -2453,6 +2453,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtask-registry-smoke"
+version = "0.17.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "assert_fs",
+ "libc",
+ "predicates",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "ureq",
+ "xtask-ci",
+ "xtask-registry-admin",
+]
+
+[[package]]
 name = "yoke"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

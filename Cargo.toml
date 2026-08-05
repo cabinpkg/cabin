@@ -40,6 +40,7 @@ members = [
   "crates/xtask-registry-admin",
   "crates/xtask-registry-fixtures",
   "crates/xtask-registry-guard",
+  "crates/xtask-registry-smoke",
 ]
 default-members = ["crates/cabin"]
 # The hosted registry service is a standalone wasm32-targeted workspace

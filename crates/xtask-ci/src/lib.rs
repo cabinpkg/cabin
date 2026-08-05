@@ -3,6 +3,12 @@
 //! `origin/main`, per AGENTS.md ("run only the checks that match the
 //! touched surface").
 //!
+//! The signal-safe process management underneath the gate -
+//! [`spawn_tracked`], [`reap`], [`kill_group`], [`arm_teardown`] and
+//! the teardown-time file restore - is also the shared child-process
+//! layer for the other xtask crates that run long-lived children
+//! (the registry smoke test's dev servers and mocks).
+//!
 //! The cargo phases and the website block are independent and share no
 //! build artifacts (clippy compiles under its own driver; check, test
 //! and doc differ in `RUSTFLAGS`, feature set, or compiler), so they
@@ -328,12 +334,39 @@ fn group(command: &mut Command) -> &mut Command {
 /// teardown handler, with the teardown signals blocked across both:
 /// bash registered the job at fork time, so its trap never saw a
 /// child the kill loop could miss, and neither may ours.
-fn spawn_tracked(command: &mut Command) -> std::io::Result<Child> {
+///
+/// Public for the other xtask crates that manage long-running
+/// children (the registry smoke test's dev servers and mocks); the
+/// caller must have armed the teardown with [`arm_teardown`].
+///
+/// # Errors
+///
+/// If the program cannot be spawned.
+pub fn spawn_tracked(command: &mut Command) -> std::io::Result<Child> {
     masked(|| {
         let child = group(command).spawn()?;
         record(child.id());
         Ok(child)
     })
+}
+
+/// Signals a tracked child's whole process group - the direct pid as
+/// the fallback, as the teardown handler falls back - for a caller
+/// that stops and restarts a phase mid-run.  The caller still
+/// [`reap`]s the child afterwards; the group table entry is dropped
+/// there, not here.
+pub fn kill_group(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id();
+        if unsafe { libc::kill(-pid.cast_signed(), libc::SIGTERM) } != 0 {
+            unsafe { libc::kill(pid.cast_signed(), libc::SIGTERM) };
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
 }
 
 /// Waits for a tracked child without letting its pid become reusable
@@ -346,8 +379,12 @@ fn spawn_tracked(command: &mut Command) -> std::io::Result<Child> {
 /// fallback below for a failed `waitid`, which accepts the old
 /// reap-to-forget window rather than waiting masked for the child's
 /// whole runtime.
+///
+/// # Errors
+///
+/// If the wait itself fails.
 #[cfg(unix)]
-fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+pub fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
     let exited = loop {
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
         let found = unsafe {
@@ -382,8 +419,11 @@ fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
     }
 }
 
+/// # Errors
+///
+/// If the wait itself fails.
 #[cfg(not(unix))]
-fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
+pub fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
     let status = child.wait();
     forget(child.id());
     status
@@ -391,7 +431,7 @@ fn reap(child: &mut Child) -> std::io::Result<std::process::ExitStatus> {
 
 #[cfg(unix)]
 mod teardown {
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 
     /// The live phase groups, for the signal handler.  A fixed array
     /// of atomics rather than a lock: the handler runs in signal
@@ -437,6 +477,43 @@ mod teardown {
         }
     }
 
+    /// A working-tree file the handler must put back before `_exit`:
+    /// the target path, and the backup to rename over it (null = the
+    /// file did not exist, so unlink it).  Raw leaked `CString`s in
+    /// atomics because the handler may only touch async-signal-safe
+    /// state - `rename(2)` and `unlink(2)` are on the list, an
+    /// allocator is not.
+    static RESTORE_TO: AtomicPtr<libc::c_char> = AtomicPtr::new(std::ptr::null_mut());
+    static RESTORE_FROM: AtomicPtr<libc::c_char> = AtomicPtr::new(std::ptr::null_mut());
+
+    /// Arms the handler to restore `target` from `backup` (or remove
+    /// `target`, when there is no backup) on a teardown signal.  The
+    /// smoke test's `.dev.vars` needs this: it is a real working-tree
+    /// file the run mutates, and `Drop` never runs under `_exit`.
+    ///
+    /// The previous registration, if any, is leaked rather than freed:
+    /// the handler may hold the old pointer at the instant of the
+    /// swap, and a use-after-free in a signal handler is a worse bug
+    /// than a few dozen leaked bytes in a short-lived tool.
+    pub fn restore(backup: Option<&std::path::Path>, target: &std::path::Path) {
+        use std::os::unix::ffi::OsStrExt as _;
+        let raw = |path: &std::path::Path| {
+            std::ffi::CString::new(path.as_os_str().as_bytes())
+                .map_or(std::ptr::null_mut(), std::ffi::CString::into_raw)
+        };
+        // Target last: the handler keys on RESTORE_TO, so the source
+        // must already be visible when the target appears.
+        RESTORE_FROM.store(backup.map_or(std::ptr::null_mut(), raw), Ordering::SeqCst);
+        RESTORE_TO.store(raw(target), Ordering::SeqCst);
+    }
+
+    /// Disarms [`restore`] once the normal cleanup path has restored
+    /// the file itself.
+    pub fn restore_done() {
+        RESTORE_TO.store(std::ptr::null_mut(), Ordering::SeqCst);
+        RESTORE_FROM.store(std::ptr::null_mut(), Ordering::SeqCst);
+    }
+
     /// A cancelled gate must not orphan its phases: without this, a
     /// process-directed signal leaves cargo and npm running.  The exit
     /// code is the conventional 128 + signal, as the shell's traps
@@ -474,6 +551,18 @@ mod teardown {
                 // from the table at once, so no later pass over the
                 // slots can signal whatever the kernel hands it to.
                 let _ = slot.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
+            }
+        }
+        // The registered working-tree restore, after the children are
+        // gone (nothing rewrites the file once they are).  Only
+        // rename/unlink - both async-signal-safe.
+        let to = RESTORE_TO.swap(std::ptr::null_mut(), Ordering::SeqCst);
+        if !to.is_null() {
+            let from = RESTORE_FROM.swap(std::ptr::null_mut(), Ordering::SeqCst);
+            if from.is_null() {
+                unsafe { libc::unlink(to) };
+            } else {
+                unsafe { libc::rename(from, to) };
             }
         }
         // 128 + signal is the convention the shell's traps used, but
@@ -526,7 +615,17 @@ mod teardown {
 use teardown::{forget, masked, record};
 
 #[cfg(unix)]
-pub use teardown::{arm as arm_teardown, hooked as teardown_exits_zero};
+pub use teardown::{
+    arm as arm_teardown, hooked as teardown_exits_zero, restore as restore_on_teardown,
+    restore_done as teardown_restore_done,
+};
+
+/// No-ops off Unix, where there is no signal path to restore on.
+#[cfg(not(unix))]
+pub fn restore_on_teardown(_backup: Option<&std::path::Path>, _target: &std::path::Path) {}
+
+#[cfg(not(unix))]
+pub fn teardown_restore_done() {}
 
 #[cfg(not(unix))]
 fn record(_pid: u32) {}
