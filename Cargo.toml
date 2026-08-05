@@ -37,6 +37,7 @@ members = [
   # the shipped surface (AGENTS.md, "Repository automation").
   "crates/xtask-port-publish",
   "crates/xtask-ci",
+  "crates/xtask-dist",
   "crates/xtask-registry-admin",
   "crates/xtask-registry-fixtures",
   "crates/xtask-registry-guard",
