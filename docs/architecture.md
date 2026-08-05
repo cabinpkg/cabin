@@ -54,6 +54,7 @@ crates/
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
   xtask-registry-guard/ repository tool: static guards over the registry Worker's sources
+  xtask-registry-smoke/ repository tool: the registry smoke test against local wrangler dev
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
@@ -555,6 +556,29 @@ block decision.  The shell adapter it replaces was already running when the inne
 same failure, and converted it.  A hook that cannot build is still visible (the agent reports the
 hook error), but it does not block the stop, so a red workspace is the one state where the gate
 must be run by hand.
+
+The crate is also the shared child-process layer for the other xtask crates that run long-lived
+children: the signal-safe teardown (`spawn_tracked`/`reap`/`kill_group`, the teardown-time file
+restore) is public API consumed by `xtask-registry-smoke`, and a change to its process semantics
+is a change to every consumer's cancellation story.
+
+### `xtask-registry-smoke`
+
+Repository-owned maintainer tool (`publish = false`) holding the registry smoke test, reached
+through the `cargo registry-smoke` alias - the one-to-one Rust port of the former
+`registry/scripts/smoke.sh`.  It drives two local `wrangler dev` instances (the registry role and
+the website role) over one local D1/R2 state, plus a local export-API mock and a local GitHub
+mock, through the same step sequence and diagnostics as the shell.  The crate must:
+
+- keep every step label and every explicit assertion diagnostic byte-compatible with the shell
+  it replaced (an incidental operational failure - a tool that would have died under `set -e` -
+  reports through the port's `FAIL:` prefix instead): the governor-leg labels are pinned
+  verbatim by `registry/tests/docs_drift.rs`, and `tests/embedded.rs` replays the original's
+  embedded programs through their real interpreters against the port's helpers;
+- stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
+  environment;
+- leave `registry/scripts/lib.sh` alone - `wipe.sh` and `migrate.sh` still source it, and it is
+  deleted with its last sourcer.
 
 ### `xtask-registry-guard`
 

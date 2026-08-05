@@ -106,7 +106,7 @@ change:
 - Every mutation surface keeps its plane: publish, yank, token, admin,
   and verify stay authenticated, still answering the byte-identical
   uniform 401 with the challenge to unauthenticated callers
-  (`scripts/smoke.sh` asserts the bytes), and the session plane is
+  (`cargo registry-smoke` asserts the bytes), and the session plane is
   unchanged.
 - A presented credential is still a claim: a read-plane request whose
   Bearer token fails to validate answers the uniform 401 rather than
@@ -1160,7 +1160,7 @@ drain, `src/governor_do.rs`
 for the governor Durable Object and `src/governor_client.rs` for its
 Worker-side client, wasm32 only) is thin
 binding-and-I/O wiring covered by
-`scripts/smoke.sh`. Every D1 statement the glue executes is a named
+`cargo registry-smoke`. Every D1 statement the glue executes is a named
 const in `src/sql.rs`, schema-validated at test time and guarded in CI
 (see "Why no ORM" below; the guard grants `src/governor.rs` and its
 adapter the same consolidated-home treatment for the Durable Object's

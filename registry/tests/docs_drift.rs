@@ -132,19 +132,20 @@ fn the_operator_scripts_stay_documented() {
 }
 
 /// The same pin for the operator commands that have migrated out of
-/// `scripts/` into `crates/xtask-registry-admin`: the alias exists and
-/// the runbook names it. It stays here, outside the crate it guards,
-/// because a test inside that crate would be deleted along with the
+/// `scripts/` into their own `xtask-*` crates: the alias exists and
+/// the runbook names it. It stays here, outside the crates it guards,
+/// because a test inside one of them would be deleted along with the
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 6] = [
+    const COMMANDS: [(&str, &str); 7] = [
         ("registry-backup-audit", "xtask-registry-admin"),
         ("registry-backup-backfill", "xtask-registry-admin"),
         ("registry-diagnose", "xtask-registry-admin"),
         ("registry-governor", "xtask-registry-admin"),
         ("registry-launch-guard", "xtask-registry-admin"),
         ("registry-restore-drill", "xtask-registry-admin"),
+        ("registry-smoke", "xtask-registry-smoke"),
     ];
 
     let runbook = read("docs/runbook.md");
@@ -168,7 +169,9 @@ fn the_operator_commands_stay_documented() {
 /// update this pin consciously.
 #[test]
 fn the_smoke_test_keeps_its_governor_legs() {
-    let smoke = read("scripts/smoke.sh");
+    // The smoke run lives in the root workspace since its migration to
+    // `cargo registry-smoke`; the labels are printed by the finale leg.
+    let smoke = read("../crates/xtask-registry-smoke/src/legs/finale.rs");
     let missing: Vec<&str> = [
         "restarting wrangler dev with tiny governor pools",
         "cached verified downloads keep serving under an exhausted read pool",
@@ -186,6 +189,6 @@ fn the_smoke_test_keeps_its_governor_legs() {
     .collect();
     assert!(
         missing.is_empty(),
-        "scripts/smoke.sh lost governor leg(s): {missing:?}"
+        "the smoke test (crates/xtask-registry-smoke, legs/finale.rs) lost governor leg(s): {missing:?}"
     );
 }

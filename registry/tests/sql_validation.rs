@@ -481,7 +481,7 @@ fn seed_scope_collision(conn: &rusqlite::Connection) {
 /// The scoped statements executed against colliding `(name, version)`
 /// rows: `prepare` alone cannot catch a missing scope predicate or a
 /// wrong bind order, so this pins per-statement isolation between
-/// scopes. (The wasm glue's end-to-end flow is `scripts/smoke.sh`'s
+/// scopes. (The wasm glue's end-to-end flow is `cargo registry-smoke`'s
 /// job; this covers the SQL itself.)
 #[test]
 #[allow(clippy::too_many_lines)] // one seeded scenario walked through every scoped statement

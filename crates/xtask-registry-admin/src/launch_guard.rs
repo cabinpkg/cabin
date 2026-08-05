@@ -57,7 +57,7 @@
 //!   column that shape (see [`crate::display`]);
 //! - the refusal line is prefixed `error:` by the command shim, where
 //!   the shell wrote `launch guard:` alone.  What follows is the
-//!   shell's own wording - `registry/scripts/smoke.sh` greps a refused
+//!   shell's own wording - `cargo registry-smoke` greps a refused
 //!   wipe's output for one of these messages - except where the
 //!   offending value is rendered into it, which follows
 //!   [`crate::display`]'s ceilings rather than `String()`'s exact

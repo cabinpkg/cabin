@@ -130,8 +130,8 @@ async fn handle(
     let path = req.path();
     // The Host header, not `req.url()`: the edge routes on it, and the
     // local `wrangler dev` proxy rewrites the URL's authority while
-    // preserving the header (which is how scripts/smoke.sh exercises
-    // both roles on one server).
+    // preserving the header (which is how `cargo registry-smoke`
+    // exercises both roles on one server).
     let host = req.headers().get("host")?.unwrap_or_default();
     let host = crate::routes::host_without_port(&host);
     match crate::routes::role_for_host(host, &web_host(env)) {
