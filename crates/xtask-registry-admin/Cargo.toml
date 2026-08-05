@@ -23,6 +23,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
@@ -33,6 +34,16 @@ ureq = { workspace = true }
 assert_cmd = "2"
 assert_fs = { workspace = true }
 predicates = "3"
+tiny_http = { workspace = true }
+# Not a duplicate of the `ureq` above: the shipped binary trusts the
+# compiled-in `webpki-roots` and nothing else, but the verify
+# differential replays a shell that refuses a non-https origin, so both
+# sides must reach a local TLS mock.  `curl` trusts a harness CA through
+# `SSL_CERT_FILE`; `native-certs` is the only knob that lets `ureq` read
+# the same variable.  Cargo unifies a dev-dependency's features into the
+# binary only when dev targets are built, so `cargo build` and
+# `cargo build --release` keep `webpki-roots` exactly as today.
+ureq = { workspace = true, features = ["native-certs"] }
 
 [lints]
 workspace = true

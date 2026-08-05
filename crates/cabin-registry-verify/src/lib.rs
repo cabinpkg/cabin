@@ -7,8 +7,9 @@
 //! canonical metadata the registry stored at publish, inspects the
 //! archive, and renders a `verified` / `rejected` verdict.  This
 //! crate is that verifier: [`inspect`] runs the checks and the
-//! `cabin-registry-verify` binary wraps it for the GitHub Actions
-//! workflow (`.github/workflows/registry-verify.yml`).  The crate is
+//! `cabin-registry-verify` binary wraps it for `cargo registry-verify`
+//! (`crates/xtask-registry-admin`), which the `registry-verify` GitHub
+//! Actions workflow runs on its cron.  The crate is
 //! a client of the registry service and never appears in the `cabin`
 //! binary's dependency graph.
 //!
