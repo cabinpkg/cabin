@@ -426,7 +426,7 @@ all - rather than reject (`registry/docs/architecture.md`, "Name fidelity").  It
 the root workspace precisely to reuse
 the real manifest parser and the real `cabin-package` metadata seams, but it is a client of the
 hosted service: the `cabin-registry-verify` binary is invoked by the `registry-verify` GitHub
-Actions workflow, never by users.  The crate must:
+Actions workflow (through `cargo registry-verify`), never by users.  The crate must:
 
 - never appear in the `cabin` binary's dependency graph;
 - never extract the *registry* archive to disk; every check on it streams under the
@@ -470,8 +470,11 @@ the remote upload.  The crate must:
 ### `xtask-registry-admin`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the operator commands an incident or a maintenance window needs against the live
-registry, reached through their own `cargo registry-*` aliases.  They hold the operator's
+holding the commands that act on the live registry, reached through their own `cargo registry-*`
+aliases: the ones an incident or a maintenance window needs at an operator's terminal, plus
+`verify`, which the `registry-verify` workflow runs unattended on its cron
+(`registry/docs/runbook.md`, "Verification pipeline") - it drives the `cabin-registry-verify`
+binary over every pending version and PATCHes the verdicts back.  They hold privileged
 credentials and talk to the running service, which is what separates them from the static guards
 in `xtask-registry-guard`.  Every wrangler invocation goes through one pinned constructor, so no
 command can reach an unpinned CLI.  The crate must:
@@ -484,7 +487,12 @@ command can reach an unpinned CLI.  The crate must:
   `backup::dump_object_key`'s `d1/<date>.sql`.  The audit is the deliberate exception, because an
   operator cannot act on a divergence without the keys naming it, and those keys are content
   checksums: `--keys` prints them on request, and a listing the audit cannot paginate carries the
-  page body into its error either way.  Neither is shareable output;
+  page body into its error either way.  Neither is shareable output.  `verify` is the one
+  command whose output is not an operator's terminal but a CI log, so its disclosure ceiling is
+  drawn there instead: it prints package names and versions - what any holder of a
+  `verify`-scope token already reads from the admin listing - plus the verdicts and reason
+  codes its own verifier run computes, and never the token, the name corpus, or a byte of
+  either archive;
 - treat an answer they cannot parse as a failure.  An empty result set is not one: it is an
   answer about the database, and each read judges its own — the service-state read prints no
   rows, the counts read refuses — as the two `node` snippets they replace did;

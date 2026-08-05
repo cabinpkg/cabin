@@ -806,8 +806,9 @@ Sizing rules - the degrade-before-pay policy:
 The external verifier is the `registry-verify` GitHub Actions workflow
 (`.github/workflows/registry-verify.yml`): every 5 minutes (plus
 `workflow_dispatch`) it builds `cabin-registry-verify` from the root
-workspace, lists pending versions through the admin API, inspects each
-archive, and PATCHes the verdict back. The checks and reason codes are
+workspace and runs `cargo registry-verify`, which lists pending
+versions through the admin API, inspects each archive with that
+binary, and PATCHes the verdict back. The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
 nests the directory (`artifacts/<scope>/<name>/`) and flattens the

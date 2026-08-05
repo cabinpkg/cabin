@@ -1,5 +1,6 @@
 //! Thin shim over [`cabin_registry_verify::inspect`] and the name
-//! advisories for the GitHub Actions workflow.
+//! advisories for `cargo registry-verify`, the command the
+//! `registry-verify` GitHub Actions workflow runs.
 //!
 //! ```text
 //! cabin-registry-verify <archive.zip> <listing-entry.json> [--upstream <upstream-archive>]
@@ -14,10 +15,10 @@
 //! either verdict.  The advisory form takes the corpus response
 //! (`GET /api/v1/admin/packages`) and prints
 //! `{"advice":"proceed"}` or
-//! `{"advice":"abstain","findings":[...]}`; the workflow runs it
-//! **before** downloading the archive and, on abstain, renders no
-//! verdict at all.  Exit 2 is an operational failure with no
-//! verdict: the caller must leave the version pending.
+//! `{"advice":"abstain","findings":[...]}`; `cargo registry-verify`
+//! runs it **before** downloading the archive and, on abstain,
+//! renders no verdict at all.  Exit 2 is an operational failure
+//! with no verdict: the caller must leave the version pending.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

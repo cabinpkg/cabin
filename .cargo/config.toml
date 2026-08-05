@@ -28,6 +28,7 @@ registry-backup-audit = "run --quiet --locked -p xtask-registry-admin -- backup-
 registry-backup-backfill = "run --quiet --locked -p xtask-registry-admin -- backup-backfill"
 registry-diagnose = "run --quiet --locked -p xtask-registry-admin -- diagnose"
 registry-restore-drill = "run --quiet --locked -p xtask-registry-admin -- restore-drill"
+registry-verify = "run --quiet --locked -p xtask-registry-admin -- verify"
 registry-launch-guard = "run --quiet --locked -p xtask-registry-admin -- launch-guard"
 registry-governor = "run --quiet --locked -p xtask-registry-admin -- governor"
 registry-smoke = "run --quiet --locked -p xtask-registry-smoke --"

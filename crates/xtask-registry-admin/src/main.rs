@@ -32,6 +32,8 @@ commands:
   restore-drill    restore the latest dump into a scratch database and
                    compare it against the live one
                    (`cargo registry-restore-drill`)
+  verify           inspect pending versions and PATCH the verdicts
+                   (`cargo registry-verify`)
 
 options:
   -h, --help  show this help
@@ -72,6 +74,7 @@ fn run() -> Result<()> {
         }
         ("launch-guard", []) => bail!("usage: cargo registry-launch-guard <--remote|--local>"),
         ("restore-drill", []) => xtask_registry_admin::restore_drill::run(),
+        ("verify", []) => xtask_registry_admin::verify::run(),
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
         (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
     }

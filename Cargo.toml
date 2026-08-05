@@ -68,6 +68,7 @@ crc32fast = "1"
 flate2 = "1"
 miette = { version = "7", default-features = false }
 pubgrub = "0.4"
+rand = "0.9"
 rpassword = "7"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
