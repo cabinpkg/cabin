@@ -932,13 +932,15 @@ bucket under the final names, then the full pipeline from scratch.
   temporary schedule was removed and the two-schedule config
   redeployed.
 - Launch guard: `meta.launched` seeded `'false'`; the guard's refusal
-  branch is exercised hermetically by `tests/launch_guard.rs` (10
-  tests) and end to end by the smoke run (full local `smoke.sh` passed
-  on the collapsed config, wipe-refusal leg included).
-  `scripts/wipe.sh`'s **remote** success path was *not* executed
+  branch was exercised hermetically by the then-`tests/launch_guard.rs`
+  (10 tests; its sentinel property lives on in the smoke run's
+  wipe-guard leg) and end to end by the smoke run (full local
+  `smoke.sh` passed on the collapsed config, wipe-refusal leg
+  included). The wipe's **remote** success path was *not* executed
   against the live registry in this run (the driving harness declined
-  the mass-delete class of command); run it once against real
-  pre-launch data before relying on it for launch day.
+  the mass-delete class of command); run `cargo registry-wipe` (from
+  the repository root) once against real pre-launch data before
+  relying on it for launch day.
 
 ## Decommission
 

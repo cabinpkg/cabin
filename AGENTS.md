@@ -56,9 +56,8 @@ Repository automation belongs in Rust. Each tool is a private
 aliases name root-workspace packages, so run them from the repository root -
 `registry/` is a separate workspace and resolves against its own manifest.
 
-The tools under `registry/scripts/` predate this convention and are being
-moved into it. They are the only shell tooling this repository keeps; do
-not extend them and do not add more.
+The migration is complete: `registry/scripts/` is gone, and no shell
+tooling is left in this repository. Do not reintroduce any.
 
 - New automation becomes a subcommand of the `xtask-*` crate that already
   owns that responsibility, or a new crate when the responsibility *and* the

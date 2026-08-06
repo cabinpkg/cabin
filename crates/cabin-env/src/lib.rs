@@ -174,6 +174,13 @@ pub const CABIN_REGISTRY_DIR: &str = "CABIN_REGISTRY_DIR";
 /// shipped `cabin` binary.
 pub const CABIN_MIGRATE_YES: &str = "CABIN_MIGRATE_YES";
 
+/// Escape hatch for the registry wipe's confirmation.  Set to exactly
+/// `1` to skip the prompt; the launch guard behind it still runs, and
+/// only the remote wipe prompts at all.  Read by the repository's own
+/// maintainer tooling (`xtask-registry-admin`), never by the shipped
+/// `cabin` binary.
+pub const CABIN_WIPE_YES: &str = "CABIN_WIPE_YES";
+
 /// Number of parallel jobs the build backend should use.
 /// Cargo-style: positive integer, `0` is rejected.  Cabin
 /// reads this env var when `--jobs` is not on the command

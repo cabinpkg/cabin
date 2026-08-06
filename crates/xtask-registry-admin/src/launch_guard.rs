@@ -26,16 +26,18 @@
 //! shadow, turning every refusal into a silent success.  A compiled
 //! binary has no such dispatch.
 //!
-//! One thing it is worse at, until its last caller is Rust too.
-//! While `registry/scripts/wipe.sh` is shell it reaches this through
+//! One thing it was worse at while its last caller was shell, now
+//! closed.  `registry/scripts/wipe.sh` reached this through
 //! `cargo run`, which the environment can redirect -
 //! `CARGO_TARGET_<TRIPLE>_RUNNER`, or a `cargo` earlier on `PATH` - so
-//! the guard can be made not to run at all.  The shell guard had the
-//! same shape of hole through `npx`, which a fake on `PATH` answered
-//! for; this widens it rather than opening it, and it closes when that
-//! script migrates and the call becomes [`run`] itself.  Neither form
-//! defends against whoever sets the environment: the guard exists to
-//! stop a launched registry and a stale config, not its own operator.
+//! the guard could be made not to run at all.  The shell guard before
+//! it had the same shape of hole through `npx`, which a fake on `PATH`
+//! answered for.  That caller is [`crate::wipe`] now and the hop is
+//! gone: nothing stands between its refusal and the `rm -rf` but a
+//! function call.  What the environment still reaches - `wrangler`
+//! through `npx` - it reached in the shell too, and the guard defends
+//! against neither: it exists to stop a launched registry and a stale
+//! config, not its own operator.
 //!
 //! Ceilings, where this deliberately stops short of the shell it
 //! replaces.  All are fail-closed - the guard refuses where the shell
@@ -66,7 +68,7 @@
 use anyhow::{Result, bail};
 use serde::Deserialize;
 
-use crate::{declared_database_id, display, output, registry_dir, results, wrangler};
+use crate::{declared_database_id, display, output, registry_root, results, wrangler};
 
 /// The database whose two resolutions - the config's binding and the
 /// account's name lookup - the remote check proves identical.
@@ -137,15 +139,18 @@ pub fn run(mode: Mode) -> Result<()> {
         same_database()?;
     }
 
-    let answer = output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        mode.flag(),
-        "--json",
-        "--command",
-        LAUNCHED,
-    ]))
+    let answer = output(
+        wrangler(&[
+            "d1",
+            "execute",
+            "DB",
+            mode.flag(),
+            "--json",
+            "--command",
+            LAUNCHED,
+        ])
+        .current_dir(registry_root()),
+    )
     .map_err(|_| refusal("could not read meta.launched"))?;
     let rows = results(&answer).map_err(|_| refusal("unexpected wrangler output"))?;
 
@@ -192,8 +197,8 @@ fn launched(rows: &[serde_json::Map<String, serde_json::Value>]) -> String {
 /// Proves the account's `cabin-registry` is the database the config
 /// binds, so a read here and a `d1 delete` by name cannot diverge.
 fn same_database() -> Result<()> {
-    let answer =
-        output(&mut wrangler(&["d1", "list", "--json"])).map_err(|_| missing_database())?;
+    let answer = output(wrangler(&["d1", "list", "--json"]).current_dir(registry_root()))
+        .map_err(|_| missing_database())?;
     let databases: Vec<Database> = serde_json::from_str(&answer).map_err(|_| missing_database())?;
     // `list.find(...)`: the FIRST entry of that name wins. Two
     // databases sharing it would leave the check proving the config
@@ -205,7 +210,7 @@ fn same_database() -> Result<()> {
         .and_then(Database::bound)
         .ok_or_else(missing_database)?;
 
-    let path = registry_dir().join("wrangler.jsonc");
+    let path = registry_root().join("wrangler.jsonc");
     let text = std::fs::read_to_string(&path)
         .ok()
         .and_then(|text| declared_database_id(&text))

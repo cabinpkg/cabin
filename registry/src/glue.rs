@@ -1104,7 +1104,7 @@ struct AdminGovernorBody {
 /// they mirror already-metered R2 operations and cannot be rebuilt)
 /// and is the registry wipe's companion, guarded on `meta.launched`
 /// exactly like
-/// `scripts/wipe.sh`: only an affirmatively read `'false'` proceeds.
+/// `cargo registry-wipe`: only an affirmatively read `'false'` proceeds.
 /// `reconcile` runs the cron pass's increase-only primary rebuild on
 /// demand and answers with the report - the recovery path after a
 /// ledger wipe or a Durable Object storage loss, when waiting up to

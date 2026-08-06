@@ -1,0 +1,43 @@
+#!/bin/sh
+# The `curl` the shell side of tests/wipe_differential.rs reaches.
+#
+# `wipe.sh` drives Cloudflare's R2 REST API directly, because
+# `wrangler r2 object` has no list or bulk mode. The URL is built in the
+# script, so nothing but a stand-in on PATH can point it somewhere a
+# test controls - unlike the wrangler calls, which `lib.sh` funnels
+# through one function.
+#
+# This forwards rather than answers: the only thing it changes is the
+# ORIGIN, rewriting the `https://api.cloudflare.com/client/v4` prefix to
+# $FAKE_R2_BASE and leaving the path, the query and every other argument
+# exactly as the script wrote them. The real curl then runs, so `-f`'s
+# exit 22, its stderr wording and its URL handling are the machine's own
+# and not this file's idea of them. $REAL_CURL is an absolute path the
+# harness resolved against the PATH this directory was prepended to, so
+# the exec cannot land back here.
+#
+# The port reaches the same server through its own base-URL variable and
+# its own HTTP client, so these argv lines are NOT comparable to
+# anything the port does; the suite filters them out of the command
+# parity and compares the SERVER's request log instead. They are logged
+# anyway, in the shared order, so a scenario can still say what the
+# shell asked for and when.
+set -u
+
+printf '[curl]\t' >>"$FAKE_NPX_LOG"
+printf '%s\t' "$@" | tr '\n' '\036' >>"$FAKE_NPX_LOG"
+printf '\n' >>"$FAKE_NPX_LOG"
+
+for argument do
+    case $argument in
+        https://api.cloudflare.com/client/v4*)
+            set -- "$@" "$FAKE_R2_BASE${argument#https://api.cloudflare.com/client/v4}"
+            ;;
+        *)
+            set -- "$@" "$argument"
+            ;;
+    esac
+    shift
+done
+
+exec "$REAL_CURL" "$@"

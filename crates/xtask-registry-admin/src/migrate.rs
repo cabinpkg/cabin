@@ -17,7 +17,7 @@
 //! wrongly certify: an already-applied file edited in place (D1 never
 //! replays it), and a recorded applied migration whose file was
 //! renamed or removed (its effects live on in the schema while the
-//! files pretend otherwise).  Both route through `scripts/wipe.sh`
+//! files pretend otherwise).  Both route through [`crate::wipe`]
 //! pre-launch (drop, recreate, apply from zero); post-launch, schema
 //! changes are only ever NEW files.
 //!
@@ -293,7 +293,7 @@ fn every_recorded_name_exists(migrations: &Path, applied: &[String]) -> Result<(
             bail!(
                 "D1 records applied migration '{name}' but migrations/{name} is gone
 (renamed or removed). The live schema still carries its effects; restore
-the file, or reset pre-launch via scripts/wipe.sh."
+the file, or reset pre-launch via cargo registry-wipe."
             );
         }
     }
@@ -315,7 +315,7 @@ fn still_hashes_to_the_stamp(applied_files: &[PathBuf], recorded: &[u8]) -> Resu
         "an already-applied migration file was edited in place (the applied
 files no longer hash to the migrations-applied stamp). D1 will NOT
 replay it, and stamping would unblock deploys against a stale live
-schema. Pre-launch, the edited baseline ships through scripts/wipe.sh;
+schema. Pre-launch, the edited baseline ships through cargo registry-wipe;
 post-launch, write a NEW migration file instead of editing an applied
 one."
     );
@@ -589,7 +589,7 @@ mod tests {
                 .to_string(),
             "D1 records applied migration '0002_gone.sql' but migrations/0002_gone.sql is gone
 (renamed or removed). The live schema still carries its effects; restore
-the file, or reset pre-launch via scripts/wipe.sh."
+the file, or reset pre-launch via cargo registry-wipe."
         );
     }
 
@@ -613,7 +613,7 @@ the file, or reset pre-launch via scripts/wipe.sh."
             "an already-applied migration file was edited in place (the applied
 files no longer hash to the migrations-applied stamp). D1 will NOT
 replay it, and stamping would unblock deploys against a stale live
-schema. Pre-launch, the edited baseline ships through scripts/wipe.sh;
+schema. Pre-launch, the edited baseline ships through cargo registry-wipe;
 post-launch, write a NEW migration file instead of editing an applied
 one."
         );

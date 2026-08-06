@@ -16,7 +16,7 @@ infrastructure cutover.
 - **Pre-launch (`meta.launched` = `'false'`): disposable.** When the
   storage format changes incompatibly - `metadata_json` shape, R2 key
   layout, reshaped D1 columns - the registry is wiped and recreated
-  (`scripts/wipe.sh`) rather than migrated. The schema ships as a
+  (`cargo registry-wipe`) rather than migrated. The schema ships as a
   single from-zero baseline (`migrations/0001_init.sql`) edited in
   place: while the data is disposable, no ALTER TABLE history
   accretes.
@@ -119,17 +119,18 @@ other). It refuses the state where
 nothing is pending yet the files differ from the stamp - that means an
 already-applied file was edited in place, which D1 (tracking applied
 migrations by filename) would never replay; pre-launch that edit ships
-through `scripts/wipe.sh` (which reapplies from zero and refreshes the
-stamp itself), post-launch it must become a new migration file.
+through `cargo registry-wipe` (which reapplies from zero and refreshes
+the stamp itself), post-launch it must become a new migration file.
 Hand-refreshing the stamp bypasses those checks; don't.
 
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository
 cannot be swept into one without either a pre-launch wipe or a new
-migration. `migrations/0001_init.sql` still names the guard by its
-pre-migration script path for that reason - read
-`cargo registry-launch-guard` as current, and an applied migration's
-prose as a record of what was true when it was applied.
+migration. `migrations/0001_init.sql` still names the guard and the wipe
+by their pre-migration script paths for that reason - read
+`cargo registry-launch-guard` and `cargo registry-wipe` as current, and
+an applied migration's prose as a record of what was true when it was
+applied.
 
 The Worker reaches the website origin through **zone routes** on
 cabinpkg.com (`wrangler.jsonc`): `cabinpkg.com/api/*`,
@@ -211,12 +212,12 @@ before diagnosing.
 
 ## Wipe procedure (pre-launch only)
 
-`scripts/wipe.sh` scripts the whole procedure and is the guarded
-destructive path: it refuses to run unless the live `meta.launched` row
-is exactly `'false'` (missing row or unreadable flag also refuse -
-fail-safe; `cargo registry-launch-guard`, host-target-tested in
-`tests/launch_guard.rs` and exercised end to end by the smoke test).
-What it does, in order:
+`cargo registry-wipe` (run from the repository root) is the whole
+procedure and the guarded destructive path: it refuses to run unless the
+live `meta.launched` row is exactly `'false'` (missing row or unreadable
+flag also refuse - fail-safe; the guard is `cargo registry-launch-guard`,
+called directly rather than spawned, and exercised end to end by the
+smoke test). What it does, in order:
 
 1. Asks for interactive confirmation (`CABIN_WIPE_YES=1` skips it), then
    runs the guard immediately before anything destructive and reads the
@@ -242,7 +243,7 @@ What it does, in order:
 4. Deletes every `blobs/`-prefixed object from `cabin-registry-blobs`
    through the R2 REST API (list by prefix, delete per key -
    `wrangler r2 object delete` removes exactly one object and has no
-   prefix or bulk mode, which is why the script drives the API
+   prefix or bulk mode, which is why the wipe drives the API
    directly). The BACKUP bucket is never wiped.
 5. Bumps `meta.registry_generation` to one more than the pre-wipe value
    read in step 1 (every authenticated response echoes it as
@@ -250,7 +251,7 @@ What it does, in order:
    wipe happened).
 6. Redeploys (`wrangler deploy`) so the new `database_id` is baked into
    the Worker's bindings.
-7. Resets the governor ledger - a manual follow-up the script reminds
+7. Resets the governor ledger - a manual follow-up the command reminds
    you of: the ledger still accounts for the deleted primary blobs
    (conservative, so nothing overspends, but admission runs against
    ghosts). Sign in, mint a verify-scoped token, and run
@@ -262,7 +263,7 @@ What it does, in order:
    undercounting objects that keep billing), asks for a typed
    confirmation, and only then posts the wipe; the endpoint refuses on
    its own unless `meta.launched` reads exactly `'false'`, mirroring
-   this script's guard. The wipe clears the primary storage
+   this command's guard. The wipe clears the primary storage
    rows and the daily fairness windows only - the `backup` and `dump`
    entries survive (the BACKUP bucket is never wiped and its objects
    keep billing), and the monthly operation windows survive too: they
@@ -270,7 +271,7 @@ What it does, in order:
    cannot be rebuilt, so zeroing them would re-mint a month of
    allowance for spend that already happened ("The cost governor").
 
-`scripts/wipe.sh --local` is the same idea for the local `.wrangler/`
+`cargo registry-wipe --local` is the same idea for the local `.wrangler/`
 state (guard, drop the emulated D1/R2/Durable Object/cache state - the
 emulated backup bucket included, since local state is test data rather
 than a backup - reapply migrations, bump the generation); the smoke
@@ -321,7 +322,7 @@ Launch contains **no infrastructure work** - the Worker, domain, database,
 buckets, crons, secrets, WAF rule, and verifier are already the production
 ones. Launch is a data and policy event, in order:
 
-1. Final wipe: `scripts/wipe.sh` (the guard still passes -
+1. Final wipe: `cargo registry-wipe` (the guard still passes -
    `meta.launched` is `'false'`), so the registry starts empty of
    pre-launch test data.
 2. Flip the launch flag - once, by hand:
@@ -332,7 +333,7 @@ ones. Launch is a data and policy event, in order:
    ```
 
    From this moment the data policy is binding (no wipes, no deletes,
-   real migrations only) and `scripts/wipe.sh` refuses to run. The flag
+   real migrations only) and `cargo registry-wipe` refuses to run. The flag
    lives in `meta`, so a disaster-recovery restore of a pre-launch dump
    would reset it - re-running this `UPDATE` is part of any such
    restore (see "Disaster recovery").
@@ -693,7 +694,7 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 
 # 2. The full local smoke run (wrangler dev; several minutes). Wipe
 #    local state first so the ledger and edge cache start empty.
-CABIN_WIPE_YES=1 scripts/wipe.sh --local
+(cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
 # 3. Merge to main; CI's build + conformance jobs gate deploy-registry
