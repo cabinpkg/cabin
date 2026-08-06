@@ -129,7 +129,7 @@ impl Corpus {
     }
 
     /// Records `stamp` (plus a trailing newline, as the operator's
-    /// `migrate.sh` writes it) as the applied stamp.
+    /// `cargo registry-migrate` writes it) as the applied stamp.
     fn applied(&self, stamp: &str) {
         self.write("migrations-applied", format!("{stamp}\n").as_bytes());
     }

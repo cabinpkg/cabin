@@ -96,9 +96,9 @@ pub fn migration_files(directory: &Path) -> Result<Vec<PathBuf>> {
         // `to_str` here would silently drop a migration the shell
         // counted. And it skips dotfiles unless `dotglob` is set, so
         // an operator's `.draft.sql` scratch file is outside the
-        // stamp. `registry.yml`'s deploy gate and `scripts/migrate.sh`
-        // hash the same glob; counting one here would report PENDING
-        // while deploys stay unblocked.
+        // stamp. `registry.yml`'s deploy gate and
+        // `cargo registry-migrate` hash the same glob; counting one
+        // here would report PENDING while deploys stay unblocked.
         let name = name.as_encoded_bytes();
         !name.starts_with(b".") && name.ends_with(b".sql")
     });

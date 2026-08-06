@@ -528,7 +528,17 @@ command can reach an unpinned CLI.  The crate must:
   is what makes a single page proof;
 - never delete from the BACKUP bucket.  Its `blobs/` namespace is append-only, so an object the
   current verified set does not name is reported as history for an operator to judge per object,
-  never swept.
+  never swept;
+- refresh the `migrations-applied` stamp only from a live apply that really ran.  `migrate`
+  reads the applied set from D1's own bookkeeping rather than from the files, and every refusal
+  it makes - a recorded migration whose file is gone, an applied file edited in place, a pending
+  file that sorts before an applied one - runs *before* it applies anything, the "nothing
+  pending" early exit included.  The stamp it writes is the digest taken before the apply, over
+  every migration file: the deploy gate in `registry.yml` reads that stamp, so a stamp written
+  from anything but a verified live apply unblocks deploys against a schema nobody checked.  Its
+  refusals keep the `FAIL:` prefix the shell's own `fail` wrote, on the same split the smoke port
+  keeps: only an incidental failure - one the shell would have died on under `set -e` - reports
+  through this crate's `error:` channel instead.
 
 ### `xtask-registry-fixtures`
 
@@ -593,8 +603,8 @@ mock, through the same step sequence and diagnostics as the shell.  The crate mu
   embedded programs through their real interpreters against the port's helpers;
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;
-- leave `registry/scripts/lib.sh` alone - `wipe.sh` and `migrate.sh` still source it, and it is
-  deleted with its last sourcer.
+- leave `registry/scripts/lib.sh` alone - `wipe.sh` still sources it, and it is deleted with its
+  last sourcer.
 
 ### `xtask-registry-guard`
 

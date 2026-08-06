@@ -158,6 +158,22 @@ pub const CABIN_GOVERNOR_RELEASE_BACKUP_YES: &str = "CABIN_GOVERNOR_RELEASE_BACK
 /// `cabin` binary.
 pub const CABIN_GOVERNOR_WIPE_YES: &str = "CABIN_GOVERNOR_WIPE_YES";
 
+/// The registry directory the D1 migration command reads and writes,
+/// overriding the one resolved from this checkout.  Its whole-run
+/// differential sets it to point the command at a synthetic registry
+/// root, which the shell it replaces needed no equivalent for - that
+/// script derived its root from its own path, so a harness could copy
+/// it.  Read by the repository's own maintainer tooling
+/// (`xtask-registry-admin`), never by the shipped `cabin` binary.
+pub const CABIN_REGISTRY_DIR: &str = "CABIN_REGISTRY_DIR";
+
+/// Escape hatch for the remote D1 migration apply's confirmation.  Set
+/// to exactly `1` to skip the prompt; every refusal behind it still
+/// runs, and only `--remote` prompts at all.  Read by the repository's
+/// own maintainer tooling (`xtask-registry-admin`), never by the
+/// shipped `cabin` binary.
+pub const CABIN_MIGRATE_YES: &str = "CABIN_MIGRATE_YES";
+
 /// Number of parallel jobs the build backend should use.
 /// Cargo-style: positive integer, `0` is rejected.  Cabin
 /// reads this env var when `--jobs` is not on the command

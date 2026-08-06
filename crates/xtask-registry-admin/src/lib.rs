@@ -28,6 +28,7 @@ pub mod backfill;
 pub mod diagnose;
 pub mod governor;
 pub mod launch_guard;
+pub mod migrate;
 pub mod restore_drill;
 pub mod verify;
 

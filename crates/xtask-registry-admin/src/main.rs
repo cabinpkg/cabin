@@ -29,6 +29,10 @@ commands:
                    refuse unless meta.launched is 'false'; destructive
                    maintenance runs this first
                    (`cargo registry-launch-guard`)
+  migrate <--remote|--local>
+                   apply the D1 migrations; --remote refreshes the
+                   migrations-applied stamp the deploy gate reads
+                   (`cargo registry-migrate`)
   restore-drill    restore the latest dump into a scratch database and
                    compare it against the live one
                    (`cargo registry-restore-drill`)
@@ -73,6 +77,8 @@ fn run() -> Result<()> {
             xtask_registry_admin::launch_guard::run(mode)
         }
         ("launch-guard", []) => bail!("usage: cargo registry-launch-guard <--remote|--local>"),
+        ("migrate", [mode]) => xtask_registry_admin::migrate::run(mode),
+        ("migrate", []) => bail!("{}", xtask_registry_admin::migrate::USAGE),
         ("restore-drill", []) => xtask_registry_admin::restore_drill::run(),
         ("verify", []) => xtask_registry_admin::verify::run(),
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),

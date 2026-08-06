@@ -111,10 +111,11 @@ the manual fallback. The CI deploy token is scoped to Workers
 Scripts:Edit + Routes:Edit only, so D1 migrations and R2 provisioning
 remain manual steps in this runbook. For exactly that reason the
 auto-deploy stays skipped while `migrations/` content disagrees with
-the `migrations-applied` stamp. `scripts/migrate.sh --remote` is the
-one honest way to move both: it applies pending migration files,
-verifies D1 reports nothing left pending, and only then refreshes the
-stamp (land the change like any other). It refuses the state where
+the `migrations-applied` stamp. `cargo registry-migrate --remote`, run
+from the repository root, is the one honest way to move both: it
+applies pending migration files, verifies D1 reports nothing left
+pending, and only then refreshes the stamp (land the change like any
+other). It refuses the state where
 nothing is pending yet the files differ from the stamp - that means an
 already-applied file was edited in place, which D1 (tracking applied
 migrations by filename) would never replay; pre-launch that edit ships
@@ -696,7 +697,7 @@ CABIN_WIPE_YES=1 scripts/wipe.sh --local
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
 # 3. Merge to main; CI's build + conformance jobs gate deploy-registry
-#    (skipped while the migrations stamp is pending - scripts/migrate.sh).
+#    (skipped while the migrations stamp is pending - cargo registry-migrate).
 #    Watch it land:
 npx --yes wrangler@4.112.0 deployments list
 
