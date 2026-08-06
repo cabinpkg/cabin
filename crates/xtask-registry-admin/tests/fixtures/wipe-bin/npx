@@ -1,0 +1,89 @@
+#!/bin/sh
+# The `npx` both sides of tests/wipe_differential.rs reach: this
+# directory goes first on their PATH, so `lib.sh`'s
+# `wrangler() { npx --yes wrangler@4.112.0 "$@"; }` and the port's spawn
+# of the same argv drive one stand-in over one canned account.
+#
+# This is a test asset, not repository automation, so AGENTS.md's "no new
+# shell tooling" rule is not what governs it: the seam has to be an
+# executable file named `npx` that a bash script finds on PATH, and a
+# script is the smallest thing that is one.
+#
+# A sibling of tests/fixtures/fake-bin/npx rather than an edit to it. The
+# two answer disjoint request sets - that one knows `sqlite_master` and
+# `d1_migrations`, this one knows `d1 list`, `d1 delete`, `d1 create` and
+# `deploy` - and the migrate differential runs against a frozen fixture,
+# so widening its stand-in to serve this suite would put that suite's
+# seam under this suite's edits.
+#
+# Every call appends its full argv to $FAKE_NPX_LOG as ONE line,
+# arguments separated by tabs, newlines mapped to RS (0x1e) so a
+# multi-line `--command` stays one record. The sibling `curl` and `cargo`
+# shims write to the same log with their own leading field, so the file
+# is the whole ordered story of what a side shelled out to.
+#
+# Each record starts with WHERE the call was made, because wrangler
+# resolves D1 and R2 through the `wrangler.jsonc` of its working
+# directory: a side that ran the right argv in the wrong tree would
+# reach a different account while looking identical in every other byte
+# this suite compares. The field is the presence of the marker file the
+# harness drops in the root it means, because the two sides' roots are
+# different scratch directories.
+#
+# Responses live at $FAKE_NPX_DIR/<kind>.<phase>, falling back to
+# $FAKE_NPX_DIR/<kind> where the answer does not change across the
+# recreate. The first line is the exit status; the rest is stdout.
+#
+# The phase is the whole of the fake account's state: it starts
+# `before`, and `d1 create` flips it to `after`. That flip is what lets
+# ONE argv - `d1 list --json`, which the launch guard and the wipe's own
+# id read issue identically - answer with the old database's id before
+# the recreate and the new one after it.
+set -u
+
+if [ -f ./.differential-root ]; then
+    printf '[root]\t' >>"$FAKE_NPX_LOG"
+else
+    printf '[elsewhere]\t' >>"$FAKE_NPX_LOG"
+fi
+printf '%s\t' "$@" | tr '\n' '\036' >>"$FAKE_NPX_LOG"
+printf '\n' >>"$FAKE_NPX_LOG"
+
+argv="$*"
+case $argv in
+    *"key = 'launched'"*) kind=launched ;;
+    *"key = 'registry_generation'"*)
+        # One key, two statements: the pre-wipe SELECT and the post-wipe
+        # UPDATE. The verb is the only thing that tells them apart.
+        case $argv in
+            *'UPDATE meta'*) kind=bump ;;
+            *) kind=generation ;;
+        esac
+        ;;
+    *'d1 list'*) kind=list ;;
+    *'d1 delete'*) kind=drop ;;
+    *'d1 create'*) kind=create ;;
+    *'d1 migrations apply'*) kind=apply ;;
+    *' deploy'*) kind=deploy ;;
+    *)
+        printf 'fake npx: unrecognized request: %s\n' "$argv" >&2
+        exit 111
+        ;;
+esac
+
+phase=$(cat "$FAKE_NPX_DIR/phase")
+response=$FAKE_NPX_DIR/$kind.$phase
+[ -f "$response" ] || response=$FAKE_NPX_DIR/$kind
+if [ ! -f "$response" ]; then
+    printf 'fake npx: no canned %s response in phase %s\n' "$kind" "$phase" >&2
+    exit 112
+fi
+
+# Before the response is served, not after: a `d1 create` that failed
+# still created nothing the old listing should keep describing.
+if [ "$kind" = create ]; then
+    printf 'after' >"$FAKE_NPX_DIR/phase"
+fi
+
+tail -n +2 "$response"
+exit "$(head -n 1 "$response")"

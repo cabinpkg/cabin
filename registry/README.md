@@ -41,7 +41,7 @@ launch (`meta.launched` = `'false'`), the database and the primary blob
 data are wiped and recreated instead of migrated whenever the storage
 format changes (the backup bucket is append-only and never wiped); from
 launch onward the data is permanent and never wiped. The launch guard in
-`scripts/wipe.sh` enforces the boundary, and flipping the flag is a
+`cargo registry-wipe` enforces the boundary, and flipping the flag is a
 launch-checklist item ([`docs/runbook.md`](docs/runbook.md), "Launch
 checklist").
 

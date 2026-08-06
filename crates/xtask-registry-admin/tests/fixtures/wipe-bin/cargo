@@ -1,0 +1,40 @@
+#!/bin/sh
+# The `cargo` the shell side of tests/wipe_differential.rs reaches.
+#
+# `wipe.sh` runs the launch guard as a separate program:
+#   (cd .. && cargo run --quiet --locked -p xtask-registry-admin -- \
+#       launch-guard "$mode")
+# which would otherwise build the guard from THIS checkout on every
+# scenario. This execs the already-built binary the harness names in
+# $REAL_ADMIN_BIN with everything after the `--` - so the guard that
+# runs is the true one, reaching the same fake `npx` through the same
+# PATH, and both sides are compared on a guard that really ran.
+#
+# The cwd is deliberately not touched. The script's subshell `cd ..`
+# first, so the guard runs one level ABOVE the registry root - which is
+# the point: the guard must find its `wrangler.jsonc` and its wrangler
+# working directory through the registry-root variable, not through
+# wherever it was launched from. A guard that read the cwd would reach
+# the parent here and be caught by the `[root]` field the fake `npx`
+# records.
+#
+# This is the closed hop. The port calls the guard as a function, so it
+# never runs a `cargo` at all, and the one line this writes is the only
+# record the two sides cannot share. The suite filters exactly this
+# leading field out of the command parity and asserts the count on each
+# side, so the deviation is pinned rather than waved through.
+set -u
+
+printf '[cargo]\t' >>"$FAKE_NPX_LOG"
+printf '%s\t' "$@" | tr '\n' '\036' >>"$FAKE_NPX_LOG"
+printf '\n' >>"$FAKE_NPX_LOG"
+
+while [ $# -gt 0 ]; do
+    if [ "$1" = "--" ]; then
+        shift
+        break
+    fi
+    shift
+done
+
+exec "$REAL_ADMIN_BIN" "$@"

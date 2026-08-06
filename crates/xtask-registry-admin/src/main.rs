@@ -38,6 +38,9 @@ commands:
                    (`cargo registry-restore-drill`)
   verify           inspect pending versions and PATCH the verdicts
                    (`cargo registry-verify`)
+  wipe [--local]   drop and recreate the registry's data from zero,
+                   pre-launch only; --local resets the emulated
+                   .wrangler/ state instead (`cargo registry-wipe`)
 
 options:
   -h, --help  show this help
@@ -81,6 +84,9 @@ fn run() -> Result<()> {
         ("migrate", []) => bail!("{}", xtask_registry_admin::migrate::USAGE),
         ("restore-drill", []) => xtask_registry_admin::restore_drill::run(),
         ("verify", []) => xtask_registry_admin::verify::run(),
+        // No argument is the REMOTE wipe, as it was for the script.
+        ("wipe", []) => xtask_registry_admin::wipe::run(None),
+        ("wipe", [flag]) => xtask_registry_admin::wipe::run(Some(flag)),
         (other, []) => bail!("unknown command: {other}\n\n{USAGE}"),
         (_, [extra, ..]) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
     }

@@ -98,10 +98,10 @@ fn the_command_is_required() {
 
     Command::cargo_bin("xtask-registry-admin")
         .unwrap()
-        .arg("wipe")
+        .arg("nuke")
         .assert()
         .failure()
-        .stderr(predicates::str::contains("unknown command: wipe"));
+        .stderr(predicates::str::contains("unknown command: nuke"));
 
     Command::cargo_bin("xtask-registry-admin")
         .unwrap()
@@ -111,22 +111,15 @@ fn the_command_is_required() {
         .stdout(predicates::str::contains("cargo registry-diagnose"));
 }
 
-/// The wrangler version this crate pins is the one
-/// `registry/scripts/lib.sh` and `registry.yml` pin. It was one pin
-/// while the tool sourced `lib.sh`; a bump that misses this copy would
-/// otherwise leave the operator commands on the old CLI silently.
+/// The wrangler version this crate pins is the one `registry.yml`
+/// pins. It was three pins while `registry/scripts/lib.sh` held the
+/// shell's own copy; that file went with its last sourcer, and a bump
+/// that misses this copy would still leave the operator commands on the
+/// old CLI silently.
 #[test]
-fn the_wrangler_pin_matches_the_other_two() {
+fn the_wrangler_pin_matches_the_workflow() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |path: &str| std::fs::read_to_string(root.join(path)).expect(path);
-
-    let lib = read("registry/scripts/lib.sh");
-    let (_, rest) = lib.split_once("npx --yes wrangler@").expect("lib.sh pin");
-    let shell: String = rest
-        .chars()
-        .take_while(|c| !c.is_whitespace() && *c != '"')
-        .collect();
-    assert_eq!(format!("wrangler@{shell}"), WRANGLER);
 
     let workflow = read(".github/workflows/registry.yml");
     let (_, rest) = workflow

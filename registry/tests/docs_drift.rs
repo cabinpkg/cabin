@@ -114,7 +114,7 @@ fn every_script_the_runbook_references_exists() {
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 9] = [
+    const COMMANDS: [(&str, &str); 10] = [
         ("registry-backup-audit", "xtask-registry-admin"),
         ("registry-backup-backfill", "xtask-registry-admin"),
         ("registry-diagnose", "xtask-registry-admin"),
@@ -124,6 +124,7 @@ fn the_operator_commands_stay_documented() {
         ("registry-restore-drill", "xtask-registry-admin"),
         ("registry-smoke", "xtask-registry-smoke"),
         ("registry-verify", "xtask-registry-admin"),
+        ("registry-wipe", "xtask-registry-admin"),
     ];
 
     let runbook = read("docs/runbook.md");

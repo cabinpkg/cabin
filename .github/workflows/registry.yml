@@ -20,10 +20,10 @@ on:
       - "crates/xtask-registry-guard/**"
       # The fixture generator the conformance job runs.
       - "crates/xtask-registry-fixtures/**"
-      # The launch guard the wipe path runs, whose integration test
-      # lives in this workspace: the guard moved out of registry/, so
-      # without this a change to it would skip the test that proves
-      # wipe.sh still refuses.
+      # The operator commands this workspace's docs_drift pins: they
+      # moved out of registry/scripts/, so without this an edit to one
+      # would skip the test that keeps its alias and the runbook step
+      # naming it in agreement.
       - "crates/xtask-registry-admin/**"
       # The smoke run this workspace's docs_drift pins: it moved out of
       # registry/scripts/, so without this an edit to it would skip the
@@ -53,10 +53,10 @@ on:
       - "crates/xtask-registry-guard/**"
       # The fixture generator the conformance job runs.
       - "crates/xtask-registry-fixtures/**"
-      # The launch guard the wipe path runs, whose integration test
-      # lives in this workspace: the guard moved out of registry/, so
-      # without this a change to it would skip the test that proves
-      # wipe.sh still refuses.
+      # The operator commands this workspace's docs_drift pins: they
+      # moved out of registry/scripts/, so without this an edit to one
+      # would skip the test that keeps its alias and the runbook step
+      # naming it in agreement.
       - "crates/xtask-registry-admin/**"
       # The smoke run this workspace's docs_drift pins: it moved out of
       # registry/scripts/, so without this an edit to it would skip the

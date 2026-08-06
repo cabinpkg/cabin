@@ -19,9 +19,10 @@
 //! D1 and the R2 object commands go through the pinned `wrangler`
 //! ([`wrangler`]), the only supported path to them from outside the
 //! Worker.  Listing a bucket is the exception: wrangler exposes no
-//! command for it, so the audit calls Cloudflare's R2 REST API
-//! directly with the operator's `CLOUDFLARE_API_TOKEN`, as the `curl`
-//! in the shell it replaces did.
+//! command for it, and no bulk mode for deleting one - so the audit and
+//! the wipe's sweep call Cloudflare's R2 REST API directly with the
+//! operator's `CLOUDFLARE_API_TOKEN`, as the `curl` in the shells they
+//! replace did.
 
 pub mod audit;
 pub mod backfill;
@@ -31,15 +32,17 @@ pub mod launch_guard;
 pub mod migrate;
 pub mod restore_drill;
 pub mod verify;
+pub mod wipe;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 
-/// The pinned wrangler.  `registry/scripts/lib.sh` and
-/// `.github/workflows/registry.yml` (`wranglerVersion`) pin it
-/// independently; all three move together.
+/// The pinned wrangler.  `.github/workflows/registry.yml`
+/// (`wranglerVersion`) pins it independently; the two move together.
+/// There were three pins while `registry/scripts/lib.sh` held the
+/// shell's own copy, and `tests/diagnose.rs` still checks the pair.
 pub const WRANGLER: &str = "wrangler@4.112.0";
 
 /// The BACKUP bucket, which more than one command reaches: the
@@ -64,6 +67,25 @@ pub fn repo_root() -> PathBuf {
 #[must_use]
 pub fn registry_dir() -> PathBuf {
     repo_root().join("registry")
+}
+
+/// The registry root a command reads, writes and runs wrangler in.
+/// `CABIN_REGISTRY_DIR` overrides [`registry_dir`], which is how the
+/// whole-run differentials point a command at a synthetic registry
+/// root: each shell they replace derived its root from its own path, so
+/// a harness could simply copy the script somewhere else, and nothing
+/// here can stand in for that.
+///
+/// The launch guard needs it as much as its callers do: it is reached
+/// from a working directory ABOVE the registry (`wipe.sh` runs it from
+/// a `cd ..` subshell), so a guard resolving its `wrangler.jsonc` or
+/// its wrangler working directory any other way reads a different tree
+/// than the wipe it is guarding.
+#[must_use]
+pub fn registry_root() -> PathBuf {
+    std::env::var_os(cabin_env::CABIN_REGISTRY_DIR)
+        .filter(|value| !value.is_empty())
+        .map_or_else(registry_dir, PathBuf::from)
 }
 
 /// The Cloudflare account the registry is deployed to, read from

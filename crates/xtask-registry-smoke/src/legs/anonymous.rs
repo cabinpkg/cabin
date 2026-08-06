@@ -17,7 +17,6 @@
 
 use std::borrow::Cow;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -282,27 +281,38 @@ fn parameterless_callback(smoke: &mut Smoke) -> Result<()> {
 
 /// L631-653: the launch guard end to end
 /// (`registry/docs/runbook.md`, "Data policy") - flip the local flag,
-/// expect `scripts/wipe.sh` to refuse with the guard's message and to
-/// leave the state untouched, then flip it back.
+/// expect the wipe to refuse with the guard's message and to leave the
+/// state untouched, then flip it back.
 fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
-    step("the wipe script refuses while meta.launched is 'true'");
+    step("the wipe refuses while meta.launched is 'true'");
     set_launched("true")?;
-    // The refusal is the expected outcome, so the exit status is read
-    // rather than propagated; `bash -c` because the assertion is over
-    // the two streams interleaved as `2>&1` interleaved them.
-    let refusal = Command::new("bash")
-        .arg("-c")
-        .arg("scripts/wipe.sh --local 2>&1")
-        .current_dir(registry_dir)
-        .output()
-        .context("run scripts/wipe.sh --local")?;
-    if refusal.status.success() {
-        bail!("wipe.sh --local ran against a launched registry");
+    // The deleted test's sentinel, kept literally: bytes written before
+    // the refusal must be the same bytes after it - a directory that
+    // merely exists could have been removed and recreated.
+    let sentinel = registry_dir.join(".wrangler/state/v3/d1/smoke-wipe-sentinel");
+    std::fs::write(&sentinel, b"survives the refusal").context("write the wipe-guard sentinel")?;
+    // The refusal is the expected outcome, so it is read rather than
+    // propagated. The shell ran `scripts/wipe.sh --local 2>&1` and
+    // grepped the interleaved streams for the guard's line; the wipe is
+    // `cargo registry-wipe` now and this crate can call it, so the
+    // refusal IS the error value.
+    let Err(refusal) = xtask_registry_admin::wipe::run(Some("--local")) else {
+        bail!("the wipe ran --local against a launched registry");
+    };
+    let refusal = format!("{refusal:#}");
+    if !refusal.contains("meta.launched = 'true'") {
+        bail!("the wipe's refusal is missing the guard's message: {refusal}");
     }
-    let wipe_err = capture(&refusal.stdout);
-    if !wipe_err.contains("meta.launched = 'true'") {
-        bail!("wipe.sh refusal is missing the guard's message: {wipe_err}");
+    // A refusal stops before the first mutation, so the state the wipe
+    // would have deleted is still there. `registry/tests/launch_guard.rs`
+    // held this with a sentinel file while the wipe was a shell script
+    // whose ordering only an end-to-end run could check; the script and
+    // that test go together, and the property stays here.
+    let survived = std::fs::read(&sentinel).context("read the wipe-guard sentinel back")?;
+    if survived != b"survives the refusal" {
+        bail!("the refused wipe disturbed the local D1 state");
     }
+    std::fs::remove_file(&sentinel).context("remove the wipe-guard sentinel")?;
     // Sentinel: the database survived the refusal (and the servers with
     // it).
     let generation = xtask_registry_admin::output(&mut xtask_registry_admin::wrangler(&[

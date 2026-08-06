@@ -92,9 +92,16 @@
 //! guard exits 1.
 //!
 //! stderr is compared byte for byte wherever the script is the sole
-//! writer, which is every refusal it reaches through `fail`. Three
+//! writer, which is every refusal it reaches through `fail`. Five
 //! scenarios narrow:
 //!
+//! - [`a_recorded_migration_with_no_file_is_refused`] and
+//!   [`an_applied_file_edited_in_place_is_refused`], whose refusals end
+//!   by naming the command that resets a registry pre-launch. That
+//!   command stopped being `scripts/wipe.sh` when the script became
+//!   `cargo registry-wipe`, so the two sides' stderr differs in exactly
+//!   that phrase and each side's whole text is pinned instead of
+//!   compared.
 //! - [`a_failed_bookkeeping_read_refuses_rather_than_reading_empty`],
 //!   where the shell's stderr also carries `node`'s own `SyntaxError`
 //!   stack from parsing an empty capture. The port never runs `node`,
@@ -832,11 +839,18 @@ fn a_recorded_migration_with_no_file_is_refused() {
     );
 
     let (shell, port) = world.both();
+    // The successor-command divergence: this refusal ends by naming the
+    // command that resets a registry pre-launch, and that command is no
+    // longer a script. The shell says `scripts/wipe.sh` because that is
+    // what it said; the port says `cargo registry-wipe` because the
+    // script it named is deleted in this change. Deliberate, and the
+    // only respect in which the two sides' stderr differs here - which
+    // is why both are pinned below rather than compared.
     diff(
         "a recorded migration with no file",
         &shell,
         &port,
-        &Diagnostics::Quiet,
+        &Diagnostics::Refused,
     );
     assert_eq!(
         shell.out(),
@@ -848,6 +862,12 @@ fn a_recorded_migration_with_no_file_is_refused() {
         "FAIL: D1 records applied migration '0009_ghost.sql' but migrations/0009_ghost.sql is \
          gone\n(renamed or removed). The live schema still carries its effects; restore\nthe \
          file, or reset pre-launch via scripts/wipe.sh.\n"
+    );
+    assert_eq!(
+        port.err(),
+        "FAIL: D1 records applied migration '0009_ghost.sql' but migrations/0009_ghost.sql is \
+         gone\n(renamed or removed). The live schema still carries its effects; restore\nthe \
+         file, or reset pre-launch via cargo registry-wipe.\n"
     );
     assert_eq!(shell.status, Some(1));
     assert_eq!(shell.stamped(), STALE, "a refusal stamps nothing");
@@ -872,11 +892,14 @@ fn an_applied_file_edited_in_place_is_refused() {
     };
 
     let (shell, port) = world.both();
+    // The same successor-command divergence as the scenario above, and
+    // the same reason: pre-launch, an edited baseline ships through a
+    // command this change turns from a script into a subcommand.
     diff(
         "an applied file edited in place",
         &shell,
         &port,
-        &Diagnostics::Quiet,
+        &Diagnostics::Refused,
     );
     assert_eq!(
         shell.out(),
@@ -890,6 +913,14 @@ fn an_applied_file_edited_in_place_is_refused() {
          unblock deploys against a stale live\nschema. Pre-launch, the edited baseline ships \
          through scripts/wipe.sh;\npost-launch, write a NEW migration file instead of editing an \
          applied\none.\n"
+    );
+    assert_eq!(
+        port.err(),
+        "FAIL: an already-applied migration file was edited in place (the applied\nfiles no \
+         longer hash to the migrations-applied stamp). D1 will NOT\nreplay it, and stamping would \
+         unblock deploys against a stale live\nschema. Pre-launch, the edited baseline ships \
+         through cargo registry-wipe;\npost-launch, write a NEW migration file instead of editing \
+         an applied\none.\n"
     );
     assert_eq!(shell.status, Some(1));
     assert_eq!(shell.stamped(), STALE, "a refusal stamps nothing");

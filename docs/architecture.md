@@ -518,8 +518,9 @@ command can reach an unpinned CLI.  The crate must:
   is not one of those spellings.  A missing row, an unreadable database and an unparsable
   answer refuse too, and in remote mode it first proves the account's
   `cabin-registry` carries the id `wrangler.jsonc` binds, so a read here and a `d1 delete` by
-  name cannot reach different databases.  It prints nothing when it passes, because the scripts
-  that run it are mid-sentence when they do;
+  name cannot reach different databases.  It prints nothing when it passes, because the command
+  that runs it is mid-sentence when it does - `wipe` calls it directly, so nothing an operator's
+  environment names stands between its refusal and the delete it guards;
 - prove absence before releasing ledger allowance, never infer it.  The governor's `release` and
   `wipe` shrink the cost ledger, and an understating ledger admits writes past the true R2 cap,
   so a listing that fails - an unparsable page, a row carrying no key, an unencodable prefix - is
@@ -538,7 +539,15 @@ command can reach an unpinned CLI.  The crate must:
   from anything but a verified live apply unblocks deploys against a schema nobody checked.  Its
   refusals keep the `FAIL:` prefix the shell's own `fail` wrote, on the same split the smoke port
   keeps: only an incidental failure - one the shell would have died on under `set -e` - reports
-  through this crate's `error:` channel instead.
+  through this crate's `error:` channel instead;
+- keep the pre-launch reset whole, and pre-launch only.  `wipe` runs the launch guard after its
+  confirmation prompt and before the first destructive call, drops and recreates the database,
+  bakes the recreated id into both sites of `wrangler.jsonc` that name it, applies every
+  migration from zero, refreshes the same stamp `migrate` writes, sweeps only the primary
+  bucket's `blobs/` prefix, bumps the registry generation and redeploys.  It is the one command
+  that both deletes data and rewrites committed configuration, so every count it takes around
+  that rewrite (one `database_id` binding before, the new id twice after) refuses rather than
+  guesses, and the BACKUP bucket appears nowhere in it.
 
 ### `xtask-registry-fixtures`
 
@@ -603,8 +612,8 @@ mock, through the same step sequence and diagnostics as the shell.  The crate mu
   embedded programs through their real interpreters against the port's helpers;
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;
-- leave `registry/scripts/lib.sh` alone - `wipe.sh` still sources it, and it is deleted with its
-  last sourcer.
+- stay out of `registry/`'s own tooling: with `wipe.sh` and `lib.sh` gone, `registry/scripts/`
+  no longer exists, and no shell tooling is left in the repository.
 
 ### `xtask-registry-guard`
 
