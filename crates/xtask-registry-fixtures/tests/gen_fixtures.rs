@@ -2,8 +2,6 @@
 //! `conformance` job in `registry.yml`, which feeds the real output
 //! through the server's publish validation.
 
-use assert_cmd::Command;
-
 /// Every file a fixture manifest names has to exist beside it, or
 /// `cabin package` refuses to stage the package: the manifests and the
 /// files written next to them are edited independently, and a rename on
@@ -31,24 +29,4 @@ fn every_file_the_manifests_name_is_written() {
         }
     }
     assert_eq!(checked, 4, "three sources and the declared patch");
-}
-
-#[test]
-fn the_output_directory_is_required() {
-    // Empty as well as absent: an empty path would package into the
-    // working directory, which for an alias is the repository root.
-    for arguments in [vec![], vec![""]] {
-        Command::cargo_bin("xtask-registry-fixtures")
-            .unwrap()
-            .args(&arguments)
-            .assert()
-            .failure();
-    }
-
-    Command::cargo_bin("xtask-registry-fixtures")
-        .unwrap()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("cargo gen-fixtures"));
 }

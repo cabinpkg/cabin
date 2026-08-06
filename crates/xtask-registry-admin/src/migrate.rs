@@ -69,12 +69,8 @@
 //! Ceilings, where this deliberately stops short of the shell.  All
 //! keep the exit code and the direction of every refusal:
 //!
-//! - the two usage errors collapse into one, and neither came through
-//!   `fail`.  A missing argument reached bash's `${1:?...}` diagnostic
-//!   (`scripts/migrate.sh: line 28: 1: usage: ...`, carrying `$0` and a
-//!   line number no port can have) and a wrong one reached the script's
-//!   own unprefixed `usage:` line; both exit 1 with [`USAGE`] behind
-//!   the shim's `error:` here;
+//! - the argument surface is clap's, in the binary: the mode arrives
+//!   here already parsed, so there is no usage error to render;
 //! - the pending-sorts-before-applied refusal compares bytes.  Bash's
 //!   `[[ < ]]` collates through `strcoll` in the operator's locale,
 //!   where `en_US.UTF-8` sorts `0002_a.sql` before `0002_B.sql` and
@@ -120,11 +116,8 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use sha2::{Digest as _, Sha256};
 use xtask_workflow_guard::migrations_pending::migration_files;
 
+use crate::launch_guard::Mode;
 use crate::{Nullish, column_lines, display, output, registry_dir, results, step, wrangler};
-
-/// Both usage errors, which the shell spelled twice - once as bash's
-/// `${1:?...}` and once as its own `case` default.
-pub const USAGE: &str = "usage: cargo registry-migrate <--remote|--local>";
 
 /// Is there anything to read the applied names out of?  A first
 /// provisioning has no `d1_migrations` table, which is the one absence
@@ -153,15 +146,14 @@ fn or_fail<T>(result: Result<T>) -> T {
 ///
 /// # Errors
 ///
-/// On an unknown mode, and on the incidental failures the shell died on
-/// under `set -e` - a wrangler invocation that will not run, an
-/// unreadable `migrations/` or stamp file.  The script's own refusals
-/// leave through `or_fail` instead.
-pub fn run(mode: &str) -> Result<()> {
+/// On the incidental failures the shell died on under `set -e` - a
+/// wrangler invocation that will not run, an unreadable `migrations/`
+/// or stamp file.  The script's own refusals leave through `or_fail`
+/// instead.
+pub fn run(mode: Mode) -> Result<()> {
     match mode {
-        "--local" => local(),
-        "--remote" => remote(),
-        _ => bail!("{USAGE}"),
+        Mode::Local => local(),
+        Mode::Remote => remote(),
     }
 }
 
@@ -543,19 +535,6 @@ mod tests {
         // that as "not recorded".
         let applied = ["-x.sql".to_owned()];
         assert!(!recorded(&applied, Path::new("migrations/-x.sql")));
-    }
-
-    #[test]
-    fn an_unknown_mode_is_the_usage_error() {
-        assert_eq!(
-            run("--bogus").expect_err("an unknown mode").to_string(),
-            "usage: cargo registry-migrate <--remote|--local>"
-        );
-        assert_eq!(run("").expect_err("no mode at all").to_string(), USAGE);
-        // The shell's `case` accepted two spellings and nothing else -
-        // no casing variant, and not the bare word.
-        assert!(run("--LOCAL").is_err());
-        assert!(run("remote").is_err());
     }
 
     #[test]

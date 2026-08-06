@@ -2448,10 +2448,8 @@ name = "xtask-registry-fixtures"
 version = "0.17.0"
 dependencies = [
  "anyhow",
- "assert_cmd",
  "assert_fs",
  "clap",
- "predicates",
  "tempfile",
 ]
 

@@ -296,7 +296,9 @@ fn wipe_guard(smoke: &mut Smoke, registry_dir: &Path) -> Result<()> {
     // grepped the interleaved streams for the guard's line; the wipe is
     // `cargo registry-wipe` now and this crate can call it, so the
     // refusal IS the error value.
-    let Err(refusal) = xtask_registry_admin::wipe::run(Some("--local")) else {
+    let Err(refusal) =
+        xtask_registry_admin::wipe::run(xtask_registry_admin::launch_guard::Mode::Local)
+    else {
         bail!("the wipe ran --local against a launched registry");
     };
     let refusal = format!("{refusal:#}");

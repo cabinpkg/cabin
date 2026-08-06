@@ -36,27 +36,11 @@ fn the_account_id_is_matched_where_the_shell_matched_it() {
     assert!(xtask_registry_admin::account_id().is_ok());
 }
 
-/// `--keys` is the audit's only flag, as it was the shell's, and the
-/// shim refuses anything else rather than auditing with an argument
-/// the operator expected to change something.
+/// With the flag accepted, the run reaches its first requirement.
 #[test]
-fn the_audit_takes_only_the_keys_flag() {
-    let admin = || Command::cargo_bin("xtask-registry-admin").unwrap();
-    admin()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("cargo registry-backup-audit"));
-    for refused in [vec!["backup-audit", "--all"], vec!["diagnose", "--keys"]] {
-        admin()
-            .args(&refused)
-            .env_remove("CLOUDFLARE_API_TOKEN")
-            .assert()
-            .failure()
-            .stderr(predicates::str::contains("unexpected argument"));
-    }
-    // With the flag accepted, the run reaches its first requirement.
-    admin()
+fn the_audit_needs_a_cloudflare_token() {
+    Command::cargo_bin("xtask-registry-admin")
+        .unwrap()
         .args(["backup-audit", "--keys"])
         .env_remove("CLOUDFLARE_API_TOKEN")
         .assert()

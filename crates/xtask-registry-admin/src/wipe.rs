@@ -112,13 +112,9 @@
 //!   ends the run, where `rm -rf` attempted all four and then died.  A
 //!   target that is a symlink to a directory refuses here and was
 //!   unlinked there;
-//! - an empty first argument refuses, where `[[ -n "$1" ]]` read it as no
-//!   argument at all and ran the REMOTE wipe.  A second argument refuses
-//!   too, where `$1` alone was read - this crate's dispatcher convention,
-//!   and the fail-closed direction for a destructive command;
-//! - the usage line names `cargo registry-wipe`, and reaches stderr
-//!   behind the shim's `error:` prefix where the script wrote its own
-//!   line unprefixed;
+//! - the argument surface is clap's, in the binary: the mode arrives
+//!   here already parsed, and anything malformed is refused before this
+//!   module runs;
 //! - every abort exits 1, where `set -e` propagated wrangler's own status
 //!   from a failed call.  Nothing reads the distinction;
 //! - the confirmation is read as UTF-8: an answer carrying invalid bytes
@@ -142,9 +138,6 @@ use xtask_workflow_guard::migrations_pending::migration_files;
 
 use crate::launch_guard::{self, Mode};
 use crate::{declared_account_id, display, output, registry_root, results, step, wrangler};
-
-/// The script's own `usage:` line, with the command that replaced it.
-pub const USAGE: &str = "usage: cargo registry-wipe [--local]";
 
 /// The database this drops and recreates.
 const DATABASE: &str = "cabin-registry";
@@ -177,18 +170,9 @@ fn or_fail<T>(result: Result<T>) -> T {
 ///
 /// # Errors
 ///
-/// On an argument that is not `--local`, and on the incidental failures
-/// the shell died on under `set -e`.  The script's own refusals leave
-/// through `fail` instead.
-pub fn run(argument: Option<&str>) -> Result<()> {
-    // The shell's `if/elif`, which accepted `--local` and nothing else:
-    // `--remote` was as much a usage error as `--wipe-it-all`.
-    let mode = match argument {
-        None => Mode::Remote,
-        Some("--local") => Mode::Local,
-        Some(_) => bail!("{USAGE}"),
-    };
-
+/// On the incidental failures the shell died on under `set -e`.  The
+/// script's own refusals leave through `fail` instead.
+pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
         or_fail(confirm());
     }
@@ -748,27 +732,6 @@ mod tests {
     /// tell a rewritten site from an untouched one.
     const NEW: &str = "1234abcd-1234-abcd-1234-abcd1234abcd";
     const OLD: &str = "00000000-0000-0000-0000-000000000000";
-
-    #[test]
-    fn only_local_is_an_argument() {
-        assert_eq!(
-            run(Some("--bogus"))
-                .expect_err("an unknown flag")
-                .to_string(),
-            USAGE
-        );
-        // `--remote` is the default mode, and was never an argument the
-        // script took.
-        assert_eq!(
-            run(Some("--remote")).expect_err("the mode").to_string(),
-            USAGE
-        );
-        // The empty argument is the fail-closed ceiling: `[[ -n "" ]]`
-        // read it as no argument at all and ran the REMOTE wipe.
-        assert_eq!(run(Some("")).expect_err("an empty flag").to_string(), USAGE);
-        assert!(run(Some("--LOCAL")).is_err(), "no casing variants");
-        assert!(run(Some("local")).is_err(), "not the bare word");
-    }
 
     #[test]
     fn the_generation_is_read_as_console_log_printed_it() {

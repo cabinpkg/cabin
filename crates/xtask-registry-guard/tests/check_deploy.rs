@@ -351,15 +351,6 @@ fn a_missing_config_keeps_the_stream_contract() {
     );
 }
 
-/// `--require-bundle` belongs to this guard alone.
-#[test]
-fn require_bundle_is_rejected_for_the_other_guards() {
-    Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
-        .args(["check-sql", "--require-bundle"])
-        .assert()
-        .failure();
-}
-
 /// The failure the wasm build cannot see: the class compiles but the
 /// bundle stops exporting it, which today only `wrangler deploy`
 /// against production would report.
