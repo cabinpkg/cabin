@@ -151,10 +151,11 @@ fn run(out: Box<dyn std::io::Write + Send>, capture: bool) -> Result<()> {
     let gate_binary = std::env::current_exe().context("locate the gate binary")?;
 
     let base = merge_base(&root);
+    let mut commits = 0;
     let surfaces = match &base {
         Some(base) => {
             let changed = changed_paths(&root, base)?;
-            let commits = commits_since(&root, base)?;
+            commits = commits_since(&root, base)?;
             if changed.is_empty() && commits == 0 {
                 let mut out = out;
                 writeln!(
@@ -183,32 +184,30 @@ fn run(out: Box<dyn std::io::Write + Send>, capture: bool) -> Result<()> {
     gate.step("typos", &mut Command::new("typos"))?;
 
     if let Some(base) = &base
-        && commits_since(&root, base)? > 0
+        && commits > 0
     {
-        {
-            // `npx.cmd`: the same Windows cmd shim as npm (see
-            // `website_steps`), which `Command::new("npx")` cannot
-            // resolve.
-            let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
-            gate.step(
+        // `npx.cmd`: the same Windows cmd shim as npm (see
+        // `website_steps`), which `Command::new("npx")` cannot
+        // resolve.
+        let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
+        gate.step(
+            "commitlint",
+            Command::new(npx).args([
+                "--yes",
+                "--package",
+                "@commitlint/cli",
+                "--package",
+                "@commitlint/config-conventional",
                 "commitlint",
-                Command::new(npx).args([
-                    "--yes",
-                    "--package",
-                    "@commitlint/cli",
-                    "--package",
-                    "@commitlint/config-conventional",
-                    "commitlint",
-                    "--extends",
-                    "@commitlint/config-conventional",
-                    "--from",
-                    base,
-                    "--to",
-                    "HEAD",
-                    "--verbose",
-                ]),
-            )?;
-        }
+                "--extends",
+                "@commitlint/config-conventional",
+                "--from",
+                base,
+                "--to",
+                "HEAD",
+                "--verbose",
+            ]),
+        )?;
     }
 
     checks(&mut gate, &root, &surfaces, &jobs, &gate_binary)?;
@@ -254,38 +253,17 @@ fn checks(
                 ])
                 .args(["--jobs", &jobs.check.to_string()]),
         )?;
-        // `cargo-nextest` runs the same test set (the phase excludes
-        // doctests either way, via `--all-targets`) but schedules each
-        // test in its own process instead of one binary at a time,
-        // which is the bulk of this phase's wall clock. It is an
-        // optional accelerator: without it the phase runs CI's exact
-        // command.
-        if nextest {
-            gate.launch(
-                "cargo nextest (workspace, all targets, all features)",
-                Command::new("cargo")
-                    .env("CARGO_TARGET_DIR", target("ci-test"))
-                    .env("RUSTFLAGS", "-D warnings")
-                    .args(["nextest", "run", "--workspace", "--all-targets"])
-                    .args([
-                        "--all-features",
-                        "--locked",
-                        "--no-fail-fast",
-                        "--cargo-verbose",
-                    ])
-                    .args(["--build-jobs", &test, "--test-threads", &test]),
-            )?;
-        } else {
-            gate.launch(
-                "cargo test (workspace, all targets, all features)",
-                Command::new("cargo")
-                    .env("CARGO_TARGET_DIR", target("ci-test"))
-                    .env("RUSTFLAGS", "-D warnings")
-                    .args(["test", "--workspace", "--all-targets", "--all-features"])
-                    .args(["--locked", "--no-fail-fast", "--verbose", "--jobs", &test])
-                    .args(["--", "--show-output", "--test-threads", &test]),
-            )?;
-        }
+        let flavor = if nextest { "nextest" } else { "test" };
+        gate.launch(
+            &format!("cargo {flavor} (workspace, all targets, all features)"),
+            &mut test_phase(
+                nextest,
+                target("ci-test"),
+                &["--workspace", "--all-targets"],
+                &[],
+                &test,
+            ),
+        )?;
         gate.launch(
             "cargo doc (workspace, no deps, -D warnings)",
             Command::new("cargo")
@@ -300,36 +278,61 @@ fn checks(
         // (the `crates/cabin/tests/cli/*_docs.rs` convention) and
         // assert on their contents, so doc edits can fail Rust CI.
         if surfaces.docs {
-            if nextest {
-                gate.launch(
-                    "cargo nextest -p cabinpkg --test cli (docs)",
-                    Command::new("cargo")
-                        .env("CARGO_TARGET_DIR", target("ci-test"))
-                        .env("RUSTFLAGS", "-D warnings")
-                        .args(["nextest", "run", "-p", "cabinpkg", "--test", "cli"])
-                        .args([
-                            "--all-features",
-                            "--locked",
-                            "--no-fail-fast",
-                            "--cargo-verbose",
-                        ])
-                        .args(["--build-jobs", &test, "--test-threads", &test, "docs"]),
-                )?;
-            } else {
-                gate.launch(
-                    "cargo test -p cabinpkg --test cli (docs)",
-                    Command::new("cargo")
-                        .env("CARGO_TARGET_DIR", target("ci-test"))
-                        .env("RUSTFLAGS", "-D warnings")
-                        .args(["test", "-p", "cabinpkg", "--test", "cli", "--all-features"])
-                        .args(["--locked", "--no-fail-fast", "--verbose", "--jobs", &test])
-                        .args(["--", "--show-output", "--test-threads", &test, "docs"]),
-                )?;
-            }
+            let flavor = if nextest { "nextest" } else { "test" };
+            gate.launch(
+                &format!("cargo {flavor} -p cabinpkg --test cli (docs)"),
+                &mut test_phase(
+                    nextest,
+                    target("ci-test"),
+                    &["-p", "cabinpkg", "--test", "cli"],
+                    &["docs"],
+                    &test,
+                ),
+            )?;
         }
     }
 
     website(gate, surfaces, gate_binary)
+}
+
+/// The test phase's command over one package scope, with an optional
+/// trailing test filter.  `cargo-nextest` runs the same test set (the
+/// phase excludes doctests either way, via `--all-targets`) but
+/// schedules each test in its own process instead of one binary at a
+/// time, which is the bulk of this phase's wall clock.  It is an
+/// optional accelerator: without it the phase runs CI's exact command.
+fn test_phase(
+    nextest: bool,
+    target: std::path::PathBuf,
+    scope: &[&str],
+    filter: &[&str],
+    jobs: &str,
+) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .env("CARGO_TARGET_DIR", target)
+        .env("RUSTFLAGS", "-D warnings");
+    if nextest {
+        command
+            .args(["nextest", "run"])
+            .args(scope)
+            .args([
+                "--all-features",
+                "--locked",
+                "--no-fail-fast",
+                "--cargo-verbose",
+            ])
+            .args(["--build-jobs", jobs, "--test-threads", jobs]);
+    } else {
+        command
+            .arg("test")
+            .args(scope)
+            .args(["--all-features", "--locked", "--no-fail-fast", "--verbose"])
+            .args(["--jobs", jobs])
+            .args(["--", "--show-output", "--test-threads", jobs]);
+    }
+    command.args(filter);
+    command
 }
 
 /// The website leg, which mirrors `website.yml` exactly.
@@ -466,6 +469,70 @@ mod tests {
         assert_eq!(
             parse(&["--hookk"]).expect_err("a near miss").kind(),
             ErrorKind::UnknownArgument
+        );
+    }
+
+    fn argv(command: &Command) -> Vec<String> {
+        assert_eq!(command.get_program(), "cargo");
+        command
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_folded_test_phase_builds_the_exact_argv() {
+        let nextest_ws = test_phase(
+            true,
+            "t".into(),
+            &["--workspace", "--all-targets"],
+            &[],
+            "8",
+        );
+        assert_eq!(
+            argv(&nextest_ws),
+            [
+                "nextest",
+                "run",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+                "--no-fail-fast",
+                "--cargo-verbose",
+                "--build-jobs",
+                "8",
+                "--test-threads",
+                "8"
+            ]
+        );
+        let test_docs = test_phase(
+            false,
+            "t".into(),
+            &["-p", "cabinpkg", "--test", "cli"],
+            &["docs"],
+            "8",
+        );
+        assert_eq!(
+            argv(&test_docs),
+            [
+                "test",
+                "-p",
+                "cabinpkg",
+                "--test",
+                "cli",
+                "--all-features",
+                "--locked",
+                "--no-fail-fast",
+                "--verbose",
+                "--jobs",
+                "8",
+                "--",
+                "--show-output",
+                "--test-threads",
+                "8",
+                "docs"
+            ]
         );
     }
 }
