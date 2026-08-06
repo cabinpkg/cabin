@@ -5,76 +5,50 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
-use clap::Parser;
-use clap::error::ErrorKind;
+use anyhow::{Context, Result};
+use clap::{ArgGroup, Parser};
 use xtask_port_publish::{Mode, Options, run};
 
-const USAGE: &str = "\
-usage: xtask-port-publish (--dry-run | --publish --index-url <URL>) [options]
-
-Publishes the committed foundation ports as `cabin-ports/<name>` registry
-packages, each from the `cabin.toml` committed in it, verbatim.  Both
-modes run the complete local preflight
-(materialize, package, publish into a temporary file registry, build
-every port against it in publication order); --publish then uploads
-every package through the registry API.
-
-options:
-  --index-url <URL>   registry index URL (required with --publish)
-  --ports-dir <PATH>  ports directory (default: the repository's
-                      ports)
-  --cache-dir <PATH>  cabin cache root for upstream archives
-                      (default: CABIN_CACHE_DIR, CABIN_CACHE_HOME, or
-                      the platform cache directory + /cabin)
-  --work-dir <PATH>   scratch directory; the tool owns (and clears)
-                      exactly run/ beneath it (default: a per-run
-                      directory under the system temp dir; kept on
-                      failure)
-  --cabin <PATH>      cabin binary for preflight builds (default: a
-                      sibling of this executable)
-  -h, --help          show this help
-";
-
-/// The flags, with the mode pair validated after parsing: the two
-/// refusals below are the tool's own wording, which its tests pin.
-// `args_override_self`: a repeated flag keeps its last value, as the
-// parser this replaces did, so a wrapper may supply a default and
-// override it.
+/// Publishes the committed foundation ports as `cabin-ports/<name>`
+/// registry packages, each from the `cabin.toml` committed in it,
+/// verbatim.  Both modes run the complete local preflight; --publish
+/// then uploads every package through the registry API.
 #[derive(Parser)]
-#[command(args_override_self = true)]
+#[command(group(ArgGroup::new("mode").required(true)))]
 struct Cli {
-    #[arg(long)]
+    #[arg(long, group = "mode")]
     dry_run: bool,
-    #[arg(long)]
+    #[arg(long, group = "mode", requires = "index_url")]
     publish: bool,
-    #[arg(long)]
+    /// Registry index URL (required with --publish).
+    // `conflicts_with`, not `requires = "publish"`: a `SetTrue` flag
+    // always carries its defaulted `false`, which satisfies `requires`
+    // even when the flag was never passed. The pairing still holds:
+    // the URL forbids --dry-run, the required group then forces
+    // --publish, and --publish requires the URL back.
+    #[arg(long, conflicts_with = "dry_run")]
     index_url: Option<String>,
+    /// Ports directory (default: the repository's ports).
     #[arg(long)]
     ports_dir: Option<PathBuf>,
+    /// Cabin cache root for upstream archives (default:
+    /// `CABIN_CACHE_DIR`, `CABIN_CACHE_HOME`, or the platform cache
+    /// directory + /cabin).
     #[arg(long)]
     cache_dir: Option<PathBuf>,
+    /// Scratch directory; the tool owns (and clears) exactly run/
+    /// beneath it (default: a per-run directory under the system temp
+    /// dir; kept on failure).
     #[arg(long)]
     work_dir: Option<PathBuf>,
+    /// Cabin binary for preflight builds (default: a sibling of this
+    /// executable).
     #[arg(long)]
     cabin: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        // `--help` answers on stdout; everything else is a refusal,
-        // which exits 1 rather than clap's 2.
-        Err(err) if err.kind() == ErrorKind::DisplayHelp => {
-            print!("{USAGE}");
-            return ExitCode::SUCCESS;
-        }
-        Err(err) => {
-            let _ = err.print();
-            return ExitCode::FAILURE;
-        }
-    };
-    match options(cli).and_then(|options| run_with_workdir_notice(&options)) {
+    match options(Cli::parse()).and_then(|options| run_with_workdir_notice(&options)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -97,19 +71,11 @@ fn run_with_workdir_notice(options: &Options) -> Result<()> {
 }
 
 fn options(cli: Cli) -> Result<Options> {
-    let mode = match (cli.dry_run, cli.publish) {
-        (true, false) => {
-            if cli.index_url.is_some() {
-                bail!("--index-url only applies to --publish");
-            }
-            Mode::DryRun
-        }
-        (false, true) => Mode::Publish {
-            index_url: cli
-                .index_url
-                .ok_or_else(|| anyhow::anyhow!("--publish requires --index-url"))?,
-        },
-        _ => bail!("pass exactly one of --dry-run or --publish\n\n{USAGE}"),
+    // Clap enforces the pairing: `--index-url` is present exactly when
+    // `--publish` is.
+    let mode = match cli.index_url {
+        Some(index_url) => Mode::Publish { index_url },
+        None => Mode::DryRun,
     };
 
     Ok(Options {

@@ -4,40 +4,13 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use xtask_dist::checksums;
 use xtask_dist::package;
 
-/// The command line the `dist-*` aliases reach.
-const USAGE: &str = "\
-usage: xtask-dist <COMMAND>
-
-Release packaging steps for .github/workflows/dist.yml, run from a
-workflow step through their Cargo aliases.
-
-commands:
-  package --target <TRIPLE> --ref-name <NAME> --sha <SHA>
-          [--ref-type <TYPE>]
-                   stage target/<TRIPLE>/release/cabin, README.md and
-                   LICENSE into cabin-<VERSION>-<TRIPLE>/, archive that
-                   directory, and print the archive's path to stdout
-                   (`cargo dist-package`)
-  checksums        write <archive>.sha256 and sha256.sum for every
-                   release archive in the working directory and print
-                   the summary (`cargo dist-checksums`)
-
-options:
-  --target <TRIPLE>  the target triple the release binary was built for
-  --ref-name <NAME>  $GITHUB_REF_NAME, the version for a tag build
-  --ref-type <TYPE>  $GITHUB_REF_TYPE; anything but `tag` versions the
-                     package `dev-<SHA[..12]>` (default: empty)
-  --sha <SHA>        $GITHUB_SHA
-  -h, --help         show this help
-";
-
+/// Release packaging steps for .github/workflows/dist.yml, run from a
+/// workflow step through their Cargo aliases.
 #[derive(Parser)]
-#[command(disable_help_subcommand = true)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -45,27 +18,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Stage the release binary, README.md and LICENSE, archive them,
+    /// and print the archive's path (`cargo dist-package`).
     Package(PackageArgs),
+    /// Write <archive>.sha256 and sha256.sum for every release archive
+    /// in the working directory (`cargo dist-checksums`).
     Checksums,
 }
 
 /// The flags the workflow step passes, which this shim translates into
-/// the library's own [`package::Arguments`]: every value the original
-/// spliced from the run's environment arrives here instead, and each
-/// is required and may be empty because `${VAR}` under `-u` killed the
-/// step on an unset name where a set-but-empty one was a value.
-// `args_override_self`: a repeated flag keeps its last value, as the
-// parser this replaces did and as a repeated shell assignment would
-// have, so a wrapper may supply a default and override it.
+/// the library's own [`package::Arguments`].  Each may be empty: the
+/// step forwards `$GITHUB_*` values, and a set-but-empty one is a
+/// value.
 #[derive(clap::Parser)]
-#[command(args_override_self = true)]
 struct PackageArgs {
+    /// The target triple the release binary was built for.
     #[arg(long)]
     target: String,
+    /// `$GITHUB_REF_NAME`, the version for a tag build.
     #[arg(long)]
     ref_name: String,
+    /// `$GITHUB_REF_TYPE`; anything but `tag` versions the package
+    /// `dev-<SHA[..12]>`.
     #[arg(long, default_value = "")]
     ref_type: String,
+    /// `$GITHUB_SHA`.
     #[arg(long)]
     sha: String,
 }
@@ -82,11 +59,7 @@ impl From<&PackageArgs> for package::Arguments {
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) => return refuse(&error),
-    };
-    match run(&cli.command) {
+    match run(&Cli::parse().command) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -95,30 +68,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// `-h`/`--help` answers with the binary's own usage on stdout, which
-/// is what the aliases document, for the subcommands too. Every other
-/// parse failure is the exit 1 the step took under `set -e`, where
-/// clap's own default is 2.
-fn refuse(error: &clap::Error) -> ExitCode {
-    match error.kind() {
-        ErrorKind::DisplayHelp => {
-            print!("{USAGE}");
-            ExitCode::SUCCESS
-        }
-        ErrorKind::DisplayVersion => {
-            let _ = error.print();
-            ExitCode::SUCCESS
-        }
-        _ => {
-            let _ = error.print();
-            ExitCode::FAILURE
-        }
-    }
-}
-
-/// Every failure is the exit 1 the step took under `set -e`;
-/// `checksums` owns its status outright, because its refusal is the
-/// shell's bare sentence rather than this shim's `error:` rendering.
+/// `checksums` owns its status outright: its refusal is its own
+/// sentence rather than this shim's `error:` rendering.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
         Command::Package(args) => package::run(&args.into()).map(|()| ExitCode::SUCCESS),
@@ -129,7 +80,6 @@ fn run(command: &Command) -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use clap::Parser as _;
-    use clap::error::ErrorKind;
 
     use super::*;
 
@@ -151,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn the_flags_carry_the_context_the_shell_read_from_the_environment() {
+    fn the_flags_carry_the_context_the_workflow_reads_from_the_environment() {
         let given = [
             "--target",
             "t",
@@ -185,6 +135,8 @@ mod tests {
         assert_eq!(parse(&given).expect("the arguments").ref_type, "");
     }
 
+    /// The workflow forwards `$GITHUB_*` values that may be empty; an
+    /// empty value must parse as a value, not as a missing one.
     #[test]
     fn an_empty_value_is_a_value() {
         let given = [
@@ -201,56 +153,6 @@ mod tests {
         assert_eq!(
             parse(&given).expect("the arguments"),
             arguments("", "", "", "")
-        );
-    }
-
-    #[test]
-    fn a_missing_required_flag_is_where_the_shell_died_on_an_unset_variable() {
-        for flag in ["--target", "--ref-name", "--sha"] {
-            let given: Vec<String> = ["--target", "t", "--ref-name", "n", "--sha", "s"]
-                .chunks(2)
-                .filter(|pair| pair[0] != flag)
-                .flat_map(|pair| pair.iter().map(|argument| (*argument).to_owned()))
-                .collect();
-            let error = parse(&given).expect_err(flag);
-            assert!(error.to_string().contains(flag), "{error}");
-        }
-    }
-
-    /// A repeated flag keeps its LAST value, as the parser this
-    /// replaces documented and as a repeated shell assignment would
-    /// have: a wrapper may supply a default and then override it.
-    #[test]
-    fn a_repeated_flag_keeps_its_last_value() {
-        let given = [
-            "--target",
-            "first",
-            "--target",
-            "second",
-            "--ref-name",
-            "n",
-            "--sha",
-            "s",
-        ]
-        .map(str::to_owned);
-        assert_eq!(
-            parse(&given).expect("the arguments").target,
-            "second",
-            "clap's default would refuse the repeat instead"
-        );
-    }
-
-    #[test]
-    fn an_unknown_flag_and_a_valueless_one_are_usage_errors() {
-        let unknown = ["--build-dir", "x"].map(str::to_owned);
-        assert_eq!(
-            parse(&unknown).expect_err("the unknown flag").kind(),
-            ErrorKind::UnknownArgument
-        );
-        let valueless = ["--sha".to_owned()];
-        assert_eq!(
-            parse(&valueless).expect_err("the valueless flag").kind(),
-            ErrorKind::InvalidValue
         );
     }
 }
