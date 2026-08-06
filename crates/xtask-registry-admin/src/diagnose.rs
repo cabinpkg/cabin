@@ -150,7 +150,7 @@ fn migrations_stamp() -> Result<()> {
         println!("    migrations stamp: current (deploys unblocked)");
     } else {
         println!("    migrations stamp: PENDING - deploys stay skipped until");
-        println!("    scripts/migrate.sh --remote (or a wipe) lands and is committed");
+        println!("    cargo registry-migrate --remote (or a wipe) lands and is committed");
     }
     Ok(())
 }

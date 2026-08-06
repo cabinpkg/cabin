@@ -107,43 +107,20 @@ fn every_script_the_runbook_references_exists() {
     );
 }
 
-/// The guarded operator scripts this branch introduced stay documented:
-/// each exists on disk and is named by the runbook, so neither side can
-/// drop the other silently.
-#[test]
-fn the_operator_scripts_stay_documented() {
-    let runbook = read("docs/runbook.md");
-    let undocumented: Vec<&str> = ["scripts/migrate.sh"]
-        .into_iter()
-        .filter(|script| {
-            assert!(
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join(script)
-                    .exists(),
-                "{script} is gone; remove it from this pin and the runbook together"
-            );
-            !runbook.contains(script)
-        })
-        .collect();
-    assert!(
-        undocumented.is_empty(),
-        "docs/runbook.md never mentions: {undocumented:?}"
-    );
-}
-
-/// The same pin for the operator commands that have migrated out of
+/// The pin for the operator commands that have migrated out of
 /// `scripts/` into their own `xtask-*` crates: the alias exists and
 /// the runbook names it. It stays here, outside the crates it guards,
 /// because a test inside one of them would be deleted along with the
 /// thing whose absence it is meant to catch.
 #[test]
 fn the_operator_commands_stay_documented() {
-    const COMMANDS: [(&str, &str); 8] = [
+    const COMMANDS: [(&str, &str); 9] = [
         ("registry-backup-audit", "xtask-registry-admin"),
         ("registry-backup-backfill", "xtask-registry-admin"),
         ("registry-diagnose", "xtask-registry-admin"),
         ("registry-governor", "xtask-registry-admin"),
         ("registry-launch-guard", "xtask-registry-admin"),
+        ("registry-migrate", "xtask-registry-admin"),
         ("registry-restore-drill", "xtask-registry-admin"),
         ("registry-smoke", "xtask-registry-smoke"),
         ("registry-verify", "xtask-registry-admin"),
