@@ -94,17 +94,6 @@ impl Mode {
             Self::Local => "--local",
         }
     }
-
-    /// The shell's `case` accepted these two spellings and nothing
-    /// else - no abbreviation, no casing variants.
-    #[must_use]
-    pub fn parse(argument: &str) -> Option<Self> {
-        match argument {
-            "--remote" => Some(Self::Remote),
-            "--local" => Some(Self::Local),
-            _ => None,
-        }
-    }
 }
 
 /// One entry of `wrangler d1 list --json`.

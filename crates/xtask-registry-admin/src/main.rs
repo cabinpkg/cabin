@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
+use xtask_registry_admin::launch_guard::Mode;
 
 /// Operator commands against the hosted registry, run from the
 /// repository root through their Cargo aliases.
@@ -12,6 +13,28 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+/// `--remote` or `--local`, exactly one.
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+struct Target {
+    /// The deployed registry.
+    #[arg(long)]
+    remote: bool,
+    /// The emulated .wrangler/ state.
+    #[arg(long)]
+    local: bool,
+}
+
+impl Target {
+    fn mode(&self) -> Mode {
+        if self.remote {
+            Mode::Remote
+        } else {
+            Mode::Local
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -40,17 +63,15 @@ enum Command {
     /// Refuse unless meta.launched is 'false'; destructive maintenance
     /// runs this first (`cargo registry-launch-guard`).
     LaunchGuard {
-        // `--remote`/`--local` reach the library raw, which parses and
-        // refuses them itself.
-        #[arg(allow_hyphen_values = true)]
-        mode: Option<String>,
+        #[command(flatten)]
+        target: Target,
     },
     /// Apply the D1 migrations; --remote refreshes the
     /// migrations-applied stamp the deploy gate reads
     /// (`cargo registry-migrate`).
     Migrate {
-        #[arg(allow_hyphen_values = true)]
-        mode: Option<String>,
+        #[command(flatten)]
+        target: Target,
     },
     /// Restore the latest dump into a scratch database and compare it
     /// against the live one (`cargo registry-restore-drill`).
@@ -59,11 +80,12 @@ enum Command {
     /// (`cargo registry-verify`).
     Verify,
     /// Drop and recreate the registry's data from zero, pre-launch
-    /// only; --local resets the emulated .wrangler/ state instead
-    /// (`cargo registry-wipe`).
+    /// only (`cargo registry-wipe`).
     Wipe {
-        #[arg(allow_hyphen_values = true)]
-        mode: Option<String>,
+        /// Reset the emulated .wrangler/ state instead of the deployed
+        /// registry.
+        #[arg(long)]
+        local: bool,
     },
 }
 
@@ -83,21 +105,13 @@ fn run(cli: Cli) -> Result<()> {
         Command::BackupBackfill => xtask_registry_admin::backfill::run(),
         Command::Diagnose => xtask_registry_admin::diagnose::run(),
         Command::Governor { rest } => governor(&rest),
-        Command::LaunchGuard { mode: Some(mode) } => {
-            let Some(mode) = xtask_registry_admin::launch_guard::Mode::parse(&mode) else {
-                bail!("launch guard: unknown mode: {mode} (expected --remote or --local)");
-            };
-            xtask_registry_admin::launch_guard::run(mode)
-        }
-        Command::LaunchGuard { mode: None } => {
-            bail!("usage: cargo registry-launch-guard <--remote|--local>")
-        }
-        Command::Migrate { mode: Some(mode) } => xtask_registry_admin::migrate::run(&mode),
-        Command::Migrate { mode: None } => bail!("{}", xtask_registry_admin::migrate::USAGE),
+        Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),
+        Command::Migrate { target } => xtask_registry_admin::migrate::run(target.mode()),
         Command::RestoreDrill => xtask_registry_admin::restore_drill::run(),
         Command::Verify => xtask_registry_admin::verify::run(),
-        // No argument is the REMOTE wipe.
-        Command::Wipe { mode } => xtask_registry_admin::wipe::run(mode.as_deref()),
+        Command::Wipe { local } => {
+            xtask_registry_admin::wipe::run(if local { Mode::Local } else { Mode::Remote })
+        }
     }
 }
 

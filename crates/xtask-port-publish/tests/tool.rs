@@ -123,26 +123,7 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
     let ports = dir.child("ports");
     let cache = dir.child("cache");
 
-    let (zlib_bytes, zlib_hex) = make_tar_gz(&[
-        (
-            "zlib-1.3.1/zlib.h",
-            "#ifndef ZLIB_H\n#define ZLIB_H\nint zlib_answer(void);\n#endif\n",
-        ),
-        (
-            "zlib-1.3.1/zlib.c",
-            "#include \"zlib.h\"\nint zlib_answer(void) { return 42; }\n",
-        ),
-    ]);
-    seed_port_cache(cache.path(), &zlib_bytes, &zlib_hex);
-    write_port_package(
-        &ports,
-        "zlib",
-        "1.3.1",
-        &zlib_hex,
-        &[],
-        "[target.z]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = \
-         [\".\"]\nc-standard = \"c11\"\n",
-    );
+    seed_zlib(&ports, &cache);
     let (libpng_bytes, libpng_hex) = make_tar_gz(&[
         (
             "libpng-1.6.50/png.h",
@@ -203,6 +184,39 @@ fn fake_ports(dir: &TempDir) -> (PathBuf, PathBuf) {
         .unwrap();
 
     (ports.to_path_buf(), cache.to_path_buf())
+}
+
+/// The `zlib` port alone (a sole library target keyed `z`), for the
+/// tests whose contract does not need the full three-port graph: a
+/// single port pays one preflight build instead of three.
+fn zlib_only(dir: &TempDir) -> (PathBuf, PathBuf) {
+    let ports = dir.child("ports");
+    let cache = dir.child("cache");
+    seed_zlib(&ports, &cache);
+    (ports.to_path_buf(), cache.to_path_buf())
+}
+
+fn seed_zlib(ports: &assert_fs::fixture::ChildPath, cache: &assert_fs::fixture::ChildPath) {
+    let (zlib_bytes, zlib_hex) = make_tar_gz(&[
+        (
+            "zlib-1.3.1/zlib.h",
+            "#ifndef ZLIB_H\n#define ZLIB_H\nint zlib_answer(void);\n#endif\n",
+        ),
+        (
+            "zlib-1.3.1/zlib.c",
+            "#include \"zlib.h\"\nint zlib_answer(void) { return 42; }\n",
+        ),
+    ]);
+    seed_port_cache(cache.path(), &zlib_bytes, &zlib_hex);
+    write_port_package(
+        ports,
+        "zlib",
+        "1.3.1",
+        &zlib_hex,
+        &[],
+        "[target.z]\ntype = \"library\"\nsources = [\"zlib.c\"]\ninclude-dirs = \
+         [\".\"]\nc-standard = \"c11\"\n",
+    );
 }
 
 /// Publication order: the dependency before the dependent (`fastlz`
@@ -341,122 +355,43 @@ fn tree_contains(dir: &Path, name: &str) -> bool {
     false
 }
 
+/// The dry run's own contract: it completes without remote mutation
+/// and a rerun over the same work dir succeeds (the scratch registry
+/// is rebuilt, not appended to).  The registry and probe shapes the
+/// preflight produces are asserted in
+/// `publish_uploads_every_package_in_dependency_order`, which pays the
+/// three-port build cost once for both concerns.
 #[test]
 fn dry_run_preflights_against_a_temporary_file_registry() {
     require_build_tools();
     let dir = TempDir::new().unwrap();
-    let (ports, cache) = fake_ports(&dir);
+    let (ports, cache) = zlib_only(&dir);
     let work = dir.child("work").to_path_buf();
 
-    let output = scrubbed(tool())
-        .arg("--dry-run")
-        .arg("--ports-dir")
-        .arg(&ports)
-        .arg("--cache-dir")
-        .arg(&cache)
-        .arg("--work-dir")
-        .arg(&work)
-        .arg("--cabin")
-        .arg(cabin_binary())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "stdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-
-    assert_publication_order(&stdout);
-
-    // The temporary file registry holds both packages, scoped.
-    let registry = work.join("run").join("registry");
-    assert!(registry.join("config.json").is_file());
-    let zlib_index: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(registry.join(SCOPE_ZLIB_INDEX)).unwrap())
+    let run = |label: &str| {
+        let output = scrubbed(tool())
+            .arg("--dry-run")
+            .arg("--ports-dir")
+            .arg(&ports)
+            .arg("--cache-dir")
+            .arg(&cache)
+            .arg("--work-dir")
+            .arg(&work)
+            .arg("--cabin")
+            .arg(cabin_binary())
+            .output()
             .unwrap();
-    assert_eq!(zlib_index["name"], "cabin-ports/zlib");
-    let version = &zlib_index["versions"]["1.3.1"];
-    assert_eq!(
-        version["upstream"]["url"],
-        "https://ports.invalid/zlib-1.3.1.tar.gz"
-    );
-    assert_eq!(version["upstream"]["format"], "tar.gz");
-    assert_eq!(version["upstream"]["strip-prefix"], "zlib-1.3.1");
-    let libpng_index: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(registry.join("packages/cabin-ports/libpng.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        libpng_index["versions"]["1.6.50"]["dependencies"]["cabin-ports/zlib"],
-        "^1.3"
-    );
-    // The artifact filename embeds the packaging revision the index
-    // points at (the archive checksum's leading hex prefix).
-    let revision = version["revision"].as_str().expect("revision recorded");
-    assert_eq!(
-        version["revisions"][revision]["checksum"]
-            .as_str()
-            .unwrap()
-            .strip_prefix("sha256:")
-            .unwrap()
-            .get(..16),
-        Some(revision)
-    );
-    assert!(
-        registry
-            .join(format!(
-                "artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{revision}.zip"
-            ))
-            .is_file()
-    );
-
-    // Each port was built *from the registry* through its probe; the
-    // target key `z` decides the artifact stem (libz.a / z.lib).
-    let zlib_probe = work.join("run").join("probes").join("zlib");
-    assert!(
-        tree_contains(&zlib_probe, "libz.a") || tree_contains(&zlib_probe, "z.lib"),
-        "no z artifact under {}",
-        zlib_probe.display()
-    );
-    // libpng's probe resolved cabin-ports/libpng (and transitively
-    // cabin-ports/zlib) from the generated registry.
-    let libpng_probe = work.join("run").join("probes").join("libpng");
-    assert!(
-        tree_contains(&libpng_probe, "libpng.a") || tree_contains(&libpng_probe, "png.lib"),
-        "no png artifact under {}",
-        libpng_probe.display()
-    );
-    assert!(
-        tree_contains(&libpng_probe, "libz.a") || tree_contains(&libpng_probe, "z.lib"),
-        "no transitive z artifact under {}",
-        libpng_probe.display()
-    );
-
-    assert_patched_package_round_trip(&registry, &work);
-
-    // Dry run performs no remote mutation and reports completion.
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success(),
+            "{label} stdout:\n{stdout}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        stdout
+    };
+    let stdout = run("first run");
     assert!(stdout.contains("dry run complete"), "{stdout}");
-
-    // A second run over the same work dir succeeds (the scratch
-    // registry is rebuilt, not appended to).
-    let rerun = scrubbed(tool())
-        .arg("--dry-run")
-        .arg("--ports-dir")
-        .arg(&ports)
-        .arg("--cache-dir")
-        .arg(&cache)
-        .arg("--work-dir")
-        .arg(&work)
-        .arg("--cabin")
-        .arg(cabin_binary())
-        .output()
-        .unwrap();
-    assert!(
-        rerun.status.success(),
-        "rerun stderr:\n{}",
-        String::from_utf8_lossy(&rerun.stderr)
-    );
+    run("rerun over the same work dir");
 }
 
 /// Fake remote registry: `config.json` + empty package reads on the
@@ -664,6 +599,81 @@ fn publish_uploads_every_package_in_dependency_order() {
         "{stdout}"
     );
     assert!(stdout.contains("verification: pending"), "{stdout}");
+
+    // The preflight's own products, asserted here where the three-port
+    // build cost is already paid.
+    assert_publication_order(&stdout);
+    assert_preflight_products(&work);
+}
+
+/// The registry and probe trees the preflight leaves under
+/// `work/run/`, shared by both modes and asserted once.
+fn assert_preflight_products(work: &Path) {
+    // The temporary file registry holds both packages, scoped.
+    let registry_dir = work.join("run").join("registry");
+    assert!(registry_dir.join("config.json").is_file());
+    let zlib_index: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(registry_dir.join(SCOPE_ZLIB_INDEX)).unwrap())
+            .unwrap();
+    assert_eq!(zlib_index["name"], "cabin-ports/zlib");
+    let version = &zlib_index["versions"]["1.3.1"];
+    assert_eq!(
+        version["upstream"]["url"],
+        "https://ports.invalid/zlib-1.3.1.tar.gz"
+    );
+    assert_eq!(version["upstream"]["format"], "tar.gz");
+    assert_eq!(version["upstream"]["strip-prefix"], "zlib-1.3.1");
+    let libpng_index: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(registry_dir.join("packages/cabin-ports/libpng.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        libpng_index["versions"]["1.6.50"]["dependencies"]["cabin-ports/zlib"],
+        "^1.3"
+    );
+    // The artifact filename embeds the packaging revision the index
+    // points at (the archive checksum's leading hex prefix).
+    let revision = version["revision"].as_str().expect("revision recorded");
+    assert_eq!(
+        version["revisions"][revision]["checksum"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("sha256:")
+            .unwrap()
+            .get(..16),
+        Some(revision)
+    );
+    assert!(
+        registry_dir
+            .join(format!(
+                "artifacts/cabin-ports/zlib/cabin-ports-zlib-1.3.1-{revision}.zip"
+            ))
+            .is_file()
+    );
+
+    // Each port was built *from the registry* through its probe; the
+    // target key `z` decides the artifact stem (libz.a / z.lib).
+    let zlib_probe = work.join("run").join("probes").join("zlib");
+    assert!(
+        tree_contains(&zlib_probe, "libz.a") || tree_contains(&zlib_probe, "z.lib"),
+        "no z artifact under {}",
+        zlib_probe.display()
+    );
+    // libpng's probe resolved cabin-ports/libpng (and transitively
+    // cabin-ports/zlib) from the generated registry.
+    let libpng_probe = work.join("run").join("probes").join("libpng");
+    assert!(
+        tree_contains(&libpng_probe, "libpng.a") || tree_contains(&libpng_probe, "png.lib"),
+        "no png artifact under {}",
+        libpng_probe.display()
+    );
+    assert!(
+        tree_contains(&libpng_probe, "libz.a") || tree_contains(&libpng_probe, "z.lib"),
+        "no transitive z artifact under {}",
+        libpng_probe.display()
+    );
+
+    assert_patched_package_round_trip(&registry_dir, work);
 }
 
 /// A drained publish token bucket answers `429` with `Retry-After`;
@@ -674,7 +684,7 @@ fn publish_uploads_every_package_in_dependency_order() {
 fn publish_retries_a_rate_limited_package() {
     require_build_tools();
     let dir = TempDir::new().unwrap();
-    let (ports, cache) = fake_ports(&dir);
+    let (ports, cache) = zlib_only(&dir);
     let work = dir.child("work").to_path_buf();
     let registry = FakeRegistry::start_rate_limiting_puts(1);
 
@@ -703,12 +713,12 @@ fn publish_retries_a_rate_limited_package() {
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
-        stderr.contains("note: the registry rate limited cabin-ports/fastlz"),
+        stderr.contains("note: the registry rate limited cabin-ports/zlib"),
         "{stderr}"
     );
 
-    // The limited PUT is retried: fastlz (first in publication order)
-    // uploads twice (429 then 201), the rest once, order preserved.
+    // The limited PUT is retried: the one package uploads twice (429
+    // then 201).
     let puts: Vec<String> = registry
         .requests()
         .into_iter()
@@ -718,10 +728,8 @@ fn publish_retries_a_rate_limited_package() {
     assert_eq!(
         puts,
         [
-            "/api/v1/packages/cabin-ports/fastlz/0.5.0?new-revision=true",
-            "/api/v1/packages/cabin-ports/fastlz/0.5.0?new-revision=true",
             "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
-            "/api/v1/packages/cabin-ports/libpng/1.6.50?new-revision=true",
+            "/api/v1/packages/cabin-ports/zlib/1.3.1?new-revision=true",
         ]
     );
 }

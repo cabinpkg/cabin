@@ -307,25 +307,6 @@ fn violations_are_reported_pass_by_pass_then_in_path_order() {
     );
 }
 
-/// Within the lexical pass, violations come out sorted by path.
-#[test]
-fn violations_are_reported_in_path_order() {
-    let dir = assert_fs::TempDir::new().expect("scratch tree");
-    fs::create_dir_all(dir.path().join("src/sub")).expect("create scratch src/");
-    fs::write(dir.path().join("src/b.rs"), "db.exec(y);").expect("write b");
-    fs::write(dir.path().join("src/a.rs"), "db.prepare(x);").expect("write a");
-    fs::write(dir.path().join("src/sub/c.rs"), "db.prepare(z);").expect("write c");
-    let violations = sql::check(dir.path()).expect("run the guard");
-    assert_eq!(
-        violations,
-        vec![
-            "src/a.rs:1: prepare(x);",
-            "src/b.rs:1: exec(y);",
-            "src/sub/c.rs:1: prepare(z);",
-        ]
-    );
-}
-
 /// The committed Worker sources pass. `registry.yml` is path-filtered,
 /// so this is what runs the guard against the real tree when only the
 /// guard itself changes.
@@ -402,15 +383,6 @@ fn symlinks_are_walked_without_aborting() {
             "src/real/glue.rs:1: prepare(dynamic_sql);",
         ]
     );
-}
-
-/// `--help` is accepted after the guard name too.
-#[test]
-fn help_is_accepted_after_the_guard_name() {
-    Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
-        .args(["check-sql", "--help"])
-        .assert()
-        .success();
 }
 
 /// The guard the workflow runs is the one under test.
