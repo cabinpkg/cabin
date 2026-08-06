@@ -14,25 +14,17 @@ pub fn hex_digest(digest: &[u8]) -> String {
     hex
 }
 
-/// Stream `reader` through SHA-256 in 64 KiB chunks and return the
-/// lower-case hex digest.  This is the shared primitive behind every
-/// Cabin file / archive integrity check; callers own opening the
-/// file and mapping any [`std::io::Error`] into their crate's own
-/// error type (and re-attaching path context).
+/// Stream `reader` through SHA-256 and return the lower-case hex
+/// digest.  This is the shared primitive behind every Cabin file /
+/// archive integrity check; callers own opening the file and mapping
+/// any [`std::io::Error`] into their crate's own error type (and
+/// re-attaching path context).
 ///
 /// # Errors
 /// Returns the [`std::io::Error`] propagated from reading `reader`.
-pub fn hash_reader<R: Read>(mut reader: R) -> std::io::Result<String> {
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(&hasher.finalize()))
+/// An interrupted read is retried, not an error.
+pub fn hash_reader<R: Read>(reader: R) -> std::io::Result<String> {
+    hash_copy(reader, std::io::sink())
 }
 
 /// Stream `reader` into `writer` in 64 KiB chunks, hashing the bytes
@@ -48,13 +40,21 @@ pub fn hash_reader<R: Read>(mut reader: R) -> std::io::Result<String> {
 /// type with path context.
 ///
 /// # Errors
-/// Returns the first [`std::io::Error`] encountered while reading
-/// `reader` or writing `writer`.
+/// Returns the first non-`Interrupted` [`std::io::Error`] encountered
+/// while reading `reader` or writing `writer`; interrupted reads and
+/// writes are retried.
 pub fn hash_copy<R: Read, W: Write>(mut reader: R, mut writer: W) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let n = reader.read(&mut buf)?;
+        // Retried, not an error: a signal landing mid-read must not
+        // fail a hash the next attempt would have finished.
+        // (`write_all` below already retries.)
+        let n = match reader.read(&mut buf) {
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
         if n == 0 {
             break;
         }
@@ -139,5 +139,41 @@ mod tests {
         }
         let err = hash_copy(Cursor::new(b"payload"), FailingWriter).unwrap_err();
         assert_eq!(err.to_string(), "write failed");
+    }
+
+    /// A reader interrupted by a signal answers `Interrupted` once and
+    /// then delivers; both primitives must retry rather than fail the
+    /// hash.
+    struct InterruptedOnce<'a> {
+        data: &'a [u8],
+        interrupted: bool,
+    }
+
+    impl Read for InterruptedOnce<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
+            }
+            self.data.read(buf)
+        }
+    }
+
+    #[test]
+    fn an_interrupted_read_is_retried() {
+        let expected = hash_reader(&b"bytes"[..]).unwrap();
+        let reader = InterruptedOnce {
+            data: b"bytes",
+            interrupted: false,
+        };
+        assert_eq!(hash_reader(reader).unwrap(), expected);
+
+        let mut copied = Vec::new();
+        let reader = InterruptedOnce {
+            data: b"bytes",
+            interrupted: false,
+        };
+        assert_eq!(hash_copy(reader, &mut copied).unwrap(), expected);
+        assert_eq!(copied, b"bytes");
     }
 }
