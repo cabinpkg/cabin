@@ -64,8 +64,6 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
-use sha2::{Digest as _, Sha256};
-
 /// L4's line, byte for byte; `echo` adds the newline.
 const NO_ARCHIVES: &str = "no binary archives found";
 
@@ -184,17 +182,7 @@ fn archives(root: &Path) -> std::io::Result<Vec<OsString>> {
 /// One file's digest as 64 lowercase hex characters, streamed so a
 /// mid-file failure dies exactly where `sha256sum`'s did.
 fn hash(file: &Path) -> std::io::Result<String> {
-    let mut reader = fs::File::open(file)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 16 * 1024];
-    loop {
-        match std::io::Read::read(&mut reader, &mut buffer) {
-            Ok(0) => return Ok(cabin_core::hash::hex_digest(&hasher.finalize())),
-            Ok(count) => hasher.update(&buffer[..count]),
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
-    }
+    cabin_core::hash::hash_reader(fs::File::open(file)?)
 }
 
 #[cfg(test)]

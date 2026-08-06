@@ -16,10 +16,11 @@ publish = false
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
 clap = { workspace = true }
-sha2 = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
+# The release-contract test computes the digest it pins.
+sha2 = { workspace = true }
 
 [lints]
 workspace = true
