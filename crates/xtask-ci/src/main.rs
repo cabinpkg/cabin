@@ -9,13 +9,51 @@
 use std::process::{Command, ExitCode, Stdio};
 
 use anyhow::{Context, Result, bail};
+use clap::Parser;
+use clap::error::ErrorKind;
 use xtask_ci::{Gate, arm_teardown, cores, hook, repo_root, scope, teardown_exits_zero};
 
+/// The website phase re-executes this binary with this flag, which is
+/// why the spelling is a constant rather than two string literals that
+/// can drift apart.
+const WEBSITE_STEPS: &str = "website-steps";
+
+#[derive(Debug, Parser)]
+struct Cli {
+    #[arg(long)]
+    hook: bool,
+    #[arg(long = WEBSITE_STEPS, hide = true)]
+    website_steps: bool,
+}
+
 fn main() -> ExitCode {
-    match std::env::args().nth(1).as_deref() {
-        Some("--hook") => return run_hook(),
-        Some("--website-steps") => return website_steps(),
-        _ => {}
+    // Clap swallows a bare `--` as its option delimiter, which would
+    // leave both flags false and silently run the whole gate - the
+    // same implicit action the catch-all below was replaced to stop.
+    if std::env::args_os().any(|argument| argument == "--") {
+        eprintln!("error: unexpected argument: --");
+        return ExitCode::FAILURE;
+    }
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // The catch-all this replaces ran the gate for every argument
+        // it did not recognize, so a `--website-steps` that ever
+        // stopped matching would have the website phase re-run the
+        // whole gate, and that child re-run it again. An unrecognized
+        // argument refuses instead.
+        Err(error) => {
+            let _ = error.print();
+            return match error.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                _ => ExitCode::FAILURE,
+            };
+        }
+    };
+    if cli.hook {
+        return run_hook();
+    }
+    if cli.website_steps {
+        return website_steps();
     }
     match run(Box::new(std::io::stdout()), false) {
         Ok(()) => ExitCode::SUCCESS,
@@ -330,7 +368,7 @@ fn website(
         // `website_steps`), not `bash -c`, so no shell is required.
         gate.launch(
             "npm ci && npm run lint && npm test && npm run build (website/)",
-            Command::new(gate_binary).arg("--website-steps"),
+            Command::new(gate_binary).arg(format!("--{WEBSITE_STEPS}")),
         )?;
     } else {
         gate.say(
@@ -415,4 +453,39 @@ fn which(program: &str, root: &std::path::Path) -> bool {
         return false;
     };
     std::env::split_paths(&path).any(|directory| root.join(directory).join(program).is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(arguments: &[&str]) -> clap::error::Result<Cli> {
+        Cli::try_parse_from(std::iter::once("xtask-ci").chain(arguments.iter().copied()))
+    }
+
+    #[test]
+    fn a_bare_invocation_runs_the_gate() {
+        let cli = parse(&[]).expect("no arguments at all");
+        assert!(!cli.hook);
+        assert!(!cli.website_steps);
+    }
+
+    #[test]
+    fn the_hook_adapter_has_its_own_flag() {
+        assert!(parse(&["--hook"]).expect("the hook flag").hook);
+    }
+
+    #[test]
+    fn the_flag_the_website_phase_re_executes_is_the_one_it_declares() {
+        let flag = format!("--{WEBSITE_STEPS}");
+        assert!(parse(&[&flag]).expect("the website flag").website_steps);
+    }
+
+    #[test]
+    fn an_unknown_argument_refuses_instead_of_running_the_gate() {
+        assert_eq!(
+            parse(&["--hookk"]).expect_err("a near miss").kind(),
+            ErrorKind::UnknownArgument
+        );
+    }
 }

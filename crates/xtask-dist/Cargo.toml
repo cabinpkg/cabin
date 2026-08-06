@@ -15,6 +15,7 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
+clap = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]

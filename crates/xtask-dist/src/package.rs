@@ -103,34 +103,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{Result, anyhow, bail};
-
-/// The command line the `dist-*` aliases reach.
-pub const USAGE: &str = "\
-usage: xtask-dist <COMMAND>
-
-Release packaging steps for .github/workflows/dist.yml, run from a
-workflow step through their Cargo aliases.
-
-commands:
-  package --target <TRIPLE> --ref-name <NAME> --sha <SHA>
-          [--ref-type <TYPE>]
-                   stage target/<TRIPLE>/release/cabin, README.md and
-                   LICENSE into cabin-<VERSION>-<TRIPLE>/, archive that
-                   directory, and print the archive's path to stdout
-                   (`cargo dist-package`)
-  checksums        write <archive>.sha256 and sha256.sum for every
-                   release archive in the working directory and print
-                   the summary (`cargo dist-checksums`)
-
-options:
-  --target <TRIPLE>  the target triple the release binary was built for
-  --ref-name <NAME>  $GITHUB_REF_NAME, the version for a tag build
-  --ref-type <TYPE>  $GITHUB_REF_TYPE; anything but `tag` versions the
-                     package `dev-<SHA[..12]>` (default: empty)
-  --sha <SHA>        $GITHUB_SHA
-  -h, --help         show this help
-";
+use anyhow::{Result, bail};
 
 /// L7 and L9.
 const BINARY: &str = "cabin";
@@ -148,21 +121,25 @@ const SHORT_SHA: usize = 12;
 ///
 /// Whatever ended the step under `set -e`: a source that could not be
 /// staged, or an archiver that failed to run or ran and failed.
-pub fn run(arguments: &[String]) -> Result<()> {
-    let path = package(Path::new(""), &parse(arguments)?, cfg!(windows), &mut spawn)?;
+pub fn run(arguments: &Arguments) -> Result<()> {
+    let path = package(Path::new(""), arguments, cfg!(windows), &mut spawn)?;
     println!("{path}");
     Ok(())
 }
 
-/// The subcommand's arguments. Every value the original spliced from
-/// the run's environment arrives here instead, because reading
-/// `GITHUB_*` is `xtask-workflow-guard`'s reserved surface.
+// The subcommand's arguments. Every value the original spliced from
+// the run's environment arrives here instead, because reading
+// `GITHUB_*` is `xtask-workflow-guard`'s reserved surface.
+//
+// `${VAR}` under `-u`: an unset name killed the step where an empty
+// one was a value, so each of the three is required and may be empty.
 #[derive(Debug, PartialEq, Eq)]
-struct Arguments {
-    target: String,
-    ref_name: String,
-    ref_type: String,
-    sha: String,
+pub struct Arguments {
+    pub target: String,
+    pub ref_name: String,
+    /// `${GITHUB_REF_TYPE:-}`: absent reads as the empty string.
+    pub ref_type: String,
+    pub sha: String,
 }
 
 /// L2..L21, computed before the filesystem is touched.
@@ -284,40 +261,6 @@ fn spawn(argv: &[String]) -> io::Result<bool> {
         .args(&argv[1..])
         .status()
         .map(|status| status.success())
-}
-
-/// The flags carrying what the original read from the run's
-/// environment. Order is free and a repeated flag keeps its last value,
-/// as a repeated assignment would have.
-fn parse(arguments: &[String]) -> Result<Arguments> {
-    let (mut target, mut ref_name, mut ref_type, mut sha) = (None, None, None, None);
-    let mut arguments = arguments.iter();
-    while let Some(flag) = arguments.next() {
-        let slot = match flag.as_str() {
-            "--target" => &mut target,
-            "--ref-name" => &mut ref_name,
-            "--ref-type" => &mut ref_type,
-            "--sha" => &mut sha,
-            other => bail!("unexpected argument: {other}\n\n{USAGE}"),
-        };
-        let Some(value) = arguments.next() else {
-            bail!("{flag} takes a value\n\n{USAGE}");
-        };
-        *slot = Some(value.clone());
-    }
-    Ok(Arguments {
-        target: required(target, "--target")?,
-        ref_name: required(ref_name, "--ref-name")?,
-        // `${GITHUB_REF_TYPE:-}`: absent reads as the empty string.
-        ref_type: ref_type.unwrap_or_default(),
-        sha: required(sha, "--sha")?,
-    })
-}
-
-/// `${VAR}` under `-u`: an unset name killed the step where an empty
-/// one was a value, so the flag must be given and may be empty.
-fn required(value: Option<String>, flag: &str) -> Result<String> {
-    value.ok_or_else(|| anyhow!("{flag} is required\n\n{USAGE}"))
 }
 
 #[cfg(test)]
@@ -580,93 +523,5 @@ mod tests {
         )
         .expect_err("the missing archiver");
         assert!(error.to_string().contains("tar"), "{error}");
-    }
-
-    #[test]
-    fn the_flags_carry_the_context_the_shell_read_from_the_environment() {
-        let given = [
-            "--target",
-            "t",
-            "--ref-name",
-            "n",
-            "--ref-type",
-            "tag",
-            "--sha",
-            "s",
-        ]
-        .map(str::to_owned);
-        assert_eq!(
-            parse(&given).expect("the arguments"),
-            arguments("t", "n", "tag", "s")
-        );
-    }
-
-    #[test]
-    fn an_absent_ref_type_reads_as_empty() {
-        let given = [
-            "--target",
-            "t",
-            "--ref-name",
-            "n",
-            "--sha",
-            "0123456789abcdef",
-        ]
-        .map(str::to_owned);
-        let parsed = parse(&given).expect("the arguments");
-        assert_eq!(parsed.ref_type, "");
-        assert_eq!(
-            version(&parsed.ref_name, &parsed.ref_type, &parsed.sha),
-            "dev-0123456789ab"
-        );
-    }
-
-    #[test]
-    fn an_empty_value_is_a_value() {
-        let given = [
-            "--target",
-            "",
-            "--ref-name",
-            "",
-            "--ref-type",
-            "",
-            "--sha",
-            "",
-        ]
-        .map(str::to_owned);
-        assert_eq!(
-            parse(&given).expect("the arguments"),
-            arguments("", "", "", "")
-        );
-    }
-
-    #[test]
-    fn a_missing_required_flag_is_where_the_shell_died_on_an_unset_variable() {
-        for flag in ["--target", "--ref-name", "--sha"] {
-            let given: Vec<String> = ["--target", "t", "--ref-name", "n", "--sha", "s"]
-                .chunks(2)
-                .filter(|pair| pair[0] != flag)
-                .flat_map(|pair| pair.iter().map(|argument| (*argument).to_owned()))
-                .collect();
-            let error = parse(&given).expect_err(flag);
-            assert!(error.to_string().contains(flag), "{error}");
-        }
-    }
-
-    #[test]
-    fn an_unknown_flag_and_a_valueless_one_are_usage_errors() {
-        let unknown = ["--build-dir", "x"].map(str::to_owned);
-        assert!(
-            parse(&unknown)
-                .expect_err("the unknown flag")
-                .to_string()
-                .contains("unexpected argument: --build-dir")
-        );
-        let valueless = ["--sha".to_owned()];
-        assert!(
-            parse(&valueless)
-                .expect_err("the valueless flag")
-                .to_string()
-                .contains("--sha takes a value")
-        );
     }
 }

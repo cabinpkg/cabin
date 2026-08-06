@@ -1376,7 +1376,8 @@ because the lockfile is on disk locally and the resolver can validate fetched me
 ## Architectural seams to preserve
 
 - Raw TOML serde structs stay private to `cabin-manifest`.
-- `clap` only appears in `cabin`.
+- `clap` only appears in `cabin` and the `xtask-*` binaries, which parse their own command lines
+  and translate into their libraries' typed arguments.
 - The stable domain model lives in `cabin-core`.
 - Workspace loading and resolver are independent: the workspace loader emits unresolved versioned
   dependencies; the resolver consumes them.

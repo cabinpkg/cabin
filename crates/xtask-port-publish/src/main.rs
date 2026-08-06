@@ -1,12 +1,13 @@
 //! `xtask-port-publish` — repository tool that publishes the curated
 //! foundation ports as `cabin-ports/<name>` registry packages.  See the library crate for the pipeline; this shim owns
-//! argument parsing (hand-rolled: `clap` stays in the `cabin` crate)
-//! and default resolution.
+//! argument parsing and default resolution.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
+use clap::Parser;
+use clap::error::ErrorKind;
 use xtask_port_publish::{Mode, Options, run};
 
 const USAGE: &str = "\
@@ -35,14 +36,45 @@ options:
   -h, --help          show this help
 ";
 
+/// The flags, with the mode pair validated after parsing: the two
+/// refusals below are the tool's own wording, which its tests pin.
+// `args_override_self`: a repeated flag keeps its last value, as the
+// parser this replaces did, so a wrapper may supply a default and
+// override it.
+#[derive(Parser)]
+#[command(args_override_self = true)]
+struct Cli {
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    publish: bool,
+    #[arg(long)]
+    index_url: Option<String>,
+    #[arg(long)]
+    ports_dir: Option<PathBuf>,
+    #[arg(long)]
+    cache_dir: Option<PathBuf>,
+    #[arg(long)]
+    work_dir: Option<PathBuf>,
+    #[arg(long)]
+    cabin: Option<PathBuf>,
+}
+
 fn main() -> ExitCode {
-    match parse_args().and_then(|options| match options {
-        Parsed::Help => {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // `--help` answers on stdout; everything else is a refusal,
+        // which exits 1 rather than clap's 2.
+        Err(err) if err.kind() == ErrorKind::DisplayHelp => {
             print!("{USAGE}");
-            Ok(())
+            return ExitCode::SUCCESS;
         }
-        Parsed::Run(options) => run_with_workdir_notice(&options),
-    }) {
+        Err(err) => {
+            let _ = err.print();
+            return ExitCode::FAILURE;
+        }
+    };
+    match options(cli).and_then(|options| run_with_workdir_notice(&options)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -64,82 +96,41 @@ fn run_with_workdir_notice(options: &Options) -> Result<()> {
     result
 }
 
-enum Parsed {
-    Help,
-    Run(Options),
-}
-
-fn parse_args() -> Result<Parsed> {
-    let mut dry_run = false;
-    let mut publish = false;
-    let mut index_url: Option<String> = None;
-    let mut ports_dir: Option<PathBuf> = None;
-    let mut cache_dir: Option<PathBuf> = None;
-    let mut work_dir: Option<PathBuf> = None;
-    let mut cabin: Option<PathBuf> = None;
-
-    let mut args = std::env::args_os().skip(1);
-    while let Some(arg) = args.next() {
-        let Some(flag) = arg.to_str() else {
-            bail!("arguments must be valid UTF-8: {}", arg.display());
-        };
-        let mut path_value = |name: &str| -> Result<PathBuf> {
-            args.next()
-                .map(PathBuf::from)
-                .ok_or_else(|| anyhow::anyhow!("{name} requires a value"))
-        };
-        match flag {
-            "-h" | "--help" => return Ok(Parsed::Help),
-            "--dry-run" => dry_run = true,
-            "--publish" => publish = true,
-            "--index-url" => {
-                let value = args
-                    .next()
-                    .and_then(|v| v.to_str().map(str::to_owned))
-                    .ok_or_else(|| anyhow::anyhow!("--index-url requires a value"))?;
-                index_url = Some(value);
-            }
-            "--ports-dir" => ports_dir = Some(path_value("--ports-dir")?),
-            "--cache-dir" => cache_dir = Some(path_value("--cache-dir")?),
-            "--work-dir" => work_dir = Some(path_value("--work-dir")?),
-            "--cabin" => cabin = Some(path_value("--cabin")?),
-            other => bail!("unknown argument `{other}`\n\n{USAGE}"),
-        }
-    }
-
-    let mode = match (dry_run, publish) {
+fn options(cli: Cli) -> Result<Options> {
+    let mode = match (cli.dry_run, cli.publish) {
         (true, false) => {
-            if index_url.is_some() {
+            if cli.index_url.is_some() {
                 bail!("--index-url only applies to --publish");
             }
             Mode::DryRun
         }
         (false, true) => Mode::Publish {
-            index_url: index_url
+            index_url: cli
+                .index_url
                 .ok_or_else(|| anyhow::anyhow!("--publish requires --index-url"))?,
         },
         _ => bail!("pass exactly one of --dry-run or --publish\n\n{USAGE}"),
     };
 
-    Ok(Parsed::Run(Options {
+    Ok(Options {
         mode,
-        ports_dir: match ports_dir {
+        ports_dir: match cli.ports_dir {
             Some(dir) => dir,
             None => default_ports_dir(),
         },
-        cache_dir: match cache_dir {
+        cache_dir: match cli.cache_dir {
             Some(dir) => dir,
             None => default_cache_dir()?,
         },
-        work_dir: match work_dir {
+        work_dir: match cli.work_dir {
             Some(dir) => dir,
             None => std::env::temp_dir().join(format!("xtask-port-publish-{}", std::process::id())),
         },
-        cabin: match cabin {
+        cabin: match cli.cabin {
             Some(path) => path,
             None => default_cabin_path()?,
         },
-    }))
+    })
 }
 
 /// The repository's ports directory, resolved from this crate's

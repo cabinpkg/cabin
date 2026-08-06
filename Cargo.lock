@@ -2461,6 +2461,7 @@ version = "0.17.0"
 dependencies = [
  "anyhow",
  "assert_fs",
+ "clap",
  "libc",
 ]
 
@@ -2471,6 +2472,7 @@ dependencies = [
  "anyhow",
  "assert_fs",
  "cabinpkg-core",
+ "clap",
  "sha2",
 ]
 
@@ -2488,6 +2490,7 @@ dependencies = [
  "cabinpkg-publish",
  "cabinpkg-registry-api",
  "camino",
+ "clap",
  "etcetera",
  "flate2",
  "semver",
@@ -2506,6 +2509,7 @@ dependencies = [
  "assert_fs",
  "cabinpkg-core",
  "cabinpkg-env",
+ "clap",
  "predicates",
  "rand",
  "serde",
@@ -2524,6 +2528,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "assert_fs",
+ "clap",
  "predicates",
  "tempfile",
 ]
@@ -2535,6 +2540,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "assert_fs",
+ "clap",
  "predicates",
  "serde_json",
 ]
@@ -2561,6 +2567,7 @@ dependencies = [
  "anyhow",
  "assert_fs",
  "cabinpkg-core",
+ "clap",
  "sha2",
 ]
 
