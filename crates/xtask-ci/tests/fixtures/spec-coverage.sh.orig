@@ -1,0 +1,8 @@
+missing=0
+for id in $(grep -oE '^\*\*(L[0-9]+|T[0-9]+|C[0-9]+)' docs/design/standard-compatibility/spec.md | tr -d '*' | sort -u); do
+  if ! grep -rqE "(theorem|def) ${id}_" docs/proofs/standard-compatibility/StandardCompatibility/; then
+    echo "spec item ${id} has no ${id}_* declaration in the Lean mechanization"
+    missing=1
+  fi
+done
+exit "$missing"
