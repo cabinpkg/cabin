@@ -267,7 +267,13 @@ impl Gate {
     /// If any phase exited non-zero.
     pub fn finish(&mut self) -> Result<()> {
         let mut failed = false;
-        for phase in &mut self.phases {
+        // Removed one at a time, never iterated in place: a phase must
+        // leave the list BEFORE it is reaped (a reaped pid must never
+        // be visible to `drop`'s group-kill below), while the phases a
+        // panic keeps this loop from reaching stay listed for `drop`
+        // to tear down.
+        while !self.phases.is_empty() {
+            let mut phase = self.phases.remove(0);
             let status = reap(&mut phase.child);
             let ok = status.is_ok_and(|status| status.success());
             if ok {
@@ -294,8 +300,24 @@ impl Drop for Gate {
     fn drop(&mut self) {
         // The logs need no cleanup here - they were already unlinked
         // (or, on a failed unlink, deliberately abandoned).
+        //
+        // The whole GROUP, not `Child::kill`: a phase is an `npm` or
+        // `cargo` tree, and killing only the direct child on an unwind
+        // leaves its grandchildren (a `wrangler dev` pair included)
+        // running with PPID 1.  Every phase still listed here is one
+        // `finish` never reached (it removes each entry before reaping
+        // it), so none has been reaped: its zombie still pins the pid
+        // and the group kill cannot hit a recycled one.  Every group
+        // is signaled BEFORE the first blocking reap, as the teardown
+        // handler orders it, so one stuck phase cannot delay the
+        // signal to the next; the reaps then clear the teardown table
+        // entries.  A child that ignores TERM hangs the reap - the
+        // exposure the teardown handler documents and accepts.
         for phase in &mut self.phases {
-            let _ = phase.child.kill();
+            kill_group(&mut phase.child);
+        }
+        for mut phase in self.phases.drain(..) {
+            let _ = reap(&mut phase.child);
         }
     }
 }
@@ -645,3 +667,62 @@ pub fn teardown_exits_zero() {}
 /// No-op off Unix, where there are no process groups to tear down.
 #[cfg(not(unix))]
 pub fn arm_teardown() {}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// Dropping a gate with a live phase terminates the phase's whole
+    /// process group - the grandchild too, which killing the leader
+    /// alone never reached.  Death is observed as EOF on a FIFO whose
+    /// write end the grandchild holds: a terminated process closes its
+    /// descriptors even where an unreaping container init leaves it a
+    /// zombie, which a `kill(pid, 0)` liveness probe would misread as
+    /// alive.
+    #[test]
+    fn a_dropped_gate_kills_the_whole_phase_group() {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let scratch = assert_fs::TempDir::new().expect("a scratch directory");
+        let fifo = scratch.path().join("held");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("the fifo path");
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+
+        let mut gate = Gate::new(
+            scratch.path().to_path_buf(),
+            true,
+            Box::new(std::io::sink()),
+            false,
+        );
+        // The path travels as a shell ARGUMENT, never interpolated
+        // into the script: a scratch directory with spaces or
+        // metacharacters in it must not change what the redirect
+        // opens.
+        gate.launch(
+            "grandchild holder",
+            Command::new("sh")
+                .arg("-c")
+                .arg(r#"sleep 300 > "$1" & wait"#)
+                .arg("sh")
+                .arg(&fifo),
+        )
+        .expect("launch the phase");
+        // Blocks until the grandchild has the write end open: the
+        // phase-has-started signal, so the drop below races nothing.
+        let mut held = std::fs::File::open(&fifo).expect("the fifo's read end");
+        drop(gate);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut byte = [0u8; 1];
+            let _ = sender.send(std::io::Read::read(&mut held, &mut byte));
+        });
+        let read = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the grandchild survived the gate's teardown");
+        assert!(
+            matches!(read, Ok(0)),
+            "the fifo answered {read:?} instead of end-of-file"
+        );
+    }
+}
