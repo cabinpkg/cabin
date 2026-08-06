@@ -10,10 +10,12 @@ weaken either side silently.
 
 The project is a standalone Lake package.  It is not part of the Cargo workspace or the main
 build; CI checks it through the dedicated `Proofs` workflow
-(`.github/workflows/proofs.yml`), which runs when `docs/proofs/` or the spec changes.  Alongside
-`lake build`, that workflow fails if any numbered lemma/theorem/corollary in the spec has no
-same-named Lean declaration, so adding or renumbering a spec item without mechanizing it is
-caught even though a spec-only change cannot break the Lean build itself.
+(`.github/workflows/proofs.yml`), which runs when `docs/proofs/`, the spec, or the coverage
+check itself changes.  Alongside `lake build`, that workflow fails if any numbered
+lemma/theorem/corollary in the spec has no same-named Lean declaration
+(`crates/xtask-ci/tests/spec_coverage.rs`, which the workspace test sweep also runs), so adding
+or renumbering a spec item without mechanizing it is caught even though a spec-only change
+cannot break the Lean build itself.
 
 ## Checking the proofs
 

@@ -2,11 +2,11 @@ name: Proofs
 
 # Checks the Lean mechanization of docs/design/standard-compatibility/spec.md.
 # The Lake project is standalone (not part of the Cargo workspace), so this
-# runs only when the proofs or the spec they mechanize change.  A spec-only
-# change cannot break `lake build` (the Lean sources never read the spec), so
-# the coverage step below is what makes the spec trigger meaningful: it fails
-# when a numbered lemma/theorem/corollary in the spec has no same-named Lean
-# declaration.
+# runs only when the proofs, the spec they mechanize, or the coverage check
+# itself change.  A spec-only change cannot break `lake build` (the Lean
+# sources never read the spec), so the coverage step below is what makes the
+# spec trigger meaningful: it fails when a numbered lemma/theorem/corollary
+# in the spec has no same-named Lean declaration.
 
 on:
   push:
@@ -14,10 +14,14 @@ on:
     paths:
       - "docs/proofs/**"
       - "docs/design/standard-compatibility/**"
+      # The coverage check the job runs.
+      - "crates/xtask-ci/**"
   pull_request:
     paths:
       - "docs/proofs/**"
       - "docs/design/standard-compatibility/**"
+      # The coverage check the job runs.
+      - "crates/xtask-ci/**"
 
 permissions:
   contents: read
@@ -31,16 +35,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
       - name: Check spec-item coverage
-        run: |
-          missing=0
-          for id in $(grep -oE '^\*\*(L[0-9]+|T[0-9]+|C[0-9]+)' docs/design/standard-compatibility/spec.md | tr -d '*' | sort -u); do
-            if ! grep -rqE "(theorem|def) ${id}_" docs/proofs/standard-compatibility/StandardCompatibility/; then
-              echo "spec item ${id} has no ${id}_* declaration in the Lean mechanization"
-              missing=1
-            fi
-          done
-          exit "$missing"
+        run: cargo test -p xtask-ci --locked --test spec_coverage
 
       - uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
         with:
