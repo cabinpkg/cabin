@@ -129,6 +129,9 @@ use std::process::{Command, Output};
 
 use assert_fs::TempDir;
 
+mod common;
+use common::{GIT_ENVIRONMENT, git, git_output, ready, show};
+
 /// The repository the run pretends to belong to. It only ever reaches
 /// the fake `gh`, which dispatches on the URL's query rather than its
 /// owner - but it is part of every logged argv, so both sides must
@@ -148,22 +151,10 @@ const LATER: usize = 3;
 const ALREADY_CURRENT: &str =
     "no Registry run for this SHA; the deployed worker is already current\n";
 
-/// Handed to every git call the harness makes and to both sides of
-/// every run, so the corpus is reproducible and the machine's own git
-/// configuration is neither read nor writable.
-const GIT_ENVIRONMENT: [(&str, &str); 9] = [
-    ("GIT_AUTHOR_NAME", "cabin differential"),
-    ("GIT_AUTHOR_EMAIL", "differential@example.invalid"),
-    ("GIT_AUTHOR_DATE", "2026-01-01T00:00:00+00:00"),
-    ("GIT_COMMITTER_NAME", "cabin differential"),
-    ("GIT_COMMITTER_EMAIL", "differential@example.invalid"),
-    ("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00"),
-    ("GIT_CONFIG_GLOBAL", "/dev/null"),
-    ("GIT_CONFIG_SYSTEM", "/dev/null"),
-    // An unreachable remote must fail rather than block on a credential
-    // prompt: an interactive git would hang the suite, not fail it.
-    ("GIT_TERMINAL_PROMPT", "0"),
-];
+/// The tools every scenario drives, on top of the port itself. `jq` is
+/// standalone here: the step pipes the run list through it rather than
+/// through `gh --jq`.
+const TOOLS: [&str; 3] = ["bash", "git", "jq"];
 
 /// How far stderr can be compared.
 enum Diagnostics {
@@ -313,7 +304,7 @@ impl World {
         fs::write(&log, b"").expect("the request log");
 
         command.current_dir(&checkout);
-        for (key, value) in GIT_ENVIRONMENT {
+        for &(key, value) in GIT_ENVIRONMENT {
             command.env(key, value);
         }
         let produced: Output = command
@@ -339,32 +330,6 @@ impl World {
     }
 }
 
-fn show(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let _ = git_output(dir, args);
-}
-
-fn git_output(dir: &Path, args: &[&str]) -> String {
-    let mut command = Command::new("git");
-    command.current_dir(dir).args(args);
-    for (name, value) in GIT_ENVIRONMENT {
-        command.env(name, value);
-    }
-    let done = command
-        .output()
-        .expect("running one of the harness's own git commands");
-    assert!(
-        done.status.success(),
-        "the harness's `git {}` failed: {}",
-        args.join(" "),
-        String::from_utf8_lossy(&done.stderr)
-    );
-    String::from_utf8_lossy(&done.stdout).into_owned()
-}
-
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/await-deploy.sh.orig")
 }
@@ -378,26 +343,6 @@ fn path_through_the_fake_gh() -> std::ffi::OsString {
     let mut directories = vec![fake_bin()];
     directories.extend(std::env::split_paths(&inherited));
     std::env::join_paths(directories).expect("a PATH with the fake gh first")
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    // `jq` is standalone here: the step pipes the run list through it
-    // rather than through `gh --jq`.
-    for tool in ["bash", "git", "jq"] {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) {
@@ -447,7 +392,10 @@ fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) 
 /// SHA and whose `Deploy` step succeeded.
 #[test]
 fn a_successful_deploy_containing_this_sha_satisfies_the_gate() {
-    if !ready("a_successful_deploy_containing_this_sha_satisfies_the_gate") {
+    if !ready(
+        "a_successful_deploy_containing_this_sha_satisfies_the_gate",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -475,7 +423,10 @@ fn a_successful_deploy_containing_this_sha_satisfies_the_gate() {
 /// looking at the next candidate.
 #[test]
 fn the_scan_walks_past_a_candidate_whose_deploy_did_not_succeed() {
-    if !ready("the_scan_walks_past_a_candidate_whose_deploy_did_not_succeed") {
+    if !ready(
+        "the_scan_walks_past_a_candidate_whose_deploy_did_not_succeed",
+        &TOOLS,
+    ) {
         return;
     }
     for (case, code, body) in [
@@ -515,7 +466,10 @@ fn the_scan_walks_past_a_candidate_whose_deploy_did_not_succeed() {
 /// not contain this SHA costs no request at all.
 #[test]
 fn a_candidate_that_does_not_contain_this_sha_is_never_inspected() {
-    if !ready("a_candidate_that_does_not_contain_this_sha_is_never_inspected") {
+    if !ready(
+        "a_candidate_that_does_not_contain_this_sha_is_never_inspected",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -542,7 +496,10 @@ fn a_candidate_that_does_not_contain_this_sha_is_never_inspected() {
 /// Worker ships, so the deployed Worker is already current.
 #[test]
 fn no_registry_run_for_this_sha_leaves_the_worker_alone() {
-    if !ready("no_registry_run_for_this_sha_leaves_the_worker_alone") {
+    if !ready(
+        "no_registry_run_for_this_sha_leaves_the_worker_alone",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -565,7 +522,10 @@ fn no_registry_run_for_this_sha_leaves_the_worker_alone() {
 /// branch still decides, and neither shape says anything about itself.
 #[test]
 fn an_unusable_candidate_list_still_reaches_the_same_sha_branch() {
-    if !ready("an_unusable_candidate_list_still_reaches_the_same_sha_branch") {
+    if !ready(
+        "an_unusable_candidate_list_still_reaches_the_same_sha_branch",
+        &TOOLS,
+    ) {
         return;
     }
     for (case, code) in [("the call failed", 1), ("nothing matched", 0)] {
@@ -587,7 +547,10 @@ fn an_unusable_candidate_list_still_reaches_the_same_sha_branch() {
 /// next iteration finds the deploy.
 #[test]
 fn a_pending_run_containing_this_sha_defers_a_failed_conclusion() {
-    if !ready("a_pending_run_containing_this_sha_defers_a_failed_conclusion") {
+    if !ready(
+        "a_pending_run_containing_this_sha_defers_a_failed_conclusion",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -621,7 +584,10 @@ fn a_pending_run_containing_this_sha_defers_a_failed_conclusion() {
 /// prefix.
 #[test]
 fn a_failed_conclusion_with_nothing_pending_refuses_to_publish() {
-    if !ready("a_failed_conclusion_with_nothing_pending_refuses_to_publish") {
+    if !ready(
+        "a_failed_conclusion_with_nothing_pending_refuses_to_publish",
+        &TOOLS,
+    ) {
         return;
     }
     for (case, conclusion, pending) in [
@@ -670,7 +636,10 @@ fn a_failed_conclusion_with_nothing_pending_refuses_to_publish() {
 /// the number or the tools' wording.
 #[test]
 fn a_malformed_runs_capture_kills_the_step_on_both_sides() {
-    if !ready("a_malformed_runs_capture_kills_the_step_on_both_sides") {
+    if !ready(
+        "a_malformed_runs_capture_kills_the_step_on_both_sides",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -708,7 +677,10 @@ fn a_malformed_runs_capture_kills_the_step_on_both_sides() {
 /// again.
 #[test]
 fn a_transient_runs_call_retries_on_the_next_iteration() {
-    if !ready("a_transient_runs_call_retries_on_the_next_iteration") {
+    if !ready(
+        "a_transient_runs_call_retries_on_the_next_iteration",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -735,7 +707,10 @@ fn a_transient_runs_call_retries_on_the_next_iteration() {
 #[test]
 #[ignore = "two iterations: 80 seconds of real sleep"]
 fn a_transient_pending_call_retries_on_the_next_iteration() {
-    if !ready("a_transient_pending_call_retries_on_the_next_iteration") {
+    if !ready(
+        "a_transient_pending_call_retries_on_the_next_iteration",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::new();
@@ -771,7 +746,7 @@ fn a_transient_pending_call_retries_on_the_next_iteration() {
 #[test]
 #[ignore = "two iterations: 80 seconds of real sleep"]
 fn an_unconcluded_run_waits_without_a_word() {
-    if !ready("an_unconcluded_run_waits_without_a_word") {
+    if !ready("an_unconcluded_run_waits_without_a_word", &TOOLS) {
         return;
     }
     let world = World::new();
@@ -800,7 +775,7 @@ fn an_unconcluded_run_waits_without_a_word() {
 /// `git`'s own complaint reaches stderr.
 #[test]
 fn a_broken_origin_does_not_stop_the_wait() {
-    if !ready("a_broken_origin_does_not_stop_the_wait") {
+    if !ready("a_broken_origin_does_not_stop_the_wait", &TOOLS) {
         return;
     }
     let mut world = World::new();

@@ -11,13 +11,6 @@ description = "Repository tool that publishes foundation ports as cabin-ports re
 # nothing to operate on.
 publish = false
 
-[lib]
-name = "xtask_port_publish"
-
-[[bin]]
-name = "xtask-port-publish"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 cabin-artifact = { workspace = true }
@@ -41,7 +34,6 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tiny_http = { workspace = true }
-url = { workspace = true }
 
 [lints]
 workspace = true

@@ -16,6 +16,16 @@
 //! `bash --noprofile --norc -eo pipefail {0}`; that is reproduced
 //! verbatim, and the block's own `set -euo pipefail` adds `-u`.
 //!
+//! # Locale
+//!
+//! Both sides run under `LC_ALL=C`. `files=(*.tar.xz *.zip)` expands
+//! each glob in the locale's collation, and the workflow's runner
+//! (`ubuntu-24.04`, `C.UTF-8`) collates in byte order - which
+//! `LC_ALL=C` reproduces on any host, where a developer's own locale
+//! could order a group differently and quietly weaken
+//! [`the_order_is_two_glob_groups`]. The port is locale-free byte order
+//! outright; the pin is on the shell side.
+//!
 //! # What is compared, and where the comparison stops
 //!
 //! stdout is compared as bytes everywhere: the final `cat sha256.sum`
@@ -65,8 +75,14 @@ use std::process::{Command, Output};
 
 use assert_fs::TempDir;
 
+mod common;
+use common::ready;
+
 /// What the refusal writes, `echo`'s newline included.
 const NO_ARCHIVES: &str = "no binary archives found\n";
+
+/// The tools every scenario drives, on top of the port itself.
+const TOOLS: [&str; 3] = ["bash", "sha256sum", "tee"];
 
 /// How far stderr can be compared.
 enum Diagnostics {
@@ -133,6 +149,10 @@ impl Corpus {
 
 fn run(mut command: Command, dir: &Path) -> Outcome {
     command.current_dir(dir);
+    // The one collation-dependent decision - the order each of the two
+    // globs expands in - is pinned to byte order, the runner's own
+    // (`C.UTF-8`).
+    command.env("LC_ALL", "C");
     let produced: Output = command.output().expect("running one side of the scenario");
     let mut files = BTreeMap::new();
     for entry in fs::read_dir(dir).expect("the directory afterward") {
@@ -167,24 +187,6 @@ fn copy_tree(from: &Path, to: &Path) {
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checksums.sh.orig")
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    for tool in ["bash", "sha256sum", "tee"] {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) {
@@ -232,7 +234,7 @@ fn rendered(files: &BTreeMap<String, Vec<u8>>) -> BTreeMap<&str, String> {
 /// each `.sha256` sibling carrying its own line.
 #[test]
 fn every_archive_is_checksummed() {
-    if !ready("every_archive_is_checksummed") {
+    if !ready("every_archive_is_checksummed", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -268,7 +270,7 @@ fn every_archive_is_checksummed() {
 /// would interleave them.
 #[test]
 fn the_order_is_two_glob_groups() {
-    if !ready("the_order_is_two_glob_groups") {
+    if !ready("the_order_is_two_glob_groups", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -291,7 +293,7 @@ fn the_order_is_two_glob_groups() {
 /// sides, and a name that matches neither pattern is ignored.
 #[test]
 fn a_dotfile_is_outside_the_selection() {
-    if !ready("a_dotfile_is_outside_the_selection") {
+    if !ready("a_dotfile_is_outside_the_selection", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -313,7 +315,7 @@ fn a_dotfile_is_outside_the_selection() {
 /// `sha256.sum` is even truncated.
 #[test]
 fn an_empty_selection_refuses_before_truncating() {
-    if !ready("an_empty_selection_refuses_before_truncating") {
+    if !ready("an_empty_selection_refuses_before_truncating", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -337,7 +339,7 @@ fn an_empty_selection_refuses_before_truncating() {
 /// reaches `sha256.sum`, and only then does the pipeline die.
 #[test]
 fn an_unopenable_side_file_still_accumulates_the_line() {
-    if !ready("an_unopenable_side_file_still_accumulates_the_line") {
+    if !ready("an_unopenable_side_file_still_accumulates_the_line", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -362,7 +364,7 @@ fn an_unopenable_side_file_still_accumulates_the_line() {
 /// nothing reaches stdout.
 #[test]
 fn an_unreadable_entry_dies_mid_state() {
-    if !ready("an_unreadable_entry_dies_mid_state") {
+    if !ready("an_unreadable_entry_dies_mid_state", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();

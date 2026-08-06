@@ -271,6 +271,9 @@ use std::time::Duration;
 use assert_fs::TempDir;
 use sha2::{Digest as _, Sha256};
 
+mod common;
+use common::{ready, show};
+
 /// Points the port at a scenario's synthetic registry root instead of
 /// this checkout's own `registry/`. The shell needs no equivalent: it
 /// derives its root from its own path, and the harness copies it into
@@ -1014,10 +1017,6 @@ fn digest() -> String {
     cabin_core::hash::hex_digest(&hasher.finalize())
 }
 
-fn show(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
@@ -1056,24 +1055,6 @@ fn real(tool: &str) -> String {
         .output()
         .unwrap_or_else(|_| panic!("looking for {tool}"));
     String::from_utf8_lossy(&found.stdout).trim().to_owned()
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    for tool in TOOLS {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) {
@@ -1271,7 +1252,10 @@ fn drained(outcome: &Outcome) {
 /// is deployed.
 #[test]
 fn a_local_wipe_clears_the_emulated_state_and_nothing_else() {
-    if !ready("a_local_wipe_clears_the_emulated_state_and_nothing_else") {
+    if !ready(
+        "a_local_wipe_clears_the_emulated_state_and_nothing_else",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World::local();
@@ -1353,7 +1337,7 @@ fn a_local_wipe_clears_the_emulated_state_and_nothing_else() {
 /// neither reached the prompt, the guard or anything destructive.
 #[test]
 fn an_unknown_argument_refuses_before_anything_runs() {
-    if !ready("an_unknown_argument_refuses_before_anything_runs") {
+    if !ready("an_unknown_argument_refuses_before_anything_runs", &TOOLS) {
         return;
     }
     for argument in ["--nope", "--Local", "local", "--local=1"] {
@@ -1406,7 +1390,10 @@ fn an_unknown_argument_refuses_before_anything_runs() {
 /// the command log completely empty - not even the guard ran.
 #[test]
 fn a_declined_confirmation_stops_before_the_launch_guard() {
-    if !ready("a_declined_confirmation_stops_before_the_launch_guard") {
+    if !ready(
+        "a_declined_confirmation_stops_before_the_launch_guard",
+        &TOOLS,
+    ) {
         return;
     }
     // `wipe\r\n` is the sharp one: the default `IFS` strips spaces and
@@ -1463,7 +1450,7 @@ fn a_declined_confirmation_stops_before_the_launch_guard() {
 /// by the byte comparison.
 #[test]
 fn a_confirmed_remote_wipe_runs_the_whole_procedure() {
-    if !ready("a_confirmed_remote_wipe_runs_the_whole_procedure") {
+    if !ready("a_confirmed_remote_wipe_runs_the_whole_procedure", &TOOLS) {
         return;
     }
     let world = World::remote();
@@ -1552,7 +1539,7 @@ fn a_confirmed_remote_wipe_runs_the_whole_procedure() {
 /// shell wipes.
 #[test]
 fn the_confirmation_is_accepted_interactively() {
-    if !ready("the_confirmation_is_accepted_interactively") {
+    if !ready("the_confirmation_is_accepted_interactively", &TOOLS) {
         return;
     }
     for answer in ["wipe\n", "  wipe \n", "\twipe\t\n"] {
@@ -1601,7 +1588,7 @@ fn the_confirmation_is_accepted_interactively() {
 /// same refusal either way.
 #[test]
 fn a_launched_registry_is_refused_by_the_guard() {
-    if !ready("a_launched_registry_is_refused_by_the_guard") {
+    if !ready("a_launched_registry_is_refused_by_the_guard", &TOOLS) {
         return;
     }
     let mut world = World::remote();
@@ -1661,7 +1648,7 @@ fn a_launched_registry_is_refused_by_the_guard() {
 /// cross-check it makes on remote.
 #[test]
 fn a_refused_guard_leaves_the_local_state_intact() {
-    if !ready("a_refused_guard_leaves_the_local_state_intact") {
+    if !ready("a_refused_guard_leaves_the_local_state_intact", &TOOLS) {
         return;
     }
     let mut world = World::local();
@@ -1692,7 +1679,10 @@ fn a_refused_guard_leaves_the_local_state_intact() {
 /// destructive, which is what the empty destructive-command set pins.
 #[test]
 fn a_non_numeric_generation_refuses_before_anything_destructive() {
-    if !ready("a_non_numeric_generation_refuses_before_anything_destructive") {
+    if !ready(
+        "a_non_numeric_generation_refuses_before_anything_destructive",
+        &TOOLS,
+    ) {
         return;
     }
     for held in ["", "7x", "-1", "1 2", "null"] {
@@ -1740,7 +1730,7 @@ fn a_non_numeric_generation_refuses_before_anything_destructive() {
 /// case, so only the script's `FAIL:` line is compared there.
 #[test]
 fn the_recreated_database_must_appear_in_the_listing() {
-    if !ready("the_recreated_database_must_appear_in_the_listing") {
+    if !ready("the_recreated_database_must_appear_in_the_listing", &TOOLS) {
         return;
     }
     // Absent from the listing entirely: `node` exits 1 and the `||
@@ -1803,7 +1793,7 @@ fn the_recreated_database_must_appear_in_the_listing() {
 /// the Worker to nothing.
 #[test]
 fn a_malformed_database_id_is_refused() {
-    if !ready("a_malformed_database_id_is_refused") {
+    if !ready("a_malformed_database_id_is_refused", &TOOLS) {
         return;
     }
     for malformed in [
@@ -1847,7 +1837,7 @@ fn a_malformed_database_id_is_refused() {
 /// written for.
 #[test]
 fn two_database_id_bindings_refuse_to_bake_by_hand() {
-    if !ready("two_database_id_bindings_refuse_to_bake_by_hand") {
+    if !ready("two_database_id_bindings_refuse_to_bake_by_hand", &TOOLS) {
         return;
     }
     let world = World {
@@ -1891,7 +1881,7 @@ fn two_database_id_bindings_refuse_to_bake_by_hand() {
 /// script's `FAIL:` line is compared.
 #[test]
 fn a_failed_listing_stops_the_sweep_before_the_deploy() {
-    if !ready("a_failed_listing_stops_the_sweep_before_the_deploy") {
+    if !ready("a_failed_listing_stops_the_sweep_before_the_deploy", &TOOLS) {
         return;
     }
     let world = World {
@@ -1958,7 +1948,10 @@ fn a_failed_listing_stops_the_sweep_before_the_deploy() {
 /// shell's text pinned below.
 #[test]
 fn an_absent_api_token_stops_before_the_database_is_dropped() {
-    if !ready("an_absent_api_token_stops_before_the_database_is_dropped") {
+    if !ready(
+        "an_absent_api_token_stops_before_the_database_is_dropped",
+        &TOOLS,
+    ) {
         return;
     }
     let world = World {

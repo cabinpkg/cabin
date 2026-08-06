@@ -2460,10 +2460,8 @@ name = "xtask-ci"
 version = "0.17.0"
 dependencies = [
  "anyhow",
- "assert_cmd",
  "assert_fs",
  "libc",
- "predicates",
 ]
 
 [[package]]
@@ -2497,7 +2495,6 @@ dependencies = [
  "sha2",
  "tar",
  "tiny_http",
- "url",
 ]
 
 [[package]]
@@ -2547,10 +2544,8 @@ name = "xtask-registry-smoke"
 version = "0.17.0"
 dependencies = [
  "anyhow",
- "assert_cmd",
  "assert_fs",
  "libc",
- "predicates",
  "serde_json",
  "sha2",
  "tempfile",

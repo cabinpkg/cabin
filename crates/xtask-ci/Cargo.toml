@@ -11,23 +11,14 @@ description = "Repository tool: the local mirror of the CI gate"
 # checkout, so a published copy would have nothing to check.
 publish = false
 
-[lib]
-name = "xtask_ci"
-
-[[bin]]
-name = "xtask-ci"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2"
 assert_fs = { workspace = true }
-predicates = "3"
 
 [lints]
 workspace = true

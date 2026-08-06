@@ -163,6 +163,9 @@ use std::process::Command;
 
 use assert_fs::TempDir;
 
+mod common;
+use common::ready;
+
 /// The triple every scenario packages for. It is a matrix entry rather
 /// than the host's own: the step only ever interpolates it into paths
 /// and names, and pinning it keeps the expected archive names the same
@@ -191,6 +194,11 @@ const LICENSE: &[u8] = b"fixture license\n";
 /// first twelve.
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const SHA12: &str = "0123456789ab";
+
+/// The tools every scenario drives, on top of the port itself. `xz` is
+/// listed for GNU tar, which shells out to it for `-J`; bsdtar links
+/// liblzma instead and would pass without it.
+const TOOLS: [&str; 3] = ["bash", "tar", "xz"];
 
 /// How far a scenario's two sides can be held to each other.
 enum Contract {
@@ -446,26 +454,6 @@ fn staged(directory: &Path) -> Vec<String> {
     names
 }
 
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    // `xz` is listed for GNU tar, which shells out to it for `-J`;
-    // bsdtar links liblzma instead and would pass without it.
-    for tool in ["bash", "tar", "xz"] {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
-}
-
 fn diff(case: &str, shell: &Outcome, port: &Outcome, contract: &Contract) {
     assert!(
         shell.reported == port.reported,
@@ -559,7 +547,7 @@ fn expected(version: &str) -> BTreeMap<String, Vec<u8>> {
 /// entries, their bytes, and the staging directory left behind.
 #[test]
 fn a_tag_names_the_package_after_itself() {
-    if !ready("a_tag_names_the_package_after_itself") {
+    if !ready("a_tag_names_the_package_after_itself", &TOOLS) {
         return;
     }
     let world = World::new();
@@ -583,7 +571,7 @@ fn a_tag_names_the_package_after_itself() {
 /// the ref name is not consulted at all.
 #[test]
 fn a_ref_that_is_not_a_tag_falls_back_to_the_sha() {
-    if !ready("a_ref_that_is_not_a_tag_falls_back_to_the_sha") {
+    if !ready("a_ref_that_is_not_a_tag_falls_back_to_the_sha", &TOOLS) {
         return;
     }
     for (case, ref_type) in [
@@ -610,7 +598,7 @@ fn a_ref_that_is_not_a_tag_falls_back_to_the_sha() {
 /// bare `dev-`; neither is an error on either side.
 #[test]
 fn a_short_sha_is_taken_for_whatever_it_has() {
-    if !ready("a_short_sha_is_taken_for_whatever_it_has") {
+    if !ready("a_short_sha_is_taken_for_whatever_it_has", &TOOLS) {
         return;
     }
     for (case, sha, version) in [
@@ -638,7 +626,7 @@ fn a_short_sha_is_taken_for_whatever_it_has() {
 /// what the shell does, not from what it ought to do.
 #[test]
 fn a_slashed_tag_name_nests_the_whole_package() {
-    if !ready("a_slashed_tag_name_nests_the_whole_package") {
+    if !ready("a_slashed_tag_name_nests_the_whole_package", &TOOLS) {
         return;
     }
     let world = World::new();
@@ -666,7 +654,7 @@ fn a_slashed_tag_name_nests_the_whole_package() {
 /// separates "the name has a slash" from "a tag's name has a slash".
 #[test]
 fn a_slashed_branch_name_is_never_consulted() {
-    if !ready("a_slashed_branch_name_is_never_consulted") {
+    if !ready("a_slashed_branch_name_is_never_consulted", &TOOLS) {
         return;
     }
     let world = World::new();
@@ -692,7 +680,7 @@ fn a_slashed_branch_name_is_never_consulted() {
 /// the binary has a `cp` to itself and its absence stages nothing.
 #[test]
 fn a_missing_input_dies_before_announcing_anything() {
-    if !ready("a_missing_input_dies_before_announcing_anything") {
+    if !ready("a_missing_input_dies_before_announcing_anything", &TOOLS) {
         return;
     }
     for (case, gone, left) in [
