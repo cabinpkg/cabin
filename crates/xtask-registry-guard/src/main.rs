@@ -4,73 +4,41 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
-use clap::error::ErrorKind;
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use xtask_registry_guard::{deploy, r2, registry_dir, sql};
 
-const USAGE: &str = "\
-usage: xtask-registry-guard <GUARD> [options]
-
-Static guards over the hosted registry Worker's sources.  Each prints
-every violation it finds and exits non-zero when there is one.
-
-guards:
-  check-sql   executed SQL must stay inside src/sql.rs
-  check-r2    R2 bucket handles may only be acquired in the pinned,
-              governor-admitting functions
-  check-deploy  wrangler.jsonc still declares what the code deploys
-              against (and, when built, the bundle exports every bound
-              Durable Object class)
-
-options:
-  --require-bundle       check-deploy only: a missing build/index.js is
-                         a failure rather than a skipped check
-  --registry-dir <PATH>  the registry checkout to inspect (default: the
-                         `registry/` of this tool's own checkout)
-  -h, --help             show this help
-";
-
-/// The guards are subcommands; both options are global, because
-/// `--help` and the options are accepted after the guard name as well
-/// as before it.
-// `args_override_self`: a repeated flag keeps its last value, as the
-// parser this replaces did, so a wrapper may supply a default and
-// override it.
+/// Static guards over the hosted registry Worker's sources.  Each
+/// prints every violation it finds and exits non-zero when there is
+/// one.
 #[derive(Parser)]
-#[command(disable_help_subcommand = true, args_override_self = true)]
 struct Cli {
     #[command(subcommand)]
-    guard: Option<Guard>,
+    guard: Guard,
+    /// The registry checkout to inspect (default: the `registry/` of
+    /// this tool's own checkout).
     #[arg(long, global = true)]
     registry_dir: Option<PathBuf>,
-    #[arg(long, global = true)]
-    require_bundle: bool,
 }
 
 #[derive(Subcommand)]
 enum Guard {
+    /// Executed SQL must stay inside src/sql.rs.
     CheckSql,
+    /// R2 bucket handles may only be acquired in the pinned,
+    /// governor-admitting functions.
     CheckR2,
-    CheckDeploy,
+    /// wrangler.jsonc still declares what the code deploys against.
+    CheckDeploy {
+        /// A missing build/index.js is a failure rather than a skipped
+        /// check.
+        #[arg(long)]
+        require_bundle: bool,
+    },
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        // One help text for the binary, whichever guard it was asked
-        // after; every other parse failure is a refusal, which exits 1
-        // rather than clap's 2.
-        Err(err) if err.kind() == ErrorKind::DisplayHelp => {
-            print!("{USAGE}");
-            return ExitCode::SUCCESS;
-        }
-        Err(err) => {
-            let _ = err.print();
-            return ExitCode::FAILURE;
-        }
-    };
-    match run(&cli) {
+    match run(&Cli::parse()) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(err) => {
@@ -82,17 +50,11 @@ fn main() -> ExitCode {
 
 /// `Ok(true)` when the guard accepted the tree.
 fn run(cli: &Cli) -> Result<bool> {
-    let Some(guard) = &cli.guard else {
-        bail!("no guard named\n\n{USAGE}");
-    };
     let directory = cli.registry_dir.clone().unwrap_or_else(registry_dir);
-    if cli.require_bundle && !matches!(guard, Guard::CheckDeploy) {
-        bail!("--require-bundle is only meaningful for check-deploy\n\n{USAGE}");
-    }
 
-    let (violations, remedy) = match guard {
-        Guard::CheckDeploy => {
-            let report = deploy::check(&directory, cli.require_bundle);
+    let (violations, remedy) = match cli.guard {
+        Guard::CheckDeploy { require_bundle } => {
+            let report = deploy::check(&directory, require_bundle);
             for note in &report.notes {
                 println!("{note}");
             }

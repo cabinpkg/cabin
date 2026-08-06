@@ -10,7 +10,6 @@ use std::process::{Command, ExitCode, Stdio};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use clap::error::ErrorKind;
 use xtask_ci::{Gate, arm_teardown, cores, hook, repo_root, scope, teardown_exits_zero};
 
 /// The website phase re-executes this binary with this flag, which is
@@ -27,28 +26,7 @@ struct Cli {
 }
 
 fn main() -> ExitCode {
-    // Clap swallows a bare `--` as its option delimiter, which would
-    // leave both flags false and silently run the whole gate - the
-    // same implicit action the catch-all below was replaced to stop.
-    if std::env::args_os().any(|argument| argument == "--") {
-        eprintln!("error: unexpected argument: --");
-        return ExitCode::FAILURE;
-    }
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        // The catch-all this replaces ran the gate for every argument
-        // it did not recognize, so a `--website-steps` that ever
-        // stopped matching would have the website phase re-run the
-        // whole gate, and that child re-run it again. An unrecognized
-        // argument refuses instead.
-        Err(error) => {
-            let _ = error.print();
-            return match error.kind() {
-                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => ExitCode::SUCCESS,
-                _ => ExitCode::FAILURE,
-            };
-        }
-    };
+    let cli = Cli::parse();
     if cli.hook {
         return run_hook();
     }
@@ -457,6 +435,8 @@ fn which(program: &str, root: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use clap::error::ErrorKind;
+
     use super::*;
 
     fn parse(arguments: &[&str]) -> clap::error::Result<Cli> {

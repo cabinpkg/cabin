@@ -793,50 +793,21 @@ fn a_failed_preflight_makes_no_remote_mutation() {
     );
 }
 
+/// The clap wiring is the mode contract, so its two fail-opens are
+/// pinned: a bare invocation must not run the preflight, and an index
+/// URL must not turn an explicit --dry-run into a publish (a `SetTrue`
+/// flag satisfies `requires` by its defaulted value, which is how the
+/// first wiring of this group let that combination through).
 #[test]
-fn dry_run_rejects_an_index_url() {
-    let output = tool()
-        .arg("--dry-run")
-        .arg("--index-url")
-        .arg("https://registry.invalid")
+fn requires_a_mode() {
+    let bare = tool().output().unwrap();
+    assert!(!bare.status.success());
+
+    let contradictory = tool()
+        .args(["--dry-run", "--index-url", "https://registry.invalid"])
         .output()
         .unwrap();
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("--index-url only applies to --publish")
-    );
-}
-
-/// A repeated flag keeps its LAST value, as the parser this replaces
-/// did: a wrapper may supply a default that a later argument
-/// overrides, and clap's default would refuse the repeat. The run
-/// still fails - on the missing ports directory it was pointed at,
-/// which is what proves the SECOND value is the one that reached
-/// preflight.
-#[test]
-fn a_repeated_flag_keeps_its_last_value() {
-    let scratch = TempDir::new().unwrap();
-    let first = scratch.path().join("first");
-    let second = scratch.path().join("second");
-    let output = tool()
-        .arg("--dry-run")
-        .arg("--ports-dir")
-        .arg(&first)
-        .arg("--ports-dir")
-        .arg(&second)
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains(&*second.to_string_lossy()), "{stderr}");
-}
-
-#[test]
-fn requires_exactly_one_mode() {
-    let output = tool().output().unwrap();
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("pass exactly one of --dry-run or --publish")
-    );
+    assert!(!contradictory.status.success());
+    let stderr = String::from_utf8_lossy(&contradictory.stderr);
+    assert!(stderr.contains("--dry-run"), "{stderr}");
 }

@@ -410,24 +410,6 @@ fn help_is_accepted_after_the_guard_name() {
     Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
         .args(["check-sql", "--help"])
         .assert()
-        .success()
-        .stdout(predicates::str::starts_with("usage: xtask-registry-guard"));
-}
-
-/// A repeated `--registry-dir` keeps its LAST value, as the parser
-/// this replaces did: an alias may supply a default that a wrapper
-/// then overrides, and clap's default would refuse the repeat.
-#[test]
-fn a_repeated_registry_dir_keeps_its_last_value() {
-    let overridden = assert_fs::TempDir::new().unwrap();
-    let registry = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../registry");
-    Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
-        .arg("check-sql")
-        .arg("--registry-dir")
-        .arg(overridden.path())
-        .arg("--registry-dir")
-        .arg(&registry)
-        .assert()
         .success();
 }
 

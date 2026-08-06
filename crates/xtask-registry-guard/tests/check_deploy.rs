@@ -357,8 +357,7 @@ fn require_bundle_is_rejected_for_the_other_guards() {
     Command::new(env!("CARGO_BIN_EXE_xtask-registry-guard"))
         .args(["check-sql", "--require-bundle"])
         .assert()
-        .failure()
-        .stderr(contains("only meaningful for check-deploy"));
+        .failure();
 }
 
 /// The failure the wasm build cannot see: the class compiles but the

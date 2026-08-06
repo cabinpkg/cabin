@@ -47,11 +47,7 @@ fn the_audit_takes_only_the_keys_flag() {
         .assert()
         .success()
         .stdout(predicates::str::contains("cargo registry-backup-audit"));
-    for refused in [
-        vec!["backup-audit", "--all"],
-        vec!["backup-audit", "--keys", "--keys"],
-        vec!["diagnose", "--keys"],
-    ] {
+    for refused in [vec!["backup-audit", "--all"], vec!["diagnose", "--keys"]] {
         admin()
             .args(&refused)
             .env_remove("CLOUDFLARE_API_TOKEN")

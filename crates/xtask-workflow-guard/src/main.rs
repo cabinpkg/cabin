@@ -4,35 +4,11 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
-use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
-const USAGE: &str = "\
-usage: xtask-workflow-guard <COMMAND>
-
-Guards over a GitHub Actions run's own context, run from a workflow step
-through their Cargo aliases.
-
-commands:
-  superseded --path <PATH>...
-                   record `superseded=true` in $GITHUB_OUTPUT when
-                   origin/main carries a commit after $GITHUB_SHA
-                   touching any given path (`cargo workflow-superseded`)
-  migrations-pending
-                   record `pending=true` in $GITHUB_OUTPUT when the
-                   committed D1 migrations no longer match the stamp in
-                   registry/migrations-applied
-                   (`cargo workflow-migrations-pending`)
-  await-deploy     wait for a successful main Registry deploy whose head
-                   contains $GITHUB_SHA, or for one of the answers that
-                   ends the wait early (`cargo workflow-await-deploy`)
-
-options:
-  -h, --help  show this help
-";
-
+/// Guards over a GitHub Actions run's own context, run from a workflow
+/// step through their Cargo aliases.
 #[derive(Parser)]
-#[command(disable_help_subcommand = true)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -40,47 +16,30 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Record `superseded=true` in `$GITHUB_OUTPUT` when origin/main
+    /// carries a commit after `$GITHUB_SHA` touching any given path
+    /// (`cargo workflow-superseded`).
     Superseded {
-        // Deliberately not `required`: the empty-pathspec refusal is
-        // `superseded::run`'s own, with its own unit test, and a
-        // required argument would answer for it here instead.
-        #[arg(long = "path")]
+        // The library refuses an empty pathspec list itself, for typed
+        // callers; `required` has clap answer for the command line.
+        #[arg(long = "path", required = true)]
         paths: Vec<String>,
     },
+    /// Record `pending=true` in `$GITHUB_OUTPUT` when the committed D1
+    /// migrations no longer match the stamp in
+    /// registry/migrations-applied (`cargo workflow-migrations-pending`).
     MigrationsPending,
+    /// Wait for a successful main Registry deploy whose head contains
+    /// `$GITHUB_SHA`, or for one of the answers that ends the wait early
+    /// (`cargo workflow-await-deploy`).
     AwaitDeploy,
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
-        Ok(cli) => cli,
-        Err(error) => return refuse(&error),
-    };
-    match run(&cli.command) {
+    match run(&Cli::parse().command) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-/// `-h`/`--help` answers with the binary's own usage on stdout, which
-/// is what the aliases document, for the subcommands too. Every other
-/// parse failure is the exit 1 the step took under `set -e`, where
-/// clap's own default is 2.
-fn refuse(error: &clap::Error) -> ExitCode {
-    match error.kind() {
-        ErrorKind::DisplayHelp => {
-            print!("{USAGE}");
-            ExitCode::SUCCESS
-        }
-        ErrorKind::DisplayVersion => {
-            let _ = error.print();
-            ExitCode::SUCCESS
-        }
-        _ => {
-            let _ = error.print();
             ExitCode::FAILURE
         }
     }
