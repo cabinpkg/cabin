@@ -5,11 +5,12 @@
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
+use xtask_dist::checksums;
 use xtask_dist::package::{self, USAGE};
 
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
@@ -17,8 +18,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// Every failure is the exit 1 the step took under `set -e`.
-fn run() -> Result<()> {
+/// Every failure is the exit 1 the step took under `set -e`;
+/// `checksums` owns its status outright, because its refusal is the
+/// shell's bare sentence rather than this shim's `error:` rendering.
+fn run() -> Result<ExitCode> {
     let mut arguments = std::env::args().skip(1);
     let Some(command) = arguments.next() else {
         bail!("no command named\n\n{USAGE}");
@@ -27,14 +30,18 @@ fn run() -> Result<()> {
     match command.as_str() {
         "-h" | "--help" if rest.is_empty() => {
             print!("{USAGE}");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         // `cargo dist-package --help` arrives as `package --help`.
-        "package" if rest.len() == 1 && (rest[0] == "-h" || rest[0] == "--help") => {
+        "package" | "checksums" if rest.len() == 1 && (rest[0] == "-h" || rest[0] == "--help") => {
             print!("{USAGE}");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
-        "package" => package::run(&rest),
+        "package" => package::run(&rest).map(|()| ExitCode::SUCCESS),
+        "checksums" => match rest.first() {
+            None => Ok(checksums::run()),
+            Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
+        },
         other => bail!("unknown command: {other}\n\n{USAGE}"),
     }
 }

@@ -1,0 +1,11 @@
+set -euo pipefail
+
+shopt -s nullglob
+files=(*.tar.xz *.zip)
+((${#files[@]})) || { echo "no binary archives found" >&2; exit 1; }
+
+: > sha256.sum
+for file in "${files[@]}"; do
+  sha256sum -b "$file" | tee "${file}.sha256" >> sha256.sum
+done
+cat sha256.sum
