@@ -81,11 +81,17 @@ use std::process::Command;
 
 use assert_fs::TempDir;
 
+mod common;
+use common::ready;
+
 /// L3's line, which is the whole of what a positive answer writes.
 const PENDING: &[u8] = b"pending=true\n";
 
 /// The digest of empty input: what an empty selection stamps as.
 const EMPTY_STAMP: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// The tools every scenario drives, on top of the port itself.
+const TOOLS: [&str; 4] = ["bash", "sha256sum", "cut", "cat"];
 
 /// How far stderr can be compared.
 enum Diagnostics {
@@ -156,24 +162,6 @@ impl Corpus {
             .trim_end()
             .to_owned()
     }
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    for tool in ["bash", "sha256sum", "cut", "cat"] {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn fixture() -> PathBuf {
@@ -302,7 +290,7 @@ fn wrote(case: &str, outcome: &Outcome, expected: &[u8]) {
 /// The stamp matches: nothing is written and the step is silent.
 #[test]
 fn a_current_stamp_writes_nothing() {
-    if !ready("a_current_stamp_writes_nothing") {
+    if !ready("a_current_stamp_writes_nothing", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -318,7 +306,7 @@ fn a_current_stamp_writes_nothing() {
 /// A changed migration answers pending.
 #[test]
 fn a_changed_migration_answers_pending() {
-    if !ready("a_changed_migration_answers_pending") {
+    if !ready("a_changed_migration_answers_pending", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -334,7 +322,7 @@ fn a_changed_migration_answers_pending() {
 /// same two files match in order and mismatch reversed.
 #[test]
 fn the_stamp_concatenates_in_glob_order() {
-    if !ready("the_stamp_concatenates_in_glob_order") {
+    if !ready("the_stamp_concatenates_in_glob_order", &TOOLS) {
         return;
     }
     for (case, concatenation, expected) in [
@@ -355,7 +343,7 @@ fn the_stamp_concatenates_in_glob_order() {
 /// the byte order matches under `LC_ALL=C` on both sides.
 #[test]
 fn collation_is_byte_order() {
-    if !ready("collation_is_byte_order") {
+    if !ready("collation_is_byte_order", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -372,7 +360,10 @@ fn collation_is_byte_order() {
 /// the applied stamp says about *that* digest.
 #[test]
 fn an_empty_migrations_directory_stamps_as_empty_input() {
-    if !ready("an_empty_migrations_directory_stamps_as_empty_input") {
+    if !ready(
+        "an_empty_migrations_directory_stamps_as_empty_input",
+        &TOOLS,
+    ) {
         return;
     }
     for (case, applied, expected) in [
@@ -393,7 +384,7 @@ fn an_empty_migrations_directory_stamps_as_empty_input() {
 /// pending, never an error.
 #[test]
 fn a_missing_applied_stamp_answers_pending() {
-    if !ready("a_missing_applied_stamp_answers_pending") {
+    if !ready("a_missing_applied_stamp_answers_pending", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -409,7 +400,10 @@ fn a_missing_applied_stamp_answers_pending() {
 /// three trailing newlines both match, a CRLF ending does not.
 #[test]
 fn the_applied_stamp_reads_like_a_command_substitution() {
-    if !ready("the_applied_stamp_reads_like_a_command_substitution") {
+    if !ready(
+        "the_applied_stamp_reads_like_a_command_substitution",
+        &TOOLS,
+    ) {
         return;
     }
     let sql = b"create table a;\n";
@@ -432,7 +426,7 @@ fn the_applied_stamp_reads_like_a_command_substitution() {
 /// outside the stamp on both sides.
 #[test]
 fn a_dotfile_is_outside_the_stamp() {
-    if !ready("a_dotfile_is_outside_the_stamp") {
+    if !ready("a_dotfile_is_outside_the_stamp", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -450,7 +444,7 @@ fn a_dotfile_is_outside_the_stamp() {
 /// pending, which is what says the non-UTF-8 file counted.
 #[test]
 fn a_non_utf8_name_is_inside_the_stamp() {
-    if !ready("a_non_utf8_name_is_inside_the_stamp") {
+    if !ready("a_non_utf8_name_is_inside_the_stamp", &TOOLS) {
         return;
     }
     for (case, concatenation, expected) in [
@@ -483,7 +477,7 @@ fn a_non_utf8_name_is_inside_the_stamp() {
 /// decide the verdict.
 #[test]
 fn a_directory_matching_the_glob_contributes_nothing() {
-    if !ready("a_directory_matching_the_glob_contributes_nothing") {
+    if !ready("a_directory_matching_the_glob_contributes_nothing", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();
@@ -502,7 +496,7 @@ fn a_directory_matching_the_glob_contributes_nothing() {
 /// and succeeds; the pending case fails the step on both sides.
 #[test]
 fn an_unset_github_output_fails_only_the_pending_case() {
-    if !ready("an_unset_github_output_fails_only_the_pending_case") {
+    if !ready("an_unset_github_output_fails_only_the_pending_case", &TOOLS) {
         return;
     }
     let current = Corpus::new();
@@ -523,7 +517,7 @@ fn an_unset_github_output_fails_only_the_pending_case() {
 /// `pending=true` is appended: what the runner already wrote stays.
 #[test]
 fn an_existing_output_file_is_appended_to() {
-    if !ready("an_existing_output_file_is_appended_to") {
+    if !ready("an_existing_output_file_is_appended_to", &TOOLS) {
         return;
     }
     let corpus = Corpus::new();

@@ -12,13 +12,6 @@ description = "Repository tool: release packaging steps for dist.yml"
 # nothing to package.
 publish = false
 
-[lib]
-name = "xtask_dist"
-
-[[bin]]
-name = "xtask-dist"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 cabin-core = { workspace = true }

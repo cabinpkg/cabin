@@ -11,21 +11,14 @@ description = "Repository tool: publish-conformance fixtures built with the in-t
 # published copy would have nothing to build.
 publish = false
 
-[lib]
-name = "xtask_registry_fixtures"
-
-[[bin]]
-name = "xtask-registry-fixtures"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 tempfile = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2"
+assert_cmd = { workspace = true }
 assert_fs = { workspace = true }
-predicates = "3"
+predicates = { workspace = true }
 
 [lints]
 workspace = true

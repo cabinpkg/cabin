@@ -11,21 +11,14 @@ description = "Repository tool: static guards over the registry Worker's sources
 # published copy would have nothing to inspect.
 publish = false
 
-[lib]
-name = "xtask_registry_guard"
-
-[[bin]]
-name = "xtask-registry-guard"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2"
+assert_cmd = { workspace = true }
 assert_fs = { workspace = true }
-predicates = "3"
+predicates = { workspace = true }
 
 [lints]
 workspace = true

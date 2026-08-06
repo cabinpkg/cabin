@@ -58,17 +58,20 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 anyhow = "1"
+assert_cmd = "2"
 assert_fs = "1"
 atomic-write-file = "0.3"
 camino = { version = "1", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 icu_normalizer = "2"
+libc = "0.2"
 clap_complete = "4"
 clap_mangen = "0.3"
 crc32fast = "1"
 flate2 = "1"
 miette = { version = "7", default-features = false }
+predicates = "3"
 pubgrub = "0.4"
 rand = "0.9"
 rpassword = "7"

@@ -216,6 +216,9 @@ use std::process::{Command, Output, Stdio};
 use assert_fs::TempDir;
 use sha2::{Digest as _, Sha256};
 
+mod common;
+use common::{ready, show};
+
 /// Points the port at a scenario's synthetic registry root instead of
 /// this checkout's own `registry/`. The shell needs no equivalent: it
 /// derives its root from its own path, and the harness copies it into
@@ -517,10 +520,6 @@ fn filenames(migrations: &[Migration]) -> Vec<&'static str> {
     migrations.iter().map(|(name, _)| *name).collect()
 }
 
-fn show(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
@@ -543,24 +542,6 @@ fn path_through_the_fake_npx() -> std::ffi::OsString {
     let mut directories = vec![fake_bin()];
     directories.extend(std::env::split_paths(&inherited));
     std::env::join_paths(directories).expect("a PATH with the fake npx first")
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    for tool in TOOLS {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) {
@@ -640,7 +621,7 @@ fn diff(case: &str, shell: &Outcome, port: &Outcome, diagnostics: &Diagnostics) 
 /// refreshed it would be caught rather than accidentally correct.
 #[test]
 fn a_local_apply_never_touches_the_stamp() {
-    if !ready("a_local_apply_never_touches_the_stamp") {
+    if !ready("a_local_apply_never_touches_the_stamp", &TOOLS) {
         return;
     }
     let world = World {
@@ -683,7 +664,7 @@ fn a_local_apply_never_touches_the_stamp() {
 /// texts are pinned here so the move is visible.
 #[test]
 fn the_argument_surface_refuses_the_same_inputs() {
-    if !ready("the_argument_surface_refuses_the_same_inputs") {
+    if !ready("the_argument_surface_refuses_the_same_inputs", &TOOLS) {
         return;
     }
     for (case, mode) in [("no argument", None), ("a wrong argument", Some("--nope"))] {
@@ -737,7 +718,7 @@ fn the_argument_surface_refuses_the_same_inputs() {
 /// part of stdout, so its wording is pinned by the comparison.
 #[test]
 fn a_fresh_database_applies_everything_and_stamps() {
-    if !ready("a_fresh_database_applies_everything_and_stamps") {
+    if !ready("a_fresh_database_applies_everything_and_stamps", &TOOLS) {
         return;
     }
     let world = World::fresh(&[INIT, MORE]);
@@ -780,7 +761,7 @@ fn a_fresh_database_applies_everything_and_stamps() {
 /// confirmation, the apply and the refresh.
 #[test]
 fn nothing_pending_ends_the_run_without_applying() {
-    if !ready("nothing_pending_ends_the_run_without_applying") {
+    if !ready("nothing_pending_ends_the_run_without_applying", &TOOLS) {
         return;
     }
     let world = World::remote(&[INIT, MORE], &[INIT, MORE]);
@@ -821,7 +802,7 @@ fn nothing_pending_ends_the_run_without_applying() {
 /// message, and the two are told apart by these bytes alone.
 #[test]
 fn a_recorded_migration_with_no_file_is_refused() {
-    if !ready("a_recorded_migration_with_no_file_is_refused") {
+    if !ready("a_recorded_migration_with_no_file_is_refused", &TOOLS) {
         return;
     }
     let mut world = World {
@@ -883,7 +864,7 @@ fn a_recorded_migration_with_no_file_is_refused() {
 /// certify a live schema that does not match `migrations/`.
 #[test]
 fn an_applied_file_edited_in_place_is_refused() {
-    if !ready("an_applied_file_edited_in_place_is_refused") {
+    if !ready("an_applied_file_edited_in_place_is_refused", &TOOLS) {
         return;
     }
     let world = World {
@@ -939,7 +920,7 @@ fn an_applied_file_edited_in_place_is_refused() {
 /// `LC_ALL=C`, which both sides run with.
 #[test]
 fn a_pending_migration_that_sorts_early_is_refused() {
-    if !ready("a_pending_migration_that_sorts_early_is_refused") {
+    if !ready("a_pending_migration_that_sorts_early_is_refused", &TOOLS) {
         return;
     }
     let world = World::remote(&[INIT, WEDGE, MORE], &[INIT, MORE]);
@@ -977,7 +958,7 @@ fn a_pending_migration_that_sorts_early_is_refused() {
 /// is on stdout, unterminated, and is part of the compared bytes.
 #[test]
 fn an_unconfirmed_run_applies_nothing() {
-    if !ready("an_unconfirmed_run_applies_nothing") {
+    if !ready("an_unconfirmed_run_applies_nothing", &TOOLS) {
         return;
     }
     // `migrate\r\n` is the sharp one: the default `IFS` strips spaces
@@ -1042,7 +1023,7 @@ fn an_unconfirmed_run_applies_nothing() {
 /// difference is pinned rather than skipped.
 #[test]
 fn an_answer_without_a_newline_is_end_of_input() {
-    if !ready("an_answer_without_a_newline_is_end_of_input") {
+    if !ready("an_answer_without_a_newline_is_end_of_input", &TOOLS) {
         return;
     }
     for answer in ["", "migrate", "nope"] {
@@ -1099,7 +1080,7 @@ fn an_answer_without_a_newline_is_end_of_input() {
 /// makes it a different answer.
 #[test]
 fn the_confirmation_is_accepted_interactively() {
-    if !ready("the_confirmation_is_accepted_interactively") {
+    if !ready("the_confirmation_is_accepted_interactively", &TOOLS) {
         return;
     }
     for answer in ["migrate\n", "   migrate  \n", "\tmigrate\t\n"] {
@@ -1148,7 +1129,10 @@ fn the_confirmation_is_accepted_interactively() {
 /// way to reproduce, so only the script's own line is compared.
 #[test]
 fn a_failed_bookkeeping_read_refuses_rather_than_reading_empty() {
-    if !ready("a_failed_bookkeeping_read_refuses_rather_than_reading_empty") {
+    if !ready(
+        "a_failed_bookkeeping_read_refuses_rather_than_reading_empty",
+        &TOOLS,
+    ) {
         return;
     }
     let mut world = World::remote(&[INIT, MORE], &[INIT]);
@@ -1178,7 +1162,7 @@ fn a_failed_bookkeeping_read_refuses_rather_than_reading_empty() {
 /// ran.
 #[test]
 fn a_file_missing_after_the_apply_refuses_to_stamp() {
-    if !ready("a_file_missing_after_the_apply_refuses_to_stamp") {
+    if !ready("a_file_missing_after_the_apply_refuses_to_stamp", &TOOLS) {
         return;
     }
     let mut world = World::fresh(&[INIT, MORE]);
@@ -1219,7 +1203,10 @@ fn a_file_missing_after_the_apply_refuses_to_stamp() {
 /// cover every file rather than the newly applied one.
 #[test]
 fn a_pending_file_beside_applied_ones_applies_and_restamps() {
-    if !ready("a_pending_file_beside_applied_ones_applies_and_restamps") {
+    if !ready(
+        "a_pending_file_beside_applied_ones_applies_and_restamps",
+        &TOOLS,
+    ) {
         return;
     }
     let mut world = World::remote(&[INIT, MORE, LATER], &[INIT, MORE]);

@@ -12,13 +12,6 @@ description = "Repository tool: the registry smoke test against local wrangler d
 # have nothing to smoke.
 publish = false
 
-[lib]
-name = "xtask_registry_smoke"
-
-[[bin]]
-name = "xtask-registry-smoke"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 serde_json = { workspace = true }
@@ -29,12 +22,10 @@ xtask-ci = { path = "../xtask-ci" }
 xtask-registry-admin = { path = "../xtask-registry-admin" }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "2"
 assert_fs = { workspace = true }
-predicates = "3"
 
 [lints]
 workspace = true

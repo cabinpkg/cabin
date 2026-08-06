@@ -12,13 +12,6 @@ description = "Repository tool: operator commands against the hosted registry"
 # would have neither.
 publish = false
 
-[lib]
-name = "xtask_registry_admin"
-
-[[bin]]
-name = "xtask-registry-admin"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
@@ -35,9 +28,9 @@ ureq = { workspace = true }
 xtask-workflow-guard = { path = "../xtask-workflow-guard" }
 
 [dev-dependencies]
-assert_cmd = "2"
+assert_cmd = { workspace = true }
 assert_fs = { workspace = true }
-predicates = "3"
+predicates = { workspace = true }
 tiny_http = { workspace = true }
 # Not a duplicate of the `ureq` above: the shipped binary trusts the
 # compiled-in `webpki-roots` and nothing else, but the verify

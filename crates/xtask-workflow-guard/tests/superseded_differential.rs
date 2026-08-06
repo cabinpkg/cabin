@@ -121,9 +121,12 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use assert_fs::TempDir;
+
+mod common;
+use common::{GIT_ENVIRONMENT, git, git_output, ready, show};
 
 /// The list the port is handed, which is the list baked into the
 /// fixture - not the workflow's live one. The two differ by exactly
@@ -155,22 +158,8 @@ const SUPERSEDED: &[u8] = b"superseded=true\n";
 /// A `$GITHUB_SHA` no object can match.
 const UNKNOWN_SHA: &str = "0000000000000000000000000000000000000000";
 
-/// Handed to every git call the harness makes and to both sides of every
-/// run, so the corpus is reproducible and the machine's own git
-/// configuration is neither read nor writable.
-const GIT_ENVIRONMENT: [(&str, &str); 9] = [
-    ("GIT_AUTHOR_NAME", "cabin differential"),
-    ("GIT_AUTHOR_EMAIL", "differential@example.invalid"),
-    ("GIT_AUTHOR_DATE", "2026-01-01T00:00:00+00:00"),
-    ("GIT_COMMITTER_NAME", "cabin differential"),
-    ("GIT_COMMITTER_EMAIL", "differential@example.invalid"),
-    ("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+00:00"),
-    ("GIT_CONFIG_GLOBAL", "/dev/null"),
-    ("GIT_CONFIG_SYSTEM", "/dev/null"),
-    // An unreachable remote must fail rather than block on a credential
-    // prompt: an interactive git would hang the suite, not fail it.
-    ("GIT_TERMINAL_PROMPT", "0"),
-];
+/// The tools every scenario drives, on top of the port itself.
+const TOOLS: [&str; 2] = ["bash", "git"];
 
 /// How the run's checkout is built, and where `$GITHUB_SHA` points.
 enum Run {
@@ -320,52 +309,8 @@ fn write_under(root: &Path, path: &str, contents: &str) {
     fs::write(&file, contents).expect("the commit's file");
 }
 
-fn show(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let _ = git_output(dir, args);
-}
-
-fn git_output(dir: &Path, args: &[&str]) -> String {
-    let mut command = Command::new("git");
-    command.current_dir(dir).args(args);
-    for (name, value) in GIT_ENVIRONMENT {
-        command.env(name, value);
-    }
-    let done: Output = command
-        .output()
-        .expect("running one of the harness's own git commands");
-    assert!(
-        done.status.success(),
-        "the harness's `git {}` failed: {}",
-        args.join(" "),
-        String::from_utf8_lossy(&done.stderr)
-    );
-    String::from_utf8_lossy(&done.stdout).into_owned()
-}
-
 fn head(dir: &Path) -> String {
     git_output(dir, &["rev-parse", "HEAD"]).trim().to_owned()
-}
-
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn ready(test: &str) -> bool {
-    for tool in ["bash", "git"] {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 fn fixture() -> PathBuf {
@@ -382,7 +327,7 @@ fn once(mut command: Command, dir: &Path, sha: &str, seed: &[u8]) -> Outcome {
     fs::write(&output_file, seed).expect("the runner's $GITHUB_OUTPUT");
 
     command.current_dir(dir);
-    for (name, value) in GIT_ENVIRONMENT {
+    for &(name, value) in GIT_ENVIRONMENT {
         command.env(name, value);
     }
     let produced = command
@@ -502,7 +447,7 @@ fn wrote(case: &str, outcome: &Outcome, expected: &[u8]) {
 /// it, so nothing is written and the step is silent.
 #[test]
 fn an_up_to_date_checkout_writes_nothing() {
-    if !ready("an_up_to_date_checkout_writes_nothing") {
+    if !ready("an_up_to_date_checkout_writes_nothing", &TOOLS) {
         return;
     }
     let mut corpus = Corpus::build(&[&["README.md"]]);
@@ -519,7 +464,7 @@ fn an_up_to_date_checkout_writes_nothing() {
 /// `d454d37a1`.
 #[test]
 fn a_newer_commit_on_a_watched_path_is_superseded() {
-    if !ready("a_newer_commit_on_a_watched_path_is_superseded") {
+    if !ready("a_newer_commit_on_a_watched_path_is_superseded", &TOOLS) {
         return;
     }
     let cases = [
@@ -549,7 +494,7 @@ fn a_newer_commit_on_a_watched_path_is_superseded() {
 /// dependency bump and cannot on its own change what the Worker ships.
 #[test]
 fn a_newer_commit_off_the_watched_paths_is_not() {
-    if !ready("a_newer_commit_off_the_watched_paths_is_not") {
+    if !ready("a_newer_commit_off_the_watched_paths_is_not", &TOOLS) {
         return;
     }
     for (case, path) in [
@@ -569,7 +514,7 @@ fn a_newer_commit_off_the_watched_paths_is_not() {
 /// many watched paths that commit touches.
 #[test]
 fn an_origin_behind_the_run_is_not_superseded() {
-    if !ready("an_origin_behind_the_run_is_not_superseded") {
+    if !ready("an_origin_behind_the_run_is_not_superseded", &TOOLS) {
         return;
     }
     let mut corpus = Corpus::build(&[&["README.md"]]);
@@ -584,7 +529,7 @@ fn an_origin_behind_the_run_is_not_superseded() {
 /// this run", not "main's tip is newer".
 #[test]
 fn only_one_of_the_newer_commits_needs_to_match() {
-    if !ready("only_one_of_the_newer_commits_needs_to_match") {
+    if !ready("only_one_of_the_newer_commits_needs_to_match", &TOOLS) {
         return;
     }
     let mut corpus = Corpus::build(&[
@@ -613,7 +558,7 @@ fn only_one_of_the_newer_commits_needs_to_match() {
 /// side will land here first.
 #[test]
 fn a_broken_revision_range_answers_not_superseded() {
-    if !ready("a_broken_revision_range_answers_not_superseded") {
+    if !ready("a_broken_revision_range_answers_not_superseded", &TOOLS) {
         return;
     }
     for (case, run) in [
@@ -643,7 +588,7 @@ fn a_broken_revision_range_answers_not_superseded() {
 /// a stale run deploy.
 #[test]
 fn an_unreachable_origin_fails_the_step() {
-    if !ready("an_unreachable_origin_fails_the_step") {
+    if !ready("an_unreachable_origin_fails_the_step", &TOOLS) {
         return;
     }
     let mut corpus = Corpus::build(&[&["README.md"]]);
@@ -661,7 +606,7 @@ fn an_unreachable_origin_fails_the_step() {
 /// empty.
 #[test]
 fn an_existing_output_file_is_appended_to() {
-    if !ready("an_existing_output_file_is_appended_to") {
+    if !ready("an_existing_output_file_is_appended_to", &TOOLS) {
         return;
     }
     let mut corpus = Corpus::build(&[&["README.md"], &["registry/src/lib.rs"]]);

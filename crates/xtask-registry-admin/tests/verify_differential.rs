@@ -124,6 +124,9 @@ use std::time::Duration;
 
 use assert_fs::TempDir;
 
+mod common;
+use common::{ready, show};
+
 /// The token every live scenario sends. Distinctive on purpose: the
 /// request oracle compares the `authorization` header's exact value, so
 /// a side that hard-coded a header would not match it.
@@ -464,10 +467,6 @@ fn openssl(args: &[&str]) -> Option<()> {
     done.success().then_some(())
 }
 
-fn show(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
-}
-
 /// The mock registry: a `tiny_http` server on loopback with the TLS
 /// forwarder in front of it, plus the log both sides are compared on.
 struct Mock {
@@ -641,14 +640,6 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/registry-verify.sh.orig")
 }
 
-fn have(tool: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {tool} >/dev/null 2>&1"))
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
 /// `seq 0 -1` prints nothing under GNU coreutils and counts DOWN (`0`
 /// then `-1`) under BSD. A count that is not an integer reaches exactly
 /// that call, so the same listing walks nothing on the workflow's
@@ -660,16 +651,6 @@ fn gnu_seq() -> bool {
         .args(["0", "-1"])
         .output()
         .is_ok_and(|out| out.stdout.is_empty())
-}
-
-fn ready(test: &str, tools: &[&str]) -> bool {
-    for tool in tools {
-        if !have(tool) {
-            eprintln!("skipping {test}: {tool} is not on PATH");
-            return false;
-        }
-    }
-    true
 }
 
 /// Lays out one side's working directory: the stub verifier where the
