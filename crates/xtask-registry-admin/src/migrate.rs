@@ -453,11 +453,9 @@ fn basename(file: &Path) -> std::borrow::Cow<'_, str> {
 }
 
 /// The registry root this run reads, writes and runs wrangler in.
-/// `CABIN_REGISTRY_DIR` overrides [`registry_dir`], which is how the
-/// whole-run differential points the command at a synthetic registry
-/// root: the shell it replaces derived its root from its own path, so a
-/// harness could simply copy the script somewhere else, and nothing
-/// here can stand in for that.  Everything the run touches resolves
+/// `CABIN_REGISTRY_DIR` overrides [`registry_dir`], which is how tests
+/// point the command at a synthetic registry
+/// root.  Everything the run touches resolves
 /// through this one function, so the migrations, the stamp and
 /// wrangler's working directory cannot come from different trees.
 fn root() -> PathBuf {

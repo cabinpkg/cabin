@@ -47,8 +47,7 @@
 //! - **The digest is computed here, not by `sha256sum`.** The line's
 //!   bytes are fully determined (hex, space, `*`, name, newline), so
 //!   unlike the archivers there is no byte contract only the tool can
-//!   satisfy - and the differential holds the output against the real
-//!   `sha256sum`'s.
+//!   satisfy.
 //! - **GNU escaping is not reproduced.** `sha256sum` prefixes the line
 //!   with `\` and escapes the name when it contains a backslash or
 //!   newline. The archives here are `cabin-<version>-<target>`

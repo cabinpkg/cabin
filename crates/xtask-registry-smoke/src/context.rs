@@ -16,11 +16,8 @@
 
 use std::fmt::Write as _;
 use std::io::Read as _;
-use std::io::Write as _;
 
 use anyhow::{Context as _, Result, bail};
-
-use crate::bytes::sha256_hex;
 
 /// Which of the two `wrangler dev` instances a request goes to: the
 /// registry host, or the website role (`--host cabinpkg.com`).  Each
@@ -39,9 +36,6 @@ const WEB_ORIGIN: &str = "https://cabinpkg.com";
 /// What `curl` labels a `--data-binary` body when the caller names no
 /// type of its own.  Preserved because the routes see it.
 const FORM_CONTENT_TYPE: &str = "application/x-www-form-urlencoded";
-
-/// The file the differential harness reads, when it is running.
-const TRACE_ENV: &str = "CABIN_SMOKE_TRACE";
 
 /// The run's shared state: where the two dev instances are, which
 /// credential the next request carries, and what the last one answered.
@@ -163,11 +157,6 @@ impl Smoke {
         for (name, value) in headers {
             request = request.set(name, value);
         }
-        trace(&format!(
-            "HTTP\t{method}\t{url}\tbody={}",
-            body.map_or_else(|| "-".to_owned(), sha256_hex)
-        ));
-
         let sent = match body {
             Some(data) => {
                 if !headers
@@ -194,7 +183,6 @@ impl Smoke {
             .into_reader()
             .read_to_end(&mut self.body)
             .with_context(|| format!("reading the body of {method} {url}"))?;
-        trace(&format!("RESP\t{status}\tbody={}", sha256_hex(&self.body)));
         Ok(status)
     }
 
@@ -359,29 +347,10 @@ fn header_block(response: &ureq::Response) -> Vec<u8> {
     block.into_bytes()
 }
 
-/// One normalized record per request and response when `CABIN_SMOKE_TRACE`
-/// names a file, for the differential harness to diff against the same
-/// records a `curl` shim logs on the shell side.  A no-op otherwise, and
-/// a failed append never fails a check: the trace is an observer.
-fn trace(record: &str) {
-    let Ok(path) = std::env::var(TRACE_ENV) else {
-        return;
-    };
-    if path.is_empty() {
-        return;
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let _ = writeln!(file, "{record}");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
     use std::io::{BufRead as _, BufReader};
     use std::net::TcpListener;
     use std::sync::mpsc;

@@ -1,8 +1,6 @@
-//! The shell's byte-level helpers, ported exactly: the publish body
-//! framing, the packaging-revision id, the hash retargeting `sed`,
-//! and the zip tamperer.  Every function here has a corpus test in
-//! `tests/embedded.rs` diffing it against the original recovered via
-//! `git show`.
+//! Byte-level helpers for the smoke run: the publish body framing,
+//! the packaging-revision id, the hash retargeting, and the zip
+//! tamperer.
 
 use sha2::Digest as _;
 

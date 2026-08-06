@@ -56,10 +56,7 @@
 //! - the CA roots are `ureq`'s compiled-in `webpki-roots`, where `curl`
 //!   read `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and the system store - the
 //!   same environment ceiling the crate's proxy handling carries
-//!   (`crate::audit`).  A *test* build additionally turns on `ureq`'s
-//!   `native-certs`, which is what lets the differential point both
-//!   sides at one local mock; nothing but the compiled-in roots reaches
-//!   the shipped binary;
+//!   (`crate::audit`);
 //! - a redirect on the upstream download must be an absolute `https://`
 //!   URL.  `curl` resolved a relative `Location` against the URL it
 //!   came from; here that fails the download, and a failed upstream
