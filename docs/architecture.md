@@ -591,25 +591,20 @@ children: the signal-safe teardown (`spawn_tracked`/`reap`/`kill_group`, the tea
 restore) is public API consumed by `xtask-registry-smoke`, and a change to its process semantics
 is a change to every consumer's cancellation story.
 
-Its `tests/spec_coverage.rs` is the one-to-one port of `proofs.yml`'s spec-item coverage check:
-every `**L/T/C<n>**` item in `docs/design/standard-compatibility/spec.md` must have a same-named
-`theorem`/`def` declaration in the Lean mechanization.  `proofs.yml` runs exactly that test, and
-as a workspace test it now also runs with every full test sweep - a deliberate deviation from the
-shell, which ran only on proofs-path changes.
+Its `tests/spec_coverage.rs` holds the spec-item coverage check that `proofs.yml` runs: every
+`**L/T/C<n>**` item in `docs/design/standard-compatibility/spec.md` must have a same-named
+`theorem`/`def` declaration in the Lean mechanization.  As a workspace test it also runs with
+every full test sweep, so spec drift does not wait for a proofs-path push.
 
 ### `xtask-registry-smoke`
 
 Repository-owned maintainer tool (`publish = false`) holding the registry smoke test, reached
-through the `cargo registry-smoke` alias - the one-to-one Rust port of the former
-`registry/scripts/smoke.sh`.  It drives two local `wrangler dev` instances (the registry role and
-the website role) over one local D1/R2 state, plus a local export-API mock and a local GitHub
-mock, through the same step sequence and diagnostics as the shell.  The crate must:
+through the `cargo registry-smoke` alias.  It drives two local `wrangler dev` instances (the
+registry role and the website role) over one local D1/R2 state, plus a local export-API mock and
+a local GitHub mock, through a fixed step sequence with per-step diagnostics.  The crate must:
 
-- keep every step label and every explicit assertion diagnostic byte-compatible with the shell
-  it replaced (an incidental operational failure - a tool that would have died under `set -e` -
-  reports through the port's `FAIL:` prefix instead): the governor-leg labels are pinned
-  verbatim by `registry/tests/docs_drift.rs`, and `tests/embedded.rs` replays the original's
-  embedded programs through their real interpreters against the port's helpers;
+- keep the step labels stable (an incidental operational failure reports through the `FAIL:`
+  prefix): the governor-leg labels are pinned verbatim by `registry/tests/docs_drift.rs`;
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;
 - stay out of `registry/`'s own tooling: with `wipe.sh` and `lib.sh` gone, `registry/scripts/`
@@ -638,14 +633,14 @@ ceiling in its module documentation.  The crate must:
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the guards that keep an out-of-order or premature workflow run from mutating a shared
 resource, decided from repository files, git history and the GitHub Actions run context.  `cargo
-workflow-superseded` is the one-to-one Rust port of `registry.yml`'s freshness guard: it answers
+workflow-superseded` is `registry.yml`'s freshness guard: it answers
 whether `origin/main` already carries a commit after `$GITHUB_SHA` touching any `--path`, and
 records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
 older run from deploying over a newer one.  `cargo workflow-migrations-pending` is the same for
 `registry.yml`'s migrations gate: it recomputes the stamp over `registry/migrations/*.sql` and
 records `pending=true` when `registry/migrations-applied` no longer matches, which is what keeps
 a deploy from activating Worker code built for a schema the operator has not applied by hand.
-`cargo workflow-await-deploy` is the one-to-one port of `ports-publish.yml`'s deploy wait: it
+`cargo workflow-await-deploy` is `ports-publish.yml`'s deploy wait: it
 polls (90 times, 40 seconds apart) for a successful `main` Registry run whose head contains
 `$GITHUB_SHA` and whose Deploy step actually ran, and answers 0 as soon as one lands or the SHA
 turns out to have triggered no Registry run at all, which is what keeps a publish from uploading
@@ -661,15 +656,15 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 - keep each guard's `--path` list identical to the `paths:` filter of the workflow that runs it,
   which `tests/path_parity.rs` pins across all three copies: the lists were hand-maintained
   duplicates before the port and had already drifted apart;
-- state every property inherited from the shell it replaced in its module documentation - the
-  freshness guard's `git rev-list` sat in an `if` condition, where `set -e` is suppressed, so a
-  `rev-list` that errors answers "not superseded" and leaves the step green.
+- state each guard's failure direction in its module documentation - the freshness guard's
+  `rev-list`, when it errors, answers "not superseded" and leaves the step green, and anything
+  that quietly widens or narrows that has to be a deliberate, documented change.
 
 ### `xtask-dist`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the release-packaging steps of `dist.yml`.  `cargo dist-package` is the one-to-one Rust
-port of that workflow's "Package binary" step: it stages `target/<triple>/release/cabin`
+holding the release-packaging steps of `dist.yml`.  `cargo dist-package` is that workflow's
+"Package binary" step: it stages `target/<triple>/release/cabin`
 (`cabin.exe` on Windows), `README.md` and `LICENSE` into `cabin-<version>-<triple>/`, archives
 that directory, and prints the archive's path.  The version is the ref name for a tag build and
 `dev-<sha[..12]>` for every other ref type, which is what keeps a branch build's artifacts from
@@ -687,10 +682,8 @@ crate must:
   stdout for the step to record;
 - build and test on every runner in the matrix, Windows included, which is why the
   `RUNNER_OS` branches are `cfg!(windows)` at the entry point and a threaded argument below it;
-- state every property inherited from the shell it replaced in its module documentation - this
-  block set `-euo pipefail` itself where the guards ported before ran under GitHub's default
-  `run:` shell, so an unset `$GITHUB_REF_NAME` killed the step where a set-but-empty one was a
-  value that got spliced in.
+- keep every `--ref-*`/`--sha` flag required but empty-tolerant: the workflow forwards
+  `$GITHUB_*` values that may legitimately be empty, and a set-but-empty value is a value.
 
 ### `cabin-publish`
 

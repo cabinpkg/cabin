@@ -90,8 +90,6 @@ const TOTAL_STORED_BYTES: &str = "SELECT value FROM meta WHERE key = 'total_stor
 
 /// The publish bucket's burst, cleared so the attempts below are not
 /// refused by the rate limit before the membership gate is reached.
-/// The leading newline and indent are the shell's, kept because the
-/// differential harness compares wrangler argv.
 const RESET_PUBLISH_BUCKET: &str =
     "\n  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';";
 

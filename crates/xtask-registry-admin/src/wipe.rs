@@ -91,8 +91,7 @@
 //! - the base of that API is `CF_API_BASE`, defaulting to the literal the
 //!   script hardcoded.  It is the same variable the Worker reads
 //!   (`registry/src/backup_glue.rs`) and the smoke run already points at
-//!   a local mock, and it is what lets this command's differential answer
-//!   both the listing and the deletes.  It also means the environment
+//!   a local mock.  It also means the environment
 //!   names where `CLOUDFLARE_API_TOKEN` is sent - as it did for the
 //!   shell, whose `curl` a `curl` earlier on `PATH` answered for;
 //! - the `node` hops are gone: the D1 and R2 answers are parsed here.
