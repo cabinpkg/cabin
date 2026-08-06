@@ -1,10 +1,11 @@
-//! Command-line shim for the workflow guards.  Argument parsing is
-//! hand-rolled (`clap` stays in the `cabin` crate, per
-//! `crates/AGENTS.md`); the guards themselves live in the library.
+//! Command-line shim for the workflow guards; the guards themselves
+//! live in the library.
 
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
+use clap::error::ErrorKind;
+use clap::{Parser, Subcommand};
 
 const USAGE: &str = "\
 usage: xtask-workflow-guard <COMMAND>
@@ -30,8 +31,32 @@ options:
   -h, --help  show this help
 ";
 
+#[derive(Parser)]
+#[command(disable_help_subcommand = true)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Superseded {
+        // Deliberately not `required`: the empty-pathspec refusal is
+        // `superseded::run`'s own, with its own unit test, and a
+        // required argument would answer for it here instead.
+        #[arg(long = "path")]
+        paths: Vec<String>,
+    },
+    MigrationsPending,
+    AwaitDeploy,
+}
+
 fn main() -> ExitCode {
-    match run() {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => return refuse(&error),
+    };
+    match run(&cli.command) {
         Ok(code) => code,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -40,46 +65,37 @@ fn main() -> ExitCode {
     }
 }
 
-/// The guards answer in `$GITHUB_OUTPUT` and exit 0; `await-deploy`
-/// carries an exit status of its own, which is the step's answer.
-fn run() -> Result<ExitCode> {
-    let mut arguments = std::env::args().skip(1);
-    let Some(command) = arguments.next() else {
-        bail!("no command named\n\n{USAGE}");
-    };
-    let rest: Vec<String> = arguments.collect();
-    match command.as_str() {
-        "-h" | "--help" if rest.is_empty() => {
+/// `-h`/`--help` answers with the binary's own usage on stdout, which
+/// is what the aliases document, for the subcommands too. Every other
+/// parse failure is the exit 1 the step took under `set -e`, where
+/// clap's own default is 2.
+fn refuse(error: &clap::Error) -> ExitCode {
+    match error.kind() {
+        ErrorKind::DisplayHelp => {
             print!("{USAGE}");
-            Ok(ExitCode::SUCCESS)
+            ExitCode::SUCCESS
         }
-        "superseded" => {
-            xtask_workflow_guard::superseded::run(&paths(&rest)?).map(|()| ExitCode::SUCCESS)
+        ErrorKind::DisplayVersion => {
+            let _ = error.print();
+            ExitCode::SUCCESS
         }
-        "migrations-pending" => match rest.first() {
-            None => xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS),
-            Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
-        },
-        "await-deploy" => match rest.first() {
-            None => Ok(xtask_workflow_guard::await_deploy::run()),
-            Some(extra) => bail!("unexpected argument: {extra}\n\n{USAGE}"),
-        },
-        other => bail!("unknown command: {other}\n\n{USAGE}"),
+        _ => {
+            let _ = error.print();
+            ExitCode::FAILURE
+        }
     }
 }
 
-/// `superseded`'s own argument surface: `--path <p>`, repeated.
-fn paths(rest: &[String]) -> Result<Vec<String>> {
-    let mut paths = Vec::new();
-    let mut rest = rest.iter();
-    while let Some(argument) = rest.next() {
-        if argument != "--path" {
-            bail!("unexpected argument: {argument}\n\n{USAGE}");
+/// The guards answer in `$GITHUB_OUTPUT` and exit 0; `await-deploy`
+/// carries an exit status of its own, which is the step's answer.
+fn run(command: &Command) -> Result<ExitCode> {
+    match command {
+        Command::Superseded { paths } => {
+            xtask_workflow_guard::superseded::run(paths).map(|()| ExitCode::SUCCESS)
         }
-        let Some(path) = rest.next() else {
-            bail!("--path takes a value\n\n{USAGE}");
-        };
-        paths.push(path.clone());
+        Command::MigrationsPending => {
+            xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
+        }
+        Command::AwaitDeploy => Ok(xtask_workflow_guard::await_deploy::run()),
     }
-    Ok(paths)
 }

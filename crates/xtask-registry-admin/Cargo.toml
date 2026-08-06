@@ -16,6 +16,7 @@ publish = false
 anyhow = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
+clap = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

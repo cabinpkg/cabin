@@ -20,6 +20,7 @@ cabin-index-http = { workspace = true }
 cabin-manifest = { workspace = true }
 cabin-publish = { workspace = true }
 camino = { workspace = true }
+clap = { workspace = true }
 etcetera = { workspace = true }
 semver = { workspace = true }
 

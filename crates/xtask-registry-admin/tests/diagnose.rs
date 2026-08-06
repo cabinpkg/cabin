@@ -88,6 +88,42 @@ fn a_row_that_is_not_a_key_value_pair_is_an_error() {
     );
 }
 
+/// A bare `--` is an argument, never a delimiter.  Clap would swallow
+/// one and leave the mode unset, which selects the REMOTE wipe - the
+/// prompt for the most destructive command in this binary, reached by
+/// typing something that looks like nothing.  Every command refuses it
+/// before any work or prompt, as the shell they replace did.
+///
+/// Deleting the guard in `main` must fail this test rather than being
+/// caught by the confirmation behind it, which is why the assertion is
+/// on the refusal's wording and not merely on the exit status.
+#[test]
+fn a_bare_delimiter_is_refused_by_every_command() {
+    for command in [
+        vec!["--"],
+        vec!["wipe", "--"],
+        vec!["migrate", "--"],
+        vec!["restore-drill", "--"],
+        vec!["diagnose", "--"],
+        vec!["backup-audit", "--"],
+        vec!["backup-backfill", "--"],
+        vec!["verify", "--"],
+        vec!["governor", "--"],
+        vec!["launch-guard", "--"],
+    ] {
+        Command::cargo_bin("xtask-registry-admin")
+            .unwrap()
+            .args(&command)
+            // The wipe's own confirmation would refuse an empty stdin
+            // too; this must not be what makes the assertion pass.
+            .env_remove("CABIN_WIPE_YES")
+            .env_remove("CABIN_MIGRATE_YES")
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("unexpected argument: --"));
+    }
+}
+
 #[test]
 fn the_command_is_required() {
     Command::cargo_bin("xtask-registry-admin")

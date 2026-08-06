@@ -1,11 +1,12 @@
-//! Command-line shim for the registry source guards.  Argument parsing
-//! is hand-rolled (`clap` stays in the `cabin` crate, per
-//! `crates/AGENTS.md`); the guards themselves live in the library.
+//! Command-line shim for the registry source guards; the guards
+//! themselves live in the library.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
+use clap::error::ErrorKind;
+use clap::{Parser, Subcommand};
 use xtask_registry_guard::{deploy, r2, registry_dir, sql};
 
 const USAGE: &str = "\
@@ -30,8 +31,46 @@ options:
   -h, --help             show this help
 ";
 
+/// The guards are subcommands; both options are global, because
+/// `--help` and the options are accepted after the guard name as well
+/// as before it.
+// `args_override_self`: a repeated flag keeps its last value, as the
+// parser this replaces did, so a wrapper may supply a default and
+// override it.
+#[derive(Parser)]
+#[command(disable_help_subcommand = true, args_override_self = true)]
+struct Cli {
+    #[command(subcommand)]
+    guard: Option<Guard>,
+    #[arg(long, global = true)]
+    registry_dir: Option<PathBuf>,
+    #[arg(long, global = true)]
+    require_bundle: bool,
+}
+
+#[derive(Subcommand)]
+enum Guard {
+    CheckSql,
+    CheckR2,
+    CheckDeploy,
+}
+
 fn main() -> ExitCode {
-    match run() {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        // One help text for the binary, whichever guard it was asked
+        // after; every other parse failure is a refusal, which exits 1
+        // rather than clap's 2.
+        Err(err) if err.kind() == ErrorKind::DisplayHelp => {
+            print!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(err) => {
+            let _ = err.print();
+            return ExitCode::FAILURE;
+        }
+    };
+    match run(&cli) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(err) => {
@@ -42,66 +81,41 @@ fn main() -> ExitCode {
 }
 
 /// `Ok(true)` when the guard accepted the tree.
-fn run() -> Result<bool> {
-    let mut arguments = std::env::args().skip(1);
-    let Some(guard) = arguments.next() else {
+fn run(cli: &Cli) -> Result<bool> {
+    let Some(guard) = &cli.guard else {
         bail!("no guard named\n\n{USAGE}");
     };
-    if guard == "-h" || guard == "--help" {
-        print!("{USAGE}");
-        return Ok(true);
-    }
-    let mut directory = None;
-    let mut require_bundle = false;
-    while let Some(argument) = arguments.next() {
-        match argument.as_str() {
-            "-h" | "--help" => {
-                print!("{USAGE}");
-                return Ok(true);
-            }
-            "--require-bundle" => require_bundle = true,
-            "--registry-dir" => {
-                directory =
-                    Some(PathBuf::from(arguments.next().ok_or_else(|| {
-                        anyhow::anyhow!("--registry-dir needs a path")
-                    })?));
-            }
-            other => bail!("unexpected argument: {other}\n\n{USAGE}"),
-        }
-    }
-    let directory = directory.unwrap_or_else(registry_dir);
-
-    if guard == "check-deploy" {
-        let report = deploy::check(&directory, require_bundle);
-        for note in &report.notes {
-            println!("{note}");
-        }
-        for failure in &report.failures {
-            eprintln!("{failure}");
-        }
-        if let Some(summary) = report.summary {
-            eprintln!("FAIL: {summary}");
-            return Ok(false);
-        }
-        println!("deploy config OK");
-        return Ok(true);
-    }
-    if require_bundle {
+    let directory = cli.registry_dir.clone().unwrap_or_else(registry_dir);
+    if cli.require_bundle && !matches!(guard, Guard::CheckDeploy) {
         bail!("--require-bundle is only meaningful for check-deploy\n\n{USAGE}");
     }
 
-    let (violations, remedy) = match guard.as_str() {
-        "check-sql" => (
+    let (violations, remedy) = match guard {
+        Guard::CheckDeploy => {
+            let report = deploy::check(&directory, cli.require_bundle);
+            for note in &report.notes {
+                println!("{note}");
+            }
+            for failure in &report.failures {
+                eprintln!("{failure}");
+            }
+            if let Some(summary) = report.summary {
+                eprintln!("FAIL: {summary}");
+                return Ok(false);
+            }
+            println!("deploy config OK");
+            return Ok(true);
+        }
+        Guard::CheckSql => (
             sql::check(&directory)?,
             "error: executed SQL outside src/sql.rs; \
              route the statements above through sql:: consts",
         ),
-        "check-r2" => (
+        Guard::CheckR2 => (
             r2::check(&directory)?,
             "error: R2 bucket acquisition outside the pinned \
              governor-admitting functions",
         ),
-        other => bail!("unknown guard: {other}\n\n{USAGE}"),
     };
     for violation in &violations {
         println!("{violation}");

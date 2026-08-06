@@ -10,7 +10,8 @@ rules that are easy to violate:
   through the CLI. Keep public APIs small: raw serde structs stay private to
   parser crates; PubGrub
   never appears in `cabin-resolver`'s public API; `clap` appears only in
-  `cabin`; workspace graph algorithms stay in `cabin-workspace`.
+  `cabin` and the `xtask-*` binaries; workspace graph algorithms stay in
+  `cabin-workspace`.
 - Keep manifest, config, package, index, registry, and lockfile metadata
   free of local machine state: detected tools, env-derived selections,
   effective config, pkg-config results, and CLI-only choices.
