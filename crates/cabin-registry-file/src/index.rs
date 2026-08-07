@@ -824,7 +824,7 @@ mod tests {
         meta.upstream = Some(
             cabin_core::UpstreamProvenance::new(
                 "https://example.com/fmt-10.2.1.tar.gz",
-                sha,
+                &format!("sha256:{sha}"),
                 "tar.gz",
                 Some("fmt-10.2.1".to_owned()),
                 vec![
@@ -841,7 +841,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         let upstream = &value["versions"]["10.2.1"]["upstream"];
         assert_eq!(upstream["url"], "https://example.com/fmt-10.2.1.tar.gz");
-        assert_eq!(upstream["sha256"], sha);
+        assert_eq!(upstream["checksum"], format!("sha256:{sha}"));
         assert_eq!(upstream["format"], "tar.gz");
         assert_eq!(upstream["strip-prefix"], "fmt-10.2.1");
         assert_eq!(upstream["copy"][0]["from"], "support/config.h.in");

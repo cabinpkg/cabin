@@ -187,7 +187,8 @@ Before archive bytes are written, `cabin-package` validates:
   and not publishable.  Remove the [patch] table from this manifest before packaging, or move the
   patches to a .cabin/config.toml file.` See [`patch-overrides.md`](patch-overrides.md);
 - an optional `[package.upstream]` table, when present, already passed the manifest parser's
-  provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"` format,
+  provenance rules (credential-free HTTPS URL, `sha256:`-prefixed 64-hex `checksum`, `"tar.gz"` /
+  `"zip"` format,
   single-component `strip-prefix`, canonical portable copy paths, safe non-conflicting `patches`
   entries - see [`manifest.md`](manifest.md#packageupstream)); packaging carries it into the
   canonical metadata (the URL in its normalized serialization) and never fetches it.  Every
@@ -252,7 +253,7 @@ would not contain cabin.toml`.
 | `build` *(optional)* | The package's `[profile]` plus any general `[target.'cfg(...)'.profile]` and named `[target.'cfg(...)'.profile.<name>]` overrides.  Named entries carry an optional profile-name discriminator.  Omitted when empty. |
 | `compiler_wrapper` *(optional)* | The workspace root's `[build] compiler-wrapper` declaration, written as the typed compiler-wrapper request. Environment- or CLI-derived wrapper selections are deliberately not written here. Omitted when no wrapper was declared. See [`compiler-cache.md`](compiler-cache.md). |
 | `links` *(optional)* | Declared per-target [`links`](manifest.md#links) claims, as a `{ "<target>": "<identity>" }` map sorted by target name.  A pure projection of the manifest so index consumers can run the post-resolution uniqueness check without downloading the archive.  Omitted when no target declares one. |
-| `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), `sha256`, `format`, optional `strip-prefix`, the `patches` list, and the `copy` steps (`patches` and `copy` are each omitted when empty; `patches` renders between `strip-prefix` and `copy`, matching the manifest's only valid layout).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
+| `upstream` *(optional)* | The manifest's `[package.upstream]` provenance declaration: `url` (in its normalized `url`-crate serialization - lowercased scheme and host), the upstream archive's algorithm-prefixed `checksum` (distinct from the document's own published-archive `checksum` below), `format`, optional `strip-prefix`, the `patches` list, and the `copy` steps (`patches` and `copy` are each omitted when empty; `patches` renders between `strip-prefix` and `copy`, matching the manifest's only valid layout).  Inert for consumers; the hosted registry's external verifier checks the published tree against the pinned archive ([`remote-registry.md`](remote-registry.md#the-verifiers-checks)).  Omitted when the manifest declares none. |
 | `yanked` | Always `false` from `cabin package`. |
 | `checksum` | `sha256:<hex>` digest of the archive bytes the run produced.  Its leading 16 hex characters are the [packaging revision](package-index.md#packaging-revisions) this document describes. |
 | `source.type` | Always `"archive"`. |

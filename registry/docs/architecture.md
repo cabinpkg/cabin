@@ -497,8 +497,9 @@ Publish validates in a fixed order, stopping at the first failure:
    the archived manifest's maps to match;
 8. when the document declares an `upstream` provenance block, it passes
    the lexical mirror of the client's provenance rules - an
-   `https://` URL whose authority embeds no credentials, a 64-hex
-   `sha256`, a `"tar.gz"` / `"zip"` format, a single-component
+   `https://` URL whose authority embeds no credentials, a
+   `sha256:`-prefixed 64-hex `checksum`, a `"tar.gz"` / `"zip"`
+   format, a single-component
    `strip-prefix`, non-escaping copy paths, and non-escaping
    `patches` entries distinct from copy paths and the root
    manifest (`400`).  A strict

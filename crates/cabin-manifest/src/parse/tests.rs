@@ -3424,7 +3424,7 @@ const UPSTREAM: &str = r#"
 
         [package.upstream]
         url = "https://example.com/zlib-1.3.1.tar.gz"
-        sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+        checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
         format = "tar.gz"
         strip-prefix = "zlib-1.3.1"
 
@@ -3440,6 +3440,10 @@ fn package_upstream_is_parsed() {
     assert_eq!(
         upstream.url().as_str(),
         "https://example.com/zlib-1.3.1.tar.gz"
+    );
+    assert_eq!(
+        upstream.checksum(),
+        "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
     );
     assert_eq!(
         upstream.sha256_hex(),
@@ -3526,7 +3530,7 @@ fn package_upstream_zip_without_strip_prefix_or_copies() {
 
         [package.upstream]
         url = "https://example.com/miniz-3.1.2.zip"
-        sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+        checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
         format = "zip"
     "#,
     );
@@ -3566,13 +3570,16 @@ fn package_upstream_rejects_url_credentials() {
 }
 
 #[test]
-fn package_upstream_rejects_bad_sha256() {
+fn package_upstream_rejects_bad_checksums() {
     for replacement in [
-        "deadbeef",
-        "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
+        // A bare digest without the algorithm prefix.
+        "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+        "sha256:deadbeef",
+        "sha512:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+        "sha256:9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
     ] {
         let err = parse_project_err(&UPSTREAM.replace(
-            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+            "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
             replacement,
         ));
         assert!(
@@ -3585,6 +3592,17 @@ fn package_upstream_rejects_bad_sha256() {
             "{replacement}: {err:?}"
         );
     }
+}
+
+#[test]
+fn package_upstream_rejects_the_removed_sha256_key() {
+    // The pre-rename key is a plain unknown field, not a
+    // migration-specific diagnostic.
+    let err = parse_project_err(&UPSTREAM.replace(
+        "checksum = \"sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
+        "sha256 = \"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
+    ));
+    assert!(err.to_string().contains("unknown field"), "{err:?}");
 }
 
 #[test]

@@ -537,7 +537,7 @@ mod tests {
             upstream: Box::new(
                 cabin_core::UpstreamProvenance::new(
                     "https://ports.invalid/zlib-1.3.1.tar.gz",
-                    &"a".repeat(64),
+                    &format!("sha256:{}", "a".repeat(64)),
                     "tar.gz",
                     None,
                     Vec::new(),
@@ -655,7 +655,7 @@ mod tests {
         let mut conversion = conversion(&["z"]);
         *conversion.upstream = cabin_core::UpstreamProvenance::new(
             "https://ports.invalid/zlib-1.3.1.tar.gz",
-            &hex,
+            &format!("sha256:{hex}"),
             "tar.gz",
             Some("zlib-1.3.1".to_owned()),
             Vec::new(),

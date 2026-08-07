@@ -531,7 +531,7 @@ fn upstream_from_raw(
         .map_err(|source| ManifestError::Upstream { source })?;
     cabin_core::UpstreamProvenance::new(
         &raw.url,
-        &raw.sha256,
+        &raw.checksum,
         &raw.format,
         raw.strip_prefix,
         copies,

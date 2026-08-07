@@ -896,7 +896,7 @@ mod tests {
     fn package_manifest(scoped: &str, version: &str, extra: &str) -> String {
         format!(
             "[package]\nname = \"{scoped}\"\nversion = \"{version}\"\n\n\
-             [package.upstream]\nurl = \"https://ports.invalid/a.tar.gz\"\nsha256 = \"{}\"\n\
+             [package.upstream]\nurl = \"https://ports.invalid/a.tar.gz\"\nchecksum = \"sha256:{}\"\n\
              format = \"tar.gz\"\n\n{extra}\
              [target.t]\ntype = \"library\"\nsources = [\"a.c\"]\ninclude-dirs = [\".\"]\n\
              c-standard = \"c11\"\n",

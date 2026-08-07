@@ -19,7 +19,7 @@ version = "${version}"
 
 [package.upstream]
 url = "https://example.com/fmt-${version}.tar.gz"
-sha256 = "${"b".repeat(64)}"
+checksum = "sha256:${"b".repeat(64)}"
 format = "tar.gz"
 `;
 }
@@ -39,7 +39,7 @@ test("every committed port loads as a canonical cabin-ports identity", async () 
         // version-string suffix.
         assert.equal(record.version, record.upstream.version);
         assert.ok(record.upstream.archiveUrl.startsWith("https://"));
-        assert.match(record.upstream.sha256, /^[0-9a-f]{64}$/);
+        assert.match(record.upstream.checksum, /^sha256:[0-9a-f]{64}$/);
     }
 });
 
@@ -86,7 +86,7 @@ version = "1.0.0"
 
 [package.upstream]
 url = "https://example.com/apng-1.0.0.tar.gz"
-sha256 = "${"a".repeat(64)}"
+checksum = "sha256:${"a".repeat(64)}"
 format = "tar.gz"
 
 [dependencies]
@@ -125,7 +125,7 @@ version = "1.0.0"
 
 [package.upstream]
 url = "https://example.com/apng-1.0.0.tar.gz"
-sha256 = "${"a".repeat(64)}"
+checksum = "sha256:${"a".repeat(64)}"
 format = "tar.gz"
 
 [dependencies]
@@ -154,7 +154,7 @@ version = "1.3.1"
 
 [package.upstream]
 url = "https://example.com/zlib-1.3.1.tar.gz"
-sha256 = "${"a".repeat(64)}"
+checksum = "sha256:${"a".repeat(64)}"
 format = "tar.gz"
 `,
         );
@@ -188,7 +188,7 @@ version = "1.3.1"
 
 [package.upstream]
 url = "https://example.com/zlib-1.3.1.tar.gz"
-sha256 = "${"a".repeat(64)}"
+checksum = "sha256:${"a".repeat(64)}"
 format = "tar.gz"
 `,
         );
@@ -203,7 +203,7 @@ version = "12.2.0"
 
 [package.upstream]
 url = "HTTPS://example.com/fmt-12.2.0.tar.gz"
-sha256 = "${"b".repeat(64)}"
+checksum = "sha256:${"b".repeat(64)}"
 format = "tar.gz"
 
 [dependencies]
@@ -258,7 +258,7 @@ version = "12.2.0"
 
 [package.upstream]
 url = "https://example.com/fmt-12.2.0.tar.gz"
-sha256 = "${"b".repeat(64)}"
+checksum = "sha256:${"b".repeat(64)}"
 format = "tar.gz"
 `,
         );

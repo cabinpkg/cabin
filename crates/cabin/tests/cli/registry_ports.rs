@@ -700,11 +700,11 @@ fn provenance_round_trips_committed_pin_into_index_and_archived_manifest() {
     // so the assertion cannot drift from what was staged.
     let committed =
         fs::read_to_string(staged.root.path().join("ports/libpng/1.6.50/cabin.toml")).unwrap();
-    let pinned_sha = committed
+    let pinned_checksum = committed
         .lines()
-        .find_map(|line| line.strip_prefix("sha256 = \""))
+        .find_map(|line| line.strip_prefix("checksum = \""))
         .and_then(|rest| rest.strip_suffix('"'))
-        .expect("fixture manifest pins a sha256");
+        .expect("fixture manifest pins an upstream checksum");
 
     let index: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(staged.registry().join("packages/cabin-ports/libpng.json")).unwrap(),
@@ -715,7 +715,7 @@ fn provenance_round_trips_committed_pin_into_index_and_archived_manifest() {
         upstream["url"],
         "https://ports.invalid/libpng-1.6.50.tar.gz"
     );
-    assert_eq!(upstream["sha256"], pinned_sha);
+    assert_eq!(upstream["checksum"], pinned_checksum);
     assert_eq!(upstream["format"], "tar.gz");
     assert_eq!(upstream["strip-prefix"], "libpng-1.6.50");
     assert_eq!(

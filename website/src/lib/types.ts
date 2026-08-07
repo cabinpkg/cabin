@@ -17,7 +17,9 @@ export interface PackageRecord {
 export interface PackageUpstream {
     version: string;
     archiveUrl: string;
-    sha256: string;
+    // Algorithm-prefixed checksum of the pinned archive
+    // ("sha256:<64 lowercase hex>"), as the manifest spells it.
+    checksum: string;
 }
 
 export interface PackageListItem {

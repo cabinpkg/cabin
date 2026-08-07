@@ -2169,7 +2169,7 @@ mod tests {
                     "dependencies": {{}},
                     "upstream": {{
                         "url": "https://example.com/fmt-10.2.1.tar.gz",
-                        "sha256": "{sha}",
+                        "checksum": "sha256:{sha}",
                         "format": "tar.gz",
                         "strip-prefix": "fmt-10.2.1",
                         "copy": [{{"from": "support/a", "to": "a"}}]
@@ -2186,6 +2186,7 @@ mod tests {
             upstream.url().as_str(),
             "https://example.com/fmt-10.2.1.tar.gz"
         );
+        assert_eq!(upstream.checksum(), format!("sha256:{sha}"));
         assert_eq!(upstream.sha256_hex(), sha);
         assert_eq!(upstream.format(), cabin_core::UpstreamFormat::TarGz);
         assert_eq!(upstream.strip_prefix(), Some("fmt-10.2.1"));
@@ -2226,7 +2227,7 @@ mod tests {
                     "dependencies": {{}},
                     "upstream": {{
                         "url": "http://example.com/fmt.tar.gz",
-                        "sha256": "{sha}",
+                        "checksum": "sha256:{sha}",
                         "format": "tar.gz"
                     }}
                 }} }}

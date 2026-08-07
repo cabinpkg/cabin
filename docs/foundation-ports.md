@@ -55,7 +55,7 @@ refuses each of these with a message naming it.
 ### Provenance
 
 Every port declares [`[package.upstream]`](manifest.md#packageupstream): the pinned archive URL,
-its SHA-256, the container format, an optional `strip-prefix`, declarative
+its algorithm-prefixed checksum, the container format, an optional `strip-prefix`, declarative
 `[[package.upstream.copy]]` placements, and declared `patches`.  There is no port-specific
 provenance vocabulary - that published table is the whole of it, and
 [`manifest.md`](manifest.md#packageupstream) is its normative reference.
@@ -72,7 +72,7 @@ archive root on the include path.  The target key is the artifact stem, so it is
 ```toml
 [package.upstream]
 url = "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
-sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
 format = "tar.gz"
 strip-prefix = "zlib-1.3.1"
 
@@ -276,7 +276,7 @@ packaging revision (see below) rather than overwriting anything, never silent di
 The publish job authenticates through the `CABIN_PORTS_TOKEN` repository secret (a registry
 token for the account owning the `cabin-ports` scope), exposed to `cabin publish` as
 `CABIN_REGISTRY_TOKEN`.  Upstream archives restored from the CI cache are never trusted: the
-tool re-hashes every cached archive against the SHA-256 its port's `[package.upstream]` pins,
+tool re-hashes every cached archive against the checksum its port's `[package.upstream]` pins,
 and re-downloads on a mismatch.  The ports tree and the
 workflow live in the `cabinpkg/cabin` repository; the
 `cabin-ports` GitHub organization is the registry scope authority, not a separate source
