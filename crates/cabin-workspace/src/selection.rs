@@ -265,11 +265,11 @@ pub fn combine_version_reqs(
     }
 }
 
-/// The per-dependency eligibility predicate shared by the versioned-dep
-/// aggregators.  Returns the [`semver::VersionReq`] when `dep` is an active
+/// The per-dependency eligibility predicate for the versioned-dep
+/// walk.  Returns the [`semver::VersionReq`] when `dep` is an active
 /// registry-versioned dependency for this invocation - right kind (normal
 /// kinds, plus `Dev` when `dev_active_here`), matches the host platform,
-/// optional only if enabled, and not excluded - otherwise `None`. `idx` is
+/// and optional only if enabled - otherwise `None`. `idx` is
 /// the declaring package's closure index, threaded so the optional gate can
 /// consult `is_optional_dep_enabled`.
 fn versioned_dep_active<'a, F>(
@@ -278,7 +278,6 @@ fn versioned_dep_active<'a, F>(
     dev_active_here: bool,
     host: &cabin_core::TargetPlatform,
     is_optional_dep_enabled: &F,
-    excluded_names: &BTreeSet<String>,
 ) -> Option<&'a semver::VersionReq>
 where
     F: Fn(usize, &str) -> bool,
@@ -293,9 +292,6 @@ where
         return None;
     }
     if dep.optional && !is_optional_dep_enabled(idx, dep.name.as_str()) {
-        return None;
-    }
-    if excluded_names.contains(dep.name.as_str()) {
         return None;
     }
     match &dep.source {
@@ -364,7 +360,6 @@ where
     // (patched) name is still *observed*: callers use the
     // referenced set to fold in only the patches this invocation
     // actually reaches.
-    let no_exclusions = BTreeSet::new();
     for &idx in closure {
         let pkg = &graph.packages[idx];
         // Skip registry packages - their declared deps are already
@@ -381,7 +376,6 @@ where
                 dev_active_here,
                 &host_platform,
                 &is_optional_dep_enabled,
-                &no_exclusions,
             ) {
                 if excluded_names.contains(dep.name.as_str()) {
                     referenced_excluded.insert(dep.name.as_str().to_owned());
@@ -421,46 +415,6 @@ where
 pub struct ClosureVersionedDeps {
     pub deps: BTreeMap<cabin_core::PackageName, semver::VersionReq>,
     pub referenced_excluded: BTreeSet<String>,
-}
-
-/// Whether the supplied closure carries any versioned
-/// (registry-bound) dependency that the artifact pipeline would
-/// need to fetch.  Mirrors
-/// [`collect_closure_versioned_deps_excluding_with_dev`] but
-/// returns a `bool` so the CLI can short-circuit before opening
-/// an index.
-///
-/// `dev_active_for` follows the same opt-in policy as
-/// [`collect_closure_versioned_deps_excluding_with_dev`].
-pub fn closure_has_versioned_deps_excluding_with_dev<F>(
-    graph: &PackageGraph,
-    closure: &BTreeSet<usize>,
-    is_optional_dep_enabled: F,
-    excluded_names: &BTreeSet<String>,
-    dev_active_for: &BTreeSet<String>,
-) -> bool
-where
-    F: Fn(usize, &str) -> bool,
-{
-    let host_platform = cabin_core::TargetPlatform::current();
-    closure.iter().any(|&idx| {
-        let pkg = &graph.packages[idx];
-        if !matches!(pkg.kind, crate::graph::PackageKind::Local) {
-            return false;
-        }
-        let dev_active_here = dev_active_for.contains(pkg.package.name.as_str());
-        pkg.package.dependencies.iter().any(|dep| {
-            versioned_dep_active(
-                dep,
-                idx,
-                dev_active_here,
-                &host_platform,
-                &is_optional_dep_enabled,
-                excluded_names,
-            )
-            .is_some()
-        })
-    })
 }
 
 fn workspace_member_names(graph: &PackageGraph) -> Vec<String> {
@@ -854,57 +808,6 @@ spdlog = "^1"
             .map(cabin_core::PackageName::as_str)
             .collect();
         assert_eq!(keys, vec!["spdlog"]);
-    }
-
-    #[test]
-    fn closure_has_versioned_deps_excluding_returns_false_when_only_dep_is_excluded() {
-        let dir = TempDir::new().unwrap();
-        dir.child("cabin.toml")
-            .write_str(
-                r#"[workspace]
-members = ["packages/app"]
-"#,
-            )
-            .unwrap();
-        dir.child("packages/app/cabin.toml")
-            .write_str(
-                r#"[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-fmt = ">=10"
-"#,
-            )
-            .unwrap();
-        let graph = load_workspace(dir.path().join("cabin.toml")).unwrap();
-        let sel = resolve_package_selection(
-            &graph,
-            &PackageSelection {
-                mode: SelectionMode::ExplicitPackages(vec!["app".into()]),
-                exclude: Vec::new(),
-            },
-        )
-        .unwrap();
-        let closure = sel.closure(&graph);
-        let mut excluded: BTreeSet<String> = BTreeSet::new();
-        excluded.insert("fmt".into());
-        assert!(!closure_has_versioned_deps_excluding_with_dev(
-            &graph,
-            &closure,
-            |_, _| false,
-            &excluded,
-            &BTreeSet::new(),
-        ));
-        // Empty exclusion set leaves the original positive
-        // result in place.
-        assert!(closure_has_versioned_deps_excluding_with_dev(
-            &graph,
-            &closure,
-            |_, _| false,
-            &BTreeSet::new(),
-            &BTreeSet::new(),
-        ));
     }
 
     #[test]

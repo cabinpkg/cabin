@@ -35,7 +35,6 @@ pub use patch::{
 };
 pub use selection::{
     ClosureVersionedDeps, PackageSelection, ResolvedSelection, SelectionMode,
-    closure_has_versioned_deps_excluding_with_dev,
     collect_closure_versioned_deps_excluding_with_dev, combine_version_reqs,
     resolve_package_selection,
 };
