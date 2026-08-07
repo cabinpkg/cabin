@@ -4,22 +4,24 @@
 
 use sha2::Digest as _;
 
-/// `u32le`: a length as four little-endian bytes (the shell emitted
-/// them through nested octal `printf`s because the bytes are usually
-/// NULs).
-#[must_use]
-pub fn u32le(n: u32) -> [u8; 4] {
-    n.to_le_bytes()
-}
-
 /// `frame`: the publish body,
-/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
+/// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]` (the
+/// shell emitted each length through nested octal `printf`s because
+/// the bytes are usually NULs).
 #[must_use]
 pub fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 + metadata.len() + archive.len());
-    out.extend_from_slice(&u32le(u32::try_from(metadata.len()).unwrap_or(u32::MAX)));
+    out.extend_from_slice(
+        &u32::try_from(metadata.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
     out.extend_from_slice(metadata);
-    out.extend_from_slice(&u32le(u32::try_from(archive.len()).unwrap_or(u32::MAX)));
+    out.extend_from_slice(
+        &u32::try_from(archive.len())
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
     out.extend_from_slice(archive);
     out
 }
@@ -30,22 +32,16 @@ pub fn frame(metadata: &[u8], archive: &[u8]) -> Vec<u8> {
 /// path spell the id out.
 #[must_use]
 pub fn revision_of(archive: &[u8]) -> String {
-    let mut digest = sha256_hex(archive);
-    digest.truncate(16);
-    digest
+    cabin_core::Checksum::of_bytes(archive)
+        .revision_id()
+        .to_owned()
 }
 
 /// The full SHA-256 of a blob, lowercase hex - what the shell spelled
 /// `shasum -a 256 | cut -d' ' -f1`.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
-    use std::fmt::Write as _;
-    sha2::Sha256::digest(data)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    cabin_core::hash::hex_digest(&sha2::Sha256::digest(data))
 }
 
 /// `retarget_hash`: rewrite a canonical metadata document onto an
@@ -113,6 +109,14 @@ mod tests {
         assert_eq!(&framed[4..8], b"meta");
         assert_eq!(&framed[8..12], &[8, 0, 0, 0]);
         assert_eq!(&framed[12..], b"archive!");
+    }
+
+    #[test]
+    fn the_hex_digest_matches_shasum_over_empty_input() {
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]

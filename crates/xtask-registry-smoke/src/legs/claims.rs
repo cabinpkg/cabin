@@ -18,16 +18,15 @@
 //! L806 and L1169 reads a header block a `session_request` would have
 //! clobbered, so the two are indistinguishable here.
 
-use std::borrow::Cow;
-
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
-use xtask_registry_admin::{display, output, results, wrangler};
+use xtask_registry_admin::display;
 
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
 use crate::legs::session::{CREATE_BODY, csrf_headers, session_request};
 use crate::step;
+use crate::text::{capture, contains, first_line, grep_lines, status_line_is, strip_name, text};
 
 /// L907-908: the claim's frozen proof, read straight out of the local
 /// database because no route exposes it.
@@ -162,16 +161,7 @@ fn drifted_self_claim(smoke: &mut Smoke, github_port: u16) -> Result<()> {
 fn self_claim(smoke: &mut Smoke) -> Result<()> {
     step("a self-claim grants the scope, frozen to the account's numeric id");
     claim_scope(smoke, "smoke", "granted")?;
-    let json = output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--json",
-        "--command",
-        PROOF_QUERY,
-    ]))?;
-    let rows = results(&json)?;
+    let rows = crate::servers::d1_rows(PROOF_QUERY)?;
     let row = rows
         .first()
         .context("the claim did not freeze the numeric proof")?;
@@ -485,15 +475,6 @@ fn joined<'a>(lines: impl Iterator<Item = &'a str>) -> String {
     lines.collect::<Vec<_>>().join("\n").replace('\r', "")
 }
 
-/// `sed 's/^[^:]*: //'`: the name and the single space after its colon,
-/// and only when that space is there.
-fn strip_name(line: &str) -> &str {
-    match line.find(':') {
-        Some(colon) if line[colon..].starts_with(": ") => &line[colon + 2..],
-        _ => line,
-    }
-}
-
 /// `sed 's/^[^:]*: cabin_claim_state=\([^;]*\);.*/\1/'`: the value up to
 /// the first `;`.  A cookie carrying no attribute at all matches
 /// nothing, and `sed` then passes the whole line through unchanged.
@@ -534,51 +515,6 @@ fn state_in_line(line: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
-/// `grep -i '^<prefix>'` over the header block: every line whose start
-/// matches case-insensitively, keeping duplicates and each line's
-/// trailing CR - the shell's captures carry it into the diagnostics.
-fn grep_lines<'a>(block: &'a str, prefix: &str) -> Vec<&'a str> {
-    let prefix = prefix.to_ascii_lowercase();
-    block
-        .split('\n')
-        .filter(|line| line.to_ascii_lowercase().starts_with(&prefix))
-        .collect()
-}
-
-/// `grep -q '^HTTP/[^ ]* <code>'`: case-sensitive, with any version
-/// token between the scheme and the code.
-fn status_line_is(block: &str, code: u16) -> bool {
-    block.split('\n').any(|line| {
-        line.strip_prefix("HTTP/").is_some_and(|rest| {
-            let version = rest.split(' ').next().unwrap_or_default();
-            rest[version.len()..].starts_with(&format!(" {code}"))
-        })
-    })
-}
-
-/// `head -1`, which keeps the status line's trailing CR.
-fn first_line(block: &str) -> &str {
-    block.split('\n').next().unwrap_or_default()
-}
-
-/// `grep -qF`: a fixed byte substring, never a pattern.
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
-}
-
-fn text(bytes: &[u8]) -> Cow<'_, str> {
-    String::from_utf8_lossy(bytes)
-}
-
-/// `"$(cat <file>)"`: the bytes as text with trailing newlines dropped.
-fn capture(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .trim_end_matches('\n')
-        .to_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,15 +527,6 @@ mod tests {
          HttpOnly; Secure; SameSite=Lax\r\n",
         "\r\n",
     );
-
-    #[test]
-    fn the_status_line_matches_any_version_token() {
-        assert!(status_line_is(BLOCK, 302));
-        assert!(!status_line_is(BLOCK, 200));
-        assert!(status_line_is("HTTP/2 302 \r\n", 302));
-        // The code must follow the version, not appear anywhere.
-        assert!(!status_line_is("HTTP/1.1 200 302 Found\r\n", 302));
-    }
 
     #[test]
     fn the_location_value_drops_the_name_and_the_cr() {
@@ -683,17 +610,5 @@ mod tests {
     fn a_string_id_keeps_its_text() {
         let body = br#"{"id":"tok_1","token":"cabin_x"}"#;
         assert_eq!(minted(body).expect("minted").1, "tok_1");
-    }
-
-    #[test]
-    fn the_fixed_substring_search_is_over_bytes() {
-        assert!(contains(b"a cabin_secret b", b"cabin_secret"));
-        assert!(!contains(b"short", b"a much longer needle"));
-    }
-
-    #[test]
-    fn a_capture_drops_only_trailing_newlines() {
-        assert_eq!(capture(b"one\ntwo\n\n"), "one\ntwo");
-        assert_eq!(capture(b"head\r\n\r\n"), "head\r\n\r");
     }
 }

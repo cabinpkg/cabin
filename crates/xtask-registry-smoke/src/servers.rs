@@ -21,8 +21,9 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use serde_json::{Map, Value};
 use tempfile::{NamedTempFile, TempPath};
-use xtask_registry_admin::{registry_dir, wrangler};
+use xtask_registry_admin::{output, registry_dir, results, status, wrangler};
 
 use crate::bytes::sha256_hex;
 use crate::step;
@@ -100,13 +101,45 @@ fn var(name: &str, default: &str) -> String {
 /// If wrangler cannot be run, or refuses the migrations.
 pub fn apply_migrations() -> Result<()> {
     step("applying migrations to the local database");
-    run(&mut wrangler(&[
+    status(&mut wrangler(&[
         "d1",
         "migrations",
         "apply",
         "DB",
         "--local",
     ]))
+}
+
+/// `wrangler d1 execute DB --local --command <sql>`, with wrangler's
+/// own result table left on the operator's terminal; the sites the
+/// shell redirected or captured use the quiet and JSON variants below.
+pub(crate) fn d1(sql: &str) -> Result<()> {
+    status(&mut d1_execute(&["--command", sql]))
+}
+
+/// The same with `>/dev/null`: capturing stdout is how it is
+/// swallowed.
+pub(crate) fn d1_quiet(sql: &str) -> Result<()> {
+    output(&mut d1_execute(&["--command", sql]))?;
+    Ok(())
+}
+
+/// `wrangler d1 execute DB --local --json --command <sql>`, as the
+/// shell piped it into `node`.
+pub(crate) fn d1_json(sql: &str) -> Result<String> {
+    output(&mut d1_execute(&["--json", "--command", sql]))
+}
+
+/// The `results` rows of a `--json` read, which the `node` programs
+/// indexed into as `out[0].results`.
+pub(crate) fn d1_rows(sql: &str) -> Result<Vec<Map<String, Value>>> {
+    results(&d1_json(sql)?)
+}
+
+fn d1_execute(tail: &[&str]) -> Command {
+    let mut arguments = vec!["d1", "execute", "DB", "--local"];
+    arguments.extend_from_slice(tail);
+    wrangler(&arguments)
 }
 
 /// L203-248.  The fixture rows are cleared so re-runs still see a
@@ -122,14 +155,7 @@ pub fn seed_tokens(token: &str, verify_token: &str) -> Result<()> {
         &sha256_hex(token.as_bytes()),
         &sha256_hex(verify_token.as_bytes()),
     );
-    run(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--command",
-        &sql,
-    ]))
+    d1(&sql)
 }
 
 /// The seeded identities mirror first sign-ins: GitHub account 0 is
@@ -189,7 +215,7 @@ pub fn export_dump(mock_dir: &Path) -> Result<()> {
     step("exporting a local dump for the export-API mock");
     let dump = mock_dir.join("dump.sql");
     let dump = dump.to_str().context("the mock directory is not UTF-8")?;
-    run(&mut wrangler(&[
+    status(&mut wrangler(&[
         "d1", "export", "DB", "--local", "--output", dump,
     ]))
 }
@@ -702,15 +728,6 @@ fn await_mock(
             return Ok(());
         }
         std::thread::sleep(HALF_SECOND);
-    }
-    Ok(())
-}
-
-fn run(command: &mut Command) -> Result<()> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command.status().with_context(|| format!("run {program}"))?;
-    if !status.success() {
-        bail!("{program} failed: {status}");
     }
     Ok(())
 }

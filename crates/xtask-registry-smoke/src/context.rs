@@ -43,7 +43,6 @@ pub struct Smoke {
     agent: ureq::Agent,
     base: String,
     web_base: String,
-    web_origin: &'static str,
     token: String,
     /// The last response body, as raw bytes - never a `String`: the
     /// byte-identity comparisons (`cmp -s`) and the zip reads both run
@@ -83,7 +82,6 @@ impl Smoke {
                 .build(),
             base: format!("http://127.0.0.1:{port}"),
             web_base: format!("http://127.0.0.1:{web_port}"),
-            web_origin: WEB_ORIGIN,
             token,
             body: Vec::new(),
             headers: Vec::new(),
@@ -93,7 +91,7 @@ impl Smoke {
 
     #[must_use]
     pub fn web_origin(&self) -> &'static str {
-        self.web_origin
+        WEB_ORIGIN
     }
 
     /// The absolute URL a path resolves to on one of the two roles.

@@ -35,7 +35,6 @@
 //! are private and exist only so this module compiles on its own.
 
 use std::ffi::OsStr;
-use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -43,16 +42,16 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
-use xtask_registry_admin::{display, output, results, wrangler};
+// BLOBS_BUCKET and BACKUP_BUCKET are the two R2 buckets this span
+// reads: the content-addressed primary, and the append-only backup set
+// the verdict batch replicates into.
+use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, output, results, wrangler};
 
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
+use crate::servers::d1_json;
 use crate::step;
-
-/// The two R2 buckets this span reads: the content-addressed primary,
-/// and the append-only backup set the verdict batch replicates into.
-const BLOBS_BUCKET: &str = "cabin-registry-blobs";
-const BACKUP_BUCKET: &str = "cabin-registry-backup";
+use crate::text::{contains, read, write};
 
 /// `--file /dev/null`: the three sites that only ask whether the object
 /// exists still make `wrangler` write it somewhere.
@@ -373,12 +372,12 @@ fn advisory_abstain(inputs: &PublishInputs<'_>, pending: &[u8]) -> Result<Map<St
     if !ok {
         bail!("the advisory mode failed operationally: {}", text(&advice));
     }
-    if !contains(&advice, r#""advice":"abstain""#) {
+    if !contains(&advice, br#""advice":"abstain""#) {
         bail!("the skeleton-equal pair did not abstain: {}", text(&advice));
     }
     if !contains(
         &advice,
-        &format!("confusable_package ({}/with-dep)", inputs.scope),
+        format!("confusable_package ({}/with-dep)", inputs.scope).as_bytes(),
     ) {
         bail!("the abstain does not name its rule: {}", text(&advice));
     }
@@ -399,7 +398,7 @@ fn real_verification(
         &inputs.work.join("entry.json"),
         &inputs.work.join("verdict-real.json"),
     )?;
-    if !contains(&real, r#""verdict":"verified""#) {
+    if !contains(&real, br#""verdict":"verified""#) {
         bail!("the verifier did not verify the fixture: {}", text(&real));
     }
     // The verdict binds to the checksum and published_at the listing
@@ -805,19 +804,6 @@ fn backup_pending_rows(inputs: &PublishInputs<'_>) -> Result<String> {
     column(&json, "n")
 }
 
-/// `wrangler d1 execute DB --local --json --command <sql>`.
-fn d1_json(sql: &str) -> Result<String> {
-    output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--json",
-        "--command",
-        sql,
-    ]))
-}
-
 /// `out[0].results[0].<name>` as `console.log` printed it.
 fn column(json: &str, name: &str) -> Result<String> {
     let rows = results(json)?;
@@ -831,16 +817,10 @@ fn column(json: &str, name: &str) -> Result<String> {
 /// The publish-bucket refund (L1009-1010, L1039-1040), kept as the one
 /// statement the shell sent, whitespace included.
 fn refund() -> Result<()> {
-    output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--command",
+    crate::servers::d1_quiet(
         "
   UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';",
-    ]))?;
-    Ok(())
+    )
 }
 
 /// `wrangler r2 object get <bucket>/<key> --file <out> --local`, and
@@ -957,14 +937,6 @@ fn grep_lines(headers: &[u8], needle: &str) -> String {
         .join("\n")
 }
 
-/// `grep -qF` over a file the shell wrote: a fixed substring, never a
-/// pattern.
-fn contains(haystack: &[u8], needle: &str) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle.as_bytes())
-}
-
 /// `$(cat "$body")` in a `fail` message.
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
@@ -996,14 +968,6 @@ fn vetted_row(inputs: &PublishInputs<'_>, name: &str, vetted: bool) -> String {
     )
 }
 
-fn read(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).with_context(|| format!("read {}", path.display()))
-}
-
-fn write(path: &Path, data: &[u8]) -> Result<()> {
-    fs::write(path, data).with_context(|| format!("write {}", path.display()))
-}
-
 fn utf8(path: &Path) -> Result<&str> {
     path.to_str()
         .with_context(|| format!("{} is not UTF-8", path.display()))
@@ -1011,6 +975,8 @@ fn utf8(path: &Path) -> Result<&str> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn entry() -> Map<String, Value> {
