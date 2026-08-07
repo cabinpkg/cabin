@@ -171,7 +171,7 @@ Each entry of a version's `revisions` map takes this exact shape:
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `checksum` | yes | `sha256:<hex>` digest of this revision's archive bytes.  The revision id must be this digest's leading hex prefix. |
+| `checksum` | yes | `sha256:<hex>` digest of this revision's archive bytes, parsed strictly (exactly `sha256:` followed by 64 lowercase hex characters; any other spelling fails index loading).  The revision id must be this digest's leading hex prefix. |
 | `published-at` | yes | Non-empty timestamp recorded by the registry that accepted this revision.  Carried verbatim; Cabin never orders revisions by it (the `revision` pointer names the current one). |
 | `source` | yes | Where this revision's archive lives.  See [Source artifact](#source-artifact). |
 
