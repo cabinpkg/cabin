@@ -150,12 +150,12 @@ client and server surface must agree on live in `cabin_core::registry`: the file
 derive a revision id from a checksum the same way.  The serialized checksum spelling those surfaces
 share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
 (strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
-primitives), today carried by `[package.upstream]` provenance, end to end through the
-packaging and publish chain (staged archives, canonical metadata, publish reports), by the
-loaded package-index and lockfile models (both parsed strictly at their boundaries), and through
-artifact fetching and vendoring (download verification, cache addressing, vendor metadata).  A
-checksum boundary being added or changed must parse into the type rather than threading raw
-strings.  Manifest, index, lockfile, resolver, build, and feature crates all share these typed
+primitives), carried end to end: `[package.upstream]` provenance, the packaging and publish
+chain, the loaded package-index and lockfile models, artifact fetching and vendoring, the
+verifier, and - through a mirrored grammar pinned by a parity test - the hosted registry's
+stored rows and admin API.  A checksum boundary must parse into the type rather than threading
+raw strings; the deliberate exceptions are recorded under "Checksum representation" in the
+guardrails section.  Manifest, index, lockfile, resolver, build, and feature crates all share these typed
 values without depending on each other.
 The crate must:
 
@@ -1902,6 +1902,38 @@ Tests must not require external network access.  Network protocol tests boot an 
 to scrub process environment variables Cabin reads; tests that exercise config discovery opt back in
 through the documented `cabin_with_config()` helper.  The full portability rules live in
 `crates/AGENTS.md`.
+
+### Checksum representation
+
+Every checksum the product parses, stores, or emits is the canonical `sha256:<64 lowercase hex>`
+spelling owned by `cabin_core::checksum::Checksum` (strict parse, canonical display, hashing
+constructors over the `cabin_core::hash` primitives).  Deliberate boundaries of that rule, so a
+sweep does not "fix" them:
+
+- **Packaging-revision ids are identifiers, not checksums.**  A revision id is the digest's
+  leading 16 hex characters (`Checksum::revision_id`), carried bare in URLs, filenames, index
+  keys, and registry rows; it deliberately never parses as a `Checksum`.  Wherever a revision is
+  minted or resolved to bytes (index entries, canonical metadata, registry rows), the full
+  prefixed checksum is stored beside it; display-only listings and artifact URLs may carry the
+  id alone.
+- **R2 blob keys keep the OCI-style `blobs/sha256/<hex>` layout**: the algorithm lives in the
+  path segment and the leaf is the bare hex tail (key derivation strips the prefix).  The
+  content-addressed client caches follow the same directory layout
+  (`archives/sha256/<hex>.zip`, `sources/sha256/<hex>`), as do the port publisher's upstream
+  archive cache (`ports/archives/sha256/<hex>.<format>`) and the registry's synthetic
+  edge-cache identity (`/__cache/blobs/sha256/<hex>`, derived from the content checksum and
+  reachable through no route).
+- **The registry worker mirrors the grammar** (`registry/src/checksum.rs`) instead of depending
+  on `cabin-core` at runtime - it is a standalone wasm workspace - and a host-only parity test
+  plus the fixture drift check (`cargo gen-fixtures` + the worker's gated `publish_validation`
+  run) pin the mirror to the shared type.
+- **Release-distribution checksums stay bare coreutils format** (`sha256.sum`, `*.sha256`):
+  the release xtask pins `sha256sum -b`'s line format byte for byte so standard `shasum -c`
+  verification keeps working.  The registry backup's `.sha256` sidecar keeps the same
+  `shasum -c`-compatible format for operators.
+- **Migration stamps and the build fingerprint are not checksums**: both are opaque
+  equality-compared digests rendered through the shared `cabin_core::hash` primitives, never
+  parsed or served as package checksums, and stay bare.
 
 ## Why a separate lockfile crate?
 

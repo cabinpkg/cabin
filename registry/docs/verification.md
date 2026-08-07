@@ -496,6 +496,14 @@ registry token created on `/me` with **only** the `verify` scope.
   its scope column is exactly `verify`. This is the credential the
   workflow carries as the `REGISTRY_VERIFY_TOKEN` secret.
 
+> **Pre-migration transcripts.** The captured payloads below predate the
+> prefixed-checksum change: the admin listing and verdict bodies show the
+> bare hex the API carried at the time.  The current API serves and
+> requires the canonical `sha256:<64 lowercase hex>` value in both
+> (`docs/remote-registry.md`, "Admin"); a bare verdict checksum is now a
+> `400`.  The transcripts stay as observed - they are drill records, not
+> API reference.
+
 ## Benign lifecycle: pending -> verified -> resolvable
 
 Published a new **version** of an existing package (`qv-a@0.2.0`); the
