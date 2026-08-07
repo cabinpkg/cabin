@@ -1699,7 +1699,7 @@ fn build_fetch_plan(
             let revision = meta
                 .revisions
                 .values()
-                .find(|rev| rev.checksum.as_str() == pinned)
+                .find(|rev| rev.checksum == pinned)
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "the lockfile pins `{} {}` to a packaging revision with checksum \
@@ -1709,7 +1709,7 @@ fn build_fetch_plan(
                         resolved.version
                     )
                 })?;
-            (&revision.source, pinned)
+            (&revision.source, pinned.as_str().to_owned())
         } else {
             let source = meta.source.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -1834,16 +1834,12 @@ fn lockfile_from_resolution(
                 .and_then(|prev| prev.find(&pkg.name))
                 .filter(|locked| locked.version == pkg.version)
                 .and_then(|locked| locked.checksum.clone())
-                .filter(|pin| {
-                    meta.revisions
-                        .values()
-                        .any(|rev| rev.checksum.as_str() == pin.as_str())
-                }),
+                .filter(|pin| meta.revisions.values().any(|rev| &rev.checksum == pin)),
         };
         packages.push(LockedPackage {
             name: pkg.name.clone(),
             version: pkg.version.clone(),
-            checksum: kept_pin.or_else(|| meta.checksum.as_ref().map(|c| c.as_str().to_owned())),
+            checksum: kept_pin.or_else(|| meta.checksum.clone()),
             dependencies: deps,
         });
     }

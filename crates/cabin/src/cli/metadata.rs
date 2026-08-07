@@ -393,7 +393,7 @@ impl<'a> MetadataView<'a> {
                     name: p.name.as_str(),
                     version: p.version.to_string(),
                     source: cabin_lockfile::PACKAGE_SOURCE_INDEX,
-                    checksum: p.checksum.as_deref(),
+                    checksum: p.checksum.as_ref().map(cabin_core::Checksum::as_str),
                     dependencies: p
                         .dependencies
                         .iter()

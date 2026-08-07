@@ -70,7 +70,7 @@ dependencies = ["fmt"]
 | `name` | package | yes | Package name. |
 | `version` | package | yes | Resolved SemVer version. |
 | `source` | package | yes | Where the package came from.  Cabin supports `"index"` plus local provenance records for patches and vendoring. |
-| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes, and thereby the packaging-revision pin - the revision id is this digest's leading 16 hex characters.  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value selects the revision to fetch and verifies the archive's content as it is copied into the cache. |
+| `checksum` | package | no | `sha256:<hex>` digest of the source archive's bytes, and thereby the packaging-revision pin - the revision id is this digest's leading 16 hex characters.  Strictly validated: exactly `sha256:` followed by 64 lowercase hex characters; any other spelling fails lockfile validation (delete the lockfile and re-run `cabin resolve`).  In `--locked` mode the resolver fails on lockfile-vs-index disagreement; in `cabin fetch` / `cabin build` the same value selects the revision to fetch and verifies the archive's content as it is copied into the cache. |
 | `dependencies` | package | no (only emitted when non-empty) | The package's transitive dependency names, sorted alphabetically. |
 
 Local path packages are deliberately **not** recorded in `cabin.lock`; they are resolved
@@ -88,7 +88,8 @@ The format is strict:
 - `version = 1` is the only accepted schema version;
 - duplicate `[[package]]` entries (same name) are rejected;
 - invalid SemVer in any `version` field is rejected;
-- unknown `source` values are rejected.
+- unknown `source` values are rejected;
+- a `checksum` that is not exactly `sha256:` + 64 lowercase hex characters is rejected.
 
 The writer guarantees:
 
