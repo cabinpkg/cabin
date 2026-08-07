@@ -51,6 +51,14 @@ pub const WRANGLER: &str = "wrangler@4.112.0";
 /// recovery"), so nothing here ever deletes from it.
 pub const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
+/// The PRIMARY blob bucket, which more than one command reaches: the
+/// governor's evidence checks list it, the wipe sweeps it, and the
+/// backfill copies out of it.  The deploy guard
+/// (`xtask-registry-guard`) keeps its own literal on purpose - it
+/// asserts `wrangler.jsonc` declares this binding, and a guard
+/// importing the value it checks would check it against itself.
+pub const BLOBS_BUCKET: &str = "cabin-registry-blobs";
+
 /// The repository this tool was built from.
 ///
 /// Resolved from the crate's own manifest directory rather than the
@@ -196,6 +204,22 @@ pub fn output(command: &mut Command) -> Result<String> {
         bail!("{program} failed: {}", output.status);
     }
     String::from_utf8(output.stdout).with_context(|| format!("{program} wrote invalid UTF-8"))
+}
+
+/// [`output`]'s uncaptured twin: the exit status alone is read, and
+/// the command's configured stdio is left as the caller set it -
+/// inherited to the operator's terminal or nulled, but never captured.
+///
+/// # Errors
+///
+/// If the program cannot be spawned, or exits non-zero.
+pub fn status(command: &mut Command) -> Result<()> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let status = command.status().with_context(|| format!("run {program}"))?;
+    if !status.success() {
+        bail!("{program} failed: {status}");
+    }
+    Ok(())
 }
 
 pub fn step(message: &str) {

@@ -58,9 +58,10 @@ use std::io::{Read as _, Write as _};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::{BACKUP_BUCKET as BACKUP, account_id, display, output, results, step, wrangler};
-
-const PRIMARY: &str = "cabin-registry-blobs";
+use crate::{
+    BACKUP_BUCKET as BACKUP, BLOBS_BUCKET as PRIMARY, account_id, display, output, results, step,
+    wrangler,
+};
 
 /// The service modes that mean no publisher can land a write while the
 /// evidence is being gathered.
@@ -83,19 +84,20 @@ const TOTALS: &str = "
 const PUBLISHERS: &str =
     "SELECT COUNT(*) AS n FROM tokens WHERE scopes LIKE '%publish%' AND revoked_at IS NULL";
 
-/// The governor's usage snapshot.
+/// The governor's usage snapshot.  The audit deserializes the same
+/// endpoint's answer, so the shape lives here once.
 #[derive(Deserialize)]
-struct Snapshot {
-    storage: Vec<StorageRow>,
+pub(crate) struct Snapshot {
+    pub(crate) storage: Vec<StorageRow>,
     ops: Vec<OpRow>,
 }
 
 #[derive(Deserialize)]
-struct StorageRow {
-    pool: String,
+pub(crate) struct StorageRow {
+    pub(crate) pool: String,
     state: String,
-    bytes: u64,
-    objects: u64,
+    pub(crate) bytes: u64,
+    pub(crate) objects: u64,
 }
 
 #[derive(Deserialize)]
@@ -242,7 +244,7 @@ fn origin() -> Result<String> {
 }
 
 /// The admin governor endpoint.
-struct Api {
+pub(crate) struct Api {
     endpoint: String,
     token: String,
 }
@@ -252,7 +254,7 @@ impl Api {
     ///
     /// If `CABIN_API_ORIGIN` is not https, or the verify token is
     /// missing.
-    fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let token = std::env::var("REGISTRY_VERIFY_TOKEN").unwrap_or_default();
         if token.is_empty() {
             bail!("REGISTRY_VERIFY_TOKEN (verify scope) is required");
@@ -303,7 +305,7 @@ impl Api {
 
     /// `require_api_ok`: anything but 200 ends the run, naming what
     /// was asked for and what came back.
-    fn ok(&self, body: Option<&str>, what: &str) -> Result<String> {
+    pub(crate) fn ok(&self, body: Option<&str>, what: &str) -> Result<String> {
         let (status, answer) = self.call(body)?;
         if status != 200 {
             bail!("{what} answered {status}: {answer}");
@@ -737,11 +739,7 @@ fn list_page(bucket: &str, prefix: &str) -> Result<Page> {
          ?prefix={}&per_page=5",
         encode_prefix(prefix)
     );
-    let body = crate::audit::agent()
-        .get(&url)
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()?
-        .into_string()?;
+    let body = crate::audit::get(&crate::audit::agent(), &url, &token)?;
     let page: Page = serde_json::from_str(&body)
         .with_context(|| format!("unexpected R2 list response: {body}"))?;
     if !page.success {
@@ -753,7 +751,7 @@ fn list_page(bucket: &str, prefix: &str) -> Result<Page> {
 /// The shell's
 /// `prefix.split("/").map(encodeURIComponent).join("/")`: the
 /// separators stay separators and everything else is escaped.
-fn encode_prefix(prefix: &str) -> String {
+pub(crate) fn encode_prefix(prefix: &str) -> String {
     prefix
         .split('/')
         .map(crate::audit::encode_uri_component)

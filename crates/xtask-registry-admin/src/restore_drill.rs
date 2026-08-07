@@ -50,7 +50,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use crate::{
-    BACKUP_BUCKET as BACKUP, Nullish, column_lines, column_text, output, results, step, wrangler,
+    BACKUP_BUCKET as BACKUP, Nullish, column_lines, column_text, output, results, status, step,
+    wrangler,
 };
 
 const SCRATCH: &str = "cabin-registry-drill";
@@ -211,15 +212,6 @@ fn loud(arguments: &[&str]) -> Result<()> {
 /// nothing downstream reads a byte of what they print.
 fn quiet(arguments: &[&str]) -> Result<()> {
     status(wrangler(arguments).stdout(Stdio::null()))
-}
-
-fn status(command: &mut std::process::Command) -> Result<()> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command.status().with_context(|| format!("run {program}"))?;
-    if !status.success() {
-        bail!("{program} failed: {status}");
-    }
-    Ok(())
 }
 
 /// `shasum -a 256 -c`, over the sidecar the backup job writes:

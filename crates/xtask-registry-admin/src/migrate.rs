@@ -117,7 +117,9 @@ use sha2::{Digest as _, Sha256};
 use xtask_workflow_guard::migrations_pending::migration_files;
 
 use crate::launch_guard::Mode;
-use crate::{Nullish, column_lines, display, output, registry_dir, results, step, wrangler};
+use crate::{
+    Nullish, column_lines, display, output, registry_dir, results, status, step, wrangler,
+};
 
 /// Is there anything to read the applied names out of?  A first
 /// provisioning has no `d1_migrations` table, which is the one absence
@@ -411,6 +413,13 @@ fn digest(files: &[PathBuf]) -> Result<String> {
     if files.is_empty() {
         bail!("no migrations match migrations/*.sql");
     }
+    digest_of(files)
+}
+
+/// [`digest`] without the emptiness guard: the diagnostics bundle
+/// digests an empty tree to the empty-input digest so its stamp
+/// comparison still renders PENDING instead of aborting.
+pub(crate) fn digest_of(files: &[PathBuf]) -> Result<String> {
     let mut hasher = Sha256::new();
     for file in files {
         hasher.update(std::fs::read(file).with_context(|| format!("read {}", file.display()))?);
@@ -474,14 +483,7 @@ fn d1(sql: &str) -> Result<String> {
 /// `wrangler d1 migrations apply DB <flag>`, whose output is the
 /// operator's only sign of life while it runs and so is not captured.
 fn apply(flag: &str) -> Result<()> {
-    let mut command = wrangler(&["d1", "migrations", "apply", "DB", flag]);
-    command.current_dir(root());
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command.status().with_context(|| format!("run {program}"))?;
-    if !status.success() {
-        bail!("{program} failed: {status}");
-    }
-    Ok(())
+    status(wrangler(&["d1", "migrations", "apply", "DB", flag]).current_dir(root()))
 }
 
 #[cfg(test)]
