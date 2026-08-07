@@ -12,8 +12,9 @@
 //! last-wins deduplication, transparent zip64, hidden local/central
 //! mismatch - are exactly the hostile shapes this profile forbids.
 //!
-//! Every decompressed byte flows through [`CappedReader`] against a
-//! single archive-global budget, so the bomb caps hold regardless of
+//! Every entry is metered against a single archive-global budget -
+//! the deflate path inside [`inflate`], the store path against the
+//! slice itself - so the bomb caps hold regardless of
 //! what the deflate layer does; the retained state is the
 //! `cabin.toml` bytes plus the set of entry paths, both bounded by
 //! the caps.  Following the verifier's enforce/client-only split
@@ -25,7 +26,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
-use std::io::{self, Read};
 use std::path::Path;
 
 use flate2::{Decompress, FlushDecompress, Status};
@@ -459,8 +459,8 @@ fn entry_type_gate(external_attrs: u32) -> Option<Reason> {
     None
 }
 
-/// Decompress one entry through the archive-global [`CappedReader`]
-/// budget, returning `(crc, produced, consumed)` where `consumed` is
+/// Decompress one entry against the archive-global `budget`,
+/// returning `(crc, produced, consumed)` where `consumed` is
 /// the compressed input the deflate layer read (equal to `produced`
 /// for a stored entry).  Every decompressed byte updates `sha`; the
 /// manifest entry's bytes are additionally collected into `collect`.
@@ -474,11 +474,21 @@ fn decode_entry(
     match method {
         // Store: the compressed and uncompressed bytes are identical
         // (enforced `compressed == uncompressed` above), so the slice
-        // itself is the output.
+        // itself is the output.  The budget check is unreachable while
+        // the declared-sum pre-check bounds the total, but it is what
+        // keeps the archive-global cap honest if that pre-check is
+        // ever loosened.
         0 => {
-            let mut capped = CappedReader::new(data, budget);
-            let (crc, produced) = drain(&mut capped, sha, collect)?;
-            Ok((crc, produced, produced))
+            if data.len() as u64 > budget {
+                return Err(Reason::DecompressedTooLarge);
+            }
+            let mut hasher = crc32fast::Hasher::new();
+            hasher.update(data);
+            sha.update(data);
+            if let Some(sink) = collect {
+                sink.extend_from_slice(data);
+            }
+            Ok((hasher.finalize(), data.len() as u64, data.len() as u64))
         }
         // Deflate: the stream must reach its final block, not merely
         // run out of input. `flate2`'s reader maps an input EOF that
@@ -539,36 +549,6 @@ fn inflate(
     }
 }
 
-/// Read `capped` to its end, hashing the bytes and optionally
-/// collecting them, and return `(crc, produced)`.
-fn drain<R: Read>(
-    capped: &mut CappedReader<R>,
-    sha: &mut Sha256,
-    mut collect: Option<&mut Vec<u8>>,
-) -> Result<(u32, u64), Reason> {
-    let mut hasher = crc32fast::Hasher::new();
-    let mut buf = [0u8; 16 * 1024];
-    let mut produced = 0u64;
-    loop {
-        match capped.read(&mut buf) {
-            Ok(0) => break,
-            Ok(read) => {
-                hasher.update(&buf[..read]);
-                sha.update(&buf[..read]);
-                produced += read as u64;
-                if let Some(sink) = collect.as_deref_mut() {
-                    sink.extend_from_slice(&buf[..read]);
-                }
-            }
-            // The cap was crossed (a bomb), or the deflate stream would
-            // not decode (truncation or garbage inside its span).
-            Err(_) if capped.exceeded => return Err(Reason::DecompressedTooLarge),
-            Err(_) => return Err(Reason::HeaderMismatch("deflate")),
-        }
-    }
-    Ok((hasher.finalize(), produced))
-}
-
 /// Read a little-endian `u16` at `offset`, or [`Reason::ArchiveInvalid`]
 /// if it runs past the buffer.
 fn u16_at(bytes: &[u8], offset: usize) -> Result<u16, Reason> {
@@ -623,69 +603,37 @@ fn classify_path(path: &str) -> Option<Reason> {
         .map(|violation| Reason::InvalidPath(Some(violation.detail())))
 }
 
-/// A reader that refuses to produce more than `remaining` bytes.
-/// Unlike [`io::Take`], crossing the cap is an error (with the
-/// `exceeded` flag set so the caller can tell a bomb from a corrupt
-/// stream), not a silent EOF - a deflate stream that lies about its
-/// uncompressed size must never pass as complete.
-struct CappedReader<R> {
-    inner: R,
-    remaining: u64,
-    exceeded: bool,
-}
-
-impl<R: Read> CappedReader<R> {
-    fn new(inner: R, cap: u64) -> Self {
-        CappedReader {
-            inner,
-            remaining: cap,
-            exceeded: false,
-        }
-    }
-}
-
-impl<R: Read> Read for CappedReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        if self.remaining == 0 {
-            // At the cap: only a clean EOF may follow.  Probe one
-            // byte to tell the two apart.
-            let mut probe = [0u8; 1];
-            if self.inner.read(&mut probe)? == 0 {
-                return Ok(0);
-            }
-            self.exceeded = true;
-            return Err(io::Error::other("decompressed size cap exceeded"));
-        }
-        let allowed = usize::try_from(self.remaining.min(buf.len() as u64)).unwrap_or(buf.len());
-        let read = self.inner.read(&mut buf[..allowed])?;
-        self.remaining -= read as u64;
-        Ok(read)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn capped_reader_passes_streams_within_the_cap() {
-        let mut reader = CappedReader::new(&b"hello"[..], 5);
-        let mut out = Vec::new();
-        reader.read_to_end(&mut out).unwrap();
-        assert_eq!(out, b"hello");
-        assert!(!reader.exceeded);
+    fn a_stored_slice_over_the_budget_is_rejected() {
+        let mut sha = Sha256::new();
+        let err = decode_entry(0, b"hello", 4, &mut sha, None).unwrap_err();
+        assert_eq!(err, Reason::DecompressedTooLarge);
     }
 
     #[test]
-    fn capped_reader_errors_on_the_byte_after_the_cap() {
-        let mut reader = CappedReader::new(&b"hello"[..], 4);
-        let mut out = Vec::new();
-        let err = reader.read_to_end(&mut out).unwrap_err();
-        assert_eq!(err.to_string(), "decompressed size cap exceeded");
-        assert!(reader.exceeded);
+    fn a_stored_slice_exactly_filling_the_budget_is_accepted() {
+        let mut sha = Sha256::new();
+        let (_, produced, consumed) =
+            decode_entry(0, b"hello", 5, &mut sha, None).expect("exactly at the budget");
+        assert_eq!((produced, consumed), (5, 5));
+    }
+
+    #[test]
+    fn deflate_output_beyond_the_budget_is_rejected_mid_stream() {
+        use flate2::{Compress, Compression, FlushCompress};
+        let payload = vec![0u8; 64 * 1024];
+        let mut compressor = Compress::new(Compression::default(), false);
+        let mut compressed = Vec::with_capacity(payload.len());
+        compressor
+            .compress_vec(&payload, &mut compressed, FlushCompress::Finish)
+            .expect("compress the fixture payload");
+        let mut sha = Sha256::new();
+        let err = decode_entry(8, &compressed, 1024, &mut sha, None).unwrap_err();
+        assert_eq!(err, Reason::DecompressedTooLarge);
     }
 
     #[test]

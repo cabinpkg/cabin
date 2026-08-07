@@ -217,8 +217,9 @@ Size discipline runs in two places:
 
 - the **sum of declared uncompressed sizes** is a cheap pre-check against the
   cap - `decompressed_too_large`;
-- the **actual decompressed output** flows through the archive-global capped
-  reader - `decompressed_too_large`.
+- the **actual decompressed output** is metered per entry against the same
+  archive-global budget (the deflate layer while inflating, the stored slice
+  before hashing) - `decompressed_too_large`.
 
 A declared uncompressed size or CRC-32 that disagrees with the actual
 decompressed bytes is `header_mismatch`.

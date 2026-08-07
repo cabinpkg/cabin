@@ -457,8 +457,8 @@ the recovery path, and a late duplicate verdict must never race the revival.  An
 The hosted registry's verifier is `cabin-registry-verify`, run every few minutes by a GitHub
 Actions workflow (operations live in the service runbook).  It inspects each pending archive
 against the canonical metadata the listing reported - parsing the zip container by hand,
-decompressing each entry through a bounded reader, never extracting the registry archive to
-disk, and assuming the archive is hostile.  The archive must conform to the strict zip profile whose normative
+metering every entry's decompressed output against one archive-global budget, never extracting
+the registry archive to disk, and assuming the archive is hostile.  The archive must conform to the strict zip profile whose normative
 definition is `registry/docs/archive-format.md`; this section is the user-facing summary.  The
 checks, in order:
 

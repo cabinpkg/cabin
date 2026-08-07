@@ -15,9 +15,9 @@
 //!
 //! The inspector assumes the archive is hostile: it never extracts
 //! to disk, reads the container into memory once (bounded by the
-//! registry's publish size limit) and hand-parses it, decompressing
-//! every entry through a capped reader so the bomb caps hold no
-//! matter what the deflate layer does.  It bounds every dimension of
+//! registry's publish size limit) and hand-parses it, metering
+//! every entry against an archive-global budget so the bomb caps
+//! hold no matter what the deflate layer does.  It bounds every dimension of
 //! decompression (total bytes, entry count, path length) with the
 //! caps in [`Limits`] so a crafted archive aborts with a rejection
 //! reason instead of exhausting the runner.  Checks run in order:
