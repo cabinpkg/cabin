@@ -56,6 +56,20 @@ pub enum LockfileError {
     )]
     UnknownSource { name: String, value: String },
 
+    /// Rendered through the shared [`cabin_core::ChecksumError`]
+    /// sentence so the checksum grammar has exactly one normative
+    /// wording.  The typed failure is inlined (deliberately not a
+    /// `source` chain, like [`LockfileError::InvalidPackageName`]) so
+    /// the top-level message stays a single line ending in the
+    /// recovery step.
+    #[error(
+        "invalid cabin.lock package {name:?}: {reason} - delete the lockfile and re-run `cabin resolve`"
+    )]
+    InvalidChecksum {
+        name: String,
+        reason: cabin_core::ChecksumError,
+    },
+
     /// A `[[patch]]` entry's `kind` field carried a value other
     /// than [`crate::model::PATCH_KIND_PATH`].
     #[error(

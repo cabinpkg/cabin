@@ -98,11 +98,11 @@ pub enum SourceProvenance {
     /// by the artifact pipeline.  Carries the recorded checksum
     /// when the lockfile pinned one.
     Registry {
-        /// `sha256:<hex>` checksum recorded for this version, if
+        /// Checksum recorded for this version, if
         /// any.  `None` when the lockfile predates checksum
         /// recording.
         #[serde(skip_serializing_if = "Option::is_none")]
-        checksum: Option<String>,
+        checksum: Option<cabin_core::Checksum>,
     },
 }
 

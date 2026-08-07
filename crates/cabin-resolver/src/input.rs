@@ -101,7 +101,7 @@ pub struct LockedVersion {
     /// Optional content hash recorded in the lockfile.  In `Locked` mode
     /// the resolver checks this against the index entry's checksum and
     /// fails on mismatch.
-    pub checksum: Option<String>,
+    pub checksum: Option<cabin_core::Checksum>,
 }
 
 /// How the resolver should treat the `locked` map.

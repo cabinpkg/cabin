@@ -32,9 +32,11 @@ pub fn read_lockfile(path: impl AsRef<Path>) -> Result<Lockfile, LockfileError> 
 ///
 /// # Errors
 /// Returns [`LockfileError::Toml`] when `input` is not valid TOML or has
-/// unexpected fields.  Propagates conversion errors while building the
-/// model ([`LockfileError::InvalidPackageName`],
-/// [`LockfileError::InvalidVersion`], [`LockfileError::UnknownSource`],
+/// unexpected fields, and [`LockfileError::UnsupportedVersion`] before
+/// any field-level diagnosis.  Propagates conversion errors while
+/// building the model ([`LockfileError::InvalidPackageName`],
+/// [`LockfileError::InvalidVersion`], [`LockfileError::InvalidChecksum`],
+/// [`LockfileError::UnknownSource`],
 /// [`LockfileError::UnknownPatchKind`],
 /// [`LockfileError::UnknownSourceLocatorKind`]) and any structural error
 /// from [`validate`].
@@ -102,7 +104,7 @@ fn render_packages(out: &mut String, packages: &[LockedPackage]) -> Result<(), L
         writeln!(out, "version = {}", quote_string(&pkg.version.to_string()))?;
         writeln!(out, "source = {}", quote_string(PACKAGE_SOURCE_INDEX))?;
         if let Some(checksum) = &pkg.checksum {
-            writeln!(out, "checksum = {}", quote_string(checksum))?;
+            writeln!(out, "checksum = {}", quote_string(checksum.as_str()))?;
         }
         if !pkg.dependencies.is_empty() {
             let mut names: Vec<&str> = pkg.dependencies.iter().map(PackageName::as_str).collect();
@@ -213,6 +215,18 @@ fn lockfile_from_raw(raw: RawLockfile) -> Result<Lockfile, LockfileError> {
         patches,
         source_replacements,
     } = raw;
+
+    // An unsupported schema version wins over every field-level
+    // diagnosis: a future schema may legitimately change field
+    // grammars (checksum algorithms included), so a per-field error
+    // would misread a version skew as corruption and hand out the
+    // wrong recovery advice.
+    if version != crate::model::LOCKFILE_VERSION {
+        return Err(LockfileError::UnsupportedVersion {
+            version,
+            expected: crate::model::LOCKFILE_VERSION,
+        });
+    }
 
     let packages = packages
         .into_iter()
@@ -335,6 +349,14 @@ fn package_from_raw(raw: RawPackage) -> Result<LockedPackage, LockfileError> {
             value: source,
         });
     }
+    let checksum = checksum
+        .map(|value| {
+            cabin_core::Checksum::parse(&value).map_err(|reason| LockfileError::InvalidChecksum {
+                name: name.clone(),
+                reason,
+            })
+        })
+        .transpose()?;
     let mut deps: Vec<PackageName> = Vec::with_capacity(dependencies.len());
     for d in dependencies {
         deps.push(
@@ -418,6 +440,12 @@ mod tests {
         semver::Version::parse(s).unwrap()
     }
 
+    /// A distinguishable well-formed checksum: `sha256:` + 64 repeats
+    /// of one hex digit.
+    fn ck(digit: char) -> cabin_core::Checksum {
+        cabin_core::Checksum::parse(&format!("sha256:{}", digit.to_string().repeat(64))).unwrap()
+    }
+
     #[test]
     fn parses_single_package_lockfile() {
         let body = r#"
@@ -436,7 +464,7 @@ mod tests {
         assert_eq!(p.name.as_str(), "fmt");
         assert_eq!(p.version, ver("10.2.1"));
         assert_eq!(
-            p.checksum.as_deref(),
+            p.checksum.as_ref().map(cabin_core::Checksum::as_str),
             Some("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         );
         assert!(p.dependencies.is_empty());
@@ -577,6 +605,64 @@ mod tests {
         );
     }
 
+    /// A version skew outranks every field-level diagnosis: a future
+    /// schema may change field grammars (checksum algorithms
+    /// included), so a per-field error would misread the skew as
+    /// corruption and hand out the wrong recovery advice.
+    #[test]
+    fn unsupported_version_wins_over_field_diagnosis() {
+        let body = r#"
+            version = 2
+
+            [[package]]
+            name = "fmt"
+            version = "10.2.1"
+            source = "index"
+            checksum = "blake3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        "#;
+        let err = parse_lockfile_str(body).unwrap_err();
+        assert!(
+            matches!(err, LockfileError::UnsupportedVersion { version: 2, .. }),
+            "{err:?}"
+        );
+    }
+
+    /// A recorded checksum must be the canonical `sha256:<64
+    /// lowercase hex>` spelling; a bare digest or any malformed value
+    /// fails ordinary validation and points at regeneration.
+    #[test]
+    fn malformed_checksum_errors() {
+        for checksum in [
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "sha256:zzz",
+            "sha256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+            "",
+        ] {
+            let body = format!(
+                r#"
+                version = 1
+
+                [[package]]
+                name = "fmt"
+                version = "10.2.1"
+                source = "index"
+                checksum = "{checksum}"
+            "#
+            );
+            let err = parse_lockfile_str(&body).unwrap_err();
+            assert!(
+                matches!(&err, LockfileError::InvalidChecksum { name, .. } if name == "fmt"),
+                "{checksum:?}: {err:?}"
+            );
+            let message = err.to_string();
+            assert!(
+                message.contains("64 lowercase hexadecimal")
+                    && message.contains("delete the lockfile and re-run `cabin resolve`"),
+                "{message}"
+            );
+        }
+    }
+
     fn sample_lockfile() -> Lockfile {
         Lockfile {
             version: 1,
@@ -584,13 +670,13 @@ mod tests {
                 LockedPackage {
                     name: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    checksum: Some("sha256:zzz".into()),
+                    checksum: Some(ck('c')),
                     dependencies: vec![pkg("fmt")],
                 },
                 LockedPackage {
                     name: pkg("fmt"),
                     version: ver("10.2.1"),
-                    checksum: Some("sha256:xxx".into()),
+                    checksum: Some(ck('b')),
                     dependencies: Vec::new(),
                 },
             ],
@@ -647,7 +733,7 @@ mod tests {
                 LockedPackage {
                     name: pkg("fmtlib/fmt"),
                     version: ver("10.2.1"),
-                    checksum: Some("sha256:aa".into()),
+                    checksum: Some(ck('a')),
                     dependencies: vec![pkg("gabime/spdlog"), pkg("bare")],
                 },
                 LockedPackage {
@@ -750,13 +836,13 @@ mod tests {
                 LockedPackage {
                     name: pkg("spdlog"),
                     version: ver("1.13.0"),
-                    checksum: Some("sha256:zzz".into()),
+                    checksum: Some(ck('c')),
                     dependencies: vec![pkg("fmt")],
                 },
                 LockedPackage {
                     name: pkg("fmt"),
                     version: ver("10.2.1"),
-                    checksum: Some("sha256:xxx".into()),
+                    checksum: Some(ck('b')),
                     dependencies: Vec::new(),
                 },
             ],
@@ -800,13 +886,13 @@ version = 1\n\
 name = \"fmt\"\n\
 version = \"10.2.1\"\n\
 source = \"index\"\n\
-checksum = \"sha256:xxx\"\n\
+checksum = \"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n\
 \n\
 [[package]]\n\
 name = \"spdlog\"\n\
 version = \"1.13.0\"\n\
 source = \"index\"\n\
-checksum = \"sha256:zzz\"\n\
+checksum = \"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"\n\
 dependencies = [\"fmt\"]\n\
 \n\
 [[patch]]\n\
@@ -884,7 +970,7 @@ provenance = \"user-config\"\n\
             packages: vec![LockedPackage {
                 name: pkg("spdlog"),
                 version: ver("1.13.0"),
-                checksum: Some("sha256:zzz".into()),
+                checksum: Some(ck('c')),
                 dependencies: vec![pkg("fmt")],
             }],
             patches: vec![LockedPatch {
@@ -961,7 +1047,7 @@ provenance = \"user-config\"\n\
             packages: vec![LockedPackage {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: Some("sha256:xxx".into()),
+                checksum: Some(ck('b')),
                 dependencies: Vec::new(),
             }],
             patches: Vec::new(),

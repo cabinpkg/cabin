@@ -72,7 +72,7 @@ pub struct LockedPackage {
     /// Optional content hash copied from the index.  Used by the
     /// fetch / artifact-verification path; absent for index entries
     /// that predate checksum support.
-    pub checksum: Option<String>,
+    pub checksum: Option<cabin_core::Checksum>,
     /// Names of other locked packages this one depends on.
     pub dependencies: Vec<PackageName>,
 }

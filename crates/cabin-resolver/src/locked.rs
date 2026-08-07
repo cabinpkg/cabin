@@ -69,12 +69,12 @@ pub(crate) fn validate_locked_metadata(
             if !meta
                 .revisions
                 .values()
-                .any(|rev| rev.checksum.as_str() == locked_ck) =>
+                .any(|rev| &rev.checksum == locked_ck) =>
         {
             return Err(ResolveError::LockedChecksumMismatch {
                 name: name.as_str().to_owned(),
                 version: locked.version.to_string(),
-                expected: locked_ck.clone(),
+                expected: locked_ck.as_str().to_owned(),
                 actual: current_ck.as_str().to_owned(),
             });
         }
