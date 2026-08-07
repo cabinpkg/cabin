@@ -586,11 +586,9 @@ fn parse_revisions(
                 len = cabin_core::registry::PACKAGING_REVISION_HEX_LEN
             )));
         }
-        let derived = raw
-            .checksum
-            .strip_prefix("sha256:")
-            .and_then(cabin_core::registry::packaging_revision_from_sha256_hex);
-        if derived != Some(id.as_str()) {
+        let checksum = cabin_core::Checksum::parse(&raw.checksum)
+            .map_err(|err| invalid(format!("revision {id:?}: {err}")))?;
+        if checksum.revision_id() != id {
             return Err(invalid(format!(
                 "revision id {id:?} is not the prefix of its checksum {checksum:?}",
                 checksum = raw.checksum
@@ -605,7 +603,7 @@ fn parse_revisions(
         revisions.insert(
             id,
             RevisionMetadata {
-                checksum: raw.checksum,
+                checksum,
                 published_at: raw.published_at,
                 source,
             },
@@ -894,7 +892,7 @@ mod tests {
         assert_eq!(ver, &semver::Version::parse("10.2.1").unwrap());
         assert!(!meta.yanked);
         assert_eq!(
-            meta.checksum.as_deref(),
+            meta.checksum.as_ref().map(cabin_core::Checksum::as_str),
             Some("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert_eq!(meta.revision.as_deref(), Some("aaaaaaaaaaaaaaaa"));
@@ -1614,6 +1612,41 @@ mod tests {
         );
     }
 
+    /// Every revision checksum is parsed through the strict
+    /// `sha256:<64 lowercase hex>` grammar at the load boundary: a
+    /// bare digest, uppercase hex, or a truncated body never
+    /// produces a loaded index.
+    #[test]
+    fn malformed_revision_checksums_are_rejected() {
+        for checksum in [
+            // The bare pre-prefix spelling carries no algorithm.
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sha256:aaaaaaaaaaaaaaaa",
+            "sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "",
+        ] {
+            let err = load_single_version_entry(&format!(
+                r#"{{
+                    "revision": "aaaaaaaaaaaaaaaa",
+                    "revisions": {{
+                        "aaaaaaaaaaaaaaaa": {{
+                            "checksum": "{checksum}",
+                            "published-at": "2026-01-01T00:00:00Z",
+                            "source": {{ "type": "archive", "path": "a.zip", "format": "zip" }}
+                        }}
+                    }}
+                }}"#,
+            ))
+            .unwrap_err();
+            assert!(
+                matches!(&err, IndexError::InvalidRevision { message, .. }
+                    if message.contains("64 lowercase hexadecimal")),
+                "{checksum:?}: {err}"
+            );
+        }
+    }
+
     /// Superseded revisions load alongside the current one, and the
     /// version-level checksum / source conveniences mirror the entry
     /// the `revision` pointer names.
@@ -1642,7 +1675,7 @@ mod tests {
         assert_eq!(meta.revisions.len(), 2);
         assert_eq!(meta.revision.as_deref(), Some("bbbbbbbbbbbbbbbb"));
         assert_eq!(
-            meta.checksum.as_deref(),
+            meta.checksum.as_ref().map(cabin_core::Checksum::as_str),
             Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         );
         match meta.source.as_ref().unwrap() {
@@ -1651,7 +1684,7 @@ mod tests {
         }
         let superseded = meta.revisions.get("aaaaaaaaaaaaaaaa").unwrap();
         assert_eq!(
-            superseded.checksum,
+            superseded.checksum.as_str(),
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
         assert_eq!(superseded.published_at, "2026-01-01T00:00:00Z");

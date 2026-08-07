@@ -1390,7 +1390,7 @@ mod tests {
             meta.revisions.insert(
                 hex[..16].to_owned(),
                 cabin_index::RevisionMetadata {
-                    checksum: format!("sha256:{hex}"),
+                    checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                     published_at: "2026-07-28T00:00:00Z".to_owned(),
                     source: cabin_index::SourceLocation::LocalPath(std::path::PathBuf::from(
                         "unused.zip",
@@ -1400,7 +1400,7 @@ mod tests {
         }
         let current = checksums.last().unwrap();
         meta.revision = Some(current[..16].to_owned());
-        meta.checksum = Some(format!("sha256:{current}"));
+        meta.checksum = Some(cabin_core::Checksum::parse(&format!("sha256:{current}")).unwrap());
     }
 
     const REV_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

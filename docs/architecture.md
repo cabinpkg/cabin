@@ -150,10 +150,12 @@ client and server surface must agree on live in `cabin_core::registry`: the file
 derive a revision id from a checksum the same way.  The serialized checksum spelling those surfaces
 share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
 (strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
-primitives), today carried by `[package.upstream]` provenance and end to end through the
-packaging and publish chain (staged archives, canonical metadata, publish reports).  A checksum
-boundary being added or changed must parse into the type rather than threading raw strings.  Manifest, index, lockfile,
-resolver, build, and feature crates all share these typed values without depending on each other.
+primitives), today carried by `[package.upstream]` provenance, end to end through the
+packaging and publish chain (staged archives, canonical metadata, publish reports), and by the
+loaded package-index model (revision digests are parsed strictly at the load boundary).  A
+checksum boundary being added or changed must parse into the type rather than threading raw
+strings.  Manifest, index, lockfile, resolver, build, and feature crates all share these typed
+values without depending on each other.
 The crate must:
 
 - not depend on `clap`;
