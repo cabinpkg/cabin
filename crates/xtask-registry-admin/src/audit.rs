@@ -54,6 +54,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use crate::governor::Snapshot;
 use crate::{BACKUP_BUCKET, account_id, display, output, results, step, wrangler};
 
 const BLOBS: &str = "blobs/sha256/";
@@ -89,20 +90,6 @@ struct Page {
 struct PageInfo {
     is_truncated: Option<bool>,
     cursor: Option<String>,
-}
-
-/// The governor's usage snapshot, of which only the storage ledger is
-/// comparable against a bucket listing.
-#[derive(Deserialize)]
-struct Snapshot {
-    storage: Vec<StorageRow>,
-}
-
-#[derive(Deserialize)]
-struct StorageRow {
-    pool: String,
-    bytes: u64,
-    objects: u64,
 }
 
 /// Runs the audit.
@@ -191,7 +178,7 @@ pub(crate) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().redirects(0).build()
 }
 
-fn get(agent: &ureq::Agent, url: &str, token: &str) -> Result<String> {
+pub(crate) fn get(agent: &ureq::Agent, url: &str, token: &str) -> Result<String> {
     Ok(agent
         .get(url)
         .set("Authorization", &format!("Bearer {token}"))
@@ -251,37 +238,19 @@ pub(crate) fn encode_uri_component(value: &str) -> String {
 
 /// The governor's ledger, when a verify token is to hand.
 fn snapshot() -> Result<Option<Snapshot>> {
-    let token = std::env::var("REGISTRY_VERIFY_TOKEN").unwrap_or_default();
-    if token.is_empty() {
+    // The token itself is read again by `Api::new`; this only decides
+    // whether the ledger sections run at all, and reads through
+    // `var`'s lossy default so a non-UTF-8 value still skips rather
+    // than erroring one call later.
+    if std::env::var("REGISTRY_VERIFY_TOKEN")
+        .unwrap_or_default()
+        .is_empty()
+    {
         step("REGISTRY_VERIFY_TOKEN unset; skipping the governor ledger sections");
         return Ok(None);
     }
     step("reading the governor ledger snapshot");
-
-    let origin = std::env::var(cabin_env::CABIN_API_ORIGIN)
-        .ok()
-        .filter(|origin| !origin.is_empty())
-        .unwrap_or_else(|| "https://cabinpkg.com".to_owned());
-    if !origin.starts_with("https://") {
-        bail!("{} must be https", cabin_env::CABIN_API_ORIGIN);
-    }
-
-    let request = agent()
-        .get(&format!("{origin}/api/v1/admin/governor"))
-        .set("Authorization", &format!("Bearer {token}"));
-    // The status is the verdict, so a refusal is read for its body
-    // rather than raised: an operator whose token lacks the verify
-    // scope needs to see what the service said.
-    let (status, body) = match request.call() {
-        Ok(response) => (response.status(), response.into_string()?),
-        Err(ureq::Error::Status(status, response)) => {
-            (status, response.into_string().unwrap_or_default())
-        }
-        Err(error) => return Err(error).context("the governor snapshot request failed"),
-    };
-    if status != 200 {
-        bail!("the governor snapshot answered {status}: {body}");
-    }
+    let body = crate::governor::Api::new()?.ok(None, "the governor snapshot")?;
     Ok(Some(
         serde_json::from_str(&body).context("parse the governor snapshot")?,
     ))

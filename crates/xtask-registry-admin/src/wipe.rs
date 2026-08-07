@@ -137,14 +137,13 @@ use sha2::{Digest as _, Sha256};
 use xtask_workflow_guard::migrations_pending::migration_files;
 
 use crate::launch_guard::{self, Mode};
-use crate::{declared_account_id, display, output, registry_root, results, step, wrangler};
+use crate::{
+    BLOBS_BUCKET, declared_account_id, display, output, registry_root, results, status, step,
+    wrangler,
+};
 
 /// The database this drops and recreates.
 const DATABASE: &str = "cabin-registry";
-
-/// The bucket this sweeps.  The BACKUP bucket
-/// ([`crate::BACKUP_BUCKET`]) is append-only and appears nowhere here.
-const BLOBS_BUCKET: &str = "cabin-registry-blobs";
 
 const GENERATION: &str = "SELECT value FROM meta WHERE key = 'registry_generation'";
 
@@ -599,7 +598,7 @@ fn sweep(account: &str, token: &str) -> u64 {
     let mut deleted: u64 = 0;
     loop {
         let page = or_fail(
-            get(&agent, &format!("{api}?prefix=blobs/&per_page=500"), token)
+            crate::audit::get(&agent, &format!("{api}?prefix=blobs/&per_page=500"), token)
                 .map_err(|_| anyhow!("listing {BLOBS_BUCKET} failed")),
         );
         let listed = or_fail(keys(&page));
@@ -649,27 +648,10 @@ fn keys(page: &str) -> Result<String> {
     }
     let mut text = String::new();
     for object in &parsed.result {
-        text.push_str(&encode_key(&object.key));
+        text.push_str(&crate::governor::encode_prefix(&object.key));
         text.push('\n');
     }
     Ok(text.trim_end_matches('\n').to_owned())
-}
-
-/// `key.split("/").map(encodeURIComponent).join("/")`: the separators
-/// stay separators and everything else is escaped.
-fn encode_key(key: &str) -> String {
-    key.split('/')
-        .map(crate::audit::encode_uri_component)
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn get(agent: &ureq::Agent, url: &str, token: &str) -> Result<String> {
-    Ok(agent
-        .get(url)
-        .set("Authorization", &format!("Bearer {token}"))
-        .call()?
-        .into_string()?)
 }
 
 /// `curl -fsS -o /dev/null -X DELETE`: the body is discarded and only the
@@ -713,12 +695,7 @@ fn wrangler_run(arguments: &[&str], show: Show) -> Result<()> {
     if matches!(show, Show::Nothing) {
         command.stdout(Stdio::null());
     }
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command.status().with_context(|| format!("run {program}"))?;
-    if !status.success() {
-        bail!("{program} failed: {status}");
-    }
-    Ok(())
+    status(&mut command)
 }
 
 #[cfg(test)]

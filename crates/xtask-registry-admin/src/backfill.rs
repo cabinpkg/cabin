@@ -36,9 +36,10 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, bail};
 
-use crate::{BACKUP_BUCKET as BACKUP, Nullish, column_lines, output, results, step, wrangler};
-
-const PRIMARY: &str = "cabin-registry-blobs";
+use crate::{
+    BACKUP_BUCKET as BACKUP, BLOBS_BUCKET as PRIMARY, Nullish, column_lines, output, results, step,
+    wrangler,
+};
 
 // The queue rows make the drain visit (and ledger) every verified blob,
 // whether this run copies it or an earlier out-of-band copy already

@@ -12,7 +12,6 @@
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
-use sha2::{Digest as _, Sha256};
 // The `migrations/*.sql` glob rule lives with the deploy gate it feeds
 // (`xtask-workflow-guard`); reading the stamp through the same function
 // is what keeps this bundle's PENDING verdict aligned with the gate's.
@@ -132,11 +131,7 @@ pub fn run() -> Result<()> {
 fn migrations_stamp() -> Result<()> {
     let registry = registry_dir();
     let files = migration_files(&registry.join("migrations"))?;
-    let mut hasher = Sha256::new();
-    for file in &files {
-        hasher.update(std::fs::read(file).with_context(|| format!("read {}", file.display()))?);
-    }
-    let stamp = cabin_core::hash::hex_digest(&hasher.finalize());
+    let stamp = crate::migrate::digest_of(&files)?;
 
     // An unreadable stamp file is a mismatch, not an abort: the shell
     // compared against an empty command substitution and carried on
@@ -163,13 +158,12 @@ fn migrations_stamp() -> Result<()> {
 /// shell's `pipefail` made it: a bundle that says `diagnose OK` after a
 /// section failed is worse than no bundle.
 fn governor_ledger() -> Result<()> {
-    let Some(token) = std::env::var_os("REGISTRY_VERIFY_TOKEN").filter(|t| !t.is_empty()) else {
-        step("governor ledger: skipped (REGISTRY_VERIFY_TOKEN unset)");
-        return Ok(());
-    };
     // The token is read from the environment by the governor itself;
     // this only decides whether the section runs at all.
-    let _ = token;
+    if std::env::var_os("REGISTRY_VERIFY_TOKEN").is_none_or(|token| token.is_empty()) {
+        step("governor ledger: skipped (REGISTRY_VERIFY_TOKEN unset)");
+        return Ok(());
+    }
     step("governor ledger (cargo registry-governor usage)");
     for line in crate::governor::usage_lines().context("read the governor usage snapshot")? {
         println!("    {line}");
