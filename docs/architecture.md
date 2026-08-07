@@ -147,7 +147,11 @@ client and server surface must agree on live in `cabin_core::registry`: the file
 `config.json` discriminants, the default index origin, and the packaging-revision grammar
 (`PACKAGING_REVISION_HEX_LEN`, `is_valid_packaging_revision`,
 `packaging_revision_from_sha256_hex`), so index loading, publishing, fetching, and vendoring all
-derive a revision id from a checksum the same way.  Manifest, index, lockfile,
+derive a revision id from a checksum the same way.  The serialized checksum spelling those surfaces
+share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
+(strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
+primitives), today carried by the `[package.upstream]` provenance model.  A checksum boundary
+being added or changed must parse into the type rather than threading raw strings.  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
 

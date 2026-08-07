@@ -140,7 +140,7 @@ pub fn materialize_upstream(
         path: archive.to_path_buf(),
         source,
     })?;
-    if actual != provenance.sha256_hex() {
+    if actual != provenance.checksum().hex() {
         return Err(MaterializeError::Defect(
             MaterializeDefect::ChecksumMismatch,
         ));

@@ -13,6 +13,7 @@
 
 pub mod build_flags;
 pub mod build_jobs;
+pub mod checksum;
 pub mod compiler;
 pub mod compiler_wrapper;
 pub mod condition;
@@ -42,6 +43,7 @@ pub use build_flags::{
     ResolvedProfileFlags, resolve_build_flags,
 };
 pub use build_jobs::{BuildJobs, BuildJobsParseError};
+pub use checksum::{Checksum, ChecksumError};
 pub use compiler::{
     ArchiverCapabilities, ArchiverIdentity, ArchiverKind, Capability, CapabilitySource,
     CompilerCapabilities, CompilerIdentity, CompilerKind, CompilerVersion, ToolDetection,
