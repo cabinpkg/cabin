@@ -14,6 +14,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+cabin-core = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }

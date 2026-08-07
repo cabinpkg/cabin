@@ -28,13 +28,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
-use xtask_registry_admin::{BACKUP_BUCKET, display, output, results, wrangler};
+use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, wrangler};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex};
 use crate::context::{Base, Smoke};
 use crate::legs::session;
-use crate::servers::DevServers;
+use crate::servers::{DevServers, d1, d1_quiet, d1_rows};
 use crate::step;
+use crate::text::{capture, contains, grep_lines, read, write};
 
 /// Every count and duration is the shell's literally (plan §7.9):
 /// in-process HTTP is faster than forking `curl`, and a poll budget
@@ -51,9 +52,6 @@ const BREAKER_CRON: &str = "/__scheduled?cron=*/15+*+*+*+*";
 
 const PENDING_LISTING: &str = "/api/v1/admin/versions?status=pending";
 const GOVERNOR: &str = "/api/v1/admin/governor";
-
-/// The blob bucket a refused publish must not have written to.
-const BLOBS_BUCKET: &str = "cabin-registry-blobs";
 
 /// The publish burst (bucket size 5) reset before each leg that
 /// publishes, so a rate limit can never stand in for the refusal a leg
@@ -461,6 +459,7 @@ fn blocked_publish(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
         &[503],
     )?;
     smoke.expect_body("registry_over_budget")?;
+    // The blob bucket a refused publish must not have written to.
     if r2_get(
         &format!("{BLOBS_BUCKET}/blobs/sha256/{blocked_hash}"),
         Path::new("/dev/null"),
@@ -1129,44 +1128,6 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>> {
     serde_json::to_vec(value).context("serialize a request body")
 }
 
-/// `wrangler d1 execute DB --local --command`, with wrangler's own
-/// output left on the operator's terminal.
-fn d1(command: &str) -> Result<()> {
-    let status = wrangler(&["d1", "execute", "DB", "--local", "--command", command])
-        .status()
-        .context("run wrangler d1 execute")?;
-    if !status.success() {
-        bail!("wrangler d1 execute failed: {status}");
-    }
-    Ok(())
-}
-
-/// The same, with `>/dev/null`.
-fn d1_quiet(command: &str) -> Result<()> {
-    output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--command",
-        command,
-    ]))?;
-    Ok(())
-}
-
-fn d1_rows(command: &str) -> Result<Vec<Map<String, Value>>> {
-    let json = output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--json",
-        "--command",
-        command,
-    ]))?;
-    results(&json)
-}
-
 /// The rows of a key/value read as the shell's `Object.fromEntries`
 /// built them: a later row for the same key wins.
 fn key_values(rows: &[Map<String, Value>]) -> std::collections::HashMap<String, String> {
@@ -1311,30 +1272,6 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-fn read(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).with_context(|| format!("read {}", path.display()))
-}
-
-fn write(path: &Path, contents: &[u8]) -> Result<()> {
-    fs::write(path, contents).with_context(|| format!("write {}", path.display()))
-}
-
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
-}
-
-/// `grep -i '^<prefix>'`: every matching line, duplicates and trailing
-/// carriage returns kept.
-fn grep_lines<'a>(block: &'a str, prefix: &str) -> Vec<&'a str> {
-    let prefix = prefix.to_ascii_lowercase();
-    block
-        .split('\n')
-        .filter(|line| line.to_ascii_lowercase().starts_with(&prefix))
-        .collect()
-}
-
 /// `grep -i <needle>`, unanchored - what the diagnostics interpolate.
 fn grep_anywhere<'a>(block: &'a str, needle: &str) -> Vec<&'a str> {
     let needle = needle.to_ascii_lowercase();
@@ -1342,13 +1279,6 @@ fn grep_anywhere<'a>(block: &'a str, needle: &str) -> Vec<&'a str> {
         .split('\n')
         .filter(|line| line.to_ascii_lowercase().contains(&needle))
         .collect()
-}
-
-/// `"$(cat <file>)"`: the bytes as text with trailing newlines dropped.
-fn capture(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .trim_end_matches('\n')
-        .to_owned()
 }
 
 #[cfg(test)]

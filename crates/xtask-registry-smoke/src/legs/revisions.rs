@@ -10,8 +10,8 @@
 //! here - `row_downloads` (L1420), `source_range` (L1436) and
 //! `source_header` (L1448) - alongside private copies of two the span
 //! only *uses*: `session_request` (L758) and `await_row_downloads`
-//! (L1224).  [`stored_bytes`] (L1583) is `pub` because Phase 10 reads
-//! it six times.
+//! (L1224).  Phase 10's `stored_bytes` (L1583) lives in its own leg
+//! with its own private copy of the query.
 //!
 //! Every literal `sleep` is preserved: the two here (L1495, L1565)
 //! precede assertions that a counter did **not** move, and in-process
@@ -29,12 +29,14 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
-use xtask_registry_admin::{display, results, wrangler};
+use xtask_registry_admin::{display, results};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::{Base, Smoke};
 use crate::legs::anonymous::uniform_401_with;
+use crate::servers::{d1, d1_json, d1_quiet};
 use crate::step;
+use crate::text::capture;
 
 /// What earlier legs leave behind that this span reads.  The paths are
 /// the shell's own variables (L685-692) rather than rebuilt here; `rev`
@@ -134,7 +136,10 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     // same version, pending like any other first publish - and
     // invisible to reads until it is verified, so what the registry
     // serves cannot move.
-    execute_quietly(RESET_PUBLISH_BUCKET)?;
+    //
+    // L1348 is the one site in this span that redirected the result
+    // table to `/dev/null`.
+    d1_quiet(RESET_PUBLISH_BUCKET)?;
     let opt_in = format!("{}?new-revision=true", inputs.publish_path);
     smoke.wrequest("PUT", &opt_in, &body, &[201])?;
     smoke.expect_body(&format!(r#""revision":"{new_rev}""#))?;
@@ -347,11 +352,9 @@ fn range_reads(
 /// the 60 s cache TTL.
 fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("writes answer 503 while writes_blocked; reads stay open");
-    execute(
-        "
+    d1("
   UPDATE meta SET value = 'writes_blocked' WHERE key = 'service_mode';
-  UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';",
-    )?;
+  UPDATE meta SET value = 'forced by smoke.sh' WHERE key = 'service_mode_reason';")?;
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
     smoke.expect_body("registry_over_budget")?;
     let yank_path = format!("{}/yank", inputs.publish_path);
@@ -376,10 +379,8 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
 /// L1521-1568.
 fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &str) -> Result<()> {
     step("reads answer 503 while reads_blocked; the exempt planes stay open");
-    execute(
-        "
-  UPDATE meta SET value = 'reads_blocked' WHERE key = 'service_mode';",
-    )?;
+    d1("
+  UPDATE meta SET value = 'reads_blocked' WHERE key = 'service_mode';")?;
     let downloads_before = row_downloads()?;
     // The data plane refuses with the read-side envelope and the
     // cron-cadence Retry-After; writes stay blocked too (reads_blocked
@@ -443,11 +444,9 @@ fn over_budget(smoke: &Smoke, missing: &str) -> Result<()> {
 /// L1569-1575.
 fn restore_normal(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     step("restoring service_mode reopens writes");
-    execute(
-        "
+    d1("
   UPDATE meta SET value = 'normal' WHERE key = 'service_mode';
-  UPDATE meta SET value = '' WHERE key = 'service_mode_reason';",
-    )?;
+  UPDATE meta SET value = '' WHERE key = 'service_mode_reason';")?;
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[200])?;
     smoke.expect_body(r#""no_op":true"#)
 }
@@ -458,7 +457,7 @@ fn restore_normal(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> 
 fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     // The PUTs above consumed the publish bucket's full burst; give the
     // next leg its own by resetting the token's bucket columns.
-    execute(RESET_PUBLISH_BUCKET)?;
+    d1(RESET_PUBLISH_BUCKET)?;
     let version2 = "0.2.1";
     let rev = revision_of(inputs.fixture_archive);
     // A global textual replace over the raw document, never a JSON
@@ -669,10 +668,6 @@ const RESET_PUBLISH_BUCKET: &str = "
 const DOWNLOADS_SQL: &str = "SELECT downloads FROM versions
      WHERE scope = 'smoke' AND name = 'withdep' AND version = '0.2.0'";
 
-/// `meta.total_stored_bytes`, the exact storage self-accounting
-/// (L1583-1589).
-const STORED_BYTES_SQL: &str = "SELECT value FROM meta WHERE key = 'total_stored_bytes'";
-
 /// `row_downloads` (L1420).
 ///
 /// # Errors
@@ -681,15 +676,6 @@ const STORED_BYTES_SQL: &str = "SELECT value FROM meta WHERE key = 'total_stored
 /// absent - where it threw and took the pipeline down with it.
 pub fn row_downloads() -> Result<String> {
     scalar(DOWNLOADS_SQL, "downloads")
-}
-
-/// `stored_bytes` (L1583).
-///
-/// # Errors
-///
-/// As [`row_downloads`].
-pub fn stored_bytes() -> Result<String> {
-    scalar(STORED_BYTES_SQL, "value")
 }
 
 /// `await_row_downloads <expected>` (L1224-1237): 20 attempts half a
@@ -716,16 +702,7 @@ pub fn await_row_downloads(expected: &str) -> Result<()> {
 /// One `--json` read rendered as its `console.log(out[0].results[0].<column>)`
 /// rendered it.
 fn scalar(sql: &str, column: &str) -> Result<String> {
-    let json = xtask_registry_admin::output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--json",
-        "--command",
-        sql,
-    ]))?;
-    scalar_of(&json, column)
+    scalar_of(&d1_json(sql)?, column)
 }
 
 fn scalar_of(json: &str, column: &str) -> Result<String> {
@@ -735,39 +712,6 @@ fn scalar_of(json: &str, column: &str) -> Result<String> {
         .and_then(|row| row.get(column))
         .with_context(|| format!("the query returned no {column}"))?;
     Ok(display(value))
-}
-
-/// `wrangler d1 execute DB --local --command <sql>`, whose result table
-/// went to the operator's terminal at every site in this span but
-/// L1348.
-fn execute(sql: &str) -> Result<()> {
-    let mut command = wrangler(&["d1", "execute", "DB", "--local", "--command", sql]);
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command.status().with_context(|| format!("run {program}"))?;
-    if !status.success() {
-        bail!("{program} failed: {status}");
-    }
-    Ok(())
-}
-
-/// L1348's `>/dev/null`: capturing stdout is how it is swallowed.
-fn execute_quietly(sql: &str) -> Result<()> {
-    xtask_registry_admin::output(&mut wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--command",
-        sql,
-    ]))?;
-    Ok(())
-}
-
-/// `"$(cat <file>)"`: the bytes as text with trailing newlines dropped.
-fn capture(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .trim_end_matches('\n')
-        .to_owned()
 }
 
 #[cfg(test)]

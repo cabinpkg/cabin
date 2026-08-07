@@ -25,11 +25,14 @@ use std::process::Stdio;
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
+use xtask_registry_admin::BLOBS_BUCKET;
 
 use crate::bytes::{frame, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::Smoke;
 use crate::legs::session;
+use crate::servers::{d1, d1_rows};
 use crate::step;
+use crate::text::{capture, contains};
 
 /// What the publish/verify phases before this one computed and this
 /// leg reads: the fixture identity, the two derived request paths for
@@ -294,7 +297,7 @@ fn reclaim_unshared(
     let file = reclaimed
         .to_str()
         .context("the work directory path is not UTF-8")?;
-    let key = format!("cabin-registry-blobs/blobs/sha256/{}", replacement.hash);
+    let key = format!("{BLOBS_BUCKET}/blobs/sha256/{}", replacement.hash);
     let mut command =
         xtask_registry_admin::wrangler(&["r2", "object", "get", &key, "--file", file, "--local"]);
     // A successful read is the failure: the shell put this in an `if`,
@@ -461,16 +464,7 @@ fn json_string(value: &str) -> String {
 /// `console.log` printed it, so the comparisons stay the string
 /// comparisons `[[ … == … ]]` made.
 fn stored_bytes() -> Result<String> {
-    let json = xtask_registry_admin::output(&mut xtask_registry_admin::wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--json",
-        "--command",
-        TOTAL_STORED_BYTES,
-    ]))?;
-    let value = xtask_registry_admin::results(&json)?
+    let value = d1_rows(TOTAL_STORED_BYTES)?
         .first()
         .and_then(|row| row.get("value").cloned())
         .context("meta has no total_stored_bytes row")?;
@@ -487,19 +481,7 @@ fn sum(before_bytes: &str, size: usize) -> Result<String> {
 
 /// L1724-1725, whose stdout the shell left on the terminal.
 fn reset_publish_bucket() -> Result<()> {
-    let mut command = xtask_registry_admin::wrangler(&[
-        "d1",
-        "execute",
-        "DB",
-        "--local",
-        "--command",
-        RESET_PUBLISH_BUCKET,
-    ]);
-    let status = command.status().context("run wrangler d1 execute")?;
-    if !status.success() {
-        bail!("resetting the publish bucket failed: {status}");
-    }
-    Ok(())
+    d1(RESET_PUBLISH_BUCKET).context("resetting the publish bucket")
 }
 
 /// `$scope/$name`, the scoped name the admin listing keys entries by.
@@ -511,21 +493,6 @@ fn scoped(inputs: &BlobInputs<'_>) -> String {
 fn artifact_path(inputs: &BlobInputs<'_>, version: &str, revision: &str) -> String {
     let BlobInputs { scope, name, .. } = *inputs;
     format!("/artifacts/{scope}/{name}/{scope}-{name}-{version}-{revision}.zip")
-}
-
-/// `grep -qF`: a fixed byte substring, never a pattern.
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
-}
-
-/// `"$(cat "$body")"`: the bytes as text with trailing newlines
-/// dropped, which is what every interpolated diagnostic here reads.
-fn capture(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .trim_end_matches('\n')
-        .to_owned()
 }
 
 #[cfg(test)]
@@ -651,15 +618,5 @@ mod tests {
         assert_eq!(sum("1024", 512).expect("sum"), "1536");
         assert_eq!(sum("0", 0).expect("sum"), "0");
         assert!(sum("", 1).is_err());
-    }
-
-    #[test]
-    fn the_fixed_needle_and_the_capture_read_raw_bytes() {
-        assert!(contains(
-            br#"{"detail":"not a member of ghost"}"#,
-            b"not a member"
-        ));
-        assert!(!contains(b"{}", b"not a member"));
-        assert_eq!(capture(b"{\"a\":1}\n\n"), r#"{"a":1}"#);
     }
 }

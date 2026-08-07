@@ -16,6 +16,7 @@ pub mod bytes;
 pub mod context;
 pub mod legs;
 pub mod servers;
+mod text;
 
 use std::path::Path;
 
@@ -27,14 +28,9 @@ use crate::bytes::replace_all;
 use crate::context::Smoke;
 use crate::legs::{anonymous, blobs, claims, finale, publish, revisions, session};
 use crate::servers::{DevServers, Ports};
+use crate::text::read;
 
-/// One step banner, exactly the shell's `step` from `lib.sh`:
-/// `==> <label>` on stdout.  The labels are load-bearing output - the
-/// governor legs are pinned verbatim by
-/// `registry/tests/docs_drift.rs`.
-pub fn step(label: &str) {
-    println!("==> {label}");
-}
+pub use xtask_registry_admin::step;
 
 /// The whole run, in the shell's order.
 ///
@@ -193,8 +189,4 @@ fn port(name: &str, value: &str) -> Result<u16> {
     value
         .parse()
         .with_context(|| format!("{name}={value} is not a port number"))
-}
-
-fn read(path: &Path) -> Result<Vec<u8>> {
-    std::fs::read(path).with_context(|| format!("reading {}", path.display()))
 }

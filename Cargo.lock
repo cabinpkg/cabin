@@ -2468,6 +2468,7 @@ version = "0.17.0"
 dependencies = [
  "anyhow",
  "assert_fs",
+ "cabinpkg-core",
  "libc",
  "serde_json",
  "sha2",
