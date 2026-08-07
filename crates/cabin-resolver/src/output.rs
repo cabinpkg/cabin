@@ -1,7 +1,6 @@
 use cabin_core::{PackageName, SourceLanguage};
 use pubgrub::SelectedDependencies;
 use semver::Version;
-use serde::Serialize;
 
 use crate::input::ResolveInput;
 
@@ -121,8 +120,11 @@ pub struct ResolvedPackage {
 }
 
 /// Where a [`ResolvedPackage`] came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// Deliberately not serde-serializable: every output path renders it
+/// through [`ResolvedSource::as_str`], which owns the stable `"root"` /
+/// `"index"` spellings the CLI's JSON emits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedSource {
     /// The root package being resolved for.
     Root,

@@ -571,7 +571,6 @@ dependencies = [
  "miette",
  "pubgrub",
  "semver",
- "serde",
  "thiserror",
 ]
 
