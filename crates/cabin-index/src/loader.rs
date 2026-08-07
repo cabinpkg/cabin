@@ -2186,8 +2186,8 @@ mod tests {
             upstream.url().as_str(),
             "https://example.com/fmt-10.2.1.tar.gz"
         );
-        assert_eq!(upstream.checksum(), format!("sha256:{sha}"));
-        assert_eq!(upstream.sha256_hex(), sha);
+        assert_eq!(upstream.checksum().as_str(), format!("sha256:{sha}"));
+        assert_eq!(upstream.checksum().hex(), sha);
         assert_eq!(upstream.format(), cabin_core::UpstreamFormat::TarGz);
         assert_eq!(upstream.strip_prefix(), Some("fmt-10.2.1"));
         assert_eq!(upstream.copies().len(), 1);

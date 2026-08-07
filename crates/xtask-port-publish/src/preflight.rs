@@ -283,7 +283,7 @@ fn resolve_package_archive(
     fetch: ArchiveFetch,
 ) -> Result<PathBuf> {
     let upstream = conversion.upstream.as_ref();
-    let expected_hex = upstream.sha256_hex();
+    let expected_hex = upstream.checksum().hex();
     let cached = cached_archive_path(ports_cache, expected_hex, upstream.format());
     if archive_matches(&cached, expected_hex)? {
         return Ok(cached);

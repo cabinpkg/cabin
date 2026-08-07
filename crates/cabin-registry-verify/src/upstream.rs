@@ -81,7 +81,7 @@ pub(crate) fn check(
         path: upstream_archive.to_path_buf(),
         source,
     })?;
-    if actual != declared.sha256_hex() {
+    if actual != declared.checksum().hex() {
         return Ok(Some(Reason::UpstreamChecksumMismatch));
     }
 

@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+use crate::checksum::Checksum;
+
 /// Why an upstream declaration was rejected.  The messages are
 /// user-facing sentences; `cabin-manifest` surfaces them with the
 /// `[package.upstream]` field context attached.
@@ -35,11 +37,11 @@ pub enum UpstreamError {
     InsecureUrl { value: String },
     #[error("upstream url {value:?} must not embed credentials")]
     UrlWithCredentials { value: String },
-    #[error(
-        "upstream checksum {value:?} must be `sha256:` followed by 64 lowercase hexadecimal \
-         characters (sha256 is the only supported algorithm)"
-    )]
-    InvalidChecksum { value: String },
+    // Rendered through the shared [`crate::checksum::ChecksumError`]
+    // sentence so the checksum grammar has exactly one normative
+    // wording; the `upstream ` prefix supplies the field context.
+    #[error("upstream {0}")]
+    InvalidChecksum(crate::checksum::ChecksumError),
     #[error("unsupported upstream format {value:?}: expected \"tar.gz\" or \"zip\"")]
     UnsupportedFormat { value: String },
     #[error("upstream strip-prefix {value:?} must be a single non-empty relative path component")]
@@ -89,11 +91,6 @@ pub enum UpstreamError {
     )]
     ConflictingPatchPath { patch: String, other: String },
 }
-
-/// The one checksum algorithm the provenance format supports today.
-/// The value is self-describing (`sha256:<64 lowercase hex>`) so a
-/// future algorithm changes the accepted prefixes, not the key.
-const CHECKSUM_PREFIX: &str = "sha256:";
 
 /// Byte cap on the upstream URL's normalized serialization: a
 /// practical bound (browsers and CDNs cap around here) far below
@@ -333,7 +330,7 @@ pub fn is_safe_archive_path(value: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamProvenance {
     url: Url,
-    checksum: String,
+    checksum: Checksum,
     format: UpstreamFormat,
     strip_prefix: Option<String>,
     copies: Vec<UpstreamCopy>,
@@ -380,19 +377,7 @@ impl UpstreamProvenance {
                 value: url.to_owned(),
             });
         }
-        let digest_ok = checksum
-            .strip_prefix(CHECKSUM_PREFIX)
-            .is_some_and(|digest| {
-                digest.len() == 64
-                    && digest
-                        .bytes()
-                        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-            });
-        if !digest_ok {
-            return Err(UpstreamError::InvalidChecksum {
-                value: checksum.to_owned(),
-            });
-        }
+        let checksum = Checksum::parse(checksum).map_err(UpstreamError::InvalidChecksum)?;
         let format =
             UpstreamFormat::parse(format).ok_or_else(|| UpstreamError::UnsupportedFormat {
                 value: format.to_owned(),
@@ -475,7 +460,7 @@ impl UpstreamProvenance {
         validate_patch_plan(&patches, &plan_paths)?;
         Ok(Self {
             url: parsed,
-            checksum: checksum.to_owned(),
+            checksum,
             format,
             strip_prefix,
             copies,
@@ -488,19 +473,12 @@ impl UpstreamProvenance {
         &self.url
     }
 
-    /// Algorithm-prefixed checksum claim (`sha256:<64 lowercase
-    /// hex>`), exactly as manifests and metadata carry it.
+    /// Algorithm-prefixed checksum claim, exactly as manifests and
+    /// metadata carry it ([`Checksum::as_str`] is the serialized
+    /// spelling, [`Checksum::hex`] the bare digest comparisons use).
     #[must_use]
-    pub fn checksum(&self) -> &str {
+    pub fn checksum(&self) -> &Checksum {
         &self.checksum
-    }
-
-    /// 64-character lowercase hex digest of the pinned archive bytes,
-    /// without the algorithm prefix - the form hashing comparisons
-    /// consume.
-    #[must_use]
-    pub fn sha256_hex(&self) -> &str {
-        &self.checksum[CHECKSUM_PREFIX.len()..]
     }
 
     #[must_use]
@@ -554,7 +532,7 @@ impl Serialize for UpstreamProvenance {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         WireUpstream {
             url: self.url.as_str(),
-            checksum: &self.checksum,
+            checksum: self.checksum.as_str(),
             format: self.format.as_str(),
             strip_prefix: self.strip_prefix(),
             patches: &self.patches,
@@ -641,8 +619,8 @@ mod tests {
     fn accepts_a_valid_declaration() {
         let upstream = valid();
         assert_eq!(upstream.url().as_str(), URL);
-        assert_eq!(upstream.checksum(), CHECKSUM);
-        assert_eq!(upstream.sha256_hex(), SHA);
+        assert_eq!(upstream.checksum().as_str(), CHECKSUM);
+        assert_eq!(upstream.checksum().hex(), SHA);
         assert_eq!(upstream.format(), UpstreamFormat::TarGz);
         assert_eq!(upstream.strip_prefix(), Some("library-1.2.3"));
         assert!(upstream.copies().is_empty());
@@ -705,6 +683,7 @@ mod tests {
             &format!("sha512:{SHA}"),
             &format!("sha256:{}", SHA.to_uppercase()),
             &format!("sha256:g{}", &SHA[1..]),
+            &format!("SHA256:{SHA}"),
             &format!("sha256:sha256:{SHA}"),
             &format!(" sha256:{SHA}"),
             "sha256:",
@@ -714,10 +693,20 @@ mod tests {
                 UpstreamProvenance::new(URL, checksum, "tar.gz", None, Vec::new(), Vec::new())
                     .unwrap_err();
             assert!(
-                matches!(err, UpstreamError::InvalidChecksum { .. }),
+                matches!(err, UpstreamError::InvalidChecksum(_)),
                 "{checksum:?}: {err:?}"
             );
         }
+        // The wrapped diagnostic keeps the pre-refactor sentence: the
+        // field context plus the shared normative checksum grammar.
+        let err =
+            UpstreamProvenance::new(URL, "sha256:zzz", "tar.gz", None, Vec::new(), Vec::new())
+                .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "upstream checksum \"sha256:zzz\" must be `sha256:` followed by 64 lowercase \
+             hexadecimal characters (sha256 is the only supported algorithm)"
+        );
     }
 
     #[test]

@@ -3442,11 +3442,11 @@ fn package_upstream_is_parsed() {
         "https://example.com/zlib-1.3.1.tar.gz"
     );
     assert_eq!(
-        upstream.checksum(),
+        upstream.checksum().as_str(),
         "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
     );
     assert_eq!(
-        upstream.sha256_hex(),
+        upstream.checksum().hex(),
         "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
     );
     assert_eq!(upstream.format(), cabin_core::UpstreamFormat::TarGz);
@@ -3586,7 +3586,7 @@ fn package_upstream_rejects_bad_checksums() {
             matches!(
                 &err,
                 ManifestError::Upstream {
-                    source: cabin_core::UpstreamError::InvalidChecksum { .. }
+                    source: cabin_core::UpstreamError::InvalidChecksum(_)
                 }
             ),
             "{replacement}: {err:?}"
