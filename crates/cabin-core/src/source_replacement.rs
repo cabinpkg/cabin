@@ -78,9 +78,9 @@ impl fmt::Display for SourceLocator {
 }
 
 /// One source-replacement declaration.  The orchestration layer
-/// folds `Vec<SourceReplacementEntry>` into a
-/// [`SourceReplacementSettings`] map keyed by `original` so
-/// duplicates can be rejected deterministically.
+/// folds these into a [`SourceReplacementSettings`] map keyed by
+/// `original`, so a higher-precedence config layer overrides a
+/// lower one entry by entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceReplacementEntry {
     pub original: SourceLocator,
@@ -197,13 +197,6 @@ pub enum SourceReplacementError {
     /// echoes the secret back to stderr / logs.
     #[error("source replacement URL `{url}` must not contain credentials")]
     CredentialsInUrl { url: String },
-
-    /// The same `original` key appears in two replacement
-    /// declarations at the same precedence level.
-    #[error(
-        "multiple source replacements for `{original}` are active at the same precedence level; remove one declaration"
-    )]
-    DuplicateAtSameLevel { original: String },
 
     /// A replacement chain looped back to a previously-visited
     /// source.

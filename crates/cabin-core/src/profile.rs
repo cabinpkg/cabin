@@ -443,24 +443,6 @@ impl ResolvedProfile {
                 .collect::<Vec<_>>(),
         })
     }
-
-    /// Compute the language-neutral compile flags this profile
-    /// contributes.
-    /// The order is fixed: `-O<level>` first, then `-g` when
-    /// debug info is requested, then `-DNDEBUG` when assertions
-    /// are off.  Determinism matters here because the result lands
-    /// in `compile_commands.json`.
-    pub fn compile_flags(&self) -> Vec<&'static str> {
-        let mut out = Vec::with_capacity(3);
-        out.push(self.opt_level.as_flag());
-        if self.debug {
-            out.push("-g");
-        }
-        if !self.assertions {
-            out.push("-DNDEBUG");
-        }
-        out
-    }
 }
 
 /// Errors produced by [`resolve_profile`].
@@ -1093,45 +1075,6 @@ mod tests {
         let err = OptLevel::parse("fast").unwrap_err();
         assert!(err.contains("invalid opt-level"));
         assert!(err.contains("\"fast\""));
-    }
-
-    #[test]
-    fn compile_flags_are_deterministic_and_drop_ndebug_when_assertions_on() {
-        let r = ResolvedProfile {
-            name: name("dev"),
-            debug: true,
-            opt_level: OptLevel::O0,
-            assertions: true,
-            source: ProfileSource::Builtin,
-            inherits_chain: vec![name("dev")],
-            build: None,
-        };
-        assert_eq!(r.compile_flags(), vec!["-O0", "-g"]);
-
-        let r = ResolvedProfile {
-            name: name("release"),
-            debug: false,
-            opt_level: OptLevel::O3,
-            assertions: false,
-            source: ProfileSource::Builtin,
-            inherits_chain: vec![name("release")],
-            build: None,
-        };
-        assert_eq!(r.compile_flags(), vec!["-O3", "-DNDEBUG"]);
-    }
-
-    #[test]
-    fn compile_flags_are_language_neutral_profile_flags() {
-        let r = ResolvedProfile {
-            name: name("dev"),
-            debug: true,
-            opt_level: OptLevel::O2,
-            assertions: false,
-            source: ProfileSource::Builtin,
-            inherits_chain: vec![name("dev")],
-            build: None,
-        };
-        assert_eq!(r.compile_flags(), vec!["-O2", "-g", "-DNDEBUG"]);
     }
 
     #[test]

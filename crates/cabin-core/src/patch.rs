@@ -205,16 +205,6 @@ pub enum PatchValidationError {
         version: String,
         requirement: String,
     },
-
-    /// The same package name appears in two patch declarations
-    /// at the same precedence level.  Across precedence levels
-    /// the higher level overrides; *within* a level, duplicates
-    /// are rejected so two co-equal config files cannot silently
-    /// disagree about a patch.
-    #[error(
-        "multiple patches for package `{package}` are active at the same precedence level; remove one patch declaration"
-    )]
-    DuplicateAtSameLevel { package: String },
 }
 
 #[cfg(test)]
