@@ -11,7 +11,6 @@ description = "Offline dependency vendoring for Cabin"
 name = "cabin_vendor"
 
 [dependencies]
-cabin-artifact = { workspace = true }
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-registry-file = { workspace = true }

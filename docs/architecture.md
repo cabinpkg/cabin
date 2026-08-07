@@ -151,8 +151,9 @@ derive a revision id from a checksum the same way.  The serialized checksum spel
 share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
 (strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
 primitives), today carried by `[package.upstream]` provenance, end to end through the
-packaging and publish chain (staged archives, canonical metadata, publish reports), and by the
-loaded package-index model (revision digests are parsed strictly at the load boundary).  A
+packaging and publish chain (staged archives, canonical metadata, publish reports), by the
+loaded package-index and lockfile models (both parsed strictly at their boundaries), and through
+artifact fetching and vendoring (download verification, cache addressing, vendor metadata).  A
 checksum boundary being added or changed must parse into the type rather than threading raw
 strings.  Manifest, index, lockfile, resolver, build, and feature crates all share these typed
 values without depending on each other.

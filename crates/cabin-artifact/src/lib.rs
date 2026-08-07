@@ -8,8 +8,7 @@
 //! - byte-exact unified-diff application for declared upstream
 //!   patches ([`mod@patch`]),
 //! - the one upstream-provenance materialization pipeline
-//!   ([`materialize`]),
-//! - the small typed surface in [`model`].
+//!   ([`materialize`]).
 //!
 //! Crate boundaries:
 //! - this crate must not run the resolver, write Ninja, or invoke
@@ -25,7 +24,6 @@ pub mod error;
 pub mod extract;
 pub mod fetch;
 pub mod materialize;
-pub mod model;
 pub mod patch;
 
 pub use cache::ArtifactCache;
@@ -35,7 +33,6 @@ pub use fetch::{
     FetchEntry, FetchOptions, FetchPlan, FetchResult, FetchSource, FetchedPackage, fetch,
 };
 pub use materialize::{MaterializeDefect, MaterializeError, PatchFetch, materialize_upstream};
-pub use model::{CHECKSUM_PREFIX, ChecksumDigest};
 pub use patch::{
     PatchError, PatchInput, apply_unified_patches, create_would_conflict, path_is_case_exact,
 };

@@ -1709,7 +1709,7 @@ fn build_fetch_plan(
                         resolved.version
                     )
                 })?;
-            (&revision.source, pinned.as_str().to_owned())
+            (&revision.source, pinned.clone())
         } else {
             let source = meta.source.as_ref().ok_or_else(|| {
                 anyhow::anyhow!(
@@ -1725,7 +1725,7 @@ fn build_fetch_plan(
                     resolved.version
                 )
             })?;
-            (source, checksum.as_str().to_owned())
+            (source, checksum)
         };
         let fetch_source = match (source, access) {
             (cabin_index::SourceLocation::LocalPath(p), _) => {
