@@ -6,7 +6,6 @@ use cabin_core::PackageName;
 use crate::cache::{ArtifactCache, extraction_marker_path, partial_dir_sibling, partial_sibling};
 use crate::error::ArtifactError;
 use crate::extract;
-use crate::model::ChecksumDigest;
 
 /// What to materialize into the cache.
 #[derive(Debug, Clone)]
@@ -20,8 +19,9 @@ pub struct FetchPlan {
 pub struct FetchEntry {
     pub name: PackageName,
     pub version: semver::Version,
-    /// Raw `sha256:<hex>` checksum carried in the index/lockfile.
-    pub checksum: String,
+    /// Digest carried in the index/lockfile, already parsed at
+    /// those boundaries.
+    pub checksum: cabin_core::Checksum,
     /// Where the archive lives at fetch time.  Local file index sources
     /// hand in a [`FetchSource::LocalArchive`]; the HTTP index source
     /// pre-downloads the archive bytes and hands in a
@@ -64,7 +64,7 @@ pub struct FetchResult {
 pub struct FetchedPackage {
     pub name: PackageName,
     pub version: semver::Version,
-    pub checksum: String,
+    pub checksum: cabin_core::Checksum,
     pub archive_path: PathBuf,
     pub source_dir: PathBuf,
 }
@@ -74,8 +74,7 @@ pub struct FetchedPackage {
 ///
 /// # Errors
 /// Returns an [`ArtifactError`] for the first entry that fails to
-/// materialize: [`ArtifactError::InvalidChecksum`] for a malformed
-/// `checksum`; [`ArtifactError::FrozenCacheMiss`] when `options.frozen`
+/// materialize: [`ArtifactError::FrozenCacheMiss`] when `options.frozen`
 /// is set and the archive or extracted tree is not already cached and
 /// valid; [`ArtifactError::MissingArchive`] when a
 /// [`FetchSource::LocalArchive`] path does not exist;
@@ -102,23 +101,17 @@ fn fetch_one(
     cache: &ArtifactCache,
     options: FetchOptions,
 ) -> Result<FetchedPackage, ArtifactError> {
-    let digest =
-        ChecksumDigest::parse(&entry.checksum).ok_or_else(|| ArtifactError::InvalidChecksum {
-            name: entry.name.as_str().to_owned(),
-            version: entry.version.to_string(),
-            value: entry.checksum.clone(),
-        })?;
-    let hex = digest.hex().to_owned();
-    let archive_path = cache.archive_path(&hex);
-    let source_dir = cache.source_dir(&hex);
+    let hex = entry.checksum.hex();
+    let archive_path = cache.archive_path(hex);
+    let source_dir = cache.source_dir(hex);
 
-    ensure_archive(entry, &archive_path, &hex, options.frozen)?;
+    ensure_archive(entry, &archive_path, hex, options.frozen)?;
     ensure_source(entry, &archive_path, &source_dir, options.frozen)?;
 
     Ok(FetchedPackage {
         name: entry.name.clone(),
         version: entry.version.clone(),
-        checksum: digest.full(),
+        checksum: entry.checksum.clone(),
         archive_path,
         source_dir,
     })
@@ -381,7 +374,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -403,7 +396,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -426,7 +419,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: bogus,
+                checksum: cabin_core::Checksum::parse(&bogus).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -445,28 +438,13 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{}", "a".repeat(64)),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "a".repeat(64)))
+                    .unwrap(),
                 source: FetchSource::LocalArchive(dir.child("nope.tar.gz").to_path_buf()),
             }],
         };
         let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
         assert!(matches!(err, ArtifactError::MissingArchive { .. }));
-    }
-
-    #[test]
-    fn invalid_checksum_is_reported() {
-        let dir = TempDir::new().unwrap();
-        let cache = cache_root(dir.path());
-        let plan = FetchPlan {
-            entries: vec![FetchEntry {
-                name: pkg("fmt"),
-                version: ver("10.2.1"),
-                checksum: "sha256:not-hex".to_owned(),
-                source: FetchSource::LocalArchive(dir.child("any.tar.gz").to_path_buf()),
-            }],
-        };
-        let err = fetch(&plan, &cache, FetchOptions::default()).unwrap_err();
-        assert!(matches!(err, ArtifactError::InvalidChecksum { .. }));
     }
 
     #[test]
@@ -479,7 +457,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -496,7 +474,8 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{}", "b".repeat(64)),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{}", "b".repeat(64)))
+                    .unwrap(),
                 source: FetchSource::LocalArchive(dir.child("ignored.tar.gz").to_path_buf()),
             }],
         };
@@ -514,7 +493,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -556,7 +535,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -603,7 +582,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -643,7 +622,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };
@@ -674,7 +653,7 @@ mod tests {
             entries: vec![FetchEntry {
                 name: pkg("fmt"),
                 version: ver("10.2.1"),
-                checksum: format!("sha256:{hex}"),
+                checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
                 source: FetchSource::LocalArchive(archive.to_path_buf()),
             }],
         };

@@ -11,15 +11,6 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ArtifactError {
     #[error(
-        "invalid checksum {value:?} for `{name} {version}`: must be of the form sha256:<64 hex chars>"
-    )]
-    InvalidChecksum {
-        name: String,
-        version: String,
-        value: String,
-    },
-
-    #[error(
         "source archive for `{name} {version}` does not exist: {}",
         path.display()
     )]

@@ -68,10 +68,11 @@ pub struct VendorEntry {
     pub name: PackageName,
     /// Resolved version (e.g. `10.2.1`).
     pub version: semver::Version,
-    /// Raw `sha256:<hex>` checksum recorded in the source
-    /// index.  Re-validated by [`materialize`] before the byte
-    /// stream is written to the vendor directory.
-    pub checksum: String,
+    /// Digest recorded in the source index, already parsed at that
+    /// boundary.  The bytes are re-hashed against it by
+    /// [`materialize`] before the stream is written to the vendor
+    /// directory.
+    pub checksum: cabin_core::Checksum,
     /// Filesystem path to the archive Cabin already fetched and
     /// verified into the artifact cache.  Must point at a
     /// `.zip` whose SHA-256 matches `checksum`.
@@ -210,8 +211,7 @@ pub struct VendorOutcomeEntry {
 /// its subdirectories cannot be created/canonicalized or a file
 /// cannot be written, `Registry` when the file registry cannot
 /// be opened/initialized or its index cannot be rendered,
-/// `InvalidChecksum` when an entry's checksum is not in
-/// `sha256:<hex>` form, `ChecksumMismatch` when a source
+/// `ChecksumMismatch` when a source
 /// archive's SHA-256 differs from the plan's checksum,
 /// `StaleArtifact` when an existing destination archive has a
 /// conflicting checksum, `UnsafeArtifactPath` when an artifact
@@ -355,7 +355,7 @@ pub struct VendorSummary {
 pub struct VendorSummaryEntry {
     pub name: String,
     pub version: String,
-    pub checksum: String,
+    pub checksum: cabin_core::Checksum,
     /// Vendor-root-relative path to the artifact
     /// (`artifacts/<name>/<name>-<version>-<revision>.zip`).
     pub source: String,
@@ -369,17 +369,6 @@ pub enum VendorError {
     /// The plan listed the same `(name, version)` pair twice.
     #[error("vendor plan duplicates package `{name}` version `{version}`")]
     DuplicateEntry { name: String, version: String },
-
-    /// A checksum string was not in the expected
-    /// `sha256:<hex>` form.
-    #[error(
-        "vendor entry for `{name}` `{version}` has an invalid checksum `{value}`; expected `sha256:<hex>` form"
-    )]
-    InvalidChecksum {
-        name: String,
-        version: String,
-        value: String,
-    },
 
     /// The on-disk archive's SHA-256 did not match the plan's
     /// recorded checksum.  The destination is left untouched.
@@ -485,7 +474,7 @@ fn copy_archive_if_changed(
 
     if dst.is_file() {
         let existing = file_sha256(dst)?;
-        if existing.eq_ignore_ascii_case(expected_hex) {
+        if existing == expected_hex {
             // Already correct; do not rewrite.
             return Ok(false);
         }
@@ -528,7 +517,7 @@ fn copy_archive_if_changed(
                 source,
             }
         })?;
-        if !actual.eq_ignore_ascii_case(expected_hex) {
+        if actual != expected_hex {
             let _ = fs::remove_file(&temp);
             return Err(VendorError::ChecksumMismatch {
                 name: name.as_str().to_owned(),
@@ -580,32 +569,23 @@ fn file_sha256(path: &Path) -> Result<String, VendorError> {
 /// the plan's checksum names the lockfile-pinned revision the fetch
 /// materialized.  The plan promises "already-verified bytes"; the
 /// re-hash here is a courtesy so a bug in the upstream pipeline
-/// cannot surface as a silently corrupted vendor archive.  The
-/// checksum parses through cabin-artifact's canonical
-/// `ChecksumDigest` (validates the `sha256:` prefix + 64-hex shape
-/// and lower-cases) rather than re-implementing prefix handling.
+/// cannot surface as a silently corrupted vendor archive.
 fn verified_entry_revision(entry: &VendorEntry) -> Result<(String, String), VendorError> {
     let actual = file_sha256(&entry.archive_source)?;
-    let invalid = || VendorError::InvalidChecksum {
-        name: entry.name.as_str().to_owned(),
-        version: entry.version.to_string(),
-        value: entry.checksum.clone(),
-    };
-    let digest = cabin_artifact::ChecksumDigest::parse(&entry.checksum).ok_or_else(invalid)?;
-    let expected_hex = digest.hex();
-    if !actual.eq_ignore_ascii_case(expected_hex) {
+    let expected_hex = entry.checksum.hex();
+    if actual != expected_hex {
         return Err(VendorError::ChecksumMismatch {
             name: entry.name.as_str().to_owned(),
             version: entry.version.to_string(),
-            expected: entry.checksum.clone(),
+            expected: entry.checksum.as_str().to_owned(),
             actual: format!("sha256:{actual}"),
             archive: entry.archive_source.clone(),
         });
     }
-    let revision = cabin_core::registry::packaging_revision_from_sha256_hex(expected_hex)
-        .ok_or_else(invalid)?
-        .to_owned();
-    Ok((expected_hex.to_owned(), revision))
+    Ok((
+        expected_hex.to_owned(),
+        entry.checksum.revision_id().to_owned(),
+    ))
 }
 
 /// Reduce the vendored entry's revision axis to exactly the fetched
@@ -694,14 +674,9 @@ mod tests {
         &checksum.strip_prefix("sha256:").unwrap()[..16]
     }
 
-    fn entry(name: &str, version: &str, archive: PathBuf, checksum: String) -> VendorEntry {
-        // Malformed checksums (the invalid-checksum test) still get a
-        // fixture revision id; materialize rejects them first.
-        let revision = checksum
-            .strip_prefix("sha256:")
-            .and_then(|hex| hex.get(..16))
-            .unwrap_or("aaaaaaaaaaaaaaaa")
-            .to_owned();
+    fn entry(name: &str, version: &str, archive: PathBuf, checksum: &str) -> VendorEntry {
+        let checksum = cabin_core::Checksum::parse(checksum).unwrap();
+        let revision = checksum.revision_id().to_owned();
         VendorEntry {
             name: pkg(name),
             version: ver(version),
@@ -712,7 +687,7 @@ mod tests {
                 "revision": revision,
                 "revisions": {
                     revision: {
-                        "checksum": checksum,
+                        "checksum": checksum.as_str(),
                         "published-at": "2026-01-01T00:00:00Z",
                         "source": {
                             "type": "archive",
@@ -801,9 +776,9 @@ mod tests {
         let (a2, c2) = write_archive(&dir, "fmt", "10.2.1", b"b");
         let (a3, c3) = write_archive(&dir, "spdlog", "1.13.0", b"c");
         let plan = VendorPlan::new(vec![
-            entry("spdlog", "1.13.0", a3, c3),
-            entry("fmt", "10.2.1", a2, c2),
-            entry("fmt", "10.1.0", a1, c1),
+            entry("spdlog", "1.13.0", a3, &c3),
+            entry("fmt", "10.2.1", a2, &c2),
+            entry("fmt", "10.1.0", a1, &c1),
         ])
         .unwrap();
         let names: Vec<(String, String)> = plan
@@ -825,8 +800,8 @@ mod tests {
         let dir = assert_fs::TempDir::new().unwrap();
         let (a, c) = write_archive(&dir, "fmt", "10.2.1", b"a");
         let err = VendorPlan::new(vec![
-            entry("fmt", "10.2.1", a.clone(), c.clone()),
-            entry("fmt", "10.2.1", a, c),
+            entry("fmt", "10.2.1", a.clone(), &c),
+            entry("fmt", "10.2.1", a, &c),
         ])
         .unwrap_err();
         match err {
@@ -846,8 +821,8 @@ mod tests {
         let (a2, c2) = write_archive(&cache, "fmt", "10.2.1", b"world");
         let (r1, r2) = (rev(&c1).to_owned(), rev(&c2).to_owned());
         let plan = VendorPlan::new(vec![
-            entry("fmt", "10.2.1", a2, c2),
-            entry("fmt", "10.1.0", a1, c1),
+            entry("fmt", "10.2.1", a2, &c2),
+            entry("fmt", "10.1.0", a1, &c1),
         ])
         .unwrap();
 
@@ -921,15 +896,12 @@ mod tests {
         let (archive, _real_checksum) = write_archive(&cache, "fmt", "10.2.1", b"hello");
         // Plan declares a wrong checksum: vendor must surface
         // `ChecksumMismatch` and not write anything.
-        let mut e = entry(
+        let e = entry(
             "fmt",
             "10.2.1",
             archive,
-            "sha256:".to_owned() + &"0".repeat(64),
+            &("sha256:".to_owned() + &"0".repeat(64)),
         );
-        // Match shape (sha256:hex) so we hit the checksum
-        // comparison rather than `InvalidChecksum`.
-        let _ = &mut e;
         let plan = VendorPlan::new(vec![e]).unwrap();
         let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
         match err {
@@ -948,17 +920,6 @@ mod tests {
     }
 
     #[test]
-    fn materialize_rejects_invalid_checksum_form() {
-        let cache = assert_fs::TempDir::new().unwrap();
-        let vendor = assert_fs::TempDir::new().unwrap();
-        let (archive, _) = write_archive(&cache, "fmt", "10.2.1", b"x");
-        let e = entry("fmt", "10.2.1", archive, "md5:abc".to_owned());
-        let plan = VendorPlan::new(vec![e]).unwrap();
-        let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
-        assert!(matches!(err, VendorError::InvalidChecksum { .. }));
-    }
-
-    #[test]
     fn materialize_keeps_existing_correct_artifact_in_place() {
         let cache = assert_fs::TempDir::new().unwrap();
         let vendor = assert_fs::TempDir::new().unwrap();
@@ -972,7 +933,7 @@ mod tests {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::copy(&archive, &target).unwrap();
 
-        let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, checksum)]).unwrap();
+        let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, &checksum)]).unwrap();
         let report = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap();
         assert!(!report.written[0].artifact_was_written);
     }
@@ -990,7 +951,7 @@ mod tests {
         fs::create_dir_all(target.parent().unwrap()).unwrap();
         fs::write(&target, b"stale").unwrap();
 
-        let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, checksum)]).unwrap();
+        let plan = VendorPlan::new(vec![entry("fmt", "10.2.1", archive, &checksum)]).unwrap();
         let err = materialize(&plan, vendor.path(), &VendorOptions::default()).unwrap_err();
         match err {
             VendorError::StaleArtifact { path, .. } => {
