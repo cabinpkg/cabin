@@ -82,6 +82,13 @@ struct VerdictBody {
     published_at: Option<String>,
 }
 
+/// 400 detail for a verdict whose `checksum` is not the canonical
+/// `sha256:<64 lowercase hex>` spelling.  The binding compares
+/// against the stored column, which holds exactly that spelling, so
+/// any other shape could never name a revision.
+pub const INVALID_VERDICT_CHECKSUM: &str =
+    "verdict checksum must be `sha256:` followed by 64 lowercase hexadecimal characters";
+
 /// A parsed, validated verdict request.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsedVerdict {

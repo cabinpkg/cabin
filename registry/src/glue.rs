@@ -601,14 +601,14 @@ async fn publish_response(
     // The digest comes before metadata validation: the revision id is
     // its leading hex prefix, and the canonical source path the
     // metadata must carry embeds it.
-    let computed_hex = sha256_hex(frame.archive).await?;
-    let revision = &computed_hex[..16];
+    let checksum = crate::checksum::from_hex(&sha256_hex(frame.archive).await?);
+    let revision = crate::checksum::revision_id(&checksum);
     let metadata = match publish::validate_metadata(scope, name, version, revision, frame.metadata)
     {
         Ok(metadata) => metadata,
         Err(detail) => return error_response(400, detail),
     };
-    if let Err(detail) = publish::verify_checksum(&metadata, &computed_hex) {
+    if let Err(detail) = publish::verify_checksum(&metadata, &checksum) {
         return error_response(400, detail);
     }
     // The frame parsed as JSON, so it is valid UTF-8; the stored column
@@ -623,7 +623,7 @@ async fn publish_response(
         name,
         version,
         revision,
-        &computed_hex,
+        &checksum,
         new_revision,
         metadata_text,
     )
@@ -636,7 +636,7 @@ async fn publish_response(
             // race deleted. The 409 arms get no heal: their uploaded
             // bytes were refused.
             if response.status_code() == 200 {
-                heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
+                heal_blobs_on_retry(env, &checksum, frame.archive).await?;
             }
             return Ok(response);
         }
@@ -684,7 +684,7 @@ async fn publish_response(
         name,
         version,
         revision,
-        checksum_hex: &computed_hex,
+        checksum: &checksum,
         metadata_text,
         published_at: &now,
         archive: frame.archive,
@@ -712,7 +712,7 @@ async fn publish_response(
                 name,
                 version,
                 revision,
-                &computed_hex,
+                &checksum,
                 new_revision,
                 metadata_text,
             )
@@ -720,7 +720,7 @@ async fn publish_response(
             {
                 RevisionDisposition::Answered(response) => {
                     if response.status_code() == 200 {
-                        heal_blobs_on_retry(env, &computed_hex, frame.archive).await?;
+                        heal_blobs_on_retry(env, &checksum, frame.archive).await?;
                     }
                     Ok(response)
                 }
@@ -992,7 +992,10 @@ async fn verdict_response(
     // id is the digest's leading hex prefix); `parse_verdict` requires
     // it for both verdicts, so the lookup is never ambiguous when a
     // pending respin sits beside the version's other revisions.
-    let revision = parsed.checksum.get(..16).unwrap_or_default().to_owned();
+    if !crate::checksum::is_canonical(&parsed.checksum) {
+        return error_response(400, verify::INVALID_VERDICT_CHECKSUM);
+    }
+    let revision = crate::checksum::revision_id(&parsed.checksum).to_owned();
     let target: Option<VerdictTargetRecord> = db
         .prepare(sql::VERDICT_TARGET)
         .bind(&[
@@ -1314,7 +1317,10 @@ async fn sha256_hex(bytes: &[u8]) -> worker::Result<String> {
 /// so the entry is reachable only through this handler - after Bearer
 /// auth and the D1 verified-version gate.
 fn blob_cache_url(checksum: &str) -> String {
-    format!("https://registry.cabinpkg.com/__cache/blobs/sha256/{checksum}")
+    format!(
+        "https://registry.cabinpkg.com/__cache/blobs/sha256/{}",
+        crate::checksum::hex(checksum)
+    )
 }
 
 /// The stored copy's freshness. Archives are content-addressed and
@@ -1374,7 +1380,7 @@ async fn artifact_response(
 
     // Archives are immutable and content-addressed; yanked versions stay
     // downloadable on purpose (docs/remote-registry.md, "Yank").
-    let key = format!("blobs/sha256/{}", record.checksum);
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(&record.checksum));
     if status == Some(verify::Status::Verified) {
         let response = verified_artifact_response(
             env,
@@ -1708,9 +1714,9 @@ struct NewRevision<'a> {
     scope: &'a str,
     name: &'a str,
     version: &'a str,
-    /// The packaging-revision id: `checksum_hex`'s leading 16 chars.
+    /// The packaging-revision id: the checksum's leading hex prefix.
     revision: &'a str,
-    checksum_hex: &'a str,
+    checksum: &'a str,
     metadata_text: &'a str,
     published_at: &'a str,
     archive: &'a [u8],
@@ -1768,7 +1774,7 @@ async fn persist_new_revision(
     db: &D1Database,
     new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
-    let key = format!("blobs/sha256/{}", new.checksum_hex);
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(new.checksum));
     let bucket = env.bucket("BLOBS")?;
     match governor_client::decide(env, &consume_one(OpPool::BPublish)).await {
         Gate::Allowed => {}
@@ -1822,7 +1828,7 @@ async fn persist_new_revision(
                 new.version.into(),
             ])?,
             db.prepare(sql::COUNT_STORED_BYTES_ON_PUBLISH).bind(&[
-                new.checksum_hex.into(),
+                new.checksum.into(),
                 archive_size.clone(),
                 new.scope.into(),
                 new.name.into(),
@@ -1836,7 +1842,7 @@ async fn persist_new_revision(
                 new.name.into(),
                 new.version.into(),
                 new.revision.into(),
-                new.checksum_hex.into(),
+                new.checksum.into(),
                 new.metadata_text.into(),
                 new.published_at.into(),
                 archive_size,
@@ -1945,7 +1951,7 @@ async fn revive_rejected_revision(
     db: &D1Database,
     new: &NewRevision<'_>,
 ) -> worker::Result<Persist> {
-    let key = format!("blobs/sha256/{}", new.checksum_hex);
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(new.checksum));
     let bucket = env.bucket("BLOBS")?;
     // The unconditional put is one Class A op plus a storage
     // reservation; the reservation is idempotent when the ledger
@@ -1995,8 +2001,8 @@ async fn revive_rejected_revision(
                 new.scope.into(),
                 new.name.into(),
                 new.version.into(),
-                new.checksum_hex.into(),
-                new.checksum_hex.into(),
+                new.checksum.into(),
+                new.checksum.into(),
                 archive_size,
                 new.revision.into(),
                 opt_in.clone(),
@@ -2011,7 +2017,7 @@ async fn revive_rejected_revision(
                 opt_in,
                 new.version.into(),
                 new.revision.into(),
-                new.checksum_hex.into(),
+                new.checksum.into(),
             ])?,
         ])
         .await?;
@@ -2068,7 +2074,7 @@ async fn delete_blob_if_unreferenced(
     if references.n > 0 {
         return Ok(());
     }
-    let key = format!("blobs/sha256/{checksum}");
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(checksum));
     // No live reference also means nothing needs a backup copy any
     // more: retire the queue row first (before the delete, so it can
     // never linger past the primary object), or a blob whose copy
@@ -2103,8 +2109,8 @@ async fn delete_blob_if_unreferenced(
 /// skips it without failing the (already correct) response. Backup
 /// replication no longer rides retries: the verified-backup queue is
 /// durable on its own.
-async fn heal_blobs_on_retry(env: &Env, checksum_hex: &str, archive: &[u8]) -> worker::Result<()> {
-    let key = format!("blobs/sha256/{checksum_hex}");
+async fn heal_blobs_on_retry(env: &Env, checksum: &str, archive: &[u8]) -> worker::Result<()> {
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(checksum));
     let bucket = env.bucket("BLOBS")?;
     heal_blob_if_reclaimed(env, &bucket, &key, archive).await
 }
@@ -2186,7 +2192,7 @@ async fn push_live_set_to_governor(
     let live = rows
         .into_iter()
         .map(|row| governor::LiveObject {
-            key: format!("blobs/sha256/{}", row.checksum),
+            key: format!("blobs/sha256/{}", crate::checksum::hex(&row.checksum)),
             bytes: non_negative(row.size),
         })
         .collect();
@@ -2236,7 +2242,7 @@ async fn revision_disposition(
     name: &str,
     version: &str,
     revision: &str,
-    checksum_hex: &str,
+    checksum: &str,
     new_revision: bool,
     metadata_text: &str,
 ) -> worker::Result<RevisionDisposition> {
@@ -2247,7 +2253,7 @@ async fn revision_disposition(
         .await?
         .results()?;
     let live_other_bytes = existing.iter().any(|row| {
-        row.checksum != checksum_hex
+        row.checksum != checksum
             && matches!(
                 verify::Status::parse(&row.verification),
                 Some(verify::Status::Pending | verify::Status::Verified)
@@ -2264,7 +2270,7 @@ async fn revision_disposition(
             );
             return error_response(500, error::INTERNAL).map(RevisionDisposition::Answered);
         };
-        if row.checksum != checksum_hex {
+        if row.checksum != checksum {
             // Two different archives whose digests share the 16-hex
             // prefix: astronomically unlikely, and silently replacing
             // either side would break immutability - fail loudly.

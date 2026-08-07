@@ -889,7 +889,7 @@ async fn package_source(
         }
     }
 
-    let key = format!("blobs/sha256/{}", record.checksum);
+    let key = format!("blobs/sha256/{}", crate::checksum::hex(&record.checksum));
     let object = env
         .bucket("BLOBS")?
         .get(&key)

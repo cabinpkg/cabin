@@ -234,7 +234,7 @@ fn write_pending(
         name: staged.name.as_str().to_owned(),
         version: staged.version.to_string(),
         revision: revision_of(&hex),
-        checksum: hex,
+        checksum: staged.checksum.clone(),
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::to_value(&staged.metadata).unwrap(),
     };
@@ -256,7 +256,7 @@ fn hostile_pending(dir: &TempDir, bytes: &[u8]) -> (PathBuf, PendingVersion) {
         name: "demo".to_owned(),
         version: "1.2.3".to_owned(),
         revision: revision.clone(),
-        checksum: hex.clone(),
+        checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::json!({
             "schema": 1,
@@ -293,7 +293,7 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
         name: package.name.as_str().to_owned(),
         version: package.version.to_string(),
         revision: revision_of(&hex),
-        checksum: hex,
+        checksum,
         published_at: "2026-07-10T00:00:00.000Z".to_owned(),
         metadata: serde_json::to_value(metadata).unwrap(),
     };
@@ -993,7 +993,7 @@ fn checksum_mismatch_is_rejected() {
     // checksum it carries); it just names bytes this archive is not.
     let wrong = "0".repeat(64);
     pending.revision = revision_of(&wrong);
-    pending.checksum = wrong.clone();
+    pending.checksum = cabin_core::Checksum::parse(&format!("sha256:{wrong}")).unwrap();
     pending.metadata["checksum"] = serde_json::json!(format!("sha256:{wrong}"));
     assert_rejected(&archive, &pending, Reason::ChecksumMismatch);
 }

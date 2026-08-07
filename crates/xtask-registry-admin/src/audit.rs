@@ -527,7 +527,16 @@ fn archives(verified: &[serde_json::Map<String, serde_json::Value>]) -> Result<V
                 .get("size")
                 .and_then(serde_json::Value::as_u64)
                 .context("a verified row carries no integer archive size")?;
-            Ok((format!("{BLOBS}{}", display(checksum)), size))
+            // The column holds the canonical `sha256:<hex>` value;
+            // R2 keys keep the OCI-style layout, so the key drops
+            // the algorithm prefix.  Anything non-canonical is a
+            // corrupt or pre-migration row the clean break does not
+            // read - refuse loudly instead of deriving a bogus key.
+            let value = display(checksum);
+            if !crate::backfill::is_checksum(&value) {
+                anyhow::bail!("a verified row carries a non-canonical checksum: {value}");
+            }
+            Ok((format!("{BLOBS}{}", &value["sha256:".len()..]), size))
         })
         .collect()
 }
@@ -621,7 +630,7 @@ mod tests {
                 ("d1/2026-01-01.sql", 20),
                 ("d1/2026-01-01.sql.sha256", 64),
             ],
-            &serde_json::json!([{ "checksum": checksum, "size": 100 }]),
+            &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
             0,
             Some(&snapshot(&serde_json::json!([
                 { "pool": "backup", "state": "live", "bytes": 1000, "objects": 5 },
@@ -662,8 +671,8 @@ mod tests {
                 ("stray", 1),
             ],
             &serde_json::json!([
-                { "checksum": held, "size": 100 },
-                { "checksum": missing, "size": 50 },
+                { "checksum": format!("sha256:{held}"), "size": 100 },
+                { "checksum": format!("sha256:{missing}"), "size": 50 },
             ]),
             7,
             None,
@@ -736,7 +745,7 @@ mod tests {
                     ("d1/2026-01-01.sql", 20),
                     ("d1/2026-01-01.sql.sha256", 64),
                 ],
-                &serde_json::json!([{ "checksum": checksum, "size": 100 }]),
+                &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
                 0,
                 Some(&snapshot(&serde_json::json!([
                     { "pool": "backup", "state": "live", "bytes": backup, "objects": 1 },
@@ -776,7 +785,7 @@ mod tests {
                 ("d1/2026-01-01.sql.sha256", 64),
                 ("d1/2026-01-01.sql.sha256", 64),
             ],
-            &serde_json::json!([{ "checksum": checksum, "size": 100 }]),
+            &serde_json::json!([{ "checksum": format!("sha256:{checksum}"), "size": 100 }]),
             0,
             Some(&snapshot(&serde_json::json!([
                 { "pool": "backup", "state": "live", "bytes": 1000, "objects": 5 },

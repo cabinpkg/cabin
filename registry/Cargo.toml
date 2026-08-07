@@ -41,6 +41,7 @@ wasm-bindgen-futures = "=0.4.75"
 # names module's parity test pins its mirrored DOS device stems to
 # cabin-fs's shared predicate. The wasm build never sees either.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+cabinpkg-core = { path = "../crates/cabin-core" }
 cabinpkg-fs = { path = "../crates/cabin-fs" }
 rusqlite = { version = "0.40", features = ["bundled"] }
 

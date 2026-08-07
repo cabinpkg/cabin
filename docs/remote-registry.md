@@ -411,7 +411,8 @@ GET /api/v1/admin/versions?status=pending
 
 Lists **revisions** by status (`pending`, `verified`, or `rejected`; anything else is `400`) as a
 single JSON object, `{"versions":[...]}`.  Each entry carries `name`, `version`, `revision`,
-`checksum` (lowercase SHA-256 hex), the publisher's registry-native user id as `published_by`,
+`checksum` (the canonical `sha256:<64 lowercase hex>` value, exactly as stored), the
+publisher's registry-native user id as `published_by`,
 `published_at`, and the stored canonical metadata document as `metadata`.  Deterministic:
 ordered by name, then version, then revision.
 
@@ -432,8 +433,9 @@ PATCH /api/v1/admin/versions/<scope>/<name>/<version>
 
 Renders a verdict on a pending revision; `reason` is required for rejections and recorded on the
 revision.  The route names a version, so **`checksum` and `published_at` are required for both
-verdicts** (`400` without them): `checksum` selects which revision of that version the verdict
-applies to, and `published_at` - which changes whenever a revision is revived - binds it to
+verdicts** (`400` without them): `checksum` - the canonical `sha256:<64 lowercase hex>` value
+echoed from the listing; any other spelling is `400` - selects which revision of that version the
+verdict applies to, and `published_at` - which changes whenever a revision is revived - binds it to
 exactly the row generation the listing reported.  A rejected revision can be revived at any
 moment under the same checksum, so a stale verdict of either direction must never land on a
 generation it never judged.  A binding that does not match the stored row

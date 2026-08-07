@@ -659,7 +659,7 @@ statements! {
     /// harmlessly (the drain's head sees the copy and settles).
     ENQUEUE_VERIFIED_BACKUP =
         "INSERT INTO backup_pending (key, bytes, enqueued_at) \
-         SELECT 'blobs/sha256/' || checksum, archive_size, ?6 FROM revisions \
+         SELECT 'blobs/sha256/' || substr(checksum, 8), archive_size, ?6 FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?7 \
          AND verification = 'verified' AND checksum = ?4 AND published_at = ?5 \
          ON CONFLICT (key) DO NOTHING";

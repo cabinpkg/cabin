@@ -556,14 +556,14 @@ fn release(api: &Api, pool: Pool, key: &str) -> Result<()> {
 
     if pool == Pool::Primary {
         step("evidence: no non-rejected D1 revision references the checksum");
-        let checksum = key
+        let hex = key
             .strip_prefix("blobs/sha256/")
             .context("a primary key carries its checksum")?;
         let refs = count(&format!(
             "
         SELECT COUNT(*) AS n FROM revisions
         WHERE verification != 'rejected'
-          AND checksum = '{checksum}'"
+          AND checksum = 'sha256:{hex}'"
         ))
         .context("the D1 reference check failed")?;
         if refs != 0 {

@@ -13,15 +13,18 @@ the service.
   D1 database (`migrations/`).
   Everything the read routes serve is composed from D1 rows. The
   resolution-level unit is a `versions` row (`yanked`, `downloads`); the
-  immutable byte-level unit is a `revisions` row, whose `revision` id is
-  the leading 16 hex characters of its `checksum`. Each revision's
+  immutable byte-level unit is a `revisions` row, whose `checksum` holds
+  the canonical `sha256:<64 lowercase hex>` value and whose `revision` id
+  is the leading 16 characters of that value's hex tail. Each revision's
   canonical index entry is stored verbatim at publish time in
   `revisions.metadata_json`; composition strips its `schema`, `name`,
   `version`, `checksum`, and `source` fields and injects `yanked` from the
   version row plus the `revision` pointer and `revisions` map, so yank state
   has exactly one home and revision identity is never duplicated.
 - **R2 holds immutable, content-addressed blobs.** Archive bytes live at
-  `blobs/sha256/<checksum-hex>` (the lowercase hex in `revisions.checksum`).
+  `blobs/sha256/<hex>` (the bare hex tail of `revisions.checksum`; key
+  derivation strips the `sha256:` prefix so the OCI-style layout is
+  stable).
   Blobs are never mutated; the one deletion path is the verification
   lifecycle's reclaim of a **rejected** revision's blob when no live
   (non-rejected) row references its checksum. Yanking is a D1 row

@@ -99,7 +99,7 @@ pub(crate) fn check(
     if package.version.to_string() != pending.version {
         return Ok(Some(Reason::VersionMismatch));
     }
-    if pending.checksum != archive.hex() {
+    if pending.checksum != *archive {
         return Ok(Some(Reason::ChecksumMismatch));
     }
 
