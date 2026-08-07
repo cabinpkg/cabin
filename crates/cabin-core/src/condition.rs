@@ -301,18 +301,6 @@ impl ConditionKey {
         }
     }
 
-    /// All recognized keys, in canonical declaration order.
-    pub const fn all() -> &'static [ConditionKey] {
-        &[
-            ConditionKey::Os,
-            ConditionKey::Arch,
-            ConditionKey::Family,
-            ConditionKey::Env,
-            ConditionKey::Abi,
-            ConditionKey::Target,
-        ]
-    }
-
     fn lookup(self, platform: &TargetPlatform) -> &str {
         match self {
             ConditionKey::Os => platform.os.as_str(),

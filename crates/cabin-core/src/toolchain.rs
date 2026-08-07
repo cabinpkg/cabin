@@ -186,11 +186,6 @@ pub struct ToolchainSelection {
 }
 
 impl ToolchainSelection {
-    /// Empty selection: every tool is "no preference".
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
     /// Helper for tests / programmatic construction.
     #[must_use]
     pub fn with_cli(mut self, kind: ToolKind, spec: ToolSpec) -> Self {

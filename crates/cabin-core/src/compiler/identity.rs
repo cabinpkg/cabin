@@ -292,14 +292,6 @@ pub struct ArchiverIdentity {
 }
 
 impl ArchiverIdentity {
-    pub fn unknown(raw_version_line: impl Into<String>) -> Self {
-        Self {
-            kind: ArchiverKind::Unknown,
-            version: None,
-            raw_version_line: raw_version_line.into(),
-        }
-    }
-
     pub fn as_json(&self) -> serde_json::Value {
         identity_json(
             self.kind.as_key(),
