@@ -151,18 +151,10 @@ pub enum InsertDisposition {
     NoOp,
 }
 
-/// Derive the packaging-revision id from a `sha256:<hex>` checksum
-/// claim, mapping a malformed claim to a clear error.
-pub(crate) fn revision_of(metadata: &PackageMetadata) -> Result<&str, RegistryError> {
-    metadata
-        .checksum
-        .strip_prefix("sha256:")
-        .and_then(cabin_core::registry::packaging_revision_from_sha256_hex)
-        .ok_or_else(|| RegistryError::InvalidChecksum {
-            name: metadata.name.clone(),
-            version: metadata.version.clone(),
-            checksum: metadata.checksum.clone(),
-        })
+/// The packaging-revision id a checksum claim mints.  Infallible:
+/// the typed [`cabin_core::Checksum`] cannot hold a malformed claim.
+pub(crate) fn revision_of(metadata: &PackageMetadata) -> &str {
+    metadata.checksum.revision_id()
 }
 
 /// Insert `metadata` as a packaging revision of its version into
@@ -184,7 +176,7 @@ pub(crate) fn insert_version(
     published_at: &str,
     allow_new_revision: bool,
 ) -> Result<(PackageIndex, InsertDisposition), RegistryError> {
-    let revision = revision_of(metadata)?.to_owned();
+    let revision = revision_of(metadata).to_owned();
     let mut index = match existing {
         Some(index) => {
             if index.name != metadata.name {
@@ -422,7 +414,7 @@ fn version_value_from_metadata(
     revisions.insert(
         revision.to_owned(),
         serde_json::to_value(RevisionWire {
-            checksum: &metadata.checksum,
+            checksum: metadata.checksum.as_str(),
             published_at,
             source: IndexSourceWire {
                 kind: &metadata.source.kind,
@@ -481,7 +473,7 @@ mod tests {
             links: Default::default(),
             upstream: None,
             yanked: false,
-            checksum: format!("sha256:{hex}"),
+            checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
             source: SourceMetadata {
                 kind: "archive".to_owned(),
                 path: format!("../artifacts/{name}/{name}-{version}-{revision}.zip"),
@@ -512,7 +504,7 @@ mod tests {
         let entry = &index.versions["10.2.1"];
         assert_eq!(entry["revision"], "aaaaaaaaaaaaaaaa");
         let revision = &entry["revisions"]["aaaaaaaaaaaaaaaa"];
-        assert_eq!(revision["checksum"], meta.checksum);
+        assert_eq!(revision["checksum"], meta.checksum.as_str());
         assert_eq!(revision["published-at"], STAMP);
         assert_eq!(revision["source"]["path"], meta.source.path);
     }
@@ -624,7 +616,9 @@ mod tests {
     fn shared_revision_prefix_with_different_bytes_is_a_collision() {
         let initial = insert_new(None, &metadata("fmt", "10.2.1")).unwrap();
         let mut colliding = metadata("fmt", "10.2.1");
-        colliding.checksum = format!("sha256:{}{}", "a".repeat(16), "c".repeat(48));
+        colliding.checksum =
+            cabin_core::Checksum::parse(&format!("sha256:{}{}", "a".repeat(16), "c".repeat(48)))
+                .unwrap();
         let err = insert_version(Some(initial), &colliding, STAMP, true).unwrap_err();
         assert!(
             matches!(&err, RegistryError::RevisionCollision { revision, .. }

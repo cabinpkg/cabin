@@ -54,8 +54,8 @@ pub struct PackagedArtifact {
     pub version: semver::Version,
     pub archive_path: PathBuf,
     pub metadata_path: PathBuf,
-    /// Full `sha256:<hex>` digest of the archive bytes.
-    pub checksum: String,
+    /// Digest of the archive bytes.
+    pub checksum: cabin_core::Checksum,
 }
 
 /// In-memory representation of a packaged source tree.
@@ -73,8 +73,8 @@ pub struct StagedPackage {
     pub version: semver::Version,
     /// Bytes of the deterministic `.zip` source archive.
     pub archive_bytes: Vec<u8>,
-    /// Full `sha256:<hex>` digest of `archive_bytes`.
-    pub checksum: String,
+    /// Digest of `archive_bytes`.
+    pub checksum: cabin_core::Checksum,
     /// Canonical per-version metadata document, ready to serialize.
     pub metadata: PackageMetadata,
     /// The resolved `Package` this staging produced its archive and
@@ -158,8 +158,7 @@ pub fn stage_with_project(
     let manifest_substitute = resolve_manifest_substitute(&validated, workspace_dep_requirements)?;
 
     let archive_bytes = archive::build_zip(&files, manifest_substitute.as_deref())?;
-    let archive_hex = archive::sha256_hex(&archive_bytes);
-    let checksum = format!("sha256:{archive_hex}");
+    let checksum = cabin_core::Checksum::of_bytes(&archive_bytes);
 
     let metadata = metadata::canonical_metadata(&validated.package, &checksum);
 
