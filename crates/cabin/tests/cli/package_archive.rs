@@ -464,7 +464,7 @@ fn package_metadata_preserves_upstream_provenance() {
             r#"
 [package.upstream]
 url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
-sha256 = "{sha}"
+checksum = "sha256:{sha}"
 format = "tar.gz"
 strip-prefix = "fmt-10.2.1"
 
@@ -491,7 +491,7 @@ to = "config.h"
         value["upstream"],
         serde_json::json!({
             "url": "https://upstream.invalid/fmt-10.2.1.tar.gz",
-            "sha256": sha,
+            "checksum": format!("sha256:{sha}"),
             "format": "tar.gz",
             "strip-prefix": "fmt-10.2.1",
             "copy": [{"from": "support/config.h.in", "to": "config.h"}],
@@ -516,7 +516,7 @@ fn package_carries_declared_upstream_patches() {
             r#"
 [package.upstream]
 url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
-sha256 = "{sha}"
+checksum = "sha256:{sha}"
 format = "tar.gz"
 patches = ["patches/0001-fix-msvc-build.patch"]
 "#
@@ -559,7 +559,7 @@ fn package_rejects_a_missing_declared_patch_file() {
             r#"
 [package.upstream]
 url = "https://upstream.invalid/fmt-10.2.1.tar.gz"
-sha256 = "{sha}"
+checksum = "sha256:{sha}"
 format = "tar.gz"
 patches = ["patches/0001-fix-msvc-build.patch"]
 "#
@@ -593,7 +593,7 @@ fn package_rejects_invalid_upstream_declaration() {
         r#"
 [package.upstream]
 url = "http://upstream.invalid/fmt.tar.gz"
-sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
 format = "tar.gz"
 "#,
     );

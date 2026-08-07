@@ -148,7 +148,7 @@ async function loadPackageRecord(
         package?: {
             name?: string;
             version?: string;
-            upstream?: { url?: string; sha256?: string };
+            upstream?: { url?: string; checksum?: string };
         };
         dependencies?: Record<string, unknown>;
     };
@@ -211,16 +211,16 @@ async function loadPackageRecord(
     }
 
     const archiveUrl = stringOrNull(parsed.package?.upstream?.url);
-    const sha256 = stringOrNull(parsed.package?.upstream?.sha256);
-    if (archiveUrl === null || sha256 === null) {
+    const checksum = stringOrNull(parsed.package?.upstream?.checksum);
+    if (archiveUrl === null || checksum === null) {
         throw new Error(
-            `Missing [package.upstream] url or sha256 in ${manifestPath}.`,
+            `Missing [package.upstream] url or checksum in ${manifestPath}.`,
         );
     }
     const parsedUrl = parseProvenanceUrl(archiveUrl, manifestPath);
-    if (!/^[0-9a-f]{64}$/.test(sha256)) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(checksum)) {
         throw new Error(
-            `[package.upstream].sha256 in ${manifestPath} must be a lowercase 64-character hex digest.`,
+            `[package.upstream].checksum in ${manifestPath} must be \`sha256:\` followed by a lowercase 64-character hex digest.`,
         );
     }
 
@@ -238,7 +238,7 @@ async function loadPackageRecord(
         published_at: null,
         readme: null,
         repository: null,
-        upstream: { version, archiveUrl: parsedUrl.toString(), sha256 },
+        upstream: { version, archiveUrl: parsedUrl.toString(), checksum },
     };
 }
 

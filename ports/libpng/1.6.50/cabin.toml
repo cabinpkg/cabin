@@ -1,6 +1,6 @@
 [package.upstream]
 url = "https://downloads.sourceforge.net/libpng/libpng-1.6.50.tar.gz"
-sha256 = "708f4398f996325819936d447f982e0db90b6b8212b7507e7672ea232210949a"
+checksum = "sha256:708f4398f996325819936d447f982e0db90b6b8212b7507e7672ea232210949a"
 format = "tar.gz"
 strip-prefix = "libpng-1.6.50"
 

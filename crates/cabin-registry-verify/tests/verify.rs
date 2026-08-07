@@ -1281,7 +1281,7 @@ fn provenance_staged_with(
              \n\
              [package.upstream]\n\
              url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             sha256 = \"{upstream_sha}\"\n\
+             checksum = \"sha256:{upstream_sha}\"\n\
              format = \"tar.gz\"\n\
              strip-prefix = \"{strip_prefix}\"\n\
              \n\
@@ -1359,7 +1359,7 @@ fn provenance_zip_package_verifies() {
              \n\
              [package.upstream]\n\
              url = \"https://upstream.invalid/lib-1.0.zip\"\n\
-             sha256 = \"{hex}\"\n\
+             checksum = \"sha256:{hex}\"\n\
              format = \"zip\"\n\
              \n\
              [target.demo]\n\
@@ -1614,7 +1614,7 @@ fn unmaterializable_upstream_filename_is_rejected() {
              \n\
              [package.upstream]\n\
              url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             sha256 = \"{hex}\"\n\
+             checksum = \"sha256:{hex}\"\n\
              format = \"tar.gz\"\n\
              \n\
              [target.demo]\n\
@@ -1679,7 +1679,8 @@ fn stored_upstream_divergence_is_rejected_as_upstream_mismatch() {
     let (upstream, hex) = default_upstream(&dir);
     let staged = provenance_staged(&dir, &hex);
     let (archive, mut pending) = write_pending(&dir, &staged.archive_bytes, &staged);
-    pending.metadata["upstream"]["sha256"] = serde_json::json!("1".repeat(64));
+    pending.metadata["upstream"]["checksum"] =
+        serde_json::json!(format!("sha256:{}", "1".repeat(64)));
     assert_upstream_rejected(&archive, &pending, &upstream, Reason::UpstreamMismatch);
 }
 
@@ -1709,7 +1710,7 @@ fn patched_staged(dir: &TempDir, upstream_sha: &str, lib_cc: &str) -> cabin_pack
              \n\
              [package.upstream]\n\
              url = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-             sha256 = \"{upstream_sha}\"\n\
+             checksum = \"sha256:{upstream_sha}\"\n\
              format = \"tar.gz\"\n\
              strip-prefix = \"lib-1.0\"\n\
              patches = [\"patches/0001-fix.patch\"]\n\
@@ -1810,7 +1811,7 @@ fn declared_patch_missing_from_the_archive_is_rejected() {
     let manifest = format!(
         "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
          [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
          patches = [\"patches/0001-fix.patch\"]\n\n\
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"
@@ -1841,7 +1842,7 @@ fn malformed_patch_bytes_are_rejected() {
     let manifest = format!(
         "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
          [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
          patches = [\"patches/0001-fix.patch\"]\n\n\
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"
@@ -1877,7 +1878,7 @@ fn a_patch_path_shadowing_an_upstream_file_is_rejected() {
     let manifest = format!(
         "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
          [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
          patches = [\"src/lib.cc\"]\n\n\
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"
@@ -1921,7 +1922,7 @@ fn a_polyglot_patch_doubling_as_a_build_input_is_rejected() {
     let manifest = format!(
         "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
          [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
          patches = [\"src/extra.cc\"]\n\n\
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\", \"src/extra.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"
@@ -1959,7 +1960,7 @@ fn an_oversized_declared_patch_is_rejected() {
     let manifest = format!(
         "[package]\nname = \"demo\"\nversion = \"1.2.3\"\ncxx-standard = \"c++20\"\n\n\
          [package.upstream]\nurl = \"https://upstream.invalid/lib-1.0.tar.gz\"\n\
-         sha256 = \"{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
+         checksum = \"sha256:{hex}\"\nformat = \"tar.gz\"\nstrip-prefix = \"lib-1.0\"\n\
          patches = [\"patches/0001-fix.patch\"]\n\n\
          [target.demo]\ntype = \"library\"\nsources = [\"src/lib.cc\"]\n\
          interface-cxx-standard = \"c++17\"\n"

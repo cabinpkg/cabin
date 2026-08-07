@@ -404,7 +404,7 @@ mod tests {
     fn provenance(sha256: &str, patches: &[&str]) -> UpstreamProvenance {
         UpstreamProvenance::new(
             "https://upstream.invalid/lib-1.0.tar.gz",
-            sha256,
+            &format!("sha256:{sha256}"),
             "tar.gz",
             Some("lib-1.0".to_owned()),
             Vec::new(),

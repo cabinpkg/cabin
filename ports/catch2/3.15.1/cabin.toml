@@ -1,6 +1,6 @@
 [package.upstream]
 url = "https://github.com/catchorg/Catch2/archive/refs/tags/v3.15.1.tar.gz"
-sha256 = "be23a52b85cf04cd9587612147a10b023d59ed9757fa1843cc99e615d6c0893c"
+checksum = "sha256:be23a52b85cf04cd9587612147a10b023d59ed9757fa1843cc99e615d6c0893c"
 format = "tar.gz"
 strip-prefix = "Catch2-3.15.1"
 [package]

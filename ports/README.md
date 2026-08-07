@@ -10,7 +10,7 @@ published archive.  See [`docs/foundation-ports.md`](../docs/foundation-ports.md
 
 Ports reach consumers as published `cabin-ports/*` registry packages; nothing in this directory is
 consumed from a user's manifest directly.  To publish one, the tool downloads the archive, verifies
-the SHA-256, safely extracts it, applies the declared `[[package.upstream.copy]]` steps and then
+its pinned checksum, safely extracts it, applies the declared `[[package.upstream.copy]]` steps and then
 the declared `[package.upstream].patches` as byte-exact unified diffs.
 
 ### Placing prebuilt files with `[[package.upstream.copy]]`
@@ -38,7 +38,7 @@ declared as unified-diff files under the port's `patches/` directory:
 
 ```toml
 [package.upstream]
-# ... url / sha256 / format / strip-prefix ...
+# ... url / checksum / format / strip-prefix ...
 patches = ["patches/0001-fix-msvc-build.patch"]
 ```
 

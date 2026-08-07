@@ -1,6 +1,6 @@
 [package.upstream]
 url = "https://github.com/h2o/picohttpparser/archive/f4d94b48b31e0abae029ebeafcfd9ca0680ede58.tar.gz"
-sha256 = "bd773fad1e2c6532b7a65ef6b60dec3612a3e566e3c844272cc2cbab89dc7e9c"
+checksum = "sha256:bd773fad1e2c6532b7a65ef6b60dec3612a3e566e3c844272cc2cbab89dc7e9c"
 format = "tar.gz"
 strip-prefix = "picohttpparser-f4d94b48b31e0abae029ebeafcfd9ca0680ede58"
 [package]

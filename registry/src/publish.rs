@@ -72,8 +72,8 @@ pub const YANKED_AT_PUBLISH: &str = "yanked must be false at publish";
 pub const CHECKSUM_MISMATCH: &str = "checksum does not match the archive bytes";
 pub const NOT_ZIP: &str = "archive is not a zip container";
 pub const INVALID_UPSTREAM_URL: &str = "upstream url must be https and must not embed credentials";
-pub const INVALID_UPSTREAM_SHA256: &str =
-    "upstream sha256 must be 64 lowercase hexadecimal characters";
+pub const INVALID_UPSTREAM_CHECKSUM: &str = "upstream checksum must be `sha256:` followed by 64 lowercase hexadecimal characters (sha256 \
+     is the only supported algorithm)";
 pub const UNSUPPORTED_UPSTREAM_FORMAT: &str = "upstream format must be \"tar.gz\" or \"zip\"";
 pub const INVALID_UPSTREAM_STRIP_PREFIX: &str =
     "upstream strip-prefix must be a single relative path component";
@@ -174,7 +174,9 @@ pub struct SourceMetadata {
 #[serde(deny_unknown_fields)]
 pub struct UpstreamMetadata {
     pub url: String,
-    pub sha256: String,
+    /// Algorithm-prefixed checksum claim (`sha256:<64 lowercase
+    /// hex>`), carried on the wire exactly as the manifest spells it.
+    pub checksum: String,
     pub format: String,
     /// Absent and explicit `null` both deserialize to `None`; the
     /// canonical document omits the field, and a non-canonical
@@ -221,13 +223,17 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
     if authority.is_empty() || authority.contains('@') {
         return Err(INVALID_UPSTREAM_URL);
     }
-    if upstream.sha256.len() != 64
-        || !upstream
-            .sha256
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-    {
-        return Err(INVALID_UPSTREAM_SHA256);
+    let digest_ok = upstream
+        .checksum
+        .strip_prefix("sha256:")
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    if !digest_ok {
+        return Err(INVALID_UPSTREAM_CHECKSUM);
     }
     if upstream.format != "tar.gz" && upstream.format != "zip" {
         return Err(UNSUPPORTED_UPSTREAM_FORMAT);
@@ -891,7 +897,7 @@ mod tests {
         let body = upstream_metadata_json(&format!(
             r#"{{
     "url": "https://example.com/fmt-1.0.0.tar.gz",
-    "sha256": "{UPSTREAM_SHA}",
+    "checksum": "sha256:{UPSTREAM_SHA}",
     "format": "tar.gz",
     "strip-prefix": "fmt-1.0.0",
     "copy": [{{"from": "support/config.h.in", "to": "config.h"}}]
@@ -907,7 +913,7 @@ mod tests {
     #[test]
     fn validate_metadata_accepts_minimal_upstream() {
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/fmt.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
+            r#"{{"url": "https://example.com/fmt.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip"}}"#
         ));
         validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
     }
@@ -922,7 +928,7 @@ mod tests {
             "ftp://example.com/fmt.tar.gz",
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz"}}"#
+                r#"{{"url": "{url}", "checksum": "sha256:{UPSTREAM_SHA}", "format": "tar.gz"}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -933,18 +939,22 @@ mod tests {
     }
 
     #[test]
-    fn validate_metadata_rejects_bad_upstream_sha256() {
-        for sha in [
-            "aa",
-            "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
+    fn validate_metadata_rejects_bad_upstream_checksums() {
+        for checksum in [
+            // A bare digest - the pre-rename spelling - names no
+            // algorithm.
+            UPSTREAM_SHA,
+            "sha256:aa",
+            "sha512:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+            "sha256:9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23",
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{sha}", "format": "zip"}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "{checksum}", "format": "zip"}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
-                INVALID_UPSTREAM_SHA256,
-                "sha: {sha}"
+                INVALID_UPSTREAM_CHECKSUM,
+                "checksum: {checksum}"
             );
         }
     }
@@ -953,7 +963,7 @@ mod tests {
     fn validate_metadata_rejects_unsupported_upstream_formats() {
         for format in ["tar.xz", "7z", ""] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "{format}"}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "{format}"}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -969,7 +979,7 @@ mod tests {
         let overlong = "a".repeat(255);
         for prefix in ["", ".", "..", "a/b", r"a\\b", overlong.as_str()] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "strip-prefix": "{prefix}"}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "strip-prefix": "{prefix}"}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -988,7 +998,7 @@ mod tests {
             ("a/../../b", "a"),
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1009,7 +1019,7 @@ mod tests {
             ("README", "readme"),
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{from}", "to": "{to}"}}]}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1026,7 +1036,7 @@ mod tests {
             format!("{}/{}", "d".repeat(200), "f".repeat(60)),
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{path}", "to": "b"}}]}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": [{{"from": "{path}", "to": "b"}}]}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1041,7 +1051,7 @@ mod tests {
     fn validate_metadata_rejects_overlong_upstream_urls() {
         let url = format!("https://example.com/{}", "a".repeat(2048));
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "{url}", "sha256": "{UPSTREAM_SHA}", "format": "zip"}}"#
+            r#"{{"url": "{url}", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip"}}"#
         ));
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1054,7 +1064,7 @@ mod tests {
         let prefix = "p".repeat(200);
         let from = "f".repeat(60);
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.tar.gz", "sha256": "{UPSTREAM_SHA}", "format": "tar.gz", "strip-prefix": "{prefix}", "copy": [{{"from": "{from}", "to": "b"}}]}}"#
+            r#"{{"url": "https://example.com/a.tar.gz", "checksum": "sha256:{UPSTREAM_SHA}", "format": "tar.gz", "strip-prefix": "{prefix}", "copy": [{{"from": "{from}", "to": "b"}}]}}"#
         ));
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1070,7 +1080,7 @@ mod tests {
             r#"[{"from": "a", "to": "generated"}, {"from": "b", "to": "generated/config.h"}]"#,
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": {copies}}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": {copies}}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1086,7 +1096,7 @@ mod tests {
             .map(|i| format!(r#"{{"from": "src/{i}.h", "to": "{i}.h"}}"#))
             .collect();
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "copy": [{copies}]}}"#,
+            r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": [{copies}]}}"#,
             copies = steps.join(",")
         ));
         assert_eq!(
@@ -1098,7 +1108,7 @@ mod tests {
     #[test]
     fn validate_metadata_accepts_upstream_patches() {
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": ["patches/0001-fix-msvc-build.patch"], "copy": [{{"from": "scripts/config.h.prebuilt", "to": "config.h"}}]}}"#
+            r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "patches": ["patches/0001-fix-msvc-build.patch"], "copy": [{{"from": "scripts/config.h.prebuilt", "to": "config.h"}}]}}"#
         ));
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
         let upstream = parsed.upstream.expect("upstream block parsed");
@@ -1115,7 +1125,7 @@ mod tests {
             "a/../b.patch",
         ] {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": [{patch:?}]}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "patches": [{patch:?}]}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1143,7 +1153,7 @@ mod tests {
         ];
         for case in cases {
             let body = upstream_metadata_json(&format!(
-                r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", {case}}}"#
+                r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", {case}}}"#
             ));
             assert_eq!(
                 validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
@@ -1159,7 +1169,7 @@ mod tests {
             .map(|i| format!(r#""patches/{i}.patch""#))
             .collect();
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "patches": [{patches}]}}"#,
+            r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "patches": [{patches}]}}"#,
             patches = entries.join(",")
         ));
         assert_eq!(
@@ -1173,7 +1183,17 @@ mod tests {
         // Unknown future syntax falls through deny_unknown_fields as
         // the generic non-canonical 400, mirroring the client parser.
         let body = upstream_metadata_json(&format!(
-            r#"{{"url": "https://example.com/a.zip", "sha256": "{UPSTREAM_SHA}", "format": "zip", "mirror": "x"}}"#
+            r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "mirror": "x"}}"#
+        ));
+        assert_eq!(
+            validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),
+            METADATA_NOT_CANONICAL
+        );
+
+        // The pre-rename `sha256` key is one of those unknown fields,
+        // not a special case.
+        let body = upstream_metadata_json(&format!(
+            r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "sha256": "{UPSTREAM_SHA}"}}"#
         ));
         assert_eq!(
             validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap_err(),

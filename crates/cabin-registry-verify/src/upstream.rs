@@ -258,7 +258,7 @@ mod tests {
     fn declaration(patches: &[&str]) -> UpstreamProvenance {
         UpstreamProvenance::new(
             "https://upstream.invalid/lib-1.0.tar.gz",
-            "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+            "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
             "tar.gz",
             None,
             Vec::new(),

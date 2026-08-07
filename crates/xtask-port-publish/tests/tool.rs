@@ -290,8 +290,8 @@ fn write_port_package(
         .write_str(&format!(
             "[package]\nname = \"cabin-ports/{name}\"\nversion = \"{version}\"\n\n\
              [package.upstream]\nurl = \
-             \"https://ports.invalid/{name}-{version}.tar.gz\"\nsha256 = \
-             \"{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \
+             \"https://ports.invalid/{name}-{version}.tar.gz\"\nchecksum = \
+             \"sha256:{sha256}\"\nformat = \"tar.gz\"\nstrip-prefix = \
              \"{name}-{version}\"\n{patches}\n{body}"
         ))
         .unwrap();
@@ -623,6 +623,15 @@ fn assert_preflight_products(work: &Path) {
     );
     assert_eq!(version["upstream"]["format"], "tar.gz");
     assert_eq!(version["upstream"]["strip-prefix"], "zlib-1.3.1");
+    // The provenance checksum survives publish in its
+    // algorithm-prefixed wire form.
+    let upstream_checksum = version["upstream"]["checksum"].as_str().unwrap();
+    assert!(
+        upstream_checksum
+            .strip_prefix("sha256:")
+            .is_some_and(|digest| digest.len() == 64),
+        "unexpected upstream checksum {upstream_checksum:?}"
+    );
     let libpng_index: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(registry_dir.join("packages/cabin-ports/libpng.json")).unwrap(),
     )

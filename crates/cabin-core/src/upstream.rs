@@ -8,11 +8,12 @@
 //! archive and checks the published tree against it
 //! (`docs/remote-registry.md`, "The verifier's checks").
 //!
-//! The declaration is a pinned HTTPS archive, a SHA-256, an optional
-//! single-component strip prefix, and declarative file-to-file copy
-//! steps.  It is *published* metadata, so the URL is restricted to
-//! credential-free HTTPS and the archive format is declared
-//! explicitly instead of inferred from the URL.
+//! The declaration is a pinned HTTPS archive, an algorithm-prefixed
+//! checksum (`sha256:<hex>`), an optional single-component strip
+//! prefix, and declarative file-to-file copy steps.  It is
+//! *published* metadata, so the URL is restricted to credential-free
+//! HTTPS and the archive format is declared explicitly instead of
+//! inferred from the URL.
 
 use std::fmt;
 
@@ -34,7 +35,10 @@ pub enum UpstreamError {
     InsecureUrl { value: String },
     #[error("upstream url {value:?} must not embed credentials")]
     UrlWithCredentials { value: String },
-    #[error("upstream sha256 {value:?} must be 64 lowercase hexadecimal characters")]
+    #[error(
+        "upstream checksum {value:?} must be `sha256:` followed by 64 lowercase hexadecimal \
+         characters (sha256 is the only supported algorithm)"
+    )]
     InvalidChecksum { value: String },
     #[error("unsupported upstream format {value:?}: expected \"tar.gz\" or \"zip\"")]
     UnsupportedFormat { value: String },
@@ -85,6 +89,11 @@ pub enum UpstreamError {
     )]
     ConflictingPatchPath { patch: String, other: String },
 }
+
+/// The one checksum algorithm the provenance format supports today.
+/// The value is self-describing (`sha256:<64 lowercase hex>`) so a
+/// future algorithm changes the accepted prefixes, not the key.
+const CHECKSUM_PREFIX: &str = "sha256:";
 
 /// Byte cap on the upstream URL's normalized serialization: a
 /// practical bound (browsers and CDNs cap around here) far below
@@ -317,13 +326,14 @@ pub fn is_safe_archive_path(value: &str) -> bool {
 /// Validated `[package.upstream]` declaration.  Constructed only
 /// through [`UpstreamProvenance::new`], so a value in hand always
 /// satisfies the invariants: a credential-free HTTPS URL, a
-/// 64-character lowercase-hex SHA-256, a supported archive format,
-/// an optional single-component strip prefix, safe relative copy
-/// paths, and safe patch paths distinct from every copy path.
+/// `sha256:`-prefixed 64-character lowercase-hex checksum, a
+/// supported archive format, an optional single-component strip
+/// prefix, safe relative copy paths, and safe patch paths distinct
+/// from every copy path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpstreamProvenance {
     url: Url,
-    sha256: String,
+    checksum: String,
     format: UpstreamFormat,
     strip_prefix: Option<String>,
     copies: Vec<UpstreamCopy>,
@@ -335,15 +345,15 @@ impl UpstreamProvenance {
     ///
     /// # Errors
     /// Returns the first failing [`UpstreamError`]: an unparsable,
-    /// non-HTTPS, or credential-bearing `url`; a `sha256` that is not
-    /// 64 lowercase hex characters; a `format` other than `"tar.gz"`
-    /// / `"zip"`; a `strip_prefix` that is not a single non-empty
-    /// relative path component; or a `patches` entry that is unsafe
-    /// or conflicts with a copy path, another patch, or the root
-    /// manifest.
+    /// non-HTTPS, or credential-bearing `url`; a `checksum` that is
+    /// not `sha256:` followed by 64 lowercase hex characters; a
+    /// `format` other than `"tar.gz"` / `"zip"`; a `strip_prefix`
+    /// that is not a single non-empty relative path component; or a
+    /// `patches` entry that is unsafe or conflicts with a copy path,
+    /// another patch, or the root manifest.
     pub fn new(
         url: &str,
-        sha256: &str,
+        checksum: &str,
         format: &str,
         strip_prefix: Option<String>,
         copies: Vec<UpstreamCopy>,
@@ -370,13 +380,17 @@ impl UpstreamProvenance {
                 value: url.to_owned(),
             });
         }
-        if sha256.len() != 64
-            || !sha256
-                .bytes()
-                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        {
+        let digest_ok = checksum
+            .strip_prefix(CHECKSUM_PREFIX)
+            .is_some_and(|digest| {
+                digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+            });
+        if !digest_ok {
             return Err(UpstreamError::InvalidChecksum {
-                value: sha256.to_owned(),
+                value: checksum.to_owned(),
             });
         }
         let format =
@@ -461,7 +475,7 @@ impl UpstreamProvenance {
         validate_patch_plan(&patches, &plan_paths)?;
         Ok(Self {
             url: parsed,
-            sha256: sha256.to_owned(),
+            checksum: checksum.to_owned(),
             format,
             strip_prefix,
             copies,
@@ -474,10 +488,19 @@ impl UpstreamProvenance {
         &self.url
     }
 
-    /// 64-character lowercase hex digest of the pinned archive bytes.
+    /// Algorithm-prefixed checksum claim (`sha256:<64 lowercase
+    /// hex>`), exactly as manifests and metadata carry it.
+    #[must_use]
+    pub fn checksum(&self) -> &str {
+        &self.checksum
+    }
+
+    /// 64-character lowercase hex digest of the pinned archive bytes,
+    /// without the algorithm prefix - the form hashing comparisons
+    /// consume.
     #[must_use]
     pub fn sha256_hex(&self) -> &str {
-        &self.sha256
+        &self.checksum[CHECKSUM_PREFIX.len()..]
     }
 
     #[must_use]
@@ -514,7 +537,7 @@ impl UpstreamProvenance {
 #[derive(Serialize)]
 struct WireUpstream<'a> {
     url: &'a str,
-    sha256: &'a str,
+    checksum: &'a str,
     format: &'a str,
     #[serde(rename = "strip-prefix", skip_serializing_if = "Option::is_none")]
     strip_prefix: Option<&'a str>,
@@ -531,7 +554,7 @@ impl Serialize for UpstreamProvenance {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         WireUpstream {
             url: self.url.as_str(),
-            sha256: &self.sha256,
+            checksum: &self.checksum,
             format: self.format.as_str(),
             strip_prefix: self.strip_prefix(),
             patches: &self.patches,
@@ -548,7 +571,7 @@ impl Serialize for UpstreamProvenance {
 #[serde(deny_unknown_fields)]
 struct RawUpstream {
     url: String,
-    sha256: String,
+    checksum: String,
     format: String,
     #[serde(default, rename = "strip-prefix")]
     strip_prefix: Option<String>,
@@ -576,7 +599,7 @@ impl<'de> Deserialize<'de> for UpstreamProvenance {
             .map_err(D::Error::custom)?;
         Self::new(
             &raw.url,
-            &raw.sha256,
+            &raw.checksum,
             &raw.format,
             raw.strip_prefix,
             copies,
@@ -598,12 +621,14 @@ mod tests {
     use super::*;
 
     const SHA: &str = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+    const CHECKSUM: &str =
+        "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
     const URL: &str = "https://example.com/library-1.2.3.tar.gz";
 
     fn valid() -> UpstreamProvenance {
         UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             Some("library-1.2.3".into()),
             Vec::new(),
@@ -616,6 +641,7 @@ mod tests {
     fn accepts_a_valid_declaration() {
         let upstream = valid();
         assert_eq!(upstream.url().as_str(), URL);
+        assert_eq!(upstream.checksum(), CHECKSUM);
         assert_eq!(upstream.sha256_hex(), SHA);
         assert_eq!(upstream.format(), UpstreamFormat::TarGz);
         assert_eq!(upstream.strip_prefix(), Some("library-1.2.3"));
@@ -629,8 +655,9 @@ mod tests {
             "ftp://example.com/lib.tar.gz",
             "file:///tmp/lib.tar.gz",
         ] {
-            let err = UpstreamProvenance::new(url, SHA, "tar.gz", None, Vec::new(), Vec::new())
-                .unwrap_err();
+            let err =
+                UpstreamProvenance::new(url, CHECKSUM, "tar.gz", None, Vec::new(), Vec::new())
+                    .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::InsecureUrl { .. }),
                 "{url}: {err:?}"
@@ -644,8 +671,9 @@ mod tests {
             "https://user@example.com/lib.tar.gz",
             "https://user:secret@example.com/lib.tar.gz",
         ] {
-            let err = UpstreamProvenance::new(url, SHA, "tar.gz", None, Vec::new(), Vec::new())
-                .unwrap_err();
+            let err =
+                UpstreamProvenance::new(url, CHECKSUM, "tar.gz", None, Vec::new(), Vec::new())
+                    .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::UrlWithCredentials { .. }),
                 "{url}: {err:?}"
@@ -655,25 +683,39 @@ mod tests {
 
     #[test]
     fn rejects_unparsable_url() {
-        let err =
-            UpstreamProvenance::new("::not a url::", SHA, "tar.gz", None, Vec::new(), Vec::new())
-                .unwrap_err();
+        let err = UpstreamProvenance::new(
+            "::not a url::",
+            CHECKSUM,
+            "tar.gz",
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap_err();
         assert!(matches!(err, UpstreamError::InvalidUrl { .. }), "{err:?}");
     }
 
     #[test]
     fn rejects_bad_checksums() {
-        for sha in [
-            "deadbeef",
-            &SHA.to_uppercase(),
-            &format!("g{}", &SHA[1..]),
+        for checksum in [
+            // A bare digest - the pre-rename spelling - carries no
+            // algorithm and must not slip through.
+            SHA,
+            "sha256:deadbeef",
+            &format!("sha512:{SHA}"),
+            &format!("sha256:{}", SHA.to_uppercase()),
+            &format!("sha256:g{}", &SHA[1..]),
+            &format!("sha256:sha256:{SHA}"),
+            &format!(" sha256:{SHA}"),
+            "sha256:",
             "",
         ] {
-            let err = UpstreamProvenance::new(URL, sha, "tar.gz", None, Vec::new(), Vec::new())
-                .unwrap_err();
+            let err =
+                UpstreamProvenance::new(URL, checksum, "tar.gz", None, Vec::new(), Vec::new())
+                    .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::InvalidChecksum { .. }),
-                "{sha:?}: {err:?}"
+                "{checksum:?}: {err:?}"
             );
         }
     }
@@ -681,7 +723,7 @@ mod tests {
     #[test]
     fn rejects_unsupported_formats() {
         for format in ["tar.xz", "tar.bz2", "7z", "rar", ""] {
-            let err = UpstreamProvenance::new(URL, SHA, format, None, Vec::new(), Vec::new())
+            let err = UpstreamProvenance::new(URL, CHECKSUM, format, None, Vec::new(), Vec::new())
                 .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::UnsupportedFormat { .. }),
@@ -693,7 +735,7 @@ mod tests {
     #[test]
     fn accepts_zip_format() {
         let upstream =
-            UpstreamProvenance::new(URL, SHA, "zip", None, Vec::new(), Vec::new()).unwrap();
+            UpstreamProvenance::new(URL, CHECKSUM, "zip", None, Vec::new(), Vec::new()).unwrap();
         assert_eq!(upstream.format(), UpstreamFormat::Zip);
     }
 
@@ -715,7 +757,7 @@ mod tests {
         ] {
             let err = UpstreamProvenance::new(
                 URL,
-                SHA,
+                CHECKSUM,
                 "tar.gz",
                 Some(prefix.into()),
                 Vec::new(),
@@ -778,8 +820,8 @@ mod tests {
     #[test]
     fn rejects_overlong_urls() {
         let url = format!("https://example.com/{}", "a".repeat(MAX_URL_BYTES));
-        let err =
-            UpstreamProvenance::new(&url, SHA, "tar.gz", None, Vec::new(), Vec::new()).unwrap_err();
+        let err = UpstreamProvenance::new(&url, CHECKSUM, "tar.gz", None, Vec::new(), Vec::new())
+            .unwrap_err();
         assert!(matches!(err, UpstreamError::UrlTooLong { .. }), "{err:?}");
     }
 
@@ -791,7 +833,7 @@ mod tests {
         let copy = UpstreamCopy::new("f".repeat(60), "conf.h".into()).unwrap();
         let err = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             Some("p".repeat(200)),
             vec![copy.clone()],
@@ -803,7 +845,7 @@ mod tests {
             "{err:?}"
         );
         // Without the prefix the same step is fine.
-        UpstreamProvenance::new(URL, SHA, "tar.gz", None, vec![copy], Vec::new()).unwrap();
+        UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, vec![copy], Vec::new()).unwrap();
     }
 
     #[test]
@@ -835,8 +877,8 @@ mod tests {
                 UpstreamCopy::new(from1.into(), to1.into()).unwrap(),
                 UpstreamCopy::new(from2.into(), to2.into()).unwrap(),
             ];
-            let err =
-                UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies, Vec::new()).unwrap_err();
+            let err = UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, copies, Vec::new())
+                .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::CaseCollidingCopies { .. }),
                 "{from1}->{to1} + {from2}->{to2}: {err:?}"
@@ -850,7 +892,7 @@ mod tests {
             UpstreamCopy::new("b".into(), "config.h".into()).unwrap(),
             UpstreamCopy::new("config.h".into(), "other.h".into()).unwrap(),
         ];
-        UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies, Vec::new()).unwrap();
+        UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, copies, Vec::new()).unwrap();
     }
 
     #[test]
@@ -869,8 +911,8 @@ mod tests {
                 UpstreamCopy::new(from1.into(), to1.into()).unwrap(),
                 UpstreamCopy::new(from2.into(), to2.into()).unwrap(),
             ];
-            let err =
-                UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies, Vec::new()).unwrap_err();
+            let err = UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, copies, Vec::new())
+                .unwrap_err();
             assert!(
                 matches!(err, UpstreamError::NestedCopyPaths { .. }),
                 "{from1}->{to1} + {from2}->{to2}: {err:?}"
@@ -884,7 +926,7 @@ mod tests {
             .map(|i| UpstreamCopy::new(format!("src/{i}.h"), format!("{i}.h")).unwrap())
             .collect();
         let err =
-            UpstreamProvenance::new(URL, SHA, "tar.gz", None, copies, Vec::new()).unwrap_err();
+            UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, copies, Vec::new()).unwrap_err();
         assert!(
             matches!(err, UpstreamError::TooManyCopies { .. }),
             "{err:?}"
@@ -895,7 +937,7 @@ mod tests {
     fn accepts_a_patch_declaration() {
         let upstream = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             None,
             Vec::new(),
@@ -929,7 +971,7 @@ mod tests {
         ] {
             let err = UpstreamProvenance::new(
                 URL,
-                SHA,
+                CHECKSUM,
                 "tar.gz",
                 None,
                 Vec::new(),
@@ -948,8 +990,8 @@ mod tests {
         let patches: Vec<String> = (0..=MAX_PATCH_FILES)
             .map(|i| format!("patches/{i}.patch"))
             .collect();
-        let err =
-            UpstreamProvenance::new(URL, SHA, "tar.gz", None, Vec::new(), patches).unwrap_err();
+        let err = UpstreamProvenance::new(URL, CHECKSUM, "tar.gz", None, Vec::new(), patches)
+            .unwrap_err();
         assert!(
             matches!(err, UpstreamError::TooManyPatches { .. }),
             "{err:?}"
@@ -991,7 +1033,7 @@ mod tests {
             };
             let err = UpstreamProvenance::new(
                 URL,
-                SHA,
+                CHECKSUM,
                 "tar.gz",
                 None,
                 copies,
@@ -1006,7 +1048,7 @@ mod tests {
         // Distinct, non-aliasing paths coexist with a copy plan.
         UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             None,
             vec![copy().unwrap()],
@@ -1019,7 +1061,7 @@ mod tests {
     fn serializes_in_manifest_key_spelling_and_omits_absent_fields() {
         let full = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             Some("library-1.2.3".into()),
             vec![UpstreamCopy::new("scripts/config.h.prebuilt".into(), "config.h".into()).unwrap()],
@@ -1031,7 +1073,7 @@ mod tests {
             value,
             serde_json::json!({
                 "url": URL,
-                "sha256": SHA,
+                "checksum": CHECKSUM,
                 "format": "tar.gz",
                 "strip-prefix": "library-1.2.3",
                 "copy": [{"from": "scripts/config.h.prebuilt", "to": "config.h"}],
@@ -1039,11 +1081,11 @@ mod tests {
         );
 
         let minimal =
-            UpstreamProvenance::new(URL, SHA, "zip", None, Vec::new(), Vec::new()).unwrap();
+            UpstreamProvenance::new(URL, CHECKSUM, "zip", None, Vec::new(), Vec::new()).unwrap();
         let value = serde_json::to_value(&minimal).unwrap();
         assert_eq!(
             value,
-            serde_json::json!({"url": URL, "sha256": SHA, "format": "zip"})
+            serde_json::json!({"url": URL, "checksum": CHECKSUM, "format": "zip"})
         );
 
         // `patches` renders between `strip-prefix` and `copy`,
@@ -1051,7 +1093,7 @@ mod tests {
         // key cannot follow the `[[copy]]` array-of-tables).
         let patched = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             None,
             vec![UpstreamCopy::new("a".into(), "b".into()).unwrap()],
@@ -1063,7 +1105,7 @@ mod tests {
             value,
             serde_json::json!({
                 "url": URL,
-                "sha256": SHA,
+                "checksum": CHECKSUM,
                 "format": "tar.gz",
                 "patches": ["patches/0001-fix.patch"],
                 "copy": [{"from": "a", "to": "b"}],
@@ -1075,7 +1117,7 @@ mod tests {
     fn patch_declarations_round_trip_through_json() {
         let full = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             Some("library-1.2.3".into()),
             Vec::new(),
@@ -1096,7 +1138,7 @@ mod tests {
     fn deserialization_round_trips_and_validates() {
         let full = UpstreamProvenance::new(
             URL,
-            SHA,
+            CHECKSUM,
             "tar.gz",
             Some("library-1.2.3".into()),
             vec![UpstreamCopy::new("a".into(), "b".into()).unwrap()],
@@ -1119,7 +1161,15 @@ mod tests {
     #[test]
     fn deserialization_rejects_unknown_fields() {
         let err = serde_json::from_value::<UpstreamProvenance>(serde_json::json!({
-            "url": URL, "sha256": SHA, "format": "zip", "mirror": "https://x.example"
+            "url": URL, "checksum": CHECKSUM, "format": "zip", "mirror": "https://x.example"
+        }))
+        .unwrap_err();
+        assert!(err.to_string().contains("unknown field"), "{err}");
+
+        // The pre-rename `sha256` key is a plain unknown field on the
+        // wire, exactly like any other retired spelling.
+        let err = serde_json::from_value::<UpstreamProvenance>(serde_json::json!({
+            "url": URL, "checksum": CHECKSUM, "format": "zip", "sha256": SHA
         }))
         .unwrap_err();
         assert!(err.to_string().contains("unknown field"), "{err}");

@@ -230,7 +230,7 @@ pub(crate) struct RawPackage {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawUpstream {
     pub(crate) url: String,
-    pub(crate) sha256: String,
+    pub(crate) checksum: String,
     pub(crate) format: String,
     #[serde(default, rename = "strip-prefix")]
     pub(crate) strip_prefix: Option<String>,

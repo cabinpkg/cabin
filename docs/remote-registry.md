@@ -267,8 +267,9 @@ Server-side behavior is part of the contract:
   metadata's `dependencies` and `dev-dependencies` maps to be a canonical `<scope>/<name>`
   name (`system-dependencies` is exempt - its keys name system packages, not registry
   packages), requires a declared `upstream` provenance block to pass a lexical mirror of the
-  manifest's provenance rules (credential-free HTTPS URL, 64-hex `sha256`, `"tar.gz"` / `"zip"`
-  format, single-component `strip-prefix`, non-escaping copy paths, non-escaping `patches`
+  manifest's provenance rules (credential-free HTTPS URL, `sha256:`-prefixed 64-hex `checksum`,
+  `"tar.gz"` / `"zip"` format, single-component `strip-prefix`, non-escaping copy paths,
+  non-escaping `patches`
   entries distinct from copy paths and the root manifest - the server never fetches the
   URL), requires a declared `links` map to pass a lexical mirror of the manifest's rules (valid
   target-name keys, identities of ASCII letters, digits, `.`, `_`, `+`, and `-`, each identity

@@ -513,7 +513,7 @@ fmt = { workspace = true, features = ["color"] }
     fn write_patched_upstream_package(dir: &TempDir, with_patch_file: bool) {
         let manifest = format!(
             "{VALID_MANIFEST}\n[package.upstream]\nurl = \"https://upstream.invalid/demo-0.1.0.tar.gz\"\n\
-             sha256 = \"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"\n\
+             checksum = \"sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"\n\
              format = \"tar.gz\"\npatches = [\"patches/0001-fix.patch\"]\n"
         );
         dir.child("cabin.toml").write_str(&manifest).unwrap();

@@ -604,10 +604,10 @@ mod tests {
 
     #[test]
     fn metadata_carries_upstream_provenance() {
-        let sha = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
+        let checksum = "sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23";
         let upstream = cabin_core::UpstreamProvenance::new(
             "https://example.com/fmt-10.2.1.tar.gz",
-            sha,
+            checksum,
             "tar.gz",
             Some("fmt-10.2.1".to_owned()),
             vec![
@@ -624,7 +624,7 @@ mod tests {
             value["upstream"],
             serde_json::json!({
                 "url": "https://example.com/fmt-10.2.1.tar.gz",
-                "sha256": sha,
+                "checksum": checksum,
                 "format": "tar.gz",
                 "strip-prefix": "fmt-10.2.1",
                 "copy": [{"from": "support/config.h.in", "to": "config.h"}],
