@@ -55,12 +55,12 @@ pub struct VersionMetadata {
     /// of the archive's SHA-256).  Superseded revisions stay listed so
     /// lockfiles that pin them keep building.
     pub revisions: BTreeMap<String, RevisionMetadata>,
-    /// `sha256:<hex>` digest of the *current* revision's archive -
-    /// derived by the loader from [`Self::revisions`] for the many
-    /// consumers that only ever want the served revision.  `None`
-    /// exactly when `revisions` is empty.  Revision-aware consumers
-    /// (locked validation, fetch-by-pin, vendor) consult the map.
-    pub checksum: Option<String>,
+    /// Digest of the *current* revision's archive - derived by the
+    /// loader from [`Self::revisions`] for the many consumers that
+    /// only ever want the served revision.  `None` exactly when
+    /// `revisions` is empty.  Revision-aware consumers (locked
+    /// validation, fetch-by-pin, vendor) consult the map.
+    pub checksum: Option<cabin_core::Checksum>,
     /// Where the *current* revision's source archive lives - the same
     /// loader-derived convenience as [`Self::checksum`].  Already
     /// resolved: callers receive a path or a URL they can act on
@@ -127,10 +127,10 @@ pub struct VersionMetadata {
 /// selected at fetch time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionMetadata {
-    /// `sha256:<hex>` digest of this revision's archive bytes.  The
-    /// revision id is this digest's leading hex prefix, so the pair
-    /// can never disagree in a loaded index.
-    pub checksum: String,
+    /// Digest of this revision's archive bytes.  The revision id is
+    /// this digest's leading hex prefix, so the pair can never
+    /// disagree in a loaded index.
+    pub checksum: cabin_core::Checksum,
     /// When this revision was published, as recorded by the registry
     /// that accepted it.  Carried verbatim; Cabin never orders
     /// revisions by it client-side (the `revision` pointer names the
