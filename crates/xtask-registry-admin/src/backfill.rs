@@ -46,7 +46,7 @@ const PRIMARY: &str = "cabin-registry-blobs";
 // drain settles at the size its head observes.
 const ENQUEUE: &str = "
   INSERT INTO backup_pending (key, bytes, enqueued_at)
-    SELECT 'blobs/sha256/' || checksum, MAX(archive_size),
+    SELECT 'blobs/sha256/' || substr(checksum, 8), MAX(archive_size),
            strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     FROM revisions WHERE verification = 'verified' GROUP BY checksum
   ON CONFLICT (key) DO NOTHING";
@@ -58,16 +58,20 @@ const ENQUEUE: &str = "
 const VERIFIED: &str = "SELECT DISTINCT checksum FROM revisions
   WHERE verification = 'verified'";
 
-/// True for exactly what the shell's `^[0-9a-f]{64}$` matched.  A
-/// checksum that is not one means the enumeration answered something
-/// other than the query asked for, and copying blobs under it would
-/// write to an attacker-shaped key.
+/// True for exactly the canonical stored spelling
+/// (`sha256:<64 lowercase hex>`, the `revisions.checksum` column
+/// contract).  A checksum that is not one means the enumeration
+/// answered something other than the query asked for, and copying
+/// blobs under a key derived from it would write to an
+/// attacker-shaped key.
 #[must_use]
 pub fn is_checksum(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
 }
 
 /// Runs the backfill.
@@ -116,7 +120,7 @@ pub fn run() -> Result<()> {
         if !is_checksum(&checksum) {
             bail!("unexpected checksum: {checksum}");
         }
-        let key = format!("blobs/sha256/{checksum}");
+        let key = format!("blobs/sha256/{}", &checksum["sha256:".len()..]);
 
         // `r2 object` commands default to local state; this command
         // only ever targets deployed environments.

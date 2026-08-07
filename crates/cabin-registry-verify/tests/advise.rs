@@ -15,7 +15,7 @@ fn entry_json(name: &str) -> String {
         "name": name,
         "version": "1.0.0",
         "revision": &CHECKSUM[..16],
-        "checksum": CHECKSUM,
+        "checksum": format!("sha256:{CHECKSUM}"),
         "published_at": "2026-07-18T00:00:00.000Z",
         "metadata": {},
     })

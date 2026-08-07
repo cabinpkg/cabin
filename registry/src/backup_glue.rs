@@ -476,17 +476,20 @@ async fn backup_one(
             console_error!("backup drain: deleting a queue row failed");
         }
     };
-    let Some(checksum) = row.key.strip_prefix("blobs/sha256/") else {
+    let Some(hex) = row.key.strip_prefix("blobs/sha256/") else {
         console_error!("backup drain: malformed queue key {}", row.key);
         delete_row(row.key.clone()).await;
         return true;
     };
+    // The queue key keeps the OCI-style bare-hex layout; the column
+    // comparison needs the canonical stored spelling.
+    let checksum = crate::checksum::from_hex(hex);
     // Only blobs the registry still serves as verified content are
     // worth a backup copy: a rejection (or replacement) that landed
     // after the enqueue retires the row instead.
     let live: Result<Option<CountRecord>, _> = match db
         .prepare(sql::COUNT_LIVE_VERIFIED_BLOB_REFERENCES)
-        .bind(&[checksum.into()])
+        .bind(&[checksum.as_str().into()])
     {
         Ok(statement) => statement.first(None).await,
         Err(err) => Err(err),
@@ -499,7 +502,7 @@ async fn backup_one(
             // just-enqueued work.
             if let Ok(statement) = db
                 .prepare(sql::RETIRE_DEAD_BACKUP_PENDING)
-                .bind(&[row.key.as_str().into(), checksum.into()])
+                .bind(&[row.key.as_str().into(), checksum.as_str().into()])
                 && statement.run().await.is_err()
             {
                 console_error!("backup drain: retiring a dead queue row failed");

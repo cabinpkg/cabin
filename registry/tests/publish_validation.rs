@@ -48,9 +48,15 @@ fn validate_pair(
     // The digest comes first, exactly as in the glue: the packaging
     // revision is its leading hex prefix, and the canonical source
     // path the metadata must carry embeds it.
-    let computed_hex = sha256_hex(frame.archive);
-    let parsed = validate_metadata(scope, name, version, &computed_hex[..16], frame.metadata)?;
-    verify_checksum(&parsed, &computed_hex)
+    let computed = cabin_registry_worker::checksum::from_hex(&sha256_hex(frame.archive));
+    let parsed = validate_metadata(
+        scope,
+        name,
+        version,
+        cabin_registry_worker::checksum::revision_id(&computed),
+        frame.metadata,
+    )?;
+    verify_checksum(&parsed, &computed)
 }
 
 #[test]

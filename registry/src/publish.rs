@@ -223,16 +223,7 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
     if authority.is_empty() || authority.contains('@') {
         return Err(INVALID_UPSTREAM_URL);
     }
-    let digest_ok = upstream
-        .checksum
-        .strip_prefix("sha256:")
-        .is_some_and(|digest| {
-            digest.len() == 64
-                && digest
-                    .bytes()
-                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
-    if !digest_ok {
+    if !crate::checksum::is_canonical(&upstream.checksum) {
         return Err(INVALID_UPSTREAM_CHECKSUM);
     }
     if upstream.format != "tar.gz" && upstream.format != "zip" {
@@ -606,19 +597,16 @@ pub fn resolver_metadata_conflict(
     Ok(None)
 }
 
-/// Compares the metadata's claimed checksum against the lowercase
-/// SHA-256 hex the server computed from the uploaded archive bytes.
+/// Compares the metadata's claimed checksum against the canonical
+/// `sha256:<64 lowercase hex>` value the server computed from the
+/// uploaded archive bytes.
 ///
 /// # Errors
 ///
-/// [`CHECKSUM_MISMATCH`] (a `400` detail) unless the claim is exactly
-/// `sha256:<computed_hex>`.
-pub fn verify_checksum(metadata: &VersionMetadata, computed_hex: &str) -> Result<(), &'static str> {
-    let claimed = &metadata.checksum;
-    let matches = claimed
-        .strip_prefix("sha256:")
-        .is_some_and(|hex| hex == computed_hex);
-    if matches {
+/// [`CHECKSUM_MISMATCH`] (a `400` detail) unless the claim equals
+/// `computed` exactly.
+pub fn verify_checksum(metadata: &VersionMetadata, computed: &str) -> Result<(), &'static str> {
+    if metadata.checksum == computed {
         Ok(())
     } else {
         Err(CHECKSUM_MISMATCH)
@@ -1396,12 +1384,19 @@ mod tests {
     fn verify_checksum_requires_the_exact_sha256_claim() {
         let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "sha256:0011");
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
-        assert_eq!(verify_checksum(&parsed, "0011"), Ok(()));
-        assert_eq!(verify_checksum(&parsed, "0012"), Err(CHECKSUM_MISMATCH));
-        // A claim without the scheme prefix never matches.
+        assert_eq!(verify_checksum(&parsed, "sha256:0011"), Ok(()));
+        assert_eq!(
+            verify_checksum(&parsed, "sha256:0012"),
+            Err(CHECKSUM_MISMATCH)
+        );
+        // A claim without the scheme prefix never matches the
+        // canonical computed value.
         let body = metadata_json("fmtlib", "fmt", "1.0.0").replace("sha256:aa", "0011");
         let parsed = validate_metadata("fmtlib", "fmt", "1.0.0", REV, body.as_bytes()).unwrap();
-        assert_eq!(verify_checksum(&parsed, "0011"), Err(CHECKSUM_MISMATCH));
+        assert_eq!(
+            verify_checksum(&parsed, "sha256:0011"),
+            Err(CHECKSUM_MISMATCH)
+        );
     }
 
     /// A minimal, spec-valid zip: one stored, zero-length entry named

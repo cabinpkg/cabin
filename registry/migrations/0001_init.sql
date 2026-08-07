@@ -1,5 +1,7 @@
 -- Canonical registry state. D1 is the source of truth; R2 only holds
--- immutable, content-addressed archive blobs (blobs/sha256/<checksum-hex>).
+-- immutable, content-addressed archive blobs at blobs/sha256/<hex> -
+-- the bare hex tail of the canonical `sha256:<64 lowercase hex>`
+-- checksum value; key derivation strips the algorithm prefix.
 --
 -- One from-zero baseline on purpose: pre-launch the registry's data is
 -- disposable and the operator wipes and re-migrates from zero
@@ -110,8 +112,9 @@ CREATE TABLE versions (
 );
 
 -- The immutable unit: one row per (scope, name, version, revision).
--- `revision` is the leading 16 hex characters of the archive's
--- SHA-256 (`checksum`), so byte-identical republication maps onto the
+-- `checksum` holds the canonical `sha256:<64 lowercase hex>` value
+-- every surface serializes; `revision` is the leading 16 characters
+-- of its hex tail, so byte-identical republication maps onto the
 -- existing row; bytes for a given key never change once the row is
 -- pending or verified.
 CREATE TABLE revisions (

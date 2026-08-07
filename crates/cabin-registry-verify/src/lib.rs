@@ -82,10 +82,10 @@ pub struct PendingVersion {
     /// characters, and the last segment of the artifact filename the
     /// workflow downloads.
     pub revision: String,
-    /// Raw lowercase SHA-256 hex of the archive bytes (no `sha256:`
-    /// prefix) - the `versions.checksum` column, echoed back to bind
-    /// the verdict.
-    pub checksum: String,
+    /// Canonical `sha256:<64 lowercase hex>` digest of the archive
+    /// bytes - the `revisions.checksum` column, echoed back verbatim
+    /// to bind the verdict.  Parsed strictly at this boundary.
+    pub checksum: cabin_core::Checksum,
     /// The row generation the listing reported, echoed back to bind
     /// the verdict.
     pub published_at: String,
@@ -357,12 +357,10 @@ pub fn inspect(
     // The registry mints the revision id from the checksum, so a row
     // where the two disagree is corrupt state, not a hostile archive:
     // refuse before inspecting anything (the version stays pending).
-    if cabin_core::registry::packaging_revision_from_sha256_hex(&pending.checksum)
-        != Some(pending.revision.as_str())
-    {
+    if pending.checksum.revision_id() != pending.revision {
         return Err(VerifyError::RevisionMismatch {
             revision: pending.revision.clone(),
-            checksum: pending.checksum.clone(),
+            checksum: pending.checksum.as_str().to_owned(),
         });
     }
 

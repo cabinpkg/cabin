@@ -9,15 +9,21 @@ use xtask_registry_admin::{Nullish, column_lines};
 /// unexpected answer must stop the run rather than name an object.
 #[test]
 fn the_backfill_takes_only_lower_case_sha256() {
-    assert!(is_checksum(&"0123456789abcdef".repeat(4)));
+    assert!(is_checksum(&format!(
+        "sha256:{}",
+        "0123456789abcdef".repeat(4)
+    )));
     for refused in [
         "",
-        &"a".repeat(63),
-        &"a".repeat(65),
-        &"A".repeat(64),
-        &"z".repeat(64),
-        &format!("{} ", "a".repeat(63)),
-        &"a".repeat(32).repeat(2).replace('a', "á"),
+        // The bare pre-prefix spelling no longer matches the column.
+        &"0123456789abcdef".repeat(4),
+        &format!("sha256:{}", "a".repeat(63)),
+        &format!("sha256:{}", "a".repeat(65)),
+        &format!("sha256:{}", "A".repeat(64)),
+        &format!("SHA256:{}", "a".repeat(64)),
+        &format!("sha256:{}", "z".repeat(64)),
+        &format!("sha256:{} ", "a".repeat(63)),
+        &format!("sha256:{}", "a".repeat(32).repeat(2).replace('a', "á")),
     ] {
         assert!(!is_checksum(refused), "accepted {refused:?}");
     }
@@ -58,7 +64,7 @@ fn the_enumeration_splits_as_the_pipeline_split_it() {
     // rather than stopping the run before it starts: the shell copied
     // every good row that came first, and so must this.
     let mixed = lines(&format!(
-        r#"[{{"results":[{{"checksum":"{}"}},{{"checksum":["b"]}}],"success":true}}]"#,
+        r#"[{{"results":[{{"checksum":"sha256:{}"}},{{"checksum":["b"]}}],"success":true}}]"#,
         "a".repeat(64)
     ));
     assert_eq!(mixed.len(), 2);
@@ -85,9 +91,9 @@ fn the_enumeration_splits_as_the_pipeline_split_it() {
 
     // Bash cannot hold a NUL: command substitution dropped it, so this
     // reached the shell's grammar as 64 hex digits and was copied.
-    let split = format!("{}\0{}", "a".repeat(32), "a".repeat(32));
+    let split = format!("sha256:{}\0{}", "a".repeat(32), "a".repeat(32));
     let answer = serde_json::json!([{"results": [{"checksum": split}], "success": true}]);
     let joined = lines(&answer.to_string());
-    assert_eq!(joined, ["a".repeat(64)]);
+    assert_eq!(joined, [format!("sha256:{}", "a".repeat(64))]);
     assert!(is_checksum(&joined[0]));
 }

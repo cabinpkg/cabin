@@ -58,7 +58,7 @@ pub struct VersionRow {
 pub struct RevisionRow {
     pub version: String,
     pub revision: String,
-    /// Lowercase SHA-256 hex, as stored (no `sha256:` prefix).
+    /// Canonical `sha256:<64 lowercase hex>` value, as stored.
     pub checksum: String,
     pub published_at: String,
 }
@@ -134,7 +134,7 @@ pub fn package_json(
             revision_map.insert(
                 revision.revision.clone(),
                 serde_json::json!({
-                    "checksum": format!("sha256:{}", revision.checksum),
+                    "checksum": revision.checksum,
                     "published-at": revision.published_at,
                     "source": { "type": "archive", "path": path, "format": "zip" },
                 }),
@@ -186,7 +186,10 @@ mod tests {
         RevisionRow {
             version: version.to_owned(),
             revision: revision.to_owned(),
-            checksum: std::iter::repeat_n(seed, 64).collect(),
+            checksum: format!(
+                "sha256:{}",
+                std::iter::repeat_n(seed, 64).collect::<String>()
+            ),
             published_at: format!("2026-01-01T00:00:0{seed}Z"),
         }
     }
