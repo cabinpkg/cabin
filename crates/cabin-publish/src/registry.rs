@@ -43,7 +43,7 @@ pub struct RegistryPublishReport {
     pub registry_dir: PathBuf,
     pub package_index_path: PathBuf,
     pub artifact_path: PathBuf,
-    pub checksum: String,
+    pub checksum: cabin_core::Checksum,
     pub source_path: String,
     pub registry_modified: bool,
     pub registry_initialized: bool,
@@ -294,10 +294,7 @@ mod tests {
         assert!(!report.dry_run);
         assert!(report.package_index_path.is_file());
         assert!(report.artifact_path.is_file());
-        assert_eq!(
-            report.revision,
-            report.checksum["sha256:".len()..][..16].to_owned()
-        );
+        assert_eq!(report.revision, report.checksum.revision_id());
         assert_eq!(
             report.source_path,
             format!(

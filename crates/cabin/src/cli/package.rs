@@ -162,7 +162,7 @@ struct RemotePublishReport {
     version: semver::Version,
     /// Normalized index origin the publish targeted.
     registry: String,
-    checksum: String,
+    checksum: cabin_core::Checksum,
     /// `true` on a `201` (version created); `false` on the
     /// idempotent `200` no-op for byte-identical re-publishes.
     created: bool,

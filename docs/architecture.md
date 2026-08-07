@@ -150,8 +150,9 @@ client and server surface must agree on live in `cabin_core::registry`: the file
 derive a revision id from a checksum the same way.  The serialized checksum spelling those surfaces
 share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
 (strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
-primitives), today carried by the `[package.upstream]` provenance model.  A checksum boundary
-being added or changed must parse into the type rather than threading raw strings.  Manifest, index, lockfile,
+primitives), today carried by `[package.upstream]` provenance and end to end through the
+packaging and publish chain (staged archives, canonical metadata, publish reports).  A checksum
+boundary being added or changed must parse into the type rather than threading raw strings.  Manifest, index, lockfile,
 resolver, build, and feature crates all share these typed values without depending on each other.
 The crate must:
 
@@ -1237,7 +1238,7 @@ ValidatedPackage
    |   - entries sorted by path, deflated at level 6
    |   - fixed 1980-01-01 timestamp, System::Unix, no zip64
    v
-archive bytes (Vec<u8>) ---> sha256_hex ---> sha256:<hex>
+archive bytes (Vec<u8>) ---> Checksum::of_bytes ---> sha256:<hex>
    |
    |  cabin_package::canonical_metadata
    v

@@ -45,7 +45,7 @@ pub(crate) fn check(
     manifest: &[u8],
     files: &Contents,
     pending: &PendingVersion,
-    archive_hex: &str,
+    archive: &cabin_core::Checksum,
 ) -> Result<Option<Reason>, VerifyError> {
     let stored = pending
         .metadata
@@ -99,7 +99,7 @@ pub(crate) fn check(
     if package.version.to_string() != pending.version {
         return Ok(Some(Reason::VersionMismatch));
     }
-    if pending.checksum != archive_hex {
+    if pending.checksum != archive.hex() {
         return Ok(Some(Reason::ChecksumMismatch));
     }
 
@@ -115,11 +115,8 @@ pub(crate) fn check(
     // equality gate above pins that checksum to the archive bytes, so
     // an honest document compares equal without the listing's
     // `revision` being threaded in separately.
-    let expected = serde_json::to_value(canonical_metadata(
-        &package,
-        &format!("sha256:{archive_hex}"),
-    ))
-    .expect("manifest-derived metadata always serializes");
+    let expected = serde_json::to_value(canonical_metadata(&package, archive))
+        .expect("manifest-derived metadata always serializes");
     let expected = expected
         .as_object()
         .expect("canonical metadata serializes as an object");

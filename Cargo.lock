@@ -493,7 +493,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
  "zip",
 ]
@@ -539,7 +538,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2",
  "thiserror",
 ]
 

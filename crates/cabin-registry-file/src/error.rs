@@ -63,15 +63,6 @@ pub enum RegistryError {
     },
 
     #[error(
-        "staged metadata for `{name} {version}` carries a malformed checksum claim {checksum:?}"
-    )]
-    InvalidChecksum {
-        name: String,
-        version: String,
-        checksum: String,
-    },
-
-    #[error(
         "staged package `{name}` claims checksum `{claimed}` but its archive bytes hash to `{computed}`; the packaging revision derives from the archive contents, so a mismatched claim would publish an immutable revision that can never verify"
     )]
     StagedChecksumMismatch {

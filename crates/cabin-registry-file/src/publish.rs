@@ -38,7 +38,7 @@ pub struct RegistryPublishOutcome {
     pub registry_modified: bool,
     pub registry_initialized: bool,
     pub source_path: String,
-    pub checksum: String,
+    pub checksum: cabin_core::Checksum,
     pub revision: String,
     pub no_op: bool,
 }
@@ -115,7 +115,7 @@ pub fn validate_publish(
     ensure_staged_checksum_matches(request.staged)?;
     let registry_dir = request.registry_dir;
     let registry = FileRegistry::inspect(registry_dir)?;
-    let metadata = staged_metadata_for_registry(&registry, request.staged)?;
+    let metadata = staged_metadata_for_registry(&registry, request.staged);
     plan_publish(&registry, request, &metadata).map(|mut plan| {
         plan.outcome.registry_modified = false;
         plan.outcome
@@ -176,17 +176,13 @@ fn ensure_publishable_registry_name(staged: &StagedPackage) -> Result<(), Regist
 /// recompute the digest and refuse a lying claim before anything
 /// derives from it.
 fn ensure_staged_checksum_matches(staged: &StagedPackage) -> Result<(), RegistryError> {
-    use sha2::{Digest, Sha256};
-    let computed = format!(
-        "sha256:{}",
-        cabin_core::hash::hex_digest(&Sha256::digest(&staged.archive_bytes))
-    );
+    let computed = cabin_core::Checksum::of_bytes(&staged.archive_bytes);
     for claimed in [&staged.checksum, &staged.metadata.checksum] {
         if claimed != &computed {
             return Err(RegistryError::StagedChecksumMismatch {
                 name: staged.name.as_str().to_owned(),
-                claimed: claimed.clone(),
-                computed,
+                claimed: claimed.as_str().to_owned(),
+                computed: computed.as_str().to_owned(),
             });
         }
     }
@@ -197,7 +193,7 @@ fn publish_locked(
     request: &RegistryPublishRequest<'_>,
 ) -> Result<RegistryPublishOutcome, RegistryError> {
     let registry = FileRegistry::open_or_initialize(request.registry_dir)?;
-    let metadata = staged_metadata_for_registry(&registry, request.staged)?;
+    let metadata = staged_metadata_for_registry(&registry, request.staged);
     let plan = plan_publish(&registry, request, &metadata)?;
 
     if plan.disposition == InsertDisposition::NoOp {
@@ -299,7 +295,7 @@ fn plan_publish(
             ),
         }
     })?;
-    let revision = crate::index::revision_of(metadata)?.to_owned();
+    let revision = crate::index::revision_of(metadata).to_owned();
     let artifact_path = registry.artifact_path(&staged.name, &version, &revision);
 
     let existing = read_optional(&package_index_path)?;
@@ -339,11 +335,11 @@ fn plan_publish(
 fn staged_metadata_for_registry(
     registry: &FileRegistry,
     staged: &StagedPackage,
-) -> Result<PackageMetadata, RegistryError> {
+) -> PackageMetadata {
     let mut metadata = staged.metadata.clone();
-    let revision = crate::index::revision_of(&metadata)?.to_owned();
+    let revision = crate::index::revision_of(&metadata).to_owned();
     metadata.source.path = registry.relative_source_path(&staged.name, &staged.version, &revision);
-    Ok(metadata)
+    metadata
 }
 
 /// UTC `YYYY-MM-DDTHH:MM:SSZ` stamp for a freshly published
@@ -397,18 +393,11 @@ mod tests {
 
     /// The packaging-revision id a staged package will publish under.
     fn rev_of(staged: &StagedPackage) -> &str {
-        let hex = staged.checksum.strip_prefix("sha256:").unwrap();
-        &hex[..cabin_core::registry::PACKAGING_REVISION_HEX_LEN]
+        staged.checksum.revision_id()
     }
 
     fn staged(name: &str, version: &str, body: &[u8]) -> StagedPackage {
-        let checksum = {
-            use cabin_core::hash::hex_digest;
-            use sha2::{Digest, Sha256};
-            let mut h = Sha256::new();
-            h.update(body);
-            format!("sha256:{}", hex_digest(&h.finalize()))
-        };
+        let checksum = cabin_core::Checksum::of_bytes(body);
         StagedPackage {
             name: pkg(name),
             version: ver(version),
@@ -592,8 +581,14 @@ mod tests {
         assert_eq!(entry["revision"], rev_of(&second));
         let revisions = entry["revisions"].as_object().unwrap();
         assert_eq!(revisions.len(), 2);
-        assert_eq!(revisions[rev_of(&first)]["checksum"], first.checksum);
-        assert_eq!(revisions[rev_of(&second)]["checksum"], second.checksum);
+        assert_eq!(
+            revisions[rev_of(&first)]["checksum"],
+            first.checksum.as_str()
+        );
+        assert_eq!(
+            revisions[rev_of(&second)]["checksum"],
+            second.checksum.as_str()
+        );
         // Both revisions' bytes remain fetchable.
         for (staged, bytes) in [(&first, b"first".as_slice()), (&second, b"second")] {
             let path = registry_dir.path().join(format!(

@@ -32,7 +32,7 @@ pub struct DryRunReport {
     pub version: semver::Version,
     pub archive_path: PathBuf,
     pub metadata_path: PathBuf,
-    pub checksum: String,
+    pub checksum: cabin_core::Checksum,
     pub registry_modified: bool,
     /// Non-rejecting standard-compatibility lint messages (PL2) the
     /// CLI prints to stderr.  A staging-only dry-run runs PL1/PL2 only.
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(report.version.to_string(), "10.2.1");
         assert!(report.archive_path.is_file());
         assert!(report.metadata_path.is_file());
-        assert!(report.checksum.starts_with("sha256:"));
+        assert!(report.checksum.as_str().starts_with("sha256:"));
         assert!(!report.registry_modified);
     }
 

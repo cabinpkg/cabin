@@ -2,7 +2,6 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, System, ZipWriter};
 
@@ -197,13 +196,6 @@ pub fn build_zip(
 /// which wraps `io::Error`; the zip error's message is preserved.
 fn zip_write_error(source: zip::result::ZipError) -> PackageError {
     PackageError::ArchiveWrite(std::io::Error::other(source))
-}
-
-/// Lower-case hex SHA-256 of a byte slice.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    cabin_core::hash::hex_digest(&hasher.finalize())
 }
 
 fn walk(

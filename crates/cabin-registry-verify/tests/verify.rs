@@ -229,7 +229,7 @@ fn write_pending(
 ) -> (PathBuf, PendingVersion) {
     let archive = dir.child("archive.zip");
     archive.write_binary(archive_bytes).unwrap();
-    let hex = staged.checksum.strip_prefix("sha256:").unwrap().to_owned();
+    let hex = staged.checksum.hex().to_owned();
     let pending = PendingVersion {
         name: staged.name.as_str().to_owned(),
         version: staged.version.to_string(),
@@ -284,10 +284,11 @@ fn hand_pending(dir: &TempDir, entries: &[Entry], manifest: &str) -> (PathBuf, P
     let bytes = assemble(entries);
     let archive = dir.child("hand.zip");
     archive.write_binary(&bytes).unwrap();
-    let hex = cabin_core::hash::hash_reader(bytes.as_slice()).unwrap();
+    let checksum = cabin_core::Checksum::of_bytes(&bytes);
+    let hex = checksum.hex().to_owned();
     let parsed = cabin_manifest::parse_manifest_str(manifest).unwrap();
     let package = parsed.package.unwrap();
-    let metadata = cabin_package::metadata::canonical_metadata(&package, &format!("sha256:{hex}"));
+    let metadata = cabin_package::metadata::canonical_metadata(&package, &checksum);
     let pending = PendingVersion {
         name: package.name.as_str().to_owned(),
         version: package.version.to_string(),

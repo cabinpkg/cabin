@@ -401,12 +401,13 @@ pub fn inspect(
         path: archive.to_path_buf(),
         source,
     })?;
-    let archive_hex = cabin_core::hash::hash_reader(file).map_err(|source| VerifyError::Io {
-        path: archive.to_path_buf(),
-        source,
-    })?;
+    let archive_checksum =
+        cabin_core::Checksum::of_reader(file).map_err(|source| VerifyError::Io {
+            path: archive.to_path_buf(),
+            source,
+        })?;
 
-    if let Some(reason) = consistency::check(&manifest, &files, pending, &archive_hex)? {
+    if let Some(reason) = consistency::check(&manifest, &files, pending, &archive_checksum)? {
         return Ok(Verdict::Rejected(vec![reason]));
     }
 
