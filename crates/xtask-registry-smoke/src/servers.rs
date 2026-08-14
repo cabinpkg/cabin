@@ -455,7 +455,9 @@ impl DevServers {
     /// valid session cookie for the seeded user (github id 0) without
     /// a GitHub round trip; `ALLOWED_GITHUB_IDS` admits that id plus id
     /// 1, whose identity row deliberately does not exist (the
-    /// post-wipe ghost-session case).  `SERVICE_MODE_TTL_SECS=0`
+    /// post-wipe ghost-session case), and ids 3 and 4, the sign-in
+    /// leg's fresh accounts (too young to sign up, and old enough -
+    /// only id 4 ever gets an identity row).  `SERVICE_MODE_TTL_SECS=0`
     /// disables the service-mode cache so the breaker leg observes a
     /// flipped mode immediately (the deployed worker uses the in-code
     /// 60 s TTL), and `STATS_CACHE_TTL_SECS=0` disables the stats edge
@@ -551,7 +553,7 @@ fn render_dev_vars(ports: &Ports) -> String {
         "CF_API_BASE=\"http://127.0.0.1:{mock}\"
 D1_EXPORT_API_TOKEN=\"smoke-placeholder\"
 SESSION_SECRET=\"smoke-session-secret-not-for-production\"
-ALLOWED_GITHUB_IDS=\"0,1\"
+ALLOWED_GITHUB_IDS=\"0,1,3,4\"
 SERVICE_MODE_TTL_SECS=\"0\"
 STATS_CACHE_TTL_SECS=\"0\"
 DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"
@@ -752,7 +754,7 @@ mod tests {
             "CF_API_BASE=\"http://127.0.0.1:8788\"\n\
              D1_EXPORT_API_TOKEN=\"smoke-placeholder\"\n\
              SESSION_SECRET=\"smoke-session-secret-not-for-production\"\n\
-             ALLOWED_GITHUB_IDS=\"0,1\"\n\
+             ALLOWED_GITHUB_IDS=\"0,1,3,4\"\n\
              SERVICE_MODE_TTL_SECS=\"0\"\n\
              STATS_CACHE_TTL_SECS=\"0\"\n\
              DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"\n\

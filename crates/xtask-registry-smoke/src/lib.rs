@@ -26,7 +26,7 @@ use xtask_registry_admin::registry_dir;
 
 use crate::bytes::replace_all;
 use crate::context::Smoke;
-use crate::legs::{anonymous, blobs, claims, finale, publish, revisions, session};
+use crate::legs::{anonymous, blobs, claims, finale, publish, revisions, session, signin};
 use crate::servers::{DevServers, Ports};
 use crate::text::read;
 
@@ -93,6 +93,7 @@ fn tokened(
     session::read_plane(smoke, &setup)?;
     let cookie = session::session_plane(smoke)?;
     claims::run(smoke, &cookie, github_port)?;
+    signin::run(smoke, github_port)?;
 
     let work = setup.work.path();
     publish::run(

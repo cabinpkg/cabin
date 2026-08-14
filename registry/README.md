@@ -57,8 +57,10 @@ client with `cabin login`.
 Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later
 means adding their numeric id there and redeploying. The first sign-in
-creates a registry-native user, bound to the GitHub account through the
-`identities` table - the numeric id (never the login, which can be renamed
+creates a registry-native user - it additionally requires the GitHub
+account to be at least 30 days old (`src/signup.rs`; a younger account
+is told the date it becomes eligible) - bound to the GitHub account
+through the `identities` table - the numeric id (never the login, which can be renamed
 and reassigned) is the external identity, and everything package- or
 token-related keys on the registry's own user id
 ([`docs/architecture.md`](docs/architecture.md), "Two credential planes").
