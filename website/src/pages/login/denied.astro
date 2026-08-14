@@ -1,8 +1,12 @@
 ---
 // Where the registry's /callback sends every refused sign-in (wrong OAuth
-// state, GitHub refusal, or - most commonly right now - a GitHub account
-// that is not on the allowlist). Fully static: this page must render even
-// when the registry is unreachable.
+// state, GitHub refusal, a GitHub account that is not on the allowlist,
+// or an allowlisted account too new for the sign-up age gate). Only the
+// age refusal carries detail - ?reason=account-age&eligible=<date> - and
+// src/scripts/login-denied.ts swaps the copy for it. Fully static
+// otherwise: the generic copy must render even when the registry is
+// unreachable, so the age block ships hidden and script-less visitors
+// keep the generic page.
 import Icon from "../../components/Icon.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { EXTERNAL_URLS } from "../../lib/constants";
@@ -21,16 +25,23 @@ import Button from "../../components/ui/Button.astro";
     <h1 class="text-2xl font-bold tracking-tight">
         Sign-in could not be completed
     </h1>
-    <p class="mt-4 max-w-xl text-ink-muted">
+    <p class="mt-4 max-w-xl text-ink-muted" data-denied-generic>
         The Cabin package registry is in private alpha, and signing
         in is limited to an allowlist of maintainer accounts &mdash; the
         most common reason to end up here is a GitHub account that isn't
         on it. Either way, no session was created.
     </p>
-    <p class="mt-2 max-w-xl text-ink-muted">
+    <p class="mt-2 max-w-xl text-ink-muted" data-denied-generic>
         If your account is allowlisted, the sign-in may simply have timed
         out or been interrupted &mdash; trying again usually works. Follow
         the project on GitHub to see the registry take shape.
+    </p>
+    <p class="mt-4 max-w-xl text-ink-muted" data-denied-account-age hidden>
+        Your GitHub account was created less than 30 days ago. Creating a
+        Cabin account requires a GitHub account at least 30 days old, so
+        no session was created &mdash; there's nothing else to fix. Sign in
+        again on or after <strong class="text-ink" data-eligible-date
+        ></strong> (UTC) and your account will be created normally.
     </p>
     <div class="mt-8 flex items-center gap-3">
         <Button href="/" variant="secondary">
@@ -42,4 +53,5 @@ import Button from "../../components/ui/Button.astro";
             <Icon name="external" class="h-4 w-4" />
         </Button>
     </div>
+    <script src="../../scripts/login-denied.ts"></script>
 </BaseLayout>
