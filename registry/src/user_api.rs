@@ -24,6 +24,10 @@ pub fn user_json(github_id: i64, login: &str, quota_class: &str) -> String {
 pub struct UsageInfo {
     pub quota_class: String,
     pub package_count: u64,
+    /// Lifetime successful scope claims (the append-only
+    /// `scope_claims` history), the count the claim limit enforces -
+    /// releasing a scope would not lower it.
+    pub scope_claims: u64,
     pub stored_bytes: u64,
     pub published_today: u64,
     pub verified_count: u64,
@@ -37,6 +41,7 @@ pub fn usage_json(usage: &UsageInfo) -> String {
     serde_json::json!({
         "quota_class": usage.quota_class,
         "package_count": usage.package_count,
+        "scope_claims": usage.scope_claims,
         "stored_bytes": usage.stored_bytes,
         "published_today": usage.published_today,
         "versions": {
@@ -50,6 +55,7 @@ pub fn usage_json(usage: &UsageInfo) -> String {
             "max_new_packages_per_day": usage.quotas.max_new_packages_per_day,
             "max_packages_total": usage.quotas.max_packages_total,
             "max_versions_per_package_per_day": usage.quotas.max_versions_per_package_per_day,
+            "max_scope_claims_total": usage.quotas.max_scope_claims_total,
             "publish_burst": usage.quotas.publish_burst,
             "publish_refill_per_minute": usage.quotas.publish_refill_per_minute,
         },
@@ -583,6 +589,7 @@ mod tests {
         let usage = UsageInfo {
             quota_class: "default".to_owned(),
             package_count: 2,
+            scope_claims: 1,
             stored_bytes: 1_048_576,
             published_today: 3,
             verified_count: 4,
@@ -592,7 +599,7 @@ mod tests {
         };
         assert_eq!(
             usage_json(&usage),
-            r#"{"quota_class":"default","package_count":2,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":20,"max_versions_per_package_per_day":30,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
+            r#"{"quota_class":"default","package_count":2,"scope_claims":1,"stored_bytes":1048576,"published_today":3,"versions":{"verified":4,"pending":1,"rejected":0},"quotas":{"max_archive_bytes":16777216,"max_total_bytes_per_user":134217728,"max_new_packages_per_day":5,"max_packages_total":20,"max_versions_per_package_per_day":30,"max_scope_claims_total":3,"publish_burst":5.0,"publish_refill_per_minute":1.0}}"#
         );
     }
 

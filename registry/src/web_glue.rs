@@ -12,7 +12,7 @@ use worker::{
     D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
 };
 
-use crate::glue::{js_int, non_negative, now_iso8601};
+use crate::glue::{changed_rows, js_int, non_negative, now_iso8601};
 use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_ACCOUNT_AGE_PREFIX,
     LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
@@ -519,30 +519,70 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     }
 
     let account_id = proof_account_id.to_string();
+    if !persist_claim_grant(db, &scope, &account_id, &claimant).await? {
+        return claim_denied(&[clear_state]);
+    }
+    redirect_response(302, CLAIM_GRANTED_REDIRECT, &[clear_state])
+}
+
+/// Persists one granted claim - the scope row, the seeded first owner,
+/// and the append-only history row - in one D1 batch. The claimant's
+/// lifetime claim limit rides inside the batch's guards rather than a
+/// preflight read, so two concurrent claims by the same user cannot
+/// both slip under it. `Ok(false)` refuses: either the limit guard
+/// suppressed the whole batch (each statement repeats it, so zero
+/// changed rows on the scope insert means nothing was written), or the
+/// claim race was lost - the primary-key insert fails and rolls the
+/// batch back, seeding no owner and consuming no claim capacity.
+async fn persist_claim_grant(
+    db: &D1Database,
+    scope: &str,
+    account_id: &str,
+    claimant: &UserRecord,
+) -> worker::Result<bool> {
     let claimed_at = now_iso8601();
+    let claim_limit = js_int(
+        i64::try_from(quota::quotas_for_class(&claimant.quota_class).max_scope_claims_total)
+            .unwrap_or(i64::MAX),
+    );
     let batch = db
         .batch(vec![
             db.prepare(sql::CLAIM_SCOPE).bind(&[
-                scope.as_str().into(),
+                scope.into(),
                 GITHUB_PROVIDER.into(),
-                account_id.as_str().into(),
+                account_id.into(),
                 claimed_at.as_str().into(),
+                js_int(claimant.user_id),
+                claim_limit.clone(),
             ])?,
-            db.prepare(sql::SEED_CLAIM_OWNER)
-                .bind(&[scope.as_str().into(), js_int(claimant.user_id)])?,
+            db.prepare(sql::SEED_CLAIM_OWNER).bind(&[
+                scope.into(),
+                js_int(claimant.user_id),
+                claim_limit.clone(),
+            ])?,
+            db.prepare(sql::RECORD_SCOPE_CLAIM).bind(&[
+                scope.into(),
+                js_int(claimant.user_id),
+                claimed_at.as_str().into(),
+                claim_limit,
+            ])?,
         ])
         .await;
-    if let Err(err) = batch {
-        // The batch is one transaction: the loser of a claim race fails
-        // the primary-key insert and seeds nothing. When that is what
-        // happened, refuse like any other claim of a taken scope;
-        // anything else is a real error.
-        if scope_exists(db, &scope).await? {
-            return claim_denied(&[clear_state]);
+    let results = match batch {
+        Ok(results) => results,
+        Err(err) => {
+            // A lost claim race is a refusal like any other claim of a
+            // taken scope; anything else is a real error.
+            if scope_exists(db, scope).await? {
+                return Ok(false);
+            }
+            return Err(err);
         }
-        return Err(err);
-    }
-    redirect_response(302, CLAIM_GRANTED_REDIRECT, &[clear_state])
+    };
+    let scope_insert = results
+        .first()
+        .ok_or_else(|| worker::Error::RustError("missing claim batch result 0".to_owned()))?;
+    Ok(changed_rows(scope_insert.meta()?) > 0)
 }
 
 /// The uniform claim refusal: whatever failed, the same redirect with no
@@ -640,10 +680,16 @@ async fn usage(db: &D1Database, user: UserRecord) -> worker::Result<Response> {
         .bind(&[js_int(user.user_id)])?
         .first(None)
         .await?;
+    let claim_record: Option<CountRecord> = db
+        .prepare(sql::USER_SCOPE_CLAIM_COUNT)
+        .bind(&[js_int(user.user_id)])?
+        .first(None)
+        .await?;
     let usage = user_api::UsageInfo {
         quotas: quota::quotas_for_class(&user.quota_class),
         quota_class: user.quota_class,
         package_count: non_negative(package_record.map_or(0, |record| record.n)),
+        scope_claims: non_negative(claim_record.map_or(0, |record| record.n)),
         stored_bytes: non_negative(usage_record.stored_bytes),
         published_today: non_negative(usage_record.published_today),
         verified_count: non_negative(usage_record.verified_count),

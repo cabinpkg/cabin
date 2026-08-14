@@ -59,6 +59,21 @@ const searchInputClass =
                     </div>
                 </Card>
                 <Card class="p-5">
+                    <p class="spec-label">Scope claims</p>
+                    <p class={statClass} data-usage-claims></p>
+                    <p class={quotaClass} data-usage-claims-quota></p>
+                    <div
+                        class={barClass}
+                        role="progressbar"
+                        aria-label="Lifetime scope claims used against the quota"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        data-usage-claims-bar
+                    >
+                        <div class="h-full w-0 bg-steel" data-fill></div>
+                    </div>
+                </Card>
+                <Card class="p-5">
                     <p class="spec-label">Published today</p>
                     <p class={statClass} data-usage-published-today></p>
                     <p class={quotaClass}>versions published this UTC day</p>

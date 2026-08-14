@@ -1162,7 +1162,7 @@ async fn admin_governor_mutation_response(
 }
 
 /// Rows changed by a statement, from its result metadata.
-fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
+pub(crate) fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
     meta.and_then(|meta| meta.changes).unwrap_or(0)
 }
 

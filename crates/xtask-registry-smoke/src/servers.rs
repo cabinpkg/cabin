@@ -194,6 +194,12 @@ fn seed_sql(hash: &str, verify_hash: &str) -> String {
     DELETE FROM scopes WHERE name IN
       ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
        'core', 'sm0keorg');
+    -- Fixture reset only: in production the claim history is
+    -- append-only, so a released scope never restores claim capacity.
+    -- Without this, run 2's re-claims would trip the lifetime limit.
+    DELETE FROM scope_claims WHERE scope_name IN
+      ('smoke', 'smokeorg', 'denyorg', 'imposterorg', 'swaporg', 'statedrift',
+       'core', 'sm0keorg');
     DELETE FROM meta WHERE key IN ('last_backup_at', 'last_backup_key');
     DELETE FROM backup_pending;
     -- A prior run that failed inside a breaker leg leaves its pinned

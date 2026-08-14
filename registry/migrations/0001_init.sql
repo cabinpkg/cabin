@@ -63,6 +63,20 @@ CREATE TABLE scope_members (
     PRIMARY KEY (scope_name, user_id)
 );
 
+-- Append-only history of successful claims: one row per grant, written
+-- in the claim batch, never updated or deleted. The per-user lifetime
+-- claim limit (src/quota.rs, `max_scope_claims_total`) counts these
+-- rows, deliberately not `scopes` or `scope_members`: a future release
+-- or transfer removes rows there, and giving a name back must never
+-- restore claim capacity. No foreign key to `scopes` for the same
+-- reason - the history must outlive the scope row.
+CREATE TABLE scope_claims (
+    scope_name TEXT NOT NULL,
+    claimed_by INTEGER NOT NULL REFERENCES users,
+    claimed_at TEXT NOT NULL
+);
+CREATE INDEX scope_claims_claimed_by ON scope_claims (claimed_by);
+
 CREATE TABLE tokens (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users,

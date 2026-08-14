@@ -255,26 +255,37 @@ fn an_unknown_identity_resolves_to_nothing() {
     assert_eq!(resolve(&conn, "github", "583231"), None);
 }
 
-/// One claim's write, modeled on how the claim callback runs it: both
-/// statements inside one transaction (a D1 batch), aborting at the
-/// first failure the way D1 aborts and rolls back a batch. The result
-/// comes back to the caller because the scope insert's failure is
-/// load-bearing: it is what makes the loser of a claim race roll back
-/// seedless.
+/// One claim's write, modeled on how the claim callback runs it: the
+/// three statements inside one transaction (a D1 batch), aborting at
+/// the first failure the way D1 aborts and rolls back a batch. The
+/// error comes back to the caller because the scope insert's failure
+/// is load-bearing: it is what makes the loser of a claim race roll
+/// back seedless. `Ok(applied)` mirrors the glue's zero-changed-rows
+/// read on the scope insert - an over-limit claim suppresses every
+/// statement and refuses in-band.
 fn claim(
     conn: &rusqlite::Connection,
     scope: &str,
     account_id: &str,
     user_id: i64,
     now: &str,
-) -> rusqlite::Result<()> {
+    limit: i64,
+) -> rusqlite::Result<bool> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute(
+    let applied = tx.execute(
         sql::CLAIM_SCOPE,
-        rusqlite::params![scope, "github", account_id, now],
+        rusqlite::params![scope, "github", account_id, now, user_id, limit],
     )?;
-    tx.execute(sql::SEED_CLAIM_OWNER, rusqlite::params![scope, user_id])?;
-    tx.commit()
+    tx.execute(
+        sql::SEED_CLAIM_OWNER,
+        rusqlite::params![scope, user_id, limit],
+    )?;
+    tx.execute(
+        sql::RECORD_SCOPE_CLAIM,
+        rusqlite::params![scope, user_id, now, limit],
+    )?;
+    tx.commit()?;
+    Ok(applied > 0)
 }
 
 fn member_role(conn: &rusqlite::Connection, scope: &str, user_id: i64) -> Option<String> {
@@ -300,7 +311,9 @@ fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
     )
     .expect("seed users");
 
-    claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z").expect("winning claim");
+    let applied =
+        claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z", 3).expect("winning claim");
+    assert!(applied);
     assert_eq!(member_role(&conn, "fmtlib", 1), Some("owner".to_owned()));
 
     // The claim callback pre-checks SCOPE_EXISTS, but the write must
@@ -310,9 +323,16 @@ fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
     // admins of one org produce - which aborts and rolls back its
     // batch, so the loser never becomes an owner and the winner's row
     // is untouched.
-    let lost = claim(&conn, "fmtlib", "7280970", 2, "2026-07-15T00:00:00.000Z");
+    let lost = claim(&conn, "fmtlib", "7280970", 2, "2026-07-15T00:00:00.000Z", 3);
     assert!(lost.is_err(), "a second claim must fail the insert");
     assert_eq!(member_role(&conn, "fmtlib", 2), None);
+    // The rollback covers the claim-history insert too: a failed claim
+    // never consumes claim capacity.
+    assert_eq!(
+        count(&conn, "scope_claims"),
+        1,
+        "only the winner's claim is on record"
+    );
     let (proof, claimed_at): (String, String) = conn
         .query_row(
             "SELECT proof_account_id, claimed_at FROM scopes WHERE name = 'fmtlib'",
@@ -338,6 +358,54 @@ fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
 }
 
 #[test]
+fn the_lifetime_claim_limit_counts_history_not_ownership() {
+    let conn = migrated_connection();
+    conn.execute_batch(
+        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z'),
+                                                   (2, '2026-07-15T00:00:00.000Z');",
+    )
+    .expect("seed users");
+    let now = "2026-07-15T00:00:00.000Z";
+
+    // The default class's lifetime capacity: three grants land...
+    for (scope, account_id) in [("one", "10"), ("two", "20"), ("three", "30")] {
+        assert!(
+            claim(&conn, scope, account_id, 1, now, 3).expect("claim under the limit"),
+            "scope: {scope}"
+        );
+    }
+    // ...and the fourth refuses in-band: every statement of the batch
+    // repeats the guard, so nothing is inserted anywhere.
+    assert!(!claim(&conn, "four", "40", 1, now, 3).expect("over-limit claim still executes"));
+    for (table, expected) in [("scopes", 3), ("scope_members", 3), ("scope_claims", 3)] {
+        assert_eq!(count(&conn, table), expected, "table: {table}");
+    }
+    assert_eq!(member_role(&conn, "four", 1), None);
+
+    // Releasing scopes - today the operator's manual surgery, tomorrow
+    // a transfer/release endpoint - never restores capacity: the
+    // append-only history outlives the `scopes` rows.
+    conn.execute_batch(
+        "DELETE FROM scope_members WHERE scope_name IN ('one', 'two');
+         DELETE FROM scopes WHERE name IN ('one', 'two');",
+    )
+    .expect("release two scopes");
+    assert!(!claim(&conn, "five", "50", 1, now, 3).expect("claim after release"));
+
+    // The limit is per user: another account's capacity is untouched,
+    // and a re-claim of a released name spends the new claimant's.
+    assert!(claim(&conn, "one", "10", 2, now, 3).expect("another user's claim"));
+
+    // The usage read reports the history count the guard enforces.
+    for (user, expected) in [(1, 3), (2, 1)] {
+        let n: i64 = conn
+            .query_row(sql::USER_SCOPE_CLAIM_COUNT, [user], |row| row.get(0))
+            .expect("claim count");
+        assert_eq!(n, expected, "user: {user}");
+    }
+}
+
+#[test]
 fn membership_management_enforces_the_last_owner_rule() {
     let conn = migrated_connection();
     conn.execute_batch(
@@ -348,7 +416,7 @@ fn membership_management_enforces_the_last_owner_rule() {
                   ('github', '583231', 'octocat', 2);",
     )
     .expect("seed users");
-    claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z").expect("claim");
+    claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z", 3).expect("claim");
 
     // The role domain is closed in the schema itself:
     // membership disputes are manual SQL, and a typo there must not

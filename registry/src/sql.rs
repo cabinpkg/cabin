@@ -97,19 +97,41 @@ statements! {
     /// existing row refuses whoever asks.
     SCOPE_EXISTS = "SELECT COUNT(*) AS n FROM scopes WHERE name = ?1";
 
-    /// Claims a scope. Deliberately a plain INSERT: `name` is the
-    /// primary key, so the loser of a claim race fails the statement,
-    /// which rolls back its whole batch - [`SEED_CLAIM_OWNER`] must run
-    /// in that same batch, so a lost race can never seed the loser as
-    /// an owner of the winner's scope.
+    /// Claims a scope, guarded on the claimant's lifetime claim limit:
+    /// the count over the append-only `scope_claims` history (`?5` the
+    /// claimant, `?6` the class limit), so releasing or transferring a
+    /// scope never restores capacity. All three claim-batch statements
+    /// repeat this guard verbatim - the history only grows at the
+    /// batch's last statement, so within the transaction the three
+    /// always agree, and an over-limit claim suppresses every insert
+    /// (zero changed rows; the glue answers the uniform denial).
+    /// Still an insert into the `name` primary key: the loser of a
+    /// claim race fails the statement, which rolls back its whole
+    /// batch - [`SEED_CLAIM_OWNER`] and [`RECORD_SCOPE_CLAIM`] must
+    /// run in that same batch, so a lost race can never seed the loser
+    /// as an owner of the winner's scope, and a failed claim can never
+    /// consume claim capacity.
     CLAIM_SCOPE =
         "INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at) \
-         VALUES (?1, ?2, ?3, ?4)";
+         SELECT ?1, ?2, ?3, ?4 \
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?5) < ?6";
 
     /// Seeds the claiming user as the new scope's first owner, in the
-    /// same batch as [`CLAIM_SCOPE`].
+    /// same batch as [`CLAIM_SCOPE`] and under the same limit guard.
     SEED_CLAIM_OWNER =
-        "INSERT INTO scope_members (scope_name, user_id, role) VALUES (?1, ?2, 'owner')";
+        "INSERT INTO scope_members (scope_name, user_id, role) \
+         SELECT ?1, ?2, 'owner' \
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?3";
+
+    /// Records the granted claim in the append-only history, last in
+    /// the claim batch (the guard must count the history *before* this
+    /// grant, like its two siblings'). Rows here are never updated or
+    /// deleted: the lifetime limit counts grants, not current
+    /// ownership.
+    RECORD_SCOPE_CLAIM =
+        "INSERT INTO scope_claims (scope_name, claimed_by, claimed_at) \
+         SELECT ?1, ?2, ?3 \
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?4";
 
     /// Every claimed scope name, for the claim callback's skeleton
     /// confusability refusal (`docs/architecture.md`, "Name
@@ -504,6 +526,11 @@ statements! {
     /// The dashboard's created-package count (quota semantics: created,
     /// not merely published into).
     USER_CREATED_PACKAGE_COUNT = "SELECT COUNT(*) AS n FROM packages WHERE created_by = ?1";
+
+    /// The user's lifetime successful-claim count, for the usage
+    /// payload (the enforcement itself lives inside the claim batch's
+    /// guards, never on this read).
+    USER_SCOPE_CLAIM_COUNT = "SELECT COUNT(*) AS n FROM scope_claims WHERE claimed_by = ?1";
 
     // ------------------------------------------------------------------
     // meta: service state and the storage self-accounting

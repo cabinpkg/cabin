@@ -22,6 +22,7 @@ export interface Quotas {
     max_new_packages_per_day: number;
     max_packages_total: number;
     max_versions_per_package_per_day: number;
+    max_scope_claims_total: number;
     publish_burst: number;
     publish_refill_per_minute: number;
 }
@@ -29,6 +30,11 @@ export interface Quotas {
 export interface Usage {
     quota_class: string;
     package_count: number;
+    // Lifetime successful scope claims - the count the claim limit
+    // enforces; releasing a scope never lowers it, so the dashboard is
+    // where a user learns their remaining claim capacity (the claim
+    // flow's refusal is deliberately uniform).
+    scope_claims: number;
     stored_bytes: number;
     published_today: number;
     versions: { verified: number; pending: number; rejected: number };
