@@ -453,7 +453,7 @@ fn refuses(block: &str) -> bool {
 /// `grep -i '^location: ' | sed 's/^[^:]*: //' | tr -d '\r'` produced
 /// it: every matching line, so a duplicated header can never equal the
 /// single expected value.
-fn location_value(block: &str) -> String {
+pub(crate) fn location_value(block: &str) -> String {
     joined(grep_lines(block, "location: ").into_iter().map(strip_name))
 }
 
@@ -495,7 +495,7 @@ fn strip_claim_state(line: &str) -> &str {
 /// greedy, so the *last* `state=` parameter in a line wins, and the
 /// capture is the lower-case hex run right after it.  A line with no
 /// match prints nothing at all.
-fn state_value(location: &str) -> String {
+pub(crate) fn state_value(location: &str) -> String {
     location
         .split('\n')
         .filter_map(state_in_line)

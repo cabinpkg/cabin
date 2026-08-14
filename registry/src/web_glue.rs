@@ -14,12 +14,12 @@ use worker::{
 
 use crate::glue::{js_int, non_negative, now_iso8601};
 use crate::routes::{
-    CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT,
-    STATS_PATH, SessionRoute, WebRoute,
+    CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_ACCOUNT_AGE_PREFIX,
+    LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
 };
 use crate::{
     allowlist, auth, breaker, claim, error, governor, governor_client, names, quota, session,
-    source, sql, stats, user_api,
+    signup, source, sql, stats, user_api,
 };
 
 /// The one identity provider policy admits today; the `identities`
@@ -304,11 +304,14 @@ fn github_api_base(env: &Env) -> String {
 }
 
 /// `GET /callback`: verify the `state` against the sealed cookie, trade
-/// the `code` for an access token, read the numeric GitHub id, and admit
-/// only allowlisted ids. The access token is used for that one `/user`
-/// call and dropped. Every refusal is the same redirect to the website's
-/// `/login/denied` page with no account details; success redirects to
-/// `/dashboard`. Both targets are fixed relative paths
+/// the `code` for an access token, read the numeric GitHub id, admit
+/// only allowlisted ids, and - when the id has no Cabin account yet -
+/// hold account creation to the sign-up age gate ([`crate::signup`]).
+/// The access token is used for that one `/user` call and dropped.
+/// Every refusal is the same redirect to the website's `/login/denied`
+/// page with no account details, except the age refusal, which appends
+/// the first eligible UTC date for the page to render; success
+/// redirects to `/dashboard`. All targets are fixed relative paths
 /// ([`crate::routes::POST_LOGIN_REDIRECT`]), never derived from request
 /// input, so the callback cannot be turned into an open redirect.
 async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<Response> {
@@ -352,6 +355,21 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
     let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
     if !allowed.contains(&user.id) {
         return denied(&[clear_state]);
+    }
+    // A first sign-in is also account creation, which the sign-up gate
+    // holds to a minimum GitHub account age; a returning user has an
+    // identity row already and proceeds unexamined ([`crate::signup`]).
+    let existing_user = user_record(db, user.id).await?.is_some();
+    match signup::gate(existing_user, user.created_at.as_deref(), now_secs()) {
+        signup::Gate::Proceed => {}
+        signup::Gate::IneligibleUntil(date) => {
+            return redirect_response(
+                302,
+                &format!("{LOGIN_DENIED_ACCOUNT_AGE_PREFIX}{date}"),
+                &[clear_state],
+            );
+        }
+        signup::Gate::Deny => return denied(&[clear_state]),
     }
 
     // The identity upsert: one transaction, user-creation first - the
@@ -1183,12 +1201,17 @@ struct AccessTokenResponse {
     access_token: Option<String>,
 }
 
-/// The two `/user` fields the callback reads. The numeric `id` - stable
-/// across renames, unlike `login` - is the identity the allowlist keys on.
+/// The `/user` fields the callback reads. The numeric `id` - stable
+/// across renames, unlike `login` - is the identity the allowlist keys
+/// on. `created_at` is optional so that only the sign-up gate, its one
+/// consumer, can fail on it ([`crate::signup`]): an existing user's
+/// sign-in and the claim flow parse the same shape and must not gain a
+/// new failure mode from a field they never read.
 #[derive(Deserialize)]
 struct GithubUser {
     id: i64,
     login: String,
+    created_at: Option<String>,
 }
 
 /// Trades the OAuth `code` for an access token. `None` is the uniform

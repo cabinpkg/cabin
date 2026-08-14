@@ -320,8 +320,9 @@ The exact response shapes live in `src/user_api.rs` (host-tested). The
 requests get a plain 401 envelope - never a redirect (redirecting is the
 frontend's job) and never the Bearer challenge. `/callback` redirects to
 the website's `/dashboard` on success and `/login/denied` on every refusal;
-both targets are fixed relative paths, never derived from request input
-(the open-redirect guard).
+only the account-age refusal (below) carries a query naming its reason and
+the first eligible UTC date. All targets are fixed relative paths, never
+derived from request input (the open-redirect guard).
 
 - Identity is **registry-native**: a `users` row (registry id, quota
   class) plus one `identities` row per external account, keyed by
@@ -337,7 +338,14 @@ both targets are fixed relative paths, never derived from request input
   `ALLOWED_GITHUB_IDS`. Adding a user later = adding their numeric id
   there and redeploying; a malformed entry panics at parse time instead
   of guessing. The allowlist is re-checked on every session request, so
-  removing an id locks it out immediately. Write authorization is per
+  removing an id locks it out immediately. A **first** sign-in is also
+  account creation, and additionally requires the GitHub account to be
+  at least 30 days old (`src/signup.rs`, a throwaway-account speed
+  bump, judged from the profile's `created_at`): a younger account is
+  refused with `/login/denied?reason=account-age&eligible=<date>`, the
+  first UTC date on which the whole day is eligible. Returning users
+  are never re-checked, and a new account whose profile lacks a
+  parseable `created_at` fails closed into the uniform refusal. Write authorization is per
   scope, not per package: publish and yank require membership in the
   target scope ("Scopes" below), and every member can act on every
   package under it.

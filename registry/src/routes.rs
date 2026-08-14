@@ -201,6 +201,11 @@ pub fn match_web_route(path: &str) -> Option<WebRoute<'_>> {
 /// turned into an open redirect.
 pub const POST_LOGIN_REDIRECT: &str = "/dashboard";
 pub const LOGIN_DENIED_REDIRECT: &str = "/login/denied";
+/// The sign-up account-age refusal ([`crate::signup`]) is the one
+/// refusal that names its reason: this prefix is completed by the
+/// first eligible UTC date - server-computed, digits and hyphens
+/// only, never request input.
+pub const LOGIN_DENIED_ACCOUNT_AGE_PREFIX: &str = "/login/denied?reason=account-age&eligible=";
 pub const CLAIM_GRANTED_REDIRECT: &str = "/dashboard?claim=granted";
 pub const CLAIM_DENIED_REDIRECT: &str = "/dashboard?claim=denied";
 
@@ -884,6 +889,7 @@ mod tests {
         for target in [
             POST_LOGIN_REDIRECT,
             LOGIN_DENIED_REDIRECT,
+            LOGIN_DENIED_ACCOUNT_AGE_PREFIX,
             CLAIM_GRANTED_REDIRECT,
             CLAIM_DENIED_REDIRECT,
         ] {
@@ -891,6 +897,9 @@ mod tests {
             assert!(!target.starts_with("//"), "target: {target:?}");
             assert!(!target.contains("://"), "target: {target:?}");
         }
+        // The account-age refusal lands on the same page as every other
+        // refusal; only its query differs.
+        assert!(LOGIN_DENIED_ACCOUNT_AGE_PREFIX.starts_with(LOGIN_DENIED_REDIRECT));
     }
 
     #[test]

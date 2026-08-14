@@ -21,6 +21,7 @@ pub mod publish;
 pub mod quota;
 pub mod routes;
 pub mod session;
+pub mod signup;
 pub mod source;
 pub mod sql;
 pub mod stats;
