@@ -118,6 +118,7 @@ fn run_process_with_timeout(
         // tool's: scrub it so a custom compiler / archiver / wrapper
         // binary can never read the token.
         .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
+        .env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN)
         // Give the subprocess a clean stdin so detectors that
         // read from stdin (some old GCC wrappers do) cannot wait
         // for user input.

@@ -44,6 +44,10 @@ fn main() -> ExitCode {
         eprintln!("fake tidy: CABIN_REGISTRY_TOKEN leaked into the tool environment");
         return ExitCode::from(4);
     }
+    if std::env::var_os(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN).is_some() {
+        eprintln!("fake tidy: ACTIONS_ID_TOKEN_REQUEST_TOKEN leaked into the tool environment");
+        return ExitCode::from(4);
+    }
     let mut quiet = false;
     let mut fix = false;
     let mut compile_database_dir: Option<String> = None;

@@ -404,20 +404,30 @@ normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override a
 
 Owns the typed HTTP client for the experimental remote-registry *mutations*
 ([`remote-registry.md`](remote-registry.md)): `PUT /api/v1/packages/<scope>/<name>/<version>`
-with the crates.io-style length-prefixed metadata + archive frame, and
-`PATCH /api/v1/packages/<scope>/<name>/<version>/yank`; the routes address scoped names only.
+with the crates.io-style length-prefixed metadata + archive frame,
+`PATCH /api/v1/packages/<scope>/<name>/<version>/yank` (the package routes address scoped names
+only), and the trusted-publishing pair `PUT` / `DELETE /api/v1/trusted_publishing/tokens`
+([`remote-registry.md`](remote-registry.md#trusted-publishing)).  It also owns the client side of
+the GitHub Actions OIDC fetch (`GET` on the runner's `ACTIONS_ID_TOKEN_REQUEST_URL`, with a
+bounded 5xx retry) - the one HTTP call in the crate that targets a non-registry origin, kept here
+because it shares the crate's transport rules and secret hygiene.
 Requests target the API origin a registry's
 `config.json` declares (`api`), carry the caller-supplied bearer token, and map the protocol's
 status codes (`200` no-op, `201` created, `400`, `401`, `403`, `404`, `409`) plus the
 `{"errors":[{"detail":"..."}]}` envelope into typed errors, degrading to the raw status when the
-envelope is malformed.  The crate must:
+envelope is malformed.  Two deliberate exceptions to the bearer rule: the trusted-publishing
+exchange sends no `Authorization` header (the OIDC JWT in its body is the credential), and its
+uniform `401` maps to a dedicated trusted-publishing error rather than the login advice; the OIDC
+fetch carries the runner's request token, not a registry credential.  The crate must:
 
 - not stage, validate, or lint packages - it frames and ships bytes produced by `cabin-package` /
   `cabin-publish`;
 - not implement read routes; `config.json`, package metadata, and artifact downloads stay in
   `cabin-index-http`;
-- not resolve credentials itself - it receives an optional typed token from the orchestration
-  layer, refuses cleartext `http` beyond loopback hosts, and never follows redirects;
+- not resolve credentials itself - it receives an optional typed token (or, for the exchange, a
+  JWT) from the orchestration layer, refuses cleartext `http` beyond loopback hosts, and never
+  follows redirects; deciding *whether* to exchange (the GitHub Actions detection and
+  credential precedence) stays in the CLI's orchestration layer;
 - never let token bytes surface through errors or `Debug` output;
 - cap error-envelope reads and escape control and bidirectional-formatting characters in
   registry-provided details before they reach terminal diagnostics.

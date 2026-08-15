@@ -125,6 +125,7 @@ impl PkgConfigTool {
         // pkg-config's: scrub it so the spawned tool can never
         // read the token.
         cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
+        cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
         cmd.arg("--version");
         self.apply_extra_env(&mut cmd);
         match cmd.output() {
@@ -867,6 +868,7 @@ where
     // Same scrub as `check_available`: the spawned pkg-config must
     // never see the registry credential.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
+    cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     cmd.args(args);
     tool.apply_extra_env(&mut cmd);
     match cmd.output() {

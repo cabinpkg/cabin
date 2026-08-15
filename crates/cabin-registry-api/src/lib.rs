@@ -3,7 +3,7 @@
 //!
 //! This crate owns the *mutating* half of the remote-registry
 //! protocol specified in `docs/remote-registry.md`.  Registry
-//! packages are always scoped, so both routes address the
+//! packages are always scoped, so the package routes address the
 //! `<scope>/<name>` pair:
 //!
 //! - [`RegistryApi::publish`] -
@@ -12,15 +12,25 @@
 //!   (`[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`);
 //! - [`RegistryApi::set_yanked`] -
 //!   `PATCH /api/v1/packages/<scope>/<name>/<version>/yank` with a
-//!   JSON `{"yanked": bool}` body.
+//!   JSON `{"yanked": bool}` body;
+//! - [`exchange_trusted_publishing`] / -
+//!   [`RegistryApi::revoke_trusted_publishing`] -
+//!   `PUT` / `DELETE /api/v1/trusted_publishing/tokens`, plus
+//!   [`fetch_github_actions_jwt`], the GitHub Actions runner OIDC
+//!   fetch the exchange consumes (the crate's one non-registry call,
+//!   kept here for the shared transport rules and secret hygiene).
 //!
-//! Both routes live on the registry's `api` origin (the `api` field of
-//! its `config.json`, fetched by `cabin-index-http` through the
-//! authenticated read path) and authenticate with the same
-//! `Authorization: Bearer <token>` credential as the reads.  The
-//! caller resolves the token through `cabin-credentials` and hands it
-//! in as the typed [`Token`]; this crate never reads `credentials.toml`
-//! or the environment itself.
+//! Every route lives on the registry's `api` origin (the `api` field
+//! of its `config.json`) and, package routes and revocation alike,
+//! authenticates with the `Authorization: Bearer <token>` credential -
+//! except the trusted-publishing exchange, which deliberately sends no
+//! `Authorization` header: the OIDC JWT in its body is the credential,
+//! and API discovery on that leg is an unauthenticated `config.json`
+//! read (there is no token yet).  The caller resolves credentials
+//! through `cabin-credentials` (and decides *whether* to exchange -
+//! the GitHub Actions detection and precedence live in the CLI's
+//! orchestration layer) and hands in typed values; this crate never
+//! reads `credentials.toml` or the environment itself.
 //!
 //! Crate boundaries:
 //! - no staging, validation, or lint logic - `cabin-package` /
@@ -230,6 +240,82 @@ impl RegistryApi {
         }
     }
 
+    /// `DELETE <api>/api/v1/trusted_publishing/tokens`
+    /// (`docs/remote-registry.md`, "Revoking the exchanged token"):
+    /// the presented token - the one this client was built with -
+    /// revokes itself.  `204` is the deletion; anything else,
+    /// including the uniform `401` a repeat DELETE answers, surfaces
+    /// as an error the caller is expected to tolerate (the token
+    /// expires on its own).
+    ///
+    /// # Errors
+    /// Returns [`RegistryApiError::TrustedPublishingRefused`] on the
+    /// uniform `401` and the shared protocol mappings otherwise.
+    pub fn revoke_trusted_publishing(&self) -> Result<(), RegistryApiError> {
+        let url = self.trustpub_route()?;
+        let request = self.request("DELETE", &url);
+        match self.send_trustpub(request.call())? {
+            (200 | 204, _) => Ok(()),
+            (status, _) => Err(RegistryApiError::ServerError {
+                status,
+                detail: None,
+            }),
+        }
+    }
+
+    /// `<api>/api/v1/trusted_publishing/tokens`.
+    fn trustpub_route(&self) -> Result<url::Url, RegistryApiError> {
+        self.base
+            .join("api/v1/trusted_publishing/tokens")
+            .map_err(|err| RegistryApiError::InvalidApiUrl {
+                message: format!("cannot build the trusted-publishing route: {err}"),
+            })
+    }
+
+    /// [`Self::send`] for the trusted-publishing routes, which have no
+    /// package to name in `404`/`409` diagnostics and whose `401` is
+    /// the registry's deliberately uniform refusal - advising `cabin
+    /// login` there would point at the wrong fix.
+    fn send_trustpub(
+        &self,
+        result: Result<ureq::Response, ureq::Error>,
+    ) -> Result<(u16, ureq::Response), RegistryApiError> {
+        match result {
+            Ok(response) => {
+                let status = response.status();
+                if (300..400).contains(&status) {
+                    return Err(RegistryApiError::ServerError {
+                        status,
+                        detail: None,
+                    });
+                }
+                Ok((status, response))
+            }
+            Err(ureq::Error::Status(status, response)) => {
+                let retry_after_secs = response
+                    .header("Retry-After")
+                    .and_then(|value| value.trim().parse::<u64>().ok());
+                let (detail, code) = match envelope_entry(response) {
+                    Some(entry) => (Some(entry.detail), entry.code),
+                    None => (None, None),
+                };
+                Err(match status {
+                    401 => RegistryApiError::TrustedPublishingRefused {
+                        origin: self.origin.clone(),
+                    },
+                    429 => RegistryApiError::RateLimited { retry_after_secs },
+                    503 if code.as_deref() == Some(OVER_BUDGET_CODE) => {
+                        RegistryApiError::RegistryOverBudget { retry_after_secs }
+                    }
+                    _ => RegistryApiError::ServerError { status, detail },
+                })
+            }
+            Err(ureq::Error::Transport(transport)) => Err(RegistryApiError::Transport {
+                message: transport.to_string(),
+            }),
+        }
+    }
+
     /// `<api>/api/v1/packages/<scope>/<name>/<version><suffix>`.  The
     /// hosted routes have no bare-name form, so a bare name fails
     /// here, before any request; the scoped name is re-validated
@@ -392,6 +478,138 @@ impl std::fmt::Debug for RegistryApi {
             .field("token", &self.token)
             .finish_non_exhaustive()
     }
+}
+
+/// Exchange a GitHub Actions OIDC JWT for a short-lived registry
+/// token: `PUT <api>/api/v1/trusted_publishing/tokens` with
+/// `{"jwt": ...}` as the body (`docs/remote-registry.md`, "Exchanging
+/// an Actions OIDC token").  The one mutation route that carries no
+/// `Authorization` header - the JWT is the credential - so the client
+/// is built tokenless on purpose.
+///
+/// # Errors
+/// Returns [`RegistryApiError::TrustedPublishingRefused`] on the
+/// registry's deliberately uniform `401`, and
+/// [`RegistryApiError::ServerError`] when a success response carries
+/// no parseable minted token; URL hygiene and the shared protocol
+/// mappings otherwise.
+pub fn exchange_trusted_publishing(api_url: &str, jwt: &str) -> Result<Token, RegistryApiError> {
+    /// Serde shape of the exchange success body; `expires_at` is
+    /// deliberately ignored - the token's server-side lifetime needs
+    /// no client bookkeeping.
+    #[derive(Deserialize)]
+    struct ExchangeSuccessBody {
+        token: String,
+    }
+
+    let api = RegistryApi::new(api_url, None)?;
+    let url = api.trustpub_route()?;
+    let body = serde_json::json!({ "jwt": jwt }).to_string();
+    let request = api
+        .request("PUT", &url)
+        .set("Content-Type", "application/json");
+    let (status, response) = api.send_trustpub(request.send_string(&body))?;
+    if status != 200 {
+        return Err(RegistryApiError::ServerError {
+            status,
+            detail: None,
+        });
+    }
+    let mut body = Vec::new();
+    let unparsable = || RegistryApiError::ServerError {
+        status: 200,
+        detail: Some("the trusted-publishing exchange answered without a usable token".to_owned()),
+    };
+    response
+        .into_reader()
+        .take(MAX_ERROR_BODY_BYTES as u64)
+        .read_to_end(&mut body)
+        .map_err(|_| unparsable())?;
+    let parsed: ExchangeSuccessBody = serde_json::from_slice(&body).map_err(|_| unparsable())?;
+    Token::parse(&parsed.token).map_err(|_| unparsable())
+}
+
+/// Fetch the workflow run's OIDC JWT from the GitHub Actions runner:
+/// `GET <ACTIONS_ID_TOKEN_REQUEST_URL>&audience=<audience>` with the
+/// runner-supplied request token as the bearer, returning the
+/// response's `value` field.  The runner URL always carries a query
+/// string already, so the audience is appended with `&`.
+///
+/// # Errors
+/// Returns [`RegistryApiError::GithubOidc`] for every failure shape -
+/// a cleartext non-loopback URL, transport errors, a non-200 answer
+/// (typically the workflow missing `permissions: id-token: write`
+/// scope for the requested audience), or a body without `value`.
+pub fn fetch_github_actions_jwt(
+    request_url: &str,
+    request_token: &str,
+    audience: &str,
+) -> Result<String, RegistryApiError> {
+    /// Serde shape of the runner's OIDC response.
+    #[derive(Deserialize)]
+    struct OidcResponse {
+        value: String,
+    }
+
+    // The bearer request token must not travel in cleartext; loopback
+    // is carved out for tests, mirroring the registry-API rule.
+    if !request_url.starts_with("https://") && !cabin_credentials::url_is_loopback(request_url) {
+        return Err(RegistryApiError::GithubOidc {
+            message: "the runner's OIDC endpoint is not an https URL".to_owned(),
+        });
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout(DEFAULT_TIMEOUT)
+        .redirects(0)
+        .build();
+    let url = format!("{request_url}&audience={audience}");
+    // The runner's token service is known-flaky under load: GitHub's
+    // own OIDC client retries this exact GET on 5xx.  A short bounded
+    // retry (idempotent request), never on 4xx - those are the
+    // misconfiguration answers the caller must surface unchanged.
+    let mut attempt = 0;
+    let response = loop {
+        attempt += 1;
+        let result = agent
+            .request("GET", &url)
+            .set("Authorization", &format!("Bearer {request_token}"))
+            .call();
+        let retryable = match &result {
+            Ok(response) => response.status() >= 500,
+            Err(ureq::Error::Status(status, _)) => *status >= 500,
+            Err(ureq::Error::Transport(_)) => true,
+        };
+        if retryable && attempt < 3 {
+            std::thread::sleep(Duration::from_millis(500));
+            continue;
+        }
+        break result.map_err(|err| RegistryApiError::GithubOidc {
+            message: match err {
+                ureq::Error::Status(status, _) => {
+                    format!("the runner's OIDC endpoint answered {status}")
+                }
+                ureq::Error::Transport(transport) => transport.to_string(),
+            },
+        })?;
+    };
+    if response.status() != 200 {
+        return Err(RegistryApiError::GithubOidc {
+            message: format!("the runner's OIDC endpoint answered {}", response.status()),
+        });
+    }
+    let mut body = Vec::new();
+    response
+        .into_reader()
+        .take(MAX_ERROR_BODY_BYTES as u64)
+        .read_to_end(&mut body)
+        .map_err(|err| RegistryApiError::GithubOidc {
+            message: format!("cannot read the runner's OIDC response: {err}"),
+        })?;
+    let parsed: OidcResponse =
+        serde_json::from_slice(&body).map_err(|_| RegistryApiError::GithubOidc {
+            message: "the runner's OIDC response carried no token value".to_owned(),
+        })?;
+    Ok(parsed.value)
 }
 
 /// Mirror of the hosted registry's package-name grammar
@@ -649,6 +867,17 @@ pub enum RegistryApiError {
 
     #[error("registry API transport error: {message}")]
     Transport { message: String },
+
+    #[error("cannot obtain the workflow's GitHub Actions OIDC token: {message}")]
+    GithubOidc { message: String },
+
+    #[error(
+        "registry API `{origin}` refused the trusted-publishing request; the refusal is \
+         deliberately uniform, so check that this repository, workflow file, and ref are \
+         registered for trusted publishing on the registry and that the run's OIDC token was not \
+         already exchanged"
+    )]
+    TrustedPublishingRefused { origin: String },
 }
 
 #[cfg(test)]
@@ -1569,6 +1798,149 @@ mod tests {
         assert_eq!(
             url.as_str(),
             "https://registry.example.com/base/api/v1/packages/fmtlib/fmt/10.2.1/yank"
+        );
+    }
+
+    /// The GitHub Actions OIDC fetch: `GET <request URL>&audience=...`
+    /// with the runner-supplied bearer, returning the response's
+    /// `value` field.
+    #[test]
+    fn fetch_github_actions_jwt_sends_the_bearer_and_audience() {
+        let mock = MockApi::respond_with(200, r#"{"value":"header.payload.signature"}"#);
+        let request_url = format!("{}/token?api-version=2", mock.url);
+        let jwt =
+            fetch_github_actions_jwt(&request_url, "runner-request-token", "cabinpkg.com").unwrap();
+        assert_eq!(jwt, "header.payload.signature");
+        let captured = mock.captured();
+        assert_eq!(captured.method, "GET");
+        assert_eq!(captured.path, "/token?api-version=2&audience=cabinpkg.com");
+        assert_eq!(
+            captured.authorization.as_deref(),
+            Some("Bearer runner-request-token")
+        );
+    }
+
+    /// A 5xx from the runner's OIDC endpoint is retried (GitHub's own
+    /// client retries this exact GET); the fetch succeeds when a later
+    /// attempt answers.
+    #[test]
+    fn fetch_github_actions_jwt_retries_a_transient_5xx() {
+        let server =
+            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let request_url = format!("http://{addr}/token?api-version=2");
+        let server_for_thread = Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            let mut answered = 0;
+            while let Ok(req) = server_for_thread.recv() {
+                answered += 1;
+                let response = if answered == 1 {
+                    tiny_http::Response::from_string("bad gateway").with_status_code(502)
+                } else {
+                    tiny_http::Response::from_string(r#"{"value":"header.payload.signature"}"#)
+                        .with_status_code(200)
+                };
+                let _ = req.respond(response);
+            }
+        });
+        let jwt =
+            fetch_github_actions_jwt(&request_url, "runner-request-token", "cabinpkg.com").unwrap();
+        assert_eq!(jwt, "header.payload.signature");
+        server.unblock();
+        let _ = thread.join();
+    }
+
+    /// A non-200 or bodyless answer from the runner's OIDC endpoint is
+    /// a [`RegistryApiError::GithubOidc`] naming the endpoint's role,
+    /// never a registry-flavored error.
+    #[test]
+    fn fetch_github_actions_jwt_maps_failures_to_the_oidc_error() {
+        let mock = MockApi::respond_with(500, "runner exploded");
+        let request_url = format!("{}/token?api-version=2", mock.url);
+        let err = fetch_github_actions_jwt(&request_url, "runner-request-token", "cabinpkg.com")
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::GithubOidc { .. }),
+            "{err:?}"
+        );
+
+        let mock = MockApi::respond_with(200, r#"{"unexpected":true}"#);
+        let request_url = format!("{}/token?api-version=2", mock.url);
+        let err = fetch_github_actions_jwt(&request_url, "runner-request-token", "cabinpkg.com")
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::GithubOidc { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// The exchange: `PUT /api/v1/trusted_publishing/tokens` with the
+    /// JWT as the JSON body and no `Authorization` header (the JWT is
+    /// the credential), parsing the minted token.
+    #[test]
+    fn exchange_trusted_publishing_puts_the_jwt_and_parses_the_token() {
+        let mock = MockApi::respond_with(
+            200,
+            r#"{"token":"cabin_tp_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp","expires_at":"2026-08-15T12:00:00.000Z"}"#,
+        );
+        let minted = exchange_trusted_publishing(&mock.url, "header.payload.signature").unwrap();
+        assert_eq!(
+            minted.expose(),
+            "cabin_tp_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp"
+        );
+        let captured = mock.captured();
+        assert_eq!(captured.method, "PUT");
+        assert_eq!(captured.path, "/api/v1/trusted_publishing/tokens");
+        assert_eq!(captured.authorization, None);
+        assert_eq!(captured.body, br#"{"jwt":"header.payload.signature"}"#);
+    }
+
+    /// The registry's refusal is a deliberately uniform `401`; the
+    /// mapped error must explain the trusted-publishing failure modes
+    /// rather than advising `cabin login`.
+    #[test]
+    fn exchange_trusted_publishing_maps_the_uniform_401() {
+        let mock = MockApi::respond_with(401, r#"{"errors":[{"detail":"unauthorized"}]}"#);
+        let err = exchange_trusted_publishing(&mock.url, "header.payload.signature").unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::TrustedPublishingRefused { .. }),
+            "{err:?}"
+        );
+        let message = err.to_string();
+        assert!(
+            !message.contains("cabin login"),
+            "misleading advice: {message}"
+        );
+    }
+
+    /// A minted token the client cannot parse is a server-shaped
+    /// failure, surfaced as [`RegistryApiError::GithubOidc`]-distinct
+    /// server error, never a panic or a silent success.
+    #[test]
+    fn exchange_trusted_publishing_rejects_an_unparsable_token() {
+        let mock = MockApi::respond_with(200, r#"{"token":"not a cabin token"}"#);
+        let err = exchange_trusted_publishing(&mock.url, "header.payload.signature").unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::ServerError { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// Self-revocation: `DELETE /api/v1/trusted_publishing/tokens`
+    /// authorized by the exchanged token itself, answering `204`.
+    #[test]
+    fn revoke_trusted_publishing_deletes_with_the_bearer() {
+        let mock = MockApi::respond_with(204, "");
+        let minted = Token::parse("cabin_tp_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp").unwrap();
+        mock.client(Some(minted))
+            .revoke_trusted_publishing()
+            .unwrap();
+        let captured = mock.captured();
+        assert_eq!(captured.method, "DELETE");
+        assert_eq!(captured.path, "/api/v1/trusted_publishing/tokens");
+        assert_eq!(
+            captured.authorization.as_deref(),
+            Some("Bearer cabin_tp_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp")
         );
     }
 }

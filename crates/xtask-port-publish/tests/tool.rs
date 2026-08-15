@@ -319,6 +319,12 @@ fn scrubbed(mut command: Command) -> Command {
         "CABIN_NET_OFFLINE",
         "CABIN_RESOLVER_INCOMPATIBLE_STANDARDS",
         "CABIN_REGISTRY_TOKEN",
+        // Ambient in the repository's own CI: without the strip, a
+        // spawned `cabin publish` would take the trusted-publishing
+        // detection path there and behave differently than locally.
+        "GITHUB_ACTIONS",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "CABIN_COMPILER_WRAPPER",
         "CABIN_CACHE_DIR",
         "CABIN_CACHE_HOME",

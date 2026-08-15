@@ -42,6 +42,12 @@ fn main() -> ExitCode {
         eprintln!("fake formatter: CABIN_REGISTRY_TOKEN leaked into the tool environment");
         return ExitCode::from(4);
     }
+    if std::env::var_os(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN).is_some() {
+        eprintln!(
+            "fake formatter: ACTIONS_ID_TOKEN_REQUEST_TOKEN leaked into the tool environment"
+        );
+        return ExitCode::from(4);
+    }
     let mut write_mode = false;
     let mut dry_run = false;
     let mut werror = false;

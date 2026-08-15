@@ -187,6 +187,14 @@ pub fn cabin() -> Command {
         // credential can never authenticate (or leak into) a test's
         // registry traffic; auth tests set it explicitly.
         "CABIN_REGISTRY_TOKEN",
+        // The repository's own CI runs inside GitHub Actions, where
+        // `GITHUB_ACTIONS=true` is ambient: without this strip, every
+        // tokenless mutation test would take the trusted-publishing
+        // detection path in CI and behave differently than locally.
+        // Trusted-publishing tests set all three explicitly.
+        "GITHUB_ACTIONS",
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "CABIN_COMPILER_WRAPPER",
         "CABIN_CACHE_DIR",
         // `CABIN_CACHE_HOME` redirects the per-user cache home;

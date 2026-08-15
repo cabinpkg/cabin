@@ -117,6 +117,7 @@ pub(super) fn publish(
             }
             let report = publish_to_remote_registry(
                 &index_url,
+                args.index_url.is_some(),
                 &manifest_path,
                 resolved_project,
                 &workspace_dep_requirements,
@@ -187,6 +188,7 @@ struct RemotePublishReport {
 /// through `cabin-registry-api` with the same credential.
 fn publish_to_remote_registry(
     index_url: &str,
+    index_url_from_cli: bool,
     manifest_path: &Path,
     resolved_project: Option<cabin_core::Package>,
     workspace_dep_requirements: &cabin_core::WorkspaceDepRequirements,
@@ -207,26 +209,72 @@ fn publish_to_remote_registry(
     cabin_publish::require_scoped_name(&staged.name, manifest_path)?;
     cabin_publish::require_scoped_dependency_names(&staged.metadata, manifest_path)?;
 
-    // One credential lookup serves the reads and the API call alike.
+    // One credential resolution serves the reads and the API call
+    // alike (`cli::trustpub` defines the precedence).  The
+    // trusted-publishing exchange needs the discovered `api` origin,
+    // so that leg opens the index tokenless first - fine on the
+    // origins the exchange serves, whose config.json is public - and
+    // reopens authenticated for the baseline reads below.  The
+    // returned guard owns the minted token for exactly this function:
+    // dropping it on any exit path best-effort revokes.
     let origin = cabin_credentials::normalize_origin(index_url)?;
-    let lookup =
-        cabin_credentials::lookup_token(&origin, crate::cli::login::env_token_eligible(&origin)?)?;
-    if let Some(warning) = lookup.permissions_warning {
-        reporter.warning(format_args!("{warning}"));
-    }
-    let token = lookup.token;
-    let mut client = cabin_index_http::HttpClient::new();
-    if let Some(token) = token.clone() {
-        client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
-            index_url, token,
-        )?);
-    }
-    let index = cabin_index_http::HttpIndex::open(index_url, client)?;
-    let Some(api) = index.api() else {
-        bail!(
+    let no_api = || {
+        format!(
             "registry `{origin}` does not declare an `api` URL in its config.json; publishing \
              needs one to locate the registry API origin"
-        );
+        )
+    };
+    let (exchanged, token, index) =
+        match crate::cli::trustpub::publish_credential(&origin, index_url_from_cli, reporter)? {
+            crate::cli::trustpub::PublishCredential::NeedsExchange => {
+                let discovery = cabin_index_http::HttpIndex::open(
+                    index_url,
+                    cabin_index_http::HttpClient::new(),
+                )?;
+                let Some(api) = discovery.api() else {
+                    bail!(no_api());
+                };
+                let exchanged = crate::cli::trustpub::exchange(&origin, api)?;
+                let token = exchanged.token().clone();
+                let client = cabin_index_http::HttpClient::new().with_auth(
+                    cabin_index_http::RegistryAuth::for_index_url(index_url, token.clone())?,
+                );
+                (
+                    Some(exchanged),
+                    Some(token),
+                    cabin_index_http::HttpIndex::open(index_url, client)?,
+                )
+            }
+            credential => {
+                let token = match credential {
+                    crate::cli::trustpub::PublishCredential::Token(token) => Some(token),
+                    _ => None,
+                };
+                let mut client = cabin_index_http::HttpClient::new();
+                if let Some(token) = token.clone() {
+                    client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
+                        index_url, token,
+                    )?);
+                }
+                (
+                    None,
+                    token,
+                    cabin_index_http::HttpIndex::open(index_url, client)?,
+                )
+            }
+        };
+    // The mutation client targets the origin the credential belongs
+    // to.  On the exchange leg that is the origin the token was
+    // MINTED for - the first config.json read's `api` - never the
+    // reopened index's answer: a config.json that changes between the
+    // two reads must not route the minted token to a different
+    // origin.
+    let api = match &exchanged {
+        Some(exchanged) => exchanged.api_url(),
+        None => match index.api() {
+            Some(api) => api,
+            None => bail!(no_api()),
+        },
     };
 
     // The PL3 baseline is the registry's own view of the already-

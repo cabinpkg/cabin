@@ -32,6 +32,7 @@ pub(crate) mod term_verbosity;
 pub(crate) mod test;
 pub(crate) mod tidy;
 pub(crate) mod tree;
+pub(crate) mod trustpub;
 pub(crate) mod vendor;
 pub(crate) mod version;
 pub(crate) mod workspace_prep;
