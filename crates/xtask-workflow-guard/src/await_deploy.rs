@@ -70,10 +70,29 @@
 //! leading comment, which is outside the `run:` body, stays in the
 //! workflow.
 //!
-//! Inherited properties, preserved rather than fixed - a port is not a
-//! place to change behavior. Each was pinned by running the original
-//! under `bash -e`, GitHub's default `run:` shell (`-e` on, `-u` and
-//! `-o pipefail` off):
+//! Two deliberate post-port behavior changes (2026-08-15, run
+//! 31904670113):
+//!
+//! - A same-SHA Registry run that succeeded with its Deploy step
+//!   *skipped* now takes the failure path's pending-descendant exit
+//!   instead of idling into the hour ceiling - see
+//!   `same_sha_deploy_skipped`.  During the pre-launch deploy freeze
+//!   (a D1 migration awaiting its by-hand apply skips every Deploy)
+//!   the original had no terminal answer at all; an operator now
+//!   reruns the workflow once the deploy lands.
+//! - A terminal Stop (either arm) requires a CONFIRMED absence: an
+//!   iteration only Stops when its own `git fetch` succeeded (the
+//!   status is read where L6 discarded it - a failed fetch folds
+//!   every ancestor check to false) and its candidate scan was not
+//!   blind, and `poll` demands two CONSECUTIVE such iterations, so a
+//!   sampling race - a deploy landing between the candidate and
+//!   pending listings, a head pushed after the fetch - resolves on
+//!   the second pass.  Anything less retries, where the original's
+//!   failure arm would exit 1 from a possibly-blind iteration.
+//!
+//! The remaining inherited properties, preserved rather than fixed.
+//! Each was pinned by running the original under `bash -e`, GitHub's
+//! default `run:` shell (`-e` on, `-u` and `-o pipefail` off):
 //!
 //! - **Every stdout line is the workflow's log contract**, byte for
 //!   byte, `echo`'s newline included. The two `>&2` lines are the only
@@ -105,7 +124,7 @@
 //!   missing binary - killed the step under `set -e` where every other
 //!   tool failure fell into a branch.
 //! - **Timing is fixed**: 90 iterations, and every path that continues
-//!   waits 40 seconds exactly once - the three transient branches and
+//!   waits 40 seconds exactly once - every transient/retry branch and
 //!   the fall-through alike - so the wait is hoisted to the loop's tail
 //!   here instead of being repeated at each `continue`. The ceiling is
 //!   90 waits and then L56.
@@ -152,6 +171,10 @@ const WAIT: Duration = Duration::from_secs(40);
 /// L21, L34, L26 and L56, byte for byte; `echo` adds the newline.
 const TRANSIENT_RUNS: &str = "transient API error listing Registry runs; retrying";
 const TRANSIENT_PENDING: &str = "transient API error listing pending Registry runs; retrying";
+// Post-port (not one of the script's echoes): see the terminal
+// confirmation in `iteration`.
+const TRANSIENT_SCAN: &str = "could not confirm that no deploy containing this SHA has landed \
+     (a transient fetch or API failure); retrying";
 const NO_RUN: &str = "no Registry run for this SHA; the deployed worker is already current";
 const TIMED_OUT: &str = "timed out waiting for a registry deploy containing this SHA";
 
@@ -220,9 +243,27 @@ impl Report {
 }
 
 /// L5..L57: the loop, its ceiling and the timeout below it.
+///
+/// A `Stop` is terminal only when two CONSECUTIVE iterations conclude
+/// it (post-port).  One iteration samples the world piecewise - fetch,
+/// candidate listing, same-SHA run, pending listing - so a deploy that
+/// lands between two samplings, or a head pushed after the fetch
+/// (unknown revisions fold `merge-base` to false), can read as a
+/// confirmed absence.  The second iteration re-takes every sample from
+/// its own fresh fetch, so any such race resolves to Done or Retry
+/// there; the first Stop just waits, as silently as the L54
+/// fall-through.
 fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
+    let mut provisional_stop = false;
     for _ in 0..ITERATIONS {
-        if let Some(report) = iteration(shell, sha, repository)
+        let report = iteration(shell, sha, repository);
+        if matches!(report, Some(Report::Stop(_))) && !provisional_stop {
+            provisional_stop = true;
+            shell.wait();
+            continue;
+        }
+        provisional_stop = false;
+        if let Some(report) = report
             && let Some(code) = report.emit()
         {
             return code;
@@ -236,27 +277,20 @@ fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
 /// One pass of L6..L54. `None` is the fall-through at L54, which waits
 /// without saying anything.
 fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Report> {
-    shell.discard(&["git", "fetch", "--quiet", "origin", "main"]);
+    // L6, with its status READ where the original discarded it
+    // (post-port): a failed fetch leaves fresh heads unknown to the
+    // local clone, so every `merge-base --is-ancestor` below answers
+    // false (exit 128 folds to false) and a landed deploy is
+    // indistinguishable from a missing one.  The terminal
+    // confirmation at the bottom refuses to Stop on such an
+    // iteration.  stderr stays inherited, as `|| true` left it.
+    let (fetched, _) = shell.capture(&["git", "fetch", "--quiet", "origin", "main"], &[]);
 
-    // L7. per_page=100: successive skipped-Deploy successes (a
-    // migration awaiting its by-hand apply green-lights every
-    // subsequent run) must not push the qualifying run out of the
-    // scanned window - the same-SHA fallback below cannot break the tie
-    // for a merely-successful run, so a buried candidate would idle the
-    // loop into its ceiling.
-    let (listed, candidates) = shell.capture(
-        &[
-            "gh",
-            "api",
-            &runs_url(repository, "branch=main&status=success&per_page=100"),
-            "--jq",
-            CANDIDATES_JQ,
-        ],
-        &[],
-    );
-    if listed && let Some(report) = scan(shell, sha, repository, &text(candidates)) {
-        return Some(report);
-    }
+    let scan_blind = match landed_deploy(shell, sha, repository) {
+        Landed::Found(report) => return Some(report),
+        Landed::Blind => true,
+        Landed::Miss => false,
+    };
 
     // L19.
     let (listed, runs) = shell.capture(
@@ -286,7 +320,17 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
         return Some(Report::Die);
     }
     let conclusion = text(conclusion);
-    if conclusion != "failure" && conclusion != "cancelled" {
+    // Post-port change (2026-08-15, run 31904670113): a same-SHA run
+    // that SUCCEEDED with its Deploy step skipped - superseded, or a
+    // D1 migration awaiting its by-hand apply (the pre-launch deploy
+    // freeze) - can never green-light this SHA, and the original fell
+    // through to the wait here, idling the publish job into its hour
+    // ceiling.  Detect the skip and take the same
+    // pending-descendant exit the failure path takes, with the reason
+    // named.  A query failure keeps the old safe answer (wait).
+    let deploy_skipped =
+        conclusion == "success" && same_sha_deploy_skipped(shell, repository, &runs);
+    if !deploy_skipped && conclusion != "failure" && conclusion != "cancelled" {
         return None;
     }
 
@@ -317,19 +361,116 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
         !head.is_empty() && shell.condition(&["git", "merge-base", "--is-ancestor", sha, head])
     });
     if descendant_pending {
-        return Some(Report::Retry(format!(
-            "Registry run for this SHA concluded '{conclusion}'; a pending run containing it may still deploy; waiting"
-        )));
+        return Some(Report::Retry(if deploy_skipped {
+            "Registry run for this SHA succeeded but skipped its Deploy; a pending run containing it may still deploy; waiting".to_owned()
+        } else {
+            format!(
+                "Registry run for this SHA concluded '{conclusion}'; a pending run containing it may still deploy; waiting"
+            )
+        }));
     }
-    Some(Report::Stop(format!(
-        "Registry run for this SHA concluded '{conclusion}' and no deploy containing it has landed; not publishing against a stale worker"
-    )))
+    // Never Stop - even provisionally (see `poll`) - from an
+    // iteration that could not VERIFY absence: a failed fetch folds
+    // every ancestor check to false, and a blind scan may have missed
+    // a landed deploy outright.
+    if !fetched || scan_blind {
+        return Some(Report::Retry(TRANSIENT_SCAN.to_owned()));
+    }
+    Some(Report::Stop(if deploy_skipped {
+        "Registry run for this SHA succeeded but skipped its Deploy (superseded, or a D1 \
+         migration awaits its by-hand apply) and no pending run can deliver a deploy containing \
+         it; not publishing against a possibly-stale worker - rerun this workflow once the \
+         deploy lands (registry/docs/runbook.md)"
+            .to_owned()
+    } else {
+        format!(
+            "Registry run for this SHA concluded '{conclusion}' and no deploy containing it has landed; not publishing against a stale worker"
+        )
+    }))
+}
+
+/// What one candidate listing + scan pass concluded.
+enum Landed {
+    /// A deploy containing the SHA: the wait is over.
+    Found(Report),
+    /// The listing and every ancestor-gated lookup ran; nothing
+    /// qualified.
+    Miss,
+    /// The listing or an ancestor-gated lookup failed to run: the
+    /// absence of a landed deploy is unverified.
+    Blind,
+}
+
+/// L7..L18: list the successful main runs and scan them for a deploy
+/// containing this SHA.
+fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
+    // L7. per_page=100: successive skipped-Deploy successes (a
+    // migration awaiting its by-hand apply green-lights every
+    // subsequent run) must not push the qualifying run out of the
+    // scanned window - a buried qualifying candidate reads as a clean
+    // miss, which a confirmed Stop would trust and fast-fail on where
+    // the original merely idled.
+    let (listed, candidates) = shell.capture(
+        &[
+            "gh",
+            "api",
+            &runs_url(repository, "branch=main&status=success&per_page=100"),
+            "--jq",
+            CANDIDATES_JQ,
+        ],
+        &[],
+    );
+    if !listed {
+        return Landed::Blind;
+    }
+    let mut blind = false;
+    if let Some(report) = scan(shell, sha, repository, &text(candidates), &mut blind) {
+        return Landed::Found(report);
+    }
+    if blind { Landed::Blind } else { Landed::Miss }
+}
+
+/// Whether the same-SHA Registry run's Deploy step concluded
+/// `skipped`.  Reads the run id from the same-SHA listing and asks the
+/// jobs API the question the candidate scan asks; any failure along
+/// the way answers `false`, which keeps the pre-change behavior
+/// (wait).
+fn same_sha_deploy_skipped(shell: &mut dyn Shell, repository: &str, runs: &[u8]) -> bool {
+    let (ran, id) = shell.capture(&["jq", "-r", ".[0].id"], runs);
+    if !ran {
+        return false;
+    }
+    let id = text(id);
+    let id = id.trim_matches(IFS).trim_matches('\n');
+    if id.is_empty() || id == "null" {
+        return false;
+    }
+    let (ran, step) = shell.capture(
+        &[
+            "gh",
+            "api",
+            &jobs_url(repository, id),
+            "--jq",
+            DEPLOY_STEP_JQ,
+        ],
+        &[],
+    );
+    ran && crate::substitute(step) == b"skipped".as_slice()
 }
 
 /// L10..L17: the successful runs, in the order the API listed them,
 /// until one whose head contains this SHA carries a Deploy step that
-/// ran and succeeded.
-fn scan(shell: &mut dyn Shell, sha: &str, repository: &str, candidates: &str) -> Option<Report> {
+/// ran and succeeded.  A candidate lookup that failed to run sets
+/// `blind` - the caller must not conclude a terminal Stop from an
+/// iteration that may have missed a landed deploy.  A lookup that ran
+/// and answered non-success is a clean miss, not blindness.
+fn scan(
+    shell: &mut dyn Shell,
+    sha: &str,
+    repository: &str,
+    candidates: &str,
+    blind: &mut bool,
+) -> Option<Report> {
     for line in candidates.split('\n') {
         let (run_id, head) = read_two(line);
         if run_id.is_empty() {
@@ -353,6 +494,7 @@ fn scan(shell: &mut dyn Shell, sha: &str, repository: &str, candidates: &str) ->
         );
         if !ran {
             conclusion.extend_from_slice(b"transient\n");
+            *blind = true;
         }
         if crate::substitute(conclusion) == b"success".as_slice() {
             return Some(Report::Done(format!(
@@ -418,8 +560,6 @@ trait Shell {
     fn capture(&mut self, argv: &[&str], stdin: &[u8]) -> (bool, Vec<u8>);
     /// `argv 2>/dev/null` in a condition: the status alone.
     fn condition(&mut self, argv: &[&str]) -> bool;
-    /// `argv || true`: output inherited, status ignored.
-    fn discard(&mut self, argv: &[&str]);
     /// `sleep 40`.
     fn wait(&mut self);
 }
@@ -467,14 +607,6 @@ impl Shell for Spawn {
             .is_ok_and(|status| status.success())
     }
 
-    fn discard(&mut self, argv: &[&str]) {
-        // `|| true` swallowed the status alone; a spawn failure still
-        // wrote its `command not found` to stderr.
-        if let Err(error) = Command::new(argv[0]).args(&argv[1..]).status() {
-            eprintln!("{}: {error}", argv[0]);
-        }
-    }
-
     fn wait(&mut self) {
         std::thread::sleep(WAIT);
     }
@@ -485,10 +617,13 @@ mod tests {
     use super::*;
 
     /// A scripted [`Shell`]: each capture is answered by the first
-    /// entry whose needle appears in the joined argv, and `merge-base`
-    /// answers true for the heads named in `descendants`.
+    /// entry whose needle appears in the joined argv - consulting the
+    /// consumed-on-use `answers_once` entries first, for tests where
+    /// the API's answer changes between two samplings - and
+    /// `merge-base` answers true for the heads named in `descendants`.
     #[derive(Default)]
     struct Fake {
+        answers_once: Vec<(&'static str, bool, &'static str)>,
         answers: Vec<(&'static str, bool, &'static str)>,
         descendants: Vec<&'static str>,
         calls: Vec<String>,
@@ -501,6 +636,11 @@ mod tests {
                 answers: answers.to_vec(),
                 ..Self::default()
             }
+        }
+
+        fn answering_once(mut self, answers: &[(&'static str, bool, &'static str)]) -> Self {
+            self.answers_once = answers.to_vec();
+            self
         }
 
         fn descending_from(mut self, heads: &[&'static str]) -> Self {
@@ -520,6 +660,14 @@ mod tests {
         fn capture(&mut self, argv: &[&str], _stdin: &[u8]) -> (bool, Vec<u8>) {
             let joined = argv.join(" ");
             self.calls.push(joined.clone());
+            if let Some(position) = self
+                .answers_once
+                .iter()
+                .position(|(needle, _, _)| joined.contains(needle))
+            {
+                let (_, ran, output) = self.answers_once.remove(position);
+                return (ran, output.as_bytes().to_vec());
+            }
             for (needle, ran, output) in &self.answers {
                 if joined.contains(needle) {
                     return (*ran, output.as_bytes().to_vec());
@@ -534,10 +682,6 @@ mod tests {
             self.descendants.contains(&head)
         }
 
-        fn discard(&mut self, argv: &[&str]) {
-            self.calls.push(argv.join(" "));
-        }
-
         fn wait(&mut self) {
             self.waits += 1;
         }
@@ -545,6 +689,9 @@ mod tests {
 
     /// The candidate listing answering with one qualifying run.
     const ONE_CANDIDATE: (&str, bool, &str) = ("status=success", true, "77 head77\n");
+    /// The iteration's `git fetch` succeeding - a terminal Stop
+    /// requires it.
+    const FETCH_OK: (&str, bool, &str) = ("git fetch", true, "");
 
     #[test]
     fn the_messages_match_the_shells_echoes() {
@@ -685,11 +832,16 @@ mod tests {
 
     #[test]
     fn a_conclusion_that_is_neither_failure_nor_cancelled_waits() {
+        // The conclusion and id needles are spelled out: a bare
+        // "jq -r" would also answer the skip predicate's id query
+        // with the conclusion text, and the `success` case would then
+        // pass for the wrong reason (a failed jobs lookup).
         for conclusion in ["null", "success", "", "skipped"] {
             let mut shell = Fake::answering(&[
                 ("head_sha=", true, "[{}]"),
                 ("jq length", true, "1"),
-                ("jq -r", true, conclusion),
+                ("jq -r .[0].conclusion", true, conclusion),
+                ("jq -r .[0].id", true, "null"),
             ]);
             assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{conclusion}");
         }
@@ -717,6 +869,8 @@ mod tests {
     #[test]
     fn a_failed_run_with_no_pending_descendant_stops() {
         let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, ""),
             ("head_sha=", true, "[{}]"),
             ("jq length", true, "1"),
             ("jq -r", true, "failure"),
@@ -728,6 +882,188 @@ mod tests {
         );
         assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(stale));
         assert_eq!(Report::Stop(String::new()).emit(), Some(1));
+    }
+
+    /// The deploy-freeze fast-fail: a same-SHA run that SUCCEEDED
+    /// with its Deploy step skipped (superseded, or a D1 migration
+    /// awaiting its by-hand apply) can never green-light this SHA,
+    /// and with nothing pending the wait would only idle into its
+    /// hour ceiling - stop immediately, with the reason.
+    #[test]
+    fn a_skipped_deploy_with_no_pending_descendant_stops_fast() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            (
+                "status=success",
+                true,
+                "88 head88
+",
+            ),
+            (
+                "jobs?per_page=100",
+                true,
+                "skipped
+",
+            ),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            (
+                "branch=main&per_page=100",
+                true,
+                "stale
+",
+            ),
+        ])
+        .descending_from(&["head88"]);
+        match iteration(&mut shell, "abc", "o/r") {
+            Some(Report::Stop(line)) => {
+                assert!(line.contains("skipped its Deploy"), "{line}");
+                assert!(line.contains("not publishing"), "{line}");
+            }
+            other => panic!("expected a fast stop, got {other:?}"),
+        }
+    }
+
+    /// Same skip, but a pending run containing this SHA may still
+    /// deliver the deploy: keep waiting.
+    #[test]
+    fn a_skipped_deploy_with_a_pending_descendant_waits() {
+        let mut shell = Fake::answering(&[
+            (
+                "status=success",
+                true,
+                "88 head88
+",
+            ),
+            (
+                "jobs?per_page=100",
+                true,
+                "skipped
+",
+            ),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            (
+                "branch=main&per_page=100",
+                true,
+                "pending99
+",
+            ),
+        ])
+        .descending_from(&["head88", "pending99"]);
+        match iteration(&mut shell, "abc", "o/r") {
+            Some(Report::Retry(line)) => {
+                assert!(line.contains("skipped its Deploy"), "{line}");
+                assert!(line.contains("waiting"), "{line}");
+            }
+            other => panic!("expected a waiting retry, got {other:?}"),
+        }
+    }
+
+    /// A transient failure inside the scan hides whether a landed
+    /// deploy already contains this SHA, so a terminal answer from
+    /// the same iteration is unverified: retry instead of stopping.
+    #[test]
+    fn a_blind_scan_defers_the_skipped_stop() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, "77 head77\n"),
+            ("runs/77/jobs", false, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            ("runs/88/jobs", true, "skipped\n"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ])
+        .descending_from(&["head77", "head88"]);
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r"),
+            Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
+        );
+    }
+
+    /// The same guard covers the failure arm: a failed candidate
+    /// listing is a blind scan too.
+    #[test]
+    fn a_blind_candidate_listing_defers_the_failure_stop() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", false, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r", true, "failure"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ]);
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r"),
+            Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
+        );
+    }
+
+    /// A failed `git fetch` leaves superseding heads unknown, so every
+    /// ancestor check answers false and a landed deploy is invisible
+    /// without any API call failing: never a Stop.
+    #[test]
+    fn a_failed_fetch_defers_the_stop() {
+        let mut shell = Fake::answering(&[
+            ("status=success", true, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            ("runs/88/jobs", true, "skipped\n"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ]);
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r"),
+            Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
+        );
+    }
+
+    /// The negative arm of the skip predicate: only a Deploy step
+    /// that concluded exactly `skipped` is a skip.  A step that ran
+    /// (`success`, on a listing that lagged behind the candidate
+    /// scan), an absent step (`null`), or any other answer falls
+    /// through to the wait.
+    #[test]
+    fn a_success_run_whose_deploy_was_not_skipped_waits() {
+        for step in ["success\n", "null\n", "", "failure\n"] {
+            let mut shell = Fake::answering(&[
+                FETCH_OK,
+                ("status=success", true, ""),
+                ("head_sha=", true, "[{}]"),
+                ("jq length", true, "1"),
+                ("jq -r .[0].conclusion", true, "success"),
+                ("jq -r .[0].id", true, "88"),
+                ("runs/88/jobs", true, step),
+            ]);
+            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{step:?}");
+        }
+    }
+
+    /// A deploy-step query failure keeps the old safe answer: wait.
+    #[test]
+    fn a_failed_deploy_step_query_on_a_success_run_waits() {
+        let mut shell = Fake::answering(&[
+            (
+                "status=success",
+                true,
+                "88 head88
+",
+            ),
+            ("jobs?per_page=100", false, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+        ])
+        .descending_from(&["head88"]);
+        assert_eq!(iteration(&mut shell, "abc", "o/r"), None);
     }
 
     #[test]
@@ -742,6 +1078,50 @@ mod tests {
             iteration(&mut shell, "abc", "o/r"),
             Some(Report::Retry(TRANSIENT_PENDING.to_owned()))
         );
+    }
+
+    #[test]
+    fn a_stop_needs_two_consecutive_iterations() {
+        // The freeze shape, stable across iterations: the first Stop
+        // is provisional, the second - after a fresh fetch and fresh
+        // listings - is terminal.
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            ("runs/88/jobs", true, "skipped\n"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ]);
+        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        assert_eq!(shell.waits, 1);
+        assert_eq!(shell.called("git fetch"), 2);
+    }
+
+    /// A run pushed or completed during the confirmation wait is
+    /// visible to the second iteration's fresh fetch and listings -
+    /// the sampling races (a deploy landing between the candidate and
+    /// pending listings, a head unknown to the pre-fetch clone) all
+    /// resolve here instead of in a terminal Stop.
+    #[test]
+    fn a_deploy_landing_during_the_confirmation_wait_wins() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, "99 head99\n"),
+            ("runs/99/jobs", true, "success\n"),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            ("runs/88/jobs", true, "skipped\n"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ])
+        .answering_once(&[("status=success", true, "")])
+        .descending_from(&["head99"]);
+        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        assert_eq!(shell.waits, 1);
     }
 
     #[test]
