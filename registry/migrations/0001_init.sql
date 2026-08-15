@@ -83,7 +83,18 @@ CREATE TABLE tokens (
     name TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
     scopes TEXT NOT NULL,
-    created_at TEXT NOT NULL,
+    -- Canonical toISOString shape, same round-trip CHECK as
+    -- expires_at below: created_at is the trustpub ceiling's anchor
+    -- (parsed by strftime) AND the auth lookup's not-before bound
+    -- (compared lexicographically), and those two views agree only on
+    -- canonical text - a parseable non-canonical anchor like a Julian
+    -- day string ('+5372750' = year 9997) would satisfy the ceiling
+    -- while sorting below the current instant.
+    created_at TEXT NOT NULL CHECK (
+        created_at GLOB
+            '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+        AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at
+    ),
     last_used_at TEXT,
     revoked_at TEXT,
     -- Publish token-bucket state, NULL until the token's first publish:
@@ -91,7 +102,114 @@ CREATE TABLE tokens (
     -- the Unix epoch milliseconds (as text) of the last successful
     -- take.
     rl_tokens REAL,
-    rl_updated_at TEXT
+    rl_updated_at TEXT,
+    -- NULL never expires. Same ISO-8601 UTC text shape as created_at
+    -- (JS toISOString: fixed-width, so lexicographic comparison is the
+    -- ordering): the auth lookup enforces expiry with a string
+    -- comparison in SQL. The shape is schema-enforced because the
+    -- comparison fails OPEN for a malformed value sorting above the
+    -- ISO range (e.g. 'z' > any timestamp = a token that never
+    -- expires); the GLOB is fixed-width, so it also pins the length,
+    -- and the strftime round-trip rejects calendar-invalid digits the
+    -- GLOB admits - compared with IS, not =, so an unparsable value's
+    -- NULL render is a definite refusal ('2026-99-99...'), and a
+    -- normalizable one must re-render byte-identically (datetime()
+    -- alone would silently accept '2026-02-31...' as March 3rd while
+    -- the lookup compares the stored text).
+    expires_at TEXT CHECK (
+        expires_at IS NULL
+        OR (
+            expires_at GLOB
+                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', expires_at) IS expires_at
+        )
+    ),
+    -- NULL is an unlimited token. When set, the token may only perform
+    -- write-side operations on packages under exactly this scope; the
+    -- refusal is the same uniform 403 as a membership miss.
+    scope_limit TEXT,
+    -- Closed domain like scope_members.role: 'user' tokens are minted
+    -- from the website session, 'trustpub' tokens are the short-lived
+    -- product of a GitHub Actions OIDC exchange.
+    kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub')),
+    -- Short-lived, confined, and publish-only is what 'trustpub'
+    -- MEANS, and the schema enforces all three so a bug in the future
+    -- minting path cannot widen the exchange into a standing or
+    -- privileged credential: scopes = 'publish' exactly (the governor
+    -- and verdict planes authorize on the verify scope alone, so a
+    -- workflow credential must be unable to hold it), and the expiry
+    -- sits within one day of issuance - a CEILING, not the policy;
+    -- the exchange sets the real TTL in code, the schema only refuses
+    -- a mint that could not belong to any legitimate exchange window.
+    -- ifnull makes a malformed created_at anchor fail closed rather
+    -- than NULL out of the comparison, and a FORGED far-future anchor
+    -- buys nothing: the auth lookup refuses rows before their
+    -- created_at, so outrunning the ceiling requires a token that
+    -- cannot authenticate until the forged instant arrives.
+    CHECK (
+        kind != 'trustpub'
+        OR (
+            expires_at IS NOT NULL
+            AND expires_at <=
+                ifnull(strftime('%Y-%m-%dT%H:%M:%fZ', created_at, '+1 day'), '')
+            AND scope_limit IS NOT NULL AND scope_limit != ''
+            AND scopes = 'publish'
+        )
+    )
+);
+
+-- Trusted Publishing (the crates.io RFC 3691 model): one row per
+-- (scope, repository, workflow) a scope's owners have registered as
+-- allowed to exchange a GitHub Actions OIDC token for a short-lived
+-- 'trustpub' registry token. The repository binding is by numeric
+-- GitHub ids, never names: owner logins and repository names can be
+-- renamed and reassigned, the ids cannot. git_ref / environment are
+-- optional extra claims constraints (NULL matches any). quota_class
+-- is the tier the exchange grants when it mints; how that tier
+-- reaches the authenticated request - persisted on the minted token
+-- row or granted to the backing user's users.quota_class - is the
+-- exchange endpoint's decision, deliberately not made here: nothing
+-- reads this column until that endpoint exists. No foreign key to scopes:
+-- configs are operator/owner data that must survive scope-membership
+-- churn, and the seed below predates any claimed scope row.
+CREATE TABLE trustpub_configs (
+    id INTEGER PRIMARY KEY,
+    scope TEXT NOT NULL,
+    repository_owner_id INTEGER NOT NULL,
+    repository_id INTEGER NOT NULL,
+    workflow_filename TEXT NOT NULL,
+    git_ref TEXT,
+    environment TEXT,
+    quota_class TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (scope, repository_id, workflow_filename)
+);
+CREATE INDEX trustpub_configs_repository
+    ON trustpub_configs (repository_owner_id, repository_id);
+
+-- Replay protection for the OIDC exchange: a JWT's jti is consumed
+-- exactly once (INSERT into the primary key; the loser of a race
+-- fails). NOT NULL is load-bearing on a TEXT primary key: SQLite
+-- permits duplicate NULLs in a non-INTEGER PRIMARY KEY, which would
+-- exempt a null jti from the once-only rule. expires_at is the
+-- token's numeric `exp` (Unix seconds) so rows can be pruned once the
+-- JWT they name could no longer verify anyway.
+CREATE TABLE trustpub_used_jtis (
+    jti TEXT PRIMARY KEY NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+-- The operator-seeded config for the foundation-ports publishing
+-- workflow: the ports tree and its publish workflow live in
+-- cabinpkg/cabin (.github/workflows/ports-publish.yml), publishing
+-- under the cabin-ports scope from main only. The numeric ids are
+-- cabinpkg/cabin (119684778) and the cabinpkg organization (35998702).
+INSERT INTO trustpub_configs (
+    scope, repository_owner_id, repository_id, workflow_filename,
+    git_ref, environment, quota_class, created_at
+) VALUES (
+    'cabin-ports', 35998702, 119684778, 'ports-publish.yml',
+    'refs/heads/main', NULL, 'operator', '2026-08-14T00:00:00.000Z'
 );
 
 -- `created_by` / `published_by` hold the registry-native users.id as

@@ -32,6 +32,8 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "scope_members",
     "scope_claims",
     "tokens",
+    "trustpub_configs",
+    "trustpub_used_jtis",
     "packages",
     "versions",
     "revisions",
@@ -50,11 +52,24 @@ pub const EXPECTED_TABLES: &[&str] = &[
 pub const EXPECTED_VIEWS: &[&str] = &["current_revisions"];
 
 /// Tables a valid dump must carry at least one `INSERT INTO` row for.
-/// Both are populated by the migrations themselves, so even a
+/// All are populated by the migrations themselves, so even a
 /// brand-new, empty registry dumps rows here - which catches a
 /// schema-only or data-truncated export that would otherwise validate
-/// and record success while restoring an empty registry.
-pub const EXPECTED_ROWS: &[&str] = &["meta", "d1_migrations"];
+/// and record success while restoring an empty registry. The
+/// `trustpub_configs` seed matters beyond truncation evidence: a restored
+/// `d1_migrations` table keeps migration 0001 from ever re-seeding it,
+/// so a dump that lost the row would silently drop the cabin-ports
+/// publishing authorization.
+///
+/// Presence-only on purpose: this scanner is a streaming textual
+/// integrity check over an export format the exporter owns, so it can
+/// prove a dump was not truncated but never a specific row's identity -
+/// pinning value bytes here would turn exporter format drift into
+/// false backup alarms. Once operator-registered trustpub configs can
+/// exist beside the seed, verifying the seeded row itself is the
+/// restore drill's job: it queries a real scratch database, not the
+/// dump's text.
+pub const EXPECTED_ROWS: &[&str] = &["trustpub_configs", "meta", "d1_migrations"];
 
 /// `d1/<date>.sql` for a `YYYY-MM-DD` date.
 pub fn dump_object_key(date: &str) -> String {
@@ -676,13 +691,16 @@ mod tests {
     #[test]
     fn scanner_rejects_schema_only_dumps() {
         // All CREATE TABLE statements but no data: an export truncated
-        // or emptied of rows must not validate - meta and d1_migrations
-        // are populated by the migrations themselves, so every real
-        // dump has rows for them.
+        // or emptied of rows must not validate - every EXPECTED_ROWS
+        // table is populated by the migrations themselves, so every
+        // real dump has rows for them.
         let mut scanner = DumpScanner::new();
         scanner.update(schema_text().as_bytes());
         let check = scanner.finish();
-        assert_eq!(check.missing_rows, vec!["meta", "d1_migrations"]);
+        assert_eq!(
+            check.missing_rows,
+            vec!["trustpub_configs", "meta", "d1_migrations"]
+        );
         let error = check.error().unwrap();
         assert!(error.contains("no rows"), "{error}");
     }
@@ -703,6 +721,8 @@ mod tests {
                 "scope_members",
                 "scope_claims",
                 "tokens",
+                "trustpub_configs",
+                "trustpub_used_jtis",
                 "packages",
                 "versions",
                 "revisions",
@@ -711,7 +731,10 @@ mod tests {
             ]
         );
         let error = check.error().unwrap();
-        assert!(error.contains("tokens, packages, versions"), "{error}");
+        assert!(
+            error.contains("tokens, trustpub_configs, trustpub_used_jtis, packages"),
+            "{error}"
+        );
     }
 
     // --- retention ---

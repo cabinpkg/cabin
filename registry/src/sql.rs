@@ -34,11 +34,22 @@ statements! {
     // ------------------------------------------------------------------
 
     /// The bearer-token lookup, joining the owning user's quota class;
-    /// revoked tokens never match.
+    /// revoked tokens never match. Neither do expired ones (`?2` is the
+    /// current ISO-8601 instant): enforcing expiry inside this WHERE
+    /// makes an expired token produce the exact no-row result an
+    /// unknown hash does - same uniform 401, same single lookup - so
+    /// no response or timing oracle separates "expired" from
+    /// "invalid". A token is live only from `created_at` on: the
+    /// trustpub lifetime ceiling anchors on `created_at`, so a minting
+    /// bug forging a far-future anchor must yield a row that cannot
+    /// authenticate before its anchor, not one that outruns the cap.
     AUTH_TOKEN_LOOKUP =
-        "SELECT t.id, t.user_id, t.scopes, u.quota_class, t.rl_tokens, t.rl_updated_at \
+        "SELECT t.id, t.user_id, t.scopes, u.quota_class, t.scope_limit, \
+                t.rl_tokens, t.rl_updated_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
-         WHERE t.token_hash = ?1 AND t.revoked_at IS NULL";
+         WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
+         AND t.created_at <= ?2 \
+         AND (t.expires_at IS NULL OR t.expires_at > ?2)";
 
     /// Best-effort `last_used_at` bookkeeping on every
     /// bearer-authenticated request.

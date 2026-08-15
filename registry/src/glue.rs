@@ -35,6 +35,7 @@ struct TokenRecord {
     user_id: i64,
     scopes: String,
     quota_class: String,
+    scope_limit: Option<String>,
     rl_tokens: Option<f64>,
     rl_updated_at: Option<String>,
 }
@@ -429,7 +430,7 @@ async fn authenticate(
     let hash = auth::token_hash(token);
     let record: Option<TokenRecord> = db
         .prepare(sql::AUTH_TOKEN_LOOKUP)
-        .bind(&[hash.into()])?
+        .bind(&[hash.into(), now_iso8601().into()])?
         .first(None)
         .await?;
     let Some(record) = record else {
@@ -452,6 +453,7 @@ async fn authenticate(
         user_id: record.user_id,
         scopes: auth::parse_scopes(&record.scopes),
         quota_class: record.quota_class,
+        scope_limit: record.scope_limit,
         bucket,
     }))
 }
@@ -564,8 +566,10 @@ async fn publish_response(
 
     // After the rate limit, so probing scopes is throttled like any
     // other publish attempt; before the body is buffered, like every
-    // other authorization check.
-    if !is_scope_member(db, scope, auth.user_id).await? {
+    // other authorization check. The scope-limit check shares the
+    // membership gate's byte-identical refusal so a scope-limited
+    // token's denials look like anyone else's.
+    if auth.scope_limit_refuses(scope) || !is_scope_member(db, scope, auth.user_id).await? {
         return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
 
@@ -798,7 +802,7 @@ async fn yank_response(
     if !auth.scopes.contains(&Scope::Yank) {
         return error_response(403, error::YANK_SCOPE_REQUIRED);
     }
-    if !is_scope_member(db, scope, auth.user_id).await? {
+    if auth.scope_limit_refuses(scope) || !is_scope_member(db, scope, auth.user_id).await? {
         return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
     let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
@@ -979,6 +983,12 @@ async fn verdict_response(
 ) -> worker::Result<Response> {
     if !has_verify_scope(auth) {
         return error_response(403, error::VERIFY_SCOPE_REQUIRED);
+    }
+    // A verdict is a package-scoped write like publish and yank, so a
+    // scope-limited token is confined here too - belt and braces, since
+    // trustpub tokens are never minted with the verify scope.
+    if auth.scope_limit_refuses(scope) {
+        return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
     }
     let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
         return error_response(400, error::INVALID_VERDICT_BODY);

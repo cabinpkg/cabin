@@ -255,6 +255,358 @@ fn an_unknown_identity_resolves_to_nothing() {
     assert_eq!(resolve(&conn, "github", "583231"), None);
 }
 
+/// Creates a user and a token row through the real statements
+/// ([`sql::INSERT_TOKEN`] writes none of the trustpub-era columns, so
+/// every row it makes is a legacy-shaped one), returning the user id.
+fn seed_token(conn: &rusqlite::Connection, token_id: &str, token_hash: &str) -> i64 {
+    sign_in(
+        conn,
+        "github",
+        "26405363",
+        "ken-matsui",
+        "2026-07-15T00:00:00.000Z",
+    );
+    let (user_id, ..) = resolve(conn, "github", "26405363").expect("identity resolves");
+    conn.execute(
+        sql::INSERT_TOKEN,
+        rusqlite::params![
+            token_id,
+            user_id,
+            "ci token",
+            token_hash,
+            "publish,yank",
+            "2026-07-15T00:00:00.000Z"
+        ],
+    )
+    .expect("insert token");
+    user_id
+}
+
+/// Runs the bearer lookup as `glue::authenticate` does, returning the
+/// matched `(id, scopes, quota_class, scope_limit)` if any.
+fn auth_lookup(
+    conn: &rusqlite::Connection,
+    token_hash: &str,
+    now: &str,
+) -> Option<(String, String, String, Option<String>)> {
+    conn.query_row(
+        sql::AUTH_TOKEN_LOOKUP,
+        rusqlite::params![token_hash, now],
+        |row| Ok((row.get(0)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+    )
+    .map(Some)
+    .or_else(|err| match err {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })
+    .expect("auth lookup")
+}
+
+#[test]
+fn an_expired_token_is_the_same_no_row_answer_as_an_unknown_one() {
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    conn.execute(
+        "UPDATE tokens SET expires_at = '2026-08-14T12:00:00.000Z' WHERE id = 'tok-1'",
+        [],
+    )
+    .expect("set expiry");
+
+    let now = "2026-08-14T12:00:00.001Z";
+    // The uniform-401 invariant at the layer that decides it: the
+    // expired row and a hash that never existed produce the exact same
+    // lookup result, so the glue's single `unauthorized()` constructor
+    // is the only possible answer for both.
+    assert_eq!(auth_lookup(&conn, "hash-1", now), None);
+    assert_eq!(
+        auth_lookup(&conn, "hash-1", now),
+        auth_lookup(&conn, "no-such-hash", now)
+    );
+    // Strictly-greater boundary: a token expiring exactly now is gone.
+    assert_eq!(
+        auth_lookup(&conn, "hash-1", "2026-08-14T12:00:00.000Z"),
+        None
+    );
+    // One millisecond earlier it still authenticates.
+    let live = auth_lookup(&conn, "hash-1", "2026-08-14T11:59:59.999Z").expect("not yet expired");
+    assert_eq!(live.0, "tok-1");
+}
+
+#[test]
+fn a_future_dated_token_does_not_authenticate_before_its_anchor() {
+    // The trustpub lifetime ceiling anchors on created_at, so a
+    // minting bug forging a far-future anchor must not buy a standing
+    // credential: the row answers exactly like an unknown hash until
+    // the anchor instant arrives.
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    conn.execute(
+        "UPDATE tokens SET created_at = '9998-01-01T00:00:00.000Z' WHERE id = 'tok-1'",
+        [],
+    )
+    .expect("forge the anchor");
+    let now = "2026-08-14T12:00:00.000Z";
+    assert_eq!(auth_lookup(&conn, "hash-1", now), None);
+    assert_eq!(
+        auth_lookup(&conn, "hash-1", now),
+        auth_lookup(&conn, "no-such-hash", now)
+    );
+    // Inclusive lower bound: at the anchor instant the row is live.
+    assert!(auth_lookup(&conn, "hash-1", "9998-01-01T00:00:00.000Z").is_some());
+    // A parseable NON-canonical anchor never gets that far: the
+    // created_at shape CHECK refuses it at write time, so the ceiling
+    // (which parses the anchor) and the not-before bound (which
+    // compares its text) can never see different instants.
+    for anchor in ["+5372750", "5372750", "2026-07-15 00:00:00.000Z"] {
+        let err = conn
+            .execute(
+                "UPDATE tokens SET created_at = ?1 WHERE id = 'tok-1'",
+                [anchor],
+            )
+            .expect_err(anchor);
+        assert!(err.to_string().contains("CHECK"), "{anchor}: {err}");
+    }
+}
+
+#[test]
+fn legacy_token_rows_authenticate_exactly_as_before() {
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    // A pre-trustpub row: NULL expires_at never expires, NULL
+    // scope_limit stays unlimited, and the kind column defaulted.
+    let (id, scopes, quota_class, scope_limit) =
+        auth_lookup(&conn, "hash-1", "2099-01-01T00:00:00.000Z").expect("legacy row matches");
+    assert_eq!(id, "tok-1");
+    assert_eq!(scopes, "publish,yank");
+    assert_eq!(quota_class, "default");
+    assert_eq!(scope_limit, None);
+    let kind: String = conn
+        .query_row("SELECT kind FROM tokens WHERE id = 'tok-1'", [], |row| {
+            row.get(0)
+        })
+        .expect("kind column");
+    assert_eq!(kind, "user");
+    // Revocation still refuses on the rewritten lookup, exactly as it
+    // did before the expiry conjunct joined it.
+    conn.execute(
+        "UPDATE tokens SET revoked_at = '2026-07-16T00:00:00.000Z' WHERE id = 'tok-1'",
+        [],
+    )
+    .expect("revoke token");
+    assert_eq!(
+        auth_lookup(&conn, "hash-1", "2099-01-01T00:00:00.000Z"),
+        None
+    );
+}
+
+#[test]
+fn a_scope_limited_token_authenticates_and_carries_its_limit() {
+    // The 403 confinement itself lives in the glue
+    // (`AuthContext::scope_limit_refuses`, unit-tested in src/auth.rs);
+    // this pins that the lookup delivers the column the glue decides on.
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    conn.execute(
+        "UPDATE tokens SET scope_limit = 'cabin-ports' WHERE id = 'tok-1'",
+        [],
+    )
+    .expect("set scope limit");
+    let (.., scope_limit) =
+        auth_lookup(&conn, "hash-1", "2026-08-14T12:00:00.000Z").expect("limited row matches");
+    assert_eq!(scope_limit.as_deref(), Some("cabin-ports"));
+}
+
+#[test]
+fn token_kind_domain_is_closed_in_the_schema() {
+    let conn = migrated_connection();
+    let user_id = seed_token(&conn, "tok-1", "hash-1");
+    let err = conn
+        .execute(
+            "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind) \
+             VALUES ('tok-2', ?1, 'x', 'hash-2', 'publish', '2026-07-15T00:00:00.000Z', 'admin')",
+            [user_id],
+        )
+        .expect_err("unknown kind must fail the CHECK");
+    assert!(err.to_string().contains("CHECK"), "{err}");
+    // The domain's positive side: a trustpub row with an expiry and a
+    // scope limit is admitted.
+    conn.execute(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at, scope_limit) \
+         VALUES ('tok-3', ?1, 'x', 'hash-3', 'publish', '2026-07-15T00:00:00.000Z', 'trustpub', \
+                 '2026-07-15T00:30:00.000Z', 'cabin-ports')",
+        [user_id],
+    )
+    .expect("a bounded trustpub token is in the domain");
+    // Short-lived and confined is schema-enforced for trustpub rows: a
+    // NULL expiry, a NULL scope limit, and an empty scope limit each
+    // fail the CHECK, whatever the minting path does.
+    for (label, columns, values) in [
+        ("no expiry", "scope_limit", "'cabin-ports'"),
+        ("no scope limit", "expires_at", "'2026-07-15T00:30:00.000Z'"),
+        (
+            "empty scope limit",
+            "expires_at, scope_limit",
+            "'2026-07-15T00:30:00.000Z', ''",
+        ),
+    ] {
+        let err = conn
+            .execute(
+                &format!(
+                    "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                                         kind, {columns}) \
+                     VALUES ('tok-4', ?1, 'x', 'hash-4', 'publish', \
+                             '2026-07-15T00:00:00.000Z', 'trustpub', {values})"
+                ),
+                [user_id],
+            )
+            .expect_err(label);
+        assert!(err.to_string().contains("CHECK"), "{label}: {err}");
+    }
+    // Publish-only: any other scopes string - the verify scope that
+    // would reach the governor plane included - fails the CHECK.
+    for scopes in ["verify", "publish,yank", ""] {
+        let err = conn
+            .execute(
+                &format!(
+                    "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                                         kind, expires_at, scope_limit) \
+                     VALUES ('tok-4', ?1, 'x', 'hash-4', '{scopes}', \
+                             '2026-07-15T00:00:00.000Z', 'trustpub', \
+                             '2026-07-15T00:30:00.000Z', 'cabin-ports')"
+                ),
+                [user_id],
+            )
+            .expect_err(scopes);
+        assert!(err.to_string().contains("CHECK"), "{scopes}: {err}");
+    }
+    // The lifetime ceiling is one day from issuance, inclusive: the
+    // boundary instant is admitted, one millisecond past it is not.
+    conn.execute(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at, scope_limit) \
+         VALUES ('tok-5', ?1, 'x', 'hash-5', 'publish', '2026-07-15T00:00:00.000Z', 'trustpub', \
+                 '2026-07-16T00:00:00.000Z', 'cabin-ports')",
+        [user_id],
+    )
+    .expect("the ceiling boundary is admitted");
+    let err = conn
+        .execute(
+            "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                                 expires_at, scope_limit) \
+             VALUES ('tok-6', ?1, 'x', 'hash-6', 'publish', '2026-07-15T00:00:00.000Z', \
+                     'trustpub', '2026-07-16T00:00:00.001Z', 'cabin-ports')",
+            [user_id],
+        )
+        .expect_err("past the ceiling must fail the CHECK");
+    assert!(err.to_string().contains("CHECK"), "{err}");
+}
+
+#[test]
+fn expiry_timestamps_must_be_the_fixed_width_iso_shape() {
+    // The lookup compares expires_at lexicographically, which fails
+    // OPEN for a malformed value sorting above the ISO range - so the
+    // schema refuses every shape but toISOString's, whatever kind of
+    // token a minting path writes.
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-1", "hash-1");
+    for malformed in [
+        "z",
+        "2026-08-14T12:00:00Z",
+        "2026-08-14 12:00:00.000Z",
+        "",
+        // Shape-valid digits outside calendar ranges: only the
+        // strftime round-trip catches these.
+        "2026-99-99T99:99:99.999Z",
+        // Calendar-invalid but normalizable: datetime() silently reads
+        // this as March 3rd, so only the byte-identical re-render
+        // refuses it.
+        "2026-02-31T12:00:00.000Z",
+    ] {
+        let err = conn
+            .execute(
+                "UPDATE tokens SET expires_at = ?1 WHERE id = 'tok-1'",
+                [malformed],
+            )
+            .expect_err(malformed);
+        assert!(err.to_string().contains("CHECK"), "{malformed}: {err}");
+    }
+    conn.execute(
+        "UPDATE tokens SET expires_at = '2026-08-14T12:00:00.000Z' WHERE id = 'tok-1'",
+        [],
+    )
+    .expect("the canonical shape is admitted");
+}
+
+#[test]
+fn used_jtis_refuse_null_and_replayed_ids() {
+    let conn = migrated_connection();
+    conn.execute(
+        "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-1', 1)",
+        [],
+    )
+    .expect("first consumption");
+    let replay = conn
+        .execute(
+            "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-1', 2)",
+            [],
+        )
+        .expect_err("a replayed jti must fail the primary key");
+    assert!(replay.to_string().contains("UNIQUE"), "{replay}");
+    // NOT NULL is load-bearing: SQLite would otherwise admit unlimited
+    // duplicate NULLs through a TEXT primary key.
+    let null = conn
+        .execute(
+            "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES (NULL, 1)",
+            [],
+        )
+        .expect_err("a null jti must fail NOT NULL");
+    assert!(null.to_string().contains("NOT NULL"), "{null}");
+}
+
+#[test]
+fn the_trustpub_seed_names_the_ports_publishing_workflow() {
+    let conn = migrated_connection();
+    // Exactly the one seeded row (query_row alone would silently
+    // ignore extras).
+    assert_eq!(count(&conn, "trustpub_configs"), 1);
+    let row = conn
+        .query_row(
+            "SELECT scope, repository_owner_id, repository_id, workflow_filename, \
+                    git_ref, environment, quota_class, created_at \
+             FROM trustpub_configs",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )
+        .expect("exactly one seeded config");
+    assert_eq!(
+        row,
+        (
+            "cabin-ports".to_owned(),
+            // The cabinpkg organization and cabinpkg/cabin, by their
+            // immutable numeric GitHub ids.
+            35_998_702,
+            119_684_778,
+            "ports-publish.yml".to_owned(),
+            Some("refs/heads/main".to_owned()),
+            None,
+            "operator".to_owned(),
+            "2026-08-14T00:00:00.000Z".to_owned(),
+        )
+    );
+}
+
 /// One claim's write, modeled on how the claim callback runs it: the
 /// three statements inside one transaction (a D1 batch), aborting at
 /// the first failure the way D1 aborts and rolls back a batch. The
