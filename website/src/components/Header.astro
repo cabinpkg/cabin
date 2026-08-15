@@ -7,6 +7,7 @@ import {
     DOCS_SEARCH_PATH,
     NAV_LINKS,
     SEARCH_PATH,
+    SIGNIN_GITHUB_REASON,
     SIGNIN_RESTRICTION,
 } from "../lib/constants";
 import Badge from "./ui/Badge.astro";
@@ -98,7 +99,7 @@ const searchLabel = isDocs ? "Search documentation" : "Search packages";
                 <Button
                     href={ACCOUNT_URLS.signIn}
                     variant="ghost"
-                    title={SIGNIN_RESTRICTION}
+                    title={`${SIGNIN_GITHUB_REASON} ${SIGNIN_RESTRICTION}`}
                     data-astro-prefetch="false"
                 >
                     Sign in

@@ -6,7 +6,11 @@
 // an unauthenticated visit renders the signed-out state right here -
 // never a server-side redirect.
 import Icon from "../Icon.astro";
-import { ACCOUNT_URLS, SIGNIN_RESTRICTION } from "../../lib/constants";
+import {
+    ACCOUNT_URLS,
+    SIGNIN_GITHUB_REASON,
+    SIGNIN_RESTRICTION,
+} from "../../lib/constants";
 import Badge from "../ui/Badge.astro";
 import Button from "../ui/Button.astro";
 
@@ -51,6 +55,9 @@ const { title } = Astro.props;
             </h2>
             <p class="mx-auto mb-2 max-w-xl text-ink-muted">
                 Sign in with GitHub to see this page.
+            </p>
+            <p class="mx-auto mb-2 max-w-xl text-ink-muted">
+                {SIGNIN_GITHUB_REASON}
             </p>
             <p class="mx-auto mb-8 max-w-xl text-ink-muted">
                 {SIGNIN_RESTRICTION}
