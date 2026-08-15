@@ -9,6 +9,11 @@ the service.
 
 - **D1 is canonical.** Users and their external identities, scopes and
   their members, tokens, packages, versions, revisions, the
+  trusted-publishing tables (`trustpub_configs`, the per-scope registry
+  of GitHub repositories and workflows allowed to exchange an Actions
+  OIDC token for a short-lived `trustpub` token, bound by immutable
+  numeric ids; and `trustpub_used_jtis`, the exchange's once-only jti
+  replay guard), the
   `backup_pending` queue, and the `meta` key-value table all live in one
   D1 database (`migrations/`).
   Everything the read routes serve is composed from D1 rows. The
@@ -252,6 +257,17 @@ create-token response). A valid token additionally opens the read
 plane's `verify`-scope carve-outs;
 `scopes` (a subset of `publish,yank,verify`) gates the mutation routes and
 the verifier's admin plane.
+A token row is live only from `created_at` through `expires_at` (`NULL`
+never expires), enforced inside the single lookup's WHERE clause, so an
+expired or not-yet-valid token produces the exact no-row answer an
+unknown one does - the uniform 401, with no response or timing oracle.
+A row with `scope_limit` set may perform write-side package operations
+(publish, yank, verdict) only under exactly that scope; a mismatch
+answers the write plane's uniform membership 403. `kind` is a closed
+domain (`user` | `trustpub`), and the schema itself requires a
+`trustpub` row to be expiring (within one day of its `created_at`
+anchor), scope-limited, and publish-only - the minting path cannot
+widen the exchange into a standing or privileged credential.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 

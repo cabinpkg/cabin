@@ -31,9 +31,26 @@ pub struct AuthContext {
     /// The user's quota class (`users.quota_class`); `crate::quota` maps
     /// it to the enforced limits.
     pub quota_class: String,
+    /// `tokens.scope_limit`: `None` is an unlimited token; `Some` confines
+    /// every write-side operation to packages under exactly that scope
+    /// (see [`AuthContext::scope_limit_refuses`]).
+    pub scope_limit: Option<String>,
     /// Publish token-bucket state from the token row, `None` for a token
     /// that has never published.
     pub bucket: Option<crate::quota::Bucket>,
+}
+
+impl AuthContext {
+    /// Whether the token's `scope_limit` forbids a write under `scope`.
+    /// Compares only against the token's own row, so the refusal can
+    /// never become an oracle about the registry; callers answer it
+    /// with the same uniform 403 as a scope-membership miss. Read-side
+    /// routes never consult this.
+    pub fn scope_limit_refuses(&self, scope: &str) -> bool {
+        self.scope_limit
+            .as_deref()
+            .is_some_and(|limit| limit != scope)
+    }
 }
 
 /// Extracts the token from an `Authorization` header value, accepting only
@@ -176,6 +193,26 @@ mod tests {
             bytes[position] = 1;
             assert_ne!(format_token(&bytes), baseline, "byte {position}");
         }
+    }
+
+    #[test]
+    fn scope_limit_refuses_only_a_mismatched_scope() {
+        let auth = |scope_limit: Option<&str>| AuthContext {
+            token_id: "t".to_owned(),
+            user_id: 1,
+            scopes: vec![Scope::Publish],
+            quota_class: "default".to_owned(),
+            scope_limit: scope_limit.map(str::to_owned),
+            bucket: None,
+        };
+        // An unlimited token writes anywhere.
+        assert!(!auth(None).scope_limit_refuses("cabin-ports"));
+        assert!(!auth(Some("cabin-ports")).scope_limit_refuses("cabin-ports"));
+        assert!(auth(Some("cabin-ports")).scope_limit_refuses("other"));
+        // Exact string equality: no prefix or case slack.
+        assert!(auth(Some("cabin-ports")).scope_limit_refuses("cabin-port"));
+        assert!(auth(Some("cabin-ports")).scope_limit_refuses("Cabin-Ports"));
+        assert!(auth(Some("")).scope_limit_refuses("cabin-ports"));
     }
 
     #[test]
