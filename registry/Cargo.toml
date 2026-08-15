@@ -15,8 +15,19 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+base64ct = { version = "1", features = ["alloc"] }
 hmac = "0.13"
 icu_normalizer = "2"
+# Exact pin: 0.10 is a release candidate whose API can still break
+# between rcs, and it is the series that plugs into the digest 0.11 /
+# sha2 0.11 stack this crate already uses (stable 0.9 would drag in a
+# parallel sha2 0.10 tree). RUSTSEC-2023-0071 (Marvin) concerns
+# private-key decryption timing; src/trustpub.rs only does public-key
+# signature verification, so if an audit tool ever flags the advisory,
+# scope the exception with exactly that reasoning.
+rsa = { version = "=0.10.0-rc.18", default-features = false, features = [
+  "sha2",
+] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -40,9 +51,12 @@ wasm-bindgen-futures = "=0.4.75"
 # statement (src/sql.rs) against the real migrated schema, and the
 # names module's parity test pins its mirrored DOS device stems to
 # cabin-fs's shared predicate. The wasm build never sees either.
+# rand is the trustpub tests' RSA keygen (seeded ChaCha, rsa's own
+# test pattern - the rc's keygen wants a rand_core 0.10 rng).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 cabinpkg-core = { path = "../crates/cabin-core" }
 cabinpkg-fs = { path = "../crates/cabin-fs" }
+rand = { version = "0.10", features = ["chacha"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 
 [lints.clippy]

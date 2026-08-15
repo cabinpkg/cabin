@@ -50,11 +50,14 @@ the service.
   revision never became part of the registry, so identical bytes revive it in
   place back to `pending`. There is no unpublish or delete.
 - **No KV.** The data is relational and small; a second store would only add
-  consistency questions. Two Cache API surfaces exist: the public stats
-  summary's fixed-key entry ("Download counts") and the immutable
+  consistency questions. Three Cache API surfaces exist: the public stats
+  summary's fixed-key entry ("Download counts"), the immutable
   verified-artifact bodies, keyed by content checksum behind
   authentication ("The cost governor" - a cache hit costs no R2
-  operation).
+  operation), and the GitHub Actions OIDC JWKS copy under one fixed
+  synthetic same-zone key (`src/trustpub.rs`; ~600s TTL, refreshed by
+  every origin fetch, with one cache-bypass refetch on an unknown key
+  id).
 - **The governor's ledger lives in one SQLite-backed Durable Object.**
   Every billable R2 resource Cabin can initiate - stored bytes and
   Class A/B operations - passes through its serialized admission
@@ -1201,7 +1204,12 @@ engine, pools, limits, and protocol types (`src/governor.rs`, with its
 Durable Object SQL exercised by `rusqlite` in host tests), the
 download-telemetry flush policy (`src/telemetry.rs`), the verification
 lifecycle's
-statuses, verdict rules, and read gate (`src/verify.rs`), and the backup
+statuses, verdict rules, and read gate (`src/verify.rs`), the GitHub
+Actions OIDC token verification for trusted publishing - manual `RS256`
+JWT checks, ordered claim validation, and the `JwksProvider` trait
+(`src/trustpub.rs`; its wasm-only Cache-API-backed `GithubJwks`
+provider lives in the same module, awaiting the exchange endpoints) -
+and the backup
 logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
 (`src/glue.rs` for the role dispatch and the Bearer planes,
