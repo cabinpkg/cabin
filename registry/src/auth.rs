@@ -109,6 +109,16 @@ pub fn format_token(bytes: &[u8; TOKEN_RANDOM_BYTES]) -> String {
     token
 }
 
+/// Formats a trusted-publishing exchange token: `cabin_tp_` plus the
+/// base64url (unpadded) rendering of the CSPRNG bytes. The distinct
+/// prefix keeps a leaked CI log grep-ably different from a standing
+/// user token; nothing parses the shape back - authentication is the
+/// hash lookup either way.
+pub fn format_trustpub_token(bytes: &[u8; TOKEN_RANDOM_BYTES]) -> String {
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+    format!("cabin_tp_{}", Base64UrlUnpadded::encode_string(bytes))
+}
+
 /// Parses the comma-separated `tokens.scopes` column, ignoring unknown names
 /// (deny by default: an unknown scope never grants anything).
 pub fn parse_scopes(scopes: &str) -> Vec<Scope> {
@@ -192,6 +202,28 @@ mod tests {
             let mut bytes = [0u8; 32];
             bytes[position] = 1;
             assert_ne!(format_token(&bytes), baseline, "byte {position}");
+        }
+    }
+
+    #[test]
+    fn format_trustpub_token_has_the_documented_shape() {
+        // 32 bytes render as ceil(32 / 3) * 4 - 1 = 43 unpadded
+        // base64url characters.
+        let token = format_trustpub_token(&[0xA5; 32]);
+        let digits = token.strip_prefix("cabin_tp_").expect("cabin_tp_ prefix");
+        assert_eq!(digits.len(), 43);
+        assert!(
+            digits
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "token: {token}"
+        );
+        // Every input byte reaches the rendered secret.
+        let baseline = format_trustpub_token(&[0; 32]);
+        for position in 0..32 {
+            let mut bytes = [0u8; 32];
+            bytes[position] = 1;
+            assert_ne!(format_trustpub_token(&bytes), baseline, "byte {position}");
         }
     }
 

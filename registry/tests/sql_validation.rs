@@ -438,26 +438,41 @@ fn token_kind_domain_is_closed_in_the_schema() {
         )
         .expect_err("unknown kind must fail the CHECK");
     assert!(err.to_string().contains("CHECK"), "{err}");
-    // The domain's positive side: a trustpub row with an expiry and a
-    // scope limit is admitted.
+    // The domain's positive side: a trustpub row with an expiry, a
+    // scope limit, and a granted quota class is admitted.
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
-                             expires_at, scope_limit) \
+                             expires_at, scope_limit, quota_class) \
          VALUES ('tok-3', ?1, 'x', 'hash-3', 'publish', '2026-07-15T00:00:00.000Z', 'trustpub', \
-                 '2026-07-15T00:30:00.000Z', 'cabin-ports')",
+                 '2026-07-15T00:30:00.000Z', 'cabin-ports', 'operator')",
         [user_id],
     )
     .expect("a bounded trustpub token is in the domain");
-    // Short-lived and confined is schema-enforced for trustpub rows: a
-    // NULL expiry, a NULL scope limit, and an empty scope limit each
-    // fail the CHECK, whatever the minting path does.
+    // Short-lived, confined, and explicitly classed is schema-enforced
+    // for trustpub rows: a NULL expiry, a NULL or empty scope limit,
+    // and a NULL quota class each fail the CHECK, whatever the minting
+    // path does. Each case supplies every other required column so it
+    // isolates exactly its own violation.
     for (label, columns, values) in [
-        ("no expiry", "scope_limit", "'cabin-ports'"),
-        ("no scope limit", "expires_at", "'2026-07-15T00:30:00.000Z'"),
+        (
+            "no expiry",
+            "scope_limit, quota_class",
+            "'cabin-ports', 'operator'",
+        ),
+        (
+            "no scope limit",
+            "expires_at, quota_class",
+            "'2026-07-15T00:30:00.000Z', 'operator'",
+        ),
         (
             "empty scope limit",
+            "expires_at, scope_limit, quota_class",
+            "'2026-07-15T00:30:00.000Z', '', 'operator'",
+        ),
+        (
+            "no quota class",
             "expires_at, scope_limit",
-            "'2026-07-15T00:30:00.000Z', ''",
+            "'2026-07-15T00:30:00.000Z', 'cabin-ports'",
         ),
     ] {
         let err = conn
@@ -480,10 +495,10 @@ fn token_kind_domain_is_closed_in_the_schema() {
             .execute(
                 &format!(
                     "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
-                                         kind, expires_at, scope_limit) \
+                                         kind, expires_at, scope_limit, quota_class) \
                      VALUES ('tok-4', ?1, 'x', 'hash-4', '{scopes}', \
                              '2026-07-15T00:00:00.000Z', 'trustpub', \
-                             '2026-07-15T00:30:00.000Z', 'cabin-ports')"
+                             '2026-07-15T00:30:00.000Z', 'cabin-ports', 'operator')"
                 ),
                 [user_id],
             )
@@ -494,22 +509,101 @@ fn token_kind_domain_is_closed_in_the_schema() {
     // boundary instant is admitted, one millisecond past it is not.
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
-                             expires_at, scope_limit) \
+                             expires_at, scope_limit, quota_class) \
          VALUES ('tok-5', ?1, 'x', 'hash-5', 'publish', '2026-07-15T00:00:00.000Z', 'trustpub', \
-                 '2026-07-16T00:00:00.000Z', 'cabin-ports')",
+                 '2026-07-16T00:00:00.000Z', 'cabin-ports', 'operator')",
         [user_id],
     )
     .expect("the ceiling boundary is admitted");
     let err = conn
         .execute(
             "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
-                                 expires_at, scope_limit) \
+                                 expires_at, scope_limit, quota_class) \
              VALUES ('tok-6', ?1, 'x', 'hash-6', 'publish', '2026-07-15T00:00:00.000Z', \
-                     'trustpub', '2026-07-16T00:00:00.001Z', 'cabin-ports')",
+                     'trustpub', '2026-07-16T00:00:00.001Z', 'cabin-ports', 'operator')",
             [user_id],
         )
         .expect_err("past the ceiling must fail the CHECK");
     assert!(err.to_string().contains("CHECK"), "{err}");
+}
+
+/// The lazy expiry cleanup the exchange rides on each mint: statement
+/// semantics `prepare` cannot see - the `kind` filter (an expired
+/// *user* token stays listed and revocable on its owner's dashboard),
+/// the inclusive `<=` boundary matching the auth lookup's strict `>`
+/// liveness, and the jti prune against the acceptance window's end.
+#[test]
+fn expiry_pruning_is_trustpub_only_and_boundary_inclusive() {
+    let conn = migrated_connection();
+    let user_id = seed_token(&conn, "tok-user", "hash-user");
+    conn.execute(
+        "UPDATE tokens SET expires_at = '2026-08-14T00:00:00.000Z' WHERE id = 'tok-user'",
+        [],
+    )
+    .expect("expire the user token");
+    conn.execute(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at, scope_limit, quota_class) \
+         VALUES ('tok-tp-dead', ?1, 'x', 'hash-tp-dead', 'publish', '2026-08-14T23:30:00.000Z', \
+                 'trustpub', '2026-08-15T00:00:00.000Z', 'cabin-ports', 'operator'), \
+                ('tok-tp-live', ?1, 'x', 'hash-tp-live', 'publish', '2026-08-15T00:00:00.000Z', \
+                 'trustpub', '2026-08-15T00:30:00.000Z', 'cabin-ports', 'operator')",
+        [user_id],
+    )
+    .expect("seed trustpub rows");
+
+    // At the boundary instant the dead row no longer authenticates
+    // (the lookup's strict >), so the prune's inclusive <= removes
+    // exactly the rows the auth plane already refuses.
+    let now = "2026-08-15T00:00:00.000Z";
+    let pruned = conn
+        .execute(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS, [now])
+        .expect("prune tokens");
+    assert_eq!(pruned, 1, "exactly the dead trustpub row");
+    let survivors: Vec<String> = conn
+        .prepare("SELECT id FROM tokens ORDER BY id")
+        .expect("prepare")
+        .query_map([], |row| row.get(0))
+        .expect("list tokens")
+        .collect::<Result<_, _>>()
+        .expect("token ids");
+    assert_eq!(survivors, ["tok-tp-live", "tok-user"]);
+
+    // The jti prune: expires_at is the END of the verifier's acceptance
+    // window, so a row at exactly now protects nothing and goes; a
+    // later one stays.
+    conn.execute_batch(
+        "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-dead', 100), \
+                                                                 ('jti-live', 101);",
+    )
+    .expect("seed jtis");
+    let pruned = conn
+        .execute(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS, [100])
+        .expect("prune jtis");
+    assert_eq!(pruned, 1);
+    let survivor: String = conn
+        .query_row("SELECT jti FROM trustpub_used_jtis", [], |row| row.get(0))
+        .expect("surviving jti");
+    assert_eq!(survivor, "jti-live");
+}
+
+/// [`sql::DELETE_TRUSTPUB_TOKEN`]'s `kind` guard: the id of a live
+/// *user* token deletes nothing - the zero the glue answers with the
+/// uniform 401, keeping the endpoint no token-kind oracle. (The
+/// trustpub-side delete is exercised by the end-to-end flow test in
+/// `src/trustpub.rs`.)
+#[test]
+fn trustpub_revocation_never_deletes_user_tokens() {
+    let conn = migrated_connection();
+    seed_token(&conn, "tok-user", "hash-user");
+    let deleted = conn
+        .execute(sql::DELETE_TRUSTPUB_TOKEN, ["tok-user"])
+        .expect("guarded delete executes");
+    assert_eq!(deleted, 0);
+    assert!(
+        auth_lookup(&conn, "hash-user", "2026-08-15T00:00:00.000Z").is_some(),
+        "the user token stays live"
+    );
 }
 
 #[test]

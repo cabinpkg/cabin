@@ -29,6 +29,10 @@ use crate::text::{capture, first_line, grep_lines, status_line_is, strip_name, t
 /// weaken six assertions to "same fields".
 const EXPECTED_401: &str = r#"{"errors":[{"detail":"authentication required"}]}"#;
 
+/// The trusted-publishing token endpoint, exchanged into here and
+/// revoked from [`crate::legs::revisions`].
+pub const TRUSTPUB_TOKENS_PATH: &str = "/api/v1/trusted_publishing/tokens";
+
 /// The whole anonymous surface, in the shell's order.
 ///
 /// # Errors
@@ -166,6 +170,27 @@ fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
         &[],
         Some(b"{}"),
     )?;
+    // The trusted-publishing exchange is auth-exempt (the JWT in the
+    // body is the credential), but an unverifiable JWT - or no JSON at
+    // all - is an absent credential and must answer the same bytes:
+    // post-migration coverage with no shell ancestor.
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        TRUSTPUB_TOKENS_PATH,
+        &[],
+        Some(br#"{"jwt":"not-a-jwt"}"#),
+    )?;
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        TRUSTPUB_TOKENS_PATH,
+        &[],
+        Some(b"not json"),
+    )?;
+    uniform_401_with(smoke, Base::Web, "DELETE", TRUSTPUB_TOKENS_PATH, &[], None)?;
     uniform_401(smoke, Base::Web, "/api/v1/admin/versions?status=pending")
 }
 

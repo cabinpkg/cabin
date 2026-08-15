@@ -33,7 +33,7 @@ use xtask_registry_admin::{display, results};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::{Base, Smoke};
-use crate::legs::anonymous::uniform_401_with;
+use crate::legs::anonymous::{TRUSTPUB_TOKENS_PATH, uniform_401_with};
 use crate::servers::{d1, d1_json, d1_quiet};
 use crate::step;
 use crate::text::capture;
@@ -373,6 +373,41 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     let unknown = verdict_path(inputs, "9.9.9");
     smoke.wrequest("PATCH", &unknown, inputs.verdict_verified, &[404])?;
     smoke.as_publisher();
+    // The trusted-publishing exchange sits behind this same gate - and
+    // in FRONT of the token check: no credential at all, yet the answer
+    // is the gate's 503, never a 401 (a 401 here would mean the route
+    // slipped behind `authenticate`).
+    let exchange = smoke.url(Base::Web, TRUSTPUB_TOKENS_PATH);
+    let got = smoke.http("PUT", &exchange, &[], Some(br#"{"jwt":"not-a-jwt"}"#))?;
+    if got != 503 {
+        bail!("the exchange under writes_blocked answered {got}, expected the gate's 503");
+    }
+    smoke.expect_body("registry_over_budget")?;
+    if !header_line(&smoke.headers, "retry-after: 900") {
+        bail!("the exchange 503 must carry Retry-After: 900");
+    }
+    // Revocation deliberately skips the gate (blocking it would keep a
+    // live credential alive), so even blocked, the answer is its kind
+    // guard's: the publisher's standing user token is refused with the
+    // uniform 401 - never a 503, and never a deletion.
+    let auth = smoke.auth.clone();
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "DELETE",
+        TRUSTPUB_TOKENS_PATH,
+        &auth,
+        None,
+    )?;
+    // Header-identical too: the kind-guard 401 must not carry the
+    // generation debug stamp the unauthenticated 401 lacks, or the
+    // stamp is a token-validity oracle on this route.
+    if String::from_utf8_lossy(&smoke.headers)
+        .to_ascii_lowercase()
+        .contains("x-cabin-registry-generation")
+    {
+        bail!("the trustpub DELETE 401 must not carry the generation header");
+    }
     Ok(())
 }
 

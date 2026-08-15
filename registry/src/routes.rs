@@ -106,14 +106,28 @@ pub enum ApiRoute<'a> {
     /// pre-launch ledger wipe, and the on-demand reconcile
     /// (`docs/runbook.md`, "The cost governor").
     AdminGovernor,
+    /// [`TRUSTPUB_TOKENS_PATH`]: `PUT` exchanges a GitHub Actions OIDC
+    /// JWT for a short-lived `trustpub` token (the one Bearer-plane
+    /// route exempt from token auth - the JWT in the body is the
+    /// credential), `DELETE` revokes the presented token.
+    TrustPubTokens,
 }
+
+/// The trusted-publishing token endpoint. The glue dispatches the
+/// unauthenticated `PUT` exchange on this exact path before the Bearer
+/// plane's credential check.
+pub const TRUSTPUB_TOKENS_PATH: &str = "/api/v1/trusted_publishing/tokens";
 
 /// Matches `path` against the API routes:
 /// `/api/v1/packages/<scope>/<name>/<version>`,
-/// `/api/v1/packages/<scope>/<name>/<version>/yank`, and the admin
+/// `/api/v1/packages/<scope>/<name>/<version>/yank`, the
+/// trusted-publishing [`TRUSTPUB_TOKENS_PATH`], and the admin
 /// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`,
 /// `/api/v1/admin/packages`, and `/api/v1/admin/governor`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
+    if path == TRUSTPUB_TOKENS_PATH {
+        return Some(ApiRoute::TrustPubTokens);
+    }
     if path == "/api/v1/admin/packages" {
         return Some(ApiRoute::AdminPackages);
     }
@@ -937,6 +951,31 @@ mod tests {
         // Exact match only: no subtree grows under it by accident.
         assert_eq!(match_api_route("/api/v1/admin/governor/"), None);
         assert_eq!(match_api_route("/api/v1/admin/governor/usage"), None);
+    }
+
+    #[test]
+    fn matches_the_trustpub_tokens_route() {
+        assert_eq!(
+            match_api_route(TRUSTPUB_TOKENS_PATH),
+            Some(ApiRoute::TrustPubTokens)
+        );
+        assert_eq!(TRUSTPUB_TOKENS_PATH, "/api/v1/trusted_publishing/tokens");
+        // Exact match only, like the governor route; and never on the
+        // session or stats planes.
+        for path in [
+            "/api/v1/trusted_publishing",
+            "/api/v1/trusted_publishing/",
+            "/api/v1/trusted_publishing/tokens/",
+            "/api/v1/trusted_publishing/tokens/abc",
+            "/api/v1/trusted-publishing/tokens",
+        ] {
+            assert_eq!(match_api_route(path), None, "path: {path:?}");
+        }
+        assert!(!is_session_path(TRUSTPUB_TOKENS_PATH));
+        assert!(!is_stats_path(TRUSTPUB_TOKENS_PATH));
+        assert_eq!(match_session_route(TRUSTPUB_TOKENS_PATH), None);
+        assert_eq!(match_web_route(TRUSTPUB_TOKENS_PATH), None);
+        assert_eq!(match_route(TRUSTPUB_TOKENS_PATH), None);
     }
 
     #[test]

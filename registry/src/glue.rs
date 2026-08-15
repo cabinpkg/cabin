@@ -21,7 +21,7 @@ use crate::governor_client::{self, Gate};
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, backup, breaker, quota, sql, telemetry, verify};
+use crate::{analytics, backup, breaker, quota, sql, telemetry, trustpub, verify};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -65,6 +65,11 @@ struct ArtifactRecord {
 #[derive(Deserialize)]
 struct MetaRecord {
     value: String,
+}
+
+#[derive(Deserialize)]
+struct OwnerRecord {
+    user_id: i64,
 }
 
 #[derive(Deserialize)]
@@ -348,6 +353,17 @@ async fn handle_website(
     // Everything else is the Bearer plane: deny by default, the uniform
     // 401 before any route matching or data lookup.
     let db = env.d1("DB")?;
+    // The one auth-exempt route on the plane: the exchange PUT's
+    // credential is the OIDC JWT in its body, so it dispatches before
+    // the token check - but never in front of the breaker, which gates
+    // it inside the handler like every other write.
+    if path == crate::routes::TRUSTPUB_TOKENS_PATH && req.method() == Method::Put {
+        let (mut response, token_id) = trustpub_exchange_response(req, env, &db).await?;
+        if let Some(generation) = registry_generation(&db).await {
+            response.headers_mut().set(GENERATION_HEADER, &generation)?;
+        }
+        return Ok((response, token_id));
+    }
     let Some(auth) = authenticate(req, &db, ctx).await? else {
         return Ok((unauthorized(env)?, None));
     };
@@ -377,6 +393,19 @@ async fn handle_website(
         Method::Post => match match_api_route(path) {
             Some(ApiRoute::AdminGovernor) => {
                 admin_governor_mutation_response(req, env, &db, &auth).await?
+            }
+            Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
+            None => error_response(404, error::NOT_FOUND)?,
+        },
+        Method::Delete => match match_api_route(path) {
+            Some(ApiRoute::TrustPubTokens) => {
+                // Early return past the generation stamp below: the
+                // kind guard's 401 must stay HEADER-identical to the
+                // unauthenticated one (which never gets the stamp), or
+                // the debug header becomes a token-validity oracle on
+                // this route. The 204 goes unstamped with it.
+                let response = trustpub_revoke_response(env, &db, &auth).await?;
+                return Ok((response, Some(auth.token_id)));
             }
             Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
@@ -841,6 +870,191 @@ async fn yank_response(
         200,
         &serde_json::json!({ "ok": true, "yanked": yanked, "changed": changed }).to_string(),
     )
+}
+
+/// The trusted-publishing exchange body, exactly `{"jwt": "<token>"}`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExchangeBody {
+    jwt: String,
+}
+
+/// GitHub Actions OIDC JWTs run ~1.5-2.5 KB today. A dedicated cap
+/// rather than [`MAX_MUTATION_BODY_BYTES`]: 4 KB leaves thin headroom
+/// against GitHub growing its claim set, and a cap breach here is a
+/// ports-publishing outage, not a client bug.
+const MAX_EXCHANGE_BODY_BYTES: usize = 16 * 1024;
+
+/// `PUT /api/v1/trusted_publishing/tokens`
+/// (`docs/remote-registry.md`, "Trusted publishing"): exchanges a
+/// verified GitHub Actions OIDC JWT for a short-lived multi-use
+/// `trustpub` token. The step order is deliberate: the breaker's write
+/// gate first (`503`, like every write), then the fully stateless JWT
+/// verification (JWKS via Cache/network, never D1), and only then the
+/// D1 work - config match, backing owner, then one transaction for the
+/// once-only jti consume (its zero-changed-rows answer is the replay
+/// refusal), the mint guarded on it, and the lazy expiry cleanup
+/// (deliberately no cron). Every refusal between the gate and the mint answers the
+/// byte-identical uniform 401 - no config/signature/replay oracle -
+/// with the real reason logged for the operator. Returns the minted
+/// token row id so the request log ties to the row.
+async fn trustpub_exchange_response(
+    req: &mut Request,
+    env: &Env,
+    db: &D1Database,
+) -> worker::Result<(Response, Option<String>)> {
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok((blocked, None));
+    }
+    let refused = |reason: String| -> worker::Result<(Response, Option<String>)> {
+        console_log!("trustpub exchange refused: {reason}");
+        Ok((unauthorized(env)?, None))
+    };
+    // A missing, oversized, or malformed body is an absent credential,
+    // not a 400: the JWT in the body is the credential, and the refusal
+    // stays the one uniform envelope.
+    let Some(body) = bounded_body(req, MAX_EXCHANGE_BODY_BYTES).await? else {
+        return refused("body over the cap".to_owned());
+    };
+    let Ok(ExchangeBody { jwt }) = serde_json::from_slice(&body) else {
+        return refused("malformed body".to_owned());
+    };
+
+    // Worker clocks are epoch MILLISECONDS; the verifier takes seconds.
+    #[allow(clippy::cast_possible_truncation)]
+    let now_secs = (now_epoch_ms() / 1000.0) as i64;
+    let claims = match trustpub::verify(
+        &jwt,
+        &trustpub::GithubJwks,
+        trustpub::DEFAULT_AUDIENCE,
+        now_secs,
+    )
+    .await
+    {
+        Ok(claims) => claims,
+        Err(err) => return refused(format!("jwt verification failed: {err:?}")),
+    };
+
+    let configs: Vec<trustpub::TrustpubConfig> = db
+        .prepare(sql::TRUSTPUB_CONFIGS_BY_REPOSITORY)
+        .bind(&[
+            js_int(claims.repository_owner_id),
+            js_int(claims.repository_id),
+        ])?
+        .all()
+        .await?
+        .results()?;
+    let config = match trustpub::select_config(&claims, &configs) {
+        Ok(config) => config,
+        Err(err) => return refused(err.to_string()),
+    };
+
+    // Before the jti consume on purpose: an unclaimed scope must not
+    // burn the JWT, so claiming it and retrying the same run stays
+    // possible while the token is still fresh.
+    let owner: Option<OwnerRecord> = db
+        .prepare(sql::TRUSTPUB_BACKING_OWNER)
+        .bind(&[config.scope.as_str().into()])?
+        .first(None)
+        .await?;
+    let Some(owner) = owner else {
+        return refused(format!(
+            "scope {} has no owner to back a token",
+            config.scope
+        ));
+    };
+
+    let id = auth::hex(&web_glue::random_bytes::<16>()?);
+    let token = auth::format_trustpub_token(&web_glue::random_bytes()?);
+    let (created_at, expires_at) = trustpub_token_window();
+    // One transaction for the spec's steps 6-8: the consume, the mint
+    // (guarded inside the SQL on the consume's changes(), so it must
+    // stay the immediately following statement), then the lazy prunes.
+    // A replayed jti answers as zero consumed rows without minting; any
+    // batch failure rolls the consume back with everything else, so a
+    // transient 500 never burns a still-valid JWT.
+    let results = db
+        .batch(vec![
+            db.prepare(sql::CONSUME_TRUSTPUB_JTI)
+                .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
+            db.prepare(sql::INSERT_TRUSTPUB_TOKEN).bind(&[
+                id.as_str().into(),
+                js_int(owner.user_id),
+                format!("trusted-publishing: {}", config.workflow_filename).into(),
+                auth::token_hash(&token).into(),
+                created_at.as_str().into(),
+                expires_at.as_str().into(),
+                config.scope.as_str().into(),
+                config.quota_class.as_str().into(),
+            ])?,
+            db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS)
+                .bind(&[js_int(now_secs)])?,
+            db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS)
+                .bind(&[created_at.as_str().into()])?,
+        ])
+        .await?;
+    let changed = |index: usize| -> usize {
+        results
+            .get(index)
+            .and_then(|result| result.meta().ok().flatten())
+            .and_then(|meta| meta.changes)
+            .unwrap_or(0)
+    };
+    if changed(0) == 0 {
+        return refused("replayed jti".to_owned());
+    }
+    if changed(1) == 0 {
+        // The guard misfired: the jti was consumed but no row was
+        // stored, and the plaintext below would be a dead credential.
+        console_error!("trustpub exchange consumed a jti without minting");
+        return Ok((error_response(500, error::INTERNAL)?, None));
+    }
+
+    // The plaintext is rendered exactly once, here; D1 holds only the
+    // SHA-256 hex.
+    let body = serde_json::json!({ "token": token, "expires_at": expires_at }).to_string();
+    Ok((json_response(&body)?, Some(id)))
+}
+
+/// The exchange token's `(created_at, expires_at)` pair, exactly
+/// [`trustpub::TOKEN_TTL_SECS`] apart from a single clock read.
+fn trustpub_token_window() -> (String, String) {
+    let now_ms = now_epoch_ms();
+    let iso = |ms: f64| {
+        worker::js_sys::Date::new(&worker::wasm_bindgen::JsValue::from_f64(ms))
+            .to_iso_string()
+            .as_string()
+            .unwrap_or_default()
+    };
+    #[allow(clippy::cast_precision_loss)] // 1800 is exact in f64
+    let ttl_ms = trustpub::TOKEN_TTL_SECS as f64 * 1000.0;
+    (iso(now_ms), iso(now_ms + ttl_ms))
+}
+
+/// `DELETE /api/v1/trusted_publishing/tokens`: the presented (already
+/// authenticated) token revokes itself, iff it is a trustpub one - a
+/// user token's id changes no rows and answers the same uniform 401 as
+/// any invalid credential, so the endpoint is no token-kind oracle.
+/// Deletion also makes a repeat DELETE indistinguishable from an
+/// unknown token (the 401 again), which is the documented idempotent
+/// answer. Deliberately not behind the write gate, like the verdict
+/// route: revocation removes a live credential, and blocking it while
+/// over budget would keep that credential alive - the wrong fail
+/// direction for a security operation.
+async fn trustpub_revoke_response(
+    env: &Env,
+    db: &D1Database,
+    auth: &AuthContext,
+) -> worker::Result<Response> {
+    let deleted = db
+        .prepare(sql::DELETE_TRUSTPUB_TOKEN)
+        .bind(&[auth.token_id.as_str().into()])?
+        .run()
+        .await?;
+    if deleted.meta()?.and_then(|meta| meta.changes).unwrap_or(0) == 0 {
+        return unauthorized(env);
+    }
+    Ok(Response::empty()?.with_status(204))
 }
 
 fn has_verify_scope(auth: &AuthContext) -> bool {

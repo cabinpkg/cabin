@@ -102,6 +102,8 @@ Authorization: Bearer cabin_<base62>
 - Token scopes: `publish`, `yank`, and `verify` (the
   [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token
   additionally opens the read plane's `verify`-scope carve-outs (pending-artifact fetches).
+- [Trusted publishing](#trusted-publishing) mints short-lived `cabin_tp_<base64url>` tokens;
+  they ride the same `Authorization: Bearer` header as every other token.
 
 ### The login-URL challenge
 
@@ -653,14 +655,73 @@ What yanking means - matching the resolver behavior in
 - Unpublish / delete is deliberately not offered: removing bytes other projects may already
   depend on breaks reproducible builds, so the strongest retraction is the yank flag.
 
+## Trusted publishing
+
+Trusted publishing (the crates.io RFC 3691 model) lets a registered GitHub Actions workflow
+publish without holding any long-lived secret: the workflow's own OIDC token is exchanged for a
+short-lived registry token.  Which workflows may exchange is operator-side registry data - a
+config binds a scope to a repository and workflow by their immutable numeric GitHub ids,
+optionally pinning a git ref and an environment - not part of this protocol.  The protocol
+surface is the two routes below, on the [`api`](#registry-configuration) origin.
+
+### Exchanging an Actions OIDC token
+
+```text
+PUT /api/v1/trusted_publishing/tokens
+```
+
+The one Bearer-plane route that takes no `Authorization` header: the credential is the GitHub
+Actions OIDC JWT itself, requested by the workflow with audience `cabinpkg.com` and sent as the
+body:
+
+```json
+{ "jwt": "<github actions oidc jwt>" }
+```
+
+The registry verifies the JWT statelessly first - `RS256` signature against GitHub's published
+keys, issuer, audience, time claims with a small leeway, and the required claim set - then
+matches the claims against the registered configs: the workflow filename extracted from
+`workflow_ref` must equal the config's, and where the config pins a git ref or an environment
+the corresponding claim must equal it.  The JWT's `jti` is accepted exactly once; replaying a
+token whose exchange already succeeded answers `401` however valid it still is.
+
+Success is `200`:
+
+```json
+{ "token": "cabin_tp_<base64url>", "expires_at": "<RFC 3339>" }
+```
+
+The plaintext is rendered exactly once, in this response.  The minted token is a bearer token
+like any other, multi-use within its 30-minute lifetime (one ports run publishes its whole
+batch on one token) - `publish`-scoped, confined to the config's scope, and carrying the
+config's quota class.  Every exchange failure between the gate and the mint - a malformed
+body, a bad signature, an unknown repository, a mismatched workflow, ref, or environment, a
+replayed `jti` - answers the byte-identical uniform `401`, the
+[challenge](#the-login-url-challenge) included, so the route is no oracle for what is
+registered.  The exchange is gated by the registry's budget breaker like every other write
+(`503` + `Retry-After` when tripped).
+
+### Revoking the exchanged token
+
+```text
+DELETE /api/v1/trusted_publishing/tokens
+```
+
+Authorized by the exchanged token itself (`Authorization: Bearer cabin_tp_...`): the token row
+is deleted and the answer is `204`.  Anything else - a standing user token, an unknown,
+expired, or already-revoked one - answers the uniform `401`, which also makes a repeated
+`DELETE` idempotent.  Workflows should revoke when their run completes rather than letting the
+lifetime lapse.
+
 ## Status codes
 
 | Code | Meaning |
 | --- | --- |
-| `200` | Success without a state change: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has). |
+| `200` | Success that created no registry content: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has), or a granted [trusted-publishing exchange](#trusted-publishing) (which consumes the JWT's `jti` and mints its token, but publishes nothing). |
 | `201` | Publish that created a packaging revision - a first publish of the version, an opted-in respin, or the revival of a rejected revision. |
+| `204` | A [trusted-publishing revocation](#revoking-the-exchanged-token) that deleted the presented token. |
 | `400` | Malformed request: bad framing, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
-| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there).  Carries the [login-URL challenge](#the-login-url-challenge). |
+| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; or a conflicting [verdict](#admin-api-scope-verify). |
