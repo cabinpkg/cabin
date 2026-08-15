@@ -191,9 +191,12 @@ CREATE INDEX trustpub_configs_repository
 -- exactly once (INSERT into the primary key; the loser of a race
 -- fails). NOT NULL is load-bearing on a TEXT primary key: SQLite
 -- permits duplicate NULLs in a non-INTEGER PRIMARY KEY, which would
--- exempt a null jti from the once-only rule. expires_at is the
--- token's numeric `exp` (Unix seconds) so rows can be pruned once the
--- JWT they name could no longer verify anyway.
+-- exempt a null jti from the once-only rule. expires_at is the end
+-- of the verifier's acceptance window (src/trustpub.rs
+-- GithubClaims::verifiable_until: the token's `exp` PLUS the
+-- verification leeway, Unix seconds) so rows can be pruned once the
+-- JWT they name could no longer verify anyway - storing raw `exp`
+-- would reopen replay inside the leeway.
 CREATE TABLE trustpub_used_jtis (
     jti TEXT PRIMARY KEY NOT NULL,
     expires_at INTEGER NOT NULL
