@@ -57,6 +57,22 @@ where
     Ok(())
 }
 
+/// Serialize `value` as one compact JSON line.  The `publish` flows
+/// use this instead of [`print_pretty_json`]: a batch emits each
+/// package's report the moment its receipt arrives, so the output is
+/// JSON Lines - a pretty multi-object stream would not parse, and a
+/// single enclosing document could be left unclosed by a mid-batch
+/// failure.
+pub(crate) fn print_json_line<T>(value: &T, error_context: &'static str) -> anyhow::Result<()>
+where
+    T: serde::Serialize + ?Sized,
+{
+    use anyhow::Context;
+    let body = serde_json::to_string(value).context(error_context)?;
+    println!("{body}");
+    Ok(())
+}
+
 /// One top-level subcommand row: the canonical name first,
 /// followed by each visible alias, paired with the short about
 /// text.  Shared by the `--list` renderer ([`crate::command_list`])

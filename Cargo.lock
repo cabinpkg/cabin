@@ -2407,7 +2407,6 @@ dependencies = [
  "cabinpkg-index-http",
  "cabinpkg-manifest",
  "cabinpkg-publish",
- "cabinpkg-registry-api",
  "camino",
  "clap",
  "etcetera",

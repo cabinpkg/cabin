@@ -388,11 +388,37 @@ Client-side behavior:
 - `cabin publish --new-revision` sends the `?new-revision=true` opt-in.  The same flag drives the
   local `--registry-dir` flow, so the rule is identical whichever registry is targeted: changed
   bytes for a published version are a deliberate act, never an accident of a forgotten version bump.
+- Repeating `--manifest-path` publishes a **batch** in one invocation: every package stages,
+  validates, and lint-checks before the first upload - a failure in any of that publishes
+  nothing - and the uploads then run in exactly the order the flags were given, each package's
+  report emitted as its receipt arrives.  An *upload* failure mid-batch stops the run there,
+  naming the failing package; the members before it are already live (the registry has no
+  cross-package transaction), and their reports were already printed.  One credential serves the
+  whole batch, which is what lets a [trusted-publishing](#publishing-from-github-actions) run
+  exchange exactly one OIDC token however many packages it publishes; the registry source
+  resolves once, through the first manifest's effective config.  In a multi-package batch a
+  registry `429` between uploads is waited out (the advertised `Retry-After`, capped, a few
+  attempts) rather than failing the batch - a serial batch can outrun a token's publish bucket,
+  and every attempt charges it; a single-package publish keeps its fail-fast `429` unless
+  `--retry-rate-limits` opts it into the same pacing (automation whose reruns hit the same
+  drained bucket).  Later batch members see the versions published earlier in the same
+  invocation as part of their lint baseline, exactly as sequential publishes would.  With
+  `--format json` each package's report is one compact JSON object on its own line (JSON
+  Lines), in publish order - the per-receipt streaming that keeps a mid-batch failure from
+  swallowing earlier reports rules out one enclosing document.  Repeated
+  paths are incompatible with the workspace selection flags, which answer the different question
+  "which member of this workspace".
 - When the response's optional `"verification"` field says `"pending"`, the report adds that the
   version was accepted and becomes resolvable after verification (typically within a few
   minutes).  The field is read tolerantly: a registry that omits it changes nothing.
 - `--dry-run` stays entirely local: it stages into `--output-dir` (default `dist/`) and never
-  opens a connection.
+  opens a connection.  In a batch, every dry-run mode rehearses each member against the
+  registry as it stands - members of one invocation are invisible to each other (a dry run
+  writes nothing), so the in-batch lint baseline above and an in-batch bytes conflict surface
+  only on the real publish.  A staging batch shares its one `--output-dir`: distinct names can
+  flatten to the same artifact stem (`a-b/c` and `a/b-c`), and such a same-version collision
+  fails closed on the second member - nothing is clobbered - so stem-colliding packages need
+  separate invocations with separate output directories.
 
 ## Verification lifecycle
 

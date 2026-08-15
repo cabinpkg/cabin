@@ -716,9 +716,6 @@ fn publish_retries_a_rate_limited_package() {
         .arg("--cabin")
         .arg(cabin_binary())
         .env("CABIN_REGISTRY_TOKEN", "cabin_testtoken1234")
-        // Inherited color-forcing must not defeat the retry parser:
-        // the tool passes --color never to the captured subprocess.
-        .env("CABIN_TERM_COLOR", "always")
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -727,8 +724,11 @@ fn publish_retries_a_rate_limited_package() {
         output.status.success(),
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    // The pacing lives in the spawned `cabin publish` batch now, on
+    // the typed 429 error; its warning flows through the inherited
+    // stderr.
     assert!(
-        stderr.contains("note: the registry rate limited cabin-ports/zlib"),
+        stderr.contains("the registry rate limited cabin-ports/zlib"),
         "{stderr}"
     );
 

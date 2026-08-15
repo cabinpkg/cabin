@@ -106,7 +106,7 @@ pub fn run(options: &Options) -> Result<()> {
         Mode::Publish { index_url } => {
             let package_dirs: Vec<&std::path::Path> =
                 report.package_dirs.iter().map(PathBuf::as_path).collect();
-            remote::publish_all(&conversions, &package_dirs, index_url, &options.cabin)?;
+            remote::publish_all(&package_dirs, index_url, &options.cabin)?;
             println!("published {} packages", conversions.len());
         }
     }

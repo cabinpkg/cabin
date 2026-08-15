@@ -26,9 +26,6 @@ semver = { workspace = true }
 
 [dev-dependencies]
 assert_fs = { workspace = true }
-# Pins the rate-limit retry's stderr parser to the client's actual 429
-# diagnostic rendering (see remote.rs tests).
-cabin-registry-api = { workspace = true }
 camino = { workspace = true }
 flate2 = { workspace = true }
 serde_json = { workspace = true }
