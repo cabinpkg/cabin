@@ -1,0 +1,42 @@
+---
+// Navigation between a package's published versions, newest first,
+// statically rendered (currentVersion semantics: PackageDetailView).
+import type { PackageVersionListItem } from "../../lib/packages";
+import Badge from "../ui/Badge.astro";
+import Card from "../ui/Card.astro";
+
+interface Props {
+    versions: PackageVersionListItem[];
+    currentVersion: string | null;
+}
+
+const { versions, currentVersion } = Astro.props;
+---
+
+<Card class="p-6">
+    <h2 class="mb-4 text-lg font-bold">Versions</h2>
+    <ul class="space-y-2">
+        {
+            versions.map((item) => (
+                <li class="flex items-center justify-between gap-3">
+                    {item.version === currentVersion ? (
+                        <span
+                            aria-current="page"
+                            class="font-mono text-sm font-semibold text-ink"
+                        >
+                            {item.version}
+                        </span>
+                    ) : (
+                        <a
+                            href={item.href}
+                            class="font-mono text-sm font-medium text-steel hover:text-steel-bright"
+                        >
+                            {item.version}
+                        </a>
+                    )}{" "}
+                    {item.isLatest && <Badge tone="muted">latest</Badge>}
+                </li>
+            ))
+        }
+    </ul>
+</Card>

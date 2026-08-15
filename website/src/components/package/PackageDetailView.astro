@@ -1,23 +1,30 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { formatEdition } from "../../lib/format";
-import type { PackageRecord } from "../../lib/packages";
+import type { PackageRecord, PackageVersionListItem } from "../../lib/packages";
 import IconTile from "../IconTile.astro";
 import Icon from "../Icon.astro";
 import Badge from "../ui/Badge.astro";
 import InstallSnippet from "./InstallSnippet.astro";
+import PackageDependencies from "./PackageDependencies.astro";
+import PackageFeatures from "./PackageFeatures.astro";
 import PackageMetaGrid from "./PackageMetaGrid.astro";
 import ReadmeRenderer from "./ReadmeRenderer.astro";
 
 interface Props {
     pack: PackageRecord;
-    versionCount: number;
+    versions: PackageVersionListItem[];
+    // The version whose canonical page this is, or null on the latest
+    // page (whose URL is not any version's own page, so the versions
+    // card links them all).
+    currentVersion: string | null;
     title: string;
     description: string;
     canonicalPath: string;
 }
 
-const { pack, versionCount, title, description, canonicalPath } = Astro.props;
+const { pack, versions, currentVersion, title, description, canonicalPath } =
+    Astro.props;
 const editionLabel = formatEdition(pack.edition);
 ---
 
@@ -67,9 +74,15 @@ const editionLabel = formatEdition(pack.edition);
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
             <InstallSnippet package={pack} />
+            <PackageDependencies package={pack} />
+            <PackageFeatures package={pack} />
             {pack.readme && <ReadmeRenderer readme={pack.readme} />}
         </div>
 
-        <PackageMetaGrid package={pack} versionCount={versionCount} />
+        <PackageMetaGrid
+            package={pack}
+            versions={versions}
+            currentVersion={currentVersion}
+        />
     </div>
 </BaseLayout>

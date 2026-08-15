@@ -4,23 +4,25 @@ import {
     getPackageHref,
     getPackageStaticPaths,
     type PackageRecord,
+    type PackageVersionListItem,
 } from "../../../lib/packages";
 
 interface Props {
     pack: PackageRecord;
-    versionCount: number;
+    versions: PackageVersionListItem[];
 }
 
 export async function getStaticPaths() {
     return getPackageStaticPaths();
 }
 
-const { pack, versionCount } = Astro.props;
+const { pack, versions } = Astro.props;
 ---
 
 <PackageDetailView
     pack={pack}
-    versionCount={versionCount}
+    versions={versions}
+    currentVersion={null}
     title={`${pack.name} (latest)`}
     description={pack.description || `Cabin package ${pack.name}`}
     canonicalPath={getPackageHref(pack.name)}

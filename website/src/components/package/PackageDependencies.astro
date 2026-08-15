@@ -1,0 +1,120 @@
+---
+// The package's declared dependency edges, statically rendered from
+// the normalized manifest info: the unconditional group first, then
+// one group per cfg(...) condition. A registry dependency links to its
+// page only when this site actually publishes one - dep names outside
+// the site's routable set stay plain text rather than linking to a
+// 404. Explicit {" "} separators keep the inline runs readable where
+// the build's HTML compression would otherwise fuse them.
+import {
+    type DependencyInfo,
+    groupDependencies,
+} from "../../lib/manifestInfo";
+import {
+    fetchAllPackages,
+    getPackageHref,
+    type PackageRecord,
+} from "../../lib/packages";
+import Badge from "../ui/Badge.astro";
+import Card from "../ui/Card.astro";
+import Icon from "../Icon.astro";
+
+interface Props {
+    package: PackageRecord;
+}
+
+const { package: pack } = Astro.props;
+const groups = groupDependencies(pack.manifest.dependencies);
+const knownPackages = new Set(
+    (await fetchAllPackages()).map((record) => record.name),
+);
+const hrefFor = (dependency: DependencyInfo): string | null => {
+    // A system dependency is probed from the host via pkg-config; a
+    // registry page sharing its name would be an unrelated package,
+    // so system edges never link.
+    if (dependency.source === "system" || !knownPackages.has(dependency.name)) {
+        return null;
+    }
+    try {
+        return getPackageHref(dependency.name);
+    } catch {
+        return null;
+    }
+};
+const badgeLabels = (dependency: DependencyInfo): string[] =>
+    [
+        dependency.kind === "dev" && "dev",
+        dependency.source === "system" && "system",
+        dependency.optional && "optional",
+        !dependency.defaultFeatures && "no default features",
+        dependency.ignoreInterfaceStandard && "interface check skipped",
+        ...dependency.features.map((feature) => `+${feature}`),
+    ].filter((label): label is string => typeof label === "string");
+---
+
+{
+    groups.length > 0 && (
+        <Card class="p-6">
+            <div class="mb-4 flex items-center gap-2">
+                <Icon name="branch" class="h-5 w-5 text-pine" />
+                <h2 class="text-xl font-bold">Dependencies</h2>
+            </div>
+            <div class="space-y-5">
+                {groups.map((group) => (
+                    <div>
+                        {group.condition !== null && (
+                            <p class="mb-2 font-mono text-xs text-ink-faint">
+                                cfg({group.condition})
+                            </p>
+                        )}
+                        <ul class="space-y-2">
+                            {group.entries.map((dependency) => {
+                                const href = hrefFor(dependency);
+                                const labels = badgeLabels(dependency);
+                                return (
+                                    <li class="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-sm border border-line bg-night-raised px-3 py-2">
+                                        {href !== null ? (
+                                            <a
+                                                href={href}
+                                                class="font-mono text-sm font-semibold text-steel hover:text-steel-bright"
+                                            >
+                                                {dependency.name}
+                                            </a>
+                                        ) : (
+                                            <span class="font-mono text-sm font-semibold text-ink">
+                                                {dependency.name}
+                                            </span>
+                                        )}{" "}
+                                        {/* A blank req is a legal
+                                            unconstrained system
+                                            requirement - render no
+                                            empty code element. */}
+                                        {dependency.req.trim() !== "" && (
+                                            <code class="font-mono text-sm text-ink-muted">
+                                                {dependency.req}
+                                            </code>
+                                        )}{" "}
+                                        {labels.length > 0 && (
+                                            <span class="flex flex-wrap items-center gap-1.5">
+                                                {labels.map((label) => (
+                                                    <>
+                                                        <Badge tone="muted">
+                                                            <span class="font-mono">
+                                                                {label}
+                                                            </span>
+                                                        </Badge>
+                                                        {" "}
+                                                    </>
+                                                ))}
+                                            </span>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                ))}
+            </div>
+        </Card>
+    )
+}
