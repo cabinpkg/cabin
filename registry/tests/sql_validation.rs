@@ -28,6 +28,16 @@ fn migrated_connection() -> rusqlite::Connection {
     let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
     conn.pragma_update(None, "foreign_keys", true)
         .expect("enable foreign_keys");
+    // D1 parity: D1 caps LIKE/GLOB patterns at 50 bytes at evaluation
+    // (bundled SQLite defaults to 50000), so a long pattern - say a
+    // fixed-width GLOB in a CHECK - passes every host test while
+    // failing every INSERT in production. Pinning the limit here makes
+    // the whole suite evaluate patterns under D1's rules.
+    conn.set_limit(
+        rusqlite::limits::Limit::SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
+        50,
+    )
+    .expect("pin the D1 LIKE/GLOB pattern limit");
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
     let mut migrations: Vec<_> = fs::read_dir(&dir)
         .expect("read migrations/")

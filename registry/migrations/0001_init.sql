@@ -91,8 +91,7 @@ CREATE TABLE tokens (
     -- day string ('+5372750' = year 9997) would satisfy the ceiling
     -- while sorting below the current instant.
     created_at TEXT NOT NULL CHECK (
-        created_at GLOB
-            '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+        length(created_at) = 24
         AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at
     ),
     last_used_at TEXT,
@@ -109,18 +108,24 @@ CREATE TABLE tokens (
     -- comparison in SQL. The shape is schema-enforced because the
     -- comparison fails OPEN for a malformed value sorting above the
     -- ISO range (e.g. 'z' > any timestamp = a token that never
-    -- expires); the GLOB is fixed-width, so it also pins the length,
-    -- and the strftime round-trip rejects calendar-invalid digits the
-    -- GLOB admits - compared with IS, not =, so an unparsable value's
-    -- NULL render is a definite refusal ('2026-99-99...'), and a
-    -- normalizable one must re-render byte-identically (datetime()
-    -- alone would silently accept '2026-02-31...' as March 3rd while
-    -- the lookup compares the stored text).
+    -- expires). length() pins the fixed width, and the strftime
+    -- round-trip admits only the one canonical render of a real
+    -- calendar instant - compared with IS, not =, so an unparsable
+    -- value's NULL render is a definite refusal ('2026-99-99...'),
+    -- and a normalizable one must re-render byte-identically
+    -- (datetime() alone would silently accept '2026-02-31...' as
+    -- March 3rd while the lookup compares the stored text; a 24-char
+    -- space-separated form parses but re-renders with the 'T').
+    -- Deliberately NOT a fixed-width GLOB: D1 caps LIKE/GLOB patterns
+    -- at 50 bytes AT EVALUATION, so a digit-position pattern makes
+    -- every INSERT into this table fail on D1 with "pattern too
+    -- complex" while passing every host-side test - the host suites
+    -- pin the D1 limit on their connections so a reintroduction fails
+    -- there too (tests/sql_validation.rs).
     expires_at TEXT CHECK (
         expires_at IS NULL
         OR (
-            expires_at GLOB
-                '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z'
+            length(expires_at) = 24
             AND strftime('%Y-%m-%dT%H:%M:%fZ', expires_at) IS expires_at
         )
     ),
