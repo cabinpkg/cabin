@@ -46,7 +46,7 @@ function setBar(
     }
 }
 
-// Only the two metrics with a matching quota get a progress bar;
+// Only the metrics with a matching quota get a progress bar;
 // published_today has no compatible denominator in the usage payload.
 function renderUsage(root: HTMLElement, usage: Usage): void {
     setText(root, "[data-usage-packages]", String(usage.package_count));
@@ -72,6 +72,18 @@ function renderUsage(root: HTMLElement, usage: Usage): void {
         "[data-usage-storage-bar]",
         usage.stored_bytes,
         usage.quotas.max_total_bytes_per_user,
+    );
+    setText(root, "[data-usage-claims]", String(usage.scope_claims));
+    setText(
+        root,
+        "[data-usage-claims-quota]",
+        `of ${usage.quotas.max_scope_claims_total} lifetime claims`,
+    );
+    setBar(
+        root,
+        "[data-usage-claims-bar]",
+        usage.scope_claims,
+        usage.quotas.max_scope_claims_total,
     );
     setText(
         root,

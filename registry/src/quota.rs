@@ -17,6 +17,13 @@ pub struct ClassQuotas {
     pub max_new_packages_per_day: u64,
     pub max_packages_total: u64,
     pub max_versions_per_package_per_day: u64,
+    /// Lifetime cap on *successful* scope claims, counted over the
+    /// append-only `scope_claims` history: releasing or transferring a
+    /// scope never restores capacity, and failed claims never consume
+    /// it. An anti-squatting bound - scopes are cheap to claim and
+    /// permanent, so without this one account could sweep the
+    /// namespace.
+    pub max_scope_claims_total: u64,
     /// Publish token bucket: burst capacity in tokens.
     pub publish_burst: f64,
     /// Publish token bucket: refill rate in tokens per minute.
@@ -42,6 +49,7 @@ const DEFAULT: ClassQuotas = ClassQuotas {
     max_new_packages_per_day: 5,
     max_packages_total: 20,
     max_versions_per_package_per_day: 30,
+    max_scope_claims_total: 3,
     publish_burst: 5.0,
     publish_refill_per_minute: 1.0,
     artifact_reads_per_day: 5_000,
@@ -61,6 +69,7 @@ const OPERATOR: ClassQuotas = ClassQuotas {
     max_new_packages_per_day: 50,
     max_packages_total: 100,
     max_versions_per_package_per_day: 30,
+    max_scope_claims_total: 30,
     publish_burst: 20.0,
     publish_refill_per_minute: 5.0,
     artifact_reads_per_day: 5_000,
@@ -325,6 +334,10 @@ mod tests {
         assert!(quotas.publish_burst >= 17.0);
         assert!(quotas.max_new_packages_per_day >= 17);
         assert!(quotas.max_packages_total >= 17);
+        // The curated set publishes under the single `cabin-ports`
+        // scope, but the bulk tier keeps claim headroom beyond the
+        // default anti-squatting cap.
+        assert!(quotas.max_scope_claims_total > DEFAULT.max_scope_claims_total);
     }
 
     #[test]

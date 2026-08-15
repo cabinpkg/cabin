@@ -266,9 +266,10 @@ and `/callback/claim` run the scope-claim flow's dedicated roundtrip
 website frontend consumes:
 
 - `GET /api/v1/user` -> `{"github_id":..,"login":..,"quota_class":..}`;
-- `GET /api/v1/user/usage` -> quota class, package count, stored bytes
-  (rejected versions excluded - their bytes were refunded), today's
-  publishes, per-status version counts, and the class's quotas;
+- `GET /api/v1/user/usage` -> quota class, package count, lifetime
+  scope-claim count, stored bytes (rejected versions excluded - their
+  bytes were refunded), today's publishes, per-status version counts,
+  and the class's quotas;
 - `GET /api/v1/user/packages` -> the packages the user created, each
   version carrying its verification state, yanked flag, and served-
   download count ("Download counts"; the dashboard's package list);
@@ -431,8 +432,19 @@ string is frozen to the account's **numeric** id, resolved via
 and reassigned between any two calls; ids cannot. The claimant must be
 allowlisted and have a registry account (sign in first), because the
 grant writes `scopes` plus the claimant as the first `owner` in
-`scope_members`, in one D1 batch - a plain primary-key insert, so the
-loser of a claim race rolls back seedless and is refused. Every
+`scope_members` plus one row in the append-only `scope_claims`
+history, in one D1 batch - still a primary-key insert on the scope
+name, so the loser of a claim race rolls back seedless (and with no
+history row: a failed claim never consumes claim capacity) and is
+refused. Claims are bounded per user for their lifetime
+(`max_scope_claims_total` on the quota class, `src/quota.rs`):
+each batch statement repeats a guard counting the claimant's
+`scope_claims` rows, so two concurrent claims cannot race under the
+limit, and an over-limit claim suppresses the whole batch (zero
+changed rows) into the same refusal as every other. The count is
+over grants ever made, deliberately not current ownership -
+`scope_claims` rows are never updated or deleted, so a future
+release or transfer of a scope will not restore capacity. Every
 refusal is one uniform redirect with no detail. A claim is
 **permanent**: an already-claimed scope refuses whoever asks - even an
 account that now controls the GitHub name - and there are no transfer
@@ -441,8 +453,17 @@ or release endpoints; disputes are handled manually by the operator
 typo cannot orphan a scope). Because a claim only ever binds
 a scope to the account that genuinely controls the same-named GitHub
 account, with that account's user as owner, a forced navigation to
-`/claim/<scope>` can at worst claim the victim's own name for the
-victim - accepted pre-launch griefing, not a takeover vector.
+`/claim/<scope>` can at worst claim a name the victim's account
+controls for the victim - which, under the lifetime limit, also
+spends one of the victim's claim slots on it (the initiating GET
+mints the matching state cookie itself, so the sealed state cannot
+stop a forced navigation, and once `read:org` has been granted -
+any prior claim - GitHub auto-approves the authorize page, so the
+roundtrip can complete without a click). The victim owns whatever
+was claimed, so this stays accepted
+pre-launch griefing, not a takeover vector; the hardening for open
+sign-up is to initiate claims from a session-authenticated,
+CSRF-checked POST instead of a bare GET.
 
 Scope-proof automation is GitHub-only **by policy**, even though the
 schema (`proof_provider`, `identities.provider`) is provider-neutral.
@@ -811,6 +832,8 @@ free and has no billing path. `users.quota_class` (default `'default'`)
 selects a quota set from the map in
 `src/quota.rs` - per-archive bytes, total stored bytes per user, new
 packages per day, total packages, versions per package per day, a
+lifetime scope-claim cap (counted over the append-only `scope_claims`
+history - "Scopes" above), a
 publish token bucket (burst plus per-minute refill, state on the token row
 in `tokens.rl_tokens` / `tokens.rl_updated_at`), and the governor's
 per-user daily read-fairness caps (charged artifact reads and
