@@ -170,21 +170,21 @@ fn seed_sql(hash: &str, verify_hash: &str) -> String {
     format!(
         "
     INSERT OR IGNORE INTO users (id, created_at)
-      VALUES (1, '1970-01-01T00:00:00Z');
+      VALUES (1, '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO users (id, created_at)
-      VALUES (2, '1970-01-01T00:00:00Z');
+      VALUES (2, '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
       VALUES ('github', '0', 'smoke', 1);
     INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
       VALUES ('github', '2', 'friend', 2);
     INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
-      VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00Z');
+      VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
       VALUES ('foreign', 2, 'owner');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke', 1, 'smoke', '{hash}', 'publish,yank', '1970-01-01T00:00:00Z');
+      VALUES ('smoke', 1, 'smoke', '{hash}', 'publish,yank', '1970-01-01T00:00:00.000Z');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke-verify', 1, 'smoke-verify', '{verify_hash}', 'verify', '1970-01-01T00:00:00Z');
+      VALUES ('smoke-verify', 1, 'smoke-verify', '{verify_hash}', 'verify', '1970-01-01T00:00:00.000Z');
     DELETE FROM revisions WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
@@ -814,11 +814,11 @@ mod tests {
         );
         assert!(sql.starts_with("\n    INSERT OR IGNORE INTO users (id, created_at)\n"));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke', 1, 'smoke', '{}', 'publish,yank', '1970-01-01T00:00:00Z');",
+            "VALUES ('smoke', 1, 'smoke', '{}', 'publish,yank', '1970-01-01T00:00:00.000Z');",
             sha256_hex(b"cabin_smoke")
         )));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke-verify', 1, 'smoke-verify', '{}', 'verify', '1970-01-01T00:00:00Z');",
+            "VALUES ('smoke-verify', 1, 'smoke-verify', '{}', 'verify', '1970-01-01T00:00:00.000Z');",
             sha256_hex(b"cabin_smoke-verify")
         )));
         assert!(
