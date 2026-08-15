@@ -71,5 +71,27 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
             </button>
         </template>
     </AccountShell>
+    {/* Outside the AccountShell slot on purpose: the slot renders into
+        the shell's hidden content section, which only source.ts
+        reveals - a noscript inside it would never show. No /api/ links
+        here: the page is not on the progressive-independence account
+        allowlist, and the source route only answers ranged reads.
+        Inline tags keep their neighboring spaces on the same line -
+        the build's HTML compression drops whitespace-only text nodes
+        at text/element boundaries, fusing the words around them. */}
+    <noscript>
+        <div class="mt-6 rounded-md border border-line bg-night-raised px-6 py-5">
+            <p class="text-ink-muted">
+                Browsing an archive here needs JavaScript: the viewer
+                reads the published archive from the registry in your
+                browser. Without it, the <code class="font-mono text-sm">cabin</code> CLI
+                still fetches a package's exact published archive as an
+                ordinary dependency, and the curated foundation ports
+                link their upstream source archives from the <a
+                    href="/search"
+                    class="font-medium text-steel">package index</a>.
+            </p>
+        </div>
+    </noscript>
     <script src="../../scripts/source.ts"></script>
 </BaseLayout>

@@ -10,10 +10,11 @@
         "lint": "biome check .",
         "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\"",
         "typecheck": "astro check",
-        "verify": "npm run verify:csp && npm run verify:docs-links && npm run verify:progressive",
+        "verify": "npm run verify:csp && npm run verify:docs-links && npm run verify:progressive && npm run verify:static",
         "verify:csp": "node scripts/verify-no-inline-scripts.mjs",
         "verify:docs-links": "node scripts/verify-docs-links.mjs",
         "verify:progressive": "node scripts/verify-progressive-independence.mjs",
+        "verify:static": "node scripts/verify-static-content.mjs",
         "fmt": "biome format . --write"
     },
     "dependencies": {

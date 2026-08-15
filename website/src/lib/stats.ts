@@ -6,16 +6,20 @@
 // failure (unreachable, non-2xx, unexpected shape), so callers render
 // nothing rather than partial numbers.
 
+import type { FetchLike } from "./account.ts";
+
 export interface RegistryStats {
     packages: number;
     versions: number;
     downloads: number;
 }
 
-export async function getRegistryStats(): Promise<RegistryStats | null> {
+export async function getRegistryStats(
+    fetchFn: FetchLike = fetch,
+): Promise<RegistryStats | null> {
     let response: Response;
     try {
-        response = await fetch("/api/v1/stats");
+        response = await fetchFn("/api/v1/stats");
     } catch {
         return null;
     }

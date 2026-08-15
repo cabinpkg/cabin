@@ -27,6 +27,15 @@ test("functional /api/ references are caught", () => {
     assert.deepEqual(apiReferences('<a href="/api/user?q=a>b">'), [
         "href=/api/user?q=a>b",
     ]);
+    // A noscript fallback renders exactly when scripts do not, so a
+    // functional reference inside one must register (the parser runs
+    // script-less; with scripting on this is an unwalkable text node).
+    assert.deepEqual(
+        apiReferences(
+            '<body><noscript><a href="/api/v1/user">x</a></noscript></body>',
+        ),
+        ["href=/api/v1/user"],
+    );
 });
 
 test("prose and look-alike attributes are exempt", () => {

@@ -25,7 +25,10 @@ function isAccountPage(relativePath) {
 // A functional reference is an href/src/action/formaction attribute (of a
 // real element) whose value points under /api/. The document is parsed
 // with a spec-compliant HTML parser, so escaped prose, code samples, and
-// comments never register - only actual markup does.
+// comments never register - only actual markup does. Parsing runs with
+// scriptingEnabled: false - the script-less browser's view - because
+// with scripting on, <noscript> children are one raw-text node and a
+// functional /api/ link inside a noscript fallback would evade the walk.
 const TARGET_ATTRIBUTES = new Set(["href", "src", "action", "formaction"]);
 
 export function apiReferences(html) {
@@ -47,7 +50,7 @@ export function apiReferences(html) {
             walk(child);
         }
     };
-    walk(parse(html));
+    walk(parse(html, { scriptingEnabled: false }));
     return references;
 }
 

@@ -51,7 +51,12 @@ directly via Node's type stripping).
   the static site to `dist/`.
 - `npm run verify` = `verify:csp` (fails on any inline `<script>` in built
   HTML) + `verify:docs-links` (fails on unresolved `/docs/...` or
-  un-rewritten relative `*.md` links), both against the built `dist/`.
+  un-rewritten relative `*.md` links) + `verify:progressive` (fails on
+  any functional `/api/` reference in non-account markup) +
+  `verify:static` (fails when a key public page loses its meaningful
+  script-less content, the homepage stats band stops shipping `hidden`,
+  or the source viewer loses its noscript fallback link), all against
+  the built `dist/`.
 
 ## Build-time gotchas
 
