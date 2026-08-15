@@ -192,6 +192,36 @@ at all.  Cabin removes the variable from the environment of every child it spawn
 the toolchain detection probes, `clang-format`, `run-clang-tidy`, and `pkg-config` - so spawned
 code cannot read the credential.
 
+### Publishing from GitHub Actions
+
+Inside a GitHub Actions run whose workflow (or job) grants `permissions: id-token: write`,
+`cabin publish` needs no token at all against the default hosted registry: with no explicit
+`CABIN_REGISTRY_TOKEN` set, the client fetches the run's own OIDC token from the runner and
+performs the [trusted-publishing exchange](#trusted-publishing) automatically.  The
+credential-source precedence is fixed: the explicit `CABIN_REGISTRY_TOKEN` override first, then
+the GitHub Actions auto-exchange, then `credentials.toml`.  The override keeps its documented
+origin gate ([above](#environment-override)); the exchange is stricter, because the run's OIDC
+token is itself a credential the hosted registry accepts from any presenter: it serves the
+default hosted registry always, a loopback registry only when named by an explicit `--index-url`
+(the test-harness path), and a loopback index's config.json may only declare a loopback `api` -
+so an index or `api` origin steered by a checked-out project's config never sees the JWT.  Only `cabin publish` exchanges: the minted token carries exactly the
+`publish` scope, so `cabin yank` keeps using the override or a stored token - an auto-exchange
+there would trade a working yank credential for a token the route must refuse.
+
+The exchange runs at most once per command invocation - the minted token is multi-use within its
+30-minute lifetime, and GitHub's OIDC endpoint is rate-limited; the publish flow owns its token
+for exactly its own duration and best-effort revokes it on the way out (success and failure
+alike), so concurrent or repeated invocations in one process each mint and revoke their own
+token, never sharing or replaying one.  Both the OIDC token and the minted
+registry token are masked out of the workflow log (`::add-mask::`) the moment they exist, and
+neither is ever written to disk.  When the command finishes - success or failure - the client
+best-effort revokes the minted token; a failed revocation is ignored, since the token expires
+server-side anyway.  A run under GitHub Actions *without* the OIDC endpoint (the workflow lacks
+`id-token: write`) fails with an error naming that permission instead of a later, unexplained
+`401`.  Reads never trigger the exchange: consuming verified packages needs
+[no token](#read-routes), and a `cabin build` inside an unrelated workflow that granted
+`id-token: write` for some other service must not mint publish-capable tokens as a side effect.
+
 ### When the token is sent
 
 With a credential available, every request to the registry - `config.json`, package metadata, and
@@ -201,10 +231,14 @@ two destinations: (a) the index origin it is stored under, and (b) the
 where the mutation routes live - and nowhere else.  This mirrors Cargo, whose tokens go to the
 api host named in `config.json`.  Neither destination ever sees the token over plain `http`
 except loopback hosts (`127.0.0.0/8`, `::1`, `localhost`), which keeps local testing possible.
+The [trusted-publishing](#publishing-from-github-actions) leg is the one variation: there the
+client discovers `api` from an *unauthenticated* `config.json` read (it has no token yet) and
+presents the run's OIDC token to that origin's exchange route to obtain one.
 Client-side error mapping: a `401` without a stored credential advises
 `cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
 reports the token as rejected (revoked or expired); a `403` reports a missing scope.  The token never appears in logs, error messages,
-or debug output.
+or debug output; the GitHub Actions flow emits each secret exactly once as an `::add-mask::`
+workflow command on stderr, which is what keeps it out of the rendered log.
 
 ## Read routes
 
@@ -662,7 +696,9 @@ publish without holding any long-lived secret: the workflow's own OIDC token is 
 short-lived registry token.  Which workflows may exchange is operator-side registry data - a
 config binds a scope to a repository and workflow by their immutable numeric GitHub ids,
 optionally pinning a git ref and an environment - not part of this protocol.  The protocol
-surface is the two routes below, on the [`api`](#registry-configuration) origin.
+surface is the two routes below, on the [`api`](#registry-configuration) origin.  The `cabin`
+client runs this exchange [automatically under GitHub
+Actions](#publishing-from-github-actions); nothing below needs a manual caller.
 
 ### Exchanging an Actions OIDC token
 

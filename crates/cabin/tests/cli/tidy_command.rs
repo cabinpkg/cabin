@@ -43,6 +43,7 @@ fn cabin_with_fake_tidy() -> Command {
     // tidy hard-fails when it sees the variable, so every test in
     // this module enforces the child-env scrub.
     cmd.env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234");
+    cmd.env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-oidc-secret");
     cmd
 }
 

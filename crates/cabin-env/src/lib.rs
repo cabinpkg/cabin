@@ -134,6 +134,24 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 /// project.  Read by the `cabin-credentials` crate.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
+/// GitHub Actions' own "am I running under Actions" marker, always
+/// `true` there.  Not a `CABIN_*` variable: the runner sets it, Cabin
+/// only reads it - to decide whether the trusted-publishing
+/// auto-exchange applies and to emit `::add-mask::` workflow commands
+/// for the secrets that exchange handles.
+pub const GITHUB_ACTIONS: &str = "GITHUB_ACTIONS";
+
+/// The GitHub Actions runner's OIDC token endpoint, present only when
+/// the workflow grants `permissions: id-token: write`.  Set by the
+/// runner, read (never set) by Cabin's trusted-publishing
+/// auto-exchange.
+pub const ACTIONS_ID_TOKEN_REQUEST_URL: &str = "ACTIONS_ID_TOKEN_REQUEST_URL";
+
+/// Bearer credential for [`ACTIONS_ID_TOKEN_REQUEST_URL`], set by the
+/// runner alongside it.  A secret: spawned tools have it removed from
+/// their environment exactly like [`CABIN_REGISTRY_TOKEN`].
+pub const ACTIONS_ID_TOKEN_REQUEST_TOKEN: &str = "ACTIONS_ID_TOKEN_REQUEST_TOKEN";
+
 /// Origin of the hosted registry's API, for pointing an operator
 /// command at a scratch deployment instead of production.  Read by the
 /// repository's own maintainer tooling (`xtask-registry-admin`), never

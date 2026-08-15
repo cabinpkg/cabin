@@ -43,6 +43,10 @@ const TOKEN_PREFIX: &str = "cabin_";
 /// pasting the wrong thing.
 const TOKEN_PAYLOAD_LEN: std::ops::RangeInclusive<usize> = 8..=512;
 
+/// Payload marker of a trusted-publishing token (`cabin_tp_...`),
+/// whose minted secret is unpadded base64url rather than base62.
+const TRUSTPUB_MARKER: &str = "tp_";
+
 /// A registry bearer token.  The wrapped value is deliberately
 /// unreachable except through [`Token::expose`], and both `Debug`
 /// and `Display` redact so a token cannot leak through logging or
@@ -52,7 +56,9 @@ pub struct Token(String);
 
 impl Token {
     /// Validate and wrap a raw token: the `cabin_` prefix followed
-    /// by 8 to 512 ASCII alphanumeric (base62) characters.  The
+    /// by 8 to 512 ASCII alphanumeric (base62) characters, except
+    /// that a trusted-publishing token (`cabin_tp_` prefix) carries
+    /// an unpadded-base64url payload, which adds `-` and `_`.  Either
     /// character restriction doubles as header hygiene - a value
     /// that passes can never smuggle CR/LF or other control bytes
     /// into an `Authorization` header.
@@ -71,7 +77,16 @@ impl Token {
                 reason: "unexpected length",
             });
         }
-        if !payload.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        if let Some(minted) = payload.strip_prefix(TRUSTPUB_MARKER) {
+            if !minted
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            {
+                return Err(CredentialsError::InvalidToken {
+                    reason: "expected only base64url characters after the `cabin_tp_` prefix",
+                });
+            }
+        } else if !payload.bytes().all(|b| b.is_ascii_alphanumeric()) {
             return Err(CredentialsError::InvalidToken {
                 reason: "expected only ASCII letters and digits after the prefix",
             });
@@ -488,6 +503,34 @@ pub fn lookup_token_with_env(
             permissions_warning: None,
         });
     }
+    stored_token(origin)
+}
+
+/// The environment-override leg of [`lookup_token`] alone, for
+/// callers that interpose another credential source (the trusted
+/// publishing auto-exchange) between the override and the store.
+/// `allow_env_override` carries the same origin-trust contract as
+/// [`lookup_token`].
+///
+/// # Errors
+/// Rejects a malformed environment override with
+/// [`CredentialsError::InvalidToken`].
+pub fn env_token(allow_env_override: bool) -> Result<Option<Token>, CredentialsError> {
+    gated_env_token(
+        std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).as_deref(),
+        allow_env_override,
+    )
+}
+
+/// The `credentials.toml` leg of [`lookup_token`] alone: the stored
+/// entry for `origin`, with a missing config home degrading to "no
+/// stored credential" so unauthenticated flows keep working in
+/// home-less environments (CI containers).
+///
+/// # Errors
+/// Propagates [`CredentialStore::load`] errors other than the missing
+/// config home.
+pub fn stored_token(origin: &str) -> Result<TokenLookup, CredentialsError> {
     match CredentialStore::from_env() {
         Ok(store) => store.token_for_origin(origin),
         Err(CredentialsError::NoConfigHome) => Ok(TokenLookup {
@@ -570,6 +613,39 @@ mod tests {
     fn token_parse_accepts_base62_payloads() {
         for raw in ["cabin_12345678", "cabin_abcDEF12345", SECRET] {
             assert_eq!(Token::parse(raw).unwrap().expose(), raw);
+        }
+    }
+
+    /// Trusted-publishing tokens (`cabin_tp_<base64url>`) carry `-`
+    /// and `_` in their payload; the widened charset is confined to
+    /// the `tp_` marker, so plain user tokens stay base62-only
+    /// (`cabin_with-dash1` below keeps rejecting).
+    #[test]
+    fn token_parse_accepts_trustpub_base64url_payloads() {
+        for raw in [
+            "cabin_tp_pVp-p_Wl",
+            // A real minted shape: 32 CSPRNG bytes render as 43
+            // unpadded base64url characters.
+            &format!("cabin_tp_{}", &"aB1-_c9Z".repeat(6)[..43]),
+        ] {
+            assert_eq!(Token::parse(raw).unwrap().expose(), raw);
+        }
+    }
+
+    #[test]
+    fn token_parse_rejects_malformed_trustpub_payloads() {
+        for raw in [
+            "cabin_tp_",              // payload under the length floor
+            "cabin_tp_has space9",    // spaces stay rejected
+            "cabin_tp_evil\r\nabc12", // header smuggling stays rejected
+            "cabin_tp_has+plus99",    // standard-base64 alphabet is not base64url
+            "cabin_tp_has=pad999",    // padding never appears unpadded
+        ] {
+            let err = Token::parse(raw).unwrap_err();
+            assert!(
+                matches!(err, CredentialsError::InvalidToken { .. }),
+                "{raw:?} should be rejected, got {err:?}"
+            );
         }
     }
 

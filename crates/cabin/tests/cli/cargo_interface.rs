@@ -23,6 +23,11 @@ int main(int argc, char** argv) {
     } else {
         std::printf("ABSENT CABIN_REGISTRY_TOKEN\n");
     }
+    if (std::getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != nullptr) {
+        std::printf("LEAK ACTIONS_ID_TOKEN_REQUEST_TOKEN\n");
+    } else {
+        std::printf("ABSENT ACTIONS_ID_TOKEN_REQUEST_TOKEN\n");
+    }
     return 0;
 }
 "#;
@@ -56,9 +61,11 @@ fn run_executes_default_binary_and_forwards_trailing_args() {
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
-        // The registry credential must be scrubbed from the spawned
-        // program's environment even when the invocation carries it.
+        // The credentials must be scrubbed from the spawned
+        // program's environment even when the invocation carries
+        // them.
         .env("CABIN_REGISTRY_TOKEN", "cabin_secretToken1234")
+        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-oidc-secret")
         .args(["--", "first", "second"])
         .assert()
         .success()
@@ -71,6 +78,10 @@ fn run_executes_default_binary_and_forwards_trailing_args() {
     assert!(stdout.contains("PROFILE dev"), "got: {stdout}");
     assert!(
         stdout.contains("ABSENT CABIN_REGISTRY_TOKEN"),
+        "got: {stdout}"
+    );
+    assert!(
+        stdout.contains("ABSENT ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
         "got: {stdout}"
     );
 }

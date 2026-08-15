@@ -64,7 +64,11 @@ pub(crate) fn yank(
     )?;
 
     // Mirror the remote publish flow: one credential lookup serves
-    // the config.json read and the API call alike.
+    // the config.json read and the API call alike.  Deliberately NOT
+    // the trusted-publishing exchange (`cli::trustpub`): the registry
+    // mints exchanged tokens with only the `publish` scope, so an
+    // auto-exchange here would trade a working stored yank credential
+    // for a token the yank route must refuse.
     let origin = cabin_credentials::normalize_origin(&index_url)?;
     let lookup =
         cabin_credentials::lookup_token(&origin, crate::cli::login::env_token_eligible(&origin)?)?;

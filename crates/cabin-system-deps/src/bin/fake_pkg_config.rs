@@ -58,6 +58,12 @@ fn main() -> ExitCode {
         eprintln!("fake pkg-config: CABIN_REGISTRY_TOKEN leaked into the tool environment");
         return ExitCode::from(4);
     }
+    if env::var_os(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN).is_some() {
+        eprintln!(
+            "fake pkg-config: ACTIONS_ID_TOKEN_REQUEST_TOKEN leaked into the tool environment"
+        );
+        return ExitCode::from(4);
+    }
     let args = env::args_os().skip(1);
     let mut want_version_flag = false;
     let mut want_exists = false;

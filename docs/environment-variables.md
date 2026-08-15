@@ -19,6 +19,7 @@ const ... : &str = ...` constants.
 | `CABIN_CACHE_HOME` | platform user cache home with `cabin` suffix | Per-user cache home (the directory the global cache lives under).  Used verbatim (no extra `cabin` segment).  When unset, Cabin resolves the user cache home via the `etcetera` crate (`$XDG_CACHE_HOME/cabin` / `$HOME/.cache/cabin` on Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows). |
 | `CABIN_NET_OFFLINE` | unset | Forbid network access this invocation |
 | `CABIN_REGISTRY_TOKEN` | unset | Bearer token for registry access.  When set and non-empty it wins over `credentials.toml` for the default hosted registry's origin and loopback origins; other registries always use `credentials.toml`.  See [`remote-registry.md`](remote-registry.md#environment-override). |
+| `GITHUB_ACTIONS`, `ACTIONS_ID_TOKEN_REQUEST_URL`, `ACTIONS_ID_TOKEN_REQUEST_TOKEN` | set by the GitHub Actions runner | Read (never set) by `cabin publish` to run the [trusted-publishing auto-exchange](remote-registry.md#publishing-from-github-actions) when no explicit token is set.  `ACTIONS_ID_TOKEN_REQUEST_TOKEN` is a credential and is scrubbed from spawned tools like `CABIN_REGISTRY_TOKEN`. |
 | `CABIN_COMPILER_WRAPPER` | unset | Compiler-wrapper executable name or path. `none` (aliases `off`, `disabled`) disables wrapping. |
 | `CABIN_TERM_COLOR` | unset | Terminal-color choice (`auto` / `always` / `never`) |
 | `CABIN_TERM_VERBOSE` | unset | Enable verbose Cabin-owned status output when truthy |
@@ -270,8 +271,9 @@ overlay:
 
 This is the entire injected contract: the overlay is the same for `cabin run` and `cabin test` and
 does not depend on the target's name or kind.  The user's `PATH`, `LANG`, etc. are inherited
-unchanged, with one subtraction: `CABIN_REGISTRY_TOKEN` is removed from the child environment -
-the registry credential is Cabin's input, and spawned code must not be able to read it.  The same
+unchanged, with one subtraction: `CABIN_REGISTRY_TOKEN` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are
+removed from the child environment -
+each is a credential Cabin reads, and spawned code must not be able to read either.  The same
 scrub applies to the other tools Cabin spawns (Ninja and the compile / wrapper commands it runs,
 the compiler / archiver / wrapper detection probes, `clang-format`, `run-clang-tidy`,
 `pkg-config`).  `cabin run`'s working directory is the user's invoking cwd (matching `cargo run`);

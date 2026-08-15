@@ -559,6 +559,7 @@ pub(crate) fn invoke_ninja_and_report(
     // backend's: scrub it so Ninja and every compile / wrapper
     // command it spawns can never read the token.
     ninja_cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
+    ninja_cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     if let Some(jobs) = req.jobs {
         ninja_cmd.arg(ninja_jobs_arg(jobs));
     }

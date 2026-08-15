@@ -389,6 +389,7 @@ pub fn run_tests<S: TestOutputSink>(
         // The registry credential is Cabin's input, not the test's:
         // scrub it so arbitrary test code can never read the token.
         command.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
+        command.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
         // Retry on `ETXTBSY`: a sibling thread that forks while we
         // are mid-`write`/`chmod` of another executable can leave a
         // writable fd to this file briefly inherited in its

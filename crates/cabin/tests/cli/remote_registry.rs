@@ -2027,3 +2027,533 @@ fn login_applies_source_replacement_to_the_config_registry() {
     assert!(body.contains(&mirror), "{body}");
     assert!(!body.contains("upstream.example.com"), "{body}");
 }
+
+// -----------------------------------------------------------------
+// trusted publishing (GitHub Actions auto-exchange)
+// -----------------------------------------------------------------
+
+/// The token the trustpub fake mints, in the registry's real
+/// `cabin_tp_<base64url>` shape.
+const MINTED_TOKEN: &str = "cabin_tp_bWludGVkLXRva2VuLWJ5dGVz0123456_-A";
+
+/// A stand-in Actions OIDC JWT; the client treats it as an opaque
+/// string.
+const FAKE_JWT: &str = "eyJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJjYWJpbnBrZy5jb20ifQ.c2ln";
+
+/// One request captured by [`TrustpubRegistryServer`], in arrival
+/// order across every route, so tests can assert the
+/// exchange -> publish -> revoke sequencing.
+struct CapturedTrustpub {
+    method: String,
+    path: String,
+    authorization: Option<String>,
+    body: Vec<u8>,
+}
+
+/// Mock hosted-registry shape for trusted publishing: a public
+/// `config.json` declaring this server as its own `api` origin,
+/// `PUT /api/v1/trusted_publishing/tokens` minting [`MINTED_TOKEN`]
+/// (no `Authorization` expected - the JWT in the body is the
+/// credential), `DELETE` on the same route answering `204`, package
+/// mutations under `/api/v1/packages/` answering the configured
+/// status sequence (last entry repeats), and package reads 404ing.
+struct TrustpubRegistryServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    url: String,
+    captured: std::sync::Arc<std::sync::Mutex<Vec<CapturedTrustpub>>>,
+}
+
+impl TrustpubRegistryServer {
+    fn start(mutation_statuses: &'static [u16]) -> Self {
+        Self::start_with_api(None, mutation_statuses)
+    }
+
+    /// Like [`Self::start`], but config.json declares `api_override`
+    /// instead of this server itself - the hostile shape a
+    /// project-steered loopback index can take.
+    fn start_with_api(api_override: Option<&str>, mutation_statuses: &'static [u16]) -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let api_value = api_override.map_or_else(|| url.clone(), str::to_owned);
+        let config = format!(
+            r#"{{
+    "schema": 1,
+    "kind": "file-registry",
+    "packages": "packages",
+    "artifacts": "artifacts",
+    "api": "{api_value}"
+}}"#
+        );
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::<CapturedTrustpub>::new()));
+        let captured_for_thread = std::sync::Arc::clone(&captured);
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            let mut mutations = 0usize;
+            while let Ok(mut req) = server_for_thread.recv() {
+                let path = req.url().to_owned();
+                let method = req.method().as_str().to_owned();
+                let mut body = Vec::new();
+                let _ = req.as_reader().read_to_end(&mut body);
+                let authorization = req
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Authorization"))
+                    .map(|h| h.value.to_string());
+                let record = path.starts_with("/api/v1/");
+                if record {
+                    captured_for_thread.lock().unwrap().push(CapturedTrustpub {
+                        method: method.clone(),
+                        path: path.clone(),
+                        authorization: authorization.clone(),
+                        body,
+                    });
+                }
+                if path == "/config.json" {
+                    let _ = req.respond(tiny_http::Response::from_string(config.clone()));
+                } else if path == "/api/v1/trusted_publishing/tokens" {
+                    let response = match method.as_str() {
+                        "PUT" => tiny_http::Response::from_string(format!(
+                            r#"{{"token":"{MINTED_TOKEN}","expires_at":"2099-01-01T00:00:00.000Z"}}"#
+                        ))
+                        .with_status_code(200),
+                        "DELETE"
+                            if authorization.as_deref()
+                                == Some(&format!("Bearer {MINTED_TOKEN}")) =>
+                        {
+                            tiny_http::Response::from_string("").with_status_code(204)
+                        }
+                        _ => tiny_http::Response::from_string(
+                            r#"{"errors":[{"detail":"unauthorized"}]}"#,
+                        )
+                        .with_status_code(401),
+                    };
+                    let _ = req.respond(response);
+                } else if path.starts_with("/api/v1/packages/") {
+                    let status =
+                        mutation_statuses[mutations.min(mutation_statuses.len().saturating_sub(1))];
+                    mutations += 1;
+                    let body = match status {
+                        200 => r#"{"ok":true,"no_op":true}"#,
+                        201 => r#"{"ok":true}"#,
+                        403 => r#"{"errors":[{"detail":"scope membership required"}]}"#,
+                        _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
+                    };
+                    let _ = req
+                        .respond(tiny_http::Response::from_string(body).with_status_code(status));
+                } else {
+                    // Package reads: nothing is published yet.
+                    let _ = req.respond(tiny_http::Response::empty(404));
+                }
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            url,
+            captured,
+        }
+    }
+
+    fn captured(&self) -> Vec<CapturedTrustpub> {
+        std::mem::take(&mut *self.captured.lock().unwrap())
+    }
+}
+
+impl Drop for TrustpubRegistryServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// One request captured by [`OidcServer`]: the request line and the
+/// `Authorization` header.
+type CapturedOidc = (String, Option<String>);
+
+/// Mock of the runner's OIDC endpoint: answers `{"value": FAKE_JWT}`
+/// and captures the request line + `Authorization` header.
+struct OidcServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    request_url: String,
+    captured: std::sync::Arc<std::sync::Mutex<Vec<CapturedOidc>>>,
+}
+
+impl OidcServer {
+    fn start() -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        // The real variable always carries a query string already;
+        // the client appends `&audience=...`.
+        let request_url = format!("http://{addr}/token?api-version=2");
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_for_thread = std::sync::Arc::clone(&captured);
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            while let Ok(req) = server_for_thread.recv() {
+                let authorization = req
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("Authorization"))
+                    .map(|h| h.value.to_string());
+                captured_for_thread
+                    .lock()
+                    .unwrap()
+                    .push((req.url().to_owned(), authorization));
+                let _ = req.respond(tiny_http::Response::from_string(format!(
+                    r#"{{"value":"{FAKE_JWT}"}}"#
+                )));
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            request_url,
+            captured,
+        }
+    }
+
+    fn captured(&self) -> Vec<CapturedOidc> {
+        std::mem::take(&mut *self.captured.lock().unwrap())
+    }
+}
+
+impl Drop for OidcServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// A `cabin` invocation dressed as a GitHub Actions run with
+/// `id-token: write`: the marker plus the runner's OIDC endpoint
+/// pair.
+fn cabin_under_actions(oidc: &OidcServer) -> Command {
+    let mut cmd = cabin();
+    cmd.env("GITHUB_ACTIONS", "true")
+        .env("ACTIONS_ID_TOKEN_REQUEST_URL", &oidc.request_url)
+        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "runner-request-token");
+    cmd
+}
+
+/// The full happy path: with no explicit token under Actions, publish
+/// fetches the run's JWT (bearer + audience), exchanges it, publishes
+/// with the minted token, masks both secrets, and revokes on exit.
+#[test]
+fn publish_auto_exchanges_under_github_actions() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    let assertion = cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Published acme/demo 0.1.0"));
+
+    // Both secrets are masked out of the runner log, in mint order,
+    // on stderr - the runner processes workflow commands on both
+    // streams, and stdout must stay parseable (`--format json`).
+    let output = assertion.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let jwt_mask = stderr.find(&format!("::add-mask::{FAKE_JWT}"));
+    let token_mask = stderr.find(&format!("::add-mask::{MINTED_TOKEN}"));
+    assert!(jwt_mask.is_some() && token_mask.is_some(), "{stderr}");
+    assert!(jwt_mask < token_mask, "JWT must be masked first: {stderr}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("::add-mask::"),
+        "workflow commands must not corrupt stdout: {stdout}"
+    );
+
+    // The runner's endpoint saw the bearer and the audience.
+    let oidc_requests = oidc.captured();
+    assert_eq!(oidc_requests.len(), 1, "one exchange per process");
+    assert_eq!(
+        oidc_requests[0].0,
+        "/token?api-version=2&audience=cabinpkg.com"
+    );
+    assert_eq!(
+        oidc_requests[0].1.as_deref(),
+        Some("Bearer runner-request-token")
+    );
+
+    // Exchange -> publish -> revoke, with the right credentials.
+    let captured = registry.captured();
+    let sequence: Vec<(&str, &str)> = captured
+        .iter()
+        .map(|c| (c.method.as_str(), c.path.as_str()))
+        .collect();
+    assert_eq!(
+        sequence,
+        [
+            ("PUT", "/api/v1/trusted_publishing/tokens"),
+            ("PUT", "/api/v1/packages/acme/demo/0.1.0"),
+            ("DELETE", "/api/v1/trusted_publishing/tokens"),
+        ],
+        "unexpected request sequence"
+    );
+    assert_eq!(captured[0].authorization, None, "the JWT is the credential");
+    assert_eq!(
+        captured[0].body,
+        format!(r#"{{"jwt":"{FAKE_JWT}"}}"#).into_bytes()
+    );
+    assert_eq!(
+        captured[1].authorization.as_deref(),
+        Some(&*format!("Bearer {MINTED_TOKEN}"))
+    );
+}
+
+/// Revocation is exit-path behavior, not success-path behavior: a
+/// publish the registry refuses still revokes the minted token.
+#[test]
+fn revoke_runs_when_the_publish_fails() {
+    let registry = TrustpubRegistryServer::start(&[403]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure();
+
+    let captured = registry.captured();
+    let last = captured.last().expect("requests were made");
+    assert_eq!(
+        (last.method.as_str(), last.path.as_str()),
+        ("DELETE", "/api/v1/trusted_publishing/tokens"),
+        "the failed publish must still revoke"
+    );
+}
+
+/// Precedence: the explicit `CABIN_REGISTRY_TOKEN` override outranks
+/// the exchange - no OIDC fetch, no mint, no revoke.
+#[test]
+fn explicit_env_token_wins_over_the_exchange() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    cabin_under_actions(&oidc)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .success();
+
+    assert_eq!(oidc.captured().len(), 0, "no OIDC fetch may happen");
+    let captured = registry.captured();
+    let sequence: Vec<(&str, &str)> = captured
+        .iter()
+        .map(|c| (c.method.as_str(), c.path.as_str()))
+        .collect();
+    assert_eq!(sequence, [("PUT", "/api/v1/packages/acme/demo/0.1.0")]);
+    assert_eq!(
+        captured[0].authorization.as_deref(),
+        Some(&*format!("Bearer {TEST_TOKEN}"))
+    );
+}
+
+/// Precedence: under Actions the exchange outranks a stored
+/// `credentials.toml` entry, matching the documented order.
+#[test]
+fn the_exchange_outranks_a_stored_credential() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    write_scoped_publishable_package(dir.path());
+    cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success();
+    // Drain the login-URL probe's config.json read (not under
+    // /api/v1/, so nothing was recorded).
+    assert_eq!(registry.captured().len(), 0);
+
+    cabin_under_actions(&oidc)
+        .env("CABIN_CONFIG_HOME", &home)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .success();
+
+    let captured = registry.captured();
+    let publish = captured
+        .iter()
+        .find(|c| c.path.starts_with("/api/v1/packages/"))
+        .expect("a publish request");
+    assert_eq!(
+        publish.authorization.as_deref(),
+        Some(&*format!("Bearer {MINTED_TOKEN}")),
+        "the exchange outranks the stored credential"
+    );
+}
+
+/// Actions without the OIDC endpoint is a misconfigured workflow: the
+/// error names the missing permission before any network traffic.
+#[test]
+fn github_actions_without_the_oidc_endpoint_fails_actionably() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    cabin()
+        .env("GITHUB_ACTIONS", "true")
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("id-token: write"));
+
+    assert_eq!(
+        registry.captured().len(),
+        0,
+        "the misconfiguration must fail before any exchange or mutation request"
+    );
+}
+
+/// `cabin yank` never auto-exchanges: the registry mints exchanged
+/// tokens with only the `publish` scope, so the yank route would
+/// refuse one - and the exchange outranking the store would shadow a
+/// working stored yank credential.  Under full Actions ambience the
+/// stored token is used and the runner's OIDC endpoint sees nothing.
+#[test]
+fn yank_never_auto_exchanges_under_github_actions() {
+    let registry = TrustpubRegistryServer::start(&[200]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .assert()
+        .success();
+    assert_eq!(registry.captured().len(), 0);
+
+    cabin_under_actions(&oidc)
+        .env("CABIN_CONFIG_HOME", &home)
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "acme/demo@0.1.0",
+            "--index-url",
+            &registry.url,
+        ])
+        .assert()
+        .success();
+
+    assert_eq!(
+        oidc.captured().len(),
+        0,
+        "yank must not fetch an OIDC token"
+    );
+    let captured = registry.captured();
+    let sequence: Vec<(&str, &str)> = captured
+        .iter()
+        .map(|c| (c.method.as_str(), c.path.as_str()))
+        .collect();
+    assert_eq!(
+        sequence,
+        [("PATCH", "/api/v1/packages/acme/demo/0.1.0/yank")]
+    );
+    assert_eq!(
+        captured[0].authorization.as_deref(),
+        Some(&*format!("Bearer {TEST_TOKEN}")),
+        "the stored yank-capable credential must win"
+    );
+}
+
+/// The run's OIDC JWT is itself a credential: a project-steered
+/// loopback index whose config.json names a non-loopback `api` must
+/// be refused BEFORE the JWT is even fetched, or the named origin
+/// could exchange the unconsumed JWT against the real registry.
+#[test]
+fn a_loopback_index_cannot_route_the_jwt_off_loopback() {
+    let registry = TrustpubRegistryServer::start_with_api(Some("https://evil.example"), &[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "must not receive the run's OIDC token",
+        ));
+
+    assert_eq!(
+        oidc.captured().len(),
+        0,
+        "the refusal must precede the OIDC fetch"
+    );
+}
+
+/// A loopback index reaches the exchange only through an explicit
+/// `--index-url`: when project/user CONFIG selects the same loopback
+/// registry, the run's OIDC token is never fetched - a checked-out
+/// project's config could otherwise steer the JWT to a daemon its own
+/// build code left listening.  The publish itself proceeds tokenless.
+#[test]
+fn a_config_selected_loopback_index_never_exchanges() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    write_scoped_publishable_package(dir.path());
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", registry.url))
+        .unwrap();
+
+    cabin_under_actions(&oidc)
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .assert()
+        .success();
+
+    assert_eq!(
+        oidc.captured().len(),
+        0,
+        "a config-selected loopback index must not trigger the OIDC fetch"
+    );
+    let captured = registry.captured();
+    let sequence: Vec<(&str, &str)> = captured
+        .iter()
+        .map(|c| (c.method.as_str(), c.path.as_str()))
+        .collect();
+    assert_eq!(
+        sequence,
+        [("PUT", "/api/v1/packages/acme/demo/0.1.0")],
+        "no exchange, no revocation - the publish went tokenless"
+    );
+    assert_eq!(captured[0].authorization, None);
+}
