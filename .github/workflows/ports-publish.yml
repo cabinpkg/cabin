@@ -213,7 +213,11 @@ jobs:
       # *step* to have run: the deploy-registry job goes green with the
       # step skipped when the run is superseded or a D1 migration
       # awaits its by-hand apply, and both cases leave the old Worker
-      # live. The gate is therefore satisfied by ANY successful main
+      # live. When the same-SHA run itself skipped its Deploy and no
+      # pending run can still deliver one - the deploy-freeze shape -
+      # the wait fails FAST with the reason instead of idling into its
+      # hour ceiling; rerun this workflow once the deploy lands.
+      # The gate is otherwise satisfied by ANY successful main
       # Deploy whose head CONTAINS this SHA (ancestor check): when a
       # newer registry commit supersedes this SHA's run, its deploy
       # carries this SHA's schema changes, and inspecting only the
