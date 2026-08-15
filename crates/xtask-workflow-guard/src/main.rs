@@ -45,8 +45,10 @@ fn main() -> ExitCode {
     }
 }
 
-/// The guards answer in `$GITHUB_OUTPUT` and exit 0; `await-deploy`
-/// carries an exit status of its own, which is the step's answer.
+/// The guards answer in `$GITHUB_OUTPUT` and exit 0. `await-deploy`
+/// answers through both: a deliberate no-publish records `skipped=true`
+/// there and still exits 0, and its exit status is reserved for
+/// malfunctions.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
         Command::Superseded { paths } => {

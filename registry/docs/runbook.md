@@ -123,6 +123,19 @@ through `cargo registry-wipe` (which reapplies from zero and refreshes
 the stamp itself), post-launch it must become a new migration file.
 Hand-refreshing the stamp bypasses those checks; don't.
 
+**While that gate holds the deploy, ports publishing stops too, and
+silently.** `ports-publish.yml` waits for a Registry deploy containing
+its own commit, so a skipped Deploy leaves it with nothing to wait for.
+Rather than redden main it records `skipped=true`, prints the reason,
+and ends green with the publish step gated off - so a merge during the
+freeze looks entirely normal and publishes nothing. Recovery is a
+`workflow_dispatch` of `ports-publish.yml` from `main` once the deploy
+lands: registry-only pushes do not match the ports trigger paths, so
+nothing re-runs it on its own. Green here means only "confirmed that no
+deploy can arrive without you": a wait that merely ran out of its hour
+undecided still fails the run, because a rerun clears that and a rerun
+is what the red offers.
+
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository
 cannot be swept into one without either a pre-launch wipe or a new
@@ -315,6 +328,12 @@ round trip (drilled 2026-07-29):
 7. Rerun whatever main CI went red against the old registry
    (`gh run rerun <id> --failed`); byte-identical republication of the
    already-landed packages no-ops, so a partial run resumes cleanly.
+   Ports publishing needs looking up separately: a run that DECLINED to
+   publish during the freeze ended green, so it leaves nothing for
+   "went red" to find and no failed job for `--failed` to retry.
+   Dispatch `ports-publish.yml` from `main` instead (see the deploy-gate
+   note above). A ports run that did go red is ordinary rerun material
+   like any other.
 
 ## Launch checklist
 

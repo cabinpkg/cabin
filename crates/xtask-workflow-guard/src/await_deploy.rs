@@ -70,33 +70,51 @@
 //! leading comment, which is outside the `run:` body, stays in the
 //! workflow.
 //!
-//! Two deliberate post-port behavior changes (2026-08-15, run
-//! 31904670113):
+//! Three deliberate post-port behavior changes (2026-08-15, runs
+//! 31904670113 and 31912756773):
 //!
 //! - A same-SHA Registry run that succeeded with its Deploy step
-//!   *skipped* now takes the failure path's pending-descendant exit
+//!   *skipped* now takes the failure path's terminal decision
 //!   instead of idling into the hour ceiling - see
 //!   `same_sha_deploy_skipped`.  During the pre-launch deploy freeze
 //!   (a D1 migration awaiting its by-hand apply skips every Deploy)
 //!   the original had no terminal answer at all; an operator now
 //!   reruns the workflow once the deploy lands.
-//! - A terminal Stop (either arm) requires a CONFIRMED absence: an
-//!   iteration only Stops when its own `git fetch` succeeded (the
-//!   status is read where L6 discarded it - a failed fetch folds
+//! - A terminal decision (Skip or Fail) requires a CONFIRMED absence: an
+//!   iteration only concludes it when its own `git fetch` succeeded
+//!   (the status is read where L6 discarded it - a failed fetch folds
 //!   every ancestor check to false) and its candidate scan was not
 //!   blind, and `poll` demands two CONSECUTIVE such iterations, so a
 //!   sampling race - a deploy landing between the candidate and
 //!   pending listings, a head pushed after the fetch - resolves on
 //!   the second pass.  Anything less retries, where the original's
 //!   failure arm would exit 1 from a possibly-blind iteration.
+//! - The deploy-freeze arm - and ONLY that arm - ends GREEN: it
+//!   appends `skipped=true` to `$GITHUB_OUTPUT`, which the publish
+//!   step's `if` reads, prints the reason on stdout, and exits 0.
+//!   The line dividing green from red is whether a RERUN can clear
+//!   the state.  A freeze cannot be: it holds until an operator
+//!   applies the migration by hand, so failing would pin main red for
+//!   as long as that takes, and a permanently-red main is the one
+//!   outcome forbidden here.  Everything a rerun CAN clear stays red,
+//!   which leaves the original's own exits untouched: L51-L52 for a
+//!   failed or cancelled Registry run (`Fail`, which a Registry rerun
+//!   clears), L56-L57 for the ceiling reached undecided (a slow
+//!   deploy, or an outage that outlasted the hour).  So does a tool
+//!   dying (`Die`), and so does the skip flag failing to record,
+//!   where exiting 0 would let the publish step run against a stale
+//!   worker.  Red is not merely tolerated in those cases - it is the
+//!   affordance that offers the rerun.
 //!
 //! The remaining inherited properties, preserved rather than fixed.
 //! Each was pinned by running the original under `bash -e`, GitHub's
 //! default `run:` shell (`-e` on, `-u` and `-o pipefail` off):
 //!
 //! - **Every stdout line is the workflow's log contract**, byte for
-//!   byte, `echo`'s newline included. The two `>&2` lines are the only
-//!   ones the step reads as a failure.
+//!   byte, `echo`'s newline included. Both of the original's `>&2`
+//!   failure lines keep their stream and their `exit 1`; the green
+//!   arm above is an ADDED message for a state the original had no
+//!   terminal answer to, not one of these moved.
 //! - **A failing `gh` never fails the step.** L7 and L19/L31 put the
 //!   substitution in a condition, where `set -e` is suppressed: L7
 //!   takes the else path with an empty capture, L19/L31 take their
@@ -177,6 +195,9 @@ const TRANSIENT_SCAN: &str = "could not confirm that no deploy containing this S
      (a transient fetch or API failure); retrying";
 const NO_RUN: &str = "no Registry run for this SHA; the deployed worker is already current";
 const TIMED_OUT: &str = "timed out waiting for a registry deploy containing this SHA";
+// The step output the publish step's `if` reads; its ABSENCE means
+// "publish", which is why recording it fails closed (see `poll`).
+const SKIP_LINE: &str = "skipped=true\n";
 
 /// L9, L3, L20 and L33's projections, which run inside `gh`.
 const CANDIDATES_JQ: &str = r#".workflow_runs[] | "\(.id) \(.head_sha)""#;
@@ -196,6 +217,7 @@ pub fn run() -> ExitCode {
         &mut Spawn,
         &context("GITHUB_SHA"),
         &context("GITHUB_REPOSITORY"),
+        &mut || crate::append_github_output(SKIP_LINE),
     ))
 }
 
@@ -213,27 +235,37 @@ enum Report {
     Retry(String),
     /// `echo ...; exit 0` (L14, L26).
     Done(String),
-    /// `echo ... >&2; exit 1` (L51).
-    Stop(String),
+    /// The deploy-freeze shape, which the original had no terminal
+    /// answer for: `poll` records `skipped=true` in `$GITHUB_OUTPUT`
+    /// for the publish step's `if` to read, the reason goes to stdout,
+    /// and the step ends GREEN - see the deliberate-changes list above.
+    /// Green because no rerun clears a freeze.
+    Skip(String),
+    /// L51-L52 (`echo ... >&2; exit 1`), unchanged: a failed or
+    /// cancelled Registry run is breakage a Registry rerun clears, so
+    /// it stays red and records nothing.
+    Fail(String),
     /// L29's death under `set -e`: the failing tool already wrote its
     /// own diagnostic, and the step said nothing of its own.
     Die,
 }
 
 impl Report {
-    /// Writes the line and answers with the exit the original took, or
-    /// `None` where it went round again.
+    /// Writes the line and answers with the step's exit, or `None`
+    /// where the loop goes round again.  `Skip` is green: the caller
+    /// has already recorded the `skipped=true` flag (fail-closed) by
+    /// the time this prints.
     fn emit(&self) -> Option<u8> {
         match self {
             Self::Retry(line) => {
                 println!("{line}");
                 None
             }
-            Self::Done(line) => {
+            Self::Done(line) | Self::Skip(line) => {
                 println!("{line}");
                 Some(0)
             }
-            Self::Stop(line) => {
+            Self::Fail(line) => {
                 eprintln!("{line}");
                 Some(1)
             }
@@ -244,25 +276,52 @@ impl Report {
 
 /// L5..L57: the loop, its ceiling and the timeout below it.
 ///
-/// A `Stop` is terminal only when two CONSECUTIVE iterations conclude
+/// A `Skip` is concluded only when two CONSECUTIVE iterations reach
 /// it (post-port).  One iteration samples the world piecewise - fetch,
 /// candidate listing, same-SHA run, pending listing - so a deploy that
 /// lands between two samplings, or a head pushed after the fetch
 /// (unknown revisions fold `merge-base` to false), can read as a
 /// confirmed absence.  The second iteration re-takes every sample from
 /// its own fresh fetch, so any such race resolves to Done or Retry
-/// there; the first Stop just waits, as silently as the L54
-/// fall-through.
-fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
-    let mut provisional_stop = false;
+/// there; the first Skip just waits, as silently as the L54
+/// fall-through.  A wrong skip is a silent green no-publish, harder
+/// to notice than a red run ever was - the double-take is what makes
+/// it trustworthy.
+///
+/// `record_skip` appends the `skipped=true` flag the publish step's
+/// `if` reads, BEFORE the reason prints: the flag's absence means
+/// "publish", so a skip that cannot be recorded must fail the step
+/// (exit 1) rather than green-light a publish against a stale worker.
+/// The ceiling below is NOT a skip: it keeps L57's `exit 1`, because a
+/// rerun clears an undecided hour and red is what invites one.
+fn poll(
+    shell: &mut dyn Shell,
+    sha: &str,
+    repository: &str,
+    record_skip: &mut dyn FnMut() -> anyhow::Result<()>,
+) -> u8 {
+    let mut conclude_skip = |report: Report| -> u8 {
+        if let Err(error) = record_skip() {
+            eprintln!("failed to record skipped=true, so the publish step would run: {error:#}");
+            return 1;
+        }
+        report.emit().unwrap_or(1)
+    };
+    let mut provisional_terminal = false;
     for _ in 0..ITERATIONS {
         let report = iteration(shell, sha, repository);
-        if matches!(report, Some(Report::Stop(_))) && !provisional_stop {
-            provisional_stop = true;
-            shell.wait();
-            continue;
+        match report {
+            Some(Report::Skip(_) | Report::Fail(_)) if !provisional_terminal => {
+                provisional_terminal = true;
+                shell.wait();
+                continue;
+            }
+            Some(report @ Report::Skip(_)) => return conclude_skip(report),
+            // No flag: the step exits 1, so the publish step's implicit
+            // `success()` already keeps it from running.
+            Some(report @ Report::Fail(_)) => return report.emit().unwrap_or(1),
+            _ => provisional_terminal = false,
         }
-        provisional_stop = false;
         if let Some(report) = report
             && let Some(code) = report.emit()
         {
@@ -270,6 +329,12 @@ fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
         }
         shell.wait();
     }
+    // L56-L57 unchanged: an hour that ended undecided is a TRANSIENT
+    // world - a merely-slow deploy, or an outage that outlasted the
+    // ceiling - and a rerun of this workflow resolves it. Red is the
+    // right answer there, and the retry affordance the operator wants.
+    // Only the confirmed terminal decision above goes green, because no
+    // rerun can clear it without the operator applying the migration.
     eprintln!("{TIMED_OUT}");
     1
 }
@@ -282,7 +347,7 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
     // local clone, so every `merge-base --is-ancestor` below answers
     // false (exit 128 folds to false) and a landed deploy is
     // indistinguishable from a missing one.  The terminal
-    // confirmation at the bottom refuses to Stop on such an
+    // confirmation at the bottom refuses to conclude a Skip on such an
     // iteration.  stderr stays inherited, as `|| true` left it.
     let (fetched, _) = shell.capture(&["git", "fetch", "--quiet", "origin", "main"], &[]);
 
@@ -369,24 +434,31 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
             )
         }));
     }
-    // Never Stop - even provisionally (see `poll`) - from an
+    // Never conclude a Skip - even provisionally (see `poll`) - from an
     // iteration that could not VERIFY absence: a failed fetch folds
     // every ancestor check to false, and a blind scan may have missed
     // a landed deploy outright.
     if !fetched || scan_blind {
         return Some(Report::Retry(TRANSIENT_SCAN.to_owned()));
     }
-    Some(Report::Stop(if deploy_skipped {
-        "Registry run for this SHA succeeded but skipped its Deploy (superseded, or a D1 \
-         migration awaits its by-hand apply) and no pending run can deliver a deploy containing \
-         it; not publishing against a possibly-stale worker - rerun this workflow once the \
-         deploy lands (registry/docs/runbook.md)"
-            .to_owned()
-    } else {
-        format!(
-            "Registry run for this SHA concluded '{conclusion}' and no deploy containing it has landed; not publishing against a stale worker"
+    // The two terminal worlds part here.  A skipped Deploy is the
+    // freeze: no rerun of anything clears it until an operator applies
+    // the migration, so it goes green.  A failed or cancelled Registry
+    // run is ordinary breakage that a Registry rerun clears, so it
+    // keeps L51-L52's `>&2` + `exit 1` unchanged.
+    Some(if deploy_skipped {
+        Report::Skip(
+            "Registry run for this SHA succeeded but skipped its Deploy (superseded, or a D1 \
+             migration awaits its by-hand apply) and no pending run can deliver a deploy \
+             containing it; not publishing against a possibly-stale worker - rerun this workflow \
+             once the deploy lands (registry/docs/runbook.md)"
+                .to_owned(),
         )
-    }))
+    } else {
+        Report::Fail(format!(
+            "Registry run for this SHA concluded '{conclusion}' and no deploy containing it has landed; not publishing against a stale worker"
+        ))
+    })
 }
 
 /// What one candidate listing + scan pass concluded.
@@ -408,7 +480,7 @@ fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
     // migration awaiting its by-hand apply green-lights every
     // subsequent run) must not push the qualifying run out of the
     // scanned window - a buried qualifying candidate reads as a clean
-    // miss, which a confirmed Stop would trust and fast-fail on where
+    // miss, which a confirmed Skip would trust and conclude on where
     // the original merely idled.
     let (listed, candidates) = shell.capture(
         &[
@@ -461,7 +533,7 @@ fn same_sha_deploy_skipped(shell: &mut dyn Shell, repository: &str, runs: &[u8])
 /// L10..L17: the successful runs, in the order the API listed them,
 /// until one whose head contains this SHA carries a Deploy step that
 /// ran and succeeded.  A candidate lookup that failed to run sets
-/// `blind` - the caller must not conclude a terminal Stop from an
+/// `blind` - the caller must not conclude a terminal Skip from an
 /// iteration that may have missed a landed deploy.  A lookup that ran
 /// and answered non-success is a clean miss, not blindness.
 fn scan(
@@ -689,7 +761,7 @@ mod tests {
 
     /// The candidate listing answering with one qualifying run.
     const ONE_CANDIDATE: (&str, bool, &str) = ("status=success", true, "77 head77\n");
-    /// The iteration's `git fetch` succeeding - a terminal Stop
+    /// The iteration's `git fetch` succeeding - a terminal Skip
     /// requires it.
     const FETCH_OK: (&str, bool, &str) = ("git fetch", true, "");
 
@@ -866,31 +938,63 @@ mod tests {
         }
     }
 
+    /// A failed or cancelled Registry run stays RED (L51-L52
+    /// unchanged): a Registry rerun clears it, so the run must say so
+    /// and offer the retry.  Only the freeze arm below is green.
     #[test]
-    fn a_failed_run_with_no_pending_descendant_stops() {
+    fn a_failed_run_with_no_pending_descendant_fails() {
         let mut shell = Fake::answering(&[
             FETCH_OK,
             ("status=success", true, ""),
             ("head_sha=", true, "[{}]"),
             ("jq length", true, "1"),
-            ("jq -r", true, "failure"),
+            ("jq -r .[0].conclusion", true, "failure"),
+            ("jq -r .[0].id", true, "77"),
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
-        let stale = Report::Stop(
+        let stale = Report::Fail(
             "Registry run for this SHA concluded 'failure' and no deploy containing it has landed; not publishing against a stale worker"
                 .to_owned(),
         );
         assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(stale));
-        assert_eq!(Report::Stop(String::new()).emit(), Some(1));
+        assert_eq!(Report::Fail(String::new()).emit(), Some(1));
+        // The green arm is the freeze's alone.
+        assert_eq!(Report::Skip(String::new()).emit(), Some(0));
+    }
+
+    /// A confirmed failure records NO flag: the step exits 1, and the
+    /// publish step's implicit `success()` is what keeps it from
+    /// running.  Recording `skipped=true` here would be indistinguishable
+    /// from the freeze in the workflow's own log.
+    #[test]
+    fn a_confirmed_failure_is_red_and_records_nothing() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "failure"),
+            ("jq -r .[0].id", true, "77"),
+            ("branch=main&per_page=100", true, "stale\n"),
+        ]);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            1
+        );
+        assert_eq!(recorded, 0, "a failure is not a deliberate skip");
+        // Still confirmed twice, so a blind iteration cannot redden main.
+        assert_eq!(shell.waits, 1);
+        assert_eq!(shell.called("git fetch"), 2);
     }
 
     /// The deploy-freeze fast-fail: a same-SHA run that SUCCEEDED
     /// with its Deploy step skipped (superseded, or a D1 migration
     /// awaiting its by-hand apply) can never green-light this SHA,
     /// and with nothing pending the wait would only idle into its
-    /// hour ceiling - stop immediately, with the reason.
+    /// hour ceiling - skip immediately (green), with the reason.
     #[test]
-    fn a_skipped_deploy_with_no_pending_descendant_stops_fast() {
+    fn a_skipped_deploy_with_no_pending_descendant_skips_fast() {
         let mut shell = Fake::answering(&[
             FETCH_OK,
             (
@@ -918,11 +1022,11 @@ mod tests {
         ])
         .descending_from(&["head88"]);
         match iteration(&mut shell, "abc", "o/r") {
-            Some(Report::Stop(line)) => {
+            Some(Report::Skip(line)) => {
                 assert!(line.contains("skipped its Deploy"), "{line}");
                 assert!(line.contains("not publishing"), "{line}");
             }
-            other => panic!("expected a fast stop, got {other:?}"),
+            other => panic!("expected a fast skip, got {other:?}"),
         }
     }
 
@@ -968,7 +1072,7 @@ mod tests {
     /// deploy already contains this SHA, so a terminal answer from
     /// the same iteration is unverified: retry instead of stopping.
     #[test]
-    fn a_blind_scan_defers_the_skipped_stop() {
+    fn a_blind_scan_defers_the_skip() {
         let mut shell = Fake::answering(&[
             FETCH_OK,
             ("status=success", true, "77 head77\n"),
@@ -990,7 +1094,7 @@ mod tests {
     /// The same guard covers the failure arm: a failed candidate
     /// listing is a blind scan too.
     #[test]
-    fn a_blind_candidate_listing_defers_the_failure_stop() {
+    fn a_blind_candidate_listing_defers_the_failure_skip() {
         let mut shell = Fake::answering(&[
             FETCH_OK,
             ("status=success", false, ""),
@@ -1007,9 +1111,9 @@ mod tests {
 
     /// A failed `git fetch` leaves superseding heads unknown, so every
     /// ancestor check answers false and a landed deploy is invisible
-    /// without any API call failing: never a Stop.
+    /// without any API call failing: never a Skip.
     #[test]
-    fn a_failed_fetch_defers_the_stop() {
+    fn a_failed_fetch_defers_the_skip() {
         let mut shell = Fake::answering(&[
             ("status=success", true, ""),
             ("head_sha=", true, "[{}]"),
@@ -1080,31 +1184,117 @@ mod tests {
         );
     }
 
+    /// A `poll` whose recorder counts calls and never fails.
+    fn counting(count: &mut usize) -> impl FnMut() -> anyhow::Result<()> {
+        move || {
+            *count += 1;
+            Ok(())
+        }
+    }
+
+    /// The scripted answers for the freeze shape, stable across
+    /// iterations: same-SHA success with a skipped Deploy, nothing
+    /// pending, clean scans.
+    const FREEZE_SHAPE: [(&str, bool, &str); 8] = [
+        FETCH_OK,
+        ("status=success", true, ""),
+        ("head_sha=", true, "[{}]"),
+        ("jq length", true, "1"),
+        ("jq -r .[0].conclusion", true, "success"),
+        ("jq -r .[0].id", true, "88"),
+        ("runs/88/jobs", true, "skipped\n"),
+        ("branch=main&per_page=100", true, "stale\n"),
+    ];
+
+    /// The first Skip is provisional; the second - after a fresh
+    /// fetch and fresh listings - records the flag and ends GREEN.
     #[test]
-    fn a_stop_needs_two_consecutive_iterations() {
-        // The freeze shape, stable across iterations: the first Stop
-        // is provisional, the second - after a fresh fetch and fresh
-        // listings - is terminal.
-        let mut shell = Fake::answering(&[
-            FETCH_OK,
-            ("status=success", true, ""),
-            ("head_sha=", true, "[{}]"),
-            ("jq length", true, "1"),
-            ("jq -r .[0].conclusion", true, "success"),
-            ("jq -r .[0].id", true, "88"),
-            ("runs/88/jobs", true, "skipped\n"),
-            ("branch=main&per_page=100", true, "stale\n"),
-        ]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+    fn a_skip_needs_two_consecutive_iterations_and_ends_green() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            0
+        );
+        assert_eq!(recorded, 1, "the flag records exactly once");
         assert_eq!(shell.waits, 1);
         assert_eq!(shell.called("git fetch"), 2);
+    }
+
+    /// The two Skips must be CONSECUTIVE, not merely two: a transient
+    /// iteration between them clears the provisional flag, so the pair
+    /// that concludes is freshly taken.  Without the reset a racy Skip,
+    /// a transient, and a second racy Skip minutes later would conclude
+    /// a green no-publish from samples that never agreed in a row.
+    #[test]
+    fn a_transient_between_two_skips_restarts_the_confirmation() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE)
+            // Consumed in order: the first iteration reads the freeze
+            // shape as usual, the second fails its same-SHA listing.
+            .answering_once(&[("head_sha=", true, "[{}]"), ("head_sha=", false, "")]);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            0
+        );
+        assert_eq!(recorded, 1, "the flag records exactly once");
+        assert_eq!(
+            shell.waits, 3,
+            "skip, transient, skip, then the concluding skip"
+        );
+        assert_eq!(shell.called("git fetch"), 4);
+    }
+
+    /// The flag is a contract spelled in two places no compiler
+    /// connects: the key this crate writes, and the `if:` expression
+    /// in `ports-publish.yml` that reads it.  `superseded` and
+    /// `migrations_pending` pin their own output lines
+    /// (`tests/guard_contracts.rs`); this one went unpinned, and a
+    /// rename on either side - or an `if:` conjunct lost to a merge -
+    /// would leave every test in the crate green while the publish
+    /// step ran against a stale worker.
+    #[test]
+    fn the_skip_flag_matches_the_workflow_that_reads_it() {
+        let key = SKIP_LINE
+            .trim_end()
+            .split_once('=')
+            .expect("the flag is a key=value line")
+            .0;
+        assert_eq!(key, "skipped");
+        let workflow = std::fs::read_to_string(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../.github/workflows/ports-publish.yml"),
+        )
+        .expect("reading ports-publish.yml");
+        assert!(
+            workflow.contains("id: await"),
+            "the wait step must carry the id the publish step names"
+        );
+        assert!(
+            workflow.contains(&format!("steps.await.outputs.{key} != 'true'")),
+            "the publish step must gate on the flag this crate records"
+        );
+    }
+
+    /// The flag's absence means "publish": a skip that cannot be
+    /// recorded must fail the step rather than green-light the
+    /// publish against a stale worker.
+    #[test]
+    fn an_unrecordable_skip_fails_closed() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE);
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut || anyhow::bail!(
+                "GITHUB_OUTPUT is unset"
+            )),
+            1
+        );
     }
 
     /// A run pushed or completed during the confirmation wait is
     /// visible to the second iteration's fresh fetch and listings -
     /// the sampling races (a deploy landing between the candidate and
     /// pending listings, a head unknown to the pre-fetch clone) all
-    /// resolve here instead of in a terminal Stop.
+    /// resolve here instead of in a terminal Skip.
     #[test]
     fn a_deploy_landing_during_the_confirmation_wait_wins() {
         let mut shell = Fake::answering(&[
@@ -1120,16 +1310,32 @@ mod tests {
         ])
         .answering_once(&[("status=success", true, "")])
         .descending_from(&["head99"]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            0
+        );
+        assert_eq!(recorded, 0, "a found deploy is not a skip");
         assert_eq!(shell.waits, 1);
     }
 
+    /// The ceiling stays RED, and records nothing.  An hour that ended
+    /// undecided is transient - a slow deploy, or an outage that
+    /// outlasted the ceiling - and a rerun clears it, so red is both
+    /// the honest answer and the affordance that offers the rerun.
+    /// Recording the flag here would instead publish nothing and say
+    /// nothing, forever, on a state a rerun would have fixed.
     #[test]
-    fn the_ceiling_is_ninety_waits_and_then_the_timeout() {
+    fn the_ceiling_is_ninety_waits_and_then_a_red_timeout() {
         // Every call fails, so each iteration takes the transient
-        // branch: the loop reaches its ceiling and exits 1.
+        // branch: the loop reaches its ceiling.
         let mut shell = Fake::default();
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            1
+        );
+        assert_eq!(recorded, 0, "an undecided wait is not a deliberate skip");
         assert_eq!(shell.waits, ITERATIONS);
         assert_eq!(shell.called("git fetch"), ITERATIONS);
     }
@@ -1137,7 +1343,12 @@ mod tests {
     #[test]
     fn an_early_answer_stops_the_loop_without_waiting() {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0")]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            0
+        );
+        assert_eq!(recorded, 0);
         assert_eq!(shell.waits, 0);
     }
 
@@ -1150,7 +1361,14 @@ mod tests {
             ("branch=main&per_page=100", true, "pending77"),
         ])
         .descending_from(&["pending77"]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        let mut recorded = 0;
+        // A pending descendant that never deploys waits out the
+        // ceiling, which is red and records nothing.
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            1
+        );
+        assert_eq!(recorded, 0);
         assert_eq!(shell.waits, ITERATIONS);
     }
 }

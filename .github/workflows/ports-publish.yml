@@ -215,8 +215,16 @@ jobs:
       # awaits its by-hand apply, and both cases leave the old Worker
       # live. When the same-SHA run itself skipped its Deploy and no
       # pending run can still deliver one - the deploy-freeze shape -
-      # the wait fails FAST with the reason instead of idling into its
-      # hour ceiling; rerun this workflow once the deploy lands.
+      # the step records `skipped=true`, prints the reason, and ends
+      # GREEN, and the publish step below gates on the flag. That arm
+      # alone is green because no rerun can clear it: the freeze holds
+      # until an operator applies the migration, and failing would pin
+      # main red for as long as that takes. Everything a rerun DOES
+      # clear stays red - a failed or cancelled Registry run, the hour
+      # ceiling reached undecided, a tool dying, or the flag failing to
+      # record (where a green exit would publish against the stale
+      # worker). Once the deploy lands, dispatch this workflow from
+      # main to publish what the freeze skipped.
       # The gate is otherwise satisfied by ANY successful main
       # Deploy whose head CONTAINS this SHA (ancestor check): when a
       # newer registry commit supersedes this SHA's run, its deploy
@@ -229,13 +237,14 @@ jobs:
       # alert). Transient API errors retry on the next iteration; the
       # ceiling covers registry.yml's cold-cache gate.
       - name: Wait for a registry deploy containing this SHA
+        id: await
         if: steps.freshness.outputs.superseded != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: cargo workflow-await-deploy
 
       - name: Publish to registry.cabinpkg.com
-        if: steps.freshness.outputs.superseded != 'true'
+        if: steps.freshness.outputs.superseded != 'true' && steps.await.outputs.skipped != 'true'
         run: |
           cargo port-publish --publish \
             --index-url https://registry.cabinpkg.com \
