@@ -741,3 +741,188 @@ sources = ["src/ghost.cc"]
             .is_file()
     );
 }
+
+/// One `cabin publish` invocation covers several packages: each
+/// `--manifest-path` publishes into the same registry (the argv-order
+/// guarantee is pinned on the remote path, where the wire records
+/// it).
+#[test]
+fn multiple_manifest_paths_publish_each_package() {
+    let dir = TempDir::new().unwrap();
+    let first = dir.path().join("first");
+    write_simple_package(&first);
+    let second = dir.path().join("second");
+    assert_fs::fixture::ChildPath::new(second.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/consumer"
+version = "0.2.0"
+
+[dependencies]
+"fmtlib/fmt" = "=10.2.1"
+"#,
+        )
+        .unwrap();
+    let registry = dir.path().join("registry");
+
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(first.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(second.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+
+    assert!(registry.join("packages/fmtlib/fmt.json").is_file());
+    assert!(registry.join("packages/acme/consumer.json").is_file());
+}
+
+/// `--format json` emits one JSON object per package, one per line
+/// (JSON Lines), in the order given: a machine consumer reads each
+/// receipt as it lands, and a mid-batch failure cannot leave a larger
+/// document unclosed.
+#[test]
+fn a_batch_json_publish_emits_one_json_object_per_line() {
+    let dir = TempDir::new().unwrap();
+    let first = dir.path().join("first");
+    write_simple_package(&first);
+    let second = dir.path().join("second");
+    assert_fs::fixture::ChildPath::new(second.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/consumer"
+version = "0.2.0"
+
+[dependencies]
+"fmtlib/fmt" = "=10.2.1"
+"#,
+        )
+        .unwrap();
+    let registry = dir.path().join("registry");
+
+    let assertion = cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(first.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(second.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .args(["--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    let names: Vec<String> = stdout
+        .lines()
+        .map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|_| panic!("line should be one JSON object: {line}"));
+            value["name"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(names, ["fmtlib/fmt", "acme/consumer"], "in: {stdout}");
+}
+
+/// Distinct package names can flatten to one artifact stem
+/// (`a-b/c` and `a/b-c`), and a staging-only batch shares one
+/// `--output-dir`: the collision fails CLOSED on the second member
+/// (nothing is clobbered), naming the member via the batch context.
+/// Stem-colliding same-version packages need separate invocations
+/// with separate output directories.
+#[test]
+fn a_batch_dist_stem_collision_fails_closed_on_the_second_member() {
+    let dir = TempDir::new().unwrap();
+    for (root, name) in [("first", "a-b/c"), ("second", "a/b-c")] {
+        let root = dir.path().join(root);
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(&format!(
+                r#"[package]
+name = "{name}"
+version = "1.0.0"
+
+[target.demo]
+type = "library"
+sources = ["src/demo.c"]
+c-standard = "c11"
+"#
+            ))
+            .unwrap();
+        assert_fs::fixture::ChildPath::new(root.join("src/demo.c"))
+            .write_str("int demo(void) { return 0; }\n")
+            .unwrap();
+    }
+    let assertion = cabin()
+        .args(["publish", "--dry-run", "--manifest-path"])
+        .arg(dir.path().join("first/cabin.toml"))
+        .arg("--manifest-path")
+        .arg(dir.path().join("second/cabin.toml"))
+        .arg("--output-dir")
+        .arg(dir.path().join("dist"))
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        crate::standard_compat::flat_contains(&stderr, "dry-running") && stderr.contains("second"),
+        "expected the second member named in: {stderr}"
+    );
+    assert!(
+        crate::standard_compat::flat_contains(&stderr, "already exists"),
+        "expected the fail-closed refusal in: {stderr}"
+    );
+}
+
+/// A manifest that fails to RESOLVE stops the batch before any work:
+/// every path is parsed and selected up front, so a broken manifest
+/// anywhere leaves the registry untouched.  (On this local
+/// `--registry-dir` flow, later per-package staging failures are not
+/// all-or-nothing - the remote flow is the one that stages everything
+/// before its first upload.)
+#[test]
+fn a_bad_manifest_fails_the_batch_before_any_publish() {
+    let dir = TempDir::new().unwrap();
+    let good = dir.path().join("good");
+    write_simple_package(&good);
+    let bad = dir.path().join("bad");
+    assert_fs::fixture::ChildPath::new(bad.join("cabin.toml"))
+        .write_str("not a manifest at all")
+        .unwrap();
+    let registry = dir.path().join("registry");
+
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(good.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(bad.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .failure();
+
+    assert!(
+        !registry.join("packages/fmtlib/fmt.json").exists(),
+        "nothing may publish when any manifest in the batch fails to stage"
+    );
+}
+
+/// Repeated `--manifest-path` names an explicit batch; combining it
+/// with workspace selection flags is contradictory and refused.
+#[test]
+fn multiple_manifest_paths_refuse_workspace_selection_flags() {
+    let dir = TempDir::new().unwrap();
+    let first = dir.path().join("first");
+    write_simple_package(&first);
+    let second = dir.path().join("second");
+    write_simple_package(&second);
+
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(first.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(second.join("cabin.toml"))
+        .args(["--package", "fmtlib/fmt", "--registry-dir"])
+        .arg(dir.path().join("registry"))
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--manifest-path"));
+}

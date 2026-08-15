@@ -902,10 +902,17 @@ pub(crate) struct PackageArgs {
 
 #[derive(Debug, Args)]
 pub(crate) struct PublishArgs {
-    /// Path to the cabin.toml manifest.  Must point at a single
-    /// package; pure-workspace roots are rejected.
+    /// Path to the cabin.toml manifest.  Each must point at a single
+    /// package; pure-workspace roots are rejected.  Repeat the flag
+    /// to publish several packages in one invocation, in exactly the
+    /// order given.  A remote batch stages and lint-checks everything
+    /// before its first upload and authenticates once - which is what
+    /// lets a trusted-publishing run exchange one OIDC token for its
+    /// whole batch; the local `--registry-dir` flow writes each
+    /// package in order.  Repeated paths are incompatible with the
+    /// workspace selection flags.
     #[arg(long, value_name = "PATH")]
-    pub manifest_path: Option<PathBuf>,
+    pub manifest_path: Vec<PathBuf>,
 
     /// Directory for the dry-run's archive and metadata when
     /// `--registry-dir` is not given.  Defaults to `dist/`.  Mutually
@@ -942,6 +949,16 @@ pub(crate) struct PublishArgs {
     /// means a forgotten version bump.
     #[arg(long)]
     pub new_revision: bool,
+
+    /// Wait out registry rate limits (`429`) instead of failing fast:
+    /// retry after the advertised delay, a few attempts, capped.
+    /// Multi-package batches always pace (a serial batch charges the
+    /// publish bucket per attempt); this flag extends the same pacing
+    /// to a single-package publish - automation reruns hit the same
+    /// drained bucket, where an interactive publish wants the
+    /// immediate error.
+    #[arg(long)]
+    pub retry_rate_limits: bool,
 
     /// Output format for the publish or dry-run report.
     #[arg(long, value_name = "FORMAT", default_value = "human")]

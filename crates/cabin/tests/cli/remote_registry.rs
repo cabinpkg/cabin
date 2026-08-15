@@ -1139,6 +1139,33 @@ sources = ["src/demo.c"]
         .unwrap();
 }
 
+/// Like [`write_scoped_publishable_package`], but versioned and with
+/// a declared C interface standard, for the PL3 (a patch narrows a
+/// declared standard) baseline tests.
+fn write_scoped_c_interface_package(root: &Path, version: &str, interface_c: &str) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(&format!(
+            r#"[package]
+name = "acme/demo"
+version = "{version}"
+
+[target.demo]
+type = "library"
+sources = ["src/demo.c"]
+include-dirs = ["include"]
+c-standard = "c17"
+interface-c-standard = "{interface_c}"
+"#
+        ))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("include/demo.h"))
+        .write_str("#pragma once\nint demo_value(void);\n")
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("src/demo.c"))
+        .write_str("#include \"demo.h\"\nint demo_value(void) { return 1; }\n")
+        .unwrap();
+}
+
 /// One captured mutation request against [`RemoteRegistryServer`].
 struct CapturedPut {
     method: String,
@@ -2140,10 +2167,19 @@ impl TrustpubRegistryServer {
                         200 => r#"{"ok":true,"no_op":true}"#,
                         201 => r#"{"ok":true}"#,
                         403 => r#"{"errors":[{"detail":"scope membership required"}]}"#,
+                        429 => r#"{"errors":[{"detail":"rate limited"}]}"#,
                         _ => r#"{"errors":[{"detail":"unexpected"}]}"#,
                     };
-                    let _ = req
-                        .respond(tiny_http::Response::from_string(body).with_status_code(status));
+                    let mut response =
+                        tiny_http::Response::from_string(body).with_status_code(status);
+                    if status == 429 {
+                        // A short advertised delay keeps pacing tests fast.
+                        response.add_header(
+                            tiny_http::Header::from_bytes(&b"Retry-After"[..], &b"1"[..])
+                                .expect("valid test header"),
+                        );
+                    }
+                    let _ = req.respond(response);
                 } else {
                     // Package reads: nothing is published yet.
                     let _ = req.respond(tiny_http::Response::empty(404));
@@ -2556,4 +2592,256 @@ fn a_config_selected_loopback_index_never_exchanges() {
         "no exchange, no revocation - the publish went tokenless"
     );
     assert_eq!(captured[0].authorization, None);
+}
+
+/// The point of the batch: however many packages one invocation
+/// publishes, the trusted-publishing leg fetches ONE OIDC token and
+/// performs ONE exchange - the minted token serves every upload, in
+/// the order the manifests were given, and revokes once at the end.
+#[test]
+fn a_batch_publish_exchanges_exactly_once() {
+    let registry = TrustpubRegistryServer::start(&[201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    assert_fs::fixture::ChildPath::new(zlib.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.1"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(zlib.join("src/z.c"))
+        .write_str("int z(void) { return 0; }\n")
+        .unwrap();
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .success();
+
+    assert_eq!(oidc.captured().len(), 1, "one OIDC fetch per batch");
+    let captured = registry.captured();
+    let sequence: Vec<(&str, &str)> = captured
+        .iter()
+        .map(|c| (c.method.as_str(), c.path.as_str()))
+        .collect();
+    assert_eq!(
+        sequence,
+        [
+            ("PUT", "/api/v1/trusted_publishing/tokens"),
+            ("PUT", "/api/v1/packages/acme/zlib/1.3.1"),
+            ("PUT", "/api/v1/packages/acme/demo/0.1.0"),
+            ("DELETE", "/api/v1/trusted_publishing/tokens"),
+        ],
+        "one exchange, uploads in argv order, one revocation"
+    );
+    for upload in &captured[1..=2] {
+        assert_eq!(
+            upload.authorization.as_deref(),
+            Some(&*format!("Bearer {MINTED_TOKEN}")),
+            "every upload rides the one minted token"
+        );
+    }
+}
+
+/// The ordered batch simulates sequential publishes: a later
+/// version's PL3 baseline must include the same-name versions this
+/// invocation publishes before it, which the registry cannot know
+/// yet (every baseline here is fetched before the first upload).
+#[test]
+fn an_in_batch_earlier_version_joins_the_lint_baseline() {
+    let dir = TempDir::new().unwrap();
+    let older = dir.path().join("older");
+    write_scoped_c_interface_package(&older, "1.0.0", "c11");
+    let newer = dir.path().join("newer");
+    write_scoped_c_interface_package(&newer, "1.0.1", "c17");
+
+    let server = RemoteRegistryServer::start(true, false, &[201, 201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(older.join("cabin.toml"))
+        .args(["--manifest-path"])
+        .arg(newer.join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "narrowed from")
+            && flat_contains(&stderr, "c11")
+            && flat_contains(&stderr, "c17"),
+        "expected the in-batch PL3 warning in: {stderr}"
+    );
+}
+
+/// A lint rejection renders target names, not package names; the
+/// batch flow's context must say WHICH member to fix - and the
+/// rejection publishes nothing (lints run before the first upload).
+#[test]
+fn a_batch_lint_rejection_names_the_failing_member() {
+    let dir = TempDir::new().unwrap();
+    let good = dir.path().join("good");
+    write_scoped_c_interface_package(&good, "1.0.0", "c11");
+    let bad = dir.path().join("bad");
+    // A header-only implementation below its declared interface
+    // minimum: the PL1 pair only the publish lints see (the load-time
+    // contradiction check covers compiled targets).
+    assert_fs::fixture::ChildPath::new(bad.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/demo"
+version = "1.0.1"
+
+[target.demo]
+type = "header-only"
+include-dirs = ["include"]
+cxx-standard = "c++17"
+interface-cxx-standard = "c++20"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(bad.join("include/demo.h"))
+        .write_str("#pragma once\n")
+        .unwrap();
+
+    let server = RemoteRegistryServer::start(true, false, &[201, 201]);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .arg(&server.url)
+        .args(["--manifest-path"])
+        .arg(good.join("cabin.toml"))
+        .args(["--manifest-path"])
+        .arg(bad.join("cabin.toml"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "linting acme/demo 1.0.1"),
+        "expected the failing member's name in: {stderr}"
+    );
+    assert!(
+        server.puts.lock().unwrap().is_empty(),
+        "a lint rejection anywhere in the batch publishes nothing"
+    );
+}
+
+/// A `429` mid-batch is paced, not fatal: the rate-limited upload
+/// retries after the advertised delay and the batch completes.  The
+/// pacing is batch-only - a single-package publish keeps its
+/// historical fail-fast `429`, pinned by the second half.
+#[test]
+fn a_rate_limited_upload_is_paced_in_a_batch_and_fatal_alone() {
+    // First upload (zlib) succeeds, second (demo) is limited once.
+    let registry = TrustpubRegistryServer::start(&[201, 429, 201]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    assert_fs::fixture::ChildPath::new(zlib.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.1"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(zlib.join("src/z.c"))
+        .write_str("int z(void) { return 0; }\n")
+        .unwrap();
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("rate limited acme/demo 0.1.0"));
+
+    let uploads = registry
+        .captured()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/v1/packages/"))
+        .count();
+    assert_eq!(uploads, 3, "zlib, demo's 429 attempt, demo's paced retry");
+
+    // Alone, the same 429 fails fast: no pacing, no second attempt.
+    let registry = TrustpubRegistryServer::start(&[429]);
+    let oidc = OidcServer::start();
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rate limited"));
+    let uploads = registry
+        .captured()
+        .iter()
+        .filter(|c| c.path.starts_with("/api/v1/packages/"))
+        .count();
+    assert_eq!(uploads, 1, "a single-package 429 must fail fast");
+}
+
+/// An upload failure mid-batch cannot swallow what already landed:
+/// the first package's report is emitted before the second package's
+/// refusal aborts the run, and the error names the failing member.
+#[test]
+fn a_mid_batch_upload_failure_keeps_the_earlier_reports() {
+    let registry = TrustpubRegistryServer::start(&[201, 403]);
+    let oidc = OidcServer::start();
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    assert_fs::fixture::ChildPath::new(zlib.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.1"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(zlib.join("src/z.c"))
+        .write_str("int z(void) { return 0; }\n")
+        .unwrap();
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+
+    cabin_under_actions(&oidc)
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &registry.url])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("Published acme/zlib 1.3.1"))
+        .stderr(predicate::str::contains("publishing acme/demo 0.1.0"));
 }

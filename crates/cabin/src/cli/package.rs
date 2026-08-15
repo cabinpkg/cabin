@@ -46,38 +46,83 @@ pub(super) fn publish(
         ));
     }
 
-    let manifest_path = resolve_invocation_manifest(args.manifest_path.as_deref())?;
-    let (manifest_path, resolved_project, workspace_dep_requirements) =
-        select_single_package_manifest(&manifest_path, &args.workspace_selection, "publish")?
-            .into_parts();
+    // Repeated `--manifest-path` names an explicit, ordered batch;
+    // the workspace selection flags answer the different question
+    // "which member of THIS workspace" and cannot combine with it.
+    let selection = &args.workspace_selection;
+    if args.manifest_path.len() > 1
+        && (selection.workspace
+            || selection.default_members
+            || !selection.package.is_empty()
+            || !selection.exclude.is_empty())
+    {
+        bail!(
+            "repeated `--manifest-path` names an explicit batch of packages; the workspace \
+             selection flags (`--workspace`, `--package`, `--default-members`, `--exclude`) are \
+             not valid with it"
+        );
+    }
+    // Resolve every named manifest up front, in the order given (the
+    // flagless invocation keeps its current-directory resolution), so
+    // a bad manifest anywhere in the batch fails before any work.
+    let mut selections = Vec::new();
+    if args.manifest_path.is_empty() {
+        let manifest_path = resolve_invocation_manifest(None)?;
+        selections.push(
+            select_single_package_manifest(&manifest_path, &args.workspace_selection, "publish")?
+                .into_parts(),
+        );
+    } else {
+        for path in &args.manifest_path {
+            let manifest_path = resolve_invocation_manifest(Some(path))?;
+            selections.push(
+                select_single_package_manifest(
+                    &manifest_path,
+                    &args.workspace_selection,
+                    "publish",
+                )?
+                .into_parts(),
+            );
+        }
+    }
 
     match (args.registry_dir.as_deref(), args.dry_run) {
         (Some(registry_dir), true) => {
             let registry_dir = absolutise(registry_dir)
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
-            let report = cabin_publish::dry_run_against_file_registry(
-                cabin_publish::RegistryPublishWorkflow {
-                    manifest_path: &manifest_path,
-                    registry_dir: &registry_dir,
-                    resolved_project,
-                    workspace_dep_requirements,
-                    new_revision: args.new_revision,
-                },
-            )?;
-            emit_registry_publish_output(&report, args.format, reporter)?;
+            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+                let report = cabin_publish::dry_run_against_file_registry(
+                    cabin_publish::RegistryPublishWorkflow {
+                        manifest_path: &manifest_path,
+                        registry_dir: &registry_dir,
+                        resolved_project,
+                        workspace_dep_requirements,
+                        new_revision: args.new_revision,
+                    },
+                )
+                .with_context(|| format!("dry-running {}", manifest_path.display()))?;
+                emit_registry_publish_output(&report, args.format, reporter)?;
+            }
         }
         (Some(registry_dir), false) => {
             let registry_dir = absolutise(registry_dir)
                 .with_context(|| format!("failed to resolve {}", registry_dir.display()))?;
-            let report =
-                cabin_publish::publish_to_file_registry(cabin_publish::RegistryPublishWorkflow {
-                    manifest_path: &manifest_path,
-                    registry_dir: &registry_dir,
-                    resolved_project,
-                    workspace_dep_requirements,
-                    new_revision: args.new_revision,
-                })?;
-            emit_registry_publish_output(&report, args.format, reporter)?;
+            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+                // A failure mid-batch leaves the earlier members
+                // published; the context names the member it stopped
+                // on (lint errors alone render only target names).
+                let report = cabin_publish::publish_to_file_registry(
+                    cabin_publish::RegistryPublishWorkflow {
+                        manifest_path: &manifest_path,
+                        registry_dir: &registry_dir,
+                        resolved_project,
+                        workspace_dep_requirements,
+                        new_revision: args.new_revision,
+                    },
+                )
+                .with_context(|| format!("publishing {}", manifest_path.display()))?;
+                emit_registry_publish_output(&report, args.format, reporter)?;
+            }
         }
         (None, true) => {
             let output_dir = args
@@ -86,13 +131,22 @@ pub(super) fn publish(
                 .unwrap_or_else(|| PathBuf::from("dist"));
             let output_dir = absolutise(&output_dir)
                 .with_context(|| format!("failed to resolve {}", output_dir.display()))?;
-            let report = cabin_publish::dry_run(cabin_publish::DryRunRequest {
-                manifest_path: &manifest_path,
-                output_dir: &output_dir,
-                resolved_project,
-                workspace_dep_requirements,
-            })?;
-            emit_dry_run_output(&report, args.format, reporter)?;
+            // One shared `--output-dir` for the whole batch: distinct
+            // names can flatten to one artifact stem (cabin-package's
+            // filename rule), and the staging write fails CLOSED on a
+            // byte mismatch - a stem-colliding same-version member
+            // refuses, naming the file, rather than clobbering an
+            // earlier member; such batches need separate invocations.
+            for (manifest_path, resolved_project, workspace_dep_requirements) in selections {
+                let report = cabin_publish::dry_run(cabin_publish::DryRunRequest {
+                    manifest_path: &manifest_path,
+                    output_dir: &output_dir,
+                    resolved_project,
+                    workspace_dep_requirements,
+                })
+                .with_context(|| format!("dry-running {}", manifest_path.display()))?;
+                emit_dry_run_output(&report, args.format, reporter)?;
+            }
         }
         (None, false) => {
             // `--output-dir` belongs to the dry-run staging flow.  A
@@ -104,9 +158,12 @@ pub(super) fn publish(
             }
             // Publishing without a local registry targets the
             // effective HTTP index source, when one is configured;
-            // anything else keeps the file-registry error path.
+            // anything else keeps the file-registry error path.  A
+            // batch resolves the source once, through the FIRST
+            // manifest's effective config: one invocation publishes
+            // to one registry.
             let Some(index_url) =
-                effective_publish_index_url(args.index_url.as_deref(), &manifest_path)?
+                effective_publish_index_url(args.index_url.as_deref(), &selections[0].0)?
             else {
                 return Err(cabin_publish::PublishError::DryRunRequired.into());
             };
@@ -115,16 +172,15 @@ pub(super) fn publish(
                     "cabin publish --index-url"
                 ));
             }
-            let report = publish_to_remote_registry(
+            publish_batch_to_remote_registry(
                 &index_url,
                 args.index_url.is_some(),
-                &manifest_path,
-                resolved_project,
-                &workspace_dep_requirements,
+                selections,
                 args.new_revision,
+                args.retry_rate_limits,
+                args.format,
                 reporter,
             )?;
-            emit_remote_publish_output(&report, args.format, reporter)?;
         }
     }
     Ok(())
@@ -177,37 +233,63 @@ struct RemotePublishReport {
     warnings: Vec<String>,
 }
 
-/// Publish to a remote registry (`-Z remote-registry`): run the exact
-/// staging pipeline the local file-registry publish runs - same
-/// validation, same publish lints, same deterministic archive and
-/// canonical per-version metadata document - then upload the framed
-/// bytes to the API origin the registry's `config.json` declares.
+/// Publish a batch to a remote registry (`-Z remote-registry`): run
+/// the exact staging pipeline the local file-registry publish runs -
+/// same validation, same publish lints, same deterministic archive
+/// and canonical per-version metadata document - for EVERY package
+/// first, then upload the framed bytes to the API origin the
+/// registry's `config.json` declares, in the order given.  Staging,
+/// baselines, and publish lints all complete before the first upload,
+/// so a validation failure anywhere in the batch publishes nothing -
+/// and, on the trusted-publishing leg, the minted token is spent only
+/// on the registry round-trips (the authenticated baseline reads and
+/// the uploads), never on the staging work that precedes the
+/// exchange.  An UPLOAD failure necessarily leaves the
+/// earlier members live (the registry has no cross-package
+/// transaction); each package's report is emitted the moment its
+/// receipt arrives, so those members' checksums and revisions are
+/// never swallowed by a later failure.  One credential serves the
+/// whole batch: a trusted-publishing run exchanges exactly one OIDC
+/// token however many packages it publishes.
 ///
-/// The registry's `config.json` and the lint baseline ride the
-/// authenticated sparse-HTTP read path; the upload itself goes
-/// through `cabin-registry-api` with the same credential.
-fn publish_to_remote_registry(
+/// The registry's `config.json` and the lint baselines ride the
+/// authenticated sparse-HTTP read path; the uploads themselves go
+/// through `cabin-registry-api` with the same credential, paced on
+/// the registry's `429` answers when the batch has more than one
+/// package (a serial batch can outrun the per-token publish bucket,
+/// and every attempt charges it; a single publish keeps today's
+/// fail-fast `429`).
+fn publish_batch_to_remote_registry(
     index_url: &str,
     index_url_from_cli: bool,
-    manifest_path: &Path,
-    resolved_project: Option<cabin_core::Package>,
-    workspace_dep_requirements: &cabin_core::WorkspaceDepRequirements,
+    packages: Vec<(
+        PathBuf,
+        Option<cabin_core::Package>,
+        cabin_core::WorkspaceDepRequirements,
+    )>,
     new_revision: bool,
+    retry_rate_limits: bool,
+    format: ResolveFormat,
     reporter: Reporter,
-) -> Result<RemotePublishReport> {
+) -> Result<()> {
     // Stage before touching the network so validation failures never
-    // need a connection.
-    let staged = cabin_package::stage_with_project(
-        manifest_path,
-        resolved_project,
-        None,
-        workspace_dep_requirements,
-    )?;
-    // Registry packages are always `<scope>/<name>`, and so are the
-    // keys of their registry dependency maps: fail a bare name here,
-    // before credentials, index reads, or the API call.
-    cabin_publish::require_scoped_name(&staged.name, manifest_path)?;
-    cabin_publish::require_scoped_dependency_names(&staged.metadata, manifest_path)?;
+    // need a connection - the whole batch, before any upload.
+    let mut all_staged = Vec::new();
+    for (manifest_path, resolved_project, workspace_dep_requirements) in packages {
+        let staged = cabin_package::stage_with_project(
+            &manifest_path,
+            resolved_project,
+            None,
+            &workspace_dep_requirements,
+        )?;
+        // Registry packages are always `<scope>/<name>`, and so are
+        // the keys of their registry dependency maps: fail a bare
+        // name here, before credentials, index reads, or the API
+        // call.
+        cabin_publish::require_scoped_name(&staged.name, &manifest_path)?;
+        cabin_publish::require_scoped_dependency_names(&staged.metadata, &manifest_path)?;
+        all_staged.push(staged);
+    }
 
     // One credential resolution serves the reads and the API call
     // alike (`cli::trustpub` defines the precedence).  The
@@ -277,39 +359,147 @@ fn publish_to_remote_registry(
         },
     };
 
-    // The PL3 baseline is the registry's own view of the already-
-    // published versions; a package the registry does not know yet
-    // simply has an empty baseline (first publish).
-    let published = match index.fetch_package(&staged.name) {
-        Ok(entry) => entry
-            .versions
-            .into_iter()
-            .map(|(version, meta)| (version, meta.standards))
-            .collect(),
-        Err(cabin_index_http::IndexHttpError::PackageNotFound { .. }) => Vec::new(),
-        Err(err) => return Err(err.into()),
-    };
-    let warnings = cabin_publish::staged_lint_warnings(&staged, &published)?;
+    // Baselines and publish lints for the WHOLE batch before the
+    // first upload: a lint rejection (or a broken baseline read)
+    // anywhere must publish nothing, and only network reads run here.
+    let mut checked: Vec<(cabin_package::StagedPackage, String, Vec<String>)> = Vec::new();
+    for staged in all_staged {
+        // The PL3 baseline is the registry's own view of the already-
+        // published versions; a package the registry does not know
+        // yet simply has an empty baseline (first publish).
+        let mut published: Vec<_> = match index.fetch_package(&staged.name) {
+            Ok(entry) => entry
+                .versions
+                .into_iter()
+                .map(|(version, meta)| (version, meta.standards))
+                .collect(),
+            Err(cabin_index_http::IndexHttpError::PackageNotFound { .. }) => Vec::new(),
+            Err(err) => {
+                return Err(anyhow::Error::from(err).context(format!(
+                    "reading the published baseline for {}",
+                    staged.name.as_str()
+                )));
+            }
+        };
+        // The ordered batch simulates sequential publishes: a later
+        // version's baseline must also include the same-name versions
+        // this invocation publishes before it, which the registry
+        // cannot know yet.
+        published.extend(
+            checked
+                .iter()
+                .filter(|(earlier, _, _)| earlier.name == staged.name)
+                .map(|(earlier, _, _)| {
+                    (earlier.version.clone(), earlier.metadata.standards.clone())
+                }),
+        );
+        // A lint rejection renders target names, not package names; in
+        // a batch only this context says WHICH member to fix.
+        // A lint rejection renders target names, not package names; in
+        // a batch only this context says WHICH member to fix.
+        let warnings = cabin_publish::staged_lint_warnings(&staged, &published)
+            .with_context(|| format!("linting {} {}", staged.name.as_str(), staged.version))?;
+        let metadata_json = cabin_package::metadata::render_canonical_json(&staged.metadata)?;
+        checked.push((staged, metadata_json, warnings));
+    }
 
-    let metadata_json = cabin_package::metadata::render_canonical_json(&staged.metadata)?;
+    // Upload in the order given, reporting each package the moment
+    // its receipt arrives: an upload failure later in the batch must
+    // not swallow the checksums, revisions, and verification notices
+    // of the packages already live on the registry.
+    let pace = checked.len() > 1 || retry_rate_limits;
     let api_client = cabin_registry_api::RegistryApi::new(api, token)?;
-    let receipt = api_client.publish(
-        staged.name.as_str(),
-        &staged.version,
-        metadata_json.as_bytes(),
-        &staged.archive_bytes,
-        new_revision,
-    )?;
-    Ok(RemotePublishReport {
-        name: staged.name,
-        version: staged.version,
-        registry: origin,
-        checksum: staged.checksum,
-        created: matches!(receipt.outcome, cabin_registry_api::PublishOutcome::Created),
-        verification: receipt.verification,
-        revision: receipt.revision,
-        warnings,
-    })
+    for (staged, metadata_json, warnings) in checked {
+        let receipt = publish_with_rate_limit_pacing(
+            &api_client,
+            &staged,
+            metadata_json.as_bytes(),
+            new_revision,
+            pace,
+            reporter,
+        )
+        .with_context(|| format!("publishing {} {}", staged.name.as_str(), staged.version))?;
+        let report = RemotePublishReport {
+            name: staged.name,
+            version: staged.version,
+            registry: origin.clone(),
+            checksum: staged.checksum,
+            created: matches!(receipt.outcome, cabin_registry_api::PublishOutcome::Created),
+            verification: receipt.verification,
+            revision: receipt.revision,
+            warnings,
+        };
+        emit_remote_publish_output(&report, format, reporter)?;
+    }
+    Ok(())
+}
+
+/// Attempts per package.  The default publish bucket refills one
+/// token per minute, so a drained bucket needs at most one advertised
+/// wait per token; a handful of attempts rides that out without
+/// masking a persistently failing package.
+const MAX_PUBLISH_ATTEMPTS: u32 = 5;
+
+/// Fallback delay when the `429` carries no usable `Retry-After`,
+/// matching the default class's one-token refill time.
+const DEFAULT_RETRY_DELAY_SECS: u64 = 60;
+
+/// Ceiling on any advertised delay, so a corrupt or hostile value can
+/// never stall a batch for hours.
+const MAX_RETRY_DELAY_SECS: u64 = 300;
+
+/// Upload one staged package.  In a multi-package batch the
+/// registry's `429` answers are waited out: a serial batch can outrun
+/// the per-token publish bucket, and every attempt - byte-identical
+/// no-ops included - charges it, so a rate-limited upload is retried
+/// after the server-advertised delay instead of failing the batch.
+/// The typed [`cabin_registry_api::RegistryApiError::RateLimited`] is
+/// the signal - in-process, unspoofable by server-controlled detail
+/// text.  `pace` is false for a bare single-package publish, which
+/// keeps its historical fail-fast `429` - an unconditional wait would
+/// turn a plain rate-limit refusal into twenty silent minutes of CI
+/// time - and true for multi-package batches and
+/// `--retry-rate-limits` (automation whose reruns hit the same
+/// drained bucket).  Every other error fails fast.
+fn publish_with_rate_limit_pacing(
+    api_client: &cabin_registry_api::RegistryApi,
+    staged: &cabin_package::StagedPackage,
+    metadata_json: &[u8],
+    new_revision: bool,
+    pace: bool,
+    reporter: Reporter,
+) -> Result<cabin_registry_api::PublishReceipt> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match api_client.publish(
+            staged.name.as_str(),
+            &staged.version,
+            metadata_json,
+            &staged.archive_bytes,
+            new_revision,
+        ) {
+            Err(cabin_registry_api::RegistryApiError::RateLimited { retry_after_secs })
+                if pace && attempt < MAX_PUBLISH_ATTEMPTS =>
+            {
+                // One extra second over the advertised wait: the
+                // server rounds its own estimate up, but the bucket
+                // timestamps and this clock are not the same clock.
+                let delay_secs = retry_after_secs
+                    .unwrap_or(DEFAULT_RETRY_DELAY_SECS)
+                    .min(MAX_RETRY_DELAY_SECS)
+                    + 1;
+                reporter.warning(format_args!(
+                    "the registry rate limited {} {}; retrying in {delay_secs}s (attempt \
+                     {attempt} of {MAX_PUBLISH_ATTEMPTS})",
+                    staged.name.as_str(),
+                    staged.version,
+                ));
+                std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+            }
+            other => return Ok(other?),
+        }
+    }
 }
 
 fn emit_remote_publish_output(
@@ -372,7 +562,7 @@ fn print_remote_publish_json(report: &RemotePublishReport) -> Result<()> {
         "verification": report.verification,
         "warnings": report.warnings,
     });
-    crate::print_pretty_json(&value, "failed to serialize publish output as JSON")
+    crate::print_json_line(&value, "failed to serialize publish output as JSON")
 }
 
 pub(super) fn emit_package_output(
@@ -451,7 +641,7 @@ pub(super) fn print_dry_run_json(report: &cabin_publish::DryRunReport) -> Result
         "warnings": report.warnings,
         "standards_check_skipped": report.standards_check_skipped,
     });
-    crate::print_pretty_json(&value, "failed to serialize publish dry-run output as JSON")
+    crate::print_json_line(&value, "failed to serialize publish dry-run output as JSON")
 }
 
 pub(super) fn emit_registry_publish_output(
@@ -538,5 +728,5 @@ pub(super) fn print_registry_publish_json(
         "registry_initialized": report.registry_initialized,
         "warnings": report.warnings,
     });
-    crate::print_pretty_json(&value, "failed to serialize publish output as JSON")
+    crate::print_json_line(&value, "failed to serialize publish output as JSON")
 }
