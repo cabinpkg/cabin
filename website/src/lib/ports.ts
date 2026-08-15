@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { extractManifestInfo } from "./manifestInfo.ts";
 import type { PackageRecord } from "./types";
 
 // The foundation ports live at the repository root under ports/.
@@ -150,7 +151,6 @@ async function loadPackageRecord(
             version?: string;
             upstream?: { url?: string; checksum?: string };
         };
-        dependencies?: Record<string, unknown>;
     };
     try {
         parsed = parseToml(raw) as typeof parsed;
@@ -194,10 +194,13 @@ async function loadPackageRecord(
     // one precision limit for another - because the publisher parses
     // them as `u64`.
     //
-    // Ceiling, deliberate: this is the version only.  Full manifest
-    // validity (targets, features, standards) stays the publisher's
-    // job - reimplementing Cabin's manifest parser in TypeScript is
-    // the duplication this loader exists to avoid.
+    // Ceiling, deliberate: this is the version only.  Dependency and
+    // feature declarations get the same treatment via
+    // src/lib/manifestInfo.ts - structural shape checks mirroring the
+    // publisher's rejections, never semantics - and full manifest
+    // validity (targets, standards, feature resolution) stays the
+    // publisher's job: reimplementing Cabin's manifest parser in
+    // TypeScript is the duplication this loader exists to avoid.
     const core = SEMVER.exec(version);
     if (core === null) {
         throw new Error(
@@ -224,17 +227,14 @@ async function loadPackageRecord(
         );
     }
 
-    const dependencies = Object.entries(parsed.dependencies ?? {}).map(
-        ([depName, spec]) => dependencyRequirement(depName, spec, manifestPath),
-    );
-
     return {
         name,
         version,
         description: null,
         edition: null,
         license: null,
-        metadata: { package: {}, dependencies },
+        metadata: { package: {} },
+        manifest: extractManifestInfo(parsed, manifestPath),
         published_at: null,
         readme: null,
         repository: null,
@@ -265,32 +265,6 @@ function parseProvenanceUrl(archiveUrl: string, context: string): URL {
         );
     }
     return parsedUrl;
-}
-
-// One dependency entry, in either spelling a published port manifest
-// can carry: the bare requirement string and the table with a
-// `version` key.  The publisher publishes the manifest verbatim, so
-// the page reads exactly what will publish.  This is a shape check, not
-// a SemVer parse: it refuses a missing or blank requirement (Cabin
-// trims, then refuses the empty string), and leaves malformed
-// requirement syntax to the publisher and the registry.
-function dependencyRequirement(
-    name: string,
-    spec: unknown,
-    context: string,
-): { name: string; req: string } {
-    const req =
-        typeof spec === "string"
-            ? spec
-            : typeof spec === "object" && spec !== null
-              ? (spec as { version?: unknown }).version
-              : undefined;
-    if (typeof req !== "string" || req.trim() === "") {
-        throw new Error(
-            `Dependency "${name}" in ${context} declares no version requirement; port packages carry registry dependencies only.`,
-        );
-    }
-    return { name, req };
 }
 
 // The publisher's identity rule (xtask-port-publish::plan::

@@ -7,18 +7,21 @@ import {
 import {
     normalizePackageMetadata,
     type PackageRecord,
+    type PackageVersionListItem,
 } from "../../lib/packages";
 import Icon from "../Icon.astro";
 import Badge from "../ui/Badge.astro";
 import Card from "../ui/Card.astro";
 import ExternalLink from "../ui/ExternalLink.astro";
+import PackageVersions from "./PackageVersions.astro";
 
 interface Props {
     package: PackageRecord;
-    versionCount: number;
+    versions: PackageVersionListItem[];
+    currentVersion: string | null;
 }
 
-const { package: pack, versionCount } = Astro.props;
+const { package: pack, versions, currentVersion } = Astro.props;
 const metadata = normalizePackageMetadata(pack.metadata);
 const publishedAt = stringifyValue(pack.published_at);
 const license = stringifyValue(pack.license);
@@ -38,7 +41,7 @@ const editionLabel = formatEdition(pack.edition);
                     Versions
                 </dt>
                 <dd>
-                    <Badge tone="muted">{versionCount}</Badge>
+                    <Badge tone="muted">{versions.length}</Badge>
                 </dd>
             </div>
             <div class="flex items-center justify-between gap-4">
@@ -47,7 +50,16 @@ const editionLabel = formatEdition(pack.edition);
                     Dependencies
                 </dt>
                 <dd>
-                    <Badge tone="muted">{metadata.dependencyCount}</Badge>
+                    {/* Runtime edges only, the count the label always
+                        meant; dev/system/conditioned edges show in the
+                        Dependencies card with their own badges. */}
+                    <Badge tone="muted">
+                        {
+                            pack.manifest.dependencies.filter(
+                                (dependency) => dependency.kind === "normal",
+                            ).length
+                        }
+                    </Badge>
                 </dd>
             </div>
             <div class="flex items-center justify-between gap-4">
@@ -96,6 +108,17 @@ const editionLabel = formatEdition(pack.edition);
             }
         </dl>
     </Card>
+
+    {/* A single-version card would only repeat the h1 and the count
+        row above; it appears once there is somewhere to navigate. */}
+    {
+        versions.length > 1 && (
+            <PackageVersions
+                versions={versions}
+                currentVersion={currentVersion}
+            />
+        )
+    }
 
     {
         pack.upstream && (

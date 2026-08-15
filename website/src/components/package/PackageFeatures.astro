@@ -1,0 +1,106 @@
+---
+// The package's declared [features] table, statically rendered from
+// the normalized manifest info. Hidden entirely when the manifest
+// declares no [features] table - older or featureless metadata - so
+// the page never claims "no features" about metadata that predates
+// the field. A declared-but-empty table renders, faithfully showing
+// an empty default set.
+import type { FeatureReference } from "../../lib/manifestInfo";
+import type { PackageRecord } from "../../lib/packages";
+import Badge from "../ui/Badge.astro";
+import Card from "../ui/Card.astro";
+import Icon from "../Icon.astro";
+
+interface Props {
+    package: PackageRecord;
+}
+
+const { package: pack } = Astro.props;
+const features = pack.manifest.features;
+
+const referenceLabel = (reference: FeatureReference): string => {
+    switch (reference.kind) {
+        case "feature":
+            return reference.feature;
+        case "optional-dependency":
+            return `dep:${reference.dependency}`;
+        case "dependency-feature":
+            return `${reference.dependency}/${reference.feature}`;
+    }
+};
+const referenceTitle = (reference: FeatureReference): string | undefined => {
+    switch (reference.kind) {
+        case "feature":
+            return undefined;
+        case "optional-dependency":
+            return `Enables the optional dependency ${reference.dependency}`;
+        case "dependency-feature":
+            return `Enables feature ${reference.feature} of the dependency ${reference.dependency}`;
+    }
+};
+---
+
+{
+    features !== null && (
+        <Card class="p-6">
+            <div class="mb-4 flex items-center gap-2">
+                <Icon name="wrench" class="h-5 w-5 text-pine" />
+                <h2 class="text-xl font-bold">Features</h2>
+            </div>
+            <dl class="space-y-3">
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <dt class="font-mono text-sm font-semibold text-ink">
+                        default
+                    </dt>{" "}
+                    <dd class="flex flex-wrap items-center gap-1.5">
+                        {features.default.length === 0 ? (
+                            <span class="text-sm text-ink-faint">
+                                no features enabled by default
+                            </span>
+                        ) : (
+                            features.default.map((name) => (
+                                <>
+                                    <Badge tone="muted">
+                                        <span class="font-mono">{name}</span>
+                                    </Badge>
+                                    {" "}
+                                </>
+                            ))
+                        )}
+                    </dd>
+                </div>
+                {features.entries.map((feature) => (
+                    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <dt class="font-mono text-sm font-semibold text-ink">
+                            {feature.name}
+                        </dt>{" "}
+                        <dd class="flex flex-wrap items-center gap-1.5">
+                            {feature.enables.length === 0 ? (
+                                <span
+                                    class="text-sm text-ink-faint"
+                                    title="The feature may still gate targets or conditional flags; this list covers only what it enables."
+                                >
+                                    enables no other features
+                                </span>
+                            ) : (
+                                feature.enables.map((reference) => (
+                                    <>
+                                        <Badge
+                                            tone="muted"
+                                            title={referenceTitle(reference)}
+                                        >
+                                            <span class="font-mono">
+                                                {referenceLabel(reference)}
+                                            </span>
+                                        </Badge>
+                                        {" "}
+                                    </>
+                                ))
+                            )}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </Card>
+    )
+}

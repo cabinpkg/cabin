@@ -22,7 +22,11 @@ directly via Node's type stripping).
   version-string suffix). Directories with no `cabin.toml` are
   skipped. `src/lib/packages.ts` does grouping,
   latest-version selection, route generation, and the search index (loader
-  memoized: one disk read per build). `src/pages/packages.json.ts` is the
+  memoized: one disk read per build); `src/lib/manifestInfo.ts` normalizes
+  each manifest's dependency and feature declarations into the shape the
+  package pages render - kinds, flags, `cfg` conditions flattened per
+  entry the way the registry index encodes them, feature entries
+  classified by the cabin-core grammar. `src/pages/packages.json.ts` is the
   search-index endpoint.
 - Docs pages render the repository-root `../docs/` Markdown - the files are
   NOT moved into this project. `src/content.config.ts` defines the `docs`

@@ -20,9 +20,15 @@ export interface PackageVersionRouteParts extends PackageRouteParts {
     version: string;
 }
 
+export interface PackageVersionListItem {
+    version: string;
+    href: string;
+    isLatest: boolean;
+}
+
 export interface PackageDetailData {
     pack: PackageRecord;
-    versionCount: number;
+    versions: PackageVersionListItem[];
 }
 
 let packageCache: Promise<PackageRecord[]> | undefined;
@@ -88,6 +94,37 @@ export function comparePackageVersions(
     return String(first.name).localeCompare(String(second.name));
 }
 
+// The navigation between a package's published versions. Applies the
+// same blank-version and duplicate guards as
+// getPackageVersionStaticPaths, so the list can never link a page the
+// route generation skipped (the ports loader already forbids both;
+// the invariant must not depend on the data source). It deliberately
+// reuses comparePackageVersions - the ordering that selects which
+// page is "latest" - so the list can never label a version latest
+// while the routes serve another, including under that comparator's
+// known ceiling (numeric components above Number.MAX_SAFE_INTEGER
+// fall back lexically; fixing that belongs in the comparator, where
+// both consumers inherit it together).
+export function buildVersionList(
+    versions: PackageRecord[],
+): PackageVersionListItem[] {
+    const seen = new Set<string>();
+    const items: PackageVersionListItem[] = [];
+    for (const pack of [...versions].sort(comparePackageVersions)) {
+        const version = stringifyValue(pack.version);
+        if (version === "" || seen.has(version)) {
+            continue;
+        }
+        seen.add(version);
+        items.push({
+            version,
+            href: getPackageVersionHref(pack.name, version),
+            isLatest: items.length === 0,
+        });
+    }
+    return items;
+}
+
 export async function getLatestPackages(): Promise<PackageRecord[]> {
     const grouped = groupPackagesByName(await fetchAllPackages());
 
@@ -118,7 +155,7 @@ export async function getPackageStaticPaths() {
                     params: parts,
                     props: {
                         pack: selectLatestPackage(versions),
-                        versionCount: versions.length,
+                        versions: buildVersionList(versions),
                     },
                 },
             ];
@@ -143,6 +180,7 @@ export async function getPackageVersionStaticPaths() {
             continue;
         }
 
+        const versionList = buildVersionList(versions);
         for (const pack of versions) {
             const version = stringifyValue(pack.version);
 
@@ -166,7 +204,7 @@ export async function getPackageVersionStaticPaths() {
                 params: { ...parts, version },
                 props: {
                     pack,
-                    versionCount: versions.length,
+                    versions: versionList,
                 },
             });
         }
@@ -214,13 +252,8 @@ export function normalizePackageMetadata(
     metadata: unknown,
 ): NormalizedPackageMetadata {
     const record = isRecord(metadata) ? metadata : {};
-    const dependencies = Array.isArray(record.dependencies)
-        ? record.dependencies
-        : [];
 
     return {
-        dependencies,
-        dependencyCount: dependencies.length,
         links: getPackageLinks(record.package),
     };
 }

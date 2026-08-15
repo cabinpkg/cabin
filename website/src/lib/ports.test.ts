@@ -62,12 +62,37 @@ test("a committed port's scoped dependencies reach the package page", async () =
         record.name.startsWith("cabin-ports/libpng"),
     );
     assert.ok(libpng, "no libpng record");
-    const metadata = libpng.metadata as {
-        dependencies: Array<{ name: string; req: string }>;
-    };
-    assert.deepEqual(metadata.dependencies, [
-        { name: "cabin-ports/zlib", req: "^1.3" },
+    assert.deepEqual(libpng.manifest.dependencies, [
+        {
+            name: "cabin-ports/zlib",
+            kind: "normal",
+            source: "registry",
+            req: "^1.3",
+            condition: null,
+            optional: false,
+            features: [],
+            defaultFeatures: true,
+            ignoreInterfaceStandard: false,
+        },
     ]);
+});
+
+test("a committed port's features table reaches the page; its absence hides it", async () => {
+    const records = await loadPortsAsPackageRecords();
+    const sqlite3 = records.find(
+        (record) => record.name === "cabin-ports/sqlite3",
+    );
+    assert.ok(sqlite3, "no sqlite3 record");
+    // Declared with an empty default set: the page renders the table,
+    // faithfully empty, rather than hiding it.
+    assert.deepEqual(sqlite3.manifest.features, {
+        default: [],
+        entries: [{ name: "single-threaded", enables: [] }],
+    });
+    const fmt = records.find((record) => record.name === "cabin-ports/fmt");
+    assert.ok(fmt, "no fmt record");
+    // No [features] table at all is null - hidden, never invented.
+    assert.equal(fmt.manifest.features, null);
 });
 
 test("a port's registry dependencies read in both spellings", async () => {
@@ -97,13 +122,21 @@ format = "tar.gz"
 
         const records = await loadPortsFromDir(dir);
         assert.equal(records.length, 1);
-        const metadata = records[0].metadata as {
-            dependencies: Array<{ name: string; req: string }>;
-        };
-        assert.deepEqual(metadata.dependencies, [
-            { name: "cabin-ports/zlib", req: "^1.3" },
-            { name: "cabin-ports/fmt", req: "^12" },
-        ]);
+        assert.deepEqual(
+            records[0].manifest.dependencies.map(({ name, req }) => ({
+                name,
+                req,
+            })),
+            [
+                { name: "cabin-ports/zlib", req: "^1.3" },
+                { name: "cabin-ports/fmt", req: "^12" },
+            ],
+        );
+        // The table form's flags ride along normalized.
+        assert.equal(
+            records[0].manifest.dependencies[1].defaultFeatures,
+            false,
+        );
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
@@ -228,11 +261,7 @@ format = "tar.gz"
             "https://example.com/fmt-12.2.0.tar.gz",
         );
         assert.deepEqual(
-            (
-                fmt.metadata as {
-                    dependencies: Array<{ name: string; req: string }>;
-                }
-            ).dependencies,
+            fmt.manifest.dependencies.map(({ name, req }) => ({ name, req })),
             [{ name: "cabin-ports/zlib", req: "^1.3" }],
         );
         // The manifest carries no display metadata; those fields stay
