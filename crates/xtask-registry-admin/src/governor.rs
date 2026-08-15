@@ -81,8 +81,13 @@ const TOTALS: &str = "
           FROM revisions WHERE verification = 'verified' GROUP BY checksum)) AS verified_bytes
     ";
 
-const PUBLISHERS: &str =
-    "SELECT COUNT(*) AS n FROM tokens WHERE scopes LIKE '%publish%' AND revoked_at IS NULL";
+// Expiry mirrors the auth lookup's strict lexicographic bound over the
+// schema's canonical timestamp shape, on the server's clock: trustpub
+// exchange tokens routinely expire un-revoked, and a leftover one must
+// not read as a live publisher and block the wipe's evidence gate.
+const PUBLISHERS: &str = "SELECT COUNT(*) AS n FROM tokens \
+     WHERE scopes LIKE '%publish%' AND revoked_at IS NULL \
+     AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))";
 
 /// The governor's usage snapshot.  The audit deserializes the same
 /// endpoint's answer, so the shape lives here once.

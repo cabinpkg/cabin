@@ -307,7 +307,7 @@ round trip (drilled 2026-07-29):
 4. Run `cargo registry-governor wipe`, from the repository root, with it
    **before any publish-capable
    token exists**: its no-delayed-publisher evidence gate requires zero
-   live publish tokens (revoked ones no longer count).
+   live publish tokens (revoked and expired ones no longer count).
 5. Only then mint publish tokens (`gh secret set CABIN_PORTS_TOKEN`).
 6. Re-promote the operator quota class ("Quota classes",
    `docs/architecture.md`): the wipe resets every user to `default`,

@@ -33,8 +33,10 @@ statements! {
     // auth/tokens: bearer-token verification, token management, users
     // ------------------------------------------------------------------
 
-    /// The bearer-token lookup, joining the owning user's quota class;
-    /// revoked tokens never match. Neither do expired ones (`?2` is the
+    /// The bearer-token lookup; the effective quota class is the token
+    /// row's own when set (the trustpub exchange's granted tier), else
+    /// the owning user's. Revoked tokens never match. Neither do
+    /// expired ones (`?2` is the
     /// current ISO-8601 instant): enforcing expiry inside this WHERE
     /// makes an expired token produce the exact no-row result an
     /// unknown hash does - same uniform 401, same single lookup - so
@@ -44,7 +46,8 @@ statements! {
     /// bug forging a far-future anchor must yield a row that cannot
     /// authenticate before its anchor, not one that outruns the cap.
     AUTH_TOKEN_LOOKUP =
-        "SELECT t.id, t.user_id, t.scopes, u.quota_class, t.scope_limit, \
+        "SELECT t.id, t.user_id, t.scopes, \
+                COALESCE(t.quota_class, u.quota_class) AS quota_class, t.scope_limit, \
                 t.rl_tokens, t.rl_updated_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
@@ -99,6 +102,77 @@ statements! {
         "SELECT i.user_id, i.login_snapshot, u.quota_class \
          FROM identities i JOIN users u ON u.id = i.user_id \
          WHERE i.provider = ?1 AND i.provider_account_id = ?2";
+
+    // ------------------------------------------------------------------
+    // trusted publishing: the OIDC exchange and revocation
+    // ------------------------------------------------------------------
+
+    /// Every config registered for the repository the verified claims
+    /// name, by its immutable numeric GitHub ids. Ordered for a
+    /// deterministic multi-match refusal (`crate::trustpub::select_config`).
+    TRUSTPUB_CONFIGS_BY_REPOSITORY =
+        "SELECT scope, workflow_filename, git_ref, environment, quota_class \
+         FROM trustpub_configs \
+         WHERE repository_owner_id = ?1 AND repository_id = ?2 ORDER BY id";
+
+    /// The backing user the exchange mints for: the matched scope's
+    /// oldest owner (`user_id` is the only orderable column; membership
+    /// rows carry no timestamp). Publish requires the token's user to
+    /// be a scope member and stamps `published_by` from it, so an
+    /// unclaimed scope - no owner row - refuses the exchange before
+    /// the jti is consumed.
+    TRUSTPUB_BACKING_OWNER =
+        "SELECT user_id FROM scope_members \
+         WHERE scope_name = ?1 AND role = 'owner' ORDER BY user_id LIMIT 1";
+
+    /// Consumes a JWT's jti exactly once (`?2` is the end of the
+    /// verifier's acceptance window, Unix seconds). `OR IGNORE` turns
+    /// the primary-key conflict into zero changed rows, which the glue
+    /// reads as the replay refusal - the loser of a concurrent replay
+    /// race sees the same zero without aborting anything. Must run in
+    /// one batch (one transaction) directly before
+    /// [`INSERT_TRUSTPUB_TOKEN`], which reads `changes()` from this
+    /// statement: the coupling keeps a mint that never happened from
+    /// burning the jti (a failed batch rolls this consume back too),
+    /// and a replayed jti from minting.
+    CONSUME_TRUSTPUB_JTI =
+        "INSERT OR IGNORE INTO trustpub_used_jtis (jti, expires_at) VALUES (?1, ?2)";
+
+    /// Lazy replay-guard cleanup, ridden on each successful exchange
+    /// (deliberately no cron): a row whose JWT could no longer verify
+    /// anyway (`?1` is now, Unix seconds) protects nothing.
+    PRUNE_EXPIRED_TRUSTPUB_JTIS = "DELETE FROM trustpub_used_jtis WHERE expires_at <= ?1";
+
+    /// Lazy minted-token cleanup beside the jti prune. Trustpub rows
+    /// only: an expired *user* token stays listed (and revocable) on
+    /// its owner's dashboard, while an expired exchange token is pure
+    /// residue nobody manages.
+    PRUNE_EXPIRED_TRUSTPUB_TOKENS =
+        "DELETE FROM tokens WHERE kind = 'trustpub' AND expires_at <= ?1";
+
+    /// Mints the exchange's short-lived token - but only when the
+    /// immediately preceding [`CONSUME_TRUSTPUB_JTI`] in the same batch
+    /// actually inserted its row: `changes()` is connection-scoped and
+    /// statement-sequential, the same cross-statement coupling
+    /// [`INSERT_USER_FOR_NEW_IDENTITY`] / [`UPSERT_IDENTITY`] ride
+    /// through `last_insert_rowid()`. One transaction, guard inside it:
+    /// a replayed jti (zero changes) mints nothing, and any batch
+    /// failure rolls the consume back with the mint, so a 500 never
+    /// burns a still-valid JWT. The schema's trustpub
+    /// CHECK re-enforces the shape written here: expiring within a day
+    /// of `created_at`, scope-limited, publish-only, and carrying the
+    /// config's granted quota class on the row itself.
+    INSERT_TRUSTPUB_TOKEN =
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                             expires_at, scope_limit, kind, quota_class) \
+         SELECT ?1, ?2, ?3, ?4, 'publish', ?5, ?6, ?7, 'trustpub', ?8 \
+         WHERE (SELECT changes()) = 1";
+
+    /// Revocation by the token itself: deletes the authenticated row
+    /// iff it is a trustpub one. Zero changed rows - a user token's id -
+    /// is the caller's uniform 401, so the endpoint is no token-kind
+    /// oracle.
+    DELETE_TRUSTPUB_TOKEN = "DELETE FROM tokens WHERE id = ?1 AND kind = 'trustpub'";
 
     // ------------------------------------------------------------------
     // scopes: the claim flow and membership management

@@ -1,7 +1,9 @@
 //! GitHub Actions OIDC token verification for trusted publishing: the
-//! exchange endpoint (future work) trades a verified Actions token for a
-//! short-lived `trustpub` token bound to a `trustpub_configs` row
-//! (`registry/docs/architecture.md`, "D1 is canonical").
+//! exchange endpoint (`crate::glue`) trades a verified Actions token for
+//! a short-lived `trustpub` token bound to a `trustpub_configs` row
+//! (`registry/docs/architecture.md`, "D1 is canonical"). The config
+//! matching lives here ([`select_config`]); the endpoint's D1 plumbing
+//! stays in the glue.
 //!
 //! The JWT handling is deliberately manual and `RS256`-only: GitHub signs
 //! Actions tokens with RSA keys published at a fixed JWKS URL, and a
@@ -42,6 +44,12 @@ pub const DEFAULT_AUDIENCE: &str = "cabinpkg.com";
 /// Clock skew tolerated on `exp` and `nbf`, in seconds.
 const LEEWAY_SECONDS: i64 = 60;
 
+/// How long a minted exchange token lives. Well inside the schema's
+/// one-day trustpub ceiling; long enough for one ports run to publish
+/// its whole batch on the one token (the token is multi-use within the
+/// TTL).
+pub const TOKEN_TTL_SECS: i64 = 30 * 60;
+
 /// How long a fetched JWKS stays served from the Cache API before the
 /// next request refetches it. Short enough that GitHub key rotation is
 /// picked up promptly; an unknown `kid` additionally forces one
@@ -50,7 +58,7 @@ const LEEWAY_SECONDS: i64 = 60;
 const JWKS_CACHE_TTL_SECS: u32 = 600;
 
 /// Why a token was refused. Variants are deliberately distinct so the
-/// future exchange endpoint can log a precise reason while answering the
+/// exchange endpoint can log a precise reason while answering the
 /// client with one uniform refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyError {
@@ -107,6 +115,91 @@ pub struct GithubClaims {
     /// The `ref` claim: the git ref the workflow ran on.
     pub git_ref: String,
     pub environment: Option<String>,
+}
+
+/// One `trustpub_configs` row as the exchange consumes it
+/// ([`crate::sql::TRUSTPUB_CONFIGS_BY_REPOSITORY`]); the repository ids
+/// are already fixed by the query's binds.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TrustpubConfig {
+    pub scope: String,
+    pub workflow_filename: String,
+    pub git_ref: Option<String>,
+    pub environment: Option<String>,
+    pub quota_class: String,
+}
+
+/// Why [`select_config`] refused. Distinct variants for the operator
+/// log only - the client answer is the uniform 401 either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectError {
+    /// `workflow_ref` does not have the `.github/workflows/<file>@<ref>`
+    /// shape a workflow filename can be extracted from.
+    WorkflowRef,
+    /// No config matches the claims.
+    NoMatch,
+    /// More than one config matches. Refused, not first-wins: with one
+    /// `scope_limit` per token, silently picking a winner would make
+    /// every other matching config's scope permanently unreachable
+    /// (each fresh JWT would pick the same winner again) - failing
+    /// closed surfaces the operator misconfiguration instead.
+    Ambiguous,
+}
+
+impl std::fmt::Display for SelectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::WorkflowRef => "no workflow filename in workflow_ref",
+            Self::NoMatch => "no trustpub config matches the claims",
+            Self::Ambiguous => "more than one trustpub config matches the claims",
+        })
+    }
+}
+
+/// The workflow filename inside a `workflow_ref` claim
+/// (`owner/repo/.github/workflows/<file>@<ref>`): what follows the
+/// workflows directory, up to the last `@` (a ref always follows, and
+/// GitHub does not forbid `@` inside the filename itself). A nested
+/// path after the directory cannot name a workflow file and yields
+/// nothing.
+fn workflow_filename(workflow_ref: &str) -> Option<&str> {
+    let rest = workflow_ref.split_once("/.github/workflows/")?.1;
+    let (file, _ref) = rest.rsplit_once('@')?;
+    (!file.is_empty() && !file.contains('/')).then_some(file)
+}
+
+/// The one config the verified claims select: the workflow filename
+/// extracted from `workflow_ref` must equal the config's, and where the
+/// config pins `git_ref` or `environment` the claim must equal it
+/// (`NULL` matches any). Equality is literal on purpose - GitHub
+/// compares environment names case-insensitively, but a registry
+/// config is operator data written once against a known workflow, and
+/// exact bytes keep the matcher free of GitHub's folding rules.
+///
+/// # Errors
+///
+/// A [`SelectError`] naming the operator-log reason.
+pub fn select_config<'a>(
+    claims: &GithubClaims,
+    configs: &'a [TrustpubConfig],
+) -> Result<&'a TrustpubConfig, SelectError> {
+    let file = workflow_filename(&claims.workflow_ref).ok_or(SelectError::WorkflowRef)?;
+    let mut matches = configs.iter().filter(|config| {
+        config.workflow_filename == file
+            && config
+                .git_ref
+                .as_deref()
+                .is_none_or(|git_ref| git_ref == claims.git_ref)
+            && config
+                .environment
+                .as_deref()
+                .is_none_or(|environment| claims.environment.as_deref() == Some(environment))
+    });
+    let selected = matches.next().ok_or(SelectError::NoMatch)?;
+    if matches.next().is_some() {
+        return Err(SelectError::Ambiguous);
+    }
+    Ok(selected)
 }
 
 /// A JWKS document. Individual keys are lenient by design: a non-RSA or
@@ -392,6 +485,7 @@ impl JwksProvider for GithubJwks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{auth, sql};
     use rsa::RsaPrivateKey;
     use rsa::pkcs1v15::SigningKey;
     use rsa::signature::{SignatureEncoding as _, Signer as _};
@@ -950,5 +1044,432 @@ mod tests {
         let provider = TestJwks::new(&[key_a()], None);
         let result = block_on(verify(&token, &provider, DEFAULT_AUDIENCE, NOW));
         assert_eq!(result, Err(VerifyError::Malformed));
+    }
+
+    #[test]
+    fn workflow_filename_extraction_table() {
+        let cases = [
+            (
+                "cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main",
+                Some("ports-publish.yml"),
+            ),
+            // A ref containing `/` splits at the LAST `@`; a filename
+            // containing `@` survives the same rule.
+            (
+                "o/r/.github/workflows/a@b.yml@refs/tags/v1.0",
+                Some("a@b.yml"),
+            ),
+            // No `@<ref>` suffix, no filename, or a nested path after
+            // the workflows directory: nothing to extract.
+            ("o/r/.github/workflows/ports-publish.yml", None),
+            ("o/r/.github/workflows/@refs/heads/main", None),
+            ("o/r/.github/workflows/dir/deep.yml@refs/heads/main", None),
+            ("o/r/.github/other/x.yml@refs/heads/main", None),
+            ("", None),
+        ];
+        for (workflow_ref, expected) in cases {
+            assert_eq!(
+                workflow_filename(workflow_ref),
+                expected,
+                "workflow_ref: {workflow_ref:?}"
+            );
+        }
+    }
+
+    /// The verified claims [`base_claims`] parses to - deliberately the
+    /// shape the migration's seeded cabin-ports config binds against.
+    fn parsed_claims() -> GithubClaims {
+        verify_claims(&base_claims()).expect("valid token")
+    }
+
+    fn base_config() -> TrustpubConfig {
+        TrustpubConfig {
+            scope: "cabin-ports".to_owned(),
+            workflow_filename: "ports-publish.yml".to_owned(),
+            git_ref: Some("refs/heads/main".to_owned()),
+            environment: None,
+            quota_class: "operator".to_owned(),
+        }
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // one row per config-matching rule
+    fn config_selection_table() {
+        struct Case {
+            name: &'static str,
+            mutate_claims: fn(&mut GithubClaims),
+            mutate_config: fn(&mut TrustpubConfig),
+            expect: Result<(), SelectError>,
+        }
+        let keep_claims = |_: &mut GithubClaims| {};
+        let keep_config = |_: &mut TrustpubConfig| {};
+        let cases = [
+            Case {
+                name: "the seeded shape matches",
+                mutate_claims: keep_claims,
+                mutate_config: keep_config,
+                expect: Ok(()),
+            },
+            Case {
+                name: "wrong workflow filename",
+                mutate_config: |config| config.workflow_filename = "release.yml".to_owned(),
+                mutate_claims: keep_claims,
+                expect: Err(SelectError::NoMatch),
+            },
+            Case {
+                name: "wrong ref",
+                mutate_claims: |claims| claims.git_ref = "refs/heads/feature".to_owned(),
+                mutate_config: keep_config,
+                expect: Err(SelectError::NoMatch),
+            },
+            Case {
+                name: "a null ref constraint matches any ref",
+                mutate_claims: |claims| claims.git_ref = "refs/heads/feature".to_owned(),
+                mutate_config: |config| config.git_ref = None,
+                expect: Ok(()),
+            },
+            Case {
+                name: "a pinned environment refuses an absent claim",
+                mutate_config: |config| config.environment = Some("release".to_owned()),
+                mutate_claims: keep_claims,
+                expect: Err(SelectError::NoMatch),
+            },
+            Case {
+                name: "a pinned environment refuses a different claim",
+                mutate_claims: |claims| claims.environment = Some("staging".to_owned()),
+                mutate_config: |config| config.environment = Some("release".to_owned()),
+                expect: Err(SelectError::NoMatch),
+            },
+            Case {
+                name: "a pinned environment matches its claim",
+                mutate_claims: |claims| claims.environment = Some("release".to_owned()),
+                mutate_config: |config| config.environment = Some("release".to_owned()),
+                expect: Ok(()),
+            },
+            Case {
+                // Literal bytes on purpose (GitHub folds environment
+                // case; a registry config is written against a known
+                // workflow, so the matcher does not).
+                name: "environment comparison is literal",
+                mutate_claims: |claims| claims.environment = Some("Release".to_owned()),
+                mutate_config: |config| config.environment = Some("release".to_owned()),
+                expect: Err(SelectError::NoMatch),
+            },
+            Case {
+                name: "a null environment constraint matches a present claim",
+                mutate_claims: |claims| claims.environment = Some("release".to_owned()),
+                mutate_config: keep_config,
+                expect: Ok(()),
+            },
+            Case {
+                name: "an inextractable workflow_ref",
+                mutate_claims: |claims| claims.workflow_ref = "garbage".to_owned(),
+                mutate_config: keep_config,
+                expect: Err(SelectError::WorkflowRef),
+            },
+        ];
+        for case in cases {
+            let mut claims = parsed_claims();
+            let mut config = base_config();
+            (case.mutate_claims)(&mut claims);
+            (case.mutate_config)(&mut config);
+            let result = select_config(&claims, &[config]).map(|_| ());
+            assert_eq!(result, case.expect, "case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn config_selection_over_several_rows() {
+        let claims = parsed_claims();
+        // An unknown repository is an empty row set (the SQL filter),
+        // and the refusal names the miss.
+        assert_eq!(select_config(&claims, &[]), Err(SelectError::NoMatch));
+        // Non-matching siblings never obscure the one match.
+        let mut other = base_config();
+        other.workflow_filename = "release.yml".to_owned();
+        let configs = [other, base_config()];
+        let selected = select_config(&claims, &configs).expect("one match");
+        assert_eq!(selected.workflow_filename, "ports-publish.yml");
+        // Two full matches refuse rather than silently picking a
+        // winner: with one scope_limit per token, first-wins would make
+        // the loser's scope permanently unreachable.
+        let mut second_scope = base_config();
+        second_scope.scope = "other-scope".to_owned();
+        let configs = [base_config(), second_scope];
+        assert_eq!(
+            select_config(&claims, &configs),
+            Err(SelectError::Ambiguous)
+        );
+    }
+
+    /// The migrations applied to an in-memory database, as
+    /// `tests/sql_validation.rs` applies them. Duplicated here (an
+    /// integration test cannot reach unit-test fixtures, and the JWT
+    /// fixtures live in this module) so the exchange flow below runs
+    /// end to end: signed JWT through the verifier, then the exchange's
+    /// real statements against the really-migrated schema.
+    fn migrated_connection() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
+        conn.pragma_update(None, "foreign_keys", true)
+            .expect("enable foreign_keys");
+        // D1 parity, like tests/sql_validation.rs's copy: patterns
+        // evaluate under D1's 50-byte LIKE/GLOB cap here too, so a
+        // statement this module exercises cannot pass on host defaults
+        // while failing in production.
+        conn.set_limit(
+            rusqlite::limits::Limit::SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
+            50,
+        )
+        .expect("pin the D1 LIKE/GLOB pattern limit");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let mut migrations: Vec<_> = std::fs::read_dir(&dir)
+            .expect("read migrations/")
+            .map(|entry| entry.expect("read migrations/ entry").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+            .collect();
+        migrations.sort();
+        assert!(!migrations.is_empty(), "no migrations in {}", dir.display());
+        for path in migrations {
+            let statements = std::fs::read_to_string(&path).expect("read migration");
+            conn.execute_batch(&statements).expect("apply migration");
+        }
+        conn
+    }
+
+    /// The publish path's bearer lookup, as `glue::authenticate` binds
+    /// it: `(scopes, quota_class, scope_limit)` for the hash, if any.
+    fn auth_lookup(
+        conn: &rusqlite::Connection,
+        token_hash: &str,
+        now: &str,
+    ) -> Option<(String, String, Option<String>)> {
+        conn.query_row(
+            sql::AUTH_TOKEN_LOOKUP,
+            rusqlite::params![token_hash, now],
+            |row| Ok((row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .map(Some)
+        .or_else(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+        .expect("auth lookup")
+    }
+
+    fn load_configs(conn: &rusqlite::Connection, claims: &GithubClaims) -> Vec<TrustpubConfig> {
+        let mut statement = conn
+            .prepare(sql::TRUSTPUB_CONFIGS_BY_REPOSITORY)
+            .expect("prepare config lookup");
+        statement
+            .query_map(
+                rusqlite::params![claims.repository_owner_id, claims.repository_id],
+                |row| {
+                    Ok(TrustpubConfig {
+                        scope: row.get(0)?,
+                        workflow_filename: row.get(1)?,
+                        git_ref: row.get(2)?,
+                        environment: row.get(3)?,
+                        quota_class: row.get(4)?,
+                    })
+                },
+            )
+            .expect("run config lookup")
+            .collect::<Result<_, _>>()
+            .expect("config rows")
+    }
+
+    /// The glue's exchange transaction, statements in its exact order
+    /// (the mint's `changes()` guard requires the consume immediately
+    /// before it), committed as one unit like a D1 batch. Returns
+    /// `(consumed, minted)` changed-row counts; an error is an aborted,
+    /// rolled-back batch.
+    #[allow(clippy::too_many_arguments)] // mirrors the glue's bind list
+    fn exchange_batch(
+        conn: &rusqlite::Connection,
+        claims: &GithubClaims,
+        token_id: &str,
+        token_hash: &str,
+        created_at: &str,
+        expires_at: &str,
+        owner: i64,
+        config: &TrustpubConfig,
+    ) -> rusqlite::Result<(usize, usize)> {
+        let tx = conn.unchecked_transaction()?;
+        let consumed = tx.execute(
+            sql::CONSUME_TRUSTPUB_JTI,
+            rusqlite::params![claims.jti, claims.verifiable_until],
+        )?;
+        let minted = tx.execute(
+            sql::INSERT_TRUSTPUB_TOKEN,
+            rusqlite::params![
+                token_id,
+                owner,
+                "trusted-publishing: ports-publish.yml",
+                token_hash,
+                created_at,
+                expires_at,
+                config.scope,
+                config.quota_class
+            ],
+        )?;
+        tx.execute(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS, [NOW])?;
+        tx.execute(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS, [created_at])?;
+        tx.commit()?;
+        Ok((consumed, minted))
+    }
+
+    /// The exchange end to end at the layer host tests can drive: a
+    /// locally signed JWT through [`verify`] with the static provider,
+    /// the claims through [`select_config`] over the migration's
+    /// really-seeded cabin-ports config, and every D1 statement the
+    /// glue executes - in the glue's order - against the migrated
+    /// schema, through the publish path's auth check, revocation, and
+    /// the replay refusal. (The wasm handler's wiring - breaker gate,
+    /// uniform 401, auth exemption - is `cargo registry-smoke`'s job.)
+    #[test]
+    fn the_exchange_flow_mints_authenticates_revokes_and_refuses_replay() {
+        let conn = migrated_connection();
+        // The cabin-ports scope claimed by user 1, whose own class
+        // stays 'default' - the granted tier must come from the token
+        // row, not the backing user.
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');
+             INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+               VALUES ('cabin-ports', 'github', '35998702', '2026-08-15T00:00:00.000Z');
+             INSERT INTO scope_members (scope_name, user_id, role)
+               VALUES ('cabin-ports', 1, 'owner');",
+        )
+        .expect("seed the claimed scope");
+
+        let claims = parsed_claims();
+        let configs = load_configs(&conn, &claims);
+        let config = select_config(&claims, &configs).expect("the seeded config matches");
+        assert_eq!(config.scope, "cabin-ports");
+        assert_eq!(config.quota_class, "operator");
+
+        let owner: i64 = conn
+            .query_row(sql::TRUSTPUB_BACKING_OWNER, [&config.scope], |row| {
+                row.get(0)
+            })
+            .expect("the claimed scope backs the token");
+        assert_eq!(owner, 1);
+
+        let token = auth::format_trustpub_token(&[7; 32]);
+        let hash = auth::token_hash(&token);
+        let created_at = "2026-08-15T00:00:00.000Z";
+        let expires_at = "2026-08-15T00:30:00.000Z";
+        let (consumed, minted) = exchange_batch(
+            &conn, &claims, "tok-tp-1", &hash, created_at, expires_at, owner, config,
+        )
+        .expect("the exchange batch commits");
+        assert_eq!((consumed, minted), (1, 1));
+        // Its own jti row survived the prune: the JWT is still inside
+        // its acceptance window.
+        let jtis: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trustpub_used_jtis", [], |row| {
+                row.get(0)
+            })
+            .expect("count jtis");
+        assert_eq!(jtis, 1);
+
+        // The publish path's auth check: within the TTL the token
+        // authenticates as publish-only, confined to the config's
+        // scope, at the config's granted class (the backing user is
+        // 'default'; COALESCE must answer the token row's own column) -
+        // and the token's user passes the scope-membership gate.
+        let (scopes, quota_class, scope_limit) =
+            auth_lookup(&conn, &hash, "2026-08-15T00:15:00.000Z").expect("the token is live");
+        assert_eq!(scopes, "publish");
+        assert_eq!(quota_class, "operator");
+        assert_eq!(scope_limit.as_deref(), Some("cabin-ports"));
+        let members: i64 = conn
+            .query_row(
+                sql::SCOPE_MEMBERSHIP,
+                rusqlite::params!["cabin-ports", owner],
+                |row| row.get(0),
+            )
+            .expect("membership gate");
+        assert_eq!(members, 1);
+        // Past the TTL it is the uniform no-row answer.
+        assert_eq!(auth_lookup(&conn, &hash, "2026-08-15T00:30:00.000Z"), None);
+
+        // Replaying the same jti through the real batch consumes
+        // nothing AND mints nothing - the in-SQL guard, not the glue,
+        // is what keeps a replay from producing a second token.
+        let replay_hash = auth::token_hash(&auth::format_trustpub_token(&[8; 32]));
+        let (consumed, minted) = exchange_batch(
+            &conn,
+            &claims,
+            "tok-tp-2",
+            &replay_hash,
+            created_at,
+            expires_at,
+            owner,
+            config,
+        )
+        .expect("the replay batch commits");
+        assert_eq!((consumed, minted), (0, 0));
+        assert_eq!(auth_lookup(&conn, &replay_hash, created_at), None);
+
+        // Revocation deletes the row; the token no longer
+        // authenticates, and a repeat DELETE finds nothing - the same
+        // zero the glue answers with the uniform 401.
+        let deleted = conn
+            .execute(sql::DELETE_TRUSTPUB_TOKEN, ["tok-tp-1"])
+            .expect("revoke");
+        assert_eq!(deleted, 1);
+        assert_eq!(auth_lookup(&conn, &hash, "2026-08-15T00:15:00.000Z"), None);
+        let repeat = conn
+            .execute(sql::DELETE_TRUSTPUB_TOKEN, ["tok-tp-1"])
+            .expect("repeat revoke executes");
+        assert_eq!(repeat, 0);
+    }
+
+    #[test]
+    fn a_failed_exchange_batch_never_burns_the_jti() {
+        // A failure anywhere in the batch must roll the jti consume
+        // back with everything else: the same still-valid JWT then
+        // retries cleanly instead of answering as a replay.
+        let conn = migrated_connection();
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');",
+        )
+        .expect("seed the backing user");
+        let claims = parsed_claims();
+        let config = base_config();
+        // An expiry past the schema's one-day trustpub ceiling makes
+        // the mint - the statement AFTER the consume - abort the
+        // transaction.
+        let err = exchange_batch(
+            &conn,
+            &claims,
+            "tok-tp-1",
+            "hash-x",
+            "2026-08-15T00:00:00.000Z",
+            "2026-08-17T00:00:00.000Z",
+            1,
+            &config,
+        )
+        .expect_err("an over-ceiling mint must abort the batch");
+        assert!(err.to_string().contains("CHECK"), "{err}");
+        let jtis: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trustpub_used_jtis", [], |row| {
+                row.get(0)
+            })
+            .expect("count jtis");
+        assert_eq!(jtis, 0, "the rollback must cover the consume");
+        // The identical JWT exchanges cleanly on retry.
+        let (consumed, minted) = exchange_batch(
+            &conn,
+            &claims,
+            "tok-tp-1",
+            "hash-x",
+            "2026-08-15T00:00:00.000Z",
+            "2026-08-15T00:30:00.000Z",
+            1,
+            &config,
+        )
+        .expect("the retry batch commits");
+        assert_eq!((consumed, minted), (1, 1));
     }
 }

@@ -1455,7 +1455,7 @@ fn denied(cookies: &[String]) -> worker::Result<Response> {
 }
 
 /// `N` bytes from the runtime CSPRNG (`crypto.getRandomValues`).
-fn random_bytes<const N: usize>() -> worker::Result<[u8; N]> {
+pub(crate) fn random_bytes<const N: usize>() -> worker::Result<[u8; N]> {
     use worker::js_sys::{Function, Reflect, Uint8Array};
     use worker::wasm_bindgen::{JsCast, JsValue};
 

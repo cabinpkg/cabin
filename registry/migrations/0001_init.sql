@@ -133,12 +133,18 @@ CREATE TABLE tokens (
     -- write-side operations on packages under exactly this scope; the
     -- refusal is the same uniform 403 as a membership miss.
     scope_limit TEXT,
+    -- NULL inherits the owning user's users.quota_class (every 'user'
+    -- token: the session mint never writes this column). The trustpub
+    -- exchange persists its config's granted tier here so the grant
+    -- rides the short-lived token instead of rewriting the backing
+    -- user's standing class; the auth lookup coalesces token-first.
+    quota_class TEXT,
     -- Closed domain like scope_members.role: 'user' tokens are minted
     -- from the website session, 'trustpub' tokens are the short-lived
     -- product of a GitHub Actions OIDC exchange.
     kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub')),
     -- Short-lived, confined, and publish-only is what 'trustpub'
-    -- MEANS, and the schema enforces all three so a bug in the future
+    -- MEANS, and the schema enforces all three so a bug in the
     -- minting path cannot widen the exchange into a standing or
     -- privileged credential: scopes = 'publish' exactly (the governor
     -- and verdict planes authorize on the verify scope alone, so a
@@ -159,6 +165,7 @@ CREATE TABLE tokens (
                 ifnull(strftime('%Y-%m-%dT%H:%M:%fZ', created_at, '+1 day'), '')
             AND scope_limit IS NOT NULL AND scope_limit != ''
             AND scopes = 'publish'
+            AND quota_class IS NOT NULL
         )
     )
 );
@@ -170,11 +177,10 @@ CREATE TABLE tokens (
 -- GitHub ids, never names: owner logins and repository names can be
 -- renamed and reassigned, the ids cannot. git_ref / environment are
 -- optional extra claims constraints (NULL matches any). quota_class
--- is the tier the exchange grants when it mints; how that tier
--- reaches the authenticated request - persisted on the minted token
--- row or granted to the backing user's users.quota_class - is the
--- exchange endpoint's decision, deliberately not made here: nothing
--- reads this column until that endpoint exists. No foreign key to scopes:
+-- is the tier the exchange grants when it mints, persisted onto the
+-- minted token row's tokens.quota_class - never onto the backing
+-- user's users.quota_class, so the grant expires with the token
+-- instead of upgrading a standing account. No foreign key to scopes:
 -- configs are operator/owner data that must survive scope-membership
 -- churn, and the seed below predates any claimed scope row.
 CREATE TABLE trustpub_configs (

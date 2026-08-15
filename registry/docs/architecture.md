@@ -86,6 +86,7 @@ which routes and which credential exist where:
 | `/api/v1/user/search`, `/api/v1/user/package/<scope>/<name>`, `/api/v1/user/package/<scope>/<name>/reverse-dependencies` | - | Session cookie **only** ("Search and reverse dependencies" below) |
 | `/api/v1/stats` | - | public GET, no credential ("Download counts") |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
+| `/api/v1/trusted_publishing/tokens` | - | `PUT`: OIDC JWT in the body (the one token-auth-exempt Bearer-plane route); `DELETE`: the exchanged token itself |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
 
 A dash means the path does not exist on that hostname: on the registry
@@ -242,12 +243,33 @@ subtree ("Download counts"), which takes no credential at all.
 
 **The mutation surface is Bearer-only and deny-by-default.** Publish,
 yank, and the admin plane require `Authorization: Bearer
-cabin_<base62>`. The uniform
+cabin_<base62>` (or an exchanged `cabin_tp_<base64url>` token - same
+header, same hash lookup). The uniform
 `401 {"errors":[{"detail":"authentication required"}]}` (plus the
 challenge header) is emitted before any route matching or D1/R2 data
 lookup, so unauthenticated callers cannot probe the mutation routes -
 and on the registry host every non-read-plane path answers the same
-bytes. The read plane itself is public for verified content ("Origins
+bytes. One route is exempt from the token check: the trusted-publishing
+exchange (`PUT /api/v1/trusted_publishing/tokens`,
+`docs/remote-registry.md` "Trusted publishing"), whose credential is
+the GitHub Actions OIDC JWT in its body. It dispatches before
+`authenticate` but never before the breaker's write gate, and every
+refusal it emits - malformed body, failed verification, no matching
+config, an unclaimed scope, a replayed jti - is that same uniform 401,
+with the real reason logged for the operator only. The exchange mints
+against the matched config: a 30-minute multi-use token backed by the
+scope's oldest owner (publish requires scope membership and stamps
+`published_by`, so an unclaimed scope refuses before the jti is
+consumed), scope-limited to the config's scope, `publish`-only, and
+carrying the config's quota class on the token row itself
+(`tokens.quota_class`; the auth lookup coalesces token-first, so the
+granted tier expires with the token instead of upgrading the backing
+user). Each successful exchange lazily prunes expired
+`trustpub_used_jtis` rows and expired `trustpub` token rows -
+deliberately no cron. `DELETE` on the same path revokes the presented
+token iff it is a `trustpub` one (deliberately not behind the write
+gate: blocking revocation would keep a live credential alive), and
+answers everything else with the uniform 401. The read plane itself is public for verified content ("Origins
 and roles"); it honors an optional Bearer credential, and a presented
 credential that fails to validate is the same uniform 401. `/healthz`
 (registry host) and the public `/api/v1/stats` subtree (website
@@ -269,8 +291,9 @@ A row with `scope_limit` set may perform write-side package operations
 answers the write plane's uniform membership 403. `kind` is a closed
 domain (`user` | `trustpub`), and the schema itself requires a
 `trustpub` row to be expiring (within one day of its `created_at`
-anchor), scope-limited, and publish-only - the minting path cannot
-widen the exchange into a standing or privileged credential.
+anchor), scope-limited, publish-only, and explicitly classed
+(`tokens.quota_class`) - the minting path cannot widen the exchange
+into a standing or privileged credential.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
@@ -1205,10 +1228,12 @@ Durable Object SQL exercised by `rusqlite` in host tests), the
 download-telemetry flush policy (`src/telemetry.rs`), the verification
 lifecycle's
 statuses, verdict rules, and read gate (`src/verify.rs`), the GitHub
-Actions OIDC token verification for trusted publishing - manual `RS256`
-JWT checks, ordered claim validation, and the `JwksProvider` trait
+Actions OIDC token verification and exchange-config matching for
+trusted publishing - manual `RS256` JWT checks, ordered claim
+validation, the `JwksProvider` trait, and `select_config`
 (`src/trustpub.rs`; its wasm-only Cache-API-backed `GithubJwks`
-provider lives in the same module, awaiting the exchange endpoints) -
+provider lives in the same module, and the exchange endpoint's D1
+plumbing is glue) -
 and the backup
 logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
@@ -1239,7 +1264,10 @@ by itself.
 Every authenticated response carries the debug header
 `x-cabin-registry-generation` from `meta.registry_generation`, so a client
 talking to a freshly wiped (pre-launch) registry is immediately visible
-(see [`runbook.md`](runbook.md)).
+(see [`runbook.md`](runbook.md)) - except the trusted-publishing
+`DELETE`, whose 204 and kind-guard 401 both go unstamped on purpose:
+its refusal must stay header-identical to the unauthenticated 401, or
+the stamp becomes a token-validity oracle on that route.
 
 ## Why 503, not 402
 
