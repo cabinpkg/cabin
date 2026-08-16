@@ -84,11 +84,12 @@
 //!   iteration only concludes it when its own `git fetch` succeeded
 //!   (the status is read where L6 discarded it - a failed fetch folds
 //!   every ancestor check to false) and its candidate scan was not
-//!   blind, and `poll` demands two CONSECUTIVE such iterations, so a
-//!   sampling race - a deploy landing between the candidate and
-//!   pending listings, a head pushed after the fetch - resolves on
-//!   the second pass.  Anything less retries, where the original's
-//!   failure arm would exit 1 from a possibly-blind iteration.
+//!   blind, and `poll` demands two CONSECUTIVE such iterations
+//!   agreeing on the SAME decision, so a sampling race - a deploy
+//!   landing between the candidate and pending listings, a head
+//!   pushed after the fetch - resolves on the second pass.  Anything
+//!   less retries, where the original's failure arm would exit 1 from
+//!   a possibly-blind iteration.
 //! - The deploy-freeze arm - and ONLY that arm - ends GREEN: it
 //!   appends `skipped=true` to `$GITHUB_OUTPUT`, which the publish
 //!   step's `if` reads, prints the reason on stdout, and exits 0.
@@ -250,6 +251,14 @@ enum Report {
     Die,
 }
 
+/// Which of the two terminal decisions an iteration reached, so
+/// `poll`'s double-take can require the SAME one twice.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Terminal {
+    Skip,
+    Fail,
+}
+
 impl Report {
     /// Writes the line and answers with the step's exit, or `None`
     /// where the loop goes round again.  `Skip` is green: the caller
@@ -276,17 +285,17 @@ impl Report {
 
 /// L5..L57: the loop, its ceiling and the timeout below it.
 ///
-/// A `Skip` is concluded only when two CONSECUTIVE iterations reach
-/// it (post-port).  One iteration samples the world piecewise - fetch,
-/// candidate listing, same-SHA run, pending listing - so a deploy that
-/// lands between two samplings, or a head pushed after the fetch
-/// (unknown revisions fold `merge-base` to false), can read as a
-/// confirmed absence.  The second iteration re-takes every sample from
-/// its own fresh fetch, so any such race resolves to Done or Retry
-/// there; the first Skip just waits, as silently as the L54
-/// fall-through.  A wrong skip is a silent green no-publish, harder
-/// to notice than a red run ever was - the double-take is what makes
-/// it trustworthy.
+/// A terminal is concluded only when two CONSECUTIVE iterations reach
+/// the SAME one (post-port).  One iteration samples the world
+/// piecewise - fetch, candidate listing, same-SHA run, pending
+/// listing - so a deploy that lands between two samplings, or a head
+/// pushed after the fetch (unknown revisions fold `merge-base` to
+/// false), can read as a confirmed absence.  The second iteration
+/// re-takes every sample from its own fresh fetch, so any such race
+/// resolves to Done or Retry there; the first Skip just waits, as
+/// silently as the L54 fall-through.  A wrong skip is a silent green
+/// no-publish, harder to notice than a red run ever was - the
+/// double-take is what makes it trustworthy.
 ///
 /// `record_skip` appends the `skipped=true` flag the publish step's
 /// `if` reads, BEFORE the reason prints: the flag's absence means
@@ -307,12 +316,22 @@ fn poll(
         }
         report.emit().unwrap_or(1)
     };
-    let mut provisional_terminal = false;
+    let mut provisional: Option<Terminal> = None;
     for _ in 0..ITERATIONS {
         let report = iteration(shell, sha, repository);
         match report {
-            Some(Report::Skip(_) | Report::Fail(_)) if !provisional_terminal => {
-                provisional_terminal = true;
+            // A terminal confirms only against ITSELF: a Registry rerun
+            // can turn the same-SHA answer from Fail into Skip between
+            // two iterations, and letting the Fail stand in as the
+            // first half of that pair would end a green no-publish on a
+            // single Skip sighting.
+            Some(Report::Skip(_)) if provisional != Some(Terminal::Skip) => {
+                provisional = Some(Terminal::Skip);
+                shell.wait();
+                continue;
+            }
+            Some(Report::Fail(_)) if provisional != Some(Terminal::Fail) => {
+                provisional = Some(Terminal::Fail);
                 shell.wait();
                 continue;
             }
@@ -320,7 +339,7 @@ fn poll(
             // No flag: the step exits 1, so the publish step's implicit
             // `success()` already keeps it from running.
             Some(report @ Report::Fail(_)) => return report.emit().unwrap_or(1),
-            _ => provisional_terminal = false,
+            _ => provisional = None,
         }
         if let Some(report) = report
             && let Some(code) = report.emit()
@@ -1243,6 +1262,29 @@ mod tests {
             "skip, transient, skip, then the concluding skip"
         );
         assert_eq!(shell.called("git fetch"), 4);
+    }
+
+    /// A Fail cannot stand in as the first half of a Skip's pair.  A
+    /// Registry rerun changes the same-SHA answer under the wait, so
+    /// Fail-then-Skip is a REAL transition, and counting it as a
+    /// confirmation would end a green no-publish on a single Skip
+    /// sighting - the one outcome the double-take exists to prevent.
+    /// The Skip's own pair starts over at the transition.
+    #[test]
+    fn a_failure_does_not_confirm_a_skip_that_follows_it() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE)
+            // The first iteration reads the same-SHA run as failed
+            // (nothing pending, so it is a terminal Fail); every later
+            // iteration reads the freeze shape's success.
+            .answering_once(&[("jq -r .[0].conclusion", true, "failure")]);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            0
+        );
+        assert_eq!(recorded, 1, "the flag records exactly once");
+        assert_eq!(shell.waits, 2, "fail, skip, then the concluding skip");
+        assert_eq!(shell.called("git fetch"), 3);
     }
 
     /// The flag is a contract spelled in two places no compiler
