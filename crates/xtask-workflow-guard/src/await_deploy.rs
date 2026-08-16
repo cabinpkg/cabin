@@ -97,15 +97,20 @@
 //!   the state.  A freeze cannot be: it holds until an operator
 //!   applies the migration by hand, so failing would pin main red for
 //!   as long as that takes, and a permanently-red main is the one
-//!   outcome forbidden here.  Everything a rerun CAN clear stays red,
-//!   which leaves the original's own exits untouched: L51-L52 for a
-//!   failed or cancelled Registry run (`Fail`, which a Registry rerun
-//!   clears), L56-L57 for the ceiling reached undecided (a slow
-//!   deploy, or an outage that outlasted the hour).  So does a tool
-//!   dying (`Die`), and so does the skip flag failing to record,
-//!   where exiting 0 would let the publish step run against a stale
-//!   worker.  Red is not merely tolerated in those cases - it is the
-//!   affordance that offers the rerun.
+//!   outcome forbidden here.  A skipped Deploy alone does NOT prove a
+//!   freeze - `registry.yml` skips it for supersession too, and a
+//!   superseding run that failed is cleared by rerunning it - so the
+//!   green arm requires the freeze itself, read from this checkout by
+//!   the same `migrations_pending` gate `registry.yml` runs.
+//!   Everything a rerun CAN clear stays red, which leaves the
+//!   original's own exits untouched: L51-L52 for a failed or
+//!   cancelled Registry run (`Fail`, which a Registry rerun clears),
+//!   L56-L57 for the ceiling reached undecided (a slow deploy, or an
+//!   outage that outlasted the hour).  So does a tool dying (`Die`),
+//!   and so does the skip flag failing to record, where exiting 0
+//!   would let the publish step run against a stale worker.  Red is
+//!   not merely tolerated in those cases - it is the affordance that
+//!   offers the rerun.
 //!
 //! The remaining inherited properties, preserved rather than fixed.
 //! Each was pinned by running the original under `bash -e`, GitHub's
@@ -218,6 +223,7 @@ pub fn run() -> ExitCode {
         &mut Spawn,
         &context("GITHUB_SHA"),
         &context("GITHUB_REPOSITORY"),
+        crate::migrations_pending::pending(std::path::Path::new(".")),
         &mut || crate::append_github_output(SKIP_LINE),
     ))
 }
@@ -297,6 +303,11 @@ impl Report {
 /// no-publish, harder to notice than a red run ever was - the
 /// double-take is what makes it trustworthy.
 ///
+/// `frozen` is `registry.yml`'s own migrations gate, read from this
+/// run's checkout of the same commit: it is what tells a skipped
+/// Deploy that no rerun can clear apart from one a rerun can (see
+/// `iteration`).  It is a property of the tree, so it is read once.
+///
 /// `record_skip` appends the `skipped=true` flag the publish step's
 /// `if` reads, BEFORE the reason prints: the flag's absence means
 /// "publish", so a skip that cannot be recorded must fail the step
@@ -307,6 +318,7 @@ fn poll(
     shell: &mut dyn Shell,
     sha: &str,
     repository: &str,
+    frozen: bool,
     record_skip: &mut dyn FnMut() -> anyhow::Result<()>,
 ) -> u8 {
     let mut conclude_skip = |report: Report| -> u8 {
@@ -318,7 +330,7 @@ fn poll(
     };
     let mut provisional: Option<Terminal> = None;
     for _ in 0..ITERATIONS {
-        let report = iteration(shell, sha, repository);
+        let report = iteration(shell, sha, repository, frozen);
         match report {
             // A terminal confirms only against ITSELF: a Registry rerun
             // can turn the same-SHA answer from Fail into Skip between
@@ -359,8 +371,9 @@ fn poll(
 }
 
 /// One pass of L6..L54. `None` is the fall-through at L54, which waits
-/// without saying anything.
-fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Report> {
+/// without saying anything.  `frozen` is the deploy freeze read from
+/// the checkout (see `poll`).
+fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, frozen: bool) -> Option<Report> {
     // L6, with its status READ where the original discarded it
     // (post-port): a failed fetch leaves fresh heads unknown to the
     // local clone, so every `merge-base --is-ancestor` below answers
@@ -460,23 +473,33 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
     if !fetched || scan_blind {
         return Some(Report::Retry(TRANSIENT_SCAN.to_owned()));
     }
-    // The two terminal worlds part here.  A skipped Deploy is the
-    // freeze: no rerun of anything clears it until an operator applies
-    // the migration, so it goes green.  A failed or cancelled Registry
-    // run is ordinary breakage that a Registry rerun clears, so it
-    // keeps L51-L52's `>&2` + `exit 1` unchanged.
-    Some(if deploy_skipped {
-        Report::Skip(
-            "Registry run for this SHA succeeded but skipped its Deploy (superseded, or a D1 \
-             migration awaits its by-hand apply) and no pending run can deliver a deploy \
-             containing it; not publishing against a possibly-stale worker - rerun this workflow \
-             once the deploy lands (registry/docs/runbook.md)"
+    // The terminal worlds part here, on the one question that decides
+    // green from red: can a RERUN clear this?  `registry.yml` skips its
+    // Deploy for two reasons, and only one of them is beyond a rerun -
+    // hence `frozen`, which reads the same migrations stamp that gate
+    // step reads.  A supersession whose newer Registry run failed is
+    // rerunnable and must stay red, or a green would hide it forever.
+    // A failed or cancelled Registry run is ordinary breakage a
+    // Registry rerun clears, so it keeps L51-L52's `>&2` + `exit 1`
+    // unchanged.
+    Some(match (deploy_skipped, frozen) {
+        (true, true) => Report::Skip(
+            "Registry run for this SHA succeeded but skipped its Deploy while a D1 migration \
+             awaits its by-hand apply, and no pending run can deliver a deploy containing it; not \
+             publishing against a possibly-stale worker - rerun this workflow once the deploy \
+             lands (registry/docs/runbook.md)"
                 .to_owned(),
-        )
-    } else {
-        Report::Fail(format!(
+        ),
+        (true, false) => Report::Fail(
+            "Registry run for this SHA succeeded but skipped its Deploy as superseded (the \
+             committed D1 migrations match their applied stamp, so no freeze holds), and the \
+             newer registry commit's own deploy has not landed; not publishing against a stale \
+             worker - rerun that Registry run"
+                .to_owned(),
+        ),
+        _ => Report::Fail(format!(
             "Registry run for this SHA concluded '{conclusion}' and no deploy containing it has landed; not publishing against a stale worker"
-        ))
+        )),
     })
 }
 
@@ -778,6 +801,12 @@ mod tests {
         }
     }
 
+    /// `registry.yml`'s migrations gate, as the checkout answers it.
+    /// Every case below that is not about the freeze itself takes
+    /// `FROZEN`, the world these tests were written in.
+    const FROZEN: bool = true;
+    const THAWED: bool = false;
+
     /// The candidate listing answering with one qualifying run.
     const ONE_CANDIDATE: (&str, bool, &str) = ("status=success", true, "77 head77\n");
     /// The iteration's `git fetch` succeeding - a terminal Skip
@@ -830,7 +859,7 @@ mod tests {
         let mut shell = Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", true, "success\n")])
             .descending_from(&["head77"]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Done(
                 "registry deploy 77 (head head77) contains this SHA".to_owned()
             ))
@@ -847,7 +876,7 @@ mod tests {
                 .descending_from(&["head77"]);
         // Falls through to the same-SHA listing, which this fake fails.
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
     }
@@ -856,7 +885,7 @@ mod tests {
     fn a_candidate_that_is_not_an_ancestor_is_skipped() {
         let mut shell = Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", true, "success\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
         assert_eq!(shell.called("jobs?per_page=100"), 0);
@@ -867,7 +896,7 @@ mod tests {
         // The herestring's newline gives `read` one pass with empty
         // fields; the `[ -n "$rid" ]` guard is what makes it a no-op.
         let mut shell = Fake::answering(&[("status=success", true, "")]);
-        iteration(&mut shell, "abc", "o/r");
+        iteration(&mut shell, "abc", "o/r", FROZEN);
         assert_eq!(shell.called("merge-base"), 0);
     }
 
@@ -875,7 +904,7 @@ mod tests {
     fn a_failed_candidate_listing_skips_the_scan_without_a_word() {
         let mut shell = Fake::answering(&[("status=success", false, "77 head77\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
         assert_eq!(shell.called("merge-base"), 0);
@@ -894,7 +923,7 @@ mod tests {
     fn no_registry_run_for_this_sha_exits_zero() {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Done(NO_RUN.to_owned()))
         );
     }
@@ -905,7 +934,7 @@ mod tests {
         // false, and the conclusion then reads empty, so the iteration
         // falls through to the wait.
         let mut shell = Fake::answering(&[("head_sha=", true, ""), ("jq ", true, "")]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), None);
+        assert_eq!(iteration(&mut shell, "abc", "o/r", FROZEN), None);
     }
 
     #[test]
@@ -917,7 +946,10 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r", false, ""),
         ]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(Report::Die));
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r", FROZEN),
+            Some(Report::Die)
+        );
         assert_eq!(Report::Die.emit(), Some(1));
     }
 
@@ -934,7 +966,11 @@ mod tests {
                 ("jq -r .[0].conclusion", true, conclusion),
                 ("jq -r .[0].id", true, "null"),
             ]);
-            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{conclusion}");
+            assert_eq!(
+                iteration(&mut shell, "abc", "o/r", FROZEN),
+                None,
+                "{conclusion}"
+            );
         }
     }
 
@@ -949,7 +985,7 @@ mod tests {
             ])
             .descending_from(&["pending77"]);
             assert_eq!(
-                iteration(&mut shell, "abc", "o/r"),
+                iteration(&mut shell, "abc", "o/r", FROZEN),
                 Some(Report::Retry(format!(
                     "Registry run for this SHA concluded '{conclusion}'; a pending run containing it may still deploy; waiting"
                 )))
@@ -975,7 +1011,7 @@ mod tests {
             "Registry run for this SHA concluded 'failure' and no deploy containing it has landed; not publishing against a stale worker"
                 .to_owned(),
         );
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(stale));
+        assert_eq!(iteration(&mut shell, "abc", "o/r", FROZEN), Some(stale));
         assert_eq!(Report::Fail(String::new()).emit(), Some(1));
         // The green arm is the freeze's alone.
         assert_eq!(Report::Skip(String::new()).emit(), Some(0));
@@ -998,7 +1034,13 @@ mod tests {
         ]);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             1
         );
         assert_eq!(recorded, 0, "a failure is not a deliberate skip");
@@ -1040,13 +1082,57 @@ mod tests {
             ),
         ])
         .descending_from(&["head88"]);
-        match iteration(&mut shell, "abc", "o/r") {
+        match iteration(&mut shell, "abc", "o/r", FROZEN) {
             Some(Report::Skip(line)) => {
                 assert!(line.contains("skipped its Deploy"), "{line}");
                 assert!(line.contains("not publishing"), "{line}");
             }
             other => panic!("expected a fast skip, got {other:?}"),
         }
+    }
+
+    /// The same shape, thawed, is the OTHER reason `registry.yml`
+    /// skips its Deploy: a newer registry commit superseded this one.
+    /// That newer run having failed is breakage its own rerun clears,
+    /// so the answer is red - a green would hide a rerunnable state
+    /// under the same message the freeze uses.
+    #[test]
+    fn a_skipped_deploy_without_the_freeze_is_a_red_supersession() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE);
+        match iteration(&mut shell, "abc", "o/r", THAWED) {
+            Some(Report::Fail(line)) => {
+                assert!(line.contains("as superseded"), "{line}");
+                assert!(line.contains("rerun that Registry run"), "{line}");
+            }
+            other => panic!("expected a red supersession, got {other:?}"),
+        }
+        // The freeze reads the same API answers and parts here alone.
+        let mut shell = Fake::answering(&FREEZE_SHAPE);
+        match iteration(&mut shell, "abc", "o/r", FROZEN) {
+            Some(Report::Skip(line)) => assert!(line.contains("D1 migration awaits"), "{line}"),
+            other => panic!("expected a green freeze skip, got {other:?}"),
+        }
+    }
+
+    /// End to end: a supersession records NO flag, so the publish step
+    /// is held by the step's own failure rather than by the flag.
+    #[test]
+    fn a_supersession_records_nothing_and_ends_red() {
+        let mut shell = Fake::answering(&FREEZE_SHAPE);
+        let mut recorded = 0;
+        assert_eq!(
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                THAWED,
+                &mut counting(&mut recorded)
+            ),
+            1
+        );
+        assert_eq!(recorded, 0, "only the freeze is a deliberate green skip");
+        // Confirmed twice, like every other terminal.
+        assert_eq!(shell.waits, 1);
     }
 
     /// Same skip, but a pending run containing this SHA may still
@@ -1078,7 +1164,7 @@ mod tests {
             ),
         ])
         .descending_from(&["head88", "pending99"]);
-        match iteration(&mut shell, "abc", "o/r") {
+        match iteration(&mut shell, "abc", "o/r", FROZEN) {
             Some(Report::Retry(line)) => {
                 assert!(line.contains("skipped its Deploy"), "{line}");
                 assert!(line.contains("waiting"), "{line}");
@@ -1105,7 +1191,7 @@ mod tests {
         ])
         .descending_from(&["head77", "head88"]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1123,7 +1209,7 @@ mod tests {
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1143,7 +1229,7 @@ mod tests {
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1165,7 +1251,11 @@ mod tests {
                 ("jq -r .[0].id", true, "88"),
                 ("runs/88/jobs", true, step),
             ]);
-            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{step:?}");
+            assert_eq!(
+                iteration(&mut shell, "abc", "o/r", FROZEN),
+                None,
+                "{step:?}"
+            );
         }
     }
 
@@ -1186,7 +1276,7 @@ mod tests {
             ("jq -r .[0].id", true, "88"),
         ])
         .descending_from(&["head88"]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), None);
+        assert_eq!(iteration(&mut shell, "abc", "o/r", FROZEN), None);
     }
 
     #[test]
@@ -1198,7 +1288,7 @@ mod tests {
             ("branch=main&per_page=100", false, ""),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", FROZEN),
             Some(Report::Retry(TRANSIENT_PENDING.to_owned()))
         );
     }
@@ -1232,7 +1322,13 @@ mod tests {
         let mut shell = Fake::answering(&FREEZE_SHAPE);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             0
         );
         assert_eq!(recorded, 1, "the flag records exactly once");
@@ -1253,7 +1349,13 @@ mod tests {
             .answering_once(&[("head_sha=", true, "[{}]"), ("head_sha=", false, "")]);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             0
         );
         assert_eq!(recorded, 1, "the flag records exactly once");
@@ -1279,7 +1381,13 @@ mod tests {
             .answering_once(&[("jq -r .[0].conclusion", true, "failure")]);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             0
         );
         assert_eq!(recorded, 1, "the flag records exactly once");
@@ -1325,7 +1433,7 @@ mod tests {
     fn an_unrecordable_skip_fails_closed() {
         let mut shell = Fake::answering(&FREEZE_SHAPE);
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut || anyhow::bail!(
+            poll(&mut shell, "abc", "o/r", FROZEN, &mut || anyhow::bail!(
                 "GITHUB_OUTPUT is unset"
             )),
             1
@@ -1354,7 +1462,13 @@ mod tests {
         .descending_from(&["head99"]);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             0
         );
         assert_eq!(recorded, 0, "a found deploy is not a skip");
@@ -1374,7 +1488,13 @@ mod tests {
         let mut shell = Fake::default();
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             1
         );
         assert_eq!(recorded, 0, "an undecided wait is not a deliberate skip");
@@ -1387,7 +1507,13 @@ mod tests {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0")]);
         let mut recorded = 0;
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             0
         );
         assert_eq!(recorded, 0);
@@ -1407,7 +1533,13 @@ mod tests {
         // A pending descendant that never deploys waits out the
         // ceiling, which is red and records nothing.
         assert_eq!(
-            poll(&mut shell, "abc", "o/r", &mut counting(&mut recorded)),
+            poll(
+                &mut shell,
+                "abc",
+                "o/r",
+                FROZEN,
+                &mut counting(&mut recorded)
+            ),
             1
         );
         assert_eq!(recorded, 0);

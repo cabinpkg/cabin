@@ -132,9 +132,12 @@ freeze looks entirely normal and publishes nothing. Recovery is a
 `workflow_dispatch` of `ports-publish.yml` from `main` once the deploy
 lands: registry-only pushes do not match the ports trigger paths, so
 nothing re-runs it on its own. Green here means only "confirmed that no
-deploy can arrive without you": a wait that merely ran out of its hour
-undecided still fails the run, because a rerun clears that and a rerun
-is what the red offers.
+deploy can arrive without you", and the wait proves that by re-reading
+this gate from its own checkout rather than trusting the skipped Deploy
+step: the same step is skipped for supersession, where rerunning the
+newer Registry run is the fix, so that case fails the ports run. So
+does a wait that merely ran out of its hour undecided - a rerun clears
+both, and a rerun is what the red offers.
 
 Because the stamp covers migration *content*, an applied file's
 comments are frozen with its SQL: a rename elsewhere in the repository

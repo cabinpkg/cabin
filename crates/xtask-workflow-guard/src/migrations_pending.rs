@@ -69,10 +69,19 @@ pub fn run() -> Result<()> {
 /// The whole gate against one repository root; [`run`] passes the
 /// working directory the way the shell's relative paths did.
 fn run_in(base: &Path) -> Result<()> {
-    if stamp(base).into_bytes() == applied(base) {
+    if !pending(base) {
         return Ok(());
     }
     crate::append_github_output(OUTPUT_LINE)
+}
+
+/// L2's comparison alone: whether a migration awaits its by-hand
+/// apply, and every registry Deploy is therefore frozen.  `await_deploy`
+/// reads the same answer from the ports-publish checkout of the same
+/// commit, which is the tree `registry.yml`'s gate step hashed, to tell
+/// the freeze apart from an ordinary supersession.
+pub(crate) fn pending(base: &Path) -> bool {
+    stamp(base).into_bytes() != applied(base)
 }
 
 /// The files `migrations/*.sql` expands to, in the order the shell

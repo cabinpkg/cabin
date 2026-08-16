@@ -666,9 +666,11 @@ turns out to have triggered no Registry run at all, which is what keeps a publis
 against a Worker built before this commit's metadata schema.  When it instead CONFIRMS that no
 such deploy can arrive - the pre-launch deploy freeze, which holds until an operator applies the
 migration - it records `skipped=true` in `$GITHUB_OUTPUT` and still answers 0, and the publish
-step's `if` reads that flag: a state no rerun can clear must not pin main red.  Everything a
-rerun does clear stays red - a failed or cancelled Registry run, and the hour-long ceiling
-reached undecided.
+step's `if` reads that flag: a state no rerun can clear must not pin main red.  A skipped Deploy
+step alone does not prove the freeze, since `registry.yml` also skips it for supersession, so the
+green arm re-reads the migrations gate from its own checkout.  Everything a rerun does clear
+stays red - that same skipped Deploy without the freeze, a failed or cancelled Registry run, and
+the hour-long ceiling reached undecided.
 The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate, and
 `xtask-registry-admin`'s diagnose bundle consumes the same function.  The crate must:
 

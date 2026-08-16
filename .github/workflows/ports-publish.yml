@@ -213,18 +213,21 @@ jobs:
       # *step* to have run: the deploy-registry job goes green with the
       # step skipped when the run is superseded or a D1 migration
       # awaits its by-hand apply, and both cases leave the old Worker
-      # live. When the same-SHA run itself skipped its Deploy and no
-      # pending run can still deliver one - the deploy-freeze shape -
-      # the step records `skipped=true`, prints the reason, and ends
-      # GREEN, and the publish step below gates on the flag. That arm
-      # alone is green because no rerun can clear it: the freeze holds
-      # until an operator applies the migration, and failing would pin
-      # main red for as long as that takes. Everything a rerun DOES
-      # clear stays red - a failed or cancelled Registry run, the hour
-      # ceiling reached undecided, a tool dying, or the flag failing to
-      # record (where a green exit would publish against the stale
-      # worker). Once the deploy lands, dispatch this workflow from
-      # main to publish what the freeze skipped.
+      # live. When the same-SHA run itself skipped its Deploy, no
+      # pending run can still deliver one, and this checkout's
+      # migrations gate says a migration awaits its by-hand apply - the
+      # deploy-freeze shape - the step records `skipped=true`, prints
+      # the reason, and ends GREEN, and the publish step below gates on
+      # the flag. That arm alone is green because no rerun can clear
+      # it: the freeze holds until an operator applies the migration,
+      # and failing would pin main red for as long as that takes.
+      # Everything a rerun DOES clear stays red - the same skipped
+      # Deploy WITHOUT the freeze (a supersession, cleared by rerunning
+      # the newer Registry run), a failed or cancelled Registry run,
+      # the hour ceiling reached undecided, a tool dying, or the flag
+      # failing to record (where a green exit would publish against the
+      # stale worker). Once the deploy lands, dispatch this workflow
+      # from main to publish what the freeze skipped.
       # The gate is otherwise satisfied by ANY successful main
       # Deploy whose head CONTAINS this SHA (ancestor check): when a
       # newer registry commit supersedes this SHA's run, its deploy
