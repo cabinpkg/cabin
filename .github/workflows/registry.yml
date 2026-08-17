@@ -106,10 +106,8 @@ jobs:
 
   # Ships the Worker once the jobs above are green. No build step of
   # its own: `wrangler deploy` runs wrangler.jsonc's build.command.
-  # This workflow's paths filter is a sound deploy gate because
-  # registry/ is a standalone workspace: every input to the artifact
-  # lives under registry/**. D1 migrations stay manual - the deploy
-  # token cannot apply them (registry/docs/runbook.md, "Deploy skew").
+  # D1 migrations stay manual - the deploy token cannot apply them
+  # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build, conformance]
