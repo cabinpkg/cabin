@@ -2,7 +2,8 @@
 //! L806-996: the token create round-trip, the logout CSRF pair, the
 //! claim flow end to end against the GitHub mock, membership
 //! management, the owner gate's byte-identical 403, and the generation
-//! header.
+//! header - plus the claim-initiation fetch-metadata gate, which
+//! postdates the shell and so carries no `L` anchor.
 //!
 //! Every request here rides the session cookie the session leg minted,
 //! so the cookie arrives as a parameter rather than being re-derived -
@@ -41,6 +42,7 @@ const PROOF_QUERY: &str =
 pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<()> {
     token_round_trip(smoke, session_cookie)?;
     logout(smoke, session_cookie)?;
+    claim_initiation_intent(smoke)?;
     claim_cookie_scope(smoke)?;
     drifted_self_claim(smoke, github_port)?;
     self_claim(smoke)?;
@@ -119,11 +121,52 @@ fn logout(smoke: &mut Smoke, cookie: &str) -> Result<()> {
     Ok(())
 }
 
+/// The fetch-metadata gate on claim initiation, which has no shell
+/// ancestor: `smoke.sh` predates it.  A refusal must seal nothing - a
+/// sealed cookie would leave `/callback/claim` reachable with a state
+/// the victim's browser is carrying.
+fn claim_initiation_intent(smoke: &mut Smoke) -> Result<()> {
+    step("starting a claim needs a same-origin or user-typed navigation");
+    for site in ["cross-site", "same-site"] {
+        refuse_claim_start(smoke, &fetch_metadata(site, "navigate", None), site)?;
+    }
+    // A same-origin *subresource*: the website prefetches its own links
+    // wholesale, so a claim link would seal state on hover.
+    let prefetch = fetch_metadata("same-origin", "no-cors", None);
+    refuse_claim_start(smoke, &prefetch, "same-origin prefetch")?;
+    // A same-origin prerender: a navigation the user may never perform.
+    let prerender = fetch_metadata("same-origin", "navigate", Some("prefetch;prerender"));
+    refuse_claim_start(smoke, &prerender, "prerender")?;
+    // Absent metadata is the fail-closed case, and the only leg left
+    // proving it once the initiations below all send the headers.
+    refuse_claim_start(smoke, &[], "no fetch metadata")
+}
+
+/// One refused claim start: the uniform denial, and no state.  Uses
+/// 'statedrift', which is unclaimed and fully grantable in the mock, so
+/// nothing but the fetch-metadata gate can be what refused it.
+fn refuse_claim_start(smoke: &mut Smoke, headers: &[(String, String)], what: &str) -> Result<()> {
+    let url = smoke.url(Base::Web, "/claim/statedrift");
+    smoke.http("GET", &url, headers, None)?;
+    let block = text(&smoke.headers).into_owned();
+    let location = location_value(&block);
+    if location != "/dashboard?claim=denied" {
+        bail!("a {what} claim start answered '{location}', expected the uniform denial");
+    }
+    if !claim_state_value(&block).is_empty() {
+        bail!(
+            "a {what} claim start sealed a claim-state cookie: {}",
+            capture(&smoke.headers)
+        );
+    }
+    Ok(())
+}
+
 /// L883-894.
 fn claim_cookie_scope(smoke: &mut Smoke) -> Result<()> {
     step("the claim-state cookie is scoped to the claim callback");
     let url = smoke.url(Base::Web, "/claim/smoke");
-    smoke.http("GET", &url, &[], None)?;
+    smoke.http("GET", &url, &user_initiated(), None)?;
     let block = text(&smoke.headers).into_owned();
     // `$(grep ... || true)`: the capture keeps each line's trailing CR,
     // which every diagnostic below carries.
@@ -215,7 +258,7 @@ fn unmatched_state(smoke: &mut Smoke) -> Result<()> {
     // the mock, so nothing but the state comparison can be what refused
     // it.
     let url = smoke.url(Base::Web, "/claim/statedrift");
-    smoke.http("GET", &url, &[], None)?;
+    smoke.http("GET", &url, &user_initiated(), None)?;
     let cookie = claim_state_value(&text(&smoke.headers));
     if cookie.is_empty() {
         bail!("/claim/statedrift set no claim-state cookie");
@@ -356,7 +399,7 @@ fn generation_header(smoke: &mut Smoke) -> Result<()> {
 /// and the next request is made by hand from what it carried.
 fn claim_scope(smoke: &mut Smoke, scope: &str, expected: &str) -> Result<()> {
     let url = smoke.url(Base::Web, &format!("/claim/{scope}"));
-    smoke.http("GET", &url, &[], None)?;
+    smoke.http("GET", &url, &user_initiated(), None)?;
     let block = text(&smoke.headers).into_owned();
     if !status_line_is(&block, 302) {
         bail!("/claim/{scope} did not answer 302: {}", first_line(&block));
@@ -441,6 +484,27 @@ fn minted(body: &[u8]) -> Result<(String, String)> {
         })?;
     let id = display(document.get("id").unwrap_or(&Value::Null));
     Ok((token.to_owned(), id))
+}
+
+/// Fetch metadata as a browser stamps it onto one request.
+fn fetch_metadata(site: &str, mode: &str, purpose: Option<&str>) -> Vec<(String, String)> {
+    let mut headers = vec![
+        ("Sec-Fetch-Site".to_owned(), site.to_owned()),
+        ("Sec-Fetch-Mode".to_owned(), mode.to_owned()),
+    ];
+    if let Some(purpose) = purpose {
+        headers.push(("Sec-Purpose".to_owned(), purpose.to_owned()));
+    }
+    headers
+}
+
+/// What a browser sends on the navigation that starts a claim today: no
+/// dashboard form exists yet, so the user types or bookmarks the URL and
+/// the site reads `none` rather than `same-origin`.  The refusal cases
+/// vary one field at a time off this baseline, so each names the single
+/// condition that refused it.
+fn user_initiated() -> Vec<(String, String)> {
+    fetch_metadata("none", "navigate", None)
 }
 
 /// `grep -qi '^location: /dashboard?claim=denied'`: `?` is a literal in
