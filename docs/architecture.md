@@ -1408,7 +1408,12 @@ today, so future contributors do not silently regress them by porting more Cargo
   consumer of the target inherits them transitively.  Sources that exist only to compile the library
   must live under `sources` / internal subdirectories that the public include path does not expose.
   There is no `private-include-dirs` field today; adding one is a deliberate language change, not a
-  build-graph fix-up.  Provenance decides the spelling on consumer compiles: dirs inherited from
+  build-graph fix-up.  Because they are public, they are also *bounded*: a target's `include-dirs`
+  must stay inside the declaring package (no absolute paths, no `..`), enforced where the manifest
+  is validated, so a dependency cannot aim its consumers' include search at a directory it does not
+  ship.  That check is lexical; the other half of the guarantee is archive extraction refusing
+  symlink entries, without which a shipped symlink would carry the search path out again.
+  Provenance decides the spelling on consumer compiles: dirs inherited from
   registry packages are marked as system search paths (`-isystem` / MSVC
   `/external:I`), while workspace members, plain `path` dependencies, and `[patch]`ed packages stay
   on plain `-I` (see [`docs/toolchains.md`](toolchains.md#system-include-directories)).

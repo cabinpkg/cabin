@@ -257,6 +257,32 @@ pub fn validate_links_identity(value: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// A target's `include-dirs` are joined onto the manifest directory and
+/// handed to the compiler as `-I` / `-isystem`, and a dependency's land
+/// on its *consumers'* command lines.  An entry that escapes the package
+/// root would therefore let a package point the include search at a
+/// directory it does not ship - a registry dependency could aim it at
+/// the consumer's home directory and read files back out through
+/// `#include`.  Same rule as the `[profile]` layer's include dirs, and
+/// as `sources`, which the planner already refuses to escape with.
+fn validate_target_include_dirs(target: &Target) -> Result<(), ValidationError> {
+    for dir in &target.include_dirs {
+        let Some(escape) = crate::build_flags::include_dir_escape(dir) else {
+            continue;
+        };
+        let (target, path) = (target.name.as_str().to_owned(), dir.as_str().to_owned());
+        return Err(match escape {
+            crate::build_flags::IncludeDirEscape::Absolute => {
+                ValidationError::TargetIncludeDirIsAbsolute { target, path }
+            }
+            crate::build_flags::IncludeDirEscape::Parent => {
+                ValidationError::TargetIncludeDirHasParent { target, path }
+            }
+        });
+    }
+    Ok(())
+}
+
 impl AsRef<str> for PackageName {
     fn as_ref(&self) -> &str {
         &self.0
@@ -1186,6 +1212,7 @@ impl Package {
                     target.name.as_str().to_owned(),
                 ));
             }
+            validate_target_include_dirs(target)?;
         }
         let mut claimed: BTreeMap<&str, &str> = BTreeMap::new();
         for target in targets {

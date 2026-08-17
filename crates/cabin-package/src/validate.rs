@@ -38,8 +38,8 @@ pub struct ValidatedPackage {
 /// - the package name must be safe for registry publishing
 ///   (`/`, `\\`, `..`, leading dots, and platform path prefixes are
 ///   rejected);
-/// - target source paths and include directories must not escape
-///   the package root;
+/// - target source paths must not escape the package root (include
+///   directories are refused earlier, at manifest load);
 /// - declared dependencies must not include path entries (path
 ///   dependencies are not publishable);
 /// - declared dependencies must not include unresolved
@@ -75,8 +75,7 @@ pub fn load_and_validate(manifest_path: &Path) -> Result<ValidatedPackage, Packa
 /// [`PackageError::PathDependencyNotPublishable`],
 /// [`PackageError::UnresolvedWorkspaceDependency`],
 /// [`PackageError::UnresolvedWorkspaceStandard`],
-/// [`PackageError::SourceEscapesPackageRoot`], or
-/// [`PackageError::IncludeEscapesPackageRoot`].
+/// or [`PackageError::SourceEscapesPackageRoot`].
 pub fn load_and_validate_with_project(
     manifest_path: &Path,
     project_override: Option<cabin_core::Package>,
@@ -132,8 +131,8 @@ pub fn load_and_validate_with_project(
 /// Returns the [`PackageError`] naming the violated rule: unsafe
 /// registry package name, `[patch]` table, path / unresolved
 /// workspace dependency, unresolved workspace standard marker,
-/// interface-standard contradiction, or a target source / include
-/// directory escaping the package root.
+/// interface-standard contradiction, or a target source path
+/// escaping the package root.
 pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     // The name itself needs no re-validation: `PackageName` enforces
     // the per-component path-safe grammar at construction, and this
@@ -199,14 +198,6 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
         for source in &target.sources {
             ensure_within_root(source.as_std_path()).map_err(|path| {
                 PackageError::SourceEscapesPackageRoot {
-                    target: target.name.as_str().to_owned(),
-                    path,
-                }
-            })?;
-        }
-        for include in &target.include_dirs {
-            ensure_within_root(include.as_std_path()).map_err(|path| {
-                PackageError::IncludeEscapesPackageRoot {
                     target: target.name.as_str().to_owned(),
                     path,
                 }
@@ -355,11 +346,16 @@ include-dirs = ["../include"]
 "#,
             )
             .unwrap();
+        // Include dirs are refused at manifest load, for every
+        // consumer and not just the publisher, so `cabin package`
+        // never needs a check of its own - unlike `sources`, whose
+        // only other guard lives in the planner.
         let err = load_and_validate(&dir.path().join("cabin.toml")).unwrap_err();
-        assert!(matches!(
-            err,
-            PackageError::IncludeEscapesPackageRoot { .. }
-        ));
+        let PackageError::Manifest { source, .. } = err else {
+            panic!("expected a manifest refusal, got {err:?}");
+        };
+        let message = source.to_string();
+        assert!(message.contains("must not contain `..`"), "{message}");
     }
 
     #[test]

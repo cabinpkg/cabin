@@ -180,8 +180,9 @@ Before archive bytes are written, `cabin-package` validates:
   [`language-standards.md`](language-standards.md)).  A standalone `cabin package` against a
   marker-bearing manifest errors with `` `cxx-standard` uses workspace = true, but package metadata
   was generated without workspace resolution``;
-- target source paths and include directories stay inside the package root (lexically - `..` walking
-  is rejected).
+- target source paths stay inside the package root (lexically - `..` walking is rejected).  Target
+  `include-dirs` are held to the same rule earlier, when the manifest loads, so every consumer of a
+  published package gets it too and not only its publisher.
 - the manifest does not declare a `[patch]` table.  Patches are local development policy; `cabin
   package` returns `package "<name>" declares a [patch] table; patches are local development policy
   and not publishable.  Remove the [patch] table from this manifest before packaging, or move the

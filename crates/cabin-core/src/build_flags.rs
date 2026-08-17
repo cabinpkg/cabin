@@ -21,9 +21,8 @@
 //! separate all the way to the planner.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -124,7 +123,7 @@ impl ProfileFlags {
             }
         }
         for dir in &self.include_dirs {
-            validate_include_dir(dir.as_std_path())?;
+            validate_include_dir(dir)?;
         }
         for lib in &self.link_libs {
             if !is_safe_link_lib(lib) {
@@ -437,43 +436,40 @@ pub enum BuildFlagsValidationError {
         "[profile] include directory {path:?} must not contain `..`; include search paths cannot escape the package root"
     )]
     IncludeDirHasParent { path: String },
-    #[error("[profile] include directory {path:?} contains a non-UTF-8 component")]
-    NonUtf8IncludeDir { path: String },
 }
 
-fn validate_include_dir(dir: &Path) -> Result<(), BuildFlagsValidationError> {
+/// How an include directory reaches outside the package that declared
+/// it.  Every include dir is joined onto a manifest directory, so both
+/// shapes land the compiler's search path somewhere the package does
+/// not own.
+pub(crate) enum IncludeDirEscape {
+    Absolute,
+    Parent,
+}
+
+/// The shape check the `[profile]` layer and `[[target]]` validation
+/// share; each words its own error.
+pub(crate) fn include_dir_escape(dir: &Utf8Path) -> Option<IncludeDirEscape> {
     if dir.is_absolute() {
-        return Err(BuildFlagsValidationError::AbsoluteIncludeDir {
-            path: display_path(dir),
-        });
+        return Some(IncludeDirEscape::Absolute);
     }
-    for component in dir.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                return Err(BuildFlagsValidationError::IncludeDirHasParent {
-                    path: display_path(dir),
-                });
-            }
-            std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                return Err(BuildFlagsValidationError::AbsoluteIncludeDir {
-                    path: display_path(dir),
-                });
-            }
-            std::path::Component::Normal(part) => {
-                if part.to_str().is_none() {
-                    return Err(BuildFlagsValidationError::NonUtf8IncludeDir {
-                        path: display_path(dir),
-                    });
-                }
-            }
-            std::path::Component::CurDir => {}
-        }
-    }
-    Ok(())
+    dir.components().find_map(|component| match component {
+        Utf8Component::ParentDir => Some(IncludeDirEscape::Parent),
+        Utf8Component::Prefix(_) | Utf8Component::RootDir => Some(IncludeDirEscape::Absolute),
+        Utf8Component::Normal(_) | Utf8Component::CurDir => None,
+    })
 }
 
-fn display_path(dir: &Path) -> String {
-    dir.display().to_string()
+fn validate_include_dir(dir: &Utf8Path) -> Result<(), BuildFlagsValidationError> {
+    match include_dir_escape(dir) {
+        Some(IncludeDirEscape::Absolute) => Err(BuildFlagsValidationError::AbsoluteIncludeDir {
+            path: dir.to_string(),
+        }),
+        Some(IncludeDirEscape::Parent) => Err(BuildFlagsValidationError::IncludeDirHasParent {
+            path: dir.to_string(),
+        }),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

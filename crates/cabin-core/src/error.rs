@@ -67,6 +67,16 @@ pub enum ValidationError {
         second: String,
     },
 
+    #[error(
+        "target {target:?} include directory {path:?} must be relative to the manifest directory; absolute paths are not allowed"
+    )]
+    TargetIncludeDirIsAbsolute { target: String, path: String },
+
+    #[error(
+        "target {target:?} include directory {path:?} must not contain `..`; include search paths cannot escape the package root"
+    )]
+    TargetIncludeDirHasParent { target: String, path: String },
+
     #[error("duplicate dependency {name:?} in {section}", section = kind.manifest_section())]
     DuplicateDependency { name: String, kind: DependencyKind },
 

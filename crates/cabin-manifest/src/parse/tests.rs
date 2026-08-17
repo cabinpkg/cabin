@@ -1793,6 +1793,80 @@ fn target_links_rejected_on_non_library_kinds() {
 }
 
 #[test]
+fn target_include_dirs_cannot_escape_the_package_root() {
+    // The dirs a dependency declares land on its *consumers'* compile
+    // lines, so an escape here aims the include search at a directory
+    // the publishing package never shipped.
+    let parents = [
+        "../sibling",
+        "nested/../../up",
+        "./../up",
+        // Rejected even though the components net out inside the
+        // package: `nested` may be a symlink, which makes the `..`
+        // land wherever its target's parent is.
+        "nested/../up",
+    ];
+    for bad in parents {
+        match refuse_include_dir(bad) {
+            ValidationError::TargetIncludeDirHasParent { target, path } => {
+                assert_eq!((target.as_str(), path.as_str()), ("lib", bad));
+            }
+            other => panic!("expected a `..` refusal for {bad:?}, got {other:?}"),
+        }
+    }
+    // A leading `/` is a root component under the Windows path parser
+    // too, so this case is the one absolute shape both platforms
+    // agree on.  A drive-prefixed or UNC entry is a single ordinary
+    // component off Windows and is deliberately not asserted here.
+    match refuse_include_dir("/etc/ssl") {
+        ValidationError::TargetIncludeDirIsAbsolute { target, path } => {
+            assert_eq!((target.as_str(), path.as_str()), ("lib", "/etc/ssl"));
+        }
+        other => panic!("expected an absolute-path refusal, got {other:?}"),
+    }
+}
+
+/// The refusal a `library` target declaring `dir` alongside a plain
+/// relative dir produces at manifest load.
+fn refuse_include_dir(dir: &str) -> ValidationError {
+    let manifest = format!(
+        r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.lib]
+            type = "library"
+            sources = ["src/lib.c"]
+            include-dirs = ["include", {dir:?}]
+        "#
+    );
+    match parse_manifest_str(&manifest).unwrap_err() {
+        ManifestError::Validation(err) => err,
+        other => panic!("expected a validation refusal for {dir:?}, got {other:?}"),
+    }
+}
+
+#[test]
+fn target_include_dirs_keep_package_relative_paths() {
+    let manifest = r#"
+            [package]
+            name = "demo"
+            version = "0.1.0"
+            c-standard = "c11"
+
+            [target.lib]
+            type = "library"
+            sources = ["src/lib.c"]
+            include-dirs = ["include", "./vendor/include", "a/b"]
+        "#;
+    let parsed = parse_manifest_str(manifest).unwrap();
+    let dirs = &parsed.package.unwrap().targets[0].include_dirs;
+    assert_eq!(dirs, &["include", "./vendor/include", "a/b"]);
+}
+
+#[test]
 fn duplicate_links_across_targets_is_rejected() {
     let manifest = r#"
             [package]

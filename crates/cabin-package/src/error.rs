@@ -37,11 +37,6 @@ pub enum PackageError {
     )]
     SourceEscapesPackageRoot { target: String, path: PathBuf },
 
-    #[error(
-        "include directory `{}` for target {target:?} escapes the package root", path.display()
-    )]
-    IncludeEscapesPackageRoot { target: String, path: PathBuf },
-
     #[error("package archive would not contain cabin.toml at its root")]
     ArchiveMissingManifest,
 
