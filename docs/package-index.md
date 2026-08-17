@@ -70,8 +70,12 @@ In both layouts a scoped package `<scope>/<name>` nests exactly one level deeper
 published `"../../artifacts/<scope>/<name>/<scope>-<name>-<version>-<revision>.zip"` form.  Anything
 nested deeper than one scope directory is ignored.
 `config.json` itself must satisfy `schema = 1`, `kind = "file-registry"`, and reject `..` or
-absolute paths in the configured subdirectories.  See [`registry-design.md`](registry-design.md) for
-the full layout contract.
+absolute paths in the configured subdirectories.  Over the sparse HTTP index the subdirectories must
+additionally resolve, once joined onto the index URL, to the same origin as that URL, at or below its
+path, and with no `userinfo` - so a `config.json` cannot move metadata or artifact fetches to another
+host.  A subdirectory containing `%`, `\`, `?`, or `#` is rejected outright, because a URL parser and
+a filesystem path disagree about what those characters mean.  See
+[`registry-design.md`](registry-design.md) for the full layout contract.
 
 `config.json` may also carry two optional fields belonging to the remote-registry protocol:
 `auth-required` (bool; every request to the registry must carry
