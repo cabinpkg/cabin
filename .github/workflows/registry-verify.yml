@@ -11,10 +11,7 @@ name: Registry Verify
 #
 # Cron and manual dispatch only, deliberately: the run's input is
 # whatever the registry reports as pending, never this repository's
-# files, so AGENTS.md's trigger-path rule for alias-running workflows
-# has no `paths:` filter to attach to here.  Edits to the command it
-# runs are gated by registry.yml, which already watches
-# `.cargo/config.toml` and `crates/xtask-registry-admin/**`.
+# files.
 on:
   schedule:
     - cron: "*/5 * * * *"
