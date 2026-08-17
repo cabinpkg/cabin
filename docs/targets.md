@@ -81,7 +81,9 @@ deps = ["demo"]
 Common fields:
 
 - `sources`: source files relative to the package root.
-- `include-dirs`: public include directories.  Consumers of this target inherit them through `deps`.
+- `include-dirs`: public include directories, relative to the package root.  Absolute paths and
+  `..` traversal are rejected when the manifest loads: a package must not aim its consumers'
+  include search outside itself.  Consumers of this target inherit them through `deps`.
   When the providing package is third-party code (an extracted registry package or a foundation
   port), consumers compile with the inherited dirs marked as *system* search paths (`-isystem` /
   MSVC `/external:I`) so warnings inside dependency headers do not fail a strict warning profile;

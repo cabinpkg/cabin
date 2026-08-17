@@ -120,7 +120,7 @@ or `-`, must not be `.` or `..`, and must be unique within the manifest.
 | --- | --- | --- | --- | --- |
 | `type` | string | yes | - | Target kind.  One of `library`, `header-only`, `executable`, `test`, `example`.  Each kind describes artifact role only; a target may freely mix `.c` and C++ sources.  See [Targets](targets.md). |
 | `sources` | array of strings | no | `[]` | Source files, relative to the manifest directory (no `..`). |
-| `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory. |
+| `include-dirs` | array of strings | no | `[]` | Additional include directories, relative to the manifest directory (no `..`, no absolute paths).  A dependency's entries reach its consumers' compile lines, so they may never point outside the declaring package. |
 | `defines` | array of strings | no | `[]` | Preprocessor definitions, e.g. `"FOO=1"`. |
 | `deps` | array of strings or tables | no | `[]` | Target dependencies.  A string entry declares a private edge; the table form adds per-edge visibility: `{ name = "foo", public = true }`.  See [Target dependencies](#target-dependencies). |
 | `required-features` | array of strings | no | `[]` | Package features (declared in this package's `[features]` table) that must all be enabled for this target to be built or used.  Unknown names are rejected at manifest load.  See [Feature-gated targets](features.md#feature-gated-targets). |
