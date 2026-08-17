@@ -56,12 +56,13 @@ pub(crate) fn yank(
             name.as_str()
         );
     }
-    let index_url = crate::cli::login::effective_registry_index_url(
+    let index = crate::cli::login::effective_registry_index_url(
         args.index_url.as_deref(),
         "cabin yank",
         "yanked state lives in the remote registry's index",
         false,
     )?;
+    let index_url = index.url;
 
     // Mirror the remote publish flow: one credential lookup serves
     // the config.json read and the API call alike.  Deliberately NOT
@@ -70,12 +71,15 @@ pub(crate) fn yank(
     // auto-exchange here would trade a working stored yank credential
     // for a token the yank route must refuse.
     let origin = cabin_credentials::normalize_origin(&index_url)?;
-    let lookup =
-        cabin_credentials::lookup_token(&origin, crate::cli::login::env_token_eligible(&origin)?)?;
+    let eligible = crate::cli::login::env_token_eligible(&origin, index.user_chosen)?;
+    let lookup = cabin_credentials::lookup_token(&origin, eligible)?;
     if let Some(warning) = lookup.permissions_warning {
         reporter.warning(format_args!("{warning}"));
     }
     let token = lookup.token;
+    if token.is_none() {
+        crate::cli::login::warn_if_env_token_withheld(&origin, eligible, reporter);
+    }
     let mut client = cabin_index_http::HttpClient::new();
     if let Some(token) = token.clone() {
         client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(

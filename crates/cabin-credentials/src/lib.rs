@@ -15,8 +15,10 @@
 //!
 //! Keys are normalized index origins (scheme + host + port, no path,
 //! no trailing slash).  The `CABIN_REGISTRY_TOKEN` environment
-//! variable, when set and non-empty, wins over the file for every
-//! registry an invocation touches.
+//! variable, when set and non-empty, wins over the file - but only
+//! for the origins its caller declares eligible (see
+//! [`lookup_token`]), because the variable carries no origin key of
+//! its own.
 //!
 //! Token values must never appear in logs, error messages, or debug
 //! output: [`Token`]'s `Debug` / `Display` impls redact, and every

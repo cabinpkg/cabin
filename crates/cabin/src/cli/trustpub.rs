@@ -44,12 +44,13 @@ pub(crate) enum PublishCredential {
 /// auto-exchange, then stored credentials (`credentials.toml` today;
 /// a browser-session source would slot in exactly there), then none.
 /// The override leg keeps its own origin-trust gate
-/// (`env_token_eligible`); the exchange leg is stricter
-/// ([`exchange_origin_eligible`]): the run's OIDC JWT is a credential
-/// the hosted registry accepts from anyone, so a loopback registry
-/// only qualifies when the user themselves named it with
-/// `--index-url` (`index_from_cli`) - never when project config or
-/// `[source-replacement]` picked it.
+/// ([`env_token_eligible`](super::login::env_token_eligible)), which
+/// asks whether the *user* chose the origin; the exchange leg is
+/// stricter ([`exchange_origin_eligible`]): the run's OIDC JWT is a
+/// credential the hosted registry accepts from anyone, so a loopback
+/// registry only qualifies when the user themselves named it with
+/// `--index-url` (`index_from_cli`) - not even their own config file
+/// counts.
 ///
 /// # Errors
 /// Fails when GitHub Actions is detected without the OIDC endpoint -
@@ -58,10 +59,12 @@ pub(crate) enum PublishCredential {
 /// guess.
 pub(crate) fn publish_credential(
     origin: &str,
+    index_user_chosen: bool,
     index_from_cli: bool,
     reporter: Reporter,
 ) -> Result<PublishCredential> {
-    if let Some(token) = cabin_credentials::env_token(super::login::env_token_eligible(origin)?)? {
+    let env_eligible = super::login::env_token_eligible(origin, index_user_chosen)?;
+    if let Some(token) = cabin_credentials::env_token(env_eligible)? {
         return Ok(PublishCredential::Token(token));
     }
     match exchange_decision(
@@ -82,10 +85,11 @@ pub(crate) fn publish_credential(
     if let Some(warning) = lookup.permissions_warning {
         reporter.warning(format_args!("{warning}"));
     }
-    Ok(match lookup.token {
-        Some(token) => PublishCredential::Token(token),
-        None => PublishCredential::None,
-    })
+    let Some(token) = lookup.token else {
+        super::login::warn_if_env_token_withheld(origin, env_eligible, reporter);
+        return Ok(PublishCredential::None);
+    };
+    Ok(PublishCredential::Token(token))
 }
 
 /// What the GitHub Actions environment says about the OIDC exchange.

@@ -665,6 +665,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
         index_source: &inputs.index_source,
+        index_user_chosen: inputs.index_user_chosen,
         policy: inputs.policy,
         cache_dir: &inputs.cache_dir,
         reporter,
@@ -729,21 +730,29 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         resolution_offline,
         resolved_index_source.as_ref(),
     )?;
-    let effective_index_source: Option<cabin_core::SourceLocator> = match resolved_index_source
-        .as_ref()
-    {
-        Some(source) => {
-            let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
-            let resolved = crate::cli::patch::apply_source_replacement(
-                initial,
-                &effective_config,
-                request.no_patches,
-            )?;
-            crate::cli::config::enforce_offline_post_replacement(resolution_offline, &resolved)?;
-            Some(resolved.resolved)
-        }
-        None => None,
-    };
+    let (effective_index_source, index_user_chosen): (Option<cabin_core::SourceLocator>, bool) =
+        match resolved_index_source.as_ref() {
+            Some(source) => {
+                let initial = crate::cli::config::index_source_kind_to_locator(&source.kind);
+                let resolved = crate::cli::patch::apply_source_replacement(
+                    initial,
+                    &effective_config,
+                    request.no_patches,
+                )?;
+                crate::cli::config::enforce_offline_post_replacement(
+                    resolution_offline,
+                    &resolved,
+                )?;
+                let user_chosen = crate::cli::config::index_origin_user_chosen(source, &resolved);
+                (Some(resolved.resolved), user_chosen)
+            }
+            // The default hosted registry the fallback below picks
+            // passes the environment-override gate on origin equality,
+            // so it needs no provenance of its own - and a
+            // `[source-replacement]` that rewrites it must not inherit
+            // one.
+            None => (None, false),
+        };
     if request.policy.frozen()
         && matches!(
             effective_index_source,
@@ -920,7 +929,8 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         // dropped here; the opened index is kept so patch activation
         // can extend the crawl.
         cabin_core::SourceLocator::IndexUrl { url } => {
-            let (index, http_index, _client) = load_http_index(url, &root_deps, reporter)?;
+            let (index, http_index, _client) =
+                load_http_index(url, index_user_chosen, &root_deps, reporter)?;
             (index, Some(http_index))
         }
     };
@@ -1270,6 +1280,11 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     pub(crate) manifest_path: &'a Path,
     pub(crate) initial_graph: &'a PackageGraph,
     pub(crate) index_source: &'a cabin_core::SourceLocator,
+    /// Whether the user chose the origin `index_source` names -
+    /// [`PipelineInputs::index_user_chosen`](crate::cli::config::PipelineInputs).
+    /// Gates the `CABIN_REGISTRY_TOKEN` override on the index reads
+    /// and artifact downloads this pipeline performs.
+    pub(crate) index_user_chosen: bool,
     pub(crate) policy: LockPolicy,
     pub(crate) cache_dir: &'a Path,
     pub(crate) reporter: Reporter,
@@ -1437,6 +1452,7 @@ pub(crate) fn run_artifact_pipeline(
 
     let (mut index, access, sparse_index) = load_index_for_pipeline(
         request.index_source,
+        request.index_user_chosen,
         request.policy.frozen(),
         &root_deps,
         request.reporter,
@@ -1577,6 +1593,7 @@ pub(crate) fn run_artifact_pipeline(
 /// fetch plan should use.
 fn load_index_for_pipeline(
     index_source: &cabin_core::SourceLocator,
+    index_user_chosen: bool,
     frozen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     reporter: Reporter,
@@ -1595,7 +1612,8 @@ fn load_index_for_pipeline(
             if frozen {
                 bail!(FROZEN_INDEX_URL_ERR);
             }
-            let (index, http_index, client) = load_http_index(url, root_deps, reporter)?;
+            let (index, http_index, client) =
+                load_http_index(url, index_user_chosen, root_deps, reporter)?;
             Ok((index, IndexAccess::Http(client), Some(http_index)))
         }
     }
@@ -1622,8 +1640,13 @@ fn load_local_index(path: &Path) -> Result<PackageIndex> {
 /// `credentials.toml`) for the index origin, so `config.json`,
 /// package metadata, and artifact downloads all authenticate;
 /// without a credential the client is tokenless.
+///
+/// `user_chosen` reports how the caller arrived at `url`; it gates
+/// the origin-key-less `CABIN_REGISTRY_TOKEN` override, see
+/// [`index_origin_user_chosen`](crate::cli::config::index_origin_user_chosen).
 pub(crate) fn load_http_index(
     url: &str,
+    user_chosen: bool,
     root_deps: &BTreeMap<PackageName, semver::VersionReq>,
     reporter: Reporter,
 ) -> Result<(
@@ -1632,7 +1655,8 @@ pub(crate) fn load_http_index(
     cabin_index_http::HttpClient,
 )> {
     let mut client = cabin_index_http::HttpClient::new();
-    if let Some(auth) = crate::cli::login::registry_auth_for_index_url(url, reporter)? {
+    if let Some(auth) = crate::cli::login::registry_auth_for_index_url(url, user_chosen, reporter)?
+    {
         client = client.with_auth(auth);
     }
     let http_index = cabin_index_http::HttpIndex::open(url, client.clone())?;

@@ -162,7 +162,7 @@ pub(super) fn publish(
             // batch resolves the source once, through the FIRST
             // manifest's effective config: one invocation publishes
             // to one registry.
-            let Some(index_url) =
+            let Some(index) =
                 effective_publish_index_url(args.index_url.as_deref(), &selections[0].0)?
             else {
                 return Err(cabin_publish::PublishError::DryRunRequired.into());
@@ -173,8 +173,7 @@ pub(super) fn publish(
                 ));
             }
             publish_batch_to_remote_registry(
-                &index_url,
-                args.index_url.is_some(),
+                &index,
                 selections,
                 args.new_revision,
                 args.retry_rate_limits,
@@ -195,7 +194,7 @@ pub(super) fn publish(
 fn effective_publish_index_url(
     cli_index_url: Option<&str>,
     manifest_path: &Path,
-) -> Result<Option<String>> {
+) -> Result<Option<crate::cli::login::EffectiveRegistryIndex>> {
     let config = if cli_index_url.is_some() {
         cabin_config::EffectiveConfig::default()
     } else {
@@ -207,9 +206,16 @@ fn effective_publish_index_url(
     };
     let locator = crate::cli::config::index_source_kind_to_locator(&source.kind);
     let resolution = crate::cli::patch::apply_source_replacement(locator, &config, false)?;
+    let user_chosen = crate::cli::config::index_origin_user_chosen(&source, &resolution);
     match resolution.resolved {
         cabin_core::SourceLocator::IndexPath { .. } => Ok(None),
-        cabin_core::SourceLocator::IndexUrl { url } => Ok(Some(url)),
+        cabin_core::SourceLocator::IndexUrl { url } => {
+            Ok(Some(crate::cli::login::EffectiveRegistryIndex {
+                url,
+                user_chosen,
+                from_cli: cli_index_url.is_some(),
+            }))
+        }
     }
 }
 
@@ -260,8 +266,7 @@ struct RemotePublishReport {
 /// and every attempt charges it; a single publish keeps today's
 /// fail-fast `429`).
 fn publish_batch_to_remote_registry(
-    index_url: &str,
-    index_url_from_cli: bool,
+    registry: &crate::cli::login::EffectiveRegistryIndex,
     packages: Vec<(
         PathBuf,
         Option<cabin_core::Package>,
@@ -272,6 +277,7 @@ fn publish_batch_to_remote_registry(
     format: ResolveFormat,
     reporter: Reporter,
 ) -> Result<()> {
+    let index_url = registry.url.as_str();
     // Stage before touching the network so validation failures never
     // need a connection - the whole batch, before any upload.
     let mut all_staged = Vec::new();
@@ -306,45 +312,47 @@ fn publish_batch_to_remote_registry(
              needs one to locate the registry API origin"
         )
     };
-    let (exchanged, token, index) =
-        match crate::cli::trustpub::publish_credential(&origin, index_url_from_cli, reporter)? {
-            crate::cli::trustpub::PublishCredential::NeedsExchange => {
-                let discovery = cabin_index_http::HttpIndex::open(
-                    index_url,
-                    cabin_index_http::HttpClient::new(),
-                )?;
-                let Some(api) = discovery.api() else {
-                    bail!(no_api());
-                };
-                let exchanged = crate::cli::trustpub::exchange(&origin, api)?;
-                let token = exchanged.token().clone();
-                let client = cabin_index_http::HttpClient::new().with_auth(
-                    cabin_index_http::RegistryAuth::for_index_url(index_url, token.clone())?,
-                );
-                (
-                    Some(exchanged),
-                    Some(token),
-                    cabin_index_http::HttpIndex::open(index_url, client)?,
-                )
+    let (exchanged, token, index) = match crate::cli::trustpub::publish_credential(
+        &origin,
+        registry.user_chosen,
+        registry.from_cli,
+        reporter,
+    )? {
+        crate::cli::trustpub::PublishCredential::NeedsExchange => {
+            let discovery =
+                cabin_index_http::HttpIndex::open(index_url, cabin_index_http::HttpClient::new())?;
+            let Some(api) = discovery.api() else {
+                bail!(no_api());
+            };
+            let exchanged = crate::cli::trustpub::exchange(&origin, api)?;
+            let token = exchanged.token().clone();
+            let client = cabin_index_http::HttpClient::new().with_auth(
+                cabin_index_http::RegistryAuth::for_index_url(index_url, token.clone())?,
+            );
+            (
+                Some(exchanged),
+                Some(token),
+                cabin_index_http::HttpIndex::open(index_url, client)?,
+            )
+        }
+        credential => {
+            let token = match credential {
+                crate::cli::trustpub::PublishCredential::Token(token) => Some(token),
+                _ => None,
+            };
+            let mut client = cabin_index_http::HttpClient::new();
+            if let Some(token) = token.clone() {
+                client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
+                    index_url, token,
+                )?);
             }
-            credential => {
-                let token = match credential {
-                    crate::cli::trustpub::PublishCredential::Token(token) => Some(token),
-                    _ => None,
-                };
-                let mut client = cabin_index_http::HttpClient::new();
-                if let Some(token) = token.clone() {
-                    client = client.with_auth(cabin_index_http::RegistryAuth::for_index_url(
-                        index_url, token,
-                    )?);
-                }
-                (
-                    None,
-                    token,
-                    cabin_index_http::HttpIndex::open(index_url, client)?,
-                )
-            }
-        };
+            (
+                None,
+                token,
+                cabin_index_http::HttpIndex::open(index_url, client)?,
+            )
+        }
+    };
     // The mutation client targets the origin the credential belongs
     // to.  On the exchange leg that is the origin the token was
     // MINTED for - the first config.json read's `api` - never the

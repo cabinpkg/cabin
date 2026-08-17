@@ -182,15 +182,29 @@ never ride along in a published archive.
 
 When [`CABIN_REGISTRY_TOKEN`](environment-variables.md) is set and non-empty, its value wins over
 `credentials.toml` for the origins it applies to: the [default registry](#the-default-registry)'s
-origin and loopback origins (local testing).  Any other registry always uses `credentials.toml` -
-the override carries no origin key of its own, and an invocation's index origin can come from
-project-level config or `[source-replacement]`, so an unrestricted override would let any built
-project route the credential to an origin of its choosing.  The override is useful for CI, where
-writing a credentials file is undesirable; it also works when no user config home can be resolved
-at all.  Cabin removes the variable from the environment of every child it spawns - `cabin run` /
-`cabin test` executables, the Ninja build backend (and the compile / wrapper commands it runs),
-the toolchain detection probes, `clang-format`, `run-clang-tidy`, and `pkg-config` - so spawned
-code cannot read the credential.
+origin, and a loopback origin (local testing) **that the user chose** - named by `--index-url`, or
+configured in the user-level `config.toml` (the file `CABIN_CONFIG` points at counts as
+user-level).  Any other registry always uses `credentials.toml`, and so does a loopback origin
+that a workspace- or package-level `.cabin/config.toml` picked or that a `[source-replacement]`
+hop rewrote the index onto.  The override carries no origin key of its own, so without that
+restriction a checked-out project could aim the index at a listener it started itself and collect
+the token; `credentials.toml` is origin-keyed by construction and has no such hole.
+
+`[source-replacement]` disqualifies the override even when the user declared the replacement in
+their own `config.toml`: a resolution records the hops it walked, not which file declared each of
+them, so the safe answer is the only available one.  Run `cabin login --index-url <mirror>` to
+store a token for the replacement's origin instead - that is origin-keyed, and it is already what
+`cabin login` does for a replaced source.
+
+Whenever the variable is set, an origin is refused it, and no stored credential answers either,
+Cabin says so before the registry's own "authentication required" error - a withheld credential is
+otherwise indistinguishable from one that was never configured.
+
+The override is useful for CI, where writing a credentials file is undesirable; it also works when
+no user config home can be resolved at all.  Cabin removes the variable from the environment of
+every child it spawns - `cabin run` / `cabin test` executables, the Ninja build backend (and the
+compile / wrapper commands it runs), the toolchain detection probes, `clang-format`,
+`run-clang-tidy`, and `pkg-config` - so spawned code cannot read the credential.
 
 ### Publishing from GitHub Actions
 
