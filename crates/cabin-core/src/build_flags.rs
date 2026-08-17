@@ -447,8 +447,8 @@ pub(crate) enum IncludeDirEscape {
     Parent,
 }
 
-/// The shape check the `[profile]` layer and `[[target]]` validation
-/// share; each words its own error.
+/// The shape check the `[profile]` layer and `[target.<name>]`
+/// validation share; each words its own error.
 pub(crate) fn include_dir_escape(dir: &Utf8Path) -> Option<IncludeDirEscape> {
     if dir.is_absolute() {
         return Some(IncludeDirEscape::Absolute);

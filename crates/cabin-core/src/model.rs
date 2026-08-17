@@ -263,8 +263,8 @@ pub fn validate_links_identity(value: &str) -> Result<(), ValidationError> {
 /// root would therefore let a package point the include search at a
 /// directory it does not ship - a registry dependency could aim it at
 /// the consumer's home directory and read files back out through
-/// `#include`.  Same rule as the `[profile]` layer's include dirs, and
-/// as `sources`, which the planner already refuses to escape with.
+/// `#include`.  Same rule the `[profile]` layer's include dirs already
+/// follow, and the one the planner already applies to `sources`.
 fn validate_target_include_dirs(target: &Target) -> Result<(), ValidationError> {
     for dir in &target.include_dirs {
         let Some(escape) = crate::build_flags::include_dir_escape(dir) else {
