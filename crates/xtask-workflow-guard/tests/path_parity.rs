@@ -12,15 +12,35 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// Every workflow whose freshness guard runs `cargo
-/// workflow-superseded`.
-const GUARDED: [&str; 2] = ["registry.yml", "ports-publish.yml"];
+/// The alias every guarded workflow's `freshness` step invokes.
+const GUARD: &str = "cargo workflow-superseded";
 
-fn read(workflow: &str) -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.github/workflows")
-        .join(workflow);
-    fs::read_to_string(path).unwrap_or_else(|error| panic!("reading {workflow}: {error}"))
+/// Every workflow that runs the guard, with its source, name-sorted.
+///
+/// Discovered rather than listed: a list here would be a fourth
+/// hand-maintained copy of the knowledge this test exists to pin, and
+/// it drifted the moment `ports-publish.yml` left the directory - the
+/// pin then failed on the missing file instead of noticing the guarded
+/// set had changed.
+fn guarded() -> Vec<(String, String)> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows");
+    let entries =
+        fs::read_dir(&dir).unwrap_or_else(|error| panic!("reading {}: {error}", dir.display()));
+    let mut guarded: Vec<(String, String)> = entries
+        .map(|entry| entry.expect("workflow directory entry"))
+        .filter_map(|entry| {
+            let yaml = fs::read_to_string(entry.path()).ok()?;
+            yaml.contains(GUARD)
+                .then(|| (entry.file_name().to_string_lossy().into_owned(), yaml))
+        })
+        .collect();
+    assert!(
+        !guarded.is_empty(),
+        "no workflow runs `{GUARD}`: renaming the alias would leave this pin \
+         checking nothing while it still passes"
+    );
+    guarded.sort();
+    guarded
 }
 
 /// A trigger glob and a `rev-list` pathspec spell a directory
@@ -80,8 +100,7 @@ fn guard_paths(yaml: &str) -> Vec<String> {
 
 #[test]
 fn the_guards_path_list_matches_both_trigger_filters() {
-    for workflow in GUARDED {
-        let yaml = read(workflow);
+    for (workflow, yaml) in guarded() {
         let guard = guard_paths(&yaml);
         assert!(
             !guard.is_empty(),
@@ -105,8 +124,7 @@ fn the_guards_path_list_matches_both_trigger_filters() {
 
 #[test]
 fn the_guard_treats_edits_to_itself_as_superseding() {
-    for workflow in GUARDED {
-        let yaml = read(workflow);
+    for (workflow, yaml) in guarded() {
         assert!(
             guard_paths(&yaml).contains(&"crates/xtask-workflow-guard/".to_owned()),
             "{workflow}: the guard's own crate is missing from its path list, so it \
