@@ -534,6 +534,9 @@ pub enum ConditionParseError {
     #[error("`not()` takes exactly one condition; found {0}")]
     NotArity(usize),
 
+    #[error("cfg expression nests more than {limit} levels deep")]
+    NestingTooDeep { limit: usize },
+
     #[error("expected `(` after {0}")]
     ExpectedOpenParen(&'static str),
 
@@ -547,14 +550,37 @@ pub enum ConditionParseError {
     Empty,
 }
 
+/// Maximum nesting depth the cfg parser accepts, counting the innermost
+/// predicate as one level: `os = "linux"` is depth 1, `not(os = "linux")`
+/// is depth 2.
+///
+/// Parsing is recursive descent, so an expression's nesting depth is the
+/// native stack depth it consumes - and the text is untrusted at every
+/// entry point (a `[target.'cfg(...)']` manifest key, a registry index
+/// entry's `target`, a downloaded package's `cabin-metadata.json`).
+/// Uncapped, a few hundred KB of `not(` exhausts the stack and aborts the
+/// process instead of reporting a parse error.  Real predicates nest two
+/// or three levels, so this leaves wide margin.  It also bounds the
+/// recursive walks over a parsed tree - `evaluate`, `Display`, the derived
+/// traits, and the compiler's `Drop` glue - because the parser is the only
+/// in-tree source of a combinator.  The recursive variants are public, so
+/// that is a property of the callers, not of the type: a new constructor
+/// that nests conditions has to bound its own depth.
+const MAX_CONDITION_DEPTH: usize = 32;
+
 struct Parser<'a> {
     src: &'a str,
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src, pos: 0 }
+        Self {
+            src,
+            pos: 0,
+            depth: 0,
+        }
     }
 
     fn skip_whitespace(&mut self) {
@@ -582,7 +608,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Depth-guarded entry to `parse_condition_body`.  Every recursive
+    /// descent into a nested expression goes through here; reaching the
+    /// body directly would bypass the [`MAX_CONDITION_DEPTH`] guard.
     fn parse_condition(&mut self) -> Result<Condition, ConditionParseError> {
+        // Checked before the increment so no error path leaves `depth`
+        // raised: a parser that kept going after one would then reject
+        // shallow siblings.
+        if self.depth >= MAX_CONDITION_DEPTH {
+            return Err(ConditionParseError::NestingTooDeep {
+                limit: MAX_CONDITION_DEPTH,
+            });
+        }
+        self.depth += 1;
+        let parsed = self.parse_condition_body();
+        self.depth -= 1;
+        parsed
+    }
+
+    fn parse_condition_body(&mut self) -> Result<Condition, ConditionParseError> {
         self.skip_whitespace();
         if self.pos >= self.src.len() {
             return Err(ConditionParseError::Empty);
@@ -1080,6 +1124,60 @@ mod tests {
     fn rejects_not_with_arity_other_than_one() {
         let err = Condition::parse_cfg(r#"cfg(not(os = "linux", arch = "x86_64"))"#).unwrap_err();
         assert!(matches!(err, ConditionParseError::NotArity(2)));
+    }
+
+    fn nested_not(levels: usize) -> String {
+        format!(
+            "{}{}{}",
+            "not(".repeat(levels),
+            r#"os = "linux""#,
+            ")".repeat(levels)
+        )
+    }
+
+    #[test]
+    fn nesting_at_the_cap_parses_and_one_level_deeper_is_rejected() {
+        // The innermost predicate is depth 1, so one fewer wrapper than
+        // the cap sits exactly at it, and one more is past it.
+        let at_cap = nested_not(MAX_CONDITION_DEPTH - 1);
+        assert!(Condition::parse_cfg(&format!("cfg({at_cap})")).is_ok());
+        let over_cap = nested_not(MAX_CONDITION_DEPTH);
+        let err = Condition::parse_cfg(&format!("cfg({over_cap})")).unwrap_err();
+        assert!(matches!(
+            err,
+            ConditionParseError::NestingTooDeep { limit } if limit == MAX_CONDITION_DEPTH
+        ));
+    }
+
+    #[test]
+    fn deserialize_rejects_over_cap_nesting() {
+        // The `Deserialize` face is the one registry index entries and
+        // downloaded package metadata reach; it must share the guard.
+        let json = serde_json::to_string(&nested_not(MAX_CONDITION_DEPTH)).unwrap();
+        let err = serde_json::from_str::<Condition>(&json)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("nests more than") && err.contains(&MAX_CONDITION_DEPTH.to_string()),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a_wide_condition_list_is_not_counted_as_nesting() {
+        // 41 `parse_condition` entries but only depth 3: the guard must
+        // bound nesting, not the number of siblings.
+        let wide = format!("cfg(all({}))", vec![r#"not(os = "linux")"#; 20].join(", "));
+        assert!(Condition::parse_cfg(&wide).is_ok());
+    }
+
+    #[test]
+    fn an_unclosed_nesting_flood_is_rejected_at_the_cap() {
+        // Unbalanced on purpose: at 4 bytes per stack level this is the
+        // cheapest form of the attack, and it proves the guard fires
+        // before the parser walks the rest of the input.
+        let err = Condition::parse_inner(&"not(".repeat(100_000)).unwrap_err();
+        assert!(matches!(err, ConditionParseError::NestingTooDeep { .. }));
     }
 
     #[test]
