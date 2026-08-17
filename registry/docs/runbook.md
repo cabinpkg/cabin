@@ -300,8 +300,11 @@ round trip (drilled 2026-07-29):
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp; the deploy gate opens on that push.
-2. Sign in and re-claim scopes (`/claim/<scope>`). A GitHub org's OAuth
-   app grant survives the wipe, so an org-backed re-claim grants
+2. Sign in and re-claim scopes (`/claim/<scope>`). Type or paste the URL
+   rather than following a link from another site: initiation refuses a
+   cross-site navigation, and does it with the same uniform
+   `?claim=denied` redirect as a genuinely refused claim. A GitHub org's
+   OAuth app grant survives the wipe, so an org-backed re-claim grants
    immediately - no third-party-access dance the second time.
 3. Mint a **verify** token and `gh secret set REGISTRY_VERIFY_TOKEN`.
 4. Run `cargo registry-governor wipe`, from the repository root, with it

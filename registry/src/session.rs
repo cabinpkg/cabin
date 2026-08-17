@@ -1,6 +1,7 @@
 //! HMAC-signed values for the browser plane - the OAuth `state` cookie and
-//! the session cookie - plus the cookie shape and the JSON API's CSRF
-//! discipline.
+//! the session cookie - plus the cookie shape, the JSON API's CSRF
+//! discipline, and the fetch-metadata check that serves claim
+//! initiation, which the browser navigates to instead.
 //!
 //! Every sealed value is `<payload>.<mac-hex>` with the MAC (HMAC-SHA-256
 //! keyed by `SESSION_SECRET`) computed over `<purpose>:<payload>`, so a
@@ -147,6 +148,50 @@ pub fn csrf_headers_ok(content_type: Option<&str>, csrf_header: Option<&str>) ->
 /// exactly `1`).
 pub const CSRF_HEADER: &str = "x-csrf-protection";
 
+/// Whether a request is a top-level navigation this origin or the user
+/// actually performed, judged from the browser's fetch metadata.
+///
+/// The CSRF discipline above cannot serve a route the browser *navigates*
+/// to: a navigation carries neither a custom header nor a JSON media type.
+/// `Referer` cannot serve it either - the *initiating* document chooses its
+/// own referrer policy, so an attacker page can suppress the header on the
+/// navigation it forces and make it indistinguishable from an address-bar
+/// one. Fetch metadata is set by the browser from the initiator it
+/// computed, and no page can influence it.
+///
+/// Three things must hold:
+///
+/// - [`FETCH_SITE_HEADER`] is `same-origin` (the site's own page) or
+///   `none` (no in-browser initiator at all - an address bar, a
+///   bookmark, or a URL handed to the browser by another application).
+/// - [`FETCH_MODE_HEADER`] is `navigate`, so a same-origin *subresource*
+///   cannot pass. The website prefetches same-origin links wholesale
+///   (`prefetchAll`), and prefetching a claim link would otherwise seal
+///   claim state in a visitor's browser on hover.
+/// - [`FETCH_PURPOSE_HEADER`] is absent: a prerender is a navigation the
+///   user has not performed and may never perform.
+///
+/// Everything else refuses, an absent header included: a browser too old
+/// to send fetch metadata is also too old to be trusted with an
+/// irreversible action, and no non-browser client has business starting
+/// a browser OAuth roundtrip.
+#[must_use]
+pub fn navigation_is_user_initiated(
+    fetch_site: Option<&str>,
+    fetch_mode: Option<&str>,
+    fetch_purpose: Option<&str>,
+) -> bool {
+    matches!(fetch_site.map(str::trim), Some("same-origin" | "none"))
+        && matches!(fetch_mode.map(str::trim), Some("navigate"))
+        && fetch_purpose.is_none()
+}
+
+/// The browser's fetch-metadata headers: who initiated a request, what
+/// kind of fetch it is, and whether it is speculative.
+pub const FETCH_SITE_HEADER: &str = "sec-fetch-site";
+pub const FETCH_MODE_HEADER: &str = "sec-fetch-mode";
+pub const FETCH_PURPOSE_HEADER: &str = "sec-purpose";
+
 /// The session cookie only ever travels to the session-plane subtree,
 /// and each state cookie only to its own callback: even the website
 /// origin's own page loads never carry any of them, so the website
@@ -292,6 +337,42 @@ mod tests {
         ));
         assert!(!csrf_headers_ok(Some("multipart/form-data"), Some("1")));
         assert!(!csrf_headers_ok(None, None));
+    }
+
+    #[test]
+    fn only_this_origin_and_the_user_may_start_a_navigation() {
+        let navigate = |site| navigation_is_user_initiated(site, Some("navigate"), None);
+        assert!(navigate(Some("same-origin")));
+        assert!(navigate(Some("none")));
+        // The value an attacker page's top-level navigation carries, and
+        // the sibling-subdomain value no dashboard ever sends.
+        assert!(!navigate(Some("cross-site")));
+        assert!(!navigate(Some("same-site")));
+        // Fail closed: a client that sends no fetch metadata proves
+        // nothing about who initiated the request.
+        assert!(!navigate(None));
+        assert!(!navigate(Some("")));
+        // The values are lower-case tokens; nothing else is a synonym.
+        // `Headers.get` joins duplicate headers with ", ", so a request
+        // sending the value twice must not pass either.
+        assert!(!navigate(Some("Same-Origin")));
+        assert!(!navigate(Some("none, cross-site")));
+    }
+
+    #[test]
+    fn only_an_actual_navigation_counts() {
+        let same_origin =
+            |mode, purpose| navigation_is_user_initiated(Some("same-origin"), mode, purpose);
+        assert!(same_origin(Some("navigate"), None));
+        // A same-origin prefetch of a claim link: the website prefetches
+        // its own links wholesale, and sealing state on hover would hand
+        // the visitor's browser a usable claim state.
+        assert!(!same_origin(Some("no-cors"), None));
+        assert!(!same_origin(Some("cors"), None));
+        assert!(!same_origin(None, None));
+        // A prerendered navigation the user may never perform.
+        assert!(!same_origin(Some("navigate"), Some("prefetch")));
+        assert!(!same_origin(Some("navigate"), Some("prefetch;prerender")));
     }
 
     #[test]

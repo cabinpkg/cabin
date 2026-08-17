@@ -38,7 +38,7 @@ pub async fn respond_web(
     match (route, req.method()) {
         (WebRoute::Login, Method::Get) => login(env),
         (WebRoute::Callback, Method::Get) => callback(req, env, &db).await,
-        (WebRoute::Claim { scope }, Method::Get) => claim_start(env, scope),
+        (WebRoute::Claim { scope }, Method::Get) => claim_start(req, env, scope),
         (WebRoute::ClaimCallback, Method::Get) => claim_callback(req, env, &db).await,
         _ => json_error(405, error::METHOD_NOT_ALLOWED),
     }
@@ -249,7 +249,30 @@ fn login(env: &Env) -> worker::Result<Response> {
 /// what this route validated), and the authorize request asks for
 /// `read:org` - the org-claim check reads the user's own membership -
 /// while ordinary sign-in keeps its scopeless request.
-fn claim_start(env: &Env, scope: &str) -> worker::Result<Response> {
+///
+/// A cross-site navigation refuses before anything is sealed
+/// ([`session::navigation_is_user_initiated`]): the callback's state
+/// check compares the request against a cookie *this* route minted, so
+/// it proves only that one browser walked the whole roundtrip - never
+/// that its user asked to. Without that refusal an attacker page could
+/// navigate a signed-in victim's tab here and spend one of their three
+/// permanent, unreleasable scope claims. Accepting `none` is what keeps
+/// the residual open: it covers every navigation handed to the browser
+/// from outside it, so one click in a mail client - or on an external
+/// protocol handler an attacker page invokes - still starts the
+/// roundtrip. That stays open deliberately, because typing the URL is
+/// the only way to reach this route until the dashboard grows a claim
+/// form to POST from, at which point `same-origin` becomes the only
+/// value worth accepting.
+fn claim_start(req: &Request, env: &Env, scope: &str) -> worker::Result<Response> {
+    let headers = req.headers();
+    if !session::navigation_is_user_initiated(
+        headers.get(session::FETCH_SITE_HEADER)?.as_deref(),
+        headers.get(session::FETCH_MODE_HEADER)?.as_deref(),
+        headers.get(session::FETCH_PURPOSE_HEADER)?.as_deref(),
+    ) {
+        return claim_denied(&[]);
+    }
     let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
     let state = auth::hex(&random_bytes::<16>()?);
     let sealed = session::seal_claim_state(

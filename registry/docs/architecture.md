@@ -424,7 +424,9 @@ derived from request input (the open-redirect guard).
   token state is needed. Mutation JSON is streamed under a 4 KiB cap; the
   publish frame uses the same bounded reader with its documented 64 MiB cap,
   so a chunked request cannot bypass the declared-length preflight and force
-  an unbounded buffer.
+  an unbounded buffer. A route the browser *navigates* to can carry neither
+  header, so claim initiation is gated on fetch metadata instead
+  (`session::navigation_is_user_initiated`, "Scopes" below).
 - Every session-plane response carries `Content-Security-Policy:
   default-src 'none'; style-src 'unsafe-inline'`,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
@@ -492,20 +494,38 @@ refusal is one uniform redirect with no detail. A claim is
 account that now controls the GitHub name - and there are no transfer
 or release endpoints; disputes are handled manually by the operator
 (direct D1 surgery; the schema pins the role domain so a hand-run
-typo cannot orphan a scope). Because a claim only ever binds
-a scope to the account that genuinely controls the same-named GitHub
-account, with that account's user as owner, a forced navigation to
-`/claim/<scope>` can at worst claim a name the victim's account
-controls for the victim - which, under the lifetime limit, also
-spends one of the victim's claim slots on it (the initiating GET
-mints the matching state cookie itself, so the sealed state cannot
-stop a forced navigation, and once `read:org` has been granted -
-any prior claim - GitHub auto-approves the authorize page, so the
-roundtrip can complete without a click). The victim owns whatever
-was claimed, so this stays accepted
-pre-launch griefing, not a takeover vector; the hardening for open
-sign-up is to initiate claims from a session-authenticated,
-CSRF-checked POST instead of a bare GET.
+typo cannot orphan a scope).
+
+**Claim initiation is gated on intent.** The initiating GET mints the
+matching state cookie itself, so the sealed state proves only that one
+browser walked the whole roundtrip - never that its user asked to; and
+once `read:org` has been granted (any prior claim) GitHub auto-approves
+the authorize page, so a forced roundtrip completes without a click.
+`/claim/<scope>` therefore refuses unless the browser's `Sec-Fetch-Site`
+reads `same-origin` (the site's own page) or `none` (no in-browser
+initiator at all), `Sec-Fetch-Mode` reads `navigate`, and no
+`Sec-Purpose` is present - sealing nothing on refusal. `Referer` could
+not carry this check: the *initiating* document picks its own referrer
+policy, so an attacker page can suppress the header on the navigation
+it forces and look exactly like an address-bar one. Fetch metadata is
+set by the browser from the initiator it computed, and no page can
+influence it. The mode and purpose conditions rule out same-origin
+requests that are not navigations the user performed: the website
+prefetches its own links wholesale (`prefetchAll`), so a future
+dashboard claim link would otherwise seal claim state on hover, and a
+prerender is a navigation that may never happen. An absent header
+refuses too, because a client that sends no metadata proves nothing
+about who initiated the request. What stays open is `none`, which
+covers every navigation handed to the browser from outside it - a
+mailed link, or an external protocol handler an attacker page invokes -
+accepted while typing the URL is the only way to reach the route, since
+no dashboard entry point exists yet. The hardening for open sign-up is
+to initiate claims from a session-authenticated, CSRF-checked POST, at
+which point `same-origin` becomes the only accepted value. Even then the blast
+radius is bounded: a claim only ever binds a scope to the account that
+genuinely controls the same-named GitHub account, with that account's
+user as owner, so a forced claim can at worst spend one of the
+victim's lifetime slots on a name the victim owns.
 
 Scope-proof automation is GitHub-only **by policy**, even though the
 schema (`proof_provider`, `identities.provider`) is provider-neutral.
@@ -1215,7 +1235,8 @@ Domain logic - token hashing, formatting, and scopes (`src/auth.rs`),
 hostname roles, route matching, and path-component validation
 (`src/routes.rs`), document composition (`src/documents.rs`), the error
 envelope and the challenge header (`src/error.rs`), cookie signing, the
-cookie shape, and the CSRF header rule (`src/session.rs`), the session
+cookie shape, and the CSRF header and fetch-metadata rules
+(`src/session.rs`), the session
 API's JSON shapes and body validation (`src/user_api.rs`), the source
 viewer's ranged-read policy (`src/source.rs`), the public
 stats totals' JSON shape (`src/stats.rs`), the
