@@ -478,12 +478,51 @@ impl HttpIndexConfig {
     }
 }
 
+/// Validate a registry-declared subdirectory (`packages` / `artifacts`).
+///
+/// `relative_subdir_is_safe` is a *filesystem* predicate, and this value
+/// becomes a URL: `Path::new("https://evil.example/pkgs")` is all-`Normal`
+/// components, but `Url::join` resolves it as an absolute reference and
+/// replaces scheme and host - which would defeat the origin pinning that
+/// disabling redirects and `resolve_source_url`'s same-origin rule exist to
+/// enforce.  So the second gate is on the URL the join actually produces.
+///
+/// `%`, `\`, `?`, and `#` are rejected outright because the two gates
+/// disagree about all four: `Path` treats them as ordinary characters (`\`
+/// off Windows), while the URL parser reads `%2f` / `%2e%2e` as
+/// separator-bearing escapes, `\` as a separator, and `?` / `#` as the
+/// starts of a query and a fragment.  A registry subdirectory has no use
+/// for any of them, and rejecting them keeps the check meaning the same
+/// thing on every host - `..\..\evil` is otherwise a filesystem traversal
+/// on Windows and an opaque name everywhere else, and `pkgs?x=1` ends the
+/// path *before* the subdirectory, so every later join silently drops it
+/// while still passing the same-origin and path-prefix tests below.
+///
+/// What the gates then guarantee is: same origin as the index URL, no
+/// userinfo, and a path at or below the index URL's path.
 fn validate_subdir(base: &url::Url, field: &str, value: &str) -> Result<(), IndexHttpError> {
-    if !relative_subdir_is_safe(value) {
-        return Err(IndexHttpError::InvalidConfig {
-            base_url: base.to_string(),
-            message: format!("{field} must be a relative subdirectory, not {value:?}"),
-        });
+    let invalid = |message: String| IndexHttpError::InvalidConfig {
+        base_url: base.to_string(),
+        message,
+    };
+    if !relative_subdir_is_safe(value) || value.contains(['%', '\\', '?', '#']) {
+        return Err(invalid(format!(
+            "{field} must be a relative subdirectory, not {:?}",
+            redact_raw_url_userinfo(value)
+        )));
+    }
+    let joined = base
+        .join(&format!("{value}/"))
+        .map_err(|err| invalid(format!("{field} produces an invalid URL: {err}")))?;
+    if !same_origin(base, &joined)
+        || !joined.username().is_empty()
+        || joined.password().is_some()
+        || !joined.path().starts_with(base.path())
+    {
+        return Err(invalid(format!(
+            "{field} must resolve under the index URL, not {:?}",
+            redact_raw_url_userinfo(value)
+        )));
     }
     Ok(())
 }
@@ -655,6 +694,100 @@ mod tests {
         let base = url::Url::parse("http://localhost/").unwrap();
         let err = validate_subdir(&base, "packages", "../escape").unwrap_err();
         assert!(matches!(err, IndexHttpError::InvalidConfig { .. }));
+    }
+
+    #[test]
+    fn validate_subdir_rejects_values_that_leave_the_index_url() {
+        let base = url::Url::parse("https://registry.example.com/registry/").unwrap();
+        // Absolute references: `Url::join` replaces scheme and host, so
+        // these move every metadata fetch off the configured origin.
+        for value in [
+            "https://evil.example/pkgs",
+            "http:evil.example",
+            "https://user:pw@registry.example.com/registry/pkgs",
+        ] {
+            assert!(
+                matches!(
+                    validate_subdir(&base, "packages", value),
+                    Err(IndexHttpError::InvalidConfig { .. })
+                ),
+                "accepted {value:?}"
+            );
+        }
+        // Both fields route through the one guard.
+        assert!(matches!(
+            validate_subdir(&base, "artifacts", "https://evil.example/a"),
+            Err(IndexHttpError::InvalidConfig { .. })
+        ));
+        // Credentials never reach the error text, from either gate: the
+        // scheme-relative form is rejected by the first one.
+        for value in [
+            "https://user:pw@registry.example.com/x",
+            "//user:pw@evil.example/x",
+        ] {
+            let err = validate_subdir(&base, "packages", value)
+                .unwrap_err()
+                .to_string();
+            assert!(!err.contains("user:pw"), "leaked credentials: {err}");
+        }
+
+        for value in ["packages", "a/b", "./packages"] {
+            assert!(
+                validate_subdir(&base, "packages", value).is_ok(),
+                "rejected {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_subdir_rejects_escapes_the_url_parser_reads_and_path_does_not() {
+        // These must be rejected identically on every host, and at a root
+        // index path as well as a nested one - `starts_with` alone cannot
+        // do it, since `%2f` stays encoded in `joined.path()` and so keeps
+        // matching the prefix while a %2F-decoding server climbs above it.
+        for base in [
+            "https://registry.example.com/",
+            "https://cdn.example.com/tenant-a/",
+        ] {
+            let base = url::Url::parse(base).unwrap();
+            for value in [
+                "%2e%2e/evil",
+                r"..\..\evil",
+                "..%2f..%2ftenant-b%2fpackages",
+                // Not an escape but the same disagreement: `Path` sees one
+                // ordinary component, the URL parser ends the path before
+                // it - so the joined base keeps the index origin and path
+                // prefix while every `<name>.json` join below it silently
+                // loses the subdirectory.
+                "packages?x=1",
+                "packages#x",
+            ] {
+                assert!(
+                    matches!(
+                        validate_subdir(&base, "packages", value),
+                        Err(IndexHttpError::InvalidConfig { .. })
+                    ),
+                    "accepted {value:?} against {base}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn validate_subdir_allows_a_same_host_absolute_url_only_under_the_index_path() {
+        let base = url::Url::parse("https://registry.example.com/registry/").unwrap();
+        assert!(
+            validate_subdir(
+                &base,
+                "packages",
+                "https://registry.example.com/registry/pkgs"
+            )
+            .is_ok()
+        );
+        assert!(matches!(
+            validate_subdir(&base, "packages", "https://registry.example.com/pkgs"),
+            Err(IndexHttpError::InvalidConfig { .. })
+        ));
     }
 
     // -----------------------------------------------------------------
