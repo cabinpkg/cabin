@@ -228,3 +228,50 @@ version = "0.1.0"
         "expected manifest unreadable code, got: {stderr}"
     );
 }
+
+/// A local package index is third-party data down to its JSON keys, and
+/// the parse error quotes the rejected key back.
+#[test]
+fn index_parse_errors_cannot_smuggle_terminal_escapes() {
+    let dir = TempDir::new().unwrap();
+    let index = dir.path().join("index");
+    // Valid JSON whose sole key is unknown, so `deny_unknown_fields`
+    // quotes the key back; `\u001b` decodes to ESC, and `ESC [ 2 K`
+    // erases the line the terminal is on.
+    assert_fs::fixture::ChildPath::new(index.join("dep.json"))
+        .write_str(r#"{"\u001b[2Khidden":1}"#)
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+dep = ">=1.0.0"
+
+[target.app]
+type = "executable"
+sources = ["src/main.cc"]
+cxx-standard = "c++17"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.path().join("app/src/main.cc"))
+        .write_str("int main() { return 0; }\n")
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["resolve", "--color", "never", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-path")
+        .arg(&index)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\u{1b}").not());
+    assert!(
+        stderr_with_wrapping_joined(&assertion).contains(r"\u{1b}[2Khidden"),
+        "expected the escaped key in stderr: {}",
+        String::from_utf8_lossy(&assertion.get_output().stderr)
+    );
+}

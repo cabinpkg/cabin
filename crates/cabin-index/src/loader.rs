@@ -171,11 +171,10 @@ fn load_registry_config(root: &Path) -> Result<PathBuf, IndexError> {
         path: config_path.clone(),
         source,
     })?;
-    let raw: RawRegistryConfig =
-        serde_json::from_str(&body).map_err(|source| IndexError::Json {
-            path: config_path.clone(),
-            source,
-        })?;
+    let raw: RawRegistryConfig = serde_json::from_str(&body).map_err(|error| IndexError::Json {
+        path: config_path.clone(),
+        error,
+    })?;
     if raw.schema != REGISTRY_CONFIG_SCHEMA {
         return Err(IndexError::InvalidRegistryConfig {
             path: config_path,
@@ -278,9 +277,9 @@ pub fn parse_package_entry(
     context: &SourceContext<'_>,
     error_path: Option<&Path>,
 ) -> Result<IndexEntry, IndexError> {
-    let raw: RawIndexFile = serde_json::from_str(body).map_err(|source| IndexError::Json {
+    let raw: RawIndexFile = serde_json::from_str(body).map_err(|error| IndexError::Json {
         path: error_path.map(Path::to_path_buf).unwrap_or_default(),
-        source,
+        error,
     })?;
 
     if raw.schema != 1 {
@@ -2327,12 +2326,12 @@ mod tests {
             .unwrap();
         let err = load_index(dir.path()).unwrap_err();
         match err {
-            IndexError::Json { source, .. } => {
+            IndexError::Json { error, .. } => {
                 assert!(
-                    source
+                    error
                         .to_string()
                         .contains("empty C++ interface requirement"),
-                    "unexpected error: {source}"
+                    "unexpected error: {error}"
                 );
             }
             other => panic!("expected Json error, got {other:?}"),

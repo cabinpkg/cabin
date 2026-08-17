@@ -1,3 +1,4 @@
+use cabin_core::escape_control_chars;
 use thiserror::Error;
 
 /// Append the registry's `Retry-After` seconds to the over-budget
@@ -54,13 +55,20 @@ pub enum IndexHttpError {
     ))]
     ReadRateLimited { retry_after_secs: Option<u64> },
 
-    #[error("HTTP transport error fetching `{name}`: {message}")]
+    // The `message` of the three variants below can quote bytes the
+    // queried registry chose, so each escapes it - see
+    // [`escape_control_chars`].  `Transport` usually carries a local
+    // failure instead; escaping it costs nothing either way.
+    #[error("HTTP transport error fetching `{name}`: {detail}", detail = escape_control_chars(message))]
     Transport { name: String, message: String },
 
-    #[error("invalid package metadata from HTTP index for `{name}`: {message}")]
+    #[error(
+        "invalid package metadata from HTTP index for `{name}`: {detail}",
+        detail = escape_control_chars(message),
+    )]
     InvalidMetadata { name: String, message: String },
 
-    #[error("invalid file registry at `{base_url}`: {message}")]
+    #[error("invalid file registry at `{base_url}`: {detail}", detail = escape_control_chars(message))]
     InvalidConfig { base_url: String, message: String },
 
     #[error(transparent)]

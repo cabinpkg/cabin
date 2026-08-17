@@ -102,9 +102,9 @@ impl FileRegistry {
             source,
         })?;
         let config: RegistryConfig =
-            serde_json::from_str(&body).map_err(|source| RegistryError::ConfigJson {
+            serde_json::from_str(&body).map_err(|error| RegistryError::ConfigJson {
                 path: config_path.clone(),
-                source,
+                error,
             })?;
         config.validate(&config_path)?;
         Ok(Self {
@@ -385,6 +385,24 @@ mod tests {
             .unwrap();
         let err = FileRegistry::open(dir.path()).unwrap_err();
         assert!(matches!(err, RegistryError::ConfigJson { .. }));
+    }
+
+    /// serde quotes the unknown field back, so a registry directory can put
+    /// arbitrary bytes into the message this error renders.
+    #[test]
+    fn config_parse_errors_cannot_smuggle_terminal_escapes() {
+        let dir = TempDir::new().unwrap();
+        dir.child(REGISTRY_CONFIG_FILENAME)
+            .write_str(
+                r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","\u001b[2Khidden":"nope"}"#,
+            )
+            .unwrap();
+        let rendered = FileRegistry::open(dir.path()).unwrap_err().to_string();
+        assert!(
+            rendered.contains(r"\u{1b}[2Khidden"),
+            "not escaped: {rendered}"
+        );
+        assert!(!rendered.contains('\u{1b}'), "not escaped: {rendered}");
     }
 
     #[test]
