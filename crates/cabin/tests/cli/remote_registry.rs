@@ -880,9 +880,10 @@ fn auth_required_for(origin: &str) -> String {
     format!("authentication required by registry `{origin}`")
 }
 
-/// Stage an `auth-required` registry holding `acme/demo` 0.1.0 plus
-/// an `app` package that depends on it, and return the app root.
-/// Shared by the two `CABIN_REGISTRY_TOKEN` provenance tests below.
+/// Stage an `auth-required` registry holding `acme/demo` 0.1.0 plus an
+/// `app` package under `dir` that depends on it, and return the
+/// registry directory for [`AuthRegistryServer::serve`].  Shared by the
+/// `CABIN_REGISTRY_TOKEN` provenance tests below.
 fn stage_auth_required_registry(dir: &Path) -> PathBuf {
     let pkg_root = dir.join("pkg");
     write_scoped_publishable_package(&pkg_root);
