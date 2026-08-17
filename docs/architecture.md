@@ -672,9 +672,6 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 - never touch the live registry service and never perform the mutation it gates - it reads
   committed repository state (git history, `registry/migrations/*.sql`) and the run's own
   context, and only decides whether the mutation may proceed;
-- keep each guard's `--path` list identical to the `paths:` filter of the workflow that runs it,
-  which `tests/path_parity.rs` pins across all three copies: the lists were hand-maintained
-  duplicates before the port and had already drifted apart;
 - state each guard's failure direction in its module documentation - the freshness guard's
   `rev-list`, when it errors, answers "not superseded" and leaves the step green, and anything
   that quietly widens or narrows that has to be a deliberate, documented change.

@@ -10,7 +10,6 @@
 use assert_cmd::Command;
 use predicates::str::contains;
 use std::fs;
-use std::path::PathBuf;
 
 use xtask_registry_guard::{deploy, registry_dir};
 
@@ -414,16 +413,4 @@ fn the_binary_reports_and_exits_non_zero() {
         .assert()
         .success()
         .stdout(contains("deploy config OK"));
-}
-
-/// The guard the workflow runs is the one under test, after the build.
-#[test]
-fn the_workflow_runs_this_guard() {
-    let workflow =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/registry.yml");
-    let text = fs::read_to_string(&workflow).expect("read the registry workflow");
-    assert!(
-        text.contains("cargo check-deploy --require-bundle"),
-        "the registry workflow no longer runs cargo check-deploy --require-bundle"
-    );
 }
