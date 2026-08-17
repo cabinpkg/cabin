@@ -10,61 +10,10 @@ name: Ports Publish
 # and this workflow live in cabinpkg/cabin - the cabin-ports GitHub
 # organization is the registry scope authority, not a separate source
 # repository.
-#
-# The publish-pipeline crate paths mirror registry.yml's filter: they
-# shape the archive + canonical-metadata bytes the published packages
-# carry, and divergent bytes for an already-published version land as
-# a new packaging revision - a change there must run the ports
-# preflight (and republish) too, or it surfaces weeks later as a
-# blocked publish on an unrelated ports PR.
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/ports-publish.yml"
-      # The publish steps run the `cargo port-publish` alias.
-      - ".cargo/config.toml"
-      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
-      # lock-only bumps of byte-producing dependencies (zip, flate2)
-      # or workspace-manifest feature flips (which need no lockfile
-      # change) change the archive bytes the registry holds immutable.
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "ports/**"
-      - "crates/cabin-artifact/**"
-      - "crates/xtask-port-publish/**"
-      # The freshness guard the publish job runs, which decides whether
-      # this run is still the newest one: without this an edit to the
-      # guard would not reach the job it gates.
-      - "crates/xtask-workflow-guard/**"
-      - "crates/cabin-core/**"
-      - "crates/cabin-manifest/**"
-      - "crates/cabin-package/**"
-      - "crates/cabin-publish/**"
-      - "crates/cabin-registry-api/**"
   pull_request:
-    paths:
-      - ".github/workflows/ports-publish.yml"
-      # The publish steps run the `cargo port-publish` alias.
-      - ".cargo/config.toml"
-      # Cargo.lock / root Cargo.toml: the tool builds --locked, and
-      # lock-only bumps of byte-producing dependencies (zip, flate2)
-      # or workspace-manifest feature flips (which need no lockfile
-      # change) change the archive bytes the registry holds immutable.
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "ports/**"
-      - "crates/cabin-artifact/**"
-      - "crates/xtask-port-publish/**"
-      # The freshness guard the publish job runs, which decides whether
-      # this run is still the newest one: without this an edit to the
-      # guard would not reach the job it gates.
-      - "crates/xtask-workflow-guard/**"
-      - "crates/cabin-core/**"
-      - "crates/cabin-manifest/**"
-      - "crates/cabin-package/**"
-      - "crates/cabin-publish/**"
-      - "crates/cabin-registry-api/**"
   workflow_dispatch:
 
 permissions:
@@ -170,9 +119,8 @@ jobs:
       # build: the concurrency group serializes runs but does not
       # order them, and an out-of-order stale run would publish an
       # intermediate state of a version as an otherwise-unnecessary
-      # packaging revision. Skip instead when
-      # main already carries a newer commit matching this workflow's
-      # trigger paths - that commit's own run publishes the full set.
+      # packaging revision. Skip instead when main already carries a
+      # newer commit - that commit's own run publishes the full set.
       #
       # Accepted residual window: the publish command below runs the
       # tool's own preflight (minutes) before uploading, so a newer
@@ -183,26 +131,9 @@ jobs:
       # edits of one published version inside a single run's window,
       # and the recovery is the newer commit's own run: its upload
       # supersedes the stale revision (docs/foundation-ports.md).
-      # The path list below must stay the trigger paths above:
-      # crates/xtask-workflow-guard/tests/path_parity.rs fails when the
-      # three lists disagree.
-      - name: Skip when superseded by a newer ports commit
+      - name: Skip when superseded by a newer main commit
         id: freshness
-        run: |
-          cargo workflow-superseded \
-            --path .github/workflows/ports-publish.yml \
-            --path .cargo/config.toml \
-            --path Cargo.lock \
-            --path Cargo.toml \
-            --path ports/ \
-            --path crates/cabin-artifact/ \
-            --path crates/xtask-port-publish/ \
-            --path crates/xtask-workflow-guard/ \
-            --path crates/cabin-core/ \
-            --path crates/cabin-manifest/ \
-            --path crates/cabin-package/ \
-            --path crates/cabin-publish/ \
-            --path crates/cabin-registry-api/
+        run: cargo workflow-superseded
 
       # A commit can change both the publish client and the Worker's
       # accepted metadata schema (registry/src mirrors the canonical

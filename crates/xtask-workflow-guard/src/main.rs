@@ -17,14 +17,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Record `superseded=true` in `$GITHUB_OUTPUT` when origin/main
-    /// carries a commit after `$GITHUB_SHA` touching any given path
+    /// carries a commit after `$GITHUB_SHA`
     /// (`cargo workflow-superseded`).
-    Superseded {
-        // The library refuses an empty pathspec list itself, for typed
-        // callers; `required` has clap answer for the command line.
-        #[arg(long = "path", required = true)]
-        paths: Vec<String>,
-    },
+    Superseded,
     /// Record `pending=true` in `$GITHUB_OUTPUT` when the committed D1
     /// migrations no longer match the stamp in
     /// registry/migrations-applied (`cargo workflow-migrations-pending`).
@@ -49,9 +44,7 @@ fn main() -> ExitCode {
 /// carries an exit status of its own, which is the step's answer.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
-        Command::Superseded { paths } => {
-            xtask_workflow_guard::superseded::run(paths).map(|()| ExitCode::SUCCESS)
-        }
+        Command::Superseded => xtask_workflow_guard::superseded::run().map(|()| ExitCode::SUCCESS),
         Command::MigrationsPending => {
             xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
         }

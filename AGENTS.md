@@ -70,9 +70,14 @@ tooling is left in this repository. Do not reintroduce any.
   `registry/src/`), website source and its npm scripts, the `Dockerfile`,
   `demo.tape`, and devcontainer provisioning are not repository automation
   and are unaffected.
-- A workflow that runs an alias needs `.cargo/config.toml` and the tool's
-  crate directory in its trigger paths, or an edit there silently stops
-  reaching the job it feeds.
+- Workflows trigger on `push` to `main` and on `pull_request`, with no
+  `paths:` filter. A filter is a second copy of the job's dependency list
+  that nothing keeps honest: `registry.yml` carried it three times and grew
+  a YAML-scraping test to police the copies, which then broke on an
+  unrelated workflow rename. Saved CI minutes do not pay for that.
+- No test may read a file under `.github/` or depend on a workflow living at
+  a particular path. Moving or renaming a workflow must never be able to
+  fail the test suite.
 
 ## Engineering Principles
 
