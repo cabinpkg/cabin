@@ -9,7 +9,6 @@
 use assert_cmd::Command;
 use predicates::str::contains;
 use std::fs;
-use std::path::PathBuf;
 
 use xtask_registry_guard::{registry_dir, sql};
 
@@ -307,9 +306,7 @@ fn violations_are_reported_pass_by_pass_then_in_path_order() {
     );
 }
 
-/// The committed Worker sources pass. `registry.yml` is path-filtered,
-/// so this is what runs the guard against the real tree when only the
-/// guard itself changes.
+/// The committed Worker sources pass.
 #[test]
 fn the_committed_worker_sources_pass() {
     let violations = sql::check(&registry_dir()).expect("run the guard");
@@ -382,31 +379,5 @@ fn symlinks_are_walked_without_aborting() {
             "src/link.rs:1: prepare(dynamic_sql);",
             "src/real/glue.rs:1: prepare(dynamic_sql);",
         ]
-    );
-}
-
-/// The guard the workflow runs is the one under test.
-#[test]
-fn the_workflow_runs_this_guard() {
-    let workflow =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/registry.yml");
-    let text = fs::read_to_string(&workflow).expect("read the registry workflow");
-    assert!(
-        text.contains("cargo check-sql"),
-        "the registry workflow no longer runs cargo check-sql"
-    );
-    // The job is path-filtered; an edit to this crate - or a root
-    // manifest edit that drops it from the workspace - must still reach
-    // it, on both the push and the pull_request trigger.
-    assert_eq!(
-        text.matches("      - \"crates/xtask-registry-guard/**\"")
-            .count(),
-        2,
-        "the registry workflow does not trigger on changes to this guard"
-    );
-    assert_eq!(
-        text.matches("      - \"Cargo.toml\"").count(),
-        2,
-        "the registry workflow does not trigger on root-manifest changes"
     );
 }

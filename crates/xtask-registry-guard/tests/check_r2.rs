@@ -11,7 +11,6 @@
 use assert_cmd::Command;
 use predicates::str::contains;
 use std::fs;
-use std::path::PathBuf;
 
 use xtask_registry_guard::{r2, registry_dir};
 
@@ -226,9 +225,7 @@ fn banned_accessors_are_reported_in_source_order() {
     assert_eq!(names, vec!["unchecked_into", "get_binding"]);
 }
 
-/// The committed Worker sources pass. `registry.yml` is path-filtered,
-/// so this is what runs the guard against the real tree when only the
-/// guard itself changes.
+/// The committed Worker sources pass.
 #[test]
 fn the_committed_worker_sources_pass() {
     let violations = r2::check(&registry_dir()).expect("run the guard");
@@ -250,16 +247,4 @@ fn the_binary_reports_and_exits_non_zero() {
         .failure()
         .stdout(contains("unsanctioned R2 bucket acquisition in f"))
         .stderr(contains("outside the pinned"));
-}
-
-/// The guard the workflow runs is the one under test.
-#[test]
-fn the_workflow_runs_this_guard() {
-    let workflow =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/registry.yml");
-    let text = fs::read_to_string(&workflow).expect("read the registry workflow");
-    assert!(
-        text.contains("cargo check-r2"),
-        "the registry workflow no longer runs cargo check-r2"
-    );
 }

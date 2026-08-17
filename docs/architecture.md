@@ -653,7 +653,7 @@ Repository-owned maintainer tool (`publish = false`, not part of the shipped `ca
 holding the guards that keep an out-of-order or premature workflow run from mutating a shared
 resource, decided from repository files, git history and the GitHub Actions run context.  `cargo
 workflow-superseded` is `registry.yml`'s freshness guard: it answers
-whether `origin/main` already carries a commit after `$GITHUB_SHA` touching any `--path`, and
+whether `origin/main` already carries a commit after `$GITHUB_SHA`, and
 records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
 older run from deploying over a newer one.  `cargo workflow-migrations-pending` is the same for
 `registry.yml`'s migrations gate: it recomputes the stamp over `registry/migrations/*.sql` and
@@ -672,9 +672,6 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 - never touch the live registry service and never perform the mutation it gates - it reads
   committed repository state (git history, `registry/migrations/*.sql`) and the run's own
   context, and only decides whether the mutation may proceed;
-- keep each guard's `--path` list identical to the `paths:` filter of the workflow that runs it,
-  which `tests/path_parity.rs` pins across all three copies: the lists were hand-maintained
-  duplicates before the port and had already drifted apart;
 - state each guard's failure direction in its module documentation - the freshness guard's
   `rev-list`, when it errors, answers "not superseded" and leaves the step green, and anything
   that quietly widens or narrows that has to be a deliberate, documented change.

@@ -3,11 +3,7 @@ name: Audit GitHub Actions workflows
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/**"
   pull_request:
-    paths:
-      - ".github/**"
   workflow_dispatch:
 
 # Deny-all by default; the job below requests only what it needs.

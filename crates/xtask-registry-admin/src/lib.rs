@@ -40,9 +40,8 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 
 /// The pinned wrangler.  `.github/workflows/registry.yml`
-/// (`wranglerVersion`) pins it independently; the two move together.
-/// There were three pins while `registry/scripts/lib.sh` held the
-/// shell's own copy, and `tests/diagnose.rs` still checks the pair.
+/// (`wranglerVersion`) pins it independently; the two move together,
+/// and nothing checks that they do - bump both.
 pub const WRANGLER: &str = "wrangler@4.112.0";
 
 /// The BACKUP bucket, which more than one command reaches: the

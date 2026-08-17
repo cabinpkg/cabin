@@ -72,10 +72,10 @@ fn guard(dir: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output
     command.output().expect("the guard is runnable")
 }
 
-/// `superseded` answers exclusively through `$GITHUB_OUTPUT`: a later
-/// origin/main commit on a watched path appends `superseded=true`, a
-/// later commit off the watched paths appends nothing, and an
-/// unreachable origin fails the step without writing.
+/// `superseded` answers exclusively through `$GITHUB_OUTPUT`: any
+/// later origin/main commit appends `superseded=true`, the newest
+/// commit appends nothing, and an unreachable origin fails the step
+/// without writing.
 #[test]
 fn superseded_answers_through_github_output() {
     let scratch = assert_fs::TempDir::new().unwrap();
@@ -97,13 +97,13 @@ fn superseded_answers_through_github_output() {
         git(&work, &["rev-parse", "HEAD"])
     };
     let first = commit("registry/src/lib.rs", "first");
-    let second = commit("registry/src/lib.rs", "second touches the watched path");
-    commit("website/page.astro", "third does not");
+    commit("registry/src/lib.rs", "second");
+    let newest = commit("website/page.astro", "third");
 
-    let output = scratch.path().join("watched");
+    let output = scratch.path().join("overtaken");
     let run = guard(
         &work,
-        &["superseded", "--path", "registry/"],
+        &["superseded"],
         &[
             ("GITHUB_SHA", &first),
             ("GITHUB_OUTPUT", &output.to_string_lossy()),
@@ -112,17 +112,17 @@ fn superseded_answers_through_github_output() {
     assert!(run.status.success(), "{run:?}");
     assert_eq!(fs::read_to_string(&output).unwrap(), "superseded=true\n");
 
-    let quiet = scratch.path().join("unwatched");
+    let quiet = scratch.path().join("newest");
     let run = guard(
         &work,
-        &["superseded", "--path", "registry/"],
+        &["superseded"],
         &[
-            ("GITHUB_SHA", &second),
+            ("GITHUB_SHA", &newest),
             ("GITHUB_OUTPUT", &quiet.to_string_lossy()),
         ],
     );
     assert!(run.status.success(), "{run:?}");
-    assert!(!quiet.exists(), "nothing after `second` touched registry/");
+    assert!(!quiet.exists(), "nothing follows the newest commit");
 
     git(
         &work,
@@ -131,7 +131,7 @@ fn superseded_answers_through_github_output() {
     let unwritten = scratch.path().join("unreachable");
     let run = guard(
         &work,
-        &["superseded", "--path", "registry/"],
+        &["superseded"],
         &[
             ("GITHUB_SHA", &first),
             ("GITHUB_OUTPUT", &unwritten.to_string_lossy()),

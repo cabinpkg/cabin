@@ -1,14 +1,17 @@
-//! The deploy freshness guard, ported one-to-one from the `run:` body of
-//! the "Skip when superseded by a newer registry commit" step of
+//! The deploy freshness guard, ported from the `run:` body of the
+//! "Skip when superseded by a newer main commit" step of
 //! `.github/workflows/registry.yml`.
 //!
 //! ```text
 //! L1  git fetch --quiet origin main
-//! L2  if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main" -- \
-//! L3..L8    <paths>)" ]; then
+//! L2  if [ -n "$(git rev-list -n 1 "$GITHUB_SHA..origin/main")" ]; then
 //! L9    echo "superseded=true" >> "$GITHUB_OUTPUT"
 //! L10 fi
 //! ```
+//!
+//! The step listed a pathspec once, duplicating `registry.yml`'s two
+//! trigger filters. The filters are gone - the workflow runs on every
+//! main push - so any newer commit supersedes this run.
 //!
 //! Inherited properties, preserved rather than fixed - a port is not a
 //! place to change behavior. Each was pinned by running the original
@@ -40,26 +43,18 @@ use anyhow::{Context as _, Result, bail};
 /// L9's line, byte for byte.
 const OUTPUT_LINE: &str = "superseded=true\n";
 
-/// Answer whether `origin/main` carries a commit after `$GITHUB_SHA`
-/// touching any of `paths`, recording `superseded=true` in
-/// `$GITHUB_OUTPUT` when it does.
+/// Answer whether `origin/main` carries a commit after `$GITHUB_SHA`,
+/// recording `superseded=true` in `$GITHUB_OUTPUT` when it does.
 ///
 /// # Errors
 ///
-/// When `git fetch` fails (L1), when `$GITHUB_OUTPUT` is unusable in the
-/// positive case (L9), or when no path was given.
-pub fn run(paths: &[String]) -> Result<()> {
-    // Not the original's concern - the list was a literal there. An
-    // empty pathspec makes `rev-list` match every commit, i.e. a guard
-    // that always answers "superseded" and silently stops every deploy.
-    if paths.is_empty() {
-        bail!("no --path given; an empty pathspec would match every commit");
-    }
-
+/// When `git fetch` fails (L1), or when `$GITHUB_OUTPUT` is unusable in
+/// the positive case (L9).
+pub fn run() -> Result<()> {
     fetch_origin_main()?;
 
     let sha = std::env::var("GITHUB_SHA").unwrap_or_default();
-    if newer_commit(&range(&sha), paths)?.is_empty() {
+    if newer_commit(&range(&sha))?.is_empty() {
         return Ok(());
     }
     record_superseded()
@@ -86,10 +81,9 @@ fn fetch_origin_main() -> Result<()> {
 /// L2. A non-zero `rev-list` yields the empty capture the shell's
 /// condition context yielded, not an error. Only a failure to *spawn*
 /// git surfaces - unreachable in practice, since L1 just ran it.
-fn newer_commit(range: &str, paths: &[String]) -> Result<Vec<u8>> {
+fn newer_commit(range: &str) -> Result<Vec<u8>> {
     let output = Command::new("git")
-        .args(["rev-list", "-n", "1", range, "--"])
-        .args(paths)
+        .args(["rev-list", "-n", "1", range])
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -119,11 +113,5 @@ mod tests {
     #[test]
     fn the_recorded_line_matches_the_shells_echo() {
         assert_eq!(OUTPUT_LINE.as_bytes(), b"superseded=true\n");
-    }
-
-    #[test]
-    fn an_empty_path_list_is_refused_before_any_git_call() {
-        let error = run(&[]).unwrap_err().to_string();
-        assert!(error.contains("no --path given"), "{error}");
     }
 }

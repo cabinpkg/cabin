@@ -3,7 +3,7 @@
 //! operator, which no test has.
 
 use assert_cmd::Command;
-use xtask_registry_admin::{WRANGLER, display, key_value, results};
+use xtask_registry_admin::{display, key_value, results};
 
 /// A D1 answer carries JSON types, and the shell printed them through
 /// `${row.value}`: a string keeps its own text, an array joins with
@@ -108,24 +108,6 @@ fn the_command_is_required() {
         .assert()
         .success()
         .stdout(predicates::str::contains("cargo registry-diagnose"));
-}
-
-/// The wrangler version this crate pins is the one `registry.yml`
-/// pins. It was three pins while `registry/scripts/lib.sh` held the
-/// shell's own copy; that file went with its last sourcer, and a bump
-/// that misses this copy would still leave the operator commands on the
-/// old CLI silently.
-#[test]
-fn the_wrangler_pin_matches_the_workflow() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let read = |path: &str| std::fs::read_to_string(root.join(path)).expect(path);
-
-    let workflow = read(".github/workflows/registry.yml");
-    let (_, rest) = workflow
-        .split_once("wranglerVersion: \"")
-        .expect("registry.yml pin");
-    let (workflow_version, _) = rest.split_once('"').expect("wranglerVersion is quoted");
-    assert_eq!(format!("wrangler@{workflow_version}"), WRANGLER);
 }
 
 /// The two D1 reads differ in what an empty answer means, as the

@@ -1,27 +1,15 @@
 name: Proofs
 
 # Checks the Lean mechanization of docs/design/standard-compatibility/spec.md.
-# The Lake project is standalone (not part of the Cargo workspace), so this
-# runs only when the proofs, the spec they mechanize, or the coverage check
-# itself change.  A spec-only change cannot break `lake build` (the Lean
-# sources never read the spec), so the coverage step below is what makes the
-# spec trigger meaningful: it fails when a numbered lemma/theorem/corollary
-# in the spec has no same-named Lean declaration.
+# A spec-only change cannot break `lake build` (the Lean sources never read
+# the spec), so the coverage step is what makes the spec matter here: it
+# fails when a numbered lemma/theorem/corollary in the spec has no
+# same-named Lean declaration.
 
 on:
   push:
     branches: [main]
-    paths:
-      - "docs/proofs/**"
-      - "docs/design/standard-compatibility/**"
-      # The coverage check the job runs.
-      - "crates/xtask-ci/**"
   pull_request:
-    paths:
-      - "docs/proofs/**"
-      - "docs/design/standard-compatibility/**"
-      # The coverage check the job runs.
-      - "crates/xtask-ci/**"
 
 permissions:
   contents: read

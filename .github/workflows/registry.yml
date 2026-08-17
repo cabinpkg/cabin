@@ -1,76 +1,9 @@
 name: Registry
 
-# The publish-pipeline crate paths trigger the conformance job below:
-# they shape the archive + canonical-metadata bytes `cabin package`
-# emits, which the registry's publish validation must keep accepting.
 on:
   push:
     branches: [ main ]
-    paths:
-      - ".github/workflows/registry.yml"
-      # On the config search path of the registry workspace too.
-      - ".cargo/config.toml"
-      - "registry/**"
-      # The guard the build job runs, plus the root manifest that
-      # keeps it a workspace member: dropping it there would remove the
-      # guard and its tests from `cargo test --workspace` at the same
-      # time, and nothing else here would notice. Cargo.lock is
-      # deliberately not listed - it moves on every dependency bump and
-      # cannot remove a member on its own.
-      - "crates/xtask-registry-guard/**"
-      # The fixture generator the conformance job runs.
-      - "crates/xtask-registry-fixtures/**"
-      # The operator commands this workspace's docs_drift pins: they
-      # moved out of registry/scripts/, so without this an edit to one
-      # would skip the test that keeps its alias and the runbook step
-      # naming it in agreement.
-      - "crates/xtask-registry-admin/**"
-      # The smoke run this workspace's docs_drift pins: it moved out of
-      # registry/scripts/, so without this an edit to it would skip the
-      # test that keeps its alias and its governor legs documented.
-      - "crates/xtask-registry-smoke/**"
-      # The freshness guard the deploy job runs, which decides whether
-      # this run is still the newest one: without this an edit to the
-      # guard would not reach the job it gates.
-      - "crates/xtask-workflow-guard/**"
-      - "Cargo.toml"
-      - "crates/cabin-package/**"
-      - "crates/cabin-publish/**"
-      - "crates/cabin-registry-api/**"
-      - "crates/cabin-core/**"
   pull_request:
-    paths:
-      - ".github/workflows/registry.yml"
-      # On the config search path of the registry workspace too.
-      - ".cargo/config.toml"
-      - "registry/**"
-      # The guard the build job runs, plus the root manifest that
-      # keeps it a workspace member: dropping it there would remove the
-      # guard and its tests from `cargo test --workspace` at the same
-      # time, and nothing else here would notice. Cargo.lock is
-      # deliberately not listed - it moves on every dependency bump and
-      # cannot remove a member on its own.
-      - "crates/xtask-registry-guard/**"
-      # The fixture generator the conformance job runs.
-      - "crates/xtask-registry-fixtures/**"
-      # The operator commands this workspace's docs_drift pins: they
-      # moved out of registry/scripts/, so without this an edit to one
-      # would skip the test that keeps its alias and the runbook step
-      # naming it in agreement.
-      - "crates/xtask-registry-admin/**"
-      # The smoke run this workspace's docs_drift pins: it moved out of
-      # registry/scripts/, so without this an edit to it would skip the
-      # test that keeps its alias and its governor legs documented.
-      - "crates/xtask-registry-smoke/**"
-      # The freshness guard the deploy job runs, which decides whether
-      # this run is still the newest one: without this an edit to the
-      # guard would not reach the job it gates.
-      - "crates/xtask-workflow-guard/**"
-      - "Cargo.toml"
-      - "crates/cabin-package/**"
-      - "crates/cabin-publish/**"
-      - "crates/cabin-registry-api/**"
-      - "crates/cabin-core/**"
 
 permissions:
   contents: read
@@ -211,28 +144,11 @@ jobs:
       # The concurrency group serializes deploys but does not order
       # them: an older run whose gate finished late would deploy after
       # a newer one. Skip instead when main already carries a newer
-      # commit matching this workflow's trigger paths (that commit's
-      # own run deploys, or its gate is red and nothing should).
-      # The path list below must stay the trigger paths above:
-      # crates/xtask-workflow-guard/tests/path_parity.rs fails when the
-      # three lists disagree.
-      - name: Skip when superseded by a newer registry commit
+      # commit - that commit's own run deploys, or its gate is red and
+      # nothing should.
+      - name: Skip when superseded by a newer main commit
         id: freshness
-        run: |
-          cargo workflow-superseded \
-            --path .github/workflows/registry.yml \
-            --path .cargo/config.toml \
-            --path registry/ \
-            --path crates/xtask-registry-guard/ \
-            --path crates/xtask-registry-fixtures/ \
-            --path crates/xtask-registry-admin/ \
-            --path crates/xtask-registry-smoke/ \
-            --path crates/xtask-workflow-guard/ \
-            --path Cargo.toml \
-            --path crates/cabin-package/ \
-            --path crates/cabin-publish/ \
-            --path crates/cabin-registry-api/ \
-            --path crates/cabin-core/
+        run: cargo workflow-superseded
 
       # Changed D1 migrations must be applied by hand before the Worker
       # ships (registry/docs/runbook.md): the deploy token cannot apply
