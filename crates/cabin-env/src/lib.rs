@@ -126,12 +126,14 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 
 /// Bearer token override for the remote-registry client.  When set
 /// to a non-empty value it wins over any `credentials.toml` entry
-/// for the origins it applies to: the default hosted registry and
-/// loopback origins.  Other registries always use `credentials.toml`,
-/// because the override carries no origin key of its own, so serving
-/// it to an origin a checked-out project can pick (project config,
-/// `[source-replacement]`) would hand the credential to that
-/// project.  Read by the `cabin-credentials` crate.
+/// for the origins it applies to: the default hosted registry, and a
+/// loopback origin the user themselves chose (`--index-url` or
+/// user-level config).  Every other registry uses `credentials.toml`,
+/// and so does a loopback origin a checked-out project's
+/// `.cabin/config.toml` or a `[source-replacement]` hop picked: the
+/// override carries no origin key of its own, so serving it to a
+/// project-picked origin would hand the credential to that project.
+/// Read by the `cabin-credentials` crate.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
 /// GitHub Actions' own "am I running under Actions" marker, always

@@ -872,6 +872,213 @@ version = "0.1.0"
     );
 }
 
+/// The tokenless-read error for exactly `origin`.  Naming the origin
+/// is what makes the provenance assertions below structural: a run
+/// that silently fell back to some *other* registry cannot satisfy
+/// them by producing the same generic wording.
+fn auth_required_for(origin: &str) -> String {
+    format!("authentication required by registry `{origin}`")
+}
+
+/// Stage an `auth-required` registry holding `acme/demo` 0.1.0 plus an
+/// `app` package under `dir` that depends on it, and return the
+/// registry directory for [`AuthRegistryServer::serve`].  Shared by the
+/// `CABIN_REGISTRY_TOKEN` provenance tests below.
+fn stage_auth_required_registry(dir: &Path) -> PathBuf {
+    let pkg_root = dir.join("pkg");
+    write_scoped_publishable_package(&pkg_root);
+    let registry = dir.join("registry");
+    cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(pkg_root.join("cabin.toml"))
+        .arg("--registry-dir")
+        .arg(&registry)
+        .assert()
+        .success();
+    let config = fs::read_to_string(registry.join("config.json")).unwrap();
+    fs::write(
+        registry.join("config.json"),
+        config.replace("\"kind\"", "\"auth-required\": true, \"kind\""),
+    )
+    .unwrap();
+    assert_fs::fixture::ChildPath::new(dir.join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+"acme/demo" = "0.1.0"
+"#,
+        )
+        .unwrap();
+    registry
+}
+
+/// A loopback index origin the *project* picked never receives the
+/// `CABIN_REGISTRY_TOKEN` override.  The variable carries no origin
+/// key, so releasing it to any loopback origin would let a hostile
+/// checkout - whose `.cabin/config.toml` steers the reads at a
+/// listener it started itself - collect the operator's registry
+/// token, the very disclosure the `env_remove` at every child-spawn
+/// site exists to prevent.  Both index-loading paths are covered:
+/// `cabin resolve` and the fetch / build pipeline.
+#[test]
+fn a_project_config_loopback_index_never_receives_the_env_token() {
+    let dir = TempDir::new().unwrap();
+    let registry = stage_auth_required_registry(dir.path());
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+    let app = dir.path().join("app");
+    assert_fs::fixture::ChildPath::new(app.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
+        .unwrap();
+
+    for command in ["resolve", "fetch"] {
+        let mut cmd = cabin();
+        cmd.args([command, "--manifest-path"])
+            .arg(app.join("cabin.toml"));
+        if command == "fetch" {
+            cmd.arg("--cache-dir").arg(dir.path().join("cache"));
+        }
+        let assertion = cmd
+            .env_remove("CABIN_NO_CONFIG")
+            .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(&stderr, &auth_required_for(server.url())),
+            "`cabin {command}` must reach the project-picked registry unauthenticated: {stderr}"
+        );
+        // A silently withheld credential would leave the user with a
+        // bare "authentication required" and no way to learn that the
+        // token they exported was ignored on purpose.
+        assert!(
+            flat_contains(
+                &stderr,
+                &format!(
+                    "CABIN_REGISTRY_TOKEN is set but was not used for `{}`",
+                    server.url()
+                )
+            ),
+            "`cabin {command}` must say the override was withheld: {stderr}"
+        );
+    }
+
+    // The same refused origin with no variable set must stay quiet:
+    // the explanation exists for the operator who *did* export a
+    // token, and would be noise for everyone else.
+    let assertion = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(app.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, &auth_required_for(server.url())),
+        "expected the tokenless failure in: {stderr}"
+    );
+    assert!(
+        !stderr.contains("CABIN_REGISTRY_TOKEN"),
+        "an unset override must not be mentioned: {stderr}"
+    );
+
+    // `cabin yank` resolves its origin the same way, from the config
+    // of the directory it runs in, and must withhold the token too.
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "yank", "acme/demo@0.1.0"])
+        .current_dir(&app)
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, &auth_required_for(server.url())),
+        "`cabin yank` must reach the project-picked registry unauthenticated: {stderr}"
+    );
+
+    // Control: the same origin, named by the user on the command
+    // line, is eligible - so the failures above are the provenance
+    // gate and not a broken fixture.
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(app.join("cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+}
+
+/// A `[source-replacement]` hop disqualifies the override even when
+/// the user declared both the replaced source and the replacement in
+/// their own config: a resolution records the hops it walked, not
+/// which file declared each of them, so the safe answer is the only
+/// available one.  The sibling test above is the control - the same
+/// user config reaching the same server *without* a hop keeps the
+/// token.
+#[test]
+fn a_user_config_source_replacement_hop_loses_the_env_token() {
+    let dir = TempDir::new().unwrap();
+    let registry = stage_auth_required_registry(dir.path());
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+    let declared = dead_loopback_url();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!(
+            "[registry]\nindex-url = \"{declared}\"\n\n[source-replacement]\n\"{declared}\" = \
+             {{ index-url = \"{}\" }}\n",
+            server.url()
+        ))
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, &auth_required_for(server.url())),
+        "a replaced origin must be reached unauthenticated: {stderr}"
+    );
+}
+
+/// The user's own config file is not the project speaking: a loopback
+/// registry configured in `<CABIN_CONFIG_HOME>/config.toml` keeps the
+/// `CABIN_REGISTRY_TOKEN` override, so the local-registry testing
+/// workflow does not have to repeat `--index-url` on every command.
+#[test]
+fn a_user_config_loopback_index_still_receives_the_env_token() {
+    let dir = TempDir::new().unwrap();
+    let registry = stage_auth_required_registry(dir.path());
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url()))
+        .unwrap();
+
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+}
+
 /// Consuming a hosted-style public registry needs no account, login,
 /// or token: with no credentials configured anywhere, a scoped
 /// dependency resolves, downloads, and builds - and no request ever

@@ -41,7 +41,8 @@ pub(crate) fn login(args: &LoginArgs, reporter: Reporter) -> Result<()> {
         "cabin login",
         "tokens only apply to `--index-url` registries",
         true,
-    )?;
+    )?
+    .url;
     let origin = cabin_credentials::normalize_origin(&index_url)?;
     // A token stored for a plain-http non-loopback origin could
     // never be attached (the client refuses cleartext beyond
@@ -111,17 +112,20 @@ pub(crate) fn logout(args: &LogoutArgs, reporter: Reporter) -> Result<()> {
 /// byte-identical to the unauthenticated flow.
 pub(crate) fn registry_auth_for_index_url(
     index_url: &str,
+    user_chosen: bool,
     reporter: Reporter,
 ) -> Result<Option<cabin_index_http::RegistryAuth>> {
     let origin = cabin_credentials::normalize_origin(index_url)?;
-    let lookup = cabin_credentials::lookup_token(&origin, env_token_eligible(&origin)?)?;
+    let eligible = env_token_eligible(&origin, user_chosen)?;
+    let lookup = cabin_credentials::lookup_token(&origin, eligible)?;
     surface_permissions_warning(reporter, lookup.permissions_warning);
-    match lookup.token {
-        Some(token) => Ok(Some(cabin_index_http::RegistryAuth::for_index_url(
-            index_url, token,
-        )?)),
-        None => Ok(None),
-    }
+    let Some(token) = lookup.token else {
+        warn_if_env_token_withheld(&origin, eligible, reporter);
+        return Ok(None);
+    };
+    Ok(Some(cabin_index_http::RegistryAuth::for_index_url(
+        index_url, token,
+    )?))
 }
 
 fn surface_permissions_warning(reporter: Reporter, warning: Option<String>) {
@@ -130,20 +134,57 @@ fn surface_permissions_warning(reporter: Reporter, warning: Option<String>) {
     }
 }
 
+/// Say so when `CABIN_REGISTRY_TOKEN` is set, this origin was not
+/// allowed to use it, and nothing else supplied a credential either.
+/// The run is about to fail with the registry's generic
+/// "authentication required", which advises `cabin login` but never
+/// reveals that the token the user *did* export was deliberately
+/// withheld - the one question they would otherwise be left with.
+///
+/// Deliberately silent once a stored credential answered: nothing was
+/// lost there, and a shell that exports the variable globally would
+/// otherwise warn on every command against every other registry.
+pub(crate) fn warn_if_env_token_withheld(origin: &str, eligible: bool, reporter: Reporter) {
+    if eligible || !env_token_is_set() {
+        return;
+    }
+    reporter.warning(format_args!(
+        "CABIN_REGISTRY_TOKEN is set but was not used for `{origin}`: the variable carries no \
+         origin key, so it serves only the default registry and a loopback registry you named \
+         yourself - run `cabin login --index-url {origin}` to store a token for this origin"
+    ));
+}
+
+/// Whether the override is present at all, by the same empty-is-unset
+/// rule `cabin-credentials` applies when it reads the value.
+fn env_token_is_set() -> bool {
+    std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_some_and(|value| !value.is_empty())
+}
+
 /// Whether the `CABIN_REGISTRY_TOKEN` environment override may serve
 /// `origin` (a normalized origin string).  The override carries no
 /// origin key of its own, and an invocation's index origin can come
 /// from project-level config or `[source-replacement]` - inputs a
 /// checked-out project controls - so an unrestricted override would
 /// let any built project route the credential to an origin of its
-/// choosing.  It therefore serves exactly the default hosted
-/// registry (its intended CI consumer) and loopback origins (local
-/// testing); every other registry uses `credentials.toml`, which is
+/// choosing.
+///
+/// It therefore serves the default hosted registry (its intended CI
+/// consumer) unconditionally, and a loopback origin (local testing)
+/// only when `user_chosen` says the *user* named it rather than the
+/// tree being built - see
+/// [`index_origin_user_chosen`](crate::cli::config::index_origin_user_chosen).
+/// Every other registry uses `credentials.toml`, which is
 /// origin-keyed by construction.
-pub(crate) fn env_token_eligible(origin: &str) -> Result<bool> {
+///
+/// Kept separate from [`crate::cli::trustpub::exchange_origin_eligible`]
+/// although the two predicates now read alike: they guard different
+/// credentials (this long-lived token vs. the run's OIDC JWT), and
+/// loosening one must never silently loosen the other.
+pub(crate) fn env_token_eligible(origin: &str, user_chosen: bool) -> Result<bool> {
     let default_origin =
         cabin_credentials::normalize_origin(cabin_core::registry::DEFAULT_INDEX_URL)?;
-    Ok(origin == default_origin || cabin_credentials::url_is_loopback(origin))
+    Ok(origin == default_origin || (cabin_credentials::url_is_loopback(origin) && user_chosen))
 }
 
 /// Resolve the registry origin `cabin login` / `cabin logout`
@@ -156,7 +197,8 @@ fn effective_registry_origin(cli_index_url: Option<&str>, command: &str) -> Resu
         command,
         "tokens only apply to `--index-url` registries",
         true,
-    )?;
+    )?
+    .url;
     Ok(cabin_credentials::normalize_origin(&url)?)
 }
 
@@ -182,7 +224,7 @@ pub(crate) fn effective_registry_index_url(
     command: &str,
     local_path_reason: &str,
     credential_command: bool,
-) -> Result<String> {
+) -> Result<EffectiveRegistryIndex> {
     // An explicit `--index-url` needs no config fallback: skip
     // discovery entirely so an unrelated broken config file or
     // manifest cannot fail the command, and key the token on exactly
@@ -207,13 +249,34 @@ pub(crate) fn effective_registry_index_url(
     // actually contact.
     let locator = crate::cli::config::index_source_kind_to_locator(&source.kind);
     let resolution = crate::cli::patch::apply_source_replacement(locator, &config, false)?;
+    let user_chosen = crate::cli::config::index_origin_user_chosen(&source, &resolution);
     match resolution.resolved {
         cabin_core::SourceLocator::IndexPath { path } => bail!(
             "`{command}` requires an HTTP registry, but the effective index source is the local \
              path `{path}`; {local_path_reason}"
         ),
-        cabin_core::SourceLocator::IndexUrl { url } => Ok(url),
+        cabin_core::SourceLocator::IndexUrl { url } => Ok(EffectiveRegistryIndex {
+            url,
+            user_chosen,
+            from_cli: cli_index_url.is_some(),
+        }),
     }
+}
+
+/// The HTTP registry a command targets, plus how its origin was
+/// chosen.  The two credential gates ask different questions of the
+/// same origin, so both answers travel with it.
+pub(crate) struct EffectiveRegistryIndex {
+    pub url: String,
+    /// The *user* chose this origin - see
+    /// [`index_origin_user_chosen`](crate::cli::config::index_origin_user_chosen).
+    /// Gates the `CABIN_REGISTRY_TOKEN` override.
+    pub user_chosen: bool,
+    /// Stricter: this invocation's own `--index-url` named it, so not
+    /// even the user's config file counts.  Gates the
+    /// trusted-publishing exchange
+    /// (`crate::cli::trustpub::publish_credential`).
+    pub from_cli: bool,
 }
 
 /// Config discovery for a command that may run outside any project:
@@ -267,9 +330,8 @@ mod tests {
     }
 
     /// The env-token override serves exactly the default hosted
-    /// registry and loopback origins; any other origin - which
-    /// project-level config or `[source-replacement]` could have
-    /// picked - is ineligible.
+    /// registry and loopback origins; any other origin is ineligible
+    /// however it was chosen.
     #[test]
     fn env_token_eligibility_is_origin_bound() {
         for (origin, expected) in [
@@ -282,10 +344,30 @@ mod tests {
             ("http://registry.cabinpkg.com", false),
         ] {
             assert_eq!(
-                env_token_eligible(origin).unwrap(),
+                env_token_eligible(origin, true).unwrap(),
                 expected,
                 "origin: {origin}"
             );
         }
+    }
+
+    /// A loopback origin the user did not choose - project-level
+    /// config or a `[source-replacement]` hop picked it - never
+    /// receives the origin-key-less `CABIN_REGISTRY_TOKEN`.  The
+    /// default hosted registry stays eligible either way: a project
+    /// cannot steer where that origin's traffic goes.
+    #[test]
+    fn a_loopback_origin_the_user_did_not_choose_is_ineligible() {
+        for origin in [
+            "http://127.0.0.1:8080",
+            "http://[::1]:8080",
+            "http://localhost:8080",
+        ] {
+            assert!(
+                !env_token_eligible(origin, false).unwrap(),
+                "origin: {origin}"
+            );
+        }
+        assert!(env_token_eligible("https://registry.cabinpkg.com", false).unwrap());
     }
 }

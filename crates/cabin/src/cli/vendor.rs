@@ -237,6 +237,7 @@ pub(crate) fn vendor(
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
         index_source: &inputs.index_source,
+        index_user_chosen: inputs.index_user_chosen,
         policy: inputs.policy,
         cache_dir: &inputs.cache_dir,
         reporter,

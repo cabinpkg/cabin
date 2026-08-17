@@ -131,10 +131,46 @@ pub(crate) fn config_value_source(source: ConfigSource) -> ConfigValueSource {
     }
 }
 
+/// Whether a config file's values count as the *user's* choice of
+/// registry origin.  The user-level file and the one `CABIN_CONFIG`
+/// points at are written by whoever runs Cabin; the workspace- and
+/// package-level files travel inside the checkout, so a hostile
+/// dependency or pull-request branch can write them.
+pub(crate) const fn config_is_user_chosen(source: ConfigSource) -> bool {
+    matches!(source, ConfigSource::User | ConfigSource::Explicit)
+}
+
+/// Whether the origin an index is finally reached through was chosen
+/// by the user.
+///
+/// Deliberate ceiling: *any* `[source-replacement]` hop makes the
+/// answer `false`, even one declared in user-level config, because
+/// [`cabin_core::SourceReplacementResolution`] records the hops it
+/// walked but not which file declared each of them.  The fallback is
+/// `cabin login` for the mirror's origin, which stores an
+/// origin-keyed token and is what `cabin login` already does for a
+/// replaced source.
+pub(crate) fn index_origin_user_chosen(
+    source: &ResolvedIndexSource,
+    resolution: &cabin_core::SourceReplacementResolution,
+) -> bool {
+    source.user_chosen && resolution.hops.is_empty()
+}
+
 /// Resolved index source that consumes CLI arguments first and
 /// falls back to the merged config.
 pub(crate) struct ResolvedIndexSource {
     pub kind: IndexSourceKind,
+    /// Whether the *user* picked this source, rather than a
+    /// checked-out project: a CLI flag, the user-level config file,
+    /// or the one `CABIN_CONFIG` names.  A workspace- or
+    /// package-level `.cabin/config.toml` ships inside the tree being
+    /// built, so it is the project speaking, not the user - which is
+    /// why it cannot make an origin eligible for the origin-key-less
+    /// `CABIN_REGISTRY_TOKEN` override.  Same split
+    /// [`effective_registry_index_url`](crate::cli::login::effective_registry_index_url)
+    /// already applies to where a token is *stored*.
+    pub user_chosen: bool,
 }
 
 pub(crate) enum IndexSourceKind {
@@ -179,6 +215,7 @@ pub(crate) fn resolve_index_source(
         })?;
         return Ok(Some(ResolvedIndexSource {
             kind: IndexSourceKind::Path(path.to_path_buf()),
+            user_chosen: true,
         }));
     }
     if let Some(url) = cli_index_url {
@@ -190,14 +227,17 @@ pub(crate) fn resolve_index_source(
         }
         return Ok(Some(ResolvedIndexSource {
             kind: IndexSourceKind::Url(url.to_owned()),
+            user_chosen: true,
         }));
     }
     Ok(config.registry.source.as_ref().map(|src| match src {
         EffectiveRegistrySource::Path(value) => ResolvedIndexSource {
             kind: IndexSourceKind::Path(value.value.clone()),
+            user_chosen: config_is_user_chosen(value.source),
         },
         EffectiveRegistrySource::Url(value) => ResolvedIndexSource {
             kind: IndexSourceKind::Url(value.value.clone()),
+            user_chosen: config_is_user_chosen(value.source),
         },
     }))
 }
@@ -210,6 +250,7 @@ pub(crate) fn resolve_index_source(
 pub(crate) fn default_index_source() -> ResolvedIndexSource {
     ResolvedIndexSource {
         kind: IndexSourceKind::Url(cabin_core::registry::DEFAULT_INDEX_URL.to_owned()),
+        user_chosen: false,
     }
 }
 
@@ -367,6 +408,9 @@ pub(crate) struct PipelineInputs {
     pub policy: crate::cli::LockPolicy,
     pub cache_dir: PathBuf,
     pub index_source: cabin_core::SourceLocator,
+    /// See [`index_origin_user_chosen`].  Gates the
+    /// `CABIN_REGISTRY_TOKEN` override at the HTTP index.
+    pub index_user_chosen: bool,
 }
 
 /// Turn a resolved index source into [`PipelineInputs`] - the inner
@@ -399,7 +443,7 @@ pub(crate) fn resolve_pipeline_inputs(
         Some((path, _)) => path.clone(),
         None => crate::cli::cache_dir_for(cache_dir_arg)?,
     };
-    let index_source = match index_source {
+    let (index_source, index_user_chosen) = match index_source {
         Some(source) => {
             let initial_locator = index_source_kind_to_locator(&source.kind);
             let resolved_locator = crate::cli::patch::apply_source_replacement(
@@ -411,14 +455,22 @@ pub(crate) fn resolve_pipeline_inputs(
             if vendor_local_index {
                 enforce_vendor_local_index_post_replacement(&resolved_locator)?;
             }
-            resolved_locator.resolved
+            let user_chosen = index_origin_user_chosen(source, &resolved_locator);
+            (resolved_locator.resolved, user_chosen)
         }
-        None => default_index_locator(offline, frozen, effective_config, no_patches)?,
+        // The default hosted registry passes the override gate on
+        // origin equality, so it needs no provenance of its own - and
+        // a replacement that rewrites it onto loopback must not.
+        None => (
+            default_index_locator(offline, frozen, effective_config, no_patches)?,
+            false,
+        ),
     };
     Ok(PipelineInputs {
         policy,
         cache_dir,
         index_source,
+        index_user_chosen,
     })
 }
 
@@ -945,5 +997,47 @@ mod tests {
             message.contains("cabin vendor"),
             "message must reference `cabin vendor`, got: {message}"
         );
+    }
+
+    /// The trust split is exhaustive over `ConfigSource`, so a new
+    /// variant - or one moved into the allowlist - has to be decided
+    /// here rather than defaulting either way.  `Workspace` and
+    /// `Package` are the tree-resident files: whoever supplies the
+    /// checkout writes them.
+    #[test]
+    fn only_the_two_config_files_outside_the_checkout_count_as_user_chosen() {
+        for (source, expected) in [
+            (ConfigSource::User, true),
+            (ConfigSource::Explicit, true),
+            (ConfigSource::Workspace, false),
+            (ConfigSource::Package, false),
+        ] {
+            assert_eq!(
+                config_is_user_chosen(source),
+                expected,
+                "source: {}",
+                source.as_key()
+            );
+        }
+    }
+
+    /// Any `[source-replacement]` hop disqualifies the origin, even
+    /// under a user-chosen source: the resolution records which hops
+    /// it walked, not which file declared each of them.
+    #[test]
+    fn a_replacement_hop_disqualifies_even_a_user_chosen_source() {
+        let source = ResolvedIndexSource {
+            kind: IndexSourceKind::Url("https://mirror.example.com".to_owned()),
+            user_chosen: true,
+        };
+        let direct = url_resolution_with_hops("https://mirror.example.com", Vec::new());
+        assert!(index_origin_user_chosen(&source, &direct));
+        let replaced = url_resolution_with_hops(
+            "http://127.0.0.1:8080",
+            vec![SourceLocator::IndexUrl {
+                url: "https://mirror.example.com".to_owned(),
+            }],
+        );
+        assert!(!index_origin_user_chosen(&source, &replaced));
     }
 }
