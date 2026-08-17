@@ -73,11 +73,11 @@ Expressions nest at most 32 levels deep, counting the innermost predicate as one
 `os = "linux"` is one level and `not(os = "linux")` is two.  Nesting *width* is unbounded: `all(...)`
 and `any(...)` accept as many sibling predicates as you like.  Real predicates nest two or three
 levels; the cap exists so that a hostile manifest key or registry index entry cannot exhaust the
-parser's stack.
+parser's stack.  A deeper expression is rejected at parse time with an error naming the cap.
 
 Keys are bare identifiers; values are double-quoted strings.  Unknown keys, unquoted values, missing
-parentheses, wrong arity in `not(...)`, and over-deep nesting are rejected at parse time with a clear
-error that names the offending input.
+parentheses, and wrong arity in `not(...)` are rejected at parse time with a clear error that names
+the offending input.
 
 The supported keys are fixed:
 
