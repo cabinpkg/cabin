@@ -53,11 +53,6 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Install Linux build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++
-
       # Restored archives are never trusted: the tool re-hashes every
       # cached archive against the SHA-256 its port's `[package.upstream]`
       # pins before use, and re-downloads on mismatch
@@ -113,11 +108,6 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - name: Install Linux build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++
 
       # Same checksum discipline as the dry-run job: restored bytes
       # are re-hashed against the committed SHA-256 pin before use, so

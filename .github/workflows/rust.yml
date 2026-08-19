@@ -93,27 +93,15 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Install Linux build tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++ \
-            clang-format clang-tidy pkg-config
-
-      - name: Install macOS build tools
+      # Every build tool ships preinstalled on the matrix images;
+      # macOS's llvm@20 is keg-only and just needs the path.
+      - name: Put the preinstalled LLVM tools on the path
         if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install ninja llvm pkg-config
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        run: echo "$(brew --prefix llvm@20)/bin" >> "$GITHUB_PATH"
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-
-      - name: Install Windows build tools
-        if: runner.os == 'Windows'
-        run: choco install --no-progress -y ninja llvm
 
       - name: Build
         run: cargo check --workspace --all-targets --locked --verbose
@@ -141,9 +129,6 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - name: Install Ninja
-        run: choco install --no-progress -y ninja
 
       - name: Build cabin and run examples without a pre-activated MSVC env
         run: |
@@ -176,18 +161,20 @@ jobs:
   # macOS (AppleClang) and Windows (MSVC) stay covered by
   # `build-and-test`.
   compiler-detection:
-    runs-on: ubuntu-latest
+    # ubuntu-24.04 preinstalls every matrix compiler; bump the matrix
+    # and the image together.
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { cc: gcc-12, cxx: g++-12, packages: "gcc-12 g++-12", kind: gcc, major: "12" }
-          - { cc: gcc-13, cxx: g++-13, packages: "gcc-13 g++-13", kind: gcc, major: "13" }
-          - { cc: gcc-14, cxx: g++-14, packages: "gcc-14 g++-14", kind: gcc, major: "14" }
-          - { cc: clang-16, cxx: clang++-16, packages: "clang-16", kind: clang, major: "16" }
-          - { cc: clang-17, cxx: clang++-17, packages: "clang-17", kind: clang, major: "17" }
-          - { cc: clang-18, cxx: clang++-18, packages: "clang-18", kind: clang, major: "18" }
+          - { cc: gcc-12, cxx: g++-12, kind: gcc, major: "12" }
+          - { cc: gcc-13, cxx: g++-13, kind: gcc, major: "13" }
+          - { cc: gcc-14, cxx: g++-14, kind: gcc, major: "14" }
+          - { cc: clang-16, cxx: clang++-16, kind: clang, major: "16" }
+          - { cc: clang-17, cxx: clang++-17, kind: clang, major: "17" }
+          - { cc: clang-18, cxx: clang++-18, kind: clang, major: "18" }
 
     env:
       CC: ${{ matrix.cc }}
@@ -202,16 +189,11 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build ${{ matrix.packages }}
-
       - name: Run compiler detection and condition tests
         run: |
           cargo test -p cabinpkg --test cli --locked --no-run
-          # Warm the freshly installed compilers right before the tests:
-          # the first-ever exec of a cold-installed clang demand-pages a
+          # Warm the preinstalled compilers right before the tests:
+          # the first-ever exec of a cold clang demand-pages a
           # huge binary from disk, and with several test threads probing
           # `$CXX --version` at once that can exceed cabin's 10s
           # detection deadline, flaking the clang legs with

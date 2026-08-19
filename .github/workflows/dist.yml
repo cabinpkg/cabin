@@ -23,13 +23,13 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - parallel:
-        - name: Install build/demo tools
+        # Only the demo recorders need apt; retries and timeouts keep
+        # a stalled mirror from hanging the job.
+        - name: Install demo tools
           run: |
-            sudo apt-get update
-            sudo apt-get install -y \
-              ninja-build gcc g++   \
-              ffmpeg ttyd           \
-              bat zsh
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y \
+              ffmpeg ttyd bat zsh
             # Ubuntu ships bat as `batcat`; expose it as `bat` for the demo.
             sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
 
