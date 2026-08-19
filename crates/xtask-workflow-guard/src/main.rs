@@ -17,9 +17,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Record `superseded=true` in `$GITHUB_OUTPUT` when origin/main
-    /// carries a commit after `$GITHUB_SHA`
-    /// (`cargo workflow-superseded`).
-    Superseded,
+    /// carries a commit after `$GITHUB_SHA` - scoped, with
+    /// `--relevant-to`, to commits matching that filter's list in
+    /// `.github/path-filters.yml` (`cargo workflow-superseded`).
+    Superseded {
+        /// Path filter a newer commit must match to supersede this run
+        #[arg(long, value_name = "FILTER")]
+        relevant_to: Option<String>,
+    },
     /// Record `pending=true` in `$GITHUB_OUTPUT` when the committed D1
     /// migrations no longer match the stamp in
     /// registry/migrations-applied (`cargo workflow-migrations-pending`).
@@ -44,7 +49,10 @@ fn main() -> ExitCode {
 /// carries an exit status of its own, which is the step's answer.
 fn run(command: &Command) -> Result<ExitCode> {
     match command {
-        Command::Superseded => xtask_workflow_guard::superseded::run().map(|()| ExitCode::SUCCESS),
+        Command::Superseded { relevant_to } => {
+            xtask_workflow_guard::superseded::run(relevant_to.as_deref())
+                .map(|()| ExitCode::SUCCESS)
+        }
         Command::MigrationsPending => {
             xtask_workflow_guard::migrations_pending::run().map(|()| ExitCode::SUCCESS)
         }

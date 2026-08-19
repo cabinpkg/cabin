@@ -652,8 +652,10 @@ ceiling in its module documentation.  The crate must:
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the guards that keep an out-of-order or premature workflow run from mutating a shared
 resource, decided from repository files, git history and the GitHub Actions run context.  `cargo
-workflow-superseded` is `registry.yml`'s freshness guard: it answers
-whether `origin/main` already carries a commit after `$GITHUB_SHA`, and
+workflow-superseded` is the freshness guard of `registry.yml`'s deploy and `ports-publish.yml`'s
+publish: it answers whether `origin/main` already carries a commit after `$GITHUB_SHA` matching
+the caller's `--relevant-to` list in `.github/path-filters.yml` (a commit matching none of those
+paths cannot change what the run ships, so it does not supersede it), and
 records `superseded=true` in `$GITHUB_OUTPUT` when it does, which is what stops a late-finishing
 older run from deploying over a newer one.  `cargo workflow-migrations-pending` is the same for
 `registry.yml`'s migrations gate: it recomputes the stamp over `registry/migrations/*.sql` and

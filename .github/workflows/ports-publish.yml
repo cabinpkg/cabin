@@ -134,7 +134,9 @@ jobs:
       # order them, and an out-of-order stale run would publish an
       # intermediate state of a version as an otherwise-unnecessary
       # packaging revision. Skip instead when main already carries a
-      # newer commit - the next dispatch publishes the full set.
+      # newer ports-relevant commit (the `ports` list in
+      # .github/path-filters.yml) - the next dispatch publishes the
+      # full set.
       #
       # Accepted residual window: the publish command below runs the
       # tool's own preflight (minutes) before uploading, so a newer
@@ -147,7 +149,7 @@ jobs:
       # the stale revision (docs/foundation-ports.md).
       - name: Skip when superseded by a newer main commit
         id: freshness
-        run: cargo workflow-superseded
+        run: cargo workflow-superseded --relevant-to ports
 
       # A commit can change both the publish client and the Worker's
       # accepted metadata schema (registry/src mirrors the canonical
