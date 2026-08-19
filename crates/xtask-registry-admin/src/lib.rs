@@ -1,6 +1,6 @@
 //! Operator commands against the hosted registry Worker
 //! (`registry/`), run by hand from the repository root - or, for
-//! [`verify`], by the `registry-verify` workflow on its schedule.
+//! [`verify`], by the `registry-verify` workflow.
 //!
 //! Crate boundaries: these hold the operator's own credentials and talk
 //! to the live service, which is what separates them from the static

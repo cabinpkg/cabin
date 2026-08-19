@@ -1,4 +1,4 @@
-//! The scheduled verification pass
+//! The verification pass
 //! (`.github/workflows/registry-verify.yml`, `registry/docs/runbook.md`
 //! "Verification pipeline"): read the pending versions off the admin
 //! plane, hand each one's archive to `cabin-registry-verify`, and PATCH
@@ -12,7 +12,14 @@
 //! public CI artifact.  It prints package names and versions, which
 //! the admin API already discloses to any verify-scope holder, plus
 //! the verdicts and reason codes its own verifier run computes for
-//! them - and never the token, the corpus, or archive bytes.
+//! them - and never a credential, the corpus, or archive bytes.
+//!
+//! Two credentials, two planes (`registry/docs/runbook.md`,
+//! "Verification pipeline"): the listings and downloads ride the
+//! `verify`-scoped registry token, while each verdict PATCH carries a
+//! GitHub Actions OIDC JWT minted fresh for it (`Minter`) - the
+//! registry consumes each token's `jti` on use, so no JWT can
+//! authenticate twice.
 //!
 //! Which of the two failure classes a step takes is a property of the
 //! shell this replaces, not a judgment call: a download or a child
@@ -27,11 +34,13 @@
 //! did.
 //!
 //! The verifier child inherits the whole environment, the privileged
-//! `REGISTRY_VERIFY_TOKEN` included, exactly as the shell's child did.
-//! It reads only the `VERIFY_*` caps, and removing the rest would be a
-//! change rather than a port.  The publisher-controlled upstream
-//! download is the one request that never sees the token, and it runs
-//! on its own agent so it cannot.
+//! `REGISTRY_VERIFY_TOKEN` included, exactly as the shell's child did,
+//! minus the OIDC mint pair, which is scrubbed (`capture`): it
+//! could mint the verdict-delivering JWT, the one capability no
+//! registry token holds.  The child reads only the `VERIFY_*` caps,
+//! and removing the rest would be a change rather than a port.  The
+//! publisher-controlled upstream download is the one request that
+//! never sees a credential, and it runs on its own agent so it cannot.
 //!
 //! Ceilings, each either invisible on the ephemeral runner this is
 //! scheduled on or fail-safe:
@@ -82,7 +91,7 @@
 //!   embeds it (`registry/src/publish.rs`, `registry/src/glue.rs`), so
 //!   only a document within the listing wrapper's few levels of the
 //!   cap can thread the needle - and it aborts the run fail-safe
-//!   (everything stays pending, the cron goes red) where the shell
+//!   (everything stays pending, the run goes red) where the shell
 //!   walked on;
 //! - the token plane's connect ceiling covers the TCP connect alone
 //!   where `curl`'s 300-second default spanned DNS, TCP and TLS, and
@@ -103,6 +112,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use rand::seq::SliceRandom as _;
 use serde_json::{Map, Value};
 
@@ -116,7 +126,7 @@ const VERIFIER: &str = "target/release/cabin-registry-verify";
 /// L65: the aggregate seconds one run may spend on upstream archives.
 /// The admin listing is deterministically sorted, so without a
 /// per-run bound a publisher with several slow upstream hosts could
-/// pin the same early-sorting versions to the front of every cron pass
+/// pin the same early-sorting versions to the front of every pass
 /// and starve everything behind them; the shuffle rotates who gets the
 /// budget when it runs out.
 const BUDGET: i64 = 300;
@@ -167,6 +177,7 @@ pub fn run() -> Result<()> {
             "EXPECTED_API_ORIGIN must be https, got: {expected_api_origin}"
         ));
     }
+    let minter = minter();
 
     let plane = Plane {
         agent: plane_agent(),
@@ -220,6 +231,7 @@ pub fn run() -> Result<()> {
 
     let mut pass = Pass {
         plane,
+        minter,
         registry_origin,
         api_origin,
         corpus: corpus.path().to_owned(),
@@ -306,14 +318,19 @@ impl Plane {
         Ok(())
     }
 
-    /// L219-223: the verdict.  A 409 means the row changed since the
-    /// listing (a republish, a competing verdict) and the next run sees
-    /// the replacement.  `-o /dev/null` still drained the transfer, so
-    /// a response body that cuts out mid-way is a counted PATCH
-    /// failure, never a success line.
-    fn patch(&self, url: &str, body: &str) -> Result<()> {
+    /// L219-223: the verdict - the one request whose credential is not
+    /// the plane's token: verdicts authenticate only the workflow's own
+    /// OIDC JWT (`registry/src/trustpub.rs`, `VERIFIER_AUDIENCE`).  A
+    /// 409 means the row changed since the listing (a republish, a
+    /// competing verdict) and the next run sees the replacement.
+    /// `-o /dev/null` still drained the transfer, so a response body
+    /// that cuts out mid-way is a counted PATCH failure, never a
+    /// success line.
+    fn patch(&self, url: &str, body: &str, jwt: &str) -> Result<()> {
         let response = self
+            .agent
             .request("PATCH", url)
+            .set("authorization", &format!("Bearer {jwt}"))
             .set("content-type", "application/json")
             .send_string(body)?;
         std::io::copy(&mut response.into_reader(), &mut std::io::sink())?;
@@ -321,11 +338,116 @@ impl Plane {
     }
 }
 
-/// What one pass carries from version to version: the plane, the two
-/// origins, the corpus every advisory reads, and the shared upstream
-/// budget.
+/// The audience the verdict endpoint pins (`registry/src/trustpub.rs`,
+/// `VERIFIER_AUDIENCE`).  Appended to the mint URL raw: a `/` is legal
+/// in a query value, and GitHub echoes the parameter back verbatim as
+/// the `aud` claim.
+const AUDIENCE: &str = "cabinpkg.com/verifier";
+
+/// The verdict credential's mint: `id-token: write` points
+/// `ACTIONS_ID_TOKEN_REQUEST_URL` at an endpoint that answers a
+/// bearer-authenticated GET with `{"value":"<jwt>"}`.  Its agent
+/// follows no redirect for the same reason the token plane's does not:
+/// the request carries a credential.
+struct Minter {
+    agent: ureq::Agent,
+    url: String,
+    request_token: String,
+}
+
+impl Minter {
+    fn mint(&self) -> Result<String> {
+        let mut body = Vec::new();
+        self.agent
+            .request("GET", &mint_url(&self.url))
+            .set("authorization", &format!("Bearer {}", self.request_token))
+            .call()?
+            .into_reader()
+            .read_to_end(&mut body)?;
+        minted_token(&captured_bytes(&body))
+    }
+}
+
+/// The mint's env pair, populated when the workflow grants
+/// `id-token: write`.  An absent pair fails the whole run up front -
+/// every verdict would 401 - and the guard is spelled as an https
+/// check so a cleartext endpoint can never see the request token.
+fn minter() -> Minter {
+    let url = env("ACTIONS_ID_TOKEN_REQUEST_URL");
+    if !url.starts_with("https://") {
+        abort(
+            "ACTIONS_ID_TOKEN_REQUEST_URL must be https; does the workflow grant id-token: write?",
+        );
+    }
+    let request_token = env("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
+    if request_token.is_empty() {
+        abort("ACTIONS_ID_TOKEN_REQUEST_TOKEN is not populated");
+    }
+    Minter {
+        agent: plane_agent(),
+        url,
+        request_token,
+    }
+}
+
+/// The mint URL as GitHub populates it already carries a query string
+/// (`api-version=…`), so the audience appends with `&`.
+fn mint_url(request_url: &str) -> String {
+    format!("{request_url}&audience={AUDIENCE}")
+}
+
+/// The `value` field of the mint answer, which must be a non-empty
+/// string: anything else is the mint failing, never a token.
+fn minted_token(body: &str) -> Result<String> {
+    let answer: Value = serde_json::from_str(body).context("the mint answer is not JSON")?;
+    match index(&answer, "value")? {
+        Value::String(token) if !token.is_empty() => Ok(token),
+        _ => bail!("the mint answer carries no token"),
+    }
+}
+
+/// The JWT's payload segment, decoded and parsed.  The claims are all
+/// public repository facts (the signature over them is the
+/// credential), so the check mode prints them, and never the token
+/// itself, which Actions does not mask.
+fn claims(jwt: &str) -> Result<Value> {
+    let payload = jwt
+        .split('.')
+        .nth(1)
+        .context("the token has no payload segment")?;
+    let bytes = Base64UrlUnpadded::decode_vec(payload)
+        .ok()
+        .context("the payload segment is not base64url")?;
+    serde_json::from_slice(&bytes).context("the payload is not JSON")
+}
+
+/// The OIDC diagnostic (`cargo registry-verify --check-oidc`): mint
+/// two tokens, print the first one's claims against the server-side
+/// pins, and prove the per-mint `jti` freshness the verdict design
+/// leans on - without sending a verdict or needing a registry token.
+///
+/// # Errors
+///
+/// If a mint fails, a token will not decode, or the two mints share a
+/// `jti`.
+pub fn check_oidc() -> Result<()> {
+    let minter = minter();
+    let first = claims(&minter.mint().context("the first mint failed")?)?;
+    let second = claims(&minter.mint().context("the second mint failed")?)?;
+    println!("{}", serde_json::to_string_pretty(&first)?);
+    if index(&first, "jti")? == index(&second, "jti")? {
+        bail!("two mints returned the same jti; per-PATCH minting would replay");
+    }
+    println!("check-oidc OK (two mints, distinct jtis)");
+    Ok(())
+}
+
+/// What one pass carries from version to version: the plane, the
+/// verdict credential's mint, the two origins, the corpus every
+/// advisory reads, and the shared upstream budget.
 struct Pass {
     plane: Plane,
+    minter: Minter,
     registry_origin: String,
     api_origin: String,
     corpus: PathBuf,
@@ -431,9 +553,17 @@ impl Pass {
             }
         };
 
+        // Minted here rather than at startup: the downloads and the
+        // verifier can take minutes against a JWT's short validity,
+        // and the registry consumes each jti on use, so only one
+        // fresh token per PATCH authenticates every verdict.
+        let Ok(jwt) = self.minter.mint() else {
+            eprintln!("{name}@{version}: OIDC token mint failed; leaving it pending");
+            return Ok(true);
+        };
         if self
             .plane
-            .patch(&verdict_url(&self.api_origin, &name, &version), &body)
+            .patch(&verdict_url(&self.api_origin, &name, &version), &body, &jwt)
             .is_err()
         {
             eprintln!("{name}@{version}: verdict PATCH failed; leaving it pending");
@@ -784,12 +914,17 @@ fn spent(began: u64, now: u64) -> i64 {
 
 /// `"$verifier" …` (L84, L190): stdout captured as command
 /// substitution captured it, stderr straight through to the job log,
-/// stdin and the whole environment inherited - all four exactly as the
-/// shell's child had them.  `None` is any non-zero exit, a verifier
-/// that could not be spawned included, which is what the shell's
-/// `if ! …` caught.
+/// stdin and the environment inherited as the shell's child had them -
+/// minus the OIDC mint pair.  The child parses publisher-controlled
+/// bytes, and where the verify token in its environment only reads the
+/// admin plane its caller already read, the request token could mint
+/// the verdict-delivering JWT.  `None` is any non-zero exit, a
+/// verifier that could not be spawned included, which is what the
+/// shell's `if ! …` caught.
 fn capture(command: &mut Command) -> Option<String> {
     let output = command
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
         .stderr(Stdio::inherit())
         .stdin(Stdio::inherit())
         .output()
@@ -1060,7 +1195,7 @@ mod tests {
 
     /// A listing with no `versions` key at all is "nothing pending",
     /// not an error - which is what keeps an empty admin answer from
-    /// failing the cron.
+    /// failing the run.
     #[test]
     fn a_listing_without_versions_is_nothing_pending() {
         let listing: Value = serde_json::from_str("{}").unwrap();
@@ -1292,6 +1427,51 @@ mod tests {
         let passed = Instant::now();
         assert!(copy_capped(std::io::repeat(0).take(9), None, &path, passed, 100).is_err());
         copy_capped(std::io::empty(), None, &path, passed, 8).expect("an empty body");
+    }
+
+    /// The mint URL appends the pinned audience to the query string
+    /// GitHub's endpoint already carries, raw: percent-encoding the
+    /// `/` would still verify (the server decodes), but the raw form
+    /// is what GitHub's own documentation passes.
+    #[test]
+    fn the_mint_url_appends_the_audience_to_the_existing_query() {
+        assert_eq!(
+            mint_url("https://mint.invalid/token?api-version=2.0"),
+            "https://mint.invalid/token?api-version=2.0&audience=cabinpkg.com/verifier"
+        );
+    }
+
+    /// The mint answer's token is its non-empty `value` string; every
+    /// other shape is the mint failing, and the version stays pending.
+    #[test]
+    fn a_minted_token_is_the_non_empty_value_string() {
+        assert_eq!(
+            minted_token(r#"{"value":"aaa.bbb.ccc"}"#).unwrap(),
+            "aaa.bbb.ccc"
+        );
+        assert!(minted_token(r#"{"value":""}"#).is_err());
+        assert!(minted_token(r#"{"value":null}"#).is_err());
+        assert!(minted_token(r#"{"value":5}"#).is_err());
+        assert!(minted_token("{}").is_err());
+        assert!(minted_token("not json").is_err());
+        assert!(minted_token("").is_err());
+    }
+
+    /// The claims are the decoded payload segment, and nothing else of
+    /// the token is ever read - verification is the server's job.
+    #[test]
+    fn claims_decode_the_payload_segment() {
+        let payload =
+            Base64UrlUnpadded::encode_string(br#"{"jti":"one","aud":"cabinpkg.com/verifier"}"#);
+        let decoded = claims(&format!("hdr.{payload}.sig")).unwrap();
+        assert_eq!(index(&decoded, "jti").unwrap(), serde_json::json!("one"));
+        assert_eq!(
+            index(&decoded, "aud").unwrap(),
+            serde_json::json!("cabinpkg.com/verifier")
+        );
+        assert!(claims("no-dots").is_err());
+        assert!(claims("a.!not-base64url!.c").is_err());
+        assert!(claims("a..c").is_err());
     }
 
     /// The walk order must be a permutation of the listing and must not

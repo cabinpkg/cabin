@@ -365,8 +365,10 @@ ones. Launch is a data and policy event, in order:
    (`docs/architecture.md`, "Origins and roles"), pre-launch and
    post-launch alike.
 5. Re-issue any long-lived operational tokens (`REGISTRY_VERIFY_TOKEN`)
-   against the post-wipe database and re-run the verification workflow
-   once (see "Verification pipeline").
+   against the post-wipe database, restore the `registry-verify` cron
+   (the `schedule` trigger in `.github/workflows/registry-verify.yml`,
+   removed for the private alpha), and re-run the verification
+   workflow once (see "Verification pipeline").
 
 **Post-launch staging is intentionally not maintained.** There is no
 standing second environment: with a single maintainer there is nothing to
@@ -825,11 +827,14 @@ Sizing rules - the degrade-before-pay policy:
 ## Verification pipeline
 
 The external verifier is the `registry-verify` GitHub Actions workflow
-(`.github/workflows/registry-verify.yml`): every 5 minutes (plus
-`workflow_dispatch`) it builds `cabin-registry-verify` from the root
-workspace and runs `cargo registry-verify`, which lists pending
-versions through the admin API, inspects each archive with that
-binary, and PATCHes the verdict back. The checks and reason codes are
+(`.github/workflows/registry-verify.yml`): it builds
+`cabin-registry-verify` from the root workspace and runs
+`cargo registry-verify`, which lists pending versions through the
+admin API, inspects each archive with that binary, and PATCHes the
+verdict back. During the private alpha the workflow is
+`workflow_dispatch`-only - verification runs when an operator
+dispatches it; the 5-minute cron returns at launch (see "Launch
+checklist"). The checks and reason codes are
 documented in `docs/remote-registry.md` ("The verifier's checks").
 The verifier addresses scoped names throughout: the artifact download
 nests the directory (`artifacts/<scope>/<name>/`) and flattens the
@@ -847,12 +852,12 @@ token - the verify token included - can deliver a verdict, and each
 JWT authenticates exactly one PATCH (its `jti` is consumed on use).
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
-keeps content unexposed. GitHub cron schedules are **best-effort** and
-can be delayed or dropped under load, so do not treat "the workflow ran
-recently" as the health signal - the breaker cron's stuck-pending
-webhook alert ("N version(s) have been pending verification for over an
-hour") is the detection mechanism. On that alert, check the workflow's
-recent runs first, then re-run by hand:
+keeps content unexposed. The breaker cron's stuck-pending webhook
+alert ("N version(s) have been pending verification for over an hour")
+is the detection mechanism, never "the workflow ran recently" - during
+the private alpha there is no schedule at all, and post-launch GitHub
+cron schedules are **best-effort** and can be delayed or dropped under
+load. On the alert, dispatch a run:
 
 ```sh
 gh workflow run registry-verify.yml
@@ -876,7 +881,7 @@ log shows
 `<name>@<version>: abstain (<rules>); leaving it pending for operator review`
 with the rules (`confusable_package (fmtlib/fmt)`,
 `confusable_scope (...)`, `near_name (...)`, `profanity`). Abstain
-does not fail the run, and every later cron pass re-logs it - that is
+does not fail the run, and every later pass re-logs it - that is
 by design; the stuck-pending alert ("N version(s) have been pending
 verification for over an hour") is the summons. To resolve one:
 
@@ -905,11 +910,10 @@ verification for over an hour") is the summons. To resolve one:
 
 Delivery in both cases requires the verify workflow's OIDC identity
 (see above): a manual `curl` with the verify token no longer
-authenticates, and the scheduled run keeps abstaining on these
-versions by design. The operator-verdict delivery path is a
-`workflow_dispatch` input on `registry-verify.yml`; until that lands
-(the client-side follow-up of the verdict-auth change), an abstained
-version stays pending.
+authenticates, and the workflow's own runs keep abstaining on these
+versions by design. The operator-verdict delivery path is a planned
+`workflow_dispatch` input on `registry-verify.yml`; until that lands,
+an abstained version stays pending.
 
 **Name fidelity knobs.** The reserved-name list is an in-code,
 operator-maintained const (`registry/src/names.rs`); extend it when

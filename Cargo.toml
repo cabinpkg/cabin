@@ -61,6 +61,7 @@ anyhow = "1"
 assert_cmd = "2"
 assert_fs = "1"
 atomic-write-file = "0.3"
+base64ct = { version = "1", features = ["alloc"] }
 camino = { version = "1", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"

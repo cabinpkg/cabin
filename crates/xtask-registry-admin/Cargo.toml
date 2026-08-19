@@ -14,6 +14,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+base64ct = { workspace = true }
 cabin-core = { workspace = true }
 cabin-env = { workspace = true }
 clap = { workspace = true }

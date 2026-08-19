@@ -541,7 +541,7 @@ authenticated `404`.
 
 ### The verifier's checks
 
-The hosted registry's verifier is `cabin-registry-verify`, run every few minutes by a GitHub
+The hosted registry's verifier is `cabin-registry-verify`, run by a GitHub
 Actions workflow (operations live in the service runbook).  It inspects each pending archive
 against the canonical metadata the listing reported - parsing the zip container by hand,
 metering every entry's decompressed output against one archive-global budget, never extracting

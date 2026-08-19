@@ -4,21 +4,18 @@ name: Registry Verify
 # (docs/remote-registry.md, "Verification lifecycle"): list pending
 # versions through the admin API, inspect each archive with
 # cabin-registry-verify, and PATCH the verdict back.  A failed run
-# leaves versions pending - fail-safe by design.  GitHub cron is
-# best-effort and can be delayed; the registry's stuck-pending
-# webhook alert is the detection mechanism (registry/docs/runbook.md,
-# "Verification pipeline").
+# leaves versions pending - fail-safe by design.  The registry's
+# stuck-pending webhook alert is the detection mechanism
+# (registry/docs/runbook.md, "Verification pipeline").
 #
-# Cron and manual dispatch only, deliberately: the run's input is
-# whatever the registry reports as pending, never this repository's
-# files.
+# Manual dispatch only while the registry is in private alpha; the
+# 5-minute cron returns at launch (runbook, "Launch checklist").
+# The run's input is whatever the registry reports as pending,
+# never this repository's files.
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 # Runs must never overlap: a run that lists a version while an
 # earlier run is mid-verdict could double-report.  A queued run
@@ -33,6 +30,11 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # Verdicts authenticate this run's own OIDC JWT, pinned
+      # server-side by the VERIFIER_* vars in registry/wrangler.jsonc.
+      id-token: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -9,7 +9,7 @@
 //! crate is that verifier: [`inspect`] runs the checks and the
 //! `cabin-registry-verify` binary wraps it for `cargo registry-verify`
 //! (`crates/xtask-registry-admin`), which the `registry-verify` GitHub
-//! Actions workflow runs on its cron.  The crate is
+//! Actions workflow runs.  The crate is
 //! a client of the registry service and never appears in the `cabin`
 //! binary's dependency graph.
 //!

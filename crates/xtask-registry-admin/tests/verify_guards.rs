@@ -12,6 +12,11 @@ fn verify(token: &str, registry_origin: &str, api_origin: &str) -> assert_cmd::a
         .env("REGISTRY_VERIFY_TOKEN", token)
         .env("REGISTRY_ORIGIN", registry_origin)
         .env("EXPECTED_API_ORIGIN", api_origin)
+        // Removed rather than left to the parent: the guards run in
+        // order, and a CI job with an id-token grant must not turn
+        // the mint-guard expectations below into flakes.
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
         .assert()
         // Exactly 1 - the tool's own abort - rather than any failure,
         // so a panic or a usage error cannot stand in for the guard.
@@ -38,4 +43,22 @@ fn the_guards_refuse_before_anything_is_fetched() {
             "EXPECTED_API_ORIGIN must be https, got: {origin}\n"
         ));
     }
+
+    // With the registry guards satisfied, the OIDC mint pair is next:
+    // an unset URL reads as empty, which the https guard covers.
+    verify("t", "https://x", "https://x").stderr(
+        "ACTIONS_ID_TOKEN_REQUEST_URL must be https; \
+         does the workflow grant id-token: write?\n",
+    );
+    Command::cargo_bin("xtask-registry-admin")
+        .expect("the binary")
+        .arg("verify")
+        .env("REGISTRY_VERIFY_TOKEN", "t")
+        .env("REGISTRY_ORIGIN", "https://x")
+        .env("EXPECTED_API_ORIGIN", "https://x")
+        .env("ACTIONS_ID_TOKEN_REQUEST_URL", "https://mint.invalid/x?v=1")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .assert()
+        .code(1)
+        .stderr("ACTIONS_ID_TOKEN_REQUEST_TOKEN is not populated\n");
 }
