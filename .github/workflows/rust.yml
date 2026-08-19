@@ -174,16 +174,11 @@ jobs:
 
     strategy:
       fail-fast: false
-      # Six full test-build legs would otherwise occupy most of the
-      # runner pool at once; three at a time keeps the queue moving.
-      max-parallel: 3
+      # One leg per family; the unit corpus owns the major-version
+      # spread.
       matrix:
         include:
-          - { cc: gcc-12, cxx: g++-12, kind: gcc, major: "12" }
-          - { cc: gcc-13, cxx: g++-13, kind: gcc, major: "13" }
           - { cc: gcc-14, cxx: g++-14, kind: gcc, major: "14" }
-          - { cc: clang-16, cxx: clang++-16, kind: clang, major: "16" }
-          - { cc: clang-17, cxx: clang++-17, kind: clang, major: "17" }
           - { cc: clang-18, cxx: clang++-18, kind: clang, major: "18" }
 
     env:
@@ -206,7 +201,7 @@ jobs:
           # the first-ever exec of a cold clang demand-pages a
           # huge binary from disk, and with several test threads probing
           # `$CXX --version` at once that can exceed cabin's 10s
-          # detection deadline, flaking the clang legs with
+          # detection deadline, flaking the clang leg with
           # `detected: null`.
           "$CC" --version
           "$CXX" --version
