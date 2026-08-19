@@ -522,11 +522,16 @@ verdict or a revival answers `409` rather than applying.
 response reports the resulting state and whether the request changed it, mirroring yank:
 `{"ok":true,"name":...,"version":...,"revision":"...","verification":"...","changed":<bool>}`.
 
-Verdicts are idempotent for the same value: repeating the verdict a verified revision already
-carries is a `200` no-op.  Conflicts are `409`: a rejecting verdict on a verified revision hits
-the immutability wall, and **any** verdict on a rejected revision is refused - republishing is
-the recovery path, and a late duplicate verdict must never race the revival.  An unknown
-`(name, version, revision)` triple is an authenticated `404`.
+Verdicts are idempotent for the same value: repeating the verdict a revision already carries -
+`verified` on a verified revision, `rejected` on a rejected one - with a matching binding is a
+`200` no-op, so a verifier retrying after a lost response converges (a repeat rejection also
+re-drives the blob reclaim in case the first attempt failed after recording the row).
+Conflicts are `409`: a
+rejecting verdict on a verified revision hits the immutability wall, and a verifying verdict on
+a rejected revision is refused - republishing is the recovery path.  A late duplicate verdict
+still cannot race a revival: the revival changes `published_at`, so the stale binding answers
+`409` before the transition is consulted.  An unknown `(name, version, revision)` triple is an
+authenticated `404`.
 
 ### The verifier's checks
 

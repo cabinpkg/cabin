@@ -165,9 +165,14 @@ pub enum Transition {
     /// change.
     NoOp,
     /// `409` with this detail: a conflicting verdict on a verified
-    /// version (immutability), or any verdict on a rejected version
-    /// (republish is the recovery path - a late duplicate verdict must
-    /// never race the replacement).
+    /// version (immutability), or a verifying verdict on a rejected
+    /// version (republish is the recovery path). A repeat of the
+    /// applied verdict is a [`Transition::NoOp`] for both terminal
+    /// states: the caller checks the generation binding before
+    /// consulting the transition, so a matching repeat is the same
+    /// verdict retried after a lost response - a late duplicate racing
+    /// a revival carries the old `published_at` and answers `409` as
+    /// target-changed before this table is reached.
     Conflict(&'static str),
 }
 
@@ -175,9 +180,13 @@ pub enum Transition {
 pub fn transition(current: Status, verdict: Verdict) -> Transition {
     match (current, verdict) {
         (Status::Pending, _) => Transition::Apply,
-        (Status::Verified, Verdict::Verified) => Transition::NoOp,
+        (Status::Verified, Verdict::Verified) | (Status::Rejected, Verdict::Rejected) => {
+            Transition::NoOp
+        }
         (Status::Verified, Verdict::Rejected) => Transition::Conflict(error::VERSION_IMMUTABLE),
-        (Status::Rejected, _) => Transition::Conflict(error::VERSION_REJECTED_REVERDICT),
+        (Status::Rejected, Verdict::Verified) => {
+            Transition::Conflict(error::VERSION_REJECTED_REVERDICT)
+        }
     }
 }
 
@@ -372,16 +381,20 @@ mod tests {
             transition(Status::Verified, Verdict::Rejected),
             Transition::Conflict(error::VERSION_IMMUTABLE)
         );
-        // Any verdict on a rejected version conflicts: republish is the
-        // recovery path, and a late duplicate rejection must not race a
-        // replacement that reset the row to pending.
+        // Verifying a rejected version conflicts: republish is the
+        // recovery path.
         assert_eq!(
             transition(Status::Rejected, Verdict::Verified),
             Transition::Conflict(error::VERSION_REJECTED_REVERDICT)
         );
+        // Repeating the applied rejection is the idempotent 200, same
+        // as repeating a verification: the caller has already matched
+        // the generation binding, so this is a retry after a lost
+        // response, not a late duplicate racing a revival (a revival
+        // changes published_at and 409s as target-changed first).
         assert_eq!(
             transition(Status::Rejected, Verdict::Rejected),
-            Transition::Conflict(error::VERSION_REJECTED_REVERDICT)
+            Transition::NoOp
         );
     }
 
