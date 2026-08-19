@@ -151,6 +151,19 @@ jobs:
         env:
           RUST_BACKTRACE: "1"
 
+  # Branch protection pins this aggregate: a skipped matrix job never
+  # posts per-leg names. `always()`, never `!cancelled()`: a cancelled
+  # run must fail this check, not skip it to a green required check.
+  build-and-test-required:
+    needs: build-and-test
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Fail unless the matrix succeeded
+        env:
+          RESULT: ${{ needs.build-and-test.result }}
+        run: test "$RESULT" = success
+
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately
   # omits `ilammy/msvc-dev-cmd` so `cl.exe` / `lib.exe` and `INCLUDE` /
