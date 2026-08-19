@@ -338,7 +338,7 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
     // ancestor gate: a queued or in-progress run whose head contains
     // this SHA (a rerun, or main already carrying the fix) delivers the
     // deploy on a later iteration, while failing here would strand this
-    // run - registry-only pushes never retrigger ports-publish.
+    // run - publishing is dispatch-only, so no push delivers another.
     let (listed, pending) = shell.capture(
         &[
             "gh",

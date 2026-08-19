@@ -131,10 +131,11 @@ $ cargo port-publish --dry-run     # full local preflight, no remote mutation
 $ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
-CI automates the tool (`.github/workflows/ports-publish.yml`): pull requests touching this
-directory or the publisher run the complete `--dry-run` preflight, pushes to `main` publish to
-`https://registry.cabinpkg.com`, and manual dispatch from `main` republishes the full set (the
-recovery path after a pre-launch registry wipe; dispatching any other ref runs the dry-run).
+CI automates the tool (`.github/workflows/ports-publish.yml`): every pull request runs the
+complete `--dry-run` preflight, and publishing is manual only - dispatching the workflow from
+`main` publishes the full set to `https://registry.cabinpkg.com` (dispatching any other ref runs
+the dry-run), so a merged change reaches the registry at the next dispatch, and the same
+dispatch is the recovery path after a pre-launch registry wipe.
 
 Published bytes are immutable, and the published version is always the upstream version.  A
 packaging-only correction to an already-published version therefore reaches the registry as a new
