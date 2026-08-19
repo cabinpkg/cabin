@@ -707,10 +707,13 @@ rules, the artifact read gate, and the verdict body live in
   with the bytes the request read, so a verdict racing a conflicting
   verdict or a replacement answers 409 instead of applying - the
   verified arm must never resurrect a row a concurrent rejection just
-  reclaimed. Repeating a verified version's verdict is the idempotent
-  200; a conflicting verdict on a verified version and any verdict on
-  a rejected one are 409 (republish is the recovery path, and a late
-  duplicate verdict must never race the replacement back to pending).
+  reclaimed. Repeating the verdict a terminal version already carries
+  is the idempotent 200 (a repeat rejection also re-drives the blob
+  reclaim, so a retry after a failed reclaim converges); a conflicting
+  verdict on a verified version and a verifying verdict on a rejected
+  one are 409 (republish is the recovery path - a late duplicate
+  verdict cannot race a replacement back to pending because the
+  replacement changes `published_at` and fails the binding first).
 - **Trust model.** The `verify` scope is mintable through the session
   token API like `publish` and `yank`: every allowlisted user is
   currently an operator. A dedicated verifier-only issuance path

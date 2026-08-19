@@ -1164,8 +1164,9 @@ struct VerdictTargetRecord {
 
 /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>` (`verify`
 /// scope): the verifier's verdict. Pending versions accept either verdict; a
-/// repeat of the verdict a verified version already carries is the
-/// idempotent 200; anything else is the 409 matrix in
+/// repeat of the verdict a terminal version already carries is the
+/// idempotent 200 (a repeat rejection also re-drives the blob
+/// reclaim); the conflicting combinations are the 409 matrix in
 /// [`verify::transition`]. The body's required `checksum` binds the
 /// verdict to the bytes the verifier actually inspected (and so to
 /// the revision those bytes name), and the
@@ -1244,20 +1245,62 @@ async fn verdict_response(
     // verifier listed, both its bytes and its publish event (a
     // byte-identical revival changes published_at but not checksum,
     // which is why `parse_verdict` requires both for both verdicts).
-    let target_changed =
-        parsed.checksum != target.checksum || parsed.published_at != target.published_at;
-    if target_changed {
+    // Both mismatches are loud: a checksum mismatch means the verifier
+    // judged different archive bytes than the row stores (the row was
+    // found by the checksum's leading prefix, so the tails diverge) -
+    // the "verifier saw a different artifact" alarm - and a
+    // published_at mismatch means the verdict targets a superseded
+    // generation.
+    if parsed.checksum != target.checksum {
+        console_error!(
+            "verifier saw a different artifact for {scope}/{name}@{version}#{revision}: \
+             verdict checksum {}, stored {}",
+            parsed.checksum,
+            target.checksum
+        );
+        return error_response(409, error::VERDICT_TARGET_CHANGED);
+    }
+    if parsed.published_at != target.published_at {
+        console_error!(
+            "verdict for {scope}/{name}@{version}#{revision} names a superseded generation: \
+             verdict published_at {}, stored {}",
+            parsed.published_at,
+            target.published_at
+        );
         return error_response(409, error::VERDICT_TARGET_CHANGED);
     }
 
     let changed = match verify::transition(current, parsed.verdict) {
-        verify::Transition::Conflict(detail) => return error_response(409, detail),
-        verify::Transition::NoOp => false,
+        verify::Transition::Conflict(detail) => {
+            console_error!(
+                "conflicting terminal verdict for {scope}/{name}@{version}#{revision}: \
+                 the row is {}, refused: {detail}",
+                current.as_str()
+            );
+            return error_response(409, detail);
+        }
+        verify::Transition::NoOp => {
+            // A repeat rejection re-drives the blob reclaim: the first
+            // rejection's row flip and refund commit in one D1
+            // transaction, but the R2 delete runs after it and can fail
+            // into the 500 the verifier is now retrying - reporting
+            // success here without retrying the delete would orphan the
+            // blob forever. Idempotent when the first attempt already
+            // reclaimed it.
+            if parsed.verdict == verify::Verdict::Rejected {
+                delete_blob_if_unreferenced(env, db, &target.checksum).await?;
+            }
+            false
+        }
         verify::Transition::Apply => {
             if !apply_verdict(env, db, scope, name, version, &revision, &parsed, &target).await? {
                 // The row moved between this request's read and its
                 // guarded update: a concurrent conflicting verdict or a
                 // replacement won the race.
+                console_error!(
+                    "verdict for {scope}/{name}@{version}#{revision} lost the race: \
+                     the row moved between the read and the guarded update"
+                );
                 return error_response(409, error::VERDICT_TARGET_CHANGED);
             }
             // The fast replication path: drain the just-enqueued
