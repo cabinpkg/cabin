@@ -883,37 +883,48 @@ with the rules (`confusable_package (fmtlib/fmt)`,
 `confusable_scope (...)`, `near_name (...)`, `profanity`). Abstain
 does not fail the run, and every later pass re-logs it - that is
 by design; the stuck-pending alert ("N version(s) have been pending
-verification for over an hour") is the summons. To resolve one:
+verification for over an hour") is the summons. Verdicts require the
+verify workflow's own OIDC identity (see above) - a manual `curl`
+with the verify token no longer authenticates - so resolution is a
+`workflow_dispatch` of `registry-verify.yml` naming the version:
 
-- Name is fine: the archive must still pass the real checks before
-  anything is exposed - never render `verified` from the name alone.
-  Fetch the pending entry and the archive with the verify token
-  exactly as the workflow does, run
-  `cabin-registry-verify <archive.zip> <entry.json>` locally - for a
-  version whose metadata declares `upstream` provenance, also
-  download the pinned archive from `metadata.upstream.url` (no
-  bearer token to that URL) and add `--upstream <file>`, or the
-  binary exits operationally - and deliver the verdict it prints
-  **with the listing's `checksum` and `published_at`** (the admin API
-  refuses an unbound `verified`).
-  With a verified version on record the name counts as accepted, and
-  every later version of the package skips the advisories.
-- Name is not fine: deliver `{"verdict":"rejected","reason":
-  "name_advisory: <rule>","checksum":"<the listing's checksum>",
-  "published_at":"<the listing's published_at>"}`.
-  Both bindings are required on a rejection too - the checksum selects
-  the revision, the publish stamp pins the generation. Rejection frees
-  the bytes and the
-  publisher can republish under a better name. A rejection never
-  vets the name: republishing the same name abstains again and
-  re-summons you - by design, not a loop to "fix".
+- Name is fine - waive the advisories for that one version:
 
-Delivery in both cases requires the verify workflow's OIDC identity
-(see above): a manual `curl` with the verify token no longer
-authenticates, and the workflow's own runs keep abstaining on these
-versions by design. The operator-verdict delivery path is a planned
-`workflow_dispatch` input on `registry-verify.yml`; until that lands,
-an abstained version stays pending.
+  ```sh
+  gh workflow run registry-verify.yml -f resolve='<scope>/<name>@<version>'
+  ```
+
+  The dispatched run skips only the name advisories and still runs
+  every real check against the archive; the verdict delivered is
+  whatever the verifier renders - never `verified` from the name
+  alone. With a verified version on record the name counts as
+  accepted, and every later version of the package skips the
+  advisories.
+
+- Name is not fine - deliver the advisory rejection:
+
+  ```sh
+  gh workflow run registry-verify.yml \
+    -f resolve='<scope>/<name>@<version>' \
+    -f resolution=reject -f reason='<rule>'
+  ```
+
+  The run PATCHes `{"verdict":"rejected","reason":"name_advisory:
+  <rule>", ...}` bound to the listing's `checksum` and `published_at`
+  (the checksum selects the revision, the publish stamp pins the
+  generation; a republish in between is a `409` and a re-dispatch).
+  Rejection frees the bytes and the publisher can republish under a
+  better name. A rejection never vets the name: republishing the same
+  name abstains again and re-summons you - by design, not a loop to
+  "fix".
+
+A resolution dispatch touches exactly the named version - every other
+pending version waits for a normal pass - and a version the listing
+no longer reports fails the run without a verdict. If two revisions of
+the same version are pending at once (a `new-revision` republish while
+the first still pends), the run refuses rather than pick one; re-dispatch
+with the revision selector, `-f resolve='<scope>/<name>@<version>#<revision>'`,
+copying the revision from the refusal message or the pending listing.
 
 **Name fidelity knobs.** The reserved-name list is an in-code,
 operator-maintained const (`registry/src/names.rs`); extend it when

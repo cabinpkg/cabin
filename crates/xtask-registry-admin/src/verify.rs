@@ -21,6 +21,12 @@
 //! registry consumes each token's `jti` on use, so no JWT can
 //! authenticate twice.
 //!
+//! A dispatched run can instead resolve ONE abstained version
+//! (`Resolution`, threaded through the `VERIFY_RESOLVE*` env vars):
+//! `verify` waives the name advisories and lets the real checks
+//! render the verdict, `reject` delivers the advisory rejection the
+//! operator confirmed by hand.
+//!
 //! Which of the two failure classes a step takes is a property of the
 //! shell this replaces, not a judgment call: a download or a child
 //! process guarded by `if !` counted a failure and moved on, while
@@ -178,6 +184,7 @@ pub fn run() -> Result<()> {
         ));
     }
     let minter = minter();
+    let resolution = resolution();
 
     let plane = Plane {
         agent: plane_agent(),
@@ -212,49 +219,68 @@ pub fn run() -> Result<()> {
         .context("the pending listing request failed")?;
     let documents = answer(&listing, "the pending listing")?.unwrap_or_default();
     let count = read_stream(&documents, |doc| length(&index(doc, "versions")?))?;
-    if count.parse::<i64>().ok() == Some(0) {
-        println!("nothing pending");
-        return Ok(());
+    if resolution.is_none() {
+        if count.parse::<i64>().ok() == Some(0) {
+            println!("nothing pending");
+            return Ok(());
+        }
+        println!("{count} pending version(s)");
     }
-    println!("{count} pending version(s)");
 
     // L40-47: the corpus for the name advisories, fetched once.  A
     // failed fetch fails the run - without it no advisory can run, and
-    // proceeding could verify a confusable name.
-    let corpus = tempfile::NamedTempFile::new().context("open a temporary file for the corpus")?;
-    plane
-        .download(
-            &format!("{api_origin}/api/v1/admin/packages"),
-            corpus.path(),
-        )
-        .context("the package corpus request failed")?;
+    // proceeding could verify a confusable name.  Only a walk fetches
+    // it: no resolution action reads it (`reject` renders no advisory,
+    // `verify` waives them), so a resolution must not be coupled to
+    // this endpoint's availability.
+    let corpus = if resolution.is_none() {
+        let corpus =
+            tempfile::NamedTempFile::new().context("open a temporary file for the corpus")?;
+        plane
+            .download(
+                &format!("{api_origin}/api/v1/admin/packages"),
+                corpus.path(),
+            )
+            .context("the package corpus request failed")?;
+        Some(corpus)
+    } else {
+        None
+    };
 
     let mut pass = Pass {
         plane,
         minter,
         registry_origin,
         api_origin,
-        corpus: corpus.path().to_owned(),
+        corpus: corpus.as_ref().map(|corpus| corpus.path().to_owned()),
         started,
         budget: BUDGET,
     };
 
-    // L66: the listing is sorted, so the order it is walked in must
-    // not be.
-    let mut order = loop_indices(&count);
-    order.shuffle(&mut rand::rng());
-    // The walk is only reachable off a single-document listing: a
-    // multi-document count carries a newline and never survives the
-    // arithmetic in [`loop_indices`].
+    // The walk (and the resolution lookup) read a single-document
+    // listing: a multi-document count carries a newline and never
+    // survives the arithmetic in [`loop_indices`].
     let versions = documents
         .first()
         .map(|doc| index(doc, "versions"))
         .transpose()?
         .unwrap_or(Value::Null);
 
+    // A dispatched resolution touches exactly the named version and
+    // nothing else; every other pending version waits for a normal
+    // pass.
+    if let Some(resolution) = resolution {
+        return pass.resolve(&versions, &resolution);
+    }
+
+    // L66: the listing is sorted, so the order it is walked in must
+    // not be.
+    let mut order = loop_indices(&count);
+    order.shuffle(&mut rand::rng());
+
     let mut failures = 0_u64;
     for position in order {
-        if pass.version(&at(&versions, position)?)? {
+        if pass.version(&at(&versions, position)?, RunAdvisories::Yes)? {
             failures += 1;
         }
     }
@@ -450,7 +476,7 @@ struct Pass {
     minter: Minter,
     registry_origin: String,
     api_origin: String,
-    corpus: PathBuf,
+    corpus: Option<PathBuf>,
     started: Instant,
     budget: i64,
 }
@@ -459,7 +485,7 @@ impl Pass {
     /// L67-230, one pending version.  The `bool` is the shell's
     /// `failures=$((failures + 1))`: every exit from the loop body
     /// leaves the version pending, and only some of them count.
-    fn version(&mut self, entry: &Value) -> Result<bool> {
+    fn version(&mut self, entry: &Value, advisories: RunAdvisories) -> Result<bool> {
         let name = field(entry, "name")?;
         let version = field(entry, "version")?;
         let revision = field(entry, "revision")?;
@@ -470,39 +496,12 @@ impl Pass {
         let entry_path = workdir.path().join("entry.json");
         std::fs::write(&entry_path, compact(entry)).context("write the listing entry")?;
 
-        // L77-89: the name advisories run before the download - they
-        // need no bytes, so an abstained version costs a listing entry
-        // per pass and never a re-download.  Abstain renders no verdict
-        // and is deliberately not a failure: the version stays pending
-        // until the stuck-pending alert summons an operator
-        // (`registry/docs/runbook.md`, "Verification pipeline").
-        let Some(advice_json) = capture(
-            Command::new(VERIFIER)
-                .arg("--name-advisories")
-                .arg(&entry_path)
-                .arg(&self.corpus),
-        ) else {
-            eprintln!("{name}@{version}: name advisories failed operationally; leaving it pending");
-            return Ok(true);
-        };
-        let Some(advice_docs) = answer(&advice_json, "the name advisories answer")? else {
-            eprintln!("{name}@{version}: unknown advice ''; leaving it pending");
-            return Ok(true);
-        };
-        let advice = read_stream(&advice_docs, |doc| Ok(raw(&index(doc, "advice")?)))?;
-        match advice.as_str() {
-            "proceed" => {}
-            "abstain" => {
-                let findings = read_stream(&advice_docs, |doc| join(&index(doc, "findings")?))?;
-                println!(
-                    "{name}@{version}: abstain ({findings}); leaving it pending for operator review"
-                );
-                return Ok(false);
-            }
-            _ => {
-                eprintln!("{name}@{version}: unknown advice '{advice}'; leaving it pending");
-                return Ok(true);
-            }
+        // A dispatched `verify` resolution waives exactly the advisory
+        // gate - the real checks below still gate the verdict.
+        if advisories == RunAdvisories::Yes
+            && let Some(counted) = self.name_advisories(&entry_path, &name, &version)?
+        {
+            return Ok(counted);
         }
 
         let archive = workdir.path().join("archive.zip");
@@ -643,10 +642,249 @@ impl Pass {
         }
     }
 
+    /// L77-89, the advisory gate: the name advisories run before the
+    /// download - they need no bytes, so an abstained version costs a
+    /// listing entry per pass and never a re-download.  Abstain
+    /// renders no verdict and is deliberately not a failure: the
+    /// version stays pending until the stuck-pending alert summons an
+    /// operator (`registry/docs/runbook.md`, "Verification pipeline").
+    /// `None` proceeds to the download; `Some(counted)` leaves the
+    /// version pending, counted as an operational failure or not.
+    fn name_advisories(
+        &self,
+        entry_path: &Path,
+        name: &str,
+        version: &str,
+    ) -> Result<Option<bool>> {
+        // Fail-closed, checked before the spawn: only a resolution
+        // leaves the corpus unfetched, and a resolution never runs the
+        // advisories - an empty stand-in here would advise `proceed`
+        // for any name.
+        let Some(corpus) = self.corpus.as_deref() else {
+            bail!("the name advisories need the package corpus, which a resolution never fetches");
+        };
+        let Some(advice_json) = capture(
+            Command::new(VERIFIER)
+                .arg("--name-advisories")
+                .arg(entry_path)
+                .arg(corpus),
+        ) else {
+            eprintln!("{name}@{version}: name advisories failed operationally; leaving it pending");
+            return Ok(Some(true));
+        };
+        let Some(advice_docs) = answer(&advice_json, "the name advisories answer")? else {
+            eprintln!("{name}@{version}: unknown advice ''; leaving it pending");
+            return Ok(Some(true));
+        };
+        let advice = read_stream(&advice_docs, |doc| Ok(raw(&index(doc, "advice")?)))?;
+        match advice.as_str() {
+            "proceed" => Ok(None),
+            "abstain" => {
+                let findings = read_stream(&advice_docs, |doc| join(&index(doc, "findings")?))?;
+                println!(
+                    "{name}@{version}: abstain ({findings}); \
+                     leaving it pending for operator review"
+                );
+                Ok(Some(false))
+            }
+            _ => {
+                eprintln!("{name}@{version}: unknown advice '{advice}'; leaving it pending");
+                Ok(Some(true))
+            }
+        }
+    }
+
     /// bash's `$SECONDS`: whole seconds since the process started.
     fn seconds(&self) -> u64 {
         self.started.elapsed().as_secs()
     }
+
+    /// One dispatched resolution, touching exactly the named version.
+    /// Unlike the walk, every operational failure aborts loudly - the
+    /// operator is watching this run - and the version stays pending
+    /// for a re-dispatch either way.
+    fn resolve(&mut self, versions: &Value, resolution: &Resolution) -> Result<()> {
+        let Resolution { name, version, .. } = resolution;
+        let Some(entry) = find_entry(versions, name, version, resolution.revision.as_deref())?
+        else {
+            abort(&format!("{name}@{version} is not in the pending listing"));
+        };
+        // The verdict binds to this entry's checksum, so the revision
+        // it selects must be visible in the run's own output.
+        println!(
+            "resolving {name}@{version} revision {}",
+            field(&entry, "revision")?
+        );
+        match &resolution.action {
+            Action::Verify => {
+                if self.version(&entry, RunAdvisories::Waived)? {
+                    abort(&format!(
+                        "{name}@{version}: the waived verification failed \
+                         operationally and stays pending"
+                    ));
+                }
+            }
+            Action::Reject { rule } => {
+                let checksum = field(&entry, "checksum")?;
+                let published_at = field(&entry, "published_at")?;
+                let reason = format!("name_advisory: {rule}");
+                let body = verdict_body("rejected", Some(&reason), &checksum, &published_at);
+                let Ok(jwt) = self.minter.mint() else {
+                    abort(&format!(
+                        "{name}@{version}: OIDC token mint failed; still pending"
+                    ));
+                };
+                if self
+                    .plane
+                    .patch(&verdict_url(&self.api_origin, name, version), &body, &jwt)
+                    .is_err()
+                {
+                    abort(&format!(
+                        "{name}@{version}: verdict PATCH failed; still pending"
+                    ));
+                }
+                println!("{name}@{version}: rejected ({reason})");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether [`Pass::version`] runs the name advisories: every normal
+/// walk does, and only a dispatched `verify` resolution waives them -
+/// the operator has reviewed the abstained name by then, and the
+/// archive checks still gate the verdict either way.
+#[derive(Clone, Copy, PartialEq)]
+enum RunAdvisories {
+    Yes,
+    Waived,
+}
+
+/// One dispatched operator resolution (`registry/docs/runbook.md`,
+/// "Verification pipeline"): the abstained version it names - plus
+/// the revision selector when two pending revisions share it - and
+/// what to do about it.
+struct Resolution {
+    name: String,
+    version: String,
+    revision: Option<String>,
+    action: Action,
+}
+
+/// `verify` waives the name advisories and delivers whatever verdict
+/// the real checks render - never `verified` from the name alone;
+/// `reject` delivers the advisory rejection the operator confirmed.
+/// Neither action re-checks that the version ever abstained (abstain
+/// is a per-run advisory outcome, persisted nowhere): the dispatch is
+/// the operator's authority, and it grants nothing repository write
+/// access does not already imply - the same writer could edit this
+/// client on `main` and hold the pinned OIDC identity outright.
+enum Action {
+    Verify,
+    Reject { rule: String },
+}
+
+/// The dispatch inputs, threaded through as env vars so the workflow's
+/// `run:` block stays a plain invocation.  An empty `VERIFY_RESOLVE`
+/// is a normal pass - the dispatch form always submits its action
+/// default, so a stray `verify` alone means nothing - but a reason or
+/// an explicit `reject` without a target is an inconsistent form and
+/// refuses rather than walking the listing as if nothing were asked.
+fn resolution() -> Option<Resolution> {
+    const SHAPE: &str = "VERIFY_RESOLVE must be <scope>/<name>@<version>[#<revision>]";
+    let target = env("VERIFY_RESOLVE");
+    let action = env("VERIFY_RESOLVE_ACTION");
+    let rule = env("VERIFY_RESOLVE_REASON");
+    if target.is_empty() {
+        if !rule.is_empty() {
+            abort("VERIFY_RESOLVE_REASON is set without VERIFY_RESOLVE");
+        }
+        if action == "reject" {
+            abort("the reject action needs VERIFY_RESOLVE");
+        }
+        return None;
+    }
+    let (name, version) = match target.split_once('@') {
+        Some((name, version)) if name.contains('/') && !version.is_empty() => (name, version),
+        _ => abort(SHAPE),
+    };
+    // `#` is not legal in a version, so it can carry the revision
+    // selector for the one ambiguous case: two pending revisions of
+    // the same name and version (a `new-revision` republish while the
+    // first still pends).
+    let (version, revision) = match version.split_once('#') {
+        None => (version, None),
+        Some((version, revision)) if !version.is_empty() && !revision.is_empty() => {
+            (version, Some(revision.to_owned()))
+        }
+        Some(_) => abort(SHAPE),
+    };
+    let action = match action.as_str() {
+        "verify" => {
+            if !rule.is_empty() {
+                abort("VERIFY_RESOLVE_REASON is only for the reject action");
+            }
+            Action::Verify
+        }
+        "reject" => {
+            if rule.is_empty() {
+                abort("the reject action needs VERIFY_RESOLVE_REASON");
+            }
+            Action::Reject { rule }
+        }
+        other => abort(&format!("unknown VERIFY_RESOLVE_ACTION '{other}'")),
+    };
+    Some(Resolution {
+        name: name.to_owned(),
+        version: version.to_owned(),
+        revision,
+        action,
+    })
+}
+
+/// The one listing entry naming `<name>@<version>` (and `<revision>`,
+/// when the target carries the selector).  A listing with no
+/// `versions` at all holds no entry; anything that is not an array is
+/// malformed listing data and aborts, as every other listing read
+/// does.  More than one match - two pending revisions of the same
+/// version - aborts rather than silently binding the verdict to a
+/// revision the operator may not have reviewed.
+fn find_entry(
+    versions: &Value,
+    name: &str,
+    version: &str,
+    revision: Option<&str>,
+) -> Result<Option<Value>> {
+    let entries = match versions {
+        Value::Array(entries) => entries.as_slice(),
+        Value::Null => &[],
+        other => bail!("cannot search {} for a version", kind(other)),
+    };
+    let mut matched = Vec::new();
+    for entry in entries {
+        if field(entry, "name")? != name || field(entry, "version")? != version {
+            continue;
+        }
+        if let Some(revision) = revision
+            && field(entry, "revision")? != revision
+        {
+            continue;
+        }
+        matched.push(entry.clone());
+    }
+    if matched.len() > 1 {
+        let revisions: Vec<String> = matched
+            .iter()
+            .map(|entry| field(entry, "revision"))
+            .collect::<Result<_>>()?;
+        bail!(
+            "{name}@{version} has {} pending revisions ({}); \
+             disambiguate with @<version>#<revision>",
+            matched.len(),
+            revisions.join(", ")
+        );
+    }
+    Ok(matched.pop())
 }
 
 /// What the upstream step leaves the verifier invocation with, which is
@@ -1427,6 +1665,102 @@ mod tests {
         let passed = Instant::now();
         assert!(copy_capped(std::io::repeat(0).take(9), None, &path, passed, 100).is_err());
         copy_capped(std::io::empty(), None, &path, passed, 8).expect("an empty body");
+    }
+
+    /// The resolution lookup matches the listing's own rendered
+    /// `name`/`version` strings exactly - the abstain log line is
+    /// where the operator copies them from - and a listing shape no
+    /// other read would accept aborts here too.
+    #[test]
+    fn a_resolution_finds_exactly_the_named_version() {
+        let versions = serde_json::json!([
+            { "name": "scope/pkg", "version": "1.0.0", "checksum": "aa" },
+            { "name": "scope/pkg", "version": "2.0.0", "checksum": "bb" },
+            { "name": "other/pkg", "version": "1.0.0", "checksum": "cc" },
+        ]);
+        let hit = find_entry(&versions, "scope/pkg", "2.0.0", None)
+            .unwrap()
+            .expect("the entry");
+        assert_eq!(field(&hit, "checksum").unwrap(), "bb");
+        assert!(
+            find_entry(&versions, "scope/pkg", "3.0.0", None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            find_entry(&versions, "Scope/Pkg", "1.0.0", None)
+                .unwrap()
+                .is_none(),
+            "no case slack"
+        );
+        // No versions at all is "not found", not malformed data.
+        assert!(
+            find_entry(&Value::Null, "scope/pkg", "1.0.0", None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(find_entry(&serde_json::json!({}), "scope/pkg", "1.0.0", None).is_err());
+        // An entry that cannot be indexed is malformed listing data.
+        assert!(find_entry(&serde_json::json!(["oops"]), "scope/pkg", "1.0.0", None).is_err());
+    }
+
+    /// Two pending revisions of the same version (a `new-revision`
+    /// republish while the first still pends) must refuse rather than
+    /// silently bind the verdict to whichever revision listed first;
+    /// the `#<revision>` selector is the disambiguator.
+    #[test]
+    fn a_resolution_refuses_an_ambiguous_version_without_the_selector() {
+        let versions = serde_json::json!([
+            { "name": "scope/pkg", "version": "1.0.0", "revision": "r1", "checksum": "aa" },
+            { "name": "scope/pkg", "version": "1.0.0", "revision": "r2", "checksum": "bb" },
+        ]);
+        let ambiguous = find_entry(&versions, "scope/pkg", "1.0.0", None).unwrap_err();
+        assert_eq!(
+            ambiguous.to_string(),
+            "scope/pkg@1.0.0 has 2 pending revisions (r1, r2); \
+             disambiguate with @<version>#<revision>"
+        );
+        let hit = find_entry(&versions, "scope/pkg", "1.0.0", Some("r2"))
+            .unwrap()
+            .expect("the selected revision");
+        assert_eq!(field(&hit, "checksum").unwrap(), "bb");
+        assert!(
+            find_entry(&versions, "scope/pkg", "1.0.0", Some("r9"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// The advisory gate is what a dispatched `verify` resolution
+    /// waives, and nothing else: with no corpus (a resolution never
+    /// fetches one) a gated run fails closed on the corpus bail, while
+    /// a waived run proceeds past the gate to the archive download -
+    /// whose failure here (an origin with no host fails at URL parse,
+    /// before any network I/O) counts operationally, as on any walk.
+    #[test]
+    fn the_advisory_gate_runs_only_on_a_normal_walk() {
+        let mut pass = Pass {
+            plane: Plane {
+                agent: plane_agent(),
+                token: "t".to_owned(),
+            },
+            minter: Minter {
+                agent: plane_agent(),
+                url: "https://".to_owned(),
+                request_token: "rt".to_owned(),
+            },
+            registry_origin: "https://".to_owned(),
+            api_origin: "https://".to_owned(),
+            corpus: None,
+            started: Instant::now(),
+            budget: 0,
+        };
+        let entry = serde_json::json!({
+            "name": "scope/pkg", "version": "1.0.0", "revision": "r1",
+            "checksum": "ff", "published_at": "2026-01-01T00:00:00.000Z",
+        });
+        assert!(pass.version(&entry, RunAdvisories::Yes).is_err());
+        assert!(pass.version(&entry, RunAdvisories::Waived).unwrap());
     }
 
     /// The mint URL appends the pinned audience to the query string

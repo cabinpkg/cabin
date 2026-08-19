@@ -62,3 +62,49 @@ fn the_guards_refuse_before_anything_is_fetched() {
         .code(1)
         .stderr("ACTIONS_ID_TOKEN_REQUEST_TOKEN is not populated\n");
 }
+
+/// The dispatch-input guards, with every earlier guard satisfied: an
+/// inconsistently filled resolution form must refuse before any
+/// request rather than walk the listing as if nothing were asked.
+fn resolve(target: &str, action: &str, reason: &str) -> assert_cmd::assert::Assert {
+    Command::cargo_bin("xtask-registry-admin")
+        .expect("the binary")
+        .arg("verify")
+        .env("REGISTRY_VERIFY_TOKEN", "t")
+        .env("REGISTRY_ORIGIN", "https://x")
+        .env("EXPECTED_API_ORIGIN", "https://x")
+        .env("ACTIONS_ID_TOKEN_REQUEST_URL", "https://mint.invalid/x?v=1")
+        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "rt")
+        .env("VERIFY_RESOLVE", target)
+        .env("VERIFY_RESOLVE_ACTION", action)
+        .env("VERIFY_RESOLVE_REASON", reason)
+        .assert()
+        .code(1)
+}
+
+#[test]
+fn the_resolution_guards_refuse_an_inconsistent_dispatch() {
+    // A reason or an explicit reject with no target is an inconsistent
+    // form; a stray `verify` alone is not - the dispatch form always
+    // submits its action default.
+    resolve("", "verify", "profanity")
+        .stderr("VERIFY_RESOLVE_REASON is set without VERIFY_RESOLVE\n");
+    resolve("", "reject", "").stderr("the reject action needs VERIFY_RESOLVE\n");
+    for target in [
+        "scope-pkg@1.0.0",
+        "scope/pkg",
+        "@1.0.0",
+        "scope/pkg@",
+        "scope/pkg@1.0.0#",
+        "scope/pkg@#r1",
+    ] {
+        resolve(target, "verify", "")
+            .stderr("VERIFY_RESOLVE must be <scope>/<name>@<version>[#<revision>]\n");
+    }
+    resolve("scope/pkg@1.0.0", "verify", "profanity")
+        .stderr("VERIFY_RESOLVE_REASON is only for the reject action\n");
+    resolve("scope/pkg@1.0.0", "reject", "")
+        .stderr("the reject action needs VERIFY_RESOLVE_REASON\n");
+    resolve("scope/pkg@1.0.0", "", "").stderr("unknown VERIFY_RESOLVE_ACTION ''\n");
+    resolve("scope/pkg@1.0.0", "abstain", "").stderr("unknown VERIFY_RESOLVE_ACTION 'abstain'\n");
+}

@@ -10,10 +10,29 @@ name: Registry Verify
 #
 # Manual dispatch only while the registry is in private alpha; the
 # 5-minute cron returns at launch (runbook, "Launch checklist").
-# The run's input is whatever the registry reports as pending,
-# never this repository's files.
+# What a run verifies is whatever the registry reports as pending,
+# never this repository's files; the dispatch inputs below only
+# select among those pending versions.
 on:
   workflow_dispatch:
+    # Operator resolution of ONE abstained version (runbook,
+    # "Verification pipeline"); all empty = a normal pass.
+    inputs:
+      resolve:
+        description: "Abstained version to resolve, as <scope>/<name>@<version>[#<revision>]; empty runs a normal pass"
+        required: false
+        default: ""
+      resolution:
+        description: "verify = waive the name advisories, the real checks still render the verdict; reject = deliver a name_advisory rejection"
+        type: choice
+        options:
+          - verify
+          - reject
+        default: verify
+      reason:
+        description: "reject only: the advisory rule, delivered as 'name_advisory: <rule>'"
+        required: false
+        default: ""
 
 permissions: {}
 
@@ -62,4 +81,10 @@ jobs:
           VERIFY_ABS_CAP_BYTES: ${{ vars.VERIFY_ABS_CAP_BYTES }}
           VERIFY_MAX_ENTRIES: ${{ vars.VERIFY_MAX_ENTRIES }}
           VERIFY_MAX_PATH_LEN: ${{ vars.VERIFY_MAX_PATH_LEN }}
+          # The dispatch inputs, as env so the run stays a plain
+          # invocation.  A plain dispatch still submits the action
+          # default; the client keys everything off `resolve`.
+          VERIFY_RESOLVE: ${{ inputs.resolve }}
+          VERIFY_RESOLVE_ACTION: ${{ inputs.resolution }}
+          VERIFY_RESOLVE_REASON: ${{ inputs.reason }}
         run: cargo registry-verify
