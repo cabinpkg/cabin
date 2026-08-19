@@ -3,12 +3,14 @@ name: Ports Publish
 # Publishes the committed foundation ports as `cabin-ports/*`
 # registry packages through the repository tool
 # (crates/xtask-port-publish). Pull requests run the complete
-# preflight as a dry-run with no credentials; pushes to main publish
-# the published set; manual dispatch from main republishes everything
-# (the recovery path after a pre-launch registry wipe - dispatching
-# any other ref runs the dry-run instead, never a publish), or - with
-# the exchange-check input - only proves the trusted-publishing
-# binding without publishing. No long-lived credential exists
+# preflight as a dry-run with no credentials. Publishing is manual
+# only: a dispatch from main publishes the set (dispatching any
+# other ref runs the dry-run instead, never a publish), so a merged
+# ports change reaches the registry at the next dispatch, and the
+# same dispatch is the recovery path after a pre-launch registry
+# wipe. Dispatching with the exchange-check input instead only
+# proves the trusted-publishing binding without publishing. Pushes
+# to main run no job here. No long-lived credential exists
 # anywhere in this workflow: `cabin publish` exchanges the run's OIDC
 # token for a short-lived registry token and revokes it on exit
 # (docs/remote-registry.md, "Publishing from GitHub Actions"). The
@@ -82,7 +84,7 @@ jobs:
     # build on a publish that can only fail: the registry's
     # trusted-publishing config pins this repository's immutable
     # numeric GitHub id, so a fork's exchange answers the uniform 401.
-    if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.exchange-check
+    if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && !inputs.exchange-check
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -135,7 +137,7 @@ jobs:
       # order them, and an out-of-order stale run would publish an
       # intermediate state of a version as an otherwise-unnecessary
       # packaging revision. Skip instead when main already carries a
-      # newer commit - that commit's own run publishes the full set.
+      # newer commit - the next dispatch publishes the full set.
       #
       # Accepted residual window: the publish command below runs the
       # tool's own preflight (minutes) before uploading, so a newer
@@ -144,8 +146,8 @@ jobs:
       # not have - only shrunk by re-running the entire preflight or
       # coupling the tool to git ordering. It needs two byte-divergent
       # edits of one published version inside a single run's window,
-      # and the recovery is the newer commit's own run: its upload
-      # supersedes the stale revision (docs/foundation-ports.md).
+      # and the recovery is the next dispatch: its upload supersedes
+      # the stale revision (docs/foundation-ports.md).
       - name: Skip when superseded by a newer main commit
         id: freshness
         run: cargo workflow-superseded

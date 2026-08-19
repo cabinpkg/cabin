@@ -298,15 +298,12 @@ Do the whole sequence in one sitting, in this order - two of the steps
 gate on each other and doing them out of order costs a revoke-and-remint
 round trip (drilled 2026-07-29). Before the wipe itself, disable
 ports-publish (`gh workflow disable ports-publish.yml`) and cancel any
-in-flight ports-publish run: its runs mint their own publish tokens
-through the trusted-publishing exchange, the governor wipe in step 4
-refuses while any live publish token exists, and a run left polling in
-its deploy wait would publish the moment step 1's push unfreezes the
-deploy - before the governor gate has run. While the deploy gate is
-frozen on a stale `migrations-applied` stamp, keep ports-publish
-disabled the whole time, not just for the wipe: every push-triggered
-run fails its deploy wait fast and paints main red. Re-enable it in
-step 5.
+in-flight ports-publish run: publish runs exist only from a manual
+dispatch, but one mid-ceremony would mint its own publish token
+through the trusted-publishing exchange - the governor wipe in step 4
+refuses while any live publish token exists - and a run left polling
+in its deploy wait would publish the moment step 1's push unfreezes
+the deploy, before the governor gate has run. Re-enable it in step 5.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp; the deploy gate opens on that push.
