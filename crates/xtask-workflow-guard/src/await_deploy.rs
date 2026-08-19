@@ -70,13 +70,31 @@
 //! leading comment, which is outside the `run:` body, stays in the
 //! workflow.
 //!
-//! Two deliberate post-port behavior changes (2026-08-15, run
-//! 31904670113):
+//! Three deliberate post-port behavior changes (2026-08-15, run
+//! 31904670113; job-skip arm 2026-08-19):
 //!
+//! - A same-SHA Registry run whose `deploy-registry` JOB itself
+//!   concluded `skipped` - the workflow's change gate found no
+//!   registry-relevant files in the push, so `build` and `conformance`
+//!   never ran and `needs` skipped the deploy - answers 0 immediately,
+//!   like L26's no-run arm: the gate is a deterministic property of
+//!   the commit (a rerun re-answers the same), such a run can never
+//!   deploy, and the deployed Worker is already current for this SHA.
+//!   See `SameShaDeploy`.  SAFETY INVARIANT this arm leans on, pinned
+//!   here because the gate lives in `.github/path-filters.yml`: every
+//!   path that can change the Worker's accepted schema or the publish
+//!   client (`registry/`, `crates/`, the root manifests, `.cargo/`,
+//!   `.github/`) must stay in `registry.yml`'s `registry` filter, so
+//!   the only pushes that reach this arm - ports-publish ran, the
+//!   registry jobs skipped - are ones touching nothing but the ports
+//!   tree, which no Worker or client code reads.  A `ports` filter
+//!   entry absent from the `registry` filter (other than `ports/**`)
+//!   would let a client-changing push publish against a Worker whose
+//!   conformance never ran for it.
 //! - A same-SHA Registry run that succeeded with its Deploy step
 //!   *skipped* now takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see
-//!   `same_sha_deploy_skipped`.  During the pre-launch deploy freeze
+//!   `SameShaDeploy`.  During the pre-launch deploy freeze
 //!   (a D1 migration awaiting its by-hand apply skips every Deploy)
 //!   the original had no terminal answer at all; an operator now
 //!   reruns the workflow once the deploy lands.
@@ -176,11 +194,21 @@ const TRANSIENT_PENDING: &str = "transient API error listing pending Registry ru
 const TRANSIENT_SCAN: &str = "could not confirm that no deploy containing this SHA has landed \
      (a transient fetch or API failure); retrying";
 const NO_RUN: &str = "no Registry run for this SHA; the deployed worker is already current";
+// Post-port (not one of the script's echoes): the change-gated
+// same-SHA run shape - see `SameShaDeploy::JobSkipped`.
+const JOB_SKIPPED: &str = "Registry run for this SHA skipped its registry jobs (no \
+     registry-relevant changes); the deployed worker is already current";
 const TIMED_OUT: &str = "timed out waiting for a registry deploy containing this SHA";
 
 /// L9, L3, L20 and L33's projections, which run inside `gh`.
 const CANDIDATES_JQ: &str = r#".workflow_runs[] | "\(.id) \(.head_sha)""#;
 const DEPLOY_STEP_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry") | .steps[] | select(.name == "Deploy") | .conclusion][0]"#;
+/// The job's own conclusion and its Deploy step's, in one projection:
+/// a job skipped by its `needs` chain has an EMPTY `steps` array, so
+/// the step half alone cannot tell "the gate skipped the job"
+/// (`skipped null`) from "the job ran and skipped its Deploy step"
+/// (`success skipped`).
+const DEPLOY_OUTCOME_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry") | "\(.conclusion) \([.steps[] | select(.name == "Deploy") | .conclusion][0])"][0]"#;
 const RUNS_JQ: &str = ".workflow_runs";
 const PENDING_JQ: &str = r#".workflow_runs[] | select(.status != "completed") | .head_sha"#;
 
@@ -320,16 +348,28 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
         return Some(Report::Die);
     }
     let conclusion = text(conclusion);
-    // Post-port change (2026-08-15, run 31904670113): a same-SHA run
-    // that SUCCEEDED with its Deploy step skipped - superseded, or a
-    // D1 migration awaiting its by-hand apply (the pre-launch deploy
-    // freeze) - can never green-light this SHA, and the original fell
-    // through to the wait here, idling the publish job into its hour
-    // ceiling.  Detect the skip and take the same
+    // Post-port changes (2026-08-15, run 31904670113; job-skip arm
+    // 2026-08-19): a same-SHA run that SUCCEEDED without deploying
+    // takes one of two exits the original lacked (it fell through to
+    // the wait here, idling the publish job into its hour ceiling).
+    // A `deploy-registry` JOB that itself concluded `skipped` is the
+    // change gate deciding this push touched nothing
+    // registry-relevant - deterministic for the commit, so no deploy
+    // can ever come and the deployed Worker is already current: exit
+    // 0 like the no-run arm above.  A job that ran but skipped its
+    // Deploy STEP (superseded, or a D1 migration awaiting its by-hand
+    // apply - the pre-launch deploy freeze) takes the same
     // pending-descendant exit the failure path takes, with the reason
     // named.  A query failure keeps the old safe answer (wait).
-    let deploy_skipped =
-        conclusion == "success" && same_sha_deploy_skipped(shell, repository, &runs);
+    let same_sha = if conclusion == "success" {
+        same_sha_deploy(shell, repository, &runs)
+    } else {
+        SameShaDeploy::Other
+    };
+    if same_sha == SameShaDeploy::JobSkipped {
+        return Some(Report::Done(JOB_SKIPPED.to_owned()));
+    }
+    let deploy_skipped = same_sha == SameShaDeploy::StepSkipped;
     if !deploy_skipped && conclusion != "failure" && conclusion != "cancelled" {
         return None;
     }
@@ -430,32 +470,55 @@ fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
     if blind { Landed::Blind } else { Landed::Miss }
 }
 
-/// Whether the same-SHA Registry run's Deploy step concluded
-/// `skipped`.  Reads the run id from the same-SHA listing and asks the
-/// jobs API the question the candidate scan asks; any failure along
-/// the way answers `false`, which keeps the pre-change behavior
-/// (wait).
-fn same_sha_deploy_skipped(shell: &mut dyn Shell, repository: &str, runs: &[u8]) -> bool {
+/// How the same-SHA Registry run left its `deploy-registry` job.
+#[derive(Debug, PartialEq, Eq)]
+enum SameShaDeploy {
+    /// The job itself concluded `skipped`: its `needs` chain was
+    /// skipped by the workflow's change gate, so this push can never
+    /// deploy and the deployed Worker is already current.
+    JobSkipped,
+    /// The job ran but its Deploy step concluded `skipped`:
+    /// superseded, or the pre-launch deploy freeze.
+    StepSkipped,
+    /// Anything else, a failed query included: keep the pre-change
+    /// behavior (wait).
+    Other,
+}
+
+/// Reads the run id from the same-SHA listing and asks the jobs API
+/// for the `deploy-registry` job's conclusion paired with its Deploy
+/// step's ([`DEPLOY_OUTCOME_JQ`]).
+fn same_sha_deploy(shell: &mut dyn Shell, repository: &str, runs: &[u8]) -> SameShaDeploy {
     let (ran, id) = shell.capture(&["jq", "-r", ".[0].id"], runs);
     if !ran {
-        return false;
+        return SameShaDeploy::Other;
     }
     let id = text(id);
     let id = id.trim_matches(IFS).trim_matches('\n');
     if id.is_empty() || id == "null" {
-        return false;
+        return SameShaDeploy::Other;
     }
-    let (ran, step) = shell.capture(
+    let (ran, outcome) = shell.capture(
         &[
             "gh",
             "api",
             &jobs_url(repository, id),
             "--jq",
-            DEPLOY_STEP_JQ,
+            DEPLOY_OUTCOME_JQ,
         ],
         &[],
     );
-    ran && crate::substitute(step) == b"skipped".as_slice()
+    if !ran {
+        return SameShaDeploy::Other;
+    }
+    // A skipped job has an empty steps array, so its step half is
+    // jq's interpolated `null` (probed against the live API,
+    // 2026-08-19: run 32216610154 answers exactly `skipped null`).
+    match crate::substitute(outcome).as_slice() {
+        b"skipped null" => SameShaDeploy::JobSkipped,
+        b"success skipped" => SameShaDeploy::StepSkipped,
+        _ => SameShaDeploy::Other,
+    }
 }
 
 /// L10..L17: the successful runs, in the order the API listed them,
@@ -891,30 +954,18 @@ mod tests {
     /// hour ceiling - stop immediately, with the reason.
     #[test]
     fn a_skipped_deploy_with_no_pending_descendant_stops_fast() {
+        // The candidate scan and the outcome query both ask about run
+        // 88, so the needles key on each projection's unique jq text.
         let mut shell = Fake::answering(&[
             FETCH_OK,
-            (
-                "status=success",
-                true,
-                "88 head88
-",
-            ),
-            (
-                "jobs?per_page=100",
-                true,
-                "skipped
-",
-            ),
+            ("status=success", true, "88 head88\n"),
+            (r#"deploy-registry") | .steps"#, true, "skipped\n"),
+            (r"\(.conclusion)", true, "success skipped\n"),
             ("head_sha=", true, "[{}]"),
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            (
-                "branch=main&per_page=100",
-                true,
-                "stale
-",
-            ),
+            ("branch=main&per_page=100", true, "stale\n"),
         ])
         .descending_from(&["head88"]);
         match iteration(&mut shell, "abc", "o/r") {
@@ -931,28 +982,14 @@ mod tests {
     #[test]
     fn a_skipped_deploy_with_a_pending_descendant_waits() {
         let mut shell = Fake::answering(&[
-            (
-                "status=success",
-                true,
-                "88 head88
-",
-            ),
-            (
-                "jobs?per_page=100",
-                true,
-                "skipped
-",
-            ),
+            ("status=success", true, "88 head88\n"),
+            (r#"deploy-registry") | .steps"#, true, "skipped\n"),
+            (r"\(.conclusion)", true, "success skipped\n"),
             ("head_sha=", true, "[{}]"),
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            (
-                "branch=main&per_page=100",
-                true,
-                "pending99
-",
-            ),
+            ("branch=main&per_page=100", true, "pending99\n"),
         ])
         .descending_from(&["head88", "pending99"]);
         match iteration(&mut shell, "abc", "o/r") {
@@ -977,7 +1014,7 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            ("runs/88/jobs", true, "skipped\n"),
+            ("runs/88/jobs", true, "success skipped\n"),
             ("branch=main&per_page=100", true, "stale\n"),
         ])
         .descending_from(&["head77", "head88"]);
@@ -1016,7 +1053,7 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            ("runs/88/jobs", true, "skipped\n"),
+            ("runs/88/jobs", true, "success skipped\n"),
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(
@@ -1025,14 +1062,20 @@ mod tests {
         );
     }
 
-    /// The negative arm of the skip predicate: only a Deploy step
-    /// that concluded exactly `skipped` is a skip.  A step that ran
-    /// (`success`, on a listing that lagged behind the candidate
-    /// scan), an absent step (`null`), or any other answer falls
+    /// The negative arm of the outcome predicate: only `success
+    /// skipped` is the step-skip and only `skipped null` is the
+    /// job-skip.  A Deploy that ran (`success success`, on a listing
+    /// that lagged behind the candidate scan), an absent step
+    /// (`success null`), an empty answer, or any other pairing falls
     /// through to the wait.
     #[test]
     fn a_success_run_whose_deploy_was_not_skipped_waits() {
-        for step in ["success\n", "null\n", "", "failure\n"] {
+        for outcome in [
+            "success success\n",
+            "success null\n",
+            "",
+            "success failure\n",
+        ] {
             let mut shell = Fake::answering(&[
                 FETCH_OK,
                 ("status=success", true, ""),
@@ -1040,10 +1083,40 @@ mod tests {
                 ("jq length", true, "1"),
                 ("jq -r .[0].conclusion", true, "success"),
                 ("jq -r .[0].id", true, "88"),
-                ("runs/88/jobs", true, step),
+                ("runs/88/jobs", true, outcome),
             ]);
-            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{step:?}");
+            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{outcome:?}");
         }
+    }
+
+    /// The change-gated shape: the same-SHA run succeeded with its
+    /// `deploy-registry` job itself skipped - an empty steps array,
+    /// which the outcome projection reads as `skipped null` (probed
+    /// against the live jobs API) - so no deploy can ever come from
+    /// this push and the Worker is already current.  Immediate, like
+    /// the no-run arm: the change gate's answer is a deterministic
+    /// property of the commit, so there is no sampling race for a
+    /// confirmation pass to resolve.
+    #[test]
+    fn a_change_gated_job_skip_exits_zero_without_waiting() {
+        let answers = [
+            FETCH_OK,
+            ("status=success", true, ""),
+            ("head_sha=", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "success"),
+            ("jq -r .[0].id", true, "88"),
+            ("runs/88/jobs", true, "skipped null\n"),
+        ];
+        let mut shell = Fake::answering(&answers);
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r"),
+            Some(Report::Done(JOB_SKIPPED.to_owned()))
+        );
+        assert_eq!(shell.called("branch=main&per_page=100"), 0);
+        let mut shell = Fake::answering(&answers);
+        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        assert_eq!(shell.waits, 0);
     }
 
     /// A deploy-step query failure keeps the old safe answer: wait.
@@ -1092,7 +1165,7 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            ("runs/88/jobs", true, "skipped\n"),
+            ("runs/88/jobs", true, "success skipped\n"),
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
@@ -1115,7 +1188,7 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r .[0].conclusion", true, "success"),
             ("jq -r .[0].id", true, "88"),
-            ("runs/88/jobs", true, "skipped\n"),
+            ("runs/88/jobs", true, "success skipped\n"),
             ("branch=main&per_page=100", true, "stale\n"),
         ])
         .answering_once(&[("status=success", true, "")])

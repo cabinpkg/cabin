@@ -663,9 +663,11 @@ records `pending=true` when `registry/migrations-applied` no longer matches, whi
 a deploy from activating Worker code built for a schema the operator has not applied by hand.
 `cargo workflow-await-deploy` is `ports-publish.yml`'s deploy wait: it
 polls (90 times, 40 seconds apart) for a successful `main` Registry run whose head contains
-`$GITHUB_SHA` and whose Deploy step actually ran, and answers 0 as soon as one lands or the SHA
-turns out to have triggered no Registry run at all, which is what keeps a publish from uploading
-against a Worker built before this commit's metadata schema.
+`$GITHUB_SHA` and whose Deploy step actually ran, and answers 0 as soon as one lands, the SHA
+turns out to have triggered no Registry run at all, or the SHA's Registry run skipped its
+`deploy-registry` job outright (such a run deploys nothing and never will, so the deployed
+Worker is already current), which is what keeps a publish from
+uploading against a Worker built before this commit's metadata schema.
 The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate, and
 `xtask-registry-admin`'s diagnose bundle consumes the same function.  The crate must:
 
