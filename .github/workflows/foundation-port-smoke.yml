@@ -25,11 +25,6 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Install Linux build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc g++
-
       - name: Run ignored real-upstream registry example smoke tests
         run: |
           cargo test -p cabinpkg --test cabin_examples --all-features --locked \
