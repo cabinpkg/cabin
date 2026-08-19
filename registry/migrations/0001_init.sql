@@ -198,17 +198,19 @@ CREATE TABLE trustpub_configs (
 CREATE INDEX trustpub_configs_repository
     ON trustpub_configs (repository_owner_id, repository_id);
 
--- Replay protection for the OIDC exchange: a JWT's jti is consumed
--- exactly once (INSERT into the primary key; the loser of a race
--- fails). NOT NULL is load-bearing on a TEXT primary key: SQLite
--- permits duplicate NULLs in a non-INTEGER PRIMARY KEY, which would
--- exempt a null jti from the once-only rule. expires_at is the end
--- of the verifier's acceptance window (src/trustpub.rs
+-- Replay protection for GitHub OIDC JWTs, shared across every
+-- audience the registry accepts (GitHub mints jti values unique
+-- across audiences): a JWT's jti is consumed exactly once (INSERT
+-- into the primary key; the loser of a race fails). NOT NULL is
+-- load-bearing on a TEXT primary key: SQLite permits duplicate
+-- NULLs in a non-INTEGER PRIMARY KEY, which would exempt a null
+-- jti from the once-only rule. expires_at is the end of the
+-- JWT's acceptance window (src/trustpub.rs
 -- GithubClaims::verifiable_until: the token's `exp` PLUS the
 -- verification leeway, Unix seconds) so rows can be pruned once the
 -- JWT they name could no longer verify anyway - storing raw `exp`
 -- would reopen replay inside the leeway.
-CREATE TABLE trustpub_used_jtis (
+CREATE TABLE oidc_used_jtis (
     jti TEXT PRIMARY KEY NOT NULL,
     expires_at INTEGER NOT NULL
 );

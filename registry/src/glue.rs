@@ -975,7 +975,7 @@ async fn trustpub_exchange_response(
     // transient 500 never burns a still-valid JWT.
     let results = db
         .batch(vec![
-            db.prepare(sql::CONSUME_TRUSTPUB_JTI)
+            db.prepare(sql::CONSUME_OIDC_JTI)
                 .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
             db.prepare(sql::INSERT_TRUSTPUB_TOKEN).bind(&[
                 id.as_str().into(),
@@ -987,7 +987,7 @@ async fn trustpub_exchange_response(
                 config.scope.as_str().into(),
                 config.quota_class.as_str().into(),
             ])?,
-            db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS)
+            db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
                 .bind(&[js_int(now_secs)])?,
             db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS)
                 .bind(&[created_at.as_str().into()])?,

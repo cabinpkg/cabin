@@ -573,16 +573,16 @@ fn expiry_pruning_is_trustpub_only_and_boundary_inclusive() {
     // window, so a row at exactly now protects nothing and goes; a
     // later one stays.
     conn.execute_batch(
-        "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-dead', 100), \
+        "INSERT INTO oidc_used_jtis (jti, expires_at) VALUES ('jti-dead', 100), \
                                                                  ('jti-live', 101);",
     )
     .expect("seed jtis");
     let pruned = conn
-        .execute(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS, [100])
+        .execute(sql::PRUNE_EXPIRED_OIDC_JTIS, [100])
         .expect("prune jtis");
     assert_eq!(pruned, 1);
     let survivor: String = conn
-        .query_row("SELECT jti FROM trustpub_used_jtis", [], |row| row.get(0))
+        .query_row("SELECT jti FROM oidc_used_jtis", [], |row| row.get(0))
         .expect("surviving jti");
     assert_eq!(survivor, "jti-live");
 }
@@ -646,13 +646,13 @@ fn expiry_timestamps_must_be_the_fixed_width_iso_shape() {
 fn used_jtis_refuse_null_and_replayed_ids() {
     let conn = migrated_connection();
     conn.execute(
-        "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-1', 1)",
+        "INSERT INTO oidc_used_jtis (jti, expires_at) VALUES ('jti-1', 1)",
         [],
     )
     .expect("first consumption");
     let replay = conn
         .execute(
-            "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES ('jti-1', 2)",
+            "INSERT INTO oidc_used_jtis (jti, expires_at) VALUES ('jti-1', 2)",
             [],
         )
         .expect_err("a replayed jti must fail the primary key");
@@ -661,7 +661,7 @@ fn used_jtis_refuse_null_and_replayed_ids() {
     // duplicate NULLs through a TEXT primary key.
     let null = conn
         .execute(
-            "INSERT INTO trustpub_used_jtis (jti, expires_at) VALUES (NULL, 1)",
+            "INSERT INTO oidc_used_jtis (jti, expires_at) VALUES (NULL, 1)",
             [],
         )
         .expect_err("a null jti must fail NOT NULL");
