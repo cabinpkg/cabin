@@ -1162,6 +1162,44 @@ struct VerdictTargetRecord {
     archive_size: i64,
 }
 
+/// The listing binding: the row must still be the generation the
+/// verifier listed, both its bytes and its publish event (a
+/// byte-identical revival changes `published_at` but not the checksum,
+/// which is why `parse_verdict` requires both for both verdicts).
+/// Both mismatches are loud: a checksum mismatch means the verifier
+/// judged different archive bytes than the row stores (the row was
+/// found by the checksum's leading prefix, so the tails diverge) - the
+/// "verifier saw a different artifact" alarm - and a `published_at`
+/// mismatch means the verdict targets a superseded generation.
+fn verdict_binding_matches(
+    parsed: &verify::ParsedVerdict,
+    target: &VerdictTargetRecord,
+    scope: &str,
+    name: &str,
+    version: &str,
+    revision: &str,
+) -> bool {
+    if parsed.checksum != target.checksum {
+        console_error!(
+            "verifier saw a different artifact for {scope}/{name}@{version}#{revision}: \
+             verdict checksum {}, stored {}",
+            parsed.checksum,
+            target.checksum
+        );
+        return false;
+    }
+    if parsed.published_at != target.published_at {
+        console_error!(
+            "verdict for {scope}/{name}@{version}#{revision} names a superseded generation: \
+             verdict published_at {}, stored {}",
+            parsed.published_at,
+            target.published_at
+        );
+        return false;
+    }
+    true
+}
+
 /// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>` (`verify`
 /// scope): the verifier's verdict. Pending versions accept either verdict; a
 /// repeat of the verdict a terminal version already carries is the
@@ -1241,32 +1279,7 @@ async fn verdict_response(
         );
         return error_response(500, error::INTERNAL);
     };
-    // The listing binding: the row must still be the generation the
-    // verifier listed, both its bytes and its publish event (a
-    // byte-identical revival changes published_at but not checksum,
-    // which is why `parse_verdict` requires both for both verdicts).
-    // Both mismatches are loud: a checksum mismatch means the verifier
-    // judged different archive bytes than the row stores (the row was
-    // found by the checksum's leading prefix, so the tails diverge) -
-    // the "verifier saw a different artifact" alarm - and a
-    // published_at mismatch means the verdict targets a superseded
-    // generation.
-    if parsed.checksum != target.checksum {
-        console_error!(
-            "verifier saw a different artifact for {scope}/{name}@{version}#{revision}: \
-             verdict checksum {}, stored {}",
-            parsed.checksum,
-            target.checksum
-        );
-        return error_response(409, error::VERDICT_TARGET_CHANGED);
-    }
-    if parsed.published_at != target.published_at {
-        console_error!(
-            "verdict for {scope}/{name}@{version}#{revision} names a superseded generation: \
-             verdict published_at {}, stored {}",
-            parsed.published_at,
-            target.published_at
-        );
+    if !verdict_binding_matches(&parsed, &target, scope, name, version, &revision) {
         return error_response(409, error::VERDICT_TARGET_CHANGED);
     }
 
