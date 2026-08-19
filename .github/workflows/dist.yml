@@ -55,15 +55,29 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - parallel:
-        # Only the demo recorders need apt; retries and timeouts keep
+        # zsh is the only tool left on apt; retries and timeouts keep
         # a stalled mirror from hanging the job.
-        - name: Install demo tools
+        - name: Install zsh
           run: |
             sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y \
-              ffmpeg ttyd bat zsh
-            # Ubuntu ships bat as `batcat`; expose it as `bat` for the demo.
-            sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y zsh
+
+        # Pinned static release builds: apt's ffmpeg dependency tree
+        # alone took ~10 minutes on this image. Pin ffmpeg to a BtbN
+        # MONTH-END autobuild (kept two years); dailies prune after 14
+        # days and would 404 here.
+        - name: Install ffmpeg, ttyd, and bat
+          working-directory: ${{ runner.temp }}
+          run: |
+            wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
+            tar -xJf ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
+            sudo mv ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin
+            wget -q -O ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
+            chmod +x ttyd
+            sudo mv ttyd /usr/local/bin
+            wget -q https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            tar -xzf bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            sudo mv bat-v0.26.1-x86_64-unknown-linux-musl/bat /usr/local/bin
 
         - name: Build and Install Cabin Binary (release)
           run: |
