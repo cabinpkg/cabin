@@ -81,12 +81,13 @@ tooling is left in this repository. Do not reintroduce any.
   keep `.github/**` in every list so workflow or filter edits re-run
   everything. No test polices the file - the previous per-workflow
   copies grew a YAML-scraping test that broke on an unrelated rename.
-  Two carve-outs: a job required by a matrix-leg context
-  (`build-and-test`) stays ungated, because skipping the job never
-  expands the matrix, so the required leg name never reports and the
-  merge hangs forever; and a failed (not skipped) `changes` job skips
-  its dependents to satisfied - the red gate run is the only signal,
-  accepted.
+  Two carve-outs: a required matrix job reports through a non-matrix
+  aggregate (`build-and-test-required`), because skipping a matrix job
+  never expands it, so a required per-leg name would never report and
+  the merge would hang forever; and a failed (not skipped) `changes`
+  job skips its dependents to satisfied - the aggregate fails closed
+  on that, and the other required checks accept it with the red gate
+  run as the only signal.
 - No test may read a file under `.github/` or depend on a workflow living at
   a particular path. Moving or renaming a workflow must never be able to
   fail the test suite.

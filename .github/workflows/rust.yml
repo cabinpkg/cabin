@@ -31,6 +31,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       toml: ${{ steps.filter.outputs.toml }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       # The filter file is read from the checkout, and push events
       # diff against the previous head from local history.
@@ -107,11 +108,12 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  # Ungated on purpose: branch protection requires the windows leg by
-  # its matrix-expanded name, which a job-level skip never posts, and
-  # the workspace tests assert on docs/ and root .md files no filter
-  # lists.
+  # The `docs` filter too: the workspace tests embed docs/ and the
+  # root guides. Branch protection requires `build-and-test-required`
+  # below, never a matrix leg.
   build-and-test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.docs == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -154,15 +156,22 @@ jobs:
   # Branch protection pins this aggregate: a skipped matrix job never
   # posts per-leg names. `always()`, never `!cancelled()`: a cancelled
   # run must fail this check, not skip it to a green required check.
+  # Fails closed when the gate itself failed.
   build-and-test-required:
-    needs: build-and-test
+    needs: [changes, build-and-test]
     if: always()
     runs-on: ubuntu-slim
     steps:
-      - name: Fail unless the matrix succeeded
+      - name: Fail unless the matrix succeeded or the filter skipped it
         env:
           RESULT: ${{ needs.build-and-test.result }}
-        run: test "$RESULT" = success
+          GATE: ${{ needs.changes.result }}
+          RUST: ${{ needs.changes.outputs.rust }}
+          DOCS: ${{ needs.changes.outputs.docs }}
+        run: |
+          if [ "$RESULT" = "success" ]; then exit 0; fi
+          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
+            && [ "$RUST" != "true" ] && [ "$DOCS" != "true" ]
 
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately
