@@ -93,7 +93,7 @@ jobs:
       - name: Clippy (wasm32)
         run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
 
-  build:
+  registry-build:
     needs: changes
     if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
@@ -185,7 +185,7 @@ jobs:
   # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [registry-format, registry-clippy, build, conformance]
+    needs: [registry-format, registry-clippy, registry-build, conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
