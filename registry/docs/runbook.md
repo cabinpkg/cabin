@@ -98,8 +98,8 @@ Two hostnames, one zone:
 Deploy skew: `cabin-website` deploys automatically on every push to
 `main` (Workers Builds); `cabin-registry` deploys from CI (the
 `deploy-registry` job in `.github/workflows/registry.yml`) on pushes
-to `main` matching that workflow's paths filter, after its build and
-conformance jobs pass. A merge that changes the session-plane JSON
+to `main` with registry-relevant changes (the `registry` filter in
+`.github/path-filters.yml`), after its gate jobs pass. A merge that changes the session-plane JSON
 contract therefore briefly has the account pages ahead of the live
 registry Worker while the gate runs - accepted pre-launch (private
 alpha), with no legacy-field fallbacks in the frontend. A red gate

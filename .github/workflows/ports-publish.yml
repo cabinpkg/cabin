@@ -2,8 +2,9 @@ name: Ports Publish
 
 # Publishes the committed foundation ports as `cabin-ports/*`
 # registry packages through the repository tool
-# (crates/xtask-port-publish). Pull requests run the complete
-# preflight as a dry-run with no credentials. Publishing is manual
+# (crates/xtask-port-publish). Pull requests matching the `ports`
+# filter (.github/path-filters.yml) run the complete preflight as a
+# dry-run with no credentials. Publishing is manual
 # only: a dispatch from main publishes the set (dispatching any
 # other ref runs the dry-run instead, never a publish), so a merged
 # ports change reaches the registry at the next dispatch, and the
@@ -43,12 +44,38 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  # Which shared path filters (.github/path-filters.yml) match this
+  # push or pull request; the jobs below skip when theirs does not.
+  # A skipped job still satisfies its required status check.
+  changes:
+    # Only the pull-request dry-run consumes the filter: pushes run
+    # no job here and dispatches bypass the gate.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ports: ${{ steps.filter.outputs.ports }}
+    steps:
+      # The filter file is read from the checkout, and push events
+      # diff against the previous head from local history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: .github/path-filters.yml
+
   dry-run:
     # Pull requests, plus manual dispatch from a non-main ref (which
     # must never publish). --dry-run runs the identical preflight the
     # publish path runs: stage every port into a temporary file
     # registry and build every port against it.
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)
+    needs: changes
+    if: ${{ !cancelled() && ((github.event_name == 'pull_request' && needs.changes.outputs.ports == 'true') || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)) }}
     runs-on: ubuntu-latest
 
     steps:
@@ -169,7 +196,9 @@ jobs:
       # newer registry commit supersedes this SHA's run, its deploy
       # carries this SHA's schema changes, and inspecting only the
       # same-SHA run would deadlock every rerun on the permanently
-      # skipped step. A commit that triggers no Registry run publishes
+      # skipped step. A commit that triggers no Registry run - or
+      # whose Registry run skipped its registry jobs through the
+      # change gate - publishes
       # against the already-deployed Worker unchanged (residual: an
       # *earlier* registry commit whose deploy was skipped is not
       # detected here; that commit's own failure surfaces are the

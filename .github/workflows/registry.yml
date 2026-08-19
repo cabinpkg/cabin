@@ -19,7 +19,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Which shared path filters (.github/path-filters.yml) match this
+  # push or pull request; the jobs below skip when theirs does not.
+  # A skipped job still satisfies its required status check.
+  changes:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      registry: ${{ steps.filter.outputs.registry }}
+    steps:
+      # The filter file is read from the checkout, and push events
+      # diff against the previous head from local history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: .github/path-filters.yml
+
   registry-format:
+    needs: changes
+    if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -40,6 +64,8 @@ jobs:
         run: cargo fmt --all --verbose -- --check
 
   registry-clippy:
+    needs: changes
+    if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -68,6 +94,8 @@ jobs:
         run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
 
   build:
+    needs: changes
+    if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -122,6 +150,8 @@ jobs:
   # binary through the server's full publish validation path, so the
   # client's canonical output and the server's schema cannot drift apart.
   conformance:
+    needs: changes
+    if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     steps:

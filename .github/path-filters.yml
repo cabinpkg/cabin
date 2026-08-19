@@ -1,9 +1,34 @@
-# Shared per-component change filters. `cargo workflow-superseded
-# --relevant-to <filter>` scopes the deploy and publish freshness
-# guards to commits matching a list here. Keep entries double-quoted
-# (the guard's strict parser otherwise warns and falls back to
-# unscoped supersession), keep the lists coarse, and end every list
-# with `.github/**`.
+# Shared per-component change filters. Two consumers: each workflow's
+# `changes` job (dorny/paths-filter) gates jobs on these lists - jobs,
+# not `paths:` triggers, so a skipped job still satisfies a required
+# check - and `cargo workflow-superseded --relevant-to <filter>`,
+# which scopes the deploy and publish freshness guards. Keep entries
+# double-quoted (the guard's strict parser otherwise warns and falls
+# back to unscoped supersession), keep the lists coarse, and end
+# every list with `.github/**`.
+
+# rust.yml: the workspace and everything its tests stage (examples/
+# run under the CLI tests, ports/ feed the publisher tests).
+rust:
+  - "crates/**"
+  - "examples/**"
+  - "ports/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - ".cargo/**"
+  - ".github/**"
+
+# rust.yml's format job also checks every TOML file in the tree.
+toml:
+  - "**/*.toml"
+  - ".github/**"
+
+# website.yml: the site renders docs/ and the ports tree's pages.
+website:
+  - "website/**"
+  - "docs/**"
+  - "ports/**"
+  - ".github/**"
 
 # registry.yml: the registry workspace, its crates/ path-deps, and
 # the xtask guards built from the root workspace.
@@ -26,4 +51,29 @@ ports:
   - "Cargo.toml"
   - "Cargo.lock"
   - ".cargo/**"
+  - ".github/**"
+
+# proofs.yml: the Lean mechanization, the spec it covers, and the
+# spec-coverage test that reads both.
+proofs:
+  - "docs/proofs/**"
+  - "docs/design/standard-compatibility/**"
+  - "crates/xtask-ci/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - ".github/**"
+
+# docker.yml proves the packaging only; a docker-only breakage
+# surfaces on the next Dockerfile-touching change (accepted).
+docker:
+  - "Dockerfile"
+  - ".dockerignore"
+  - ".github/**"
+
+# dist.yml on push/PR proves the packaging tooling; tags always build
+# every target through release.yml, so the workspace stays out.
+dist:
+  - "crates/xtask-dist/**"
+  - "crates/cabin/Cargo.toml"
+  - "demo.tape"
   - ".github/**"

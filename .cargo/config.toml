@@ -4,7 +4,8 @@
 # `[alias]` only, deliberately: this file is on the config search path of
 # the standalone `registry/` workspace too, so a `[build]` or `[target]`
 # key here would also change how the Worker is built - which is why
-# `.cargo/config.toml` is a trigger path of registry.yml.
+# `.cargo/**` is in registry.yml's change filter
+# (`.github/path-filters.yml`).
 #
 # Every alias names a ROOT-workspace package, so it resolves anywhere
 # inside the root workspace but not from `registry/`, which cargo

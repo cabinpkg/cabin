@@ -71,10 +71,22 @@ tooling is left in this repository. Do not reintroduce any.
   `demo.tape`, and devcontainer provisioning are not repository automation
   and are unaffected.
 - Workflows trigger on `push` to `main` and on `pull_request`, with no
-  `paths:` filter. A filter is a second copy of the job's dependency list
-  that nothing keeps honest: `registry.yml` carried it three times and grew
-  a YAML-scraping test to police the copies, which then broke on an
-  unrelated workflow rename. Saved CI minutes do not pay for that.
+  trigger-level `paths:` filter: a filtered-out workflow leaves its
+  required checks pending forever, while a job skipped by an `if:`
+  satisfies them. Component scoping therefore happens at the job level -
+  each workflow's `changes` job evaluates the shared filter lists in
+  `.github/path-filters.yml` and the expensive jobs skip when theirs
+  does not match. That file is the ONE copy of every dependency list;
+  keep its lists coarse (whole directories, shared dependencies) and
+  keep `.github/**` in every list so workflow or filter edits re-run
+  everything. No test polices the file - the previous per-workflow
+  copies grew a YAML-scraping test that broke on an unrelated rename.
+  Two carve-outs: a job required by a matrix-leg context
+  (`build-and-test`) stays ungated, because skipping the job never
+  expands the matrix, so the required leg name never reports and the
+  merge hangs forever; and a failed (not skipped) `changes` job skips
+  its dependents to satisfied - the red gate run is the only signal,
+  accepted.
 - No test may read a file under `.github/` or depend on a workflow living at
   a particular path. Moving or renaming a workflow must never be able to
   fail the test suite.
