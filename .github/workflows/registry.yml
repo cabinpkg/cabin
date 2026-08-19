@@ -111,6 +111,30 @@ jobs:
           CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
           RUSTFLAGS: -D warnings
 
+  # TEMPORARY PR probe, removed before merge: registry-relevant
+  # (#1706) and ports-relevant (.github/**) commits sit after the
+  # pinned SHA, so both scoped answers must be superseded=true with
+  # no fallback warning.
+  filter-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - name: Scoped supersession sees the relevant commits after the pinned SHA
+        run: |
+          out="$(mktemp)"
+          GITHUB_SHA=fe37e20f71295f4d2e1013840de8c252c1b6bd91 GITHUB_OUTPUT="$out" \
+            cargo workflow-superseded --relevant-to registry 2>probe-stderr.log
+          GITHUB_SHA=fe37e20f71295f4d2e1013840de8c252c1b6bd91 GITHUB_OUTPUT="$out" \
+            cargo workflow-superseded --relevant-to ports 2>>probe-stderr.log
+          grep -cx 'superseded=true' "$out" | grep -qx 2
+          ! grep -q 'no usable' probe-stderr.log
+
   # Ships the Worker once the jobs above are green. No build step of
   # its own: `wrangler deploy` runs wrangler.jsonc's build.command.
   # D1 migrations stay manual - the deploy token cannot apply them
@@ -149,11 +173,12 @@ jobs:
       # The concurrency group serializes deploys but does not order
       # them: an older run whose gate finished late would deploy after
       # a newer one. Skip instead when main already carries a newer
-      # commit - that commit's own run deploys, or its gate is red and
-      # nothing should.
+      # registry-relevant commit (the `registry` list in
+      # .github/path-filters.yml) - that commit's own run deploys, or
+      # its gate is red and nothing should.
       - name: Skip when superseded by a newer main commit
         id: freshness
-        run: cargo workflow-superseded
+        run: cargo workflow-superseded --relevant-to registry
 
       # Changed D1 migrations must be applied by hand before the Worker
       # ships (registry/docs/runbook.md): the deploy token cannot apply

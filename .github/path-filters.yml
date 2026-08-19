@@ -1,0 +1,29 @@
+# Shared per-component change filters. `cargo workflow-superseded
+# --relevant-to <filter>` scopes the deploy and publish freshness
+# guards to commits matching a list here. Keep entries double-quoted
+# (the guard's strict parser otherwise warns and falls back to
+# unscoped supersession), keep the lists coarse, and end every list
+# with `.github/**`.
+
+# registry.yml: the registry workspace, its crates/ path-deps, and
+# the xtask guards built from the root workspace.
+# SAFETY: keep this a superset of `ports` minus `ports/**` -
+# ports-publish's deploy wait treats a job-skipped Registry run as
+# already-deployed (crates/xtask-workflow-guard/src/await_deploy.rs).
+registry:
+  - "registry/**"
+  - "crates/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - ".cargo/**"
+  - ".github/**"
+
+# ports-publish.yml: ports/ are what it publishes; the publisher and
+# the cabin client build from the root workspace.
+ports:
+  - "ports/**"
+  - "crates/**"
+  - "Cargo.toml"
+  - "Cargo.lock"
+  - ".cargo/**"
+  - ".github/**"

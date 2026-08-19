@@ -72,6 +72,30 @@ fn guard(dir: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output
     command.output().expect("the guard is runnable")
 }
 
+/// A work tree pushing to a bare `origin.git`, both under `scratch`.
+fn cloned_pair(scratch: &Path) -> std::path::PathBuf {
+    let origin = scratch.join("origin.git");
+    fs::create_dir(&origin).unwrap();
+    git(&origin, &["init", "--bare", "-b", "main", "."]);
+    let work = scratch.join("work");
+    fs::create_dir(&work).unwrap();
+    git(&work, &["init", "-b", "main", "."]);
+    git(&work, &["remote", "add", "origin", "../origin.git"]);
+    work
+}
+
+/// Writes `name`, commits everything, pushes main, and returns the
+/// new head.
+fn push_commit(work: &Path, name: &str, message: &str) -> String {
+    let file = work.join(name);
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(file, message).unwrap();
+    git(work, &["add", "."]);
+    git(work, &["commit", "-q", "-m", message]);
+    git(work, &["push", "-q", "origin", "main"]);
+    git(work, &["rev-parse", "HEAD"])
+}
+
 /// `superseded` answers exclusively through `$GITHUB_OUTPUT`: any
 /// later origin/main commit appends `superseded=true`, the newest
 /// commit appends nothing, and an unreachable origin fails the step
@@ -79,26 +103,10 @@ fn guard(dir: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output
 #[test]
 fn superseded_answers_through_github_output() {
     let scratch = assert_fs::TempDir::new().unwrap();
-    let origin = scratch.path().join("origin.git");
-    fs::create_dir(&origin).unwrap();
-    git(&origin, &["init", "--bare", "-b", "main", "."]);
-    let work = scratch.path().join("work");
-    fs::create_dir(&work).unwrap();
-    git(&work, &["init", "-b", "main", "."]);
-    git(&work, &["remote", "add", "origin", "../origin.git"]);
-
-    let commit = |name: &str, message: &str| {
-        let file = work.join(name);
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(file, message).unwrap();
-        git(&work, &["add", "."]);
-        git(&work, &["commit", "-q", "-m", message]);
-        git(&work, &["push", "-q", "origin", "main"]);
-        git(&work, &["rev-parse", "HEAD"])
-    };
-    let first = commit("registry/src/lib.rs", "first");
-    commit("registry/src/lib.rs", "second");
-    let newest = commit("website/page.astro", "third");
+    let work = cloned_pair(scratch.path());
+    let first = push_commit(&work, "registry/src/lib.rs", "first");
+    push_commit(&work, "registry/src/lib.rs", "second");
+    let newest = push_commit(&work, "website/page.astro", "third");
 
     let output = scratch.path().join("overtaken");
     let run = guard(
@@ -142,6 +150,74 @@ fn superseded_answers_through_github_output() {
         "an unreachable origin fails the step"
     );
     assert!(!unwritten.exists(), "and writes nothing");
+}
+
+/// With `--relevant-to`, only newer commits matching that filter's
+/// list in `.github/path-filters.yml` supersede: an irrelevant newer
+/// commit writes nothing, a relevant one writes `superseded=true`,
+/// and a list the file does not carry falls back to unscoped
+/// supersession with a warning.
+#[test]
+fn superseded_scoping_reads_the_shared_filter_file() {
+    let scratch = assert_fs::TempDir::new().unwrap();
+    let work = cloned_pair(scratch.path());
+    fs::create_dir_all(work.join(".github")).unwrap();
+    fs::write(
+        work.join(".github/path-filters.yml"),
+        "# fixture copy of the shared filter file\nregistry:\n  - \"registry/**\"\n  - \"Cargo.toml\"\n",
+    )
+    .unwrap();
+    let first = push_commit(&work, "registry/src/lib.rs", "first");
+    push_commit(&work, "website/page.astro", "website only");
+
+    let ignored = scratch.path().join("ignored");
+    let run = guard(
+        &work,
+        &["superseded", "--relevant-to", "registry"],
+        &[
+            ("GITHUB_SHA", &first),
+            ("GITHUB_OUTPUT", &ignored.to_string_lossy()),
+        ],
+    );
+    assert!(run.status.success(), "{run:?}");
+    assert!(
+        !ignored.exists(),
+        "a website-only commit does not supersede"
+    );
+    assert!(run.stderr.is_empty(), "no fallback warning: {run:?}");
+
+    push_commit(&work, "registry/src/main.rs", "registry again");
+    let output = scratch.path().join("overtaken");
+    let run = guard(
+        &work,
+        &["superseded", "--relevant-to", "registry"],
+        &[
+            ("GITHUB_SHA", &first),
+            ("GITHUB_OUTPUT", &output.to_string_lossy()),
+        ],
+    );
+    assert!(run.status.success(), "{run:?}");
+    assert_eq!(fs::read_to_string(&output).unwrap(), "superseded=true\n");
+
+    let fallback = scratch.path().join("fallback");
+    let run = guard(
+        &work,
+        &["superseded", "--relevant-to", "no-such-filter"],
+        &[
+            ("GITHUB_SHA", &first),
+            ("GITHUB_OUTPUT", &fallback.to_string_lossy()),
+        ],
+    );
+    assert!(run.status.success(), "{run:?}");
+    assert_eq!(
+        fs::read_to_string(&fallback).unwrap(),
+        "superseded=true\n",
+        "an unusable list falls back to any-newer-commit"
+    );
+    assert!(
+        String::from_utf8_lossy(&run.stderr).contains("no usable `no-such-filter` list"),
+        "{run:?}"
+    );
 }
 
 fn stamp_corpus(root: &Path, applied: &str) {

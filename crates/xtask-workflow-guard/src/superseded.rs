@@ -9,14 +9,37 @@
 //! L10 fi
 //! ```
 //!
-//! The step listed a pathspec once, duplicating `registry.yml`'s two
-//! trigger filters. The filters are gone - the workflow runs on every
-//! main push - so any newer commit supersedes this run.
+//! The original step listed a pathspec once, duplicating
+//! `registry.yml`'s two trigger filters, and lost it when those
+//! filters were removed. `--relevant-to <filter>` restores the
+//! scoping from the shared filter file instead of a duplicated list:
+//! only newer commits matching that filter's entries in
+//! `.github/path-filters.yml` supersede this run. A newer commit
+//! matching none of them cannot change what this run deploys or
+//! publishes, so skipping for it would strand this run's work with no
+//! later run redoing it.
 //!
-//! Inherited properties, preserved rather than fixed - a port is not a
-//! place to change behavior. Each was pinned by running the original
-//! under `bash -e`, GitHub's default `run:` shell (`-e` on, `-u` and
-//! `-o pipefail` off):
+//! Failure direction: when the filter file defies the strict line
+//! grammar (or lacks the named list), the guard warns on stderr and
+//! falls back to the unscoped range - the pre-scoping semantics.
+//! Unscoped never ships stale work over newer work; it only re-opens
+//! the narrower stranding window above, which then needs the race and
+//! the divergence at once. Failing the step instead would hold every
+//! deploy hostage to a parser bug no rerun can clear.
+//!
+//! The entries reach git as `:(glob)` pathspecs, whose `**` semantics
+//! match the dorny/paths-filter matcher on the shapes the lists use
+//! (directory prefixes and exact filenames). `rev-list`'s default
+//! history simplification under a pathspec prunes only commits whose
+//! filtered changes did not survive to `origin/main`'s tip - when the
+//! filtered content at the tip differs from `$GITHUB_SHA`'s, the walk
+//! necessarily reports a commit that changed it - so a relevant newer
+//! change cannot be hidden, the pre-squash-merge history a re-run of
+//! an old run would walk included.
+//!
+//! Inherited properties of the port, each pinned by running the
+//! original under `bash -e`, GitHub's default `run:` shell (`-e` on,
+//! `-u` and `-o pipefail` off):
 //!
 //! - **L2 fails open.** The substitution sits in an `if` condition,
 //!   where `set -e` is suppressed and `[` sees only the captured text,
@@ -43,18 +66,25 @@ use anyhow::{Context as _, Result, bail};
 /// L9's line, byte for byte.
 const OUTPUT_LINE: &str = "superseded=true\n";
 
-/// Answer whether `origin/main` carries a commit after `$GITHUB_SHA`,
-/// recording `superseded=true` in `$GITHUB_OUTPUT` when it does.
+/// The shared filter file, relative to the repository root the
+/// workflows run the alias from.
+const FILTER_FILE: &str = ".github/path-filters.yml";
+
+/// Answer whether `origin/main` carries a commit after `$GITHUB_SHA` -
+/// scoped, when a filter name is given, to commits matching that
+/// filter's paths - recording `superseded=true` in `$GITHUB_OUTPUT`
+/// when it does.
 ///
 /// # Errors
 ///
 /// When `git fetch` fails (L1), or when `$GITHUB_OUTPUT` is unusable in
 /// the positive case (L9).
-pub fn run() -> Result<()> {
+pub fn run(relevant_to: Option<&str>) -> Result<()> {
     fetch_origin_main()?;
 
     let sha = std::env::var("GITHUB_SHA").unwrap_or_default();
-    if newer_commit(&range(&sha))?.is_empty() {
+    let pathspecs = relevant_to.map_or_else(Vec::new, filter_pathspecs);
+    if newer_commit(&range(&sha), &pathspecs)?.is_empty() {
         return Ok(());
     }
     record_superseded()
@@ -78,12 +108,68 @@ fn fetch_origin_main() -> Result<()> {
     Ok(())
 }
 
+/// The named filter's entries as `:(glob)` pathspecs, or the empty
+/// (unscoped) list with a warning: the module docs' failure direction.
+fn filter_pathspecs(name: &str) -> Vec<String> {
+    let Some(entries) = std::fs::read_to_string(FILTER_FILE)
+        .ok()
+        .and_then(|text| filter_entries(&text, name))
+    else {
+        eprintln!(
+            "warning: no usable `{name}` list in {FILTER_FILE}; \
+             superseding on any newer commit"
+        );
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .map(|entry| format!(":(glob){entry}"))
+        .collect()
+}
+
+/// The `name:` section's `- "entry"` lines. `None` - never a guess -
+/// on anything the grammar does not cover, a duplicate section header
+/// included: the caller's fallback is unscoped supersession, where a
+/// silently dropped, merged, or empty entry would instead widen or
+/// erase the scope invisibly.
+fn filter_entries(text: &str, name: &str) -> Option<Vec<String>> {
+    let mut entries = Vec::new();
+    let mut sections = Vec::new();
+    let mut in_section = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(section) = line.strip_suffix(':').filter(|_| !line.starts_with(' ')) {
+            if sections.contains(&section) {
+                return None;
+            }
+            sections.push(section);
+            in_section = section == name;
+        } else {
+            let entry = line
+                .strip_prefix("  - \"")
+                .and_then(|rest| rest.strip_suffix('"'))
+                .filter(|entry| !entry.is_empty())?;
+            if in_section {
+                entries.push(entry.to_owned());
+            }
+        }
+    }
+    (!entries.is_empty()).then_some(entries)
+}
+
 /// L2. A non-zero `rev-list` yields the empty capture the shell's
 /// condition context yielded, not an error. Only a failure to *spawn*
 /// git surfaces - unreachable in practice, since L1 just ran it.
-fn newer_commit(range: &str) -> Result<Vec<u8>> {
-    let output = Command::new("git")
-        .args(["rev-list", "-n", "1", range])
+fn newer_commit(range: &str, pathspecs: &[String]) -> Result<Vec<u8>> {
+    let mut command = Command::new("git");
+    command.args(["rev-list", "-n", "1", range]);
+    if !pathspecs.is_empty() {
+        command.arg("--").args(pathspecs);
+    }
+    let output = command
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -113,5 +199,33 @@ mod tests {
     #[test]
     fn the_recorded_line_matches_the_shells_echo() {
         assert_eq!(OUTPUT_LINE.as_bytes(), b"superseded=true\n");
+    }
+
+    #[test]
+    fn filter_entries_reads_only_the_named_section() {
+        let text = "# comment\n\nregistry:\n  - \"registry/**\"\n  - \"Cargo.toml\"\nports:\n  - \"ports/**\"\n";
+        assert_eq!(
+            filter_entries(text, "ports").unwrap(),
+            vec!["ports/**".to_owned()]
+        );
+        assert_eq!(
+            filter_entries(text, "registry").unwrap(),
+            vec!["registry/**".to_owned(), "Cargo.toml".to_owned()]
+        );
+    }
+
+    #[test]
+    fn anything_outside_the_strict_grammar_reads_as_no_list() {
+        for text in [
+            "registry:\n  - unquoted/**\n",
+            "registry:\n  - \"\"\n",
+            "registry:\n- \"registry/**\"\n",
+            "ports:\n  - \"ports/**\"\n",
+            "registry:\n",
+            "registry:\n  - \"a/**\"\nregistry:\n  - \"b/**\"\n",
+            "ports:\n  - \"p/**\"\nports:\n  - \"q/**\"\nregistry:\n  - \"r/**\"\n",
+        ] {
+            assert_eq!(filter_entries(text, "registry"), None, "{text:?}");
+        }
     }
 }
