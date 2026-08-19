@@ -14,8 +14,10 @@ use sha2::{Digest, Sha256};
 pub enum Scope {
     Publish,
     Yank,
-    /// The verifier's scope: list pending versions, download their
-    /// artifacts, and render verdicts on the admin API.
+    /// The operator's admin-plane scope: list pending versions,
+    /// download their artifacts, and drive the governor. Verdicts take
+    /// no registry token - their credential is the verify workflow's
+    /// OIDC JWT (`crate::trustpub::VERIFIER_AUDIENCE`).
     Verify,
 }
 

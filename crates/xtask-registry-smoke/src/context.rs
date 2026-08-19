@@ -43,6 +43,7 @@ pub struct Smoke {
     agent: ureq::Agent,
     base: String,
     web_base: String,
+    github_base: String,
     token: String,
     /// The last response body, as raw bytes - never a `String`: the
     /// byte-identity comparisons (`cmp -s`) and the zip reads both run
@@ -56,7 +57,7 @@ pub struct Smoke {
 
 impl Smoke {
     #[must_use]
-    pub fn new(port: u16, web_port: u16, token: String) -> Self {
+    pub fn new(port: u16, web_port: u16, github_port: u16, token: String) -> Self {
         Self {
             // Neither `curl` carried `-L`, so a redirect is the answer
             // and never a step on the way to one; the assertions are
@@ -82,6 +83,7 @@ impl Smoke {
                 .build(),
             base: format!("http://127.0.0.1:{port}"),
             web_base: format!("http://127.0.0.1:{web_port}"),
+            github_base: format!("http://127.0.0.1:{github_port}"),
             token,
             body: Vec::new(),
             headers: Vec::new(),
@@ -115,9 +117,50 @@ impl Smoke {
     }
 
     /// `as_verifier`: the verify-scoped token, which the seeding block
-    /// derives from the publisher's by suffix.
+    /// derives from the publisher's by suffix.  Admin listings and the
+    /// governor only; verdict `PATCH`es authenticate with an OIDC JWT
+    /// instead ([`Smoke::verdict_patch`]).
     pub fn as_verifier(&mut self) {
         self.auth = bearer(&format!("{}-verify", self.token));
+    }
+
+    /// A fresh verifier OIDC JWT from the GitHub mock's local-only mint
+    /// endpoint, claims overridden by the `overrides` JSON object
+    /// (`{}` mints the pinned defaults).  Fresh per call on purpose:
+    /// the verdict endpoint consumes each JWT's jti once, so a token
+    /// can never be presented twice.
+    ///
+    /// # Errors
+    ///
+    /// If the mock refuses to mint or answers an unexpected shape.
+    pub fn mint_verifier_jwt(&mut self, overrides: &str) -> Result<String> {
+        let url = format!("{}/__oidc/token", self.github_base);
+        let status = self.http("POST", &url, &[], Some(overrides.as_bytes()))?;
+        if status != 200 {
+            bail!("the GitHub mock refused to mint a verifier JWT: {status}");
+        }
+        let minted: serde_json::Value =
+            serde_json::from_slice(&self.body).context("parse the minted JWT envelope")?;
+        minted
+            .get("jwt")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .with_context(|| format!("no jwt in the mint answer: {minted}"))
+    }
+
+    /// A verdict PATCH as the verify workflow delivers it: a freshly
+    /// minted OIDC JWT as the bearer.  Deliberately not through
+    /// [`Smoke::auth`], which keeps whatever credential the surrounding
+    /// leg holds.
+    ///
+    /// # Errors
+    ///
+    /// As [`Smoke::request_at`].
+    pub fn verdict_patch(&mut self, path: &str, data: &[u8], expected: &[u16]) -> Result<()> {
+        let jwt = self.mint_verifier_jwt("{}")?;
+        let url = self.url(Base::Web, path);
+        let status = self.http("PATCH", &url, &bearer(&jwt), Some(data))?;
+        self.expect_status(&format!("PATCH {path}"), status, expected)
     }
 
     /// One request, writing [`Smoke::body`] and [`Smoke::headers`] -
@@ -396,7 +439,7 @@ mod tests {
     }
 
     fn smoke(port: u16) -> Smoke {
-        Smoke::new(port, port, "cabin_smoke".to_owned())
+        Smoke::new(port, port, port, "cabin_smoke".to_owned())
     }
 
     #[test]

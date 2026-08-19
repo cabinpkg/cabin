@@ -837,6 +837,15 @@ filename (`<scope>-<name>-<version>-<revision>.zip`), and the verdict
 PATCH carries the `<scope>/<name>/<version>` triple plus the listing's
 `checksum`, which is what names the revision.
 
+Two credentials, two planes: the listings and pending downloads ride
+the `verify`-scoped registry token (`REGISTRY_VERIFY_TOKEN`), while
+the verdict PATCH authenticates **only** the workflow run's own GitHub
+OIDC JWT (audience `cabinpkg.com/verifier`), pinned to this repository
+and workflow by the `VERIFIER_*` vars in `wrangler.jsonc`
+(`docs/architecture.md` in this directory, "Trust model"). No registry
+token - the verify token included - can deliver a verdict, and each
+JWT authenticates exactly one PATCH (its `jti` is consumed on use).
+
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. GitHub cron schedules are **best-effort** and
 can be delayed or dropped under load, so do not treat "the workflow ran
@@ -872,19 +881,19 @@ by design; the stuck-pending alert ("N version(s) have been pending
 verification for over an hour") is the summons. To resolve one:
 
 - Name is fine: the archive must still pass the real checks before
-  anything is exposed - never PATCH `verified` from the name alone.
+  anything is exposed - never render `verified` from the name alone.
   Fetch the pending entry and the archive with the verify token
   exactly as the workflow does, run
   `cabin-registry-verify <archive.zip> <entry.json>` locally - for a
   version whose metadata declares `upstream` provenance, also
   download the pinned archive from `metadata.upstream.url` (no
   bearer token to that URL) and add `--upstream <file>`, or the
-  binary exits operationally - and
-  PATCH the verdict it prints **with the listing's `checksum` and
-  `published_at`** (the admin API refuses an unbound `verified`).
+  binary exits operationally - and deliver the verdict it prints
+  **with the listing's `checksum` and `published_at`** (the admin API
+  refuses an unbound `verified`).
   With a verified version on record the name counts as accepted, and
   every later version of the package skips the advisories.
-- Name is not fine: PATCH `{"verdict":"rejected","reason":
+- Name is not fine: deliver `{"verdict":"rejected","reason":
   "name_advisory: <rule>","checksum":"<the listing's checksum>",
   "published_at":"<the listing's published_at>"}`.
   Both bindings are required on a rejection too - the checksum selects
@@ -893,6 +902,14 @@ verification for over an hour") is the summons. To resolve one:
   publisher can republish under a better name. A rejection never
   vets the name: republishing the same name abstains again and
   re-summons you - by design, not a loop to "fix".
+
+Delivery in both cases requires the verify workflow's OIDC identity
+(see above): a manual `curl` with the verify token no longer
+authenticates, and the scheduled run keeps abstaining on these
+versions by design. The operator-verdict delivery path is a
+`workflow_dispatch` input on `registry-verify.yml`; until that lands
+(the client-side follow-up of the verdict-auth change), an abstained
+version stays pending.
 
 **Name fidelity knobs.** The reserved-name list is an in-code,
 operator-maintained const (`registry/src/names.rs`); extend it when
@@ -906,7 +923,9 @@ flow, and empty it after.
 
 `REGISTRY_VERIFY_TOKEN` is a registry token created on the website's
 token page with **only** the `verify` scope (no publish, no yank - the
-verifier never needs them), stored as a GitHub repository secret:
+verifier never needs them), stored as a GitHub repository secret. It
+authenticates the listings and pending downloads only; verdicts ride
+the workflow's OIDC identity instead:
 
 ```sh
 gh secret set REGISTRY_VERIFY_TOKEN

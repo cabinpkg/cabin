@@ -134,6 +134,25 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""GITHUB_CLIENT_ID""#,
         r#""BUDGET_R2_STORAGE_BYTES": "18446744073709551616", "GITHUB_CLIENT_ID""#,
     ),
+    (
+        // A mistyped VERIFIER_* pin fails closed at runtime: every
+        // verdict refused, the pending queue undrainable.
+        "unparsable_verifier_id",
+        r#""VERIFIER_REPOSITORY_ID": "119684778""#,
+        r#""VERIFIER_REPOSITORY_ID": "119684778x""#,
+    ),
+    (
+        "empty_verifier_ref",
+        r#""VERIFIER_GIT_REF": "refs/heads/main""#,
+        r#""VERIFIER_GIT_REF": """#,
+    ),
+    (
+        // The claim-side extraction never yields a filename with a
+        // slash, so a pathy pin can never match any workflow.
+        "pathy_verifier_workflow",
+        r#""VERIFIER_WORKFLOW_FILENAME": "registry-verify.yml""#,
+        r#""VERIFIER_WORKFLOW_FILENAME": ".github/workflows/registry-verify.yml""#,
+    ),
     ("lost_breaker_cron", r#""*/15 * * * *", "#, ""),
     (
         "lost_dump_cron",

@@ -309,12 +309,7 @@ fn traversal_archive(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()>
     copy_field(&mut patch, "checksum", entry.get("checksum"));
     copy_field(&mut patch, "published_at", entry.get("published_at"));
     let patch = json_bytes(&Value::Object(patch))?;
-    smoke.wrequest(
-        "PATCH",
-        &verdict_route(inputs, PROFILE_VERSION),
-        &patch,
-        &[200],
-    )?;
+    smoke.verdict_patch(&verdict_route(inputs, PROFILE_VERSION), &patch, &[200])?;
     smoke.expect_body(r#""verification":"rejected""#)?;
     smoke.expect_body(r#""changed":true"#)?;
     smoke.as_publisher();
@@ -914,7 +909,7 @@ fn verify_version(
     copy_field(&mut verdict, "checksum", entry.get("checksum"));
     copy_field(&mut verdict, "published_at", entry.get("published_at"));
     let body = json_bytes(&Value::Object(verdict))?;
-    smoke.wrequest("PATCH", &verdict_route(inputs, version), &body, &[200])?;
+    smoke.verdict_patch(&verdict_route(inputs, version), &body, &[200])?;
     smoke.expect_body(r#""verification":"verified""#)
 }
 

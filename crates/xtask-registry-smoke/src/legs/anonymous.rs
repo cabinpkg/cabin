@@ -43,6 +43,7 @@ pub fn run(smoke: &mut Smoke, registry_dir: &Path, github_port: u16) -> Result<(
     read_plane(smoke)?;
     off_the_read_plane(smoke)?;
     mutation_surface(smoke)?;
+    verdict_oidc_surface(smoke)?;
     session_endpoints(smoke)?;
     public_stats(smoke)?;
     oauth_plane(smoke, github_port)?;
@@ -192,6 +193,69 @@ fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
     )?;
     uniform_401_with(smoke, Base::Web, "DELETE", TRUSTPUB_TOKENS_PATH, &[], None)?;
     uniform_401(smoke, Base::Web, "/api/v1/admin/versions?status=pending")
+}
+
+/// The verdict route's authentication surface: a GitHub Actions OIDC
+/// JWT is the only credential, every refusal is the byte-identical
+/// uniform 401 (no signature/audience/pin/replay oracle), and a jti
+/// never authenticates twice.  Runs before anything is published on
+/// purpose: the refusals must be independent of route state.
+/// Post-migration coverage with no shell ancestor.
+fn verdict_oidc_surface(smoke: &mut Smoke) -> Result<()> {
+    const VERDICT_PATH: &str = "/api/v1/admin/versions/smoke/withdep/0.1.0";
+    step("the verdict route answers every OIDC authn failure with the uniform 401");
+    let bearer = |token: &str| vec![("Authorization".to_owned(), format!("Bearer {token}"))];
+    // No credential, a registry-shaped bearer, and a non-JWT bearer.
+    uniform_401_with(smoke, Base::Web, "PATCH", VERDICT_PATH, &[], Some(b"{}"))?;
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PATCH",
+        VERDICT_PATH,
+        &rotated(),
+        Some(b"{}"),
+    )?;
+    let garbage = bearer("not-a-jwt");
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PATCH",
+        VERDICT_PATH,
+        &garbage,
+        Some(b"{}"),
+    )?;
+    // A properly signed JWT that misses one pin per case - the exchange
+    // audience included: a token minted for one endpoint is dead on the
+    // other.
+    for overrides in [
+        r#"{"aud":"cabinpkg.com"}"#,
+        r#"{"repository_owner_id":"1"}"#,
+        r#"{"repository_id":"1"}"#,
+        r#"{"workflow_ref":"cabinpkg/cabin/.github/workflows/other.yml@refs/heads/main"}"#,
+        r#"{"ref":"refs/heads/other"}"#,
+    ] {
+        let jwt = smoke.mint_verifier_jwt(overrides)?;
+        let mismatched = bearer(&jwt);
+        uniform_401_with(
+            smoke,
+            Base::Web,
+            "PATCH",
+            VERDICT_PATH,
+            &mismatched,
+            Some(b"{}"),
+        )?;
+    }
+    // A fully valid JWT authenticates - the 400 is the post-authn body
+    // check - and burns its jti doing it: presenting the same bytes
+    // again is the uniform 401.
+    let jwt = smoke.mint_verifier_jwt("{}")?;
+    let fresh = bearer(&jwt);
+    let url = smoke.url(Base::Web, VERDICT_PATH);
+    let status = smoke.http("PATCH", &url, &fresh, Some(b"{}"))?;
+    if status != 400 {
+        bail!("a fresh verifier JWT answered {status}, expected the post-authn 400");
+    }
+    uniform_401_with(smoke, Base::Web, "PATCH", VERDICT_PATH, &fresh, Some(b"{}"))
 }
 
 /// L572-584.

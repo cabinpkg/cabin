@@ -1,9 +1,11 @@
-//! GitHub Actions OIDC token verification for trusted publishing: the
-//! exchange endpoint (`crate::glue`) trades a verified Actions token for
-//! a short-lived `trustpub` token bound to a `trustpub_configs` row
-//! (`registry/docs/architecture.md`, "D1 is canonical"). The config
-//! matching lives here ([`select_config`]); the endpoint's D1 plumbing
-//! stays in the glue.
+//! GitHub Actions OIDC token verification, consumed by two endpoints in
+//! `crate::glue`: the trusted-publishing exchange trades a verified
+//! Actions token for a short-lived `trustpub` token bound to a
+//! `trustpub_configs` row (`registry/docs/architecture.md`, "D1 is
+//! canonical"), and the verifier callback authenticates each verdict
+//! against the [`VerifierPins`] deployment vars. The config matching
+//! ([`select_config`]) and the pin checks live here; the endpoints' D1
+//! plumbing stays in the glue.
 //!
 //! The JWT handling is deliberately manual and `RS256`-only: GitHub signs
 //! Actions tokens with RSA keys published at a fixed JWKS URL, and a
@@ -37,9 +39,15 @@ pub const GITHUB_JWKS_URL: &str = "https://token.actions.githubusercontent.com/.
 const JWKS_CACHE_KEY: &str = "https://registry.cabinpkg.com/__cache/github-jwks";
 
 /// The audience the registry's own exchange expects. Callers pass the
-/// audience explicitly so a future verifier-pipeline audience can reuse
-/// the module; this constant is the registry default, not a baked-in rule.
+/// audience explicitly so each endpoint's audience stays its own;
+/// this constant is the registry default, not a baked-in rule.
 pub const DEFAULT_AUDIENCE: &str = "cabinpkg.com";
+
+/// The audience the verifier callback expects. Distinct from
+/// [`DEFAULT_AUDIENCE`] on purpose: a token minted for the exchange is
+/// dead on the verdict endpoint and vice versa, so neither endpoint's
+/// credential can be replayed against the other.
+pub const VERIFIER_AUDIENCE: &str = "cabinpkg.com/verifier";
 
 /// Clock skew tolerated on `exp` and `nbf`, in seconds.
 const LEEWAY_SECONDS: i64 = 60;
@@ -202,6 +210,61 @@ pub fn select_config<'a>(
     Ok(selected)
 }
 
+/// The one workflow the verdict endpoint accepts verdicts from, as the
+/// `VERIFIER_*` wrangler vars pin it. Where the exchange matches claims
+/// against operator-editable `trustpub_configs` rows, the verifier
+/// identity is deployment configuration: nothing at runtime may widen it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifierPins {
+    pub repository_owner_id: i64,
+    pub repository_id: i64,
+    pub workflow_filename: String,
+    pub git_ref: String,
+}
+
+impl VerifierPins {
+    /// Pins from the raw var values. `None` on an unparsable id or an
+    /// empty string anywhere - the caller then refuses every verdict,
+    /// failing closed like the governor's zero limit rather than
+    /// defaulting a mistyped pin open.
+    #[must_use]
+    pub fn parse(
+        repository_owner_id: &str,
+        repository_id: &str,
+        workflow_filename: &str,
+        git_ref: &str,
+    ) -> Option<Self> {
+        if workflow_filename.is_empty() || git_ref.is_empty() {
+            return None;
+        }
+        Some(Self {
+            repository_owner_id: repository_owner_id.parse().ok()?,
+            repository_id: repository_id.parse().ok()?,
+            workflow_filename: workflow_filename.to_owned(),
+            git_ref: git_ref.to_owned(),
+        })
+    }
+
+    /// The first pin the verified claims fail, named for the operator
+    /// log, or `None` when all four hold. The workflow filename is
+    /// extracted from `workflow_ref` exactly as the exchange's config
+    /// matcher extracts it; `environment` is deliberately not pinned -
+    /// the verify workflow declares none.
+    #[must_use]
+    pub fn refuses(&self, claims: &GithubClaims) -> Option<&'static str> {
+        if claims.repository_owner_id != self.repository_owner_id {
+            return Some("repository_owner_id");
+        }
+        if claims.repository_id != self.repository_id {
+            return Some("repository_id");
+        }
+        if workflow_filename(&claims.workflow_ref) != Some(self.workflow_filename.as_str()) {
+            return Some("workflow filename");
+        }
+        (claims.git_ref != self.git_ref).then_some("git ref")
+    }
+}
+
 /// A JWKS document. Individual keys are lenient by design: a non-RSA or
 /// otherwise alien key elsewhere in GitHub's set must not make the whole
 /// set unusable, so per-key requirements are checked only on the key the
@@ -281,10 +344,11 @@ pub async fn verify(
     if find_key(&set, kid).is_none() {
         // The one deliberate rotation-recovery refetch. A hostile caller
         // can force this origin fetch with a fresh random `kid` per
-        // request, so the exchange endpoint must keep its callers behind
-        // the registry's admission control / rate limiting before this
-        // verifier gets public traffic - coalescing or negative-caching
-        // here would trade away the bounded exactly-one-refetch contract.
+        // request, so every pre-auth endpoint calling this verifier (the
+        // exchange PUT and the verdict PATCH) must keep its callers
+        // behind the registry's admission control / rate limiting before
+        // it gets public traffic - coalescing or negative-caching here
+        // would trade away the bounded exactly-one-refetch contract.
         set = provider.jwks(true).await?;
     }
     let jwk = find_key(&set, kid).ok_or(VerifyError::UnknownKid)?;
@@ -427,7 +491,24 @@ fn id_claim(
 /// origin fetch refreshes the cached copy, so the unknown-kid bypass
 /// also heals the cache after a key rotation.
 #[cfg(target_arch = "wasm32")]
-pub struct GithubJwks;
+pub struct GithubJwks {
+    url: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl GithubJwks {
+    /// [`GITHUB_JWKS_URL`], unless the `GITHUB_JWKS_URL` var overrides
+    /// it - overridable for the local smoke test only (the `CF_API_BASE`
+    /// pattern); deployed environments use the real host.
+    #[must_use]
+    pub fn from_env(env: &worker::Env) -> Self {
+        Self {
+            url: env
+                .var("GITHUB_JWKS_URL")
+                .map_or_else(|_| GITHUB_JWKS_URL.to_owned(), |var| var.to_string()),
+        }
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 impl JwksProvider for GithubJwks {
@@ -447,7 +528,7 @@ impl JwksProvider for GithubJwks {
             .map_err(|err| provider_err(err.to_string()))?;
         let mut init = worker::RequestInit::new();
         init.with_method(worker::Method::Get).with_headers(headers);
-        let request = worker::Request::new_with_init(GITHUB_JWKS_URL, &init)
+        let request = worker::Request::new_with_init(&self.url, &init)
             .map_err(|err| provider_err(err.to_string()))?;
         let mut response = worker::Fetch::Request(request)
             .send()
@@ -877,9 +958,9 @@ mod tests {
 
     #[test]
     fn the_expected_audience_parameter_is_what_is_enforced() {
-        // The audience is a parameter precisely so another consumer (the
-        // future verifier pipeline) can reuse the module; a verifier that
-        // hardcoded [`DEFAULT_AUDIENCE`] would pass every other test.
+        // The audience is a parameter precisely so the module's two
+        // consumers keep distinct audiences; a verifier that hardcoded
+        // [`DEFAULT_AUDIENCE`] would pass every other test.
         let custom = "verifier.cabinpkg.com";
         let mut claims = base_claims();
         claims["aud"] = json!(custom);
@@ -888,6 +969,26 @@ mod tests {
         assert!(block_on(verify(&token, &provider, custom, NOW)).is_ok());
         assert_eq!(
             block_on(verify(&token, &provider, DEFAULT_AUDIENCE, NOW)),
+            Err(VerifyError::Audience),
+        );
+    }
+
+    #[test]
+    fn the_exchange_and_verifier_audiences_are_mutually_dead() {
+        // A perfectly valid exchange token presented to the verdict
+        // endpoint (and vice versa) must die on the audience alone.
+        let provider = TestJwks::new(&[key_a()], None);
+        let exchange = sign_token(key_a(), &rs256_header(KID_A), &base_claims());
+        assert_eq!(
+            block_on(verify(&exchange, &provider, VERIFIER_AUDIENCE, NOW)),
+            Err(VerifyError::Audience),
+        );
+        let mut claims = base_claims();
+        claims["aud"] = json!(VERIFIER_AUDIENCE);
+        let verifier = sign_token(key_a(), &rs256_header(KID_A), &claims);
+        assert!(block_on(verify(&verifier, &provider, VERIFIER_AUDIENCE, NOW)).is_ok());
+        assert_eq!(
+            block_on(verify(&verifier, &provider, DEFAULT_AUDIENCE, NOW)),
             Err(VerifyError::Audience),
         );
     }
@@ -1202,6 +1303,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn verifier_pins_parse_fails_closed() {
+        let pins = VerifierPins::parse(
+            "35998702",
+            "119684778",
+            "registry-verify.yml",
+            "refs/heads/main",
+        )
+        .expect("the deployed values parse");
+        assert_eq!(pins.repository_owner_id, 35_998_702);
+        assert_eq!(pins.repository_id, 119_684_778);
+        // Any unusable var refuses construction - and with it every
+        // verdict - rather than defaulting: a typo'd pin fails closed.
+        // The padded id matters: `i64::from_str` takes no whitespace,
+        // and trimming here would diverge from what check-deploy vets.
+        for (owner, repo, file, git_ref) in [
+            ("", "119684778", "registry-verify.yml", "refs/heads/main"),
+            (
+                "35998702x",
+                "119684778",
+                "registry-verify.yml",
+                "refs/heads/main",
+            ),
+            (
+                " 35998702",
+                "119684778",
+                "registry-verify.yml",
+                "refs/heads/main",
+            ),
+            (
+                "35998702",
+                "not-a-number",
+                "registry-verify.yml",
+                "refs/heads/main",
+            ),
+            ("35998702", "119684778", "", "refs/heads/main"),
+            ("35998702", "119684778", "registry-verify.yml", ""),
+        ] {
+            assert_eq!(
+                VerifierPins::parse(owner, repo, file, git_ref),
+                None,
+                "({owner:?}, {repo:?}, {file:?}, {git_ref:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn verifier_pins_refuse_each_mismatched_claim() {
+        let pins = VerifierPins::parse(
+            "35998702",
+            "119684778",
+            "ports-publish.yml",
+            "refs/heads/main",
+        )
+        .expect("pins parse");
+        let claims = parsed_claims();
+        assert_eq!(pins.refuses(&claims), None);
+        let mut wrong = claims.clone();
+        wrong.repository_owner_id = 1;
+        assert_eq!(pins.refuses(&wrong), Some("repository_owner_id"));
+        let mut wrong = claims.clone();
+        wrong.repository_id = 1;
+        assert_eq!(pins.refuses(&wrong), Some("repository_id"));
+        let mut wrong = claims.clone();
+        wrong.workflow_ref =
+            "cabinpkg/cabin/.github/workflows/other.yml@refs/heads/main".to_owned();
+        assert_eq!(pins.refuses(&wrong), Some("workflow filename"));
+        // A workflow_ref no filename can be extracted from fails the
+        // same pin - never a pass-through.
+        let mut wrong = claims.clone();
+        wrong.workflow_ref = "mangled".to_owned();
+        assert_eq!(pins.refuses(&wrong), Some("workflow filename"));
+        let mut wrong = claims;
+        wrong.git_ref = "refs/heads/other".to_owned();
+        assert_eq!(pins.refuses(&wrong), Some("git ref"));
+    }
+
     /// The migrations applied to an in-memory database, as
     /// `tests/sql_validation.rs` applies them. Duplicated here (an
     /// integration test cannot reach unit-test fixtures, and the JWT
@@ -1467,5 +1645,75 @@ mod tests {
         )
         .expect("the retry batch commits");
         assert_eq!((consumed, minted), (1, 1));
+    }
+
+    /// The glue's verdict-authn transaction: the once-only jti consume
+    /// with the lazy prune alongside, nothing else - the endpoint mints
+    /// nothing. Returns the consumed count.
+    fn verdict_authn_batch(conn: &rusqlite::Connection, claims: &GithubClaims, now: i64) -> usize {
+        let tx = conn.unchecked_transaction().expect("open the batch");
+        let consumed = tx
+            .execute(
+                sql::CONSUME_OIDC_JTI,
+                rusqlite::params![claims.jti, claims.verifiable_until],
+            )
+            .expect("consume the jti");
+        tx.execute(sql::PRUNE_EXPIRED_OIDC_JTIS, [now])
+            .expect("prune expired jtis");
+        tx.commit().expect("commit the batch");
+        consumed
+    }
+
+    #[test]
+    fn the_jti_ledger_is_shared_across_both_endpoints() {
+        // One ledger, both audiences: a jti consumed by a verdict can
+        // never exchange, and one consumed by an exchange can never
+        // authenticate a verdict. GitHub mints jti values unique across
+        // audiences, so a cross-endpoint hit only ever means replay.
+        let conn = migrated_connection();
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');
+             INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+               VALUES ('cabin-ports', 'github', '35998702', '2026-08-15T00:00:00.000Z');
+             INSERT INTO scope_members (scope_name, user_id, role)
+               VALUES ('cabin-ports', 1, 'owner');",
+        )
+        .expect("seed the claimed scope");
+        let claims = parsed_claims();
+
+        // Verdict first: the replay refusal, then the exchange's mint
+        // guard sees the same consumed row.
+        assert_eq!(verdict_authn_batch(&conn, &claims, NOW), 1);
+        assert_eq!(verdict_authn_batch(&conn, &claims, NOW), 0);
+        let hash = auth::token_hash(&auth::format_trustpub_token(&[9; 32]));
+        let (consumed, minted) = exchange_batch(
+            &conn,
+            &claims,
+            "tok-tp-9",
+            &hash,
+            "2026-08-15T00:00:00.000Z",
+            "2026-08-15T00:30:00.000Z",
+            1,
+            &base_config(),
+        )
+        .expect("the batch commits");
+        assert_eq!((consumed, minted), (0, 0));
+
+        // Exchange first with a fresh jti: the verdict side refuses it.
+        let mut exchanged = claims;
+        exchanged.jti = "jti-0002".to_owned();
+        let (consumed, minted) = exchange_batch(
+            &conn,
+            &exchanged,
+            "tok-tp-10",
+            &hash,
+            "2026-08-15T00:00:00.000Z",
+            "2026-08-15T00:30:00.000Z",
+            1,
+            &base_config(),
+        )
+        .expect("the batch commits");
+        assert_eq!((consumed, minted), (1, 1));
+        assert_eq!(verdict_authn_batch(&conn, &exchanged, NOW), 0);
     }
 }

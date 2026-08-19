@@ -150,7 +150,7 @@ fn pending_entry(smoke: &mut Smoke, inputs: &BlobInputs<'_>) -> Result<Entry> {
 fn stale_verdict(smoke: &mut Smoke, inputs: &BlobInputs<'_>, entry: &Entry) -> Result<()> {
     step("a verdict bound to a stale listing conflicts");
     let verdict = verdict_stale(&entry.checksum);
-    smoke.wrequest("PATCH", inputs.verdict2_path, verdict.as_bytes(), &[409])?;
+    smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[409])?;
     smoke.expect_body("changed since it was listed")
 }
 
@@ -164,7 +164,7 @@ fn reject_shared(
 ) -> Result<()> {
     step("rejecting a version sharing its blob keeps the blob and the accounting");
     let verdict = verdict_rejected(&entry.checksum, &entry.published_at);
-    smoke.wrequest("PATCH", inputs.verdict2_path, verdict.as_bytes(), &[200])?;
+    smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[200])?;
     smoke.expect_body(r#""verification":"rejected""#)?;
     smoke.expect_body(r#""changed":true"#)?;
     smoke.check(inputs.artifact2_path, &[404])?;
@@ -284,7 +284,7 @@ fn reclaim_unshared(
         &inputs.work.join("entry-replacement.json"),
     )?;
     let verdict = verdict_rejected(&entry.checksum, &entry.published_at);
-    smoke.wrequest("PATCH", inputs.verdict2_path, verdict.as_bytes(), &[200])?;
+    smoke.verdict_patch(inputs.verdict2_path, verdict.as_bytes(), &[200])?;
     smoke.as_publisher();
     if stored_bytes()? != before_bytes {
         bail!(

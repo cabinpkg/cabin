@@ -364,6 +364,30 @@ async fn handle_website(
         }
         return Ok((response, token_id));
     }
+    // The other auth-exempt route: the verdict PATCH's credential is a
+    // GitHub Actions OIDC JWT in the Authorization header, not a
+    // registry token, so it too dispatches before the token check. No
+    // token row exists to tie the request log to; the refusal reasons
+    // are logged by the authn itself. The generation stamp mirrors the
+    // exchange: uniform across the route's answers, refusals included.
+    if req.method() == Method::Patch
+        && let Some(ApiRoute::AdminVerdict {
+            scope,
+            name,
+            version,
+        }) = match_api_route(path)
+    {
+        let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
+        let mut response = if verdict_authn(req, env, &db).await? {
+            verdict_response(req, env, ctx, &db, &scope, &name, &version).await?
+        } else {
+            unauthorized(env)?
+        };
+        if let Some(generation) = registry_generation(&db).await {
+            response.headers_mut().set(GENERATION_HEADER, &generation)?;
+        }
+        return Ok((response, None));
+    }
     let Some(auth) = authenticate(req, &db, ctx).await? else {
         return Ok((unauthorized(env)?, None));
     };
@@ -420,15 +444,8 @@ async fn handle_website(
                     (scope.to_owned(), name.to_owned(), version.to_owned());
                 yank_response(req, env, &db, &auth, &scope, &name, &version).await?
             }
-            Some(ApiRoute::AdminVerdict {
-                scope,
-                name,
-                version,
-            }) => {
-                let (scope, name, version) =
-                    (scope.to_owned(), name.to_owned(), version.to_owned());
-                verdict_response(req, env, ctx, &db, &auth, &scope, &name, &version).await?
-            }
+            // AdminVerdict is unreachable here: every PATCH to it
+            // dispatched before `authenticate` above.
             Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
             None => error_response(404, error::NOT_FOUND)?,
         },
@@ -925,7 +942,7 @@ async fn trustpub_exchange_response(
     let now_secs = (now_epoch_ms() / 1000.0) as i64;
     let claims = match trustpub::verify(
         &jwt,
-        &trustpub::GithubJwks,
+        &trustpub::GithubJwks::from_env(env),
         trustpub::DEFAULT_AUDIENCE,
         now_secs,
     )
@@ -1200,8 +1217,84 @@ fn verdict_binding_matches(
     true
 }
 
-/// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>` (`verify`
-/// scope): the verifier's verdict. Pending versions accept either verdict; a
+/// The pinned verifier identity from the four `VERIFIER_*` wrangler
+/// vars; `None` - any var missing or unparsable - refuses every
+/// verdict (fail closed, never a default).
+fn verifier_pins(env: &Env) -> Option<trustpub::VerifierPins> {
+    let var = |name: &str| env.var(name).ok().map(|value| value.to_string());
+    trustpub::VerifierPins::parse(
+        &var("VERIFIER_REPOSITORY_OWNER_ID")?,
+        &var("VERIFIER_REPOSITORY_ID")?,
+        &var("VERIFIER_WORKFLOW_FILENAME")?,
+        &var("VERIFIER_GIT_REF")?,
+    )
+}
+
+/// The verdict endpoint's authentication: the credential is a GitHub
+/// Actions OIDC JWT presented as the bearer, minted by the one workflow
+/// the `VERIFIER_*` vars pin ([`trustpub::VERIFIER_AUDIENCE`]). The
+/// step order is deliberate, like the exchange's: the fully stateless
+/// JWT verification first (JWKS via Cache/network, never D1), then the
+/// pins (still no D1), then one transaction consuming the jti - its
+/// zero-changed-rows answer is the replay refusal - with the lazy
+/// expiry prune alongside. Consuming the jti before the business logic
+/// is safe here, unlike the exchange's mint coupling: nothing hinges on
+/// this request succeeding afterwards, and the workflow retries a
+/// failed verdict with a freshly minted token. `false` means refused;
+/// the caller answers the uniform 401 while the real reason is logged
+/// here - no pin/signature/replay oracle.
+async fn verdict_authn(req: &Request, env: &Env, db: &D1Database) -> worker::Result<bool> {
+    let refused = |reason: &str| -> worker::Result<bool> {
+        console_log!("verdict refused: {reason}");
+        Ok(false)
+    };
+    let Some(header) = req.headers().get("authorization")? else {
+        return refused("no authorization header");
+    };
+    let Some(jwt) = auth::bearer_token(&header) else {
+        return refused("the authorization header is not a bearer credential");
+    };
+    // Worker clocks are epoch MILLISECONDS; the verifier takes seconds.
+    #[allow(clippy::cast_possible_truncation)]
+    let now_secs = (now_epoch_ms() / 1000.0) as i64;
+    let claims = match trustpub::verify(
+        jwt,
+        &trustpub::GithubJwks::from_env(env),
+        trustpub::VERIFIER_AUDIENCE,
+        now_secs,
+    )
+    .await
+    {
+        Ok(claims) => claims,
+        Err(err) => return refused(&format!("jwt verification failed: {err:?}")),
+    };
+    let Some(pins) = verifier_pins(env) else {
+        return refused("the VERIFIER_* pins are unset or unparsable");
+    };
+    if let Some(pin) = pins.refuses(&claims) {
+        return refused(&format!("the claims fail the {pin} pin"));
+    }
+    let results = db
+        .batch(vec![
+            db.prepare(sql::CONSUME_OIDC_JTI)
+                .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
+            db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
+                .bind(&[js_int(now_secs)])?,
+        ])
+        .await?;
+    let consumed = results
+        .first()
+        .and_then(|result| result.meta().ok().flatten())
+        .and_then(|meta| meta.changes)
+        .unwrap_or(0);
+    if consumed == 0 {
+        return refused("replayed jti");
+    }
+    Ok(true)
+}
+
+/// `PATCH /api/v1/admin/versions/<scope>/<name>/<version>`
+/// ([`verdict_authn`]): the verifier's verdict. Pending versions accept either verdict; a
 /// repeat of the verdict a terminal version already carries is the
 /// idempotent 200 (a repeat rejection also re-drives the blob
 /// reclaim); the conflicting combinations are the 409 matrix in
@@ -1223,26 +1316,15 @@ fn verdict_binding_matches(
 /// (`docs/architecture.md`, "Billing model: the governor and the breaker").
 /// The response reports the resulting state plus whether this request
 /// changed it.
-#[allow(clippy::too_many_arguments)] // the route triple plus the verdict plumbing
 async fn verdict_response(
     req: &mut Request,
     env: &Env,
     ctx: &Context,
     db: &D1Database,
-    auth: &AuthContext,
     scope: &str,
     name: &str,
     version: &str,
 ) -> worker::Result<Response> {
-    if !has_verify_scope(auth) {
-        return error_response(403, error::VERIFY_SCOPE_REQUIRED);
-    }
-    // A verdict is a package-scoped write like publish and yank, so a
-    // scope-limited token is confined here too - belt and braces, since
-    // trustpub tokens are never minted with the verify scope.
-    if auth.scope_limit_refuses(scope) {
-        return error_response(403, error::SCOPE_MEMBERSHIP_REQUIRED);
-    }
     let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
         return error_response(400, error::INVALID_VERDICT_BODY);
     };

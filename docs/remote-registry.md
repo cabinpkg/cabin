@@ -476,10 +476,16 @@ see while awaiting any verdict.
 
 ### Admin API (scope `verify`)
 
-The `verify` scope belongs to the verifier: it may list pending revisions and download their
+The `verify` scope belongs to the operator: it may list pending revisions and download their
 artifacts (ordinary tokens cannot; rejected revisions are downloadable by no one), and it gates
-the two admin routes, which authenticate with the same `Authorization: Bearer` mechanism on the
-same API origin.
+the two admin listings, which authenticate with the same `Authorization: Bearer` mechanism on
+the same API origin.  The verdict route is different: no registry token authenticates it.  Its
+credential is a GitHub Actions OIDC JWT - presented as the bearer - minted by the one workflow
+the registry deployment pins (repository owner and repository by their immutable numeric ids,
+workflow filename, and git ref), with the dedicated audience `cabinpkg.com/verifier`, so a token
+minted for the trusted-publishing exchange is dead here and vice versa.  Each JWT's `jti` is
+accepted once; replaying one - like any other authentication failure on this route - answers the
+registry's uniform `401`.
 
 ```text
 GET /api/v1/admin/versions?status=pending

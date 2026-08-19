@@ -135,6 +135,7 @@ pub fn check(registry_dir: &Path, require_bundle: bool) -> Report {
     validate_crons(&config, &mut failures);
     let local_classes = validate_durable_objects(&config, &mut failures);
     validate_limit_vars(&config, &mut failures);
+    validate_verifier_vars(&config, &mut failures);
 
     // The wasm build catches a class that fails to compile; only
     // wrangler's deploy-time export check catches one that compiles
@@ -430,6 +431,46 @@ fn validate_limit_vars(config: &Value, failures: &mut Vec<String>) {
             failures,
         );
     }
+}
+
+/// A `VERIFIER_*` pin that is missing or unparsable refuses every
+/// verdict in production (`src/trustpub.rs`, `VerifierPins::parse`
+/// fails closed) - correct there, but the typo belongs to CI, not to a
+/// verification queue nothing can drain. The ids mirror the runtime
+/// parser exactly (`i64::parse` on the raw value, no trim); the
+/// filename must also be slash-free, since the claim-side extraction
+/// can never yield one - such a pin matches nothing, ever.
+fn validate_verifier_vars(config: &Value, failures: &mut Vec<String>) {
+    let vars = config.get("vars").and_then(Value::as_object);
+    let value = |name: &str| {
+        vars.and_then(|vars| vars.get(name))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    };
+    for name in ["VERIFIER_REPOSITORY_OWNER_ID", "VERIFIER_REPOSITORY_ID"] {
+        require(
+            value(name).parse::<i64>().is_ok_and(|id| id > 0),
+            &format!(
+                "{name} must be a positive numeric GitHub id, got {:?}",
+                value(name)
+            ),
+            failures,
+        );
+    }
+    let filename = value("VERIFIER_WORKFLOW_FILENAME");
+    require(
+        !filename.is_empty() && !filename.contains('/'),
+        &format!("VERIFIER_WORKFLOW_FILENAME must be a bare workflow filename, got {filename:?}"),
+        failures,
+    );
+    require(
+        value("VERIFIER_GIT_REF").starts_with("refs/"),
+        &format!(
+            "VERIFIER_GIT_REF must be a fully qualified git ref, got {:?}",
+            value("VERIFIER_GIT_REF")
+        ),
+        failures,
+    );
 }
 
 /// A JSON value as the guard names it: strings bare, everything else in

@@ -287,8 +287,9 @@ never expires), enforced inside the single lookup's WHERE clause, so an
 expired or not-yet-valid token produces the exact no-row answer an
 unknown one does - the uniform 401, with no response or timing oracle.
 A row with `scope_limit` set may perform write-side package operations
-(publish, yank, verdict) only under exactly that scope; a mismatch
-answers the write plane's uniform membership 403. `kind` is a closed
+(publish, yank) only under exactly that scope; a mismatch
+answers the write plane's uniform membership 403. Verdicts take no
+registry token at all ("The verification pipeline"). `kind` is a closed
 domain (`user` | `trustpub`), and the schema itself requires a
 `trustpub` row to be expiring (within one day of its `created_at`
 anchor), scope-limited, publish-only, and explicitly classed
@@ -680,9 +681,10 @@ rules, the artifact read gate, and the verdict body live in
   (`GET /api/v1/admin/packages` - "Name fidelity"), and
   download their artifacts - the verifier has to fetch what it inspects.
   Rejected revisions are served to no one.
-- **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>`,
-  scope `verify` - the admin plane is registry infrastructure, so it
-  needs no scope membership, and verdicts are deliberately exempt from
+- **Verdicts** (`PATCH /api/v1/admin/versions/<scope>/<name>/<version>` -
+  authenticated not by a registry token but by a GitHub Actions OIDC
+  JWT with audience `cabinpkg.com/verifier`, presented as the bearer;
+  see "Trust model" below. Verdicts are deliberately exempt from
   the budget breaker: a verdict stores no new bytes, a rejection frees
   them, and verification must be able to drain the pending queue
   whatever the service mode - "Billing model: the governor and the breaker"):
@@ -714,14 +716,23 @@ rules, the artifact read gate, and the verdict body live in
   one are 409 (republish is the recovery path - a late duplicate
   verdict cannot race a replacement back to pending because the
   replacement changes `published_at` and fails the binding first).
-- **Trust model.** The `verify` scope is mintable through the session
-  token API like `publish` and `yank`: every allowlisted user is
-  currently an operator. A dedicated verifier-only issuance path
-  is deliberate future work for when sign-up opens beyond the
-  allowlist. The external workflow pins the expected API origin
-  independently and requires `config.json` to match it before sending the
-  verify token, so registry-controlled discovery cannot redirect that
-  credential to another host.
+- **Trust model.** The verdict endpoint accepts exactly one caller: the
+  verify workflow of the repository the `VERIFIER_*` wrangler vars pin
+  (numeric owner and repository ids, workflow filename, git ref). Its
+  credential is the workflow run's own GitHub-signed OIDC JWT, verified
+  by the same module as the trusted-publishing exchange
+  (`src/trustpub.rs`) under the distinct audience
+  `cabinpkg.com/verifier` - a token minted for either endpoint is dead
+  on the other - with each JWT's `jti` consumed once in the shared
+  `oidc_used_jtis` ledger, so a captured token cannot deliver a second
+  verdict. Every authentication failure answers the byte-identical
+  uniform 401 with the reason logged server-side only. The read side
+  (listings, corpus, pending downloads) and the governor stay on
+  `verify`-scoped registry tokens: they are operator surfaces, not the
+  workflow's. The external workflow pins the expected API origin
+  independently and requires `config.json` to match it before sending
+  its credential, so registry-controlled discovery cannot redirect it
+  to another host.
 - **Fail-safe direction.** Nothing becomes resolvable unless its status
   is exactly `verified`: a verifier that never runs, an unreadable
   status value, or a broken admin plane can only keep content
