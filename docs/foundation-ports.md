@@ -267,15 +267,19 @@ the ports tree, the publisher, or the crates whose bytes it packages run the com
 with no secrets; pushes to `main` with such changes publish the set to
 `https://registry.cabinpkg.com`; manual dispatch from `main` republishes everything, which is
 the recovery path after a pre-launch registry wipe (dispatching the workflow on any other ref
-runs the dry-run instead, never a publish).  Publish runs are serialized and an active run is
+runs the dry-run instead, never a publish).  Dispatching with the `exchange-check` input
+instead exchanges and immediately revokes a trusted-publishing token, proving the registered
+binding end to end while publishing nothing.  Publish runs are serialized and an active run is
 never cancelled; a run superseded by a newer matching commit on `main` skips its upload instead
 of immutably publishing an intermediate state.  The check runs immediately before the publish
 command, whose own preflight still takes minutes - a commit landing inside that residual window
 can make a stale run publish first, in which case the newer run's differing bytes land as a new
 packaging revision (see below) rather than overwriting anything, never silent divergence.
-The publish job authenticates through the `CABIN_PORTS_TOKEN` repository secret (a registry
-token for the account owning the `cabin-ports` scope), exposed to `cabin publish` as
-`CABIN_REGISTRY_TOKEN`.  Upstream archives restored from the CI cache are never trusted: the
+The publish job holds no long-lived credential: it grants `permissions: id-token: write`, and
+`cabin publish` exchanges the run's own OIDC token for a short-lived registry token confined
+to the `cabin-ports` scope, revoking it on the way out (see
+[Trusted publishing](remote-registry.md#trusted-publishing); which workflows may exchange is
+operator-registered registry data).  Upstream archives restored from the CI cache are never trusted: the
 tool re-hashes every cached archive against the checksum its port's `[package.upstream]` pins,
 and re-downloads on a mismatch.  The ports tree and the
 workflow live in the `cabinpkg/cabin` repository; the

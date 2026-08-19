@@ -296,7 +296,17 @@ includes re-issuing the verifier's token (see "Verification pipeline").
 
 Do the whole sequence in one sitting, in this order - two of the steps
 gate on each other and doing them out of order costs a revoke-and-remint
-round trip (drilled 2026-07-29):
+round trip (drilled 2026-07-29). Before the wipe itself, disable
+ports-publish (`gh workflow disable ports-publish.yml`) and cancel any
+in-flight ports-publish run: its runs mint their own publish tokens
+through the trusted-publishing exchange, the governor wipe in step 4
+refuses while any live publish token exists, and a run left polling in
+its deploy wait would publish the moment step 1's push unfreezes the
+deploy - before the governor gate has run. While the deploy gate is
+frozen on a stale `migrations-applied` stamp, keep ports-publish
+disabled the whole time, not just for the wipe: every push-triggered
+run fails its deploy wait fast and paints main red. Re-enable it in
+step 5.
 
 1. Commit the `wrangler.jsonc` database-id change and the refreshed
    `migrations-applied` stamp; the deploy gate opens on that push.
@@ -305,16 +315,25 @@ round trip (drilled 2026-07-29):
    cross-site navigation, and does it with the same uniform
    `?claim=denied` redirect as a genuinely refused claim. A GitHub org's
    OAuth app grant survives the wipe, so an org-backed re-claim grants
-   immediately - no third-party-access dance the second time.
+   immediately - no third-party-access dance the second time. The
+   `cabin-ports` claim is what re-arms ports publishing: the
+   trusted-publishing exchange mints for the scope's oldest owner and
+   refuses while the scope is unclaimed.
 3. Mint a **verify** token and `gh secret set REGISTRY_VERIFY_TOKEN`.
 4. Run `cargo registry-governor wipe`, from the repository root, with it
    **before any publish-capable
    token exists**: its no-delayed-publisher evidence gate requires zero
    live publish tokens (revoked and expired ones no longer count).
-5. Only then mint publish tokens (`gh secret set CABIN_PORTS_TOKEN`).
-6. Re-promote the operator quota class ("Quota classes",
-   `docs/architecture.md`): the wipe resets every user to `default`,
-   whose daily new-package quota a full ports run exhausts mid-flight.
+5. Re-enable ports-publish (`gh workflow enable ports-publish.yml`),
+   prove the trusted-publishing binding with an `exchange-check`
+   dispatch (exchange + immediate revocation, publishes nothing), then
+   dispatch it plainly from `main` to republish the set. There is no
+   publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
+   OIDC exchange is the credential.
+6. Re-promote the quota class of the operator's own account ("Quota
+   classes", `docs/architecture.md`): the wipe resets every user to
+   `default`. The ports run is unaffected - its minted token carries
+   the trustpub config's `operator` class.
 7. Rerun whatever main CI went red against the old registry
    (`gh run rerun <id> --failed`); byte-identical republication of the
    already-landed packages no-ops, so a partial run resumes cleanly.

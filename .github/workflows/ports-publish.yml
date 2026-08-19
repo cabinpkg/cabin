@@ -3,18 +3,28 @@ name: Ports Publish
 # Publishes the committed foundation ports as `cabin-ports/*`
 # registry packages through the repository tool
 # (crates/xtask-port-publish). Pull requests run the complete
-# preflight as a dry-run with no secrets; pushes to main publish the
-# published set; manual dispatch from main republishes everything (the
-# recovery path after a pre-launch registry wipe - dispatching any
-# other ref runs the dry-run instead, never a publish). The ports tree
-# and this workflow live in cabinpkg/cabin - the cabin-ports GitHub
-# organization is the registry scope authority, not a separate source
-# repository.
+# preflight as a dry-run with no credentials; pushes to main publish
+# the published set; manual dispatch from main republishes everything
+# (the recovery path after a pre-launch registry wipe - dispatching
+# any other ref runs the dry-run instead, never a publish), or - with
+# the exchange-check input - only proves the trusted-publishing
+# binding without publishing. No long-lived credential exists
+# anywhere in this workflow: `cabin publish` exchanges the run's OIDC
+# token for a short-lived registry token and revokes it on exit
+# (docs/remote-registry.md, "Publishing from GitHub Actions"). The
+# ports tree and this workflow live in cabinpkg/cabin - the
+# cabin-ports GitHub organization is the registry scope authority,
+# not a separate source repository.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      exchange-check:
+        description: "Exchange and immediately revoke a trusted-publishing token; publish nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,7 +39,7 @@ jobs:
     # must never publish). --dry-run runs the identical preflight the
     # publish path runs: stage every port into a temporary file
     # registry and build every port against it.
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && !inputs.exchange-check)
     runs-on: ubuntu-latest
 
     steps:
@@ -68,16 +78,21 @@ jobs:
           cargo port-publish --dry-run --cache-dir "$RUNNER_TEMP/cabin-cache"
 
   publish:
-    # The repository guard keeps forks (which have no
-    # CABIN_PORTS_TOKEN) from spending a long preflight build on a
-    # publish that can only fail unauthenticated.
-    if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # The repository guard keeps forks from spending a long preflight
+    # build on a publish that can only fail: the registry's
+    # trusted-publishing config pins this repository's immutable
+    # numeric GitHub id, so a fork's exchange answers the uniform 401.
+    if: github.repository == 'cabinpkg/cabin' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && !inputs.exchange-check
     runs-on: ubuntu-latest
     permissions:
       contents: read
       # The registry-deploy wait below reads this repository's
       # workflow runs.
       actions: read
+      # `cabin publish` exchanges the run's OIDC token for its
+      # short-lived registry token (docs/remote-registry.md,
+      # "Publishing from GitHub Actions"); no stored secret exists.
+      id-token: write
     # Serialize publish runs without cancelling an active one. The
     # group does not order runs; the freshness guard below keeps a
     # stale run from mutating the registry.
@@ -171,8 +186,34 @@ jobs:
           cargo port-publish --publish \
             --index-url https://registry.cabinpkg.com \
             --cache-dir "$RUNNER_TEMP/cabin-cache"
-        env:
-          # The repository secret is named for the cabin-ports scope it
-          # publishes under; cabin's credential lookup reads
-          # CABIN_REGISTRY_TOKEN.
-          CABIN_REGISTRY_TOKEN: ${{ secrets.CABIN_PORTS_TOKEN }}
+
+  exchange-check:
+    # Dispatch-only probe: exchange the run's OIDC token and revoke
+    # the minted registry token immediately, proving the registered
+    # binding end to end - config row, claimed scope, mint, revocation
+    # - while publishing nothing. Plain curl rather than the cabin
+    # client, which only exchanges as part of a real publish. The
+    # registered config pins refs/heads/main, so dispatching any other
+    # ref answers the registry's deliberately uniform 401 and fails
+    # this job. No checkout: the probe needs only the run's OIDC
+    # identity.
+    if: github.event_name == 'workflow_dispatch' && inputs.exchange-check
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Exchange and immediately revoke a trusted-publishing token
+        # Explicit bash for pipefail, so a failed fetch cannot feed an
+        # empty value downstream; `jq -e` fails on a missing field for
+        # the same reason. Both secrets are masked the moment they
+        # exist. The DELETE asserts the 204: unlike the publish path's
+        # best-effort revocation, proving revocation works is half of
+        # what this probe is for.
+        shell: bash
+        run: |
+          jwt="$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cabinpkg.com" | jq -er .value)"
+          echo "::add-mask::$jwt"
+          token="$(curl -sSf -X PUT https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Content-Type: application/json" -d "{\"jwt\":\"$jwt\"}" | jq -er .token)"
+          echo "::add-mask::$token"
+          curl -sSf -o /dev/null -X DELETE https://cabinpkg.com/api/v1/trusted_publishing/tokens -H "Authorization: Bearer $token"

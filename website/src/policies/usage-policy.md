@@ -113,6 +113,29 @@ coordinated abuse, this may happen without prior notification to the author,
 but in most cases the maintainers will first give the author the chance to
 justify the purpose of the package.
 
+## Trusted Publishing
+
+The registry supports trusted publishing for GitHub Actions: a registered
+workflow exchanges the short-lived OIDC token GitHub issues to its run for a
+registry token, instead of storing a long-lived secret. A registration binds
+a scope to a repository's immutable numeric GitHub ID and a workflow
+filename, optionally also pinned to a git ref or a deployment environment.
+Because the binding is by numeric ID, renaming the repository or its owner
+keeps the binding intact, while deleting the repository or transferring it
+to a different owner breaks the binding rather than carrying it along.
+
+Each OIDC token is exchangeable exactly once (a replay of an
+already-exchanged token is refused). The registry token it mints can publish
+to the registered scope for up to 30 minutes, may be used for any number of
+uploads within that window, and can be revoked earlier by the workflow that
+minted it; the `cabin` client performs the exchange and the revocation
+automatically.
+
+Registrations are currently managed by the Cabin maintainers; there is no
+self-serve configuration yet. If you would like a publishing workflow
+registered for your scope, open a thread on our [GitHub
+Discussions](https://github.com/orgs/cabinpkg/discussions).
+
 ## Data Access
 
 If you need access to package metadata in bulk, please use the sparse HTTP

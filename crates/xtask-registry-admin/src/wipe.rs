@@ -173,6 +173,15 @@ fn or_fail<T>(result: Result<T>) -> T {
 /// script's own refusals leave through `fail` instead.
 pub fn run(mode: Mode) -> Result<()> {
     if matches!(mode, Mode::Remote) {
+        // The one follow-up that must happen BEFORE the wipe, so it is
+        // printed before the confirmation rather than with the others:
+        // a ports-publish run mints its own publish token through the
+        // trusted-publishing exchange, and the post-wipe governor wipe
+        // refuses while any live publish token exists.
+        println!(
+            "before wiping: gh workflow disable ports-publish.yml, and cancel any \
+             in-flight ports-publish run (docs/runbook.md, \"Post-wipe re-provisioning\")"
+        );
         or_fail(confirm());
     }
 
@@ -303,18 +312,23 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
   1. commit the wrangler.jsonc database-id change and the refreshed
      migrations-applied stamp
   2. sign in again and re-claim scopes (/claim/<scope>; a GitHub org's
-     OAuth app grant survives the wipe, so re-claims grant immediately)
+     OAuth app grant survives the wipe, so re-claims grant immediately);
+     the cabin-ports claim is what re-arms ports publishing - the
+     trusted-publishing exchange refuses an unclaimed scope
   3. mint a verify-scoped token FIRST and update the GitHub secret
      (gh secret set REGISTRY_VERIFY_TOKEN)
-  4. run cargo registry-governor wipe (from the repository root) with it
-     BEFORE minting any
-     publish-capable token - its no-delayed-publisher evidence gate
-     requires zero live publish tokens (refused once launched)
-  5. only then mint publish tokens and update their secrets
-     (gh secret set CABIN_PORTS_TOKEN)
-  6. re-promote the operator quota class - the wipe reset every user to
-     'default', and a 17-package ports run exhausts the default daily
-     new-package quota (registry/docs/architecture.md, \"Quota classes\")
+  4. run cargo registry-governor wipe (from the repository root) BEFORE
+     any publish-capable token exists - its no-delayed-publisher
+     evidence gate requires zero live publish tokens (refused once
+     launched); ports-publish stays disabled until the next step
+  5. re-enable ports-publish (gh workflow enable ports-publish.yml),
+     prove the binding with an exchange-check dispatch, then dispatch
+     it plainly from main to republish the set - no publish token or
+     secret to mint: each run's OIDC exchange is the credential
+  6. re-promote the quota class of the operator's own account - the
+     wipe reset every user to 'default'; the ports run is unaffected,
+     its minted token carries the trustpub config's class
+     (registry/docs/architecture.md, \"Quota classes\")
   7. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "
