@@ -759,9 +759,9 @@ output and the server's schema cannot silently drift.
 typosquat - only members of `fmtlib` can publish `fmtlib/*` - which
 moves the confusability attack to **scope claims**, a fully automatic
 path (GitHub proof in, grant out, no human). Package verification is
-fully automatic too: the CI verifier PATCHes verdicts on a cron, so
-without an extra layer no human would ever see a name before it goes
-live. Cabin also has no reactive security apparatus (no report inbox,
+fully automatic too: the CI verifier PATCHes verdicts with no human in
+the loop, so without an extra layer no human would ever see a name
+before it goes live. Cabin also has no reactive security apparatus (no report inbox,
 no takedown rota), so review is front-loaded instead. The design is
 three layers, each calibrated by what a false positive costs:
 
@@ -781,8 +781,8 @@ three layers, each calibrated by what a false positive costs:
 2. **Verifier name advisories with an abstain outcome** - checks that
    can false-positive must cost a **delay, never a rejection**. The
    verifier runs them before downloading any archive (they need no
-   bytes; an abstained version costs a listing entry per cron pass,
-   not a 16 MiB re-download): skeleton-fold confusability against the
+   bytes; an abstained version costs a listing entry per verification
+   pass, not a 16 MiB re-download): skeleton-fold confusability against the
    whole package corpus (`-`/`_` fold away, `{1, i} -> l`, `{0} -> o`;
    equality with any existing package or with a different existing
    scope's fold), edit distance 1 on the folded full name against

@@ -493,7 +493,7 @@ exchange included) live in the CLI, never in this tool.  The crate must:
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
 holding the commands that act on the live registry, reached through their own `cargo registry-*`
 aliases: the ones an incident or a maintenance window needs at an operator's terminal, plus
-`verify`, which the `registry-verify` workflow runs unattended on its cron
+`verify`, which the `registry-verify` workflow runs unattended
 (`registry/docs/runbook.md`, "Verification pipeline") - it drives the `cabin-registry-verify`
 binary over every pending version and PATCHes the verdicts back.  They hold privileged
 credentials and talk to the running service, which is what separates them from the static guards

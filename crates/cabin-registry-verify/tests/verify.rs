@@ -1569,8 +1569,8 @@ fn hostile_upstream_archive_is_rejected() {
 
 /// A pinned archive whose bytes match the digest but whose stream
 /// will not decode is a deterministic, publisher-controlled fault:
-/// it must reject, not sit pending forever re-failing every cron
-/// pass.
+/// it must reject, not sit pending forever re-failing every
+/// verification pass.
 #[test]
 fn truncated_upstream_archive_is_rejected() {
     let dir = TempDir::new().unwrap();

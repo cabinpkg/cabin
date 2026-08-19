@@ -78,7 +78,13 @@ enum Command {
     RestoreDrill,
     /// Inspect pending versions and PATCH the verdicts
     /// (`cargo registry-verify`).
-    Verify,
+    Verify {
+        /// Mint two OIDC tokens and print the first one's claims
+        /// instead of verifying: proves the workflow's `id-token`
+        /// grant and the per-mint `jti` freshness without a verdict.
+        #[arg(long)]
+        check_oidc: bool,
+    },
     /// Drop and recreate the registry's data from zero, pre-launch
     /// only (`cargo registry-wipe`).
     Wipe {
@@ -108,7 +114,13 @@ fn run(cli: Cli) -> Result<()> {
         Command::LaunchGuard { target } => xtask_registry_admin::launch_guard::run(target.mode()),
         Command::Migrate { target } => xtask_registry_admin::migrate::run(target.mode()),
         Command::RestoreDrill => xtask_registry_admin::restore_drill::run(),
-        Command::Verify => xtask_registry_admin::verify::run(),
+        Command::Verify { check_oidc } => {
+            if check_oidc {
+                xtask_registry_admin::verify::check_oidc()
+            } else {
+                xtask_registry_admin::verify::run()
+            }
+        }
         Command::Wipe { local } => {
             xtask_registry_admin::wipe::run(if local { Mode::Local } else { Mode::Remote })
         }
