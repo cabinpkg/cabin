@@ -19,7 +19,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  format:
+  registry-format:
     runs-on: ubuntu-latest
 
     defaults:
@@ -39,7 +39,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --verbose -- --check
 
-  clippy:
+  registry-clippy:
     runs-on: ubuntu-latest
 
     defaults:
@@ -155,7 +155,7 @@ jobs:
   # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [format, clippy, build, conformance]
+    needs: [registry-format, registry-clippy, build, conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
