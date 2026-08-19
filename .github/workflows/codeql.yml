@@ -8,6 +8,13 @@ on:
   schedule:
     - cron: '45 2 * * 3'
 
+# A newer push to a PR branch cancels the PR's stale runs. Every other
+# event gets a per-run group: pushes, dispatches, calls, and schedules
+# are never cancelled or queued at the workflow level.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
