@@ -632,7 +632,8 @@ a local GitHub mock, through a fixed step sequence with per-step diagnostics.  T
 ### `xtask-registry-guard`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the static guards `registry.yml` runs on every pull request, reached through the
+holding the static guards `registry.yml` runs on every registry-touching pull request (the
+`registry` filter in `.github/path-filters.yml`), reached through the
 `cargo check-sql`, `cargo check-r2` and `cargo check-deploy` aliases.  They read the committed `registry/` tree - and, for the deploy guard,
 the bundle `worker-build` just produced - and nothing else: no credentials, no network, no
 mutation, which is what separates them from the operator tooling that has all three.  The two

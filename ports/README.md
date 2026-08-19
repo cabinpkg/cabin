@@ -131,7 +131,8 @@ $ cargo port-publish --dry-run     # full local preflight, no remote mutation
 $ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
-CI automates the tool (`.github/workflows/ports-publish.yml`): every pull request runs the
+CI automates the tool (`.github/workflows/ports-publish.yml`): ports-relevant pull requests
+(the `ports` filter in `.github/path-filters.yml`) run the
 complete `--dry-run` preflight, and publishing is manual only - dispatching the workflow from
 `main` publishes the full set to `https://registry.cabinpkg.com` (dispatching any other ref runs
 the dry-run), so a merged change reaches the registry at the next dispatch, and the same

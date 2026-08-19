@@ -128,8 +128,9 @@ with nothing extra to edit, while a change to what resolution consumes (`depende
 `features`, `standards`) needs a new upstream version instead.  `links` is the one-way
 exception: a respin may stamp a claim onto a version published without one, but changing or
 removing an existing claim also needs a new upstream version (see `docs/foundation-ports.md`,
-"Packaging revisions").  CI runs the same dry-run on every pull request; publishing is a manual
-dispatch of `.github/workflows/ports-publish.yml` from `main`.
+"Packaging revisions").  CI runs the same dry-run on ports-relevant pull requests (the `ports`
+filter in `.github/path-filters.yml`); publishing is a manual dispatch of
+`.github/workflows/ports-publish.yml` from `main`.
 
 ## Pull requests
 

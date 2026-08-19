@@ -122,7 +122,8 @@ with the alias when the canonical metadata format changes intentionally.
 
 This directory is a standalone Cargo workspace, excluded from the root
 workspace: `cargo build`/`cargo test` at the repository root never touch it.
-CI runs `.github/workflows/registry.yml` on `registry/**` changes; a green
+CI gates `.github/workflows/registry.yml`'s jobs on registry-relevant
+changes (the `registry` filter in `.github/path-filters.yml`); a green
 run on `main` also deploys the Worker (its `deploy-registry` job). That
 deploy never applies D1 migrations; those stay manual (docs/runbook.md).
 

@@ -1,6 +1,7 @@
 //! Static guards over the hosted registry Worker
-//! (`registry/`), run by `registry.yml` on every pull
-//! request.
+//! (`registry/`), run by `registry.yml` on every
+//! registry-relevant pull request (the `registry` filter in
+//! `.github/path-filters.yml`).
 //!
 //! Crate boundaries: the guards inspect committed sources and
 //! configuration only.  They take no credentials, make no network

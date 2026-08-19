@@ -20,7 +20,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which shared path filters (.github/path-filters.yml) match this
+  # push or pull request; the jobs below skip when theirs does not.
+  # A skipped job still satisfies its required status check.
+  changes:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      toml: ${{ steps.filter.outputs.toml }}
+    steps:
+      # The filter file is read from the checkout, and push events
+      # diff against the previous head from local history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: .github/path-filters.yml
+
   format:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -46,6 +71,8 @@ jobs:
           run: taplo fmt --check
 
   clippy:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -63,6 +90,8 @@ jobs:
             --verbose -- -D warnings
 
   docs:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -78,6 +107,10 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # Ungated on purpose: branch protection requires the windows leg by
+  # its matrix-expanded name, which a job-level skip never posts, and
+  # the workspace tests assert on docs/ and root .md files no filter
+  # lists.
   build-and-test:
     runs-on: ${{ matrix.os }}
 
@@ -126,6 +159,8 @@ jobs:
   # `build-and-test` so the proven, pre-activated path can never be
   # reddened by this one.
   windows-msvc-autodiscovery:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: windows-2025-vs2026
 
     steps:
@@ -168,6 +203,8 @@ jobs:
   # macOS (AppleClang) and Windows (MSVC) stay covered by
   # `build-and-test`.
   compiler-detection:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     # ubuntu-24.04 preinstalls every matrix compiler; bump the matrix
     # and the image together.
     runs-on: ubuntu-24.04
