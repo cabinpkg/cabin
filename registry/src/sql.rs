@@ -129,19 +129,19 @@ statements! {
     /// verifier's acceptance window, Unix seconds). `OR IGNORE` turns
     /// the primary-key conflict into zero changed rows, which the glue
     /// reads as the replay refusal - the loser of a concurrent replay
-    /// race sees the same zero without aborting anything. Must run in
-    /// one batch (one transaction) directly before
+    /// race sees the same zero without aborting anything. In the
+    /// exchange batch it must run directly before
     /// [`INSERT_TRUSTPUB_TOKEN`], which reads `changes()` from this
     /// statement: the coupling keeps a mint that never happened from
     /// burning the jti (a failed batch rolls this consume back too),
     /// and a replayed jti from minting.
-    CONSUME_TRUSTPUB_JTI =
-        "INSERT OR IGNORE INTO trustpub_used_jtis (jti, expires_at) VALUES (?1, ?2)";
+    CONSUME_OIDC_JTI =
+        "INSERT OR IGNORE INTO oidc_used_jtis (jti, expires_at) VALUES (?1, ?2)";
 
     /// Lazy replay-guard cleanup, ridden on each successful exchange
     /// (deliberately no cron): a row whose JWT could no longer verify
     /// anyway (`?1` is now, Unix seconds) protects nothing.
-    PRUNE_EXPIRED_TRUSTPUB_JTIS = "DELETE FROM trustpub_used_jtis WHERE expires_at <= ?1";
+    PRUNE_EXPIRED_OIDC_JTIS = "DELETE FROM oidc_used_jtis WHERE expires_at <= ?1";
 
     /// Lazy minted-token cleanup beside the jti prune. Trustpub rows
     /// only: an expired *user* token stays listed (and revocable) on
@@ -151,7 +151,7 @@ statements! {
         "DELETE FROM tokens WHERE kind = 'trustpub' AND expires_at <= ?1";
 
     /// Mints the exchange's short-lived token - but only when the
-    /// immediately preceding [`CONSUME_TRUSTPUB_JTI`] in the same batch
+    /// immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
     /// actually inserted its row: `changes()` is connection-scoped and
     /// statement-sequential, the same cross-statement coupling
     /// [`INSERT_USER_FOR_NEW_IDENTITY`] / [`UPSERT_IDENTITY`] ride

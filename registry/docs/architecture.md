@@ -9,11 +9,11 @@ the service.
 
 - **D1 is canonical.** Users and their external identities, scopes and
   their members, tokens, packages, versions, revisions, the
-  trusted-publishing tables (`trustpub_configs`, the per-scope registry
-  of GitHub repositories and workflows allowed to exchange an Actions
-  OIDC token for a short-lived `trustpub` token, bound by immutable
-  numeric ids; and `trustpub_used_jtis`, the exchange's once-only jti
-  replay guard), the
+  `trustpub_configs` table (the per-scope registry of GitHub
+  repositories and workflows allowed to exchange an Actions OIDC token
+  for a short-lived `trustpub` token, bound by immutable numeric ids),
+  `oidc_used_jtis` (the once-only jti replay guard shared by every
+  GitHub OIDC audience the registry accepts), the
   `backup_pending` queue, and the `meta` key-value table all live in one
   D1 database (`migrations/`).
   Everything the read routes serve is composed from D1 rows. The
@@ -265,7 +265,7 @@ carrying the config's quota class on the token row itself
 (`tokens.quota_class`; the auth lookup coalesces token-first, so the
 granted tier expires with the token instead of upgrading the backing
 user). Each successful exchange lazily prunes expired
-`trustpub_used_jtis` rows and expired `trustpub` token rows -
+`oidc_used_jtis` rows and expired `trustpub` token rows -
 deliberately no cron. `DELETE` on the same path revokes the presented
 token iff it is a `trustpub` one (deliberately not behind the write
 gate: blocking revocation would keep a live credential alive), and

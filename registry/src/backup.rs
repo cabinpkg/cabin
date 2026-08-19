@@ -33,7 +33,7 @@ pub const EXPECTED_TABLES: &[&str] = &[
     "scope_claims",
     "tokens",
     "trustpub_configs",
-    "trustpub_used_jtis",
+    "oidc_used_jtis",
     "packages",
     "versions",
     "revisions",
@@ -722,7 +722,7 @@ mod tests {
                 "scope_claims",
                 "tokens",
                 "trustpub_configs",
-                "trustpub_used_jtis",
+                "oidc_used_jtis",
                 "packages",
                 "versions",
                 "revisions",
@@ -732,7 +732,7 @@ mod tests {
         );
         let error = check.error().unwrap();
         assert!(
-            error.contains("tokens, trustpub_configs, trustpub_used_jtis, packages"),
+            error.contains("tokens, trustpub_configs, oidc_used_jtis, packages"),
             "{error}"
         );
     }

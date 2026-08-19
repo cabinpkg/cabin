@@ -99,11 +99,11 @@ pub enum VerifyError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GithubClaims {
     /// The token's unique id, the once-only replay guard's key
-    /// (`trustpub_used_jtis`).
+    /// (`oidc_used_jtis`).
     pub jti: String,
     /// When the token stops verifying (Unix seconds): the authenticated
     /// `exp` plus the acceptance leeway, not the raw claim. The exchange
-    /// writes it to `trustpub_used_jtis.expires_at` so a replay row
+    /// writes it to `oidc_used_jtis.expires_at` so a replay row
     /// outlives every instant at which [`verify`] would still accept the
     /// token - storing raw `exp` (or re-parsing the payload, or guessing
     /// a retention window) would reopen replay inside the leeway.
@@ -1296,7 +1296,7 @@ mod tests {
     ) -> rusqlite::Result<(usize, usize)> {
         let tx = conn.unchecked_transaction()?;
         let consumed = tx.execute(
-            sql::CONSUME_TRUSTPUB_JTI,
+            sql::CONSUME_OIDC_JTI,
             rusqlite::params![claims.jti, claims.verifiable_until],
         )?;
         let minted = tx.execute(
@@ -1312,7 +1312,7 @@ mod tests {
                 config.quota_class
             ],
         )?;
-        tx.execute(sql::PRUNE_EXPIRED_TRUSTPUB_JTIS, [NOW])?;
+        tx.execute(sql::PRUNE_EXPIRED_OIDC_JTIS, [NOW])?;
         tx.execute(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS, [created_at])?;
         tx.commit()?;
         Ok((consumed, minted))
@@ -1366,9 +1366,7 @@ mod tests {
         // Its own jti row survived the prune: the JWT is still inside
         // its acceptance window.
         let jtis: i64 = conn
-            .query_row("SELECT COUNT(*) FROM trustpub_used_jtis", [], |row| {
-                row.get(0)
-            })
+            .query_row("SELECT COUNT(*) FROM oidc_used_jtis", [], |row| row.get(0))
             .expect("count jtis");
         assert_eq!(jtis, 1);
 
@@ -1453,9 +1451,7 @@ mod tests {
         .expect_err("an over-ceiling mint must abort the batch");
         assert!(err.to_string().contains("CHECK"), "{err}");
         let jtis: i64 = conn
-            .query_row("SELECT COUNT(*) FROM trustpub_used_jtis", [], |row| {
-                row.get(0)
-            })
+            .query_row("SELECT COUNT(*) FROM oidc_used_jtis", [], |row| row.get(0))
             .expect("count jtis");
         assert_eq!(jtis, 0, "the rollback must cover the consume");
         // The identical JWT exchanges cleanly on retry.
