@@ -19,6 +19,54 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: registry
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all --verbose -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: registry
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: registry
+
+      - name: Clippy (host)
+        run: cargo clippy --all-targets --locked --verbose -- -D warnings
+
+      - name: Clippy (wasm32)
+        run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
+
   build:
     runs-on: ubuntu-latest
 
@@ -34,7 +82,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: stable
-          components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -54,15 +101,6 @@ jobs:
       - name: R2 acquisition guard
         run: cargo check-r2
         working-directory: .
-
-      - name: Check formatting
-        run: cargo fmt --all --verbose -- --check
-
-      - name: Clippy (host)
-        run: cargo clippy --all-targets --locked --verbose -- -D warnings
-
-      - name: Clippy (wasm32)
-        run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
 
       - name: Run host-target tests
         run: cargo test --locked --verbose -- --show-output
@@ -117,7 +155,7 @@ jobs:
   # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build, conformance]
+    needs: [format, clippy, build, conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
