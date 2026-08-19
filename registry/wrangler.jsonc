@@ -90,7 +90,18 @@
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
-        "D1_DATABASE_ID": "b42acb9c-4f77-4f6e-8ad2-22d3f04bf3e4"
+        "D1_DATABASE_ID": "b42acb9c-4f77-4f6e-8ad2-22d3f04bf3e4",
+        // The one workflow allowed to deliver verdicts: the verdict
+        // PATCH accepts only a GitHub Actions OIDC JWT whose claims
+        // match all four pins (src/trustpub.rs, VerifierPins). Pins,
+        // not secrets - the JWT's signature is the credential. The
+        // ids are the immutable numeric GitHub identifiers
+        // (renaming the owner or repository changes neither).
+        // 35998702 = cabinpkg, 119684778 = cabinpkg/cabin.
+        "VERIFIER_REPOSITORY_OWNER_ID": "35998702",
+        "VERIFIER_REPOSITORY_ID": "119684778",
+        "VERIFIER_WORKFLOW_FILENAME": "registry-verify.yml",
+        "VERIFIER_GIT_REF": "refs/heads/main"
     },
     "d1_databases": [
         {

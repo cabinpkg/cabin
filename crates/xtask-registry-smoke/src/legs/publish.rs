@@ -49,6 +49,7 @@ use xtask_registry_admin::{BACKUP_BUCKET, BLOBS_BUCKET, display, output, results
 
 use crate::bytes::{frame, replace_all, sha256_hex};
 use crate::context::{Base, Smoke};
+use crate::legs::anonymous::uniform_401_with;
 use crate::servers::d1_json;
 use crate::step;
 use crate::text::{contains, read, write};
@@ -271,8 +272,18 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     smoke.wcheck("/api/v1/admin/packages", &[403])?;
     smoke.expect_body("verify scope")?;
     write(&inputs.work.join("verdict-unbound.json"), VERDICT_UNBOUND)?;
-    smoke.wrequest("PATCH", &admin_version(inputs), VERDICT_UNBOUND, &[403])?;
-    smoke.expect_body("verify scope")
+    // The verdict route takes no registry token at all: its credential
+    // is the verifier workflow's OIDC JWT, so the publisher's bearer is
+    // the uniform 401, never a scope 403.
+    let publisher = smoke.auth.clone();
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PATCH",
+        &admin_version(inputs),
+        &publisher,
+        Some(VERDICT_UNBOUND),
+    )
 }
 
 /// L1081-1123.  Returns the pending listing the advisory leg reads.
@@ -301,8 +312,15 @@ fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     write(&inputs.work.join("oversized-verdict.json"), &oversized)?;
 
     let url = smoke.url(Base::Web, &admin_version(inputs));
-    let mut headers = smoke.auth.clone();
-    headers.push(("Transfer-Encoding".to_owned(), "chunked".to_owned()));
+    // Authenticated like the workflow (the cap must be what refuses,
+    // not the credential), chunked so no Content-Length shortcut hides
+    // an uncapped stream read. The jti burns on the 400; every verdict
+    // below mints its own fresh JWT anyway.
+    let jwt = smoke.mint_verifier_jwt("{}")?;
+    let headers = vec![
+        ("Authorization".to_owned(), format!("Bearer {jwt}")),
+        ("Transfer-Encoding".to_owned(), "chunked".to_owned()),
+    ];
     let status = smoke.http("PATCH", &url, &headers, Some(&oversized))?;
     if status != 400 {
         bail!(
@@ -345,7 +363,7 @@ fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
 /// L1125-1127.
 fn unbound_verdict(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("a verified verdict must name the listing it inspected");
-    smoke.wrequest("PATCH", &admin_version(inputs), VERDICT_UNBOUND, &[400])?;
+    smoke.verdict_patch(&admin_version(inputs), VERDICT_UNBOUND, &[400])?;
     smoke.expect_body("requires the checksum")
 }
 
@@ -405,7 +423,7 @@ fn real_verification(
     // reported.
     let verdict = verdict_body(entry, "verified", None)?;
     write(&inputs.work.join("verdict-verified.json"), &verdict)?;
-    smoke.wrequest("PATCH", &admin_version(inputs), &verdict, &[200])?;
+    smoke.verdict_patch(&admin_version(inputs), &verdict, &[200])?;
     smoke.expect_body(r#""verification":"verified""#)?;
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
     smoke.expect_body(r#""changed":true"#)?;
@@ -497,14 +515,14 @@ fn verdict_idempotence(
 ) -> Result<()> {
     step("verdicts are idempotent for the same value and conflict otherwise");
     smoke.as_verifier();
-    smoke.wrequest("PATCH", &admin_version(inputs), verdict_verified, &[200])?;
+    smoke.verdict_patch(&admin_version(inputs), verdict_verified, &[200])?;
     smoke.expect_body(r#""changed":false"#)?;
     // Bound to the verified revision's checksum and publish event, which
     // every verdict now requires: the conflict must be the transition,
     // not a missing binding.
     let rejected = verdict_body(entry, "rejected", Some("smoke rejection"))?;
     write(&inputs.work.join("verdict-rejected.json"), &rejected)?;
-    smoke.wrequest("PATCH", &admin_version(inputs), &rejected, &[409])?;
+    smoke.verdict_patch(&admin_version(inputs), &rejected, &[409])?;
     smoke.expect_body("immutable")?;
     smoke.as_publisher();
     Ok(())

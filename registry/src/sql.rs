@@ -126,21 +126,24 @@ statements! {
          WHERE scope_name = ?1 AND role = 'owner' ORDER BY user_id LIMIT 1";
 
     /// Consumes a JWT's jti exactly once (`?2` is the end of the
-    /// verifier's acceptance window, Unix seconds). `OR IGNORE` turns
-    /// the primary-key conflict into zero changed rows, which the glue
-    /// reads as the replay refusal - the loser of a concurrent replay
-    /// race sees the same zero without aborting anything. In the
-    /// exchange batch it must run directly before
+    /// verifier's acceptance window, Unix seconds), shared by the
+    /// exchange and the verdict endpoint over the one ledger. `OR
+    /// IGNORE` turns the primary-key conflict into zero changed rows,
+    /// which the glue reads as the replay refusal - the loser of a
+    /// concurrent replay race sees the same zero without aborting
+    /// anything. In the exchange batch it must run directly before
     /// [`INSERT_TRUSTPUB_TOKEN`], which reads `changes()` from this
     /// statement: the coupling keeps a mint that never happened from
     /// burning the jti (a failed batch rolls this consume back too),
-    /// and a replayed jti from minting.
+    /// and a replayed jti from minting. The verdict batch consumes it
+    /// with nothing coupled - nothing is minted there.
     CONSUME_OIDC_JTI =
         "INSERT OR IGNORE INTO oidc_used_jtis (jti, expires_at) VALUES (?1, ?2)";
 
     /// Lazy replay-guard cleanup, ridden on each successful exchange
-    /// (deliberately no cron): a row whose JWT could no longer verify
-    /// anyway (`?1` is now, Unix seconds) protects nothing.
+    /// and each authenticated verdict (deliberately no cron): a row
+    /// whose JWT could no longer verify anyway (`?1` is now, Unix
+    /// seconds) protects nothing.
     PRUNE_EXPIRED_OIDC_JTIS = "DELETE FROM oidc_used_jtis WHERE expires_at <= ?1";
 
     /// Lazy minted-token cleanup beside the jti prune. Trustpub rows

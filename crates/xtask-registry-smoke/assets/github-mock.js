@@ -1,5 +1,33 @@
+const crypto = require("crypto");
 const http = require("http");
 const port = process.argv[2];
+// The Actions OIDC issuer for the verdict endpoint: one keypair per
+// run, served as the JWKS the worker's GITHUB_JWKS_URL override points
+// at, with a local-only mint endpoint in place of Actions' token URL.
+// Claim defaults mirror the production VERIFIER_* pins in
+// registry/wrangler.jsonc so the deployed pin values are what the run
+// exercises; the negative legs override individual claims.
+const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+const jwk = { ...publicKey.export({ format: "jwk" }), kid: "smoke-oidc", alg: "RS256", use: "sig" };
+const b64url = (data) => Buffer.from(data).toString("base64url");
+const mintJwt = (overrides) => {
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    iss: "https://token.actions.githubusercontent.com",
+    aud: "cabinpkg.com/verifier",
+    jti: crypto.randomUUID(),
+    iat: now,
+    exp: now + 300,
+    repository_owner_id: "35998702",
+    repository_id: "119684778",
+    workflow_ref: "cabinpkg/cabin/.github/workflows/registry-verify.yml@refs/heads/main",
+    ref: "refs/heads/main",
+    ...overrides,
+  };
+  const signing = `${b64url(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "smoke-oidc" }))}.${b64url(JSON.stringify(claims))}`;
+  const signature = crypto.sign("sha256", Buffer.from(signing), privateKey).toString("base64url");
+  return `${signing}.${signature}`;
+};
 const api = {
   "/user": { id: 0, login: "Smoke" },
   "/users/smoke": { id: 0, login: "smoke", type: "User" },
@@ -83,6 +111,15 @@ http.createServer((req, res) => {
     }
     signin = mode;
     res.end("{}");
+  } else if (req.method === "GET" && req.url === "/.well-known/jwks") {
+    // Unauthenticated, like GitHub's real JWKS.
+    res.end(JSON.stringify({ keys: [jwk] }));
+  } else if (req.method === "POST" && req.url === "/__oidc/token") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      res.end(JSON.stringify({ jwt: mintJwt(body ? JSON.parse(body) : {}) }));
+    });
   } else if (req.method === "POST" && req.url === "/login/oauth/access_token") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));

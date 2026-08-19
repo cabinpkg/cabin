@@ -471,8 +471,9 @@ impl DevServers {
     /// (deployed: 300 s), with `DOWNLOAD_FLUSH_INTERVAL_MS=0` flushing
     /// every buffered download count immediately for the same reason
     /// (deployed: 30 s batches).  The `GITHUB_*` entries point the claim
-    /// flow's server-side calls at the GitHub mock (the client secret
-    /// only has to exist for the mock exchange).
+    /// flow's server-side calls and the verdict endpoint's JWKS fetch
+    /// at the GitHub mock (the client secret only has to exist for the
+    /// mock exchange).
     fn write_dev_vars(&mut self) -> Result<()> {
         if self.dev_vars.exists() {
             let backup = tempfile::Builder::new()
@@ -565,6 +566,7 @@ STATS_CACHE_TTL_SECS=\"0\"
 DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"
 GITHUB_OAUTH_BASE=\"http://127.0.0.1:{github}\"
 GITHUB_API_BASE=\"http://127.0.0.1:{github}\"
+GITHUB_JWKS_URL=\"http://127.0.0.1:{github}/.well-known/jwks\"
 GITHUB_CLIENT_SECRET=\"smoke-client-secret\"
 "
     )
@@ -766,6 +768,7 @@ mod tests {
              DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"\n\
              GITHUB_OAUTH_BASE=\"http://127.0.0.1:8790\"\n\
              GITHUB_API_BASE=\"http://127.0.0.1:8790\"\n\
+             GITHUB_JWKS_URL=\"http://127.0.0.1:8790/.well-known/jwks\"\n\
              GITHUB_CLIENT_SECRET=\"smoke-client-secret\"\n"
         );
     }

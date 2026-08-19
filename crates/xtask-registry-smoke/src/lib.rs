@@ -56,12 +56,13 @@ pub fn run() -> Result<()> {
     servers::export_dump(mock_dir.path())?;
     let mut servers = DevServers::start(&ports, mock_dir.path())?;
 
+    let github_port = port("SMOKE_GITHUB_PORT", &ports.github)?;
     let mut smoke = Smoke::new(
         port("SMOKE_PORT", &ports.registry)?,
         port("SMOKE_WEB_PORT", &ports.web)?,
+        github_port,
         token.clone(),
     );
-    let github_port = port("SMOKE_GITHUB_PORT", &ports.github)?;
     anonymous::run(&mut smoke, &registry, github_port)?;
 
     if token.is_empty() {

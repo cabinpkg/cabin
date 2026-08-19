@@ -163,8 +163,7 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
     let package = format!("{}/{}", inputs.scope, inputs.name);
     let entry = listing_entry(&smoke.body, &package, inputs.version)?;
     let verdict = verdict_respin(&entry);
-    smoke.wrequest(
-        "PATCH",
+    smoke.verdict_patch(
         &verdict_path(inputs, inputs.version),
         verdict.as_bytes(),
         &[200],
@@ -368,10 +367,10 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     // unknown triple is the authenticated 404, never the 503.
     smoke.as_verifier();
     let verdict = verdict_path(inputs, inputs.version);
-    smoke.wrequest("PATCH", &verdict, inputs.verdict_verified, &[200])?;
+    smoke.verdict_patch(&verdict, inputs.verdict_verified, &[200])?;
     smoke.expect_body(r#""changed":false"#)?;
     let unknown = verdict_path(inputs, "9.9.9");
-    smoke.wrequest("PATCH", &unknown, inputs.verdict_verified, &[404])?;
+    smoke.verdict_patch(&unknown, inputs.verdict_verified, &[404])?;
     smoke.as_publisher();
     // The trusted-publishing exchange sits behind this same gate - and
     // in FRONT of the token check: no credential at all, yet the answer
@@ -841,7 +840,7 @@ mod tests {
 
     #[test]
     fn the_source_header_pattern_is_an_anchored_literal() {
-        let mut smoke = Smoke::new(0, 0, "cabin_smoke".to_owned());
+        let mut smoke = Smoke::new(0, 0, 0, "cabin_smoke".to_owned());
         smoke.headers = BLOCK.as_bytes().to_vec();
         source_header(&smoke, "^content-range: bytes 377-398/399$").expect("present");
         source_header(&smoke, "^Cache-Control: no-store$").expect("case-insensitive");
