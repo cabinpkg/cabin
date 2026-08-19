@@ -1,6 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use cabin_core::escape_control_chars;
 use thiserror::Error;
 
 /// Errors produced by the file-registry layer.
@@ -16,21 +17,31 @@ pub enum RegistryError {
     #[error("invalid file registry at {}: {message}", path.display())]
     InvalidConfig { path: PathBuf, message: String },
 
-    #[error("failed to parse registry config at {}: {source}", path.display())]
+    /// serde quotes the offending key, so whoever wrote the registry files
+    /// chose part of this text; it is escaped and deliberately not a
+    /// `#[source]` - see [`escape_control_chars`].
+    #[error(
+        "failed to parse registry config at {}: {}",
+        path.display(),
+        escape_control_chars(&error.to_string()),
+    )]
     ConfigJson {
         path: PathBuf,
-        #[source]
-        source: serde_json::Error,
+        error: serde_json::Error,
     },
 
     #[error("invalid package index for {name:?}: name field is {actual_name:?}")]
     PackageIndexNameMismatch { name: String, actual_name: String },
 
-    #[error("failed to parse package index at {}: {source}", path.display())]
+    /// Escaped and not a `#[source]`, like [`RegistryError::ConfigJson`].
+    #[error(
+        "failed to parse package index at {}: {}",
+        path.display(),
+        escape_control_chars(&error.to_string()),
+    )]
     PackageIndexJson {
         path: PathBuf,
-        #[source]
-        source: serde_json::Error,
+        error: serde_json::Error,
     },
 
     #[error("invalid package index at {}: unsupported schema version {schema}", path.display())]

@@ -133,9 +133,9 @@ impl HttpIndex {
         let context = SourceContext::HttpUrl(&resolver);
         let entry = cabin_index::parse_package_entry(body_str, Some(name.as_str()), &context, None)
             .map_err(|err| match err {
-                IndexError::Json { source, .. } => IndexHttpError::InvalidMetadata {
+                IndexError::Json { error, .. } => IndexHttpError::InvalidMetadata {
                     name: name.as_str().to_owned(),
-                    message: source.to_string(),
+                    message: error.to_string(),
                 },
                 IndexError::NameMismatch {
                     declared, expected, ..
@@ -406,6 +406,10 @@ fn make_source_resolver(package_url: url::Url) -> impl Fn(&str) -> Result<String
             // `IndexHttpError` wrapper at the source.rs boundary
             // re-classifies anything left over.
             package: "<source>".to_owned(),
+            // `InvalidPackageName` renders `message` raw, so this
+            // relies on `resolve_source_url` returning an
+            // already-escaped `IndexHttpError`: keep that escape if
+            // its variants are ever reworked.
             message: err.to_string(),
         })
     }

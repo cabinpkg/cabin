@@ -33,6 +33,7 @@ pub mod source_language;
 pub mod source_replacement;
 pub mod standard_compatibility;
 pub mod term_color;
+pub mod term_text;
 pub mod term_verbosity;
 pub mod toolchain;
 pub mod upstream;
@@ -102,6 +103,7 @@ pub use standard_compatibility::{
     BoundedRange, IncompatibleStandards, Requirement, UnknownIncompatibleStandards,
 };
 pub use term_color::{ColorChoice, ColorEnvError, InvalidColorChoice};
+pub use term_text::escape_control_chars;
 pub use term_verbosity::{InvalidVerbosityCombination, Verbosity, VerbosityEnvError};
 pub use toolchain::{
     ConditionalToolchainDecl, ResolvedTool, ResolvedToolchain, ToolKind, ToolSelection, ToolSource,

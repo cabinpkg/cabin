@@ -33,9 +33,9 @@ pub fn read_optional(path: &Path) -> Result<Option<PackageIndex>, RegistryError>
         source,
     })?;
     let index: PackageIndex =
-        serde_json::from_str(&body).map_err(|source| RegistryError::PackageIndexJson {
+        serde_json::from_str(&body).map_err(|error| RegistryError::PackageIndexJson {
             path: path.to_path_buf(),
-            source,
+            error,
         })?;
     if index.schema != PACKAGE_INDEX_SCHEMA {
         return Err(RegistryError::PackageIndexUnsupportedSchema {
@@ -127,9 +127,9 @@ pub fn read_published_standards(
             })?;
         let standards = match value.get("standards") {
             Some(standards) => serde_json::from_value::<StandardsMetadata>(standards.clone())
-                .map_err(|source| RegistryError::PackageIndexJson {
+                .map_err(|error| RegistryError::PackageIndexJson {
                     path: path.clone(),
-                    source,
+                    error,
                 })?,
             None => StandardsMetadata::default(),
         };
@@ -447,6 +447,29 @@ mod tests {
     use super::*;
     use cabin_package::SourceMetadata;
     use std::collections::BTreeMap;
+
+    /// `StandardsMetadata` denies unknown fields, so a registry-authored
+    /// index file picks the key that is quoted back in the parse error.
+    #[test]
+    fn published_standards_parse_errors_cannot_smuggle_terminal_escapes() {
+        let dir = assert_fs::TempDir::new().unwrap();
+        let index = dir.path().join("packages/demo.json");
+        fs::create_dir_all(index.parent().unwrap()).unwrap();
+        fs::write(
+            &index,
+            r#"{"schema":1,"name":"demo","versions":{"1.0.0":{"standards":{"\u001b[2Khidden":1}}}}"#,
+        )
+        .unwrap();
+        let name = PackageName::new("demo").unwrap();
+        let rendered = read_published_standards(dir.path(), &name)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            rendered.contains(r"\u{1b}[2Khidden"),
+            "not escaped: {rendered}"
+        );
+        assert!(!rendered.contains('\u{1b}'), "not escaped: {rendered}");
+    }
 
     const STAMP: &str = "2026-01-01T00:00:00Z";
 

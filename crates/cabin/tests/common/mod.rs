@@ -236,6 +236,15 @@ pub fn cabin() -> Command {
     cmd
 }
 
+/// Stderr with miette's line wrapping joined back together.  The
+/// renderer breaks long messages at the render width, and the break
+/// point follows incidental lengths (temp-dir paths, server ports),
+/// so a test asserting on quoted third-party text must not depend on
+/// where the wrap falls.
+pub fn stderr_with_wrapping_joined(assert: &assert_cmd::assert::Assert) -> String {
+    String::from_utf8_lossy(&assert.get_output().stderr).replace(['\r', '\n', '│', ' '], "")
+}
+
 /// Pin `CABIN_CACHE_HOME` to a deterministic temp path.  Tests
 /// routinely strip `HOME` for config isolation, which would
 /// otherwise leave the user-global cache fallback

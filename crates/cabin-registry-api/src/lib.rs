@@ -44,6 +44,7 @@
 use std::io::Read as _;
 use std::time::Duration;
 
+use cabin_core::escape_control_chars;
 use cabin_credentials::Token;
 use serde::Deserialize;
 use thiserror::Error;
@@ -711,31 +712,6 @@ fn envelope_entry(response: ureq::Response) -> Option<ErrorEntry> {
     let mut entry = envelope.errors.into_iter().next()?;
     entry.detail = escape_control_chars(&entry.detail);
     Some(entry)
-}
-
-/// Escape terminal control characters in registry-provided diagnostics.
-/// Error details are useful, but a third-party registry must not be able to
-/// inject terminal commands or forge extra diagnostic lines.
-fn escape_control_chars(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if ch.is_control() || is_bidi_control(ch) {
-            escaped.extend(ch.escape_default());
-        } else {
-            escaped.push(ch);
-        }
-    }
-    escaped
-}
-
-/// Unicode's bidirectional controls can reorder otherwise printable text
-/// in terminal diagnostics. Keep ordinary international text intact while
-/// making those invisible formatting characters explicit.
-fn is_bidi_control(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-    )
 }
 
 /// The publish `409` explanation: the server's envelope detail

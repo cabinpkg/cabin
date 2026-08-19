@@ -430,6 +430,46 @@ fn http_invalid_metadata_surfaces_clear_error() {
         .stderr(predicate::str::contains("invalid package metadata"));
 }
 
+/// A remote registry picks the JSON keys of the metadata it serves, and
+/// the parse error quotes the rejected key back.
+#[test]
+fn http_metadata_cannot_smuggle_terminal_escapes_into_diagnostics() {
+    let dir = TempDir::new().unwrap();
+    let registry = dir.path().join("registry");
+    assert_fs::fixture::ChildPath::new(registry.join("packages"))
+        .create_dir_all()
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(registry.join("artifacts"))
+        .create_dir_all()
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(registry.join("config.json"))
+        .write_str(
+            r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts"}"#,
+        )
+        .unwrap();
+    // Valid JSON whose sole key is unknown, so `deny_unknown_fields`
+    // quotes the key back; `\u001b` decodes to ESC, and `ESC [ 2 K`
+    // erases the line the terminal is on.
+    assert_fs::fixture::ChildPath::new(registry.join("packages/fmtlib/fmt.json"))
+        .write_str(r#"{"\u001b[2Khidden":1}"#)
+        .unwrap();
+    write_app_using_scoped_fmt(dir.path(), None);
+    let server = TestServer::serve(registry);
+    let assertion = cabin()
+        .args(["resolve", "--color", "never", "--manifest-path"])
+        .arg(dir.path().join("app/cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\u{1b}").not());
+    assert!(
+        stderr_with_wrapping_joined(&assertion).contains(r"\u{1b}[2Khidden"),
+        "expected the escaped key in stderr: {}",
+        String::from_utf8_lossy(&assertion.get_output().stderr)
+    );
+}
+
 #[test]
 fn cross_origin_http_artifact_url_is_rejected() {
     let dir = TempDir::new().unwrap();

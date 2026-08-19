@@ -1948,6 +1948,30 @@ sweep does not "fix" them:
   equality-compared digests rendered through the shared `cabin_core::hash` primitives, never
   parsed or served as package checksums, and stay bare.
 
+### Third-party text in diagnostics
+
+A registry chooses the bytes Cabin quotes back when it rejects that registry's index, config, or
+error envelope - a declared package name, a version key, the key a JSON parse error names.  Printed
+raw, those bytes let a third party repaint the screen with ANSI escapes, forge a second `error:`
+line with a newline, or reorder the message with bidi controls.
+
+Most of that text is safe because the diagnostic quotes it with `{:?}`: Rust's `str` `Debug` escapes
+control and bidi characters, so `{value:?}` is the default spelling for a third-party string in an
+`#[error(...)]` message.  `cabin_core::escape_control_chars` covers what `Debug` cannot reach - a
+string that has already interpolated raw third-party bytes into itself, which in practice means a
+`serde_json::Error`'s own text.  It is applied wherever a boundary owns that text: at ingestion for
+the registry API's error envelope (`cabin-registry-api`), and in the `Display` of the variants that
+render a parse error (`IndexError::Json`, `IndexHttpError::{Transport, InvalidMetadata,
+InvalidConfig}`, `RegistryError::{ConfigJson, PackageIndexJson}`).  Escaping is idempotent, so the
+two placements compose.
+
+One invariant ties it together: a variant that escapes third-party text must not also carry that
+text as a `#[source]`.  The CLI's coded and plain paths render errors with anyhow's `{:#}`, which
+re-appends every source verbatim and would undo the escape, so those variants keep the parse error
+as a plain field.  They also name it `error` rather than `source`: `thiserror` adopts a field
+*named* `source` as the error's source even without the attribute, so dropping `#[source]` alone
+would not have taken it out of the chain.
+
 ## Why a separate lockfile crate?
 
 `cabin-lockfile` and `cabin-resolver` solve unrelated problems:

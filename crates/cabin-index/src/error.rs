@@ -1,6 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use cabin_core::escape_control_chars;
 use thiserror::Error;
 
 /// Errors produced while loading a local JSON package index.
@@ -13,11 +14,17 @@ pub enum IndexError {
         source: io::Error,
     },
 
-    #[error("failed to parse index entry {path}: {source}", path = path.display())]
+    /// serde quotes the offending key, so a registry chooses part of this
+    /// text; it is escaped and deliberately not a `#[source]` - see
+    /// [`escape_control_chars`].
+    #[error(
+        "failed to parse index entry {path}: {detail}",
+        path = path.display(),
+        detail = escape_control_chars(&error.to_string()),
+    )]
     Json {
         path: PathBuf,
-        #[source]
-        source: serde_json::Error,
+        error: serde_json::Error,
     },
 
     #[error(
