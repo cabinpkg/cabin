@@ -79,9 +79,13 @@ enum Command {
     /// Inspect pending versions and PATCH the verdicts
     /// (`cargo registry-verify`).
     Verify {
-        /// Mint two OIDC tokens and print the first one's claims
+        /// Mint two OIDC tokens and print the first one's claims,
+        /// then walk the trusted-publishing exchange round trip,
         /// instead of verifying: proves the workflow's `id-token`
-        /// grant and the per-mint `jti` freshness without a verdict.
+        /// grant, the per-mint `jti` freshness, and the exchange
+        /// without a verdict.  The `VERIFY_CHECK_OIDC=true` env form
+        /// is the workflow-dispatch input's spelling of the same flag
+        /// (the `run:` block stays a plain invocation).
         #[arg(long)]
         check_oidc: bool,
     },
@@ -115,7 +119,9 @@ fn run(cli: Cli) -> Result<()> {
         Command::Migrate { target } => xtask_registry_admin::migrate::run(target.mode()),
         Command::RestoreDrill => xtask_registry_admin::restore_drill::run(),
         Command::Verify { check_oidc } => {
-            if check_oidc {
+            // GitHub renders a boolean dispatch input as the string
+            // "true"/"false", so only the exact "true" opts in.
+            if check_oidc || std::env::var("VERIFY_CHECK_OIDC").as_deref() == Ok("true") {
                 xtask_registry_admin::verify::check_oidc()
             } else {
                 xtask_registry_admin::verify::run()

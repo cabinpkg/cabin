@@ -504,6 +504,13 @@ registry token created on `/me` with **only** the `verify` scope.
 > `400`.  The transcripts stay as observed - they are drill records, not
 > API reference.
 
+> **Secret-era note.** The long-lived `REGISTRY_VERIFY_TOKEN` secret this
+> drill provisioned was later retired: the workflow now mints a
+> verify-scoped token per run through the trusted-publishing exchange's
+> verifier arm (`architecture.md`, "Trust model") and carries no
+> registry-token secret.  Every mention of the secret in this document
+> is as observed at drill time.
+
 ## Benign lifecycle: pending -> verified -> resolvable
 
 Published a new **version** of an existing package (`qv-a@0.2.0`); the
