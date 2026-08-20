@@ -107,10 +107,15 @@ pub enum ApiRoute<'a> {
     /// (`docs/runbook.md`, "The cost governor").
     AdminGovernor,
     /// [`TRUSTPUB_TOKENS_PATH`]: `PUT` exchanges a GitHub Actions OIDC
-    /// JWT for a short-lived `trustpub` token (the one Bearer-plane
-    /// route exempt from token auth - the JWT in the body is the
+    /// JWT for a short-lived `trustpub` token (a Bearer-plane route
+    /// exempt from token auth - the JWT in the body is the
     /// credential), `DELETE` revokes the presented token.
     TrustPubTokens,
+    /// [`SESSION_TOKENS_PATH`]: `PUT` trades a GitHub access token for
+    /// a short-lived `session` token (auth-exempt like the trustpub
+    /// exchange - the GitHub token in the body is the credential),
+    /// `DELETE` revokes the presented token.
+    SessionTokens,
 }
 
 /// The trusted-publishing token endpoint. The glue dispatches the
@@ -118,15 +123,24 @@ pub enum ApiRoute<'a> {
 /// plane's credential check.
 pub const TRUSTPUB_TOKENS_PATH: &str = "/api/v1/trusted_publishing/tokens";
 
+/// The login-session token endpoint, dispatched like
+/// [`TRUSTPUB_TOKENS_PATH`]: the unauthenticated `PUT` mint runs before
+/// the Bearer plane's credential check.
+pub const SESSION_TOKENS_PATH: &str = "/api/v1/sessions/tokens";
+
 /// Matches `path` against the API routes:
 /// `/api/v1/packages/<scope>/<name>/<version>`,
 /// `/api/v1/packages/<scope>/<name>/<version>/yank`, the
-/// trusted-publishing [`TRUSTPUB_TOKENS_PATH`], and the admin
+/// trusted-publishing [`TRUSTPUB_TOKENS_PATH`], the login-session
+/// [`SESSION_TOKENS_PATH`], and the admin
 /// plane's `/api/v1/admin/versions[/<scope>/<name>/<version>]`,
 /// `/api/v1/admin/packages`, and `/api/v1/admin/governor`.
 pub fn match_api_route(path: &str) -> Option<ApiRoute<'_>> {
     if path == TRUSTPUB_TOKENS_PATH {
         return Some(ApiRoute::TrustPubTokens);
+    }
+    if path == SESSION_TOKENS_PATH {
+        return Some(ApiRoute::SessionTokens);
     }
     if path == "/api/v1/admin/packages" {
         return Some(ApiRoute::AdminPackages);
@@ -976,6 +990,31 @@ mod tests {
         assert_eq!(match_session_route(TRUSTPUB_TOKENS_PATH), None);
         assert_eq!(match_web_route(TRUSTPUB_TOKENS_PATH), None);
         assert_eq!(match_route(TRUSTPUB_TOKENS_PATH), None);
+    }
+
+    #[test]
+    fn matches_the_session_tokens_route() {
+        assert_eq!(
+            match_api_route(SESSION_TOKENS_PATH),
+            Some(ApiRoute::SessionTokens)
+        );
+        assert_eq!(SESSION_TOKENS_PATH, "/api/v1/sessions/tokens");
+        // Exact match only, like the trustpub route; and never on the
+        // session-cookie or stats planes.
+        for path in [
+            "/api/v1/sessions",
+            "/api/v1/sessions/",
+            "/api/v1/sessions/tokens/",
+            "/api/v1/sessions/tokens/abc",
+            "/api/v1/session/tokens",
+        ] {
+            assert_eq!(match_api_route(path), None, "path: {path:?}");
+        }
+        assert!(!is_session_path(SESSION_TOKENS_PATH));
+        assert!(!is_stats_path(SESSION_TOKENS_PATH));
+        assert_eq!(match_session_route(SESSION_TOKENS_PATH), None);
+        assert_eq!(match_web_route(SESSION_TOKENS_PATH), None);
+        assert_eq!(match_route(SESSION_TOKENS_PATH), None);
     }
 
     #[test]

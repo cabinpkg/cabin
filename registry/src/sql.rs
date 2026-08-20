@@ -58,10 +58,15 @@ statements! {
     /// bearer-authenticated request.
     TOUCH_TOKEN_LAST_USED = "UPDATE tokens SET last_used_at = ?1 WHERE id = ?2";
 
-    /// The session token listing: metadata only, never hashes.
+    /// The dashboard token listing: metadata only, never hashes, and
+    /// `user` rows only - the machine-minted kinds (`trustpub`,
+    /// `session`) are expiry-pruned infrastructure credentials whose
+    /// rows carry none of the state this listing renders, so surfacing
+    /// them would show an expired-but-unpruned session as a live token.
     LIST_USER_TOKENS =
         "SELECT id, name, scopes, created_at, last_used_at, revoked_at \
-         FROM tokens WHERE user_id = ?1 ORDER BY created_at DESC, id";
+         FROM tokens WHERE user_id = ?1 AND kind = 'user' \
+         ORDER BY created_at DESC, id";
 
     /// Issues a token; D1 stores only the SHA-256 hex of the plaintext.
     INSERT_TOKEN =
@@ -146,12 +151,13 @@ statements! {
     /// seconds) protects nothing.
     PRUNE_EXPIRED_OIDC_JTIS = "DELETE FROM oidc_used_jtis WHERE expires_at <= ?1";
 
-    /// Lazy minted-token cleanup beside the jti prune. Trustpub rows
-    /// only: an expired *user* token stays listed (and revocable) on
-    /// its owner's dashboard, while an expired exchange token is pure
-    /// residue nobody manages.
-    PRUNE_EXPIRED_TRUSTPUB_TOKENS =
-        "DELETE FROM tokens WHERE kind = 'trustpub' AND expires_at <= ?1";
+    /// Lazy minted-token cleanup beside the jti prune, ridden on each
+    /// exchange and each session mint (deliberately no cron). Trustpub
+    /// and session rows only: an expired *user* token stays listed
+    /// (and revocable) on its owner's dashboard, while an expired
+    /// short-lived token is pure residue nobody manages.
+    PRUNE_EXPIRED_SHORT_LIVED_TOKENS =
+        "DELETE FROM tokens WHERE kind IN ('trustpub', 'session') AND expires_at <= ?1";
 
     /// Mints the config arm's short-lived publish token - but only when
     /// the immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
@@ -199,6 +205,25 @@ statements! {
     /// is the caller's uniform 401, so the endpoint is no token-kind
     /// oracle.
     DELETE_TRUSTPUB_TOKEN = "DELETE FROM tokens WHERE id = ?1 AND kind = 'trustpub'";
+
+    // ------------------------------------------------------------------
+    // login sessions: the CLI's short-lived human credential
+    // ------------------------------------------------------------------
+
+    /// Mints a login-session token
+    /// (`PUT /api/v1/sessions/tokens`); D1 stores only the SHA-256 hex
+    /// of the plaintext. The shape is fixed here and re-enforced by the
+    /// schema's session CHECK: the full human scope set, unconfined,
+    /// and NULL `quota_class` so the row inherits the owning user's
+    /// class live through [`AUTH_TOKEN_LOOKUP`]'s COALESCE.
+    INSERT_SESSION_TOKEN =
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                             expires_at, kind) \
+         VALUES (?1, ?2, 'login session', ?3, 'publish,yank,verify', ?4, ?5, 'session')";
+
+    /// [`DELETE_TRUSTPUB_TOKEN`]'s session sibling, with the same
+    /// zero-changes-is-401 discipline.
+    DELETE_SESSION_TOKEN = "DELETE FROM tokens WHERE id = ?1 AND kind = 'session'";
 
     // ------------------------------------------------------------------
     // scopes: the claim flow and membership management

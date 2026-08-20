@@ -120,6 +120,29 @@ http.createServer((req, res) => {
     req.on("end", () => {
       res.end(JSON.stringify({ jwt: mintJwt(body ? JSON.parse(body) : {}) }));
     });
+  } else if (req.method === "POST" && req.url === "/applications/Ov23liAgmw27EQavKC8H/token") {
+    // The check-token endpoint the session mint proves identity with:
+    // Basic auth with the app's own client credentials (the id is
+    // wrangler.jsonc's public GITHUB_CLIENT_ID var, the secret the
+    // harness's .dev.vars value), and only this app's one token names
+    // a user - anything else is GitHub's 404, like a foreign app's
+    // token or a PAT.
+    const basic = Buffer.from("Ov23liAgmw27EQavKC8H:smoke-client-secret").toString("base64");
+    if (req.headers.authorization !== `Basic ${basic}`) {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ message: "Bad credentials" }));
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      if (JSON.parse(body || "{}").access_token === "gho_smoke") {
+        res.end(JSON.stringify({ scopes: [], user: api["/user"] }));
+      } else {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ message: "Not Found" }));
+      }
+    });
   } else if (req.method === "POST" && req.url === "/login/oauth/access_token") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));

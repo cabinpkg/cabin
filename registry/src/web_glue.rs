@@ -615,8 +615,8 @@ fn claim_denied(cookies: &[String]) -> worker::Result<Response> {
 }
 
 #[derive(Deserialize)]
-struct UserRecord {
-    user_id: i64,
+pub(crate) struct UserRecord {
+    pub(crate) user_id: i64,
     login_snapshot: String,
     quota_class: String,
 }
@@ -1322,7 +1322,11 @@ async fn github_access_token(
 
 /// One authenticated read against the GitHub API: the body on a 200,
 /// `None` on any refusal.
-async fn github_get(env: &Env, access_token: &str, path: &str) -> worker::Result<Option<Vec<u8>>> {
+pub(crate) async fn github_get(
+    env: &Env,
+    access_token: &str,
+    path: &str,
+) -> worker::Result<Option<Vec<u8>>> {
     let headers = Headers::new();
     headers.set("authorization", &format!("Bearer {access_token}"))?;
     headers.set("accept", "application/vnd.github+json")?;
@@ -1331,6 +1335,41 @@ async fn github_get(env: &Env, access_token: &str, path: &str) -> worker::Result
     let mut init = RequestInit::new();
     init.with_method(Method::Get).with_headers(headers);
     let url = format!("{}{path}", github_api_base(env));
+    let request = Request::new_with_init(&url, &init)?;
+    let mut response = Fetch::Request(request).send().await?;
+    if response.status_code() != 200 {
+        return Ok(None);
+    }
+    Ok(Some(response.bytes().await?))
+}
+
+/// GitHub's check-token endpoint, authenticated with the registry's own
+/// OAuth client credentials: the body on a 200, `None` on any refusal.
+/// Unlike a plain `GET /user`, a 200 here proves the presented access
+/// token was issued by THIS OAuth app - a token some other authorized
+/// app holds for the same account, or a personal access token, is a
+/// 404 - so a third party's GitHub grant can never become a registry
+/// login.
+pub(crate) async fn github_check_token(
+    env: &Env,
+    access_token: &str,
+) -> worker::Result<Option<Vec<u8>>> {
+    use base64ct::{Base64, Encoding as _};
+    let client_id = env.secret("GITHUB_CLIENT_ID")?.to_string();
+    let client_secret = env.secret("GITHUB_CLIENT_SECRET")?.to_string();
+    let basic = Base64::encode_string(format!("{client_id}:{client_secret}").as_bytes());
+    let headers = Headers::new();
+    headers.set("authorization", &format!("Basic {basic}"))?;
+    headers.set("accept", "application/vnd.github+json")?;
+    headers.set("content-type", "application/json")?;
+    // GitHub's API rejects requests without a User-Agent.
+    headers.set("user-agent", "cabin-registry")?;
+    let body = serde_json::json!({ "access_token": access_token }).to_string();
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post)
+        .with_headers(headers)
+        .with_body(Some(body.into()));
+    let url = format!("{}/applications/{client_id}/token", github_api_base(env));
     let request = Request::new_with_init(&url, &init)?;
     let mut response = Fetch::Request(request).send().await?;
     if response.status_code() != 200 {
@@ -1371,7 +1410,10 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
 /// session (the transient, post-wipe ghost case) that answers the same
 /// 401 as no session, and the claim and membership planes refuse the
 /// account.
-async fn user_record(db: &D1Database, github_id: i64) -> worker::Result<Option<UserRecord>> {
+pub(crate) async fn user_record(
+    db: &D1Database,
+    github_id: i64,
+) -> worker::Result<Option<UserRecord>> {
     db.prepare(sql::USER_BY_IDENTITY)
         .bind(&[GITHUB_PROVIDER.into(), github_id.to_string().into()])?
         .first(None)

@@ -121,6 +121,14 @@ pub fn format_trustpub_token(bytes: &[u8; TOKEN_RANDOM_BYTES]) -> String {
     format!("cabin_tp_{}", Base64UrlUnpadded::encode_string(bytes))
 }
 
+/// Formats a login-session token: `cabin_ses_` plus the base64url
+/// (unpadded) rendering of the CSPRNG bytes - [`format_trustpub_token`]'s
+/// shape with its own grep-able prefix, for the same reason.
+pub fn format_session_token(bytes: &[u8; TOKEN_RANDOM_BYTES]) -> String {
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+    format!("cabin_ses_{}", Base64UrlUnpadded::encode_string(bytes))
+}
+
 /// Parses the comma-separated `tokens.scopes` column, ignoring unknown names
 /// (deny by default: an unknown scope never grants anything).
 pub fn parse_scopes(scopes: &str) -> Vec<Scope> {
@@ -226,6 +234,26 @@ mod tests {
             let mut bytes = [0u8; 32];
             bytes[position] = 1;
             assert_ne!(format_trustpub_token(&bytes), baseline, "byte {position}");
+        }
+    }
+
+    #[test]
+    fn format_session_token_has_the_documented_shape() {
+        let token = format_session_token(&[0xA5; 32]);
+        let digits = token.strip_prefix("cabin_ses_").expect("cabin_ses_ prefix");
+        assert_eq!(digits.len(), 43);
+        assert!(
+            digits
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'),
+            "token: {token}"
+        );
+        // Every input byte reaches the rendered secret.
+        let baseline = format_session_token(&[0; 32]);
+        for position in 0..32 {
+            let mut bytes = [0u8; 32];
+            bytes[position] = 1;
+            assert_ne!(format_session_token(&bytes), baseline, "byte {position}");
         }
     }
 

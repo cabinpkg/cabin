@@ -33,6 +33,10 @@ const EXPECTED_401: &str = r#"{"errors":[{"detail":"authentication required"}]}"
 /// revoked from [`crate::legs::revisions`].
 pub const TRUSTPUB_TOKENS_PATH: &str = "/api/v1/trusted_publishing/tokens";
 
+/// The login-session token endpoint, minted from and revoked by
+/// [`login_session_surface`].
+pub const SESSION_TOKENS_PATH: &str = "/api/v1/sessions/tokens";
+
 /// The whole anonymous surface, in the shell's order.
 ///
 /// # Errors
@@ -192,6 +196,27 @@ fn mutation_surface(smoke: &mut Smoke) -> Result<()> {
         Some(b"not json"),
     )?;
     uniform_401_with(smoke, Base::Web, "DELETE", TRUSTPUB_TOKENS_PATH, &[], None)?;
+    // The login-session mint is auth-exempt the same way (the GitHub
+    // access token in the body is the credential), and an unusable
+    // token value, no JSON at all, or a bare revoke answer the same
+    // bytes.
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        SESSION_TOKENS_PATH,
+        &[],
+        Some(br#"{"github_token":""}"#),
+    )?;
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        SESSION_TOKENS_PATH,
+        &[],
+        Some(b"not json"),
+    )?;
+    uniform_401_with(smoke, Base::Web, "DELETE", SESSION_TOKENS_PATH, &[], None)?;
     uniform_401(smoke, Base::Web, "/api/v1/admin/versions?status=pending")
 }
 
@@ -347,6 +372,93 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
         &auth,
         None,
     )
+}
+
+/// The login-session mint, end to end: the GitHub access token in the
+/// body - proven against the mock's check-token route - mints the 12-hour
+/// session token, the token exercises its scope set and revokes
+/// itself, and a live token of another kind cannot revoke through the
+/// route.  Anonymous in spirit (nothing here touches [`Smoke::auth`])
+/// but called from the tokened phase: the mint's identity lookup needs
+/// the seeded github account, which a tokenless run never writes.
+/// Post-migration coverage with no shell ancestor.
+///
+/// # Errors
+///
+/// The first failed check, worded like the module's other legs.
+pub fn login_session_surface(smoke: &mut Smoke, publisher_token: &str) -> Result<()> {
+    step("the login-session mint answers a token that authenticates and revokes itself");
+    let bearer = |token: &str| vec![("Authorization".to_owned(), format!("Bearer {token}"))];
+    let url = smoke.url(Base::Web, SESSION_TOKENS_PATH);
+    // A token GitHub refuses is the outbound-failure path: the uniform
+    // 401, and the attempt leaves no session row behind.
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        SESSION_TOKENS_PATH,
+        &[],
+        Some(br#"{"github_token":"gho_wrong"}"#),
+    )?;
+    let rows = crate::servers::d1_rows(
+        "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens WHERE kind = 'session'",
+    )?;
+    let leftovers = rows
+        .first()
+        .and_then(|row| row.get("ids"))
+        .and_then(serde_json::Value::as_str)
+        .context("list the session rows")?;
+    if !leftovers.is_empty() {
+        bail!("a refused mint left session rows behind: {leftovers}");
+    }
+    let status = smoke.http("PUT", &url, &[], Some(br#"{"github_token":"gho_smoke"}"#))?;
+    if status != 200 {
+        bail!(
+            "the session mint answered {status}, expected 200 (body: {})",
+            text(&smoke.body)
+        );
+    }
+    let minted: serde_json::Value =
+        serde_json::from_slice(&smoke.body).context("parse the mint answer")?;
+    let token = minted
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .with_context(|| format!("no token in the mint answer: {minted}"))?
+        .to_owned();
+    if !token.starts_with("cabin_ses_") {
+        bail!("the minted session token does not carry the cabin_ses_ prefix");
+    }
+    if minted
+        .get("expires_at")
+        .and_then(serde_json::Value::as_str)
+        .is_none()
+    {
+        bail!("no expires_at in the mint answer: {minted}");
+    }
+    // The full human scope set, live: the verify-plane listing answers
+    // the session token.
+    let auth = bearer(&token);
+    let listing = smoke.url(Base::Web, "/api/v1/admin/versions?status=pending");
+    let status = smoke.http("GET", &listing, &auth, None)?;
+    if status != 200 {
+        bail!("the minted session token could not list pending versions: {status}");
+    }
+    // A live token of another kind changes no rows through this route
+    // and answers the uniform 401: the revoke is not a kind oracle.
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "DELETE",
+        SESSION_TOKENS_PATH,
+        &bearer(publisher_token),
+        None,
+    )?;
+    // Revocation by the token itself, and the revoked token is dead.
+    let status = smoke.http("DELETE", &url, &auth, None)?;
+    if status != 204 {
+        bail!("revoking the minted session token answered {status}, expected 204");
+    }
+    uniform_401_with(smoke, Base::Web, "DELETE", SESSION_TOKENS_PATH, &auth, None)
 }
 
 /// L572-584.

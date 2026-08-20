@@ -33,7 +33,7 @@ use xtask_registry_admin::{display, results};
 
 use crate::bytes::{frame, replace_all, retarget_hash, revision_of, sha256_hex, tamper_zip};
 use crate::context::{Base, Smoke};
-use crate::legs::anonymous::{TRUSTPUB_TOKENS_PATH, uniform_401_with};
+use crate::legs::anonymous::{SESSION_TOKENS_PATH, TRUSTPUB_TOKENS_PATH, uniform_401_with};
 use crate::servers::{d1, d1_json, d1_quiet};
 use crate::step;
 use crate::text::capture;
@@ -440,6 +440,18 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
         .contains("x-cabin-registry-generation")
     {
         bail!("the trustpub DELETE 401 must not carry the generation header");
+    }
+    // The session mint gates identically, and before the GitHub round
+    // trip: a credential GitHub would refuse still answers the gate's
+    // 503, never the outbound-refusal's 401.
+    let mint = smoke.url(Base::Web, SESSION_TOKENS_PATH);
+    let got = smoke.http("PUT", &mint, &[], Some(br#"{"github_token":"gho_wrong"}"#))?;
+    if got != 503 {
+        bail!("the session mint under writes_blocked answered {got}, expected the gate's 503");
+    }
+    smoke.expect_body("registry_over_budget")?;
+    if !header_line(&smoke.headers, "retry-after: 900") {
+        bail!("the session-mint 503 must carry Retry-After: 900");
     }
     Ok(())
 }
