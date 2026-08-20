@@ -6,10 +6,26 @@ name: Proofs
 # fails when a numbered lemma/theorem/corollary in the spec has no
 # same-named Lean declaration.
 
+# No job here backs a required check, so scoping happens at the
+# trigger: a filtered-out run blocks nothing. Keep both lists equal.
 on:
   push:
     branches: [main]
+    paths:
+      - "docs/proofs/**"
+      - "docs/design/standard-compatibility/**"
+      - "crates/xtask-ci/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/proofs.yml"
   pull_request:
+    paths:
+      - "docs/proofs/**"
+      - "docs/design/standard-compatibility/**"
+      - "crates/xtask-ci/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/proofs.yml"
 
 permissions:
   contents: read
@@ -22,31 +38,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Which shared path filters (.github/path-filters.yml) match this
-  # push or pull request; the jobs below skip when theirs does not.
-  # A skipped job still satisfies its required status check.
-  changes:
-    runs-on: ubuntu-slim
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      proofs: ${{ steps.filter.outputs.proofs }}
-    steps:
-      # The filter file is read from the checkout, and push events
-      # diff against the previous head from local history.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          filters: .github/path-filters.yml
-
   lean:
-    needs: changes
-    if: needs.changes.outputs.proofs == 'true'
     runs-on: ubuntu-latest
 
     steps:

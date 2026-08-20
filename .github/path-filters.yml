@@ -3,12 +3,16 @@
 # not `paths:` triggers, so a skipped job still satisfies a required
 # check - and `cargo workflow-superseded --relevant-to <filter>`,
 # which scopes the deploy and publish freshness guards. Keep entries
-# double-quoted (the guard's strict parser otherwise warns and falls
-# back to unscoped supersession), keep the lists coarse, and end
-# every list with `.github/**`.
+# double-quoted on comment-free lines (the guard's strict parser
+# otherwise warns and falls back to unscoped supersession), and keep
+# the lists coarse. Each workflow's gate list ends with the workflow
+# file itself plus this filter file, so an edit to either re-runs
+# exactly the workflows it affects and nothing else.
 
 # rust.yml: the workspace and everything its tests stage (examples/
-# run under the CLI tests, ports/ feed the publisher tests).
+# run under the CLI tests, ports/ feed the publisher tests). Carries
+# the .github entries for rust.yml's three lists: every rust.yml job
+# condition includes `rust`.
 rust:
   - "crates/**"
   - "examples/**"
@@ -16,12 +20,12 @@ rust:
   - "Cargo.toml"
   - "Cargo.lock"
   - ".cargo/**"
-  - ".github/**"
+  - ".github/workflows/rust.yml"
+  - ".github/path-filters.yml"
 
 # rust.yml's format job also checks every TOML file in the tree.
 toml:
   - "**/*.toml"
-  - ".github/**"
 
 # rust.yml's build-and-test additionally embeds these in its CLI test
 # assertions (include_str!), beyond the `rust` list.
@@ -29,27 +33,31 @@ docs:
   - "docs/**"
   - "CONTRIBUTING.md"
   - "INSTALL.md"
-  - ".github/**"
 
 # website.yml: the site renders docs/ and the ports tree's pages.
 website:
   - "website/**"
   - "docs/**"
   - "ports/**"
-  - ".github/**"
+  - ".github/workflows/website.yml"
+  - ".github/path-filters.yml"
 
 # registry.yml: the registry workspace, its crates/ path-deps, and
 # the xtask guards built from the root workspace.
-# SAFETY: keep this a superset of `ports` minus `ports/**` -
-# ports-publish's deploy wait treats a job-skipped Registry run as
-# already-deployed (crates/xtask-workflow-guard/src/await_deploy.rs).
+# SAFETY: keep this a superset of `ports` minus `ports/**` and
+# ports-publish's own workflow file - ports-publish's deploy wait
+# treats a job-skipped Registry run as already-deployed
+# (crates/xtask-workflow-guard/src/await_deploy.rs), which stays
+# sound only for entries that cannot change the Worker's accepted
+# schema or the publish client; those two change neither.
 registry:
   - "registry/**"
   - "crates/**"
   - "Cargo.toml"
   - "Cargo.lock"
   - ".cargo/**"
-  - ".github/**"
+  - ".github/workflows/registry.yml"
+  - ".github/path-filters.yml"
 
 # ports-publish.yml: ports/ are what it publishes; the publisher and
 # the cabin client build from the root workspace.
@@ -59,24 +67,16 @@ ports:
   - "Cargo.toml"
   - "Cargo.lock"
   - ".cargo/**"
-  - ".github/**"
-
-# proofs.yml: the Lean mechanization, the spec it covers, and the
-# spec-coverage test that reads both.
-proofs:
-  - "docs/proofs/**"
-  - "docs/design/standard-compatibility/**"
-  - "crates/xtask-ci/**"
-  - "Cargo.toml"
-  - "Cargo.lock"
-  - ".github/**"
+  - ".github/workflows/ports-publish.yml"
+  - ".github/path-filters.yml"
 
 # docker.yml proves the packaging only; a docker-only breakage
 # surfaces on the next Dockerfile-touching change (accepted).
 docker:
   - "Dockerfile"
   - ".dockerignore"
-  - ".github/**"
+  - ".github/workflows/docker.yml"
+  - ".github/path-filters.yml"
 
 # dist.yml on push/PR proves the packaging tooling; tags always build
 # every target through release.yml, so the workspace stays out.
@@ -84,4 +84,5 @@ dist:
   - "crates/xtask-dist/**"
   - "crates/cabin/Cargo.toml"
   - "demo.tape"
-  - ".github/**"
+  - ".github/workflows/dist.yml"
+  - ".github/path-filters.yml"

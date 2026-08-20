@@ -1,9 +1,13 @@
 name: Audit GitHub Actions workflows
 
+# Not a required check, and it audits only .github/; a dispatch
+# covers an out-of-band audit (e.g. a new advisory on a pinned action).
 on:
   push:
     branches: [main]
+    paths: [".github/**"]
   pull_request:
+    paths: [".github/**"]
   workflow_dispatch:
 
 # Deny-all by default; the job below requests only what it needs.

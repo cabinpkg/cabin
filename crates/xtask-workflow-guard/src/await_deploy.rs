@@ -84,13 +84,15 @@
 //!   here because the gate lives in `.github/path-filters.yml`: every
 //!   path that can change the Worker's accepted schema or the publish
 //!   client (`registry/`, `crates/`, the root manifests, `.cargo/`,
-//!   `.github/`) must stay in `registry.yml`'s `registry` filter, so
-//!   the only pushes that reach this arm - ports-publish ran, the
-//!   registry jobs skipped - are ones touching nothing but the ports
-//!   tree, which no Worker or client code reads.  A `ports` filter
-//!   entry absent from the `registry` filter (other than `ports/**`)
-//!   would let a client-changing push publish against a Worker whose
-//!   conformance never ran for it.
+//!   the filter file itself) must stay in `registry.yml`'s `registry`
+//!   filter, so the only pushes that reach this arm - ports-publish
+//!   ran, the registry jobs skipped - are ones touching nothing but
+//!   the ports tree or ports-publish's own workflow file, neither of
+//!   which any Worker or client code reads.  A `ports` filter entry
+//!   absent from the `registry` filter (other than `ports/**` and
+//!   `.github/workflows/ports-publish.yml`) would let a
+//!   client-changing push publish against a Worker whose conformance
+//!   never ran for it.
 //! - A same-SHA Registry run that succeeded with its Deploy step
 //!   *skipped* now takes the failure path's pending-descendant exit
 //!   instead of idling into the hour ceiling - see
