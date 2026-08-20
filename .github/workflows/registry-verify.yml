@@ -33,6 +33,10 @@ on:
         description: "reject only: the advisory rule, delivered as 'name_advisory: <rule>'"
         required: false
         default: ""
+      check_oidc:
+        description: "Diagnostics only: prove the OIDC grant and the token exchange round trip (mint, exchange, revoke); verifies nothing"
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -48,11 +52,15 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # Bounded well inside the exchanged registry token's 30-minute
+    # lifetime.
     timeout-minutes: 15
     permissions:
       contents: read
       # Verdicts authenticate this run's own OIDC JWT, pinned
-      # server-side by the VERIFIER_* vars in registry/wrangler.jsonc.
+      # server-side by the VERIFIER_* vars in registry/wrangler.jsonc;
+      # the same grant mints the run's verify-scoped registry token
+      # through the trusted-publishing exchange (no token secret).
       id-token: write
 
     steps:
@@ -71,7 +79,6 @@ jobs:
 
       - name: Verify pending versions
         env:
-          REGISTRY_VERIFY_TOKEN: ${{ secrets.REGISTRY_VERIFY_TOKEN }}
           # The registry to verify.  Repository variables tune the
           # verifier's caps; unset variables arrive as empty strings,
           # which the verifier treats as "use the default".
@@ -83,8 +90,10 @@ jobs:
           VERIFY_MAX_PATH_LEN: ${{ vars.VERIFY_MAX_PATH_LEN }}
           # The dispatch inputs, as env so the run stays a plain
           # invocation.  A plain dispatch still submits the action
-          # default; the client keys everything off `resolve`.
+          # default; the client keys the resolution off `resolve`
+          # and the diagnostic mode off `check_oidc`.
           VERIFY_RESOLVE: ${{ inputs.resolve }}
           VERIFY_RESOLVE_ACTION: ${{ inputs.resolution }}
           VERIFY_RESOLVE_REASON: ${{ inputs.reason }}
+          VERIFY_CHECK_OIDC: ${{ inputs.check_oidc }}
         run: cargo registry-verify

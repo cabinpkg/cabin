@@ -15,11 +15,14 @@
 //! them - and never a credential, the corpus, or archive bytes.
 //!
 //! Two credentials, two planes (`registry/docs/runbook.md`,
-//! "Verification pipeline"): the listings and downloads ride the
-//! `verify`-scoped registry token, while each verdict PATCH carries a
-//! GitHub Actions OIDC JWT minted fresh for it (`Minter`) - the
-//! registry consumes each token's `jti` on use, so no JWT can
-//! authenticate twice.
+//! "Verification pipeline"): the listings and downloads ride a
+//! `verify`-scoped registry token the run mints for itself at start -
+//! one exchange-audience JWT through the trusted-publishing exchange's
+//! verifier arm (`registry/src/trustpub.rs`), revoked best-effort at
+//! every clean exit and left to its half-hour expiry on an abort -
+//! while each verdict PATCH carries a GitHub Actions OIDC JWT minted
+//! fresh for it (`Minter`) - the registry consumes each token's `jti`
+//! on use, so no JWT can authenticate twice.
 //!
 //! A dispatched run can instead resolve ONE abstained version
 //! (`Resolution`, threaded through the `VERIFY_RESOLVE*` env vars):
@@ -39,13 +42,16 @@
 //! goes on to verify a package called `null`; that is what the shell
 //! did.
 //!
-//! The verifier child inherits the whole environment, the privileged
-//! `REGISTRY_VERIFY_TOKEN` included, exactly as the shell's child did,
-//! minus the OIDC mint pair, which is scrubbed (`capture`): it
-//! could mint the verdict-delivering JWT, the one capability no
-//! registry token holds.  The child reads only the `VERIFY_*` caps,
-//! and removing the rest would be a change rather than a port.  The
-//! publisher-controlled upstream download is the one request that
+//! The verifier child inherits the whole environment, exactly as the
+//! shell's child did, minus the OIDC mint pair and any inherited
+//! `REGISTRY_VERIFY_TOKEN`, all scrubbed (`capture`): the pair could
+//! mint the verdict-delivering JWT, and the token variable - which
+//! the workflow no longer sets, but a local operator shell still may
+//! (`registry/docs/runbook.md`) - is a credential the child has no
+//! use for.  The run's own registry token is minted at start and
+//! lives only in driver memory.  The child reads only the `VERIFY_*`
+//! caps, and removing the rest would be a change rather than a port.
+//! The publisher-controlled upstream download is the one request that
 //! never sees a credential, and it runs on its own agent so it cannot.
 //!
 //! Ceilings, each either invisible on the ephemeral runner this is
@@ -60,10 +66,9 @@
 //!   tools diagnosed carries a one-line diagnostic of this crate's in
 //!   their place, and noise the run *survived* - the `[ -eq ]` and
 //!   arithmetic errors of a non-integer count - is dropped outright;
-//! - an unset `REGISTRY_VERIFY_TOKEN`, `REGISTRY_ORIGIN` or
-//!   `EXPECTED_API_ORIGIN` reads as empty, where `set -u` aborted with
-//!   bash's unbound-variable message.  Same exit code, and the
-//!   workflow sets all three;
+//! - an unset `REGISTRY_ORIGIN` or `EXPECTED_API_ORIGIN` reads as
+//!   empty, where `set -u` aborted with bash's unbound-variable
+//!   message.  Same exit code, and the workflow sets both;
 //! - the upstream budget models bash's `$SECONDS`: a whole-second
 //!   clock anchored at process start, charged as the difference of two
 //!   reads of it rather than as real elapsed time, so a transfer that
@@ -167,10 +172,6 @@ pub fn run() -> Result<()> {
 
     // L2-17: the privileged token travels to exactly two origins, and
     // neither `curl` nor `ureq` refuses cleartext on its own.
-    let token = env("REGISTRY_VERIFY_TOKEN");
-    if token.is_empty() {
-        abort("REGISTRY_VERIFY_TOKEN is not configured");
-    }
     let registry_origin = env("REGISTRY_ORIGIN");
     if !registry_origin.starts_with("https://") {
         abort(&format!(
@@ -186,10 +187,14 @@ pub fn run() -> Result<()> {
     let minter = minter();
     let resolution = resolution();
 
-    let plane = Plane {
-        agent: plane_agent(),
-        token,
-    };
+    // The run's registry credential is minted, not configured: the
+    // exchange stands in for the retired `REGISTRY_VERIFY_TOKEN`
+    // secret, and its refusal fails the run before any listing is
+    // read, so every version stays pending.
+    let agent = plane_agent();
+    let token = exchange(&agent, &minter, &expected_api_origin)
+        .context("the trusted-publishing exchange failed")?;
+    let plane = Plane { agent, token };
 
     // L19-29: one hostname, one role.  The index origin serves
     // config.json and the artifacts; the admin API lives on the origin
@@ -222,6 +227,7 @@ pub fn run() -> Result<()> {
     if resolution.is_none() {
         if count.parse::<i64>().ok() == Some(0) {
             println!("nothing pending");
+            let _ = plane.revoke(&api_origin);
             return Ok(());
         }
         println!("{count} pending version(s)");
@@ -270,7 +276,9 @@ pub fn run() -> Result<()> {
     // nothing else; every other pending version waits for a normal
     // pass.
     if let Some(resolution) = resolution {
-        return pass.resolve(&versions, &resolution);
+        let resolved = pass.resolve(&versions, &resolution);
+        let _ = pass.plane.revoke(&pass.api_origin);
+        return resolved;
     }
 
     // L66: the listing is sorted, so the order it is walked in must
@@ -284,6 +292,10 @@ pub fn run() -> Result<()> {
             failures += 1;
         }
     }
+    // Revoked here rather than after the failure check: the abort
+    // below exits the process, and the token should not outlive a run
+    // that got this far either way.
+    let _ = pass.plane.revoke(&pass.api_origin);
     // L233-236: one version failing operationally must not starve the
     // rest, so failures are aggregated and fail the run at the end.
     if failures > 0 {
@@ -362,6 +374,28 @@ impl Plane {
         std::io::copy(&mut response.into_reader(), &mut std::io::sink())?;
         Ok(())
     }
+
+    /// The run-minted token revokes itself
+    /// (`DELETE /api/v1/trusted_publishing/tokens`).  Best-effort at
+    /// the walk's exits - a failure changes nothing the 30-minute
+    /// expiry does not already bound, and an aborted run never gets
+    /// here at all - but the diagnostic mode propagates it, because
+    /// proving revocation is that mode's point.
+    fn revoke(&self, api_origin: &str) -> Result<()> {
+        let response = self
+            .request(
+                "DELETE",
+                &format!("{api_origin}/api/v1/trusted_publishing/tokens"),
+            )
+            .call()?;
+        // The agent follows no redirect, so a 3xx is the answer
+        // itself - and only the contract's 204 revoked anything.
+        if response.status() != 204 {
+            bail!("the revocation answered {}", response.status());
+        }
+        std::io::copy(&mut response.into_reader(), &mut std::io::sink())?;
+        Ok(())
+    }
 }
 
 /// The audience the verdict endpoint pins (`registry/src/trustpub.rs`,
@@ -369,6 +403,12 @@ impl Plane {
 /// in a query value, and GitHub echoes the parameter back verbatim as
 /// the `aud` claim.
 const AUDIENCE: &str = "cabinpkg.com/verifier";
+
+/// The audience the trusted-publishing exchange verifies
+/// (`registry/src/trustpub.rs`, `DEFAULT_AUDIENCE`): the same pinned
+/// identity, minted for the registry's own audience, is what the
+/// exchange's verifier arm answers with a verify-scoped token.
+const EXCHANGE_AUDIENCE: &str = "cabinpkg.com";
 
 /// The verdict credential's mint: `id-token: write` points
 /// `ACTIONS_ID_TOKEN_REQUEST_URL` at an endpoint that answers a
@@ -382,10 +422,10 @@ struct Minter {
 }
 
 impl Minter {
-    fn mint(&self) -> Result<String> {
+    fn mint(&self, audience: &str) -> Result<String> {
         let mut body = Vec::new();
         self.agent
-            .request("GET", &mint_url(&self.url))
+            .request("GET", &mint_url(&self.url, audience))
             .set("authorization", &format!("Bearer {}", self.request_token))
             .call()?
             .into_reader()
@@ -418,8 +458,49 @@ fn minter() -> Minter {
 
 /// The mint URL as GitHub populates it already carries a query string
 /// (`api-version=…`), so the audience appends with `&`.
-fn mint_url(request_url: &str) -> String {
-    format!("{request_url}&audience={AUDIENCE}")
+fn mint_url(request_url: &str, audience: &str) -> String {
+    format!("{request_url}&audience={audience}")
+}
+
+/// The run's registry credential, minted through
+/// `PUT /api/v1/trusted_publishing/tokens` rather than carried as a
+/// repository secret: the JWT in the body is the request's only
+/// credential, and the answered token is verify-scoped with a
+/// 30-minute lifetime the workflow's 15-minute job timeout sits well
+/// inside.  The exchange consumes the JWT's `jti` exactly as a
+/// verdict does, so the JWT it spends is minted for it alone.  A
+/// deliberate re-implementation, not a `cabin-registry-api` call
+/// (`docs/architecture.md`, `xtask-registry-admin`).
+fn exchange(agent: &ureq::Agent, minter: &Minter, api_origin: &str) -> Result<String> {
+    let jwt = minter
+        .mint(EXCHANGE_AUDIENCE)
+        .context("the exchange JWT mint failed")?;
+    let response = agent
+        .request(
+            "PUT",
+            &format!("{api_origin}/api/v1/trusted_publishing/tokens"),
+        )
+        .set("content-type", "application/json")
+        .send_string(&serde_json::json!({ "jwt": jwt }).to_string())?;
+    // The agent follows no redirect, so a 3xx is the answer itself -
+    // and only the contract's 200 carries a token.
+    if response.status() != 200 {
+        bail!("the exchange answered {}", response.status());
+    }
+    let mut body = Vec::new();
+    response.into_reader().read_to_end(&mut body)?;
+    exchanged_token(&captured_bytes(&body))
+}
+
+/// The `token` field of the exchange answer, which must be a
+/// non-empty string, exactly as [`minted_token`] reads the mint's
+/// `value`.
+fn exchanged_token(body: &str) -> Result<String> {
+    let answer: Value = serde_json::from_str(body).context("the exchange answer is not JSON")?;
+    match index(&answer, "token")? {
+        Value::String(token) if !token.is_empty() => Ok(token),
+        _ => bail!("the exchange answer carries no token"),
+    }
 }
 
 /// The `value` field of the mint answer, which must be a non-empty
@@ -449,22 +530,40 @@ fn claims(jwt: &str) -> Result<Value> {
 
 /// The OIDC diagnostic (`cargo registry-verify --check-oidc`): mint
 /// two tokens, print the first one's claims against the server-side
-/// pins, and prove the per-mint `jti` freshness the verdict design
-/// leans on - without sending a verdict or needing a registry token.
+/// pins, prove the per-mint `jti` freshness the verdict design leans
+/// on, then walk the trusted-publishing exchange round trip - mint,
+/// exchange, revoke - all without sending a verdict.
 ///
 /// # Errors
 ///
-/// If a mint fails, a token will not decode, or the two mints share a
-/// `jti`.
+/// If a mint fails, a token will not decode, the two mints share a
+/// `jti`, or the exchange or the revocation refuses.
 pub fn check_oidc() -> Result<()> {
     let minter = minter();
-    let first = claims(&minter.mint().context("the first mint failed")?)?;
-    let second = claims(&minter.mint().context("the second mint failed")?)?;
+    // Guarded before the first mint, like `run()`: every environment
+    // guard fires before any network I/O.
+    let api_origin = env("EXPECTED_API_ORIGIN");
+    if !api_origin.starts_with("https://") {
+        abort(&format!(
+            "EXPECTED_API_ORIGIN must be https, got: {api_origin}"
+        ));
+    }
+
+    let first = claims(&minter.mint(AUDIENCE).context("the first mint failed")?)?;
+    let second = claims(&minter.mint(AUDIENCE).context("the second mint failed")?)?;
     println!("{}", serde_json::to_string_pretty(&first)?);
     if index(&first, "jti")? == index(&second, "jti")? {
         bail!("two mints returned the same jti; per-PATCH minting would replay");
     }
     println!("check-oidc OK (two mints, distinct jtis)");
+
+    let agent = plane_agent();
+    let token =
+        exchange(&agent, &minter, &api_origin).context("the trusted-publishing exchange failed")?;
+    Plane { agent, token }
+        .revoke(&api_origin)
+        .context("revoking the exchanged token failed")?;
+    println!("check-oidc OK (exchanged and revoked a verify-scoped token)");
     Ok(())
 }
 
@@ -517,6 +616,28 @@ impl Pass {
             return Ok(true);
         }
 
+        // The verdict binds to the listing's checksum, so the bytes
+        // the verifier inspects must be the bytes that checksum names.
+        // A mismatch says the registry handed over different bytes
+        // (skew, corruption), nothing about the publisher: pending is
+        // recoverable where a false rejection is terminal.
+        match undeclared_digest(&archive, &checksum) {
+            Ok(None) => {}
+            Ok(Some(digest)) => {
+                eprintln!(
+                    "{name}@{version}: the verifier saw a different artifact \
+                     (sha256:{digest}, listed {checksum}); leaving it pending"
+                );
+                return Ok(true);
+            }
+            Err(_) => {
+                eprintln!(
+                    "{name}@{version}: reading the downloaded archive failed; leaving it pending"
+                );
+                return Ok(true);
+            }
+        }
+
         let upstream = match self.upstream(entry, workdir.path(), &name, &version)? {
             Upstream::Refused => return Ok(true),
             Upstream::Absent => None,
@@ -556,7 +677,7 @@ impl Pass {
         // verifier can take minutes against a JWT's short validity,
         // and the registry consumes each jti on use, so only one
         // fresh token per PATCH authenticates every verdict.
-        let Ok(jwt) = self.minter.mint() else {
+        let Ok(jwt) = self.minter.mint(AUDIENCE) else {
             eprintln!("{name}@{version}: OIDC token mint failed; leaving it pending");
             return Ok(true);
         };
@@ -729,7 +850,7 @@ impl Pass {
                 let published_at = field(&entry, "published_at")?;
                 let reason = format!("name_advisory: {rule}");
                 let body = verdict_body("rejected", Some(&reason), &checksum, &published_at);
-                let Ok(jwt) = self.minter.mint() else {
+                let Ok(jwt) = self.minter.mint(AUDIENCE) else {
                     abort(&format!(
                         "{name}@{version}: OIDC token mint failed; still pending"
                     ));
@@ -895,6 +1016,16 @@ enum Upstream {
     Refused,
     Absent,
     Downloaded(PathBuf),
+}
+
+/// The downloaded archive's digest when it is NOT the listing's
+/// checksum, for the diagnostic; `None` is the match.  The comparison
+/// is against the stored string whole, canonical `sha256:<hex>` form
+/// included, so a stored checksum in any other spelling simply never
+/// matches - the same operational-failure path as a real mismatch.
+fn undeclared_digest(archive: &Path, checksum: &str) -> std::io::Result<Option<String>> {
+    let digest = File::open(archive).and_then(cabin_core::hash::hash_reader)?;
+    Ok((format!("sha256:{digest}") != checksum).then_some(digest))
 }
 
 /// The shell's own `echo … >&2; exit 1`: printed without the `error:`
@@ -1153,16 +1284,19 @@ fn spent(began: u64, now: u64) -> i64 {
 /// `"$verifier" …` (L84, L190): stdout captured as command
 /// substitution captured it, stderr straight through to the job log,
 /// stdin and the environment inherited as the shell's child had them -
-/// minus the OIDC mint pair.  The child parses publisher-controlled
-/// bytes, and where the verify token in its environment only reads the
-/// admin plane its caller already read, the request token could mint
-/// the verdict-delivering JWT.  `None` is any non-zero exit, a
+/// minus the credentials.  The child parses publisher-controlled
+/// bytes: the request token could mint the verdict-delivering JWT,
+/// and `REGISTRY_VERIFY_TOKEN` - unset in the workflow, but a local
+/// operator shell may export it for the governor tools - is a
+/// registry credential it has no use for.  The run's own registry
+/// token lives only in driver memory.  `None` is any non-zero exit, a
 /// verifier that could not be spawned included, which is what the
 /// shell's `if ! …` caught.
 fn capture(command: &mut Command) -> Option<String> {
     let output = command
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .env_remove("REGISTRY_VERIFY_TOKEN")
         .stderr(Stdio::inherit())
         .stdin(Stdio::inherit())
         .output()
@@ -1770,8 +1904,15 @@ mod tests {
     #[test]
     fn the_mint_url_appends_the_audience_to_the_existing_query() {
         assert_eq!(
-            mint_url("https://mint.invalid/token?api-version=2.0"),
+            mint_url("https://mint.invalid/token?api-version=2.0", AUDIENCE),
             "https://mint.invalid/token?api-version=2.0&audience=cabinpkg.com/verifier"
+        );
+        assert_eq!(
+            mint_url(
+                "https://mint.invalid/token?api-version=2.0",
+                EXCHANGE_AUDIENCE
+            ),
+            "https://mint.invalid/token?api-version=2.0&audience=cabinpkg.com"
         );
     }
 
@@ -1789,6 +1930,55 @@ mod tests {
         assert!(minted_token("{}").is_err());
         assert!(minted_token("not json").is_err());
         assert!(minted_token("").is_err());
+    }
+
+    /// The exchange answer's token is its non-empty `token` string;
+    /// every other shape fails the exchange, and the run aborts before
+    /// any listing is read.
+    #[test]
+    fn an_exchanged_token_is_the_non_empty_token_string() {
+        assert_eq!(
+            exchanged_token(r#"{"token":"cabin_tp_x","expires_at":"2026-08-20T00:00:00Z"}"#)
+                .unwrap(),
+            "cabin_tp_x"
+        );
+        assert!(exchanged_token(r#"{"token":""}"#).is_err());
+        assert!(exchanged_token(r#"{"token":null}"#).is_err());
+        assert!(exchanged_token(r#"{"expires_at":"2026-08-20T00:00:00Z"}"#).is_err());
+        assert!(exchanged_token("not json").is_err());
+        assert!(exchanged_token("").is_err());
+    }
+
+    /// Only the canonical `sha256:<hex>` spelling of the archive's own
+    /// digest matches; any other stored form - bare hex, uppercase, a
+    /// different digest - reads as a mismatch and leaves the version
+    /// pending.
+    #[test]
+    fn only_the_canonical_checksum_of_the_downloaded_bytes_matches() {
+        const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let archive = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(archive.path(), b"abc").unwrap();
+        assert_eq!(
+            undeclared_digest(archive.path(), &format!("sha256:{ABC}")).unwrap(),
+            None
+        );
+        assert_eq!(
+            undeclared_digest(archive.path(), ABC).unwrap().as_deref(),
+            Some(ABC)
+        );
+        assert_eq!(
+            undeclared_digest(archive.path(), &format!("sha256:{}", ABC.to_uppercase()))
+                .unwrap()
+                .as_deref(),
+            Some(ABC)
+        );
+        assert_eq!(
+            undeclared_digest(archive.path(), "sha256:0000")
+                .unwrap()
+                .as_deref(),
+            Some(ABC)
+        );
+        assert!(undeclared_digest(&archive.path().with_extension("missing"), ABC).is_err());
     }
 
     /// The claims are the decoded payload segment, and nothing else of

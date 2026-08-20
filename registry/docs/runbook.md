@@ -316,7 +316,11 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    `cabin-ports` claim is what re-arms ports publishing: the
    trusted-publishing exchange mints for the scope's oldest owner and
    refuses while the scope is unclaimed.
-3. Mint a **verify** token and `gh secret set REGISTRY_VERIFY_TOKEN`.
+3. Mint a **verify** token for the governor step below. The verifier
+   workflow needs no secret: each run mints its own token through the
+   trusted-publishing exchange, and step 2's sign-in is what re-creates
+   the backing identity its verifier arm resolves
+   (`VERIFIER_BACKING_ACCOUNT_ID`).
 4. Run `cargo registry-governor wipe`, from the repository root, with it
    **before any publish-capable
    token exists**: its no-delayed-publisher evidence gate requires zero
@@ -364,11 +368,11 @@ ones. Launch is a data and policy event, in order:
    verified-package reads are public by recorded decision
    (`docs/architecture.md`, "Origins and roles"), pre-launch and
    post-launch alike.
-5. Re-issue any long-lived operational tokens (`REGISTRY_VERIFY_TOKEN`)
-   against the post-wipe database, restore the `registry-verify` cron
-   (the `schedule` trigger in `.github/workflows/registry-verify.yml`,
-   removed for the private alpha), and re-run the verification
-   workflow once (see "Verification pipeline").
+5. Restore the `registry-verify` cron (the `schedule` trigger in
+   `.github/workflows/registry-verify.yml`, removed for the private
+   alpha) and re-run the verification workflow once (see "Verification
+   pipeline"); it carries no long-lived token to re-issue - each run
+   mints its own through the trusted-publishing exchange.
 
 **Post-launch staging is intentionally not maintained.** There is no
 standing second environment: with a single maintainer there is nothing to
@@ -843,13 +847,16 @@ PATCH carries the `<scope>/<name>/<version>` triple plus the listing's
 `checksum`, which is what names the revision.
 
 Two credentials, two planes: the listings and pending downloads ride
-the `verify`-scoped registry token (`REGISTRY_VERIFY_TOKEN`), while
-the verdict PATCH authenticates **only** the workflow run's own GitHub
-OIDC JWT (audience `cabinpkg.com/verifier`), pinned to this repository
-and workflow by the `VERIFIER_*` vars in `wrangler.jsonc`
-(`docs/architecture.md` in this directory, "Trust model"). No registry
-token - the verify token included - can deliver a verdict, and each
-JWT authenticates exactly one PATCH (its `jti` is consumed on use).
+a `verify`-scoped registry token the run mints for itself at start -
+the trusted-publishing exchange's verifier arm answers the workflow's
+own OIDC JWT (audience `cabinpkg.com`) with a 30-minute token, revoked
+best-effort at run end - while the verdict PATCH authenticates
+**only** a fresh JWT for the verdict audience
+(`cabinpkg.com/verifier`), pinned to this repository and workflow by
+the `VERIFIER_*` vars in `wrangler.jsonc` (`docs/architecture.md` in
+this directory, "Trust model"). No registry token - the exchanged
+verify token included - can deliver a verdict, and each JWT
+authenticates exactly one request (its `jti` is consumed on use).
 
 Fail-safe: a failed or skipped run leaves versions pending, which only
 keeps content unexposed. The breaker cron's stuck-pending webhook
@@ -936,22 +943,19 @@ confusability check only - reserved names and claim permanence always
 hold. Set it just before the legitimate claimant walks the claim
 flow, and empty it after.
 
-`REGISTRY_VERIFY_TOKEN` is a registry token created on the website's
-token page with **only** the `verify` scope (no publish, no yank - the
-verifier never needs them), stored as a GitHub repository secret. It
-authenticates the listings and pending downloads only; verdicts ride
-the workflow's OIDC identity instead:
-
-```sh
-gh secret set REGISTRY_VERIFY_TOKEN
-```
-
-Rotate it like `ANALYTICS_API_TOKEN`: create the replacement token
-first, `gh secret set REGISTRY_VERIFY_TOKEN` with the new value, and
-only then revoke the old token - revoking first would have the cron
-failing (versions pending) in between. A wipe drops the tokens table,
-so re-provisioning always includes re-issuing this token and updating
-the secret.
+The workflow carries no registry-token secret. Each run's listings
+credential is minted through the trusted-publishing exchange (the
+verifier arm, `docs/architecture.md` in this directory) and revoked at
+run end, so there is nothing to rotate and nothing a wipe invalidates:
+re-provisioning needs only the backing identity
+(`VERIFIER_BACKING_ACCOUNT_ID` in `wrangler.jsonc`) to sign in again.
+Dispatching the workflow with `check_oidc: true` proves the whole
+credential path - the `id-token` grant, the exchange, and the
+revocation - without verifying anything. The local operator flows are
+the exception: `cargo registry-governor`, `cargo registry-diagnose`,
+and the backup audit still read a manually minted token from
+`REGISTRY_VERIFY_TOKEN` - create it on the website's token page with
+**only** the `verify` scope (no publish, no yank).
 
 The verifier's caps are GitHub **repository variables** (`gh variable
 set <NAME>`), passed through to the binary; unset or empty means the

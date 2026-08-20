@@ -315,8 +315,10 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
-  3. mint a verify-scoped token FIRST and update the GitHub secret
-     (gh secret set REGISTRY_VERIFY_TOKEN)
+  3. mint a verify-scoped token FIRST (before any publish-capable one)
+     for the governor step below; the verifier workflow needs no
+     secret - each run mints its own through the trusted-publishing
+     exchange once step 2's sign-in re-creates the backing identity
   4. run cargo registry-governor wipe (from the repository root) BEFORE
      any publish-capable token exists - its no-delayed-publisher
      evidence gate requires zero live publish tokens (refused once

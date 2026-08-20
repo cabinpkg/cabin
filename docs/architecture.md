@@ -498,7 +498,12 @@ aliases: the ones an incident or a maintenance window needs at an operator's ter
 binary over every pending version and PATCHes the verdicts back.  They hold privileged
 credentials and talk to the running service, which is what separates them from the static guards
 in `xtask-registry-guard`.  Every wrangler invocation goes through one pinned constructor, so no
-command can reach an unpinned CLI.  The crate must:
+command can reach an unpinned CLI.  The `verify` driver speaks its own token-plane HTTP - the
+OIDC mint and the trusted-publishing exchange/revocation included - as a deliberate exception to
+`cabin-registry-api`'s ownership of those calls: it is a self-contained port of the retired
+shell with its own documented transport ceilings (no redirects on any credentialed request,
+`curl` parity), and it pins the verifier arm's exact answer statuses where the shared client is
+deliberately laxer.  The crate must:
 
 - keep `registry/docs/runbook.md`'s disclosure rule where it governs.  It governs what is meant
   to leave the operator's terminal: `cargo registry-diagnose` gathers a report for an incident

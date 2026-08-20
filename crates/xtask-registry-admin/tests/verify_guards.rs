@@ -5,18 +5,19 @@
 
 use assert_cmd::Command;
 
-fn verify(token: &str, registry_origin: &str, api_origin: &str) -> assert_cmd::assert::Assert {
+fn verify(registry_origin: &str, api_origin: &str) -> assert_cmd::assert::Assert {
     Command::cargo_bin("xtask-registry-admin")
         .expect("the binary")
         .arg("verify")
-        .env("REGISTRY_VERIFY_TOKEN", token)
         .env("REGISTRY_ORIGIN", registry_origin)
         .env("EXPECTED_API_ORIGIN", api_origin)
         // Removed rather than left to the parent: the guards run in
-        // order, and a CI job with an id-token grant must not turn
-        // the mint-guard expectations below into flakes.
+        // order, and a CI job with an id-token grant - or a shell
+        // with the diagnostic's env form exported - must not turn
+        // the expectations below into flakes.
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .env_remove("VERIFY_CHECK_OIDC")
         .assert()
         // Exactly 1 - the tool's own abort - rather than any failure,
         // so a panic or a usage error cannot stand in for the guard.
@@ -25,8 +26,6 @@ fn verify(token: &str, registry_origin: &str, api_origin: &str) -> assert_cmd::a
 
 #[test]
 fn the_guards_refuse_before_anything_is_fetched() {
-    verify("", "https://x", "https://x").stderr("REGISTRY_VERIFY_TOKEN is not configured\n");
-
     // The empty tail is the reachable shape: an unset repository
     // variable arrives as an empty string, and the message renders it.
     for origin in [
@@ -37,30 +36,73 @@ fn the_guards_refuse_before_anything_is_fetched() {
         "ftp://x",
         " https://x",
     ] {
-        verify("t", origin, "https://x")
+        verify(origin, "https://x")
             .stderr(format!("REGISTRY_ORIGIN must be https, got: {origin}\n"));
-        verify("t", "https://x", origin).stderr(format!(
+        verify("https://x", origin).stderr(format!(
             "EXPECTED_API_ORIGIN must be https, got: {origin}\n"
         ));
     }
 
     // With the registry guards satisfied, the OIDC mint pair is next:
     // an unset URL reads as empty, which the https guard covers.
-    verify("t", "https://x", "https://x").stderr(
+    verify("https://x", "https://x").stderr(
         "ACTIONS_ID_TOKEN_REQUEST_URL must be https; \
          does the workflow grant id-token: write?\n",
     );
     Command::cargo_bin("xtask-registry-admin")
         .expect("the binary")
         .arg("verify")
-        .env("REGISTRY_VERIFY_TOKEN", "t")
         .env("REGISTRY_ORIGIN", "https://x")
         .env("EXPECTED_API_ORIGIN", "https://x")
         .env("ACTIONS_ID_TOKEN_REQUEST_URL", "https://mint.invalid/x?v=1")
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .env_remove("VERIFY_CHECK_OIDC")
         .assert()
         .code(1)
         .stderr("ACTIONS_ID_TOKEN_REQUEST_TOKEN is not populated\n");
+}
+
+/// `VERIFY_CHECK_OIDC=true` is the dispatch input's spelling of
+/// `--check-oidc`: the diagnostic reads the mint pair first, so its
+/// guard - not the walk's `REGISTRY_ORIGIN` one - proves the routing.
+#[test]
+fn the_check_oidc_env_form_routes_to_the_diagnostic() {
+    Command::cargo_bin("xtask-registry-admin")
+        .expect("the binary")
+        .arg("verify")
+        .env("VERIFY_CHECK_OIDC", "true")
+        .env_remove("REGISTRY_ORIGIN")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
+        .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        .assert()
+        .code(1)
+        .stderr(
+            "ACTIONS_ID_TOKEN_REQUEST_URL must be https; \
+             does the workflow grant id-token: write?\n",
+        );
+    // GitHub renders an unchecked boolean input as the string
+    // "false", which must stay a normal pass.
+    Command::cargo_bin("xtask-registry-admin")
+        .expect("the binary")
+        .arg("verify")
+        .env("VERIFY_CHECK_OIDC", "false")
+        .env_remove("REGISTRY_ORIGIN")
+        .assert()
+        .code(1)
+        .stderr("REGISTRY_ORIGIN must be https, got: \n");
+    // With the mint pair satisfied, the API-origin guard fires before
+    // the first mint: the exact bare-abort line - not an anyhow
+    // `error: the first mint failed` - proves no network was tried.
+    Command::cargo_bin("xtask-registry-admin")
+        .expect("the binary")
+        .arg("verify")
+        .env("VERIFY_CHECK_OIDC", "true")
+        .env("ACTIONS_ID_TOKEN_REQUEST_URL", "https://mint.invalid/x?v=1")
+        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "rt")
+        .env_remove("EXPECTED_API_ORIGIN")
+        .assert()
+        .code(1)
+        .stderr("EXPECTED_API_ORIGIN must be https, got: \n");
 }
 
 /// The dispatch-input guards, with every earlier guard satisfied: an
@@ -70,11 +112,11 @@ fn resolve(target: &str, action: &str, reason: &str) -> assert_cmd::assert::Asse
     Command::cargo_bin("xtask-registry-admin")
         .expect("the binary")
         .arg("verify")
-        .env("REGISTRY_VERIFY_TOKEN", "t")
         .env("REGISTRY_ORIGIN", "https://x")
         .env("EXPECTED_API_ORIGIN", "https://x")
         .env("ACTIONS_ID_TOKEN_REQUEST_URL", "https://mint.invalid/x?v=1")
         .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "rt")
+        .env_remove("VERIFY_CHECK_OIDC")
         .env("VERIFY_RESOLVE", target)
         .env("VERIFY_RESOLVE_ACTION", action)
         .env("VERIFY_RESOLVE_REASON", reason)
