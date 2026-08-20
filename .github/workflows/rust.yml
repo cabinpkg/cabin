@@ -219,30 +219,21 @@ jobs:
 
   # Reality-check `--version` detection and compiler cfg conditions
   # against real versioned compilers. The canned-banner unit corpus is
-  # the primary parser coverage; these legs prove end to end that a
+  # the primary parser coverage; these passes prove end to end that a
   # pinned gcc-N / clang-N is detected with the right family + major
   # version and that compiler-gated profile flags flip accordingly.
   # macOS (AppleClang) and Windows (MSVC) stay covered by
-  # `build-and-test`.
+  # `build-and-test`. One pass per family on one runner - one
+  # checkout, cache restore, and toolchain setup instead of two; the
+  # clang pass still rebuilds the CC-sensitive tail of the dependency
+  # graph (ring's build script tracks CC/CXX). A failed gcc pass
+  # skips the clang passes (accepted).
   compiler-detection:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    # ubuntu-24.04 preinstalls every matrix compiler; bump the matrix
+    # ubuntu-24.04 preinstalls both pinned compilers; bump the pins
     # and the image together.
     runs-on: ubuntu-24.04
-
-    strategy:
-      fail-fast: false
-      # One leg per family; the unit corpus owns the major-version
-      # spread.
-      matrix:
-        include:
-          - { cc: gcc-14, cxx: g++-14, kind: gcc, major: "14" }
-          - { cc: clang-18, cxx: clang++-18, kind: clang, major: "18" }
-
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -253,26 +244,62 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Run compiler detection and condition tests
+      # Under the gcc env already: ring's build script tracks CC/CXX,
+      # so an env-less build here would be rebuilt by the gcc pass.
+      - name: Build the test binary and cabin
+        env:
+          CC: gcc-14
+          CXX: g++-14
         run: |
           cargo test -p cabinpkg --test cli --locked --no-run
+          cargo build --locked --bin cabin
+
+      - name: Run compiler detection and condition tests (gcc)
+        env:
+          CC: gcc-14
+          CXX: g++-14
+          RUST_BACKTRACE: "1"
+        run: |
           # Warm the preinstalled compilers right before the tests:
-          # the first-ever exec of a cold clang demand-pages a
+          # the first-ever exec of a cold compiler demand-pages a
           # huge binary from disk, and with several test threads probing
           # `$CXX --version` at once that can exceed cabin's 10s
-          # detection deadline, flaking the clang leg with
-          # `detected: null`.
+          # detection deadline, flaking the pass with `detected: null`.
           "$CC" --version
           "$CXX" --version
           cargo test -p cabinpkg --test cli --locked --verbose -- --show-output compiler_conditions compiler_detection
-        env:
-          RUST_BACKTRACE: "1"
 
-      - name: Assert detected identity matches the pinned compiler
+      - name: Assert detected identity matches pinned gcc
+        env:
+          CC: gcc-14
+          CXX: g++-14
         run: |
-          cargo build --locked --bin cabin
-          mkdir probe && cd probe
+          mkdir probe-gcc && cd probe-gcc
           ../target/debug/cabin init --bin
           ../target/debug/cabin metadata > metadata.json
-          jq -e '.toolchain.detected.cxx.identity.kind == "${{ matrix.kind }}"' metadata.json
-          jq -e '.toolchain.detected.cxx.identity.version | startswith("${{ matrix.major }}.")' metadata.json
+          jq -e '.toolchain.detected.cxx.identity.kind == "gcc"' metadata.json
+          jq -e '.toolchain.detected.cxx.identity.version | startswith("14.")' metadata.json
+
+      - name: Run compiler detection and condition tests (clang)
+        env:
+          CC: clang-18
+          CXX: clang++-18
+          RUST_BACKTRACE: "1"
+        run: |
+          # Rebuild the CC-sensitive graph BEFORE the warmups so the
+          # warm pages are not minutes old when the tests probe.
+          cargo test -p cabinpkg --test cli --locked --no-run
+          "$CC" --version
+          "$CXX" --version
+          cargo test -p cabinpkg --test cli --locked --verbose -- --show-output compiler_conditions compiler_detection
+
+      - name: Assert detected identity matches pinned clang
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          mkdir probe-clang && cd probe-clang
+          ../target/debug/cabin init --bin
+          ../target/debug/cabin metadata > metadata.json
+          jq -e '.toolchain.detected.cxx.identity.kind == "clang"' metadata.json
+          jq -e '.toolchain.detected.cxx.identity.version | startswith("18.")' metadata.json
