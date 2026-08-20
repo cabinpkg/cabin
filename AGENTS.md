@@ -70,17 +70,24 @@ tooling is left in this repository. Do not reintroduce any.
   `registry/src/`), website source and its npm scripts, the `Dockerfile`,
   `demo.tape`, and devcontainer provisioning are not repository automation
   and are unaffected.
-- Workflows trigger on `push` to `main` and on `pull_request`, with no
-  trigger-level `paths:` filter: a filtered-out workflow leaves its
-  required checks pending forever, while a job skipped by an `if:`
-  satisfies them. Component scoping therefore happens at the job level -
-  each workflow's `changes` job evaluates the shared filter lists in
+- Workflows whose jobs back required status checks trigger on `push`
+  to `main` and on `pull_request` with no trigger-level `paths:`
+  filter: a filtered-out workflow leaves its required checks pending
+  forever, while a job skipped by an `if:` satisfies them. Their
+  component scoping therefore happens at the job level - each
+  workflow's `changes` job evaluates the shared filter lists in
   `.github/path-filters.yml` and the expensive jobs skip when theirs
-  does not match. That file is the ONE copy of every dependency list;
-  keep its lists coarse (whole directories, shared dependencies) and
-  keep `.github/**` in every list so workflow or filter edits re-run
-  everything. No test polices the file - the previous per-workflow
-  copies grew a YAML-scraping test that broke on an unrelated rename.
+  does not match. A workflow with no required check may scope at the
+  trigger with `paths:` instead - a filtered-out run there blocks
+  nothing (proofs and the workflow audit do; their lists live in
+  their own `paths:`). Every other dependency list has its ONE copy
+  in the filter file; keep the lists coarse (whole directories,
+  shared dependencies) and end each with its consuming workflow file
+  plus `.github/path-filters.yml`, so a workflow or filter edit
+  re-runs exactly the workflows it affects - never put a broad
+  `.github/**` back in a list. No test polices the file - the
+  previous per-workflow copies grew a YAML-scraping test that broke
+  on an unrelated rename.
   Two carve-outs: a required matrix job reports through a non-matrix
   aggregate (`build-and-test-required`), because skipping a matrix job
   never expands it, so a required per-leg name would never report and
