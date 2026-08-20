@@ -41,58 +41,9 @@ jobs:
         with:
           filters: .github/path-filters.yml
 
-  registry-format:
-    needs: changes
-    if: needs.changes.outputs.registry == 'true'
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: registry
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
-        with:
-          toolchain: stable
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all --verbose -- --check
-
-  registry-clippy:
-    needs: changes
-    if: needs.changes.outputs.registry == 'true'
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: registry
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
-        with:
-          toolchain: stable
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          workspaces: registry
-
-      - name: Clippy (host)
-        run: cargo clippy --all-targets --locked --verbose -- -D warnings
-
-      - name: Clippy (wasm32)
-        run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
-
+  # Format, clippy, and the build share one runner: alone, each of
+  # the cheap checks is dominated by checkout and toolchain setup.
+  # Cheapest first, so a formatting slip fails in seconds.
   registry-build:
     needs: changes
     if: needs.changes.outputs.registry == 'true'
@@ -110,6 +61,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: stable
+          components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -119,6 +71,15 @@ jobs:
           workspaces: |
             .
             registry
+
+      - name: Check formatting
+        run: cargo fmt --all --verbose -- --check
+
+      - name: Clippy (host)
+        run: cargo clippy --all-targets --locked --verbose -- -D warnings
+
+      - name: Clippy (wasm32)
+        run: cargo clippy --target wasm32-unknown-unknown --locked --verbose -- -D warnings
 
       # Run from the repository root: the cargo aliases name
       # root-workspace packages (AGENTS.md, "Repository automation").
@@ -185,7 +146,7 @@ jobs:
   # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [registry-format, registry-clippy, registry-build, conformance]
+    needs: [registry-build, conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
