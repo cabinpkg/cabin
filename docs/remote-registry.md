@@ -104,6 +104,8 @@ Authorization: Bearer cabin_<base62>
   additionally opens the read plane's `verify`-scope carve-outs (pending-artifact fetches).
 - [Trusted publishing](#trusted-publishing) mints short-lived `cabin_tp_<base64url>` tokens;
   they ride the same `Authorization: Bearer` header as every other token.
+- [Login sessions](#login-sessions) mint short-lived `cabin_ses_<base64url>` tokens the same
+  way, from a GitHub access token instead of a workflow's OIDC JWT.
 
 ### The login-URL challenge
 
@@ -757,9 +759,9 @@ Actions](#publishing-from-github-actions); nothing below needs a manual caller.
 PUT /api/v1/trusted_publishing/tokens
 ```
 
-The one Bearer-plane route that takes no `Authorization` header: the credential is the GitHub
-Actions OIDC JWT itself, requested by the workflow with audience `cabinpkg.com` and sent as the
-body:
+One of the two Bearer-plane routes that take no `Authorization` header (the other is the
+[login-session mint](#login-sessions)): the credential is the GitHub Actions OIDC JWT itself,
+requested by the workflow with audience `cabinpkg.com` and sent as the body:
 
 ```json
 { "jwt": "<github actions oidc jwt>" }
@@ -807,15 +809,65 @@ expired, or already-revoked one - answers the uniform `401`, which also makes a 
 `DELETE` idempotent.  Workflows should revoke when their run completes rather than letting the
 lifetime lapse.
 
+## Login sessions
+
+A login session is the human counterpart of a [trusted-publishing](#trusted-publishing)
+exchange: a GitHub access token is traded for a short-lived registry token.  The two routes below live on the
+[`api`](#registry-configuration) origin and dispatch exactly like the exchange routes.
+
+### Minting a session token
+
+```text
+PUT /api/v1/sessions/tokens
+```
+
+Like the exchange, the route takes no `Authorization` header: the credential is the GitHub
+access token in the body:
+
+```json
+{ "github_token": "<github access token>" }
+```
+
+The registry proves the identity with one authenticated `GET /user` against the GitHub API and
+resolves the numeric GitHub id exactly as the web sign-in does - the allowlist gate included -
+except that no account is ever created: minting is for accounts that already exist, so an
+unknown or unadmitted identity refuses.  The presented GitHub access token is used for that
+single lookup and dropped: never stored, never logged.
+
+Success is `200`:
+
+```json
+{ "token": "cabin_ses_<base64url>", "expires_at": "<RFC 3339>" }
+```
+
+The plaintext is rendered exactly once, in this response.  The minted token is a bearer token
+like any other, multi-use within its 12-hour lifetime, carrying the full human scope set
+(`publish`, `yank`, `verify`) at the account's own quota class.  Every mint failure - a
+malformed body, a rejected or unreadable GitHub lookup, an unknown or unadmitted identity -
+answers the byte-identical uniform `401`, the [challenge](#the-login-url-challenge) included.
+The mint is gated by the registry's budget breaker like every other write (`503` +
+`Retry-After` when tripped); the gate answers first, before the GitHub lookup spends anything.
+
+### Revoking a session token
+
+```text
+DELETE /api/v1/sessions/tokens
+```
+
+Authorized by the session token itself (`Authorization: Bearer cabin_ses_...`): the token row
+is deleted and the answer is `204`.  Anything else answers the uniform `401`, which also makes
+a repeated `DELETE` idempotent - the same contract as the
+[trusted-publishing revocation](#revoking-the-exchanged-token).
+
 ## Status codes
 
 | Code | Meaning |
 | --- | --- |
-| `200` | Success that created no registry content: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has), or a granted [trusted-publishing exchange](#trusted-publishing) (which consumes the JWT's `jti` and mints its token, but publishes nothing). |
+| `200` | Success that created no registry content: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has), a granted [trusted-publishing exchange](#trusted-publishing) (which consumes the JWT's `jti` and mints its token, but publishes nothing), or a granted [login-session mint](#login-sessions). |
 | `201` | Publish that created a packaging revision - a first publish of the version, an opted-in respin, or the revival of a rejected revision. |
-| `204` | A [trusted-publishing revocation](#revoking-the-exchanged-token) that deleted the presented token. |
+| `204` | A [trusted-publishing](#revoking-the-exchanged-token) or [session](#revoking-a-session-token) revocation that deleted the presented token. |
 | `400` | Malformed request: bad framing, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
-| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
+| `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint, or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; or a conflicting [verdict](#admin-api-scope-verify). |
