@@ -24,7 +24,7 @@
         "@lucide/astro": "^1.31.0",
         "fuse.js": "^7.5.0",
         "katex": "^0.18.4",
-        "markdown-it": "^14.3.0",
+        "markdown-it": "^15.0.0",
         "rehype-katex": "^7.0.1",
         "remark-math": "^6.0.0",
         "semver": "^7.8.5",
