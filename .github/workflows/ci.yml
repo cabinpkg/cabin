@@ -19,15 +19,8 @@ env:
   CLICOLOR: 1
 
 jobs:
-  spelling:
-    runs-on: ubuntu-slim
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
-
+  # The spelling check shares this runner: both checks are seconds
+  # of work, dominated by checkout and setup.
   commitlint:
     runs-on: ubuntu-slim
     steps:
@@ -35,6 +28,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+
+      - uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # v1.48.0
 
       - name: Setup node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
