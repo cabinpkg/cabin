@@ -91,17 +91,24 @@
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
         "D1_DATABASE_ID": "ee6bc615-fd50-42c7-a792-db5c8fe9b831",
-        // The one workflow allowed to deliver verdicts: the verdict
-        // PATCH accepts only a GitHub Actions OIDC JWT whose claims
-        // match all four pins (src/trustpub.rs, VerifierPins). Pins,
-        // not secrets - the JWT's signature is the credential. The
-        // ids are the immutable numeric GitHub identifiers
-        // (renaming the owner or repository changes neither).
-        // 35998702 = cabinpkg, 119684778 = cabinpkg/cabin.
+        // The one workflow allowed to deliver verdicts and to mint the
+        // verify-scoped exchange token: both take only a GitHub
+        // Actions OIDC JWT whose claims match all four pins
+        // (src/trustpub.rs, VerifierPins). Pins, not secrets - the
+        // JWT's signature is the credential. The ids are the immutable
+        // numeric GitHub identifiers (renaming the owner or repository
+        // changes neither). 35998702 = cabinpkg, 119684778 =
+        // cabinpkg/cabin.
         "VERIFIER_REPOSITORY_OWNER_ID": "35998702",
         "VERIFIER_REPOSITORY_ID": "119684778",
         "VERIFIER_WORKFLOW_FILENAME": "registry-verify.yml",
-        "VERIFIER_GIT_REF": "refs/heads/main"
+        "VERIFIER_GIT_REF": "refs/heads/main",
+        // The operator identity backing the verifier arm's mint, by
+        // its immutable numeric GitHub account id (26405363 =
+        // ken-matsui). The identity must have signed in since the
+        // last wipe; until then the arm refuses and the run retries
+        // after the sign-in.
+        "VERIFIER_BACKING_ACCOUNT_ID": "26405363"
     },
     "d1_databases": [
         {

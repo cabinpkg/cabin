@@ -355,8 +355,8 @@ async fn handle_website(
     let db = env.d1("DB")?;
     // The one auth-exempt route on the plane: the exchange PUT's
     // credential is the OIDC JWT in its body, so it dispatches before
-    // the token check - but never in front of the breaker, which gates
-    // it inside the handler like every other write.
+    // the token check. The breaker's write gate runs inside the
+    // handler, on the config arm only ([`trustpub_exchange_response`]).
     if path == crate::routes::TRUSTPUB_TOKENS_PATH && req.method() == Method::Put {
         let (mut response, token_id) = trustpub_exchange_response(req, env, &db).await?;
         if let Some(generation) = registry_generation(&db).await {
@@ -905,24 +905,28 @@ const MAX_EXCHANGE_BODY_BYTES: usize = 16 * 1024;
 /// `PUT /api/v1/trusted_publishing/tokens`
 /// (`docs/remote-registry.md`, "Trusted publishing"): exchanges a
 /// verified GitHub Actions OIDC JWT for a short-lived multi-use
-/// `trustpub` token. The step order is deliberate: the breaker's write
-/// gate first (`503`, like every write), then the fully stateless JWT
-/// verification (JWKS via Cache/network, never D1), and only then the
-/// D1 work - config match, backing owner, then one transaction for the
-/// once-only jti consume (its zero-changed-rows answer is the replay
-/// refusal), the mint guarded on it, and the lazy expiry cleanup
-/// (deliberately no cron). Every refusal between the gate and the mint answers the
-/// byte-identical uniform 401 - no config/signature/replay oracle -
-/// with the real reason logged for the operator. Returns the minted
-/// token row id so the request log ties to the row.
+/// `trustpub` token, through one of two arms. The fully stateless JWT
+/// verification runs first (JWKS via Cache/network, never D1). Claims
+/// matching the deployment-pinned verifier identity take the verifier
+/// arm: a verify-scoped mint backed by the operator identity
+/// `VERIFIER_BACKING_ACCOUNT_ID` names, deliberately in front of the
+/// breaker's write gate - like the verdict route and the read plane's
+/// verify exemption, the verification pipeline must be able to drain
+/// the pending queue whatever the service mode. Everything else is the
+/// config arm: the write gate (`503`, like every write - moved behind
+/// the verification, so the gate now speaks only to callers presenting
+/// a verifiable JWT, as it elsewhere speaks only to authenticated
+/// ones), then config match and backing owner. Both arms end in
+/// [`exchange_mint`]'s one transaction. Every refusal other than the
+/// gate's answers the byte-identical uniform 401 - no
+/// config/signature/replay oracle - with the real reason logged for
+/// the operator. Returns the minted token row id so the request log
+/// ties to the row.
 async fn trustpub_exchange_response(
     req: &mut Request,
     env: &Env,
     db: &D1Database,
 ) -> worker::Result<(Response, Option<String>)> {
-    if let Some(blocked) = write_gate(env, db).await? {
-        return Ok((blocked, None));
-    }
     let refused = |reason: String| -> worker::Result<(Response, Option<String>)> {
         console_log!("trustpub exchange refused: {reason}");
         Ok((unauthorized(env)?, None))
@@ -952,6 +956,47 @@ async fn trustpub_exchange_response(
         Err(err) => return refused(format!("jwt verification failed: {err:?}")),
     };
 
+    // The verifier arm. Missing or unparsable pins fail the arm closed
+    // (never a default identity); the claims then fall through to the
+    // config arm like anybody else's. The backing lookup runs before
+    // the jti consume, like the config arm's owner lookup: a
+    // not-yet-signed-in operator identity must not burn the JWT.
+    if let Some(pins) = verifier_pins(env)
+        && pins.refuses(&claims).is_none()
+    {
+        let account = env
+            .var("VERIFIER_BACKING_ACCOUNT_ID")
+            .ok()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        if account.is_empty() {
+            return refused("the VERIFIER_BACKING_ACCOUNT_ID var is unset".to_owned());
+        }
+        let backing: Option<OwnerRecord> = db
+            .prepare(sql::VERIFIER_BACKING_USER)
+            .bind(&[account.as_str().into()])?
+            .first(None)
+            .await?;
+        let Some(backing) = backing else {
+            return refused(format!(
+                "the verifier backing account {account} has no identity row"
+            ));
+        };
+        return exchange_mint(
+            env,
+            db,
+            &claims,
+            now_secs,
+            backing.user_id,
+            &pins.workflow_filename,
+            ExchangeMint::Verify,
+        )
+        .await;
+    }
+
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok((blocked, None));
+    }
     let configs: Vec<trustpub::TrustpubConfig> = db
         .prepare(sql::TRUSTPUB_CONFIGS_BY_REPOSITORY)
         .bind(&[
@@ -981,29 +1026,80 @@ async fn trustpub_exchange_response(
         ));
     };
 
+    exchange_mint(
+        env,
+        db,
+        &claims,
+        now_secs,
+        owner.user_id,
+        &config.workflow_filename,
+        ExchangeMint::Publish {
+            scope: &config.scope,
+            quota_class: &config.quota_class,
+        },
+    )
+    .await
+}
+
+/// Which arm's token [`exchange_mint`] writes: the config arm's
+/// scope-confined, quota-classed publish shape, or the verifier arm's
+/// bare verify shape.
+enum ExchangeMint<'a> {
+    Publish {
+        scope: &'a str,
+        quota_class: &'a str,
+    },
+    Verify,
+}
+
+/// The exchange's terminal transaction, shared by both arms - the
+/// spec's steps 6-8: the once-only jti consume, the mint (guarded
+/// inside the SQL on the consume's `changes()`, so it must stay the
+/// immediately following statement), then the lazy expiry prunes
+/// (deliberately no cron). A replayed jti answers as zero consumed
+/// rows without minting - the uniform 401; any batch failure rolls the
+/// consume back with everything else, so a transient 500 never burns a
+/// still-valid JWT.
+async fn exchange_mint(
+    env: &Env,
+    db: &D1Database,
+    claims: &trustpub::GithubClaims,
+    now_secs: i64,
+    user_id: i64,
+    workflow_filename: &str,
+    mint: ExchangeMint<'_>,
+) -> worker::Result<(Response, Option<String>)> {
     let id = auth::hex(&web_glue::random_bytes::<16>()?);
     let token = auth::format_trustpub_token(&web_glue::random_bytes()?);
     let (created_at, expires_at) = trustpub_token_window();
-    // One transaction for the spec's steps 6-8: the consume, the mint
-    // (guarded inside the SQL on the consume's changes(), so it must
-    // stay the immediately following statement), then the lazy prunes.
-    // A replayed jti answers as zero consumed rows without minting; any
-    // batch failure rolls the consume back with everything else, so a
-    // transient 500 never burns a still-valid JWT.
+    let name = format!("trusted-publishing: {workflow_filename}");
+    let minted = match mint {
+        ExchangeMint::Publish { scope, quota_class } => {
+            db.prepare(sql::INSERT_TRUSTPUB_TOKEN).bind(&[
+                id.as_str().into(),
+                js_int(user_id),
+                name.as_str().into(),
+                auth::token_hash(&token).into(),
+                created_at.as_str().into(),
+                expires_at.as_str().into(),
+                scope.into(),
+                quota_class.into(),
+            ])?
+        }
+        ExchangeMint::Verify => db.prepare(sql::INSERT_TRUSTPUB_VERIFY_TOKEN).bind(&[
+            id.as_str().into(),
+            js_int(user_id),
+            name.as_str().into(),
+            auth::token_hash(&token).into(),
+            created_at.as_str().into(),
+            expires_at.as_str().into(),
+        ])?,
+    };
     let results = db
         .batch(vec![
             db.prepare(sql::CONSUME_OIDC_JTI)
                 .bind(&[claims.jti.as_str().into(), js_int(claims.verifiable_until)])?,
-            db.prepare(sql::INSERT_TRUSTPUB_TOKEN).bind(&[
-                id.as_str().into(),
-                js_int(owner.user_id),
-                format!("trusted-publishing: {}", config.workflow_filename).into(),
-                auth::token_hash(&token).into(),
-                created_at.as_str().into(),
-                expires_at.as_str().into(),
-                config.scope.as_str().into(),
-                config.quota_class.as_str().into(),
-            ])?,
+            minted,
             db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
                 .bind(&[js_int(now_secs)])?,
             db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS)
@@ -1018,7 +1114,8 @@ async fn trustpub_exchange_response(
             .unwrap_or(0)
     };
     if changed(0) == 0 {
-        return refused("replayed jti".to_owned());
+        console_log!("trustpub exchange refused: replayed jti");
+        return Ok((unauthorized(env)?, None));
     }
     if changed(1) == 0 {
         // The guard misfired: the jti was consumed but no row was
@@ -1219,7 +1316,8 @@ fn verdict_binding_matches(
 
 /// The pinned verifier identity from the four `VERIFIER_*` wrangler
 /// vars; `None` - any var missing or unparsable - refuses every
-/// verdict (fail closed, never a default).
+/// verdict and disables the exchange's verifier arm (fail closed,
+/// never a default).
 fn verifier_pins(env: &Env) -> Option<trustpub::VerifierPins> {
     let var = |name: &str| env.var(name).ok().map(|value| value.to_string());
     trustpub::VerifierPins::parse(

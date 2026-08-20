@@ -767,10 +767,14 @@ body:
 
 The registry verifies the JWT statelessly first - `RS256` signature against GitHub's published
 keys, issuer, audience, time claims with a small leeway, and the required claim set - then
-matches the claims against the registered configs: the workflow filename extracted from
-`workflow_ref` must equal the config's, and where the config pins a git ref or an environment
-the corresponding claim must equal it.  The JWT's `jti` is accepted exactly once; replaying a
-token whose exchange already succeeded answers `401` however valid it still is.
+routes the verified claims through one of two arms.  Claims matching the registry's
+deployment-pinned verifier identity (the same pins the verdict route of the [verification
+lifecycle](#verification-lifecycle) enforces) mint a `verify`-scoped token for the verification
+pipeline itself.  Every other claim set is matched against the registered configs: the workflow
+filename extracted from `workflow_ref` must equal the config's, and where the config pins a git
+ref or an environment the corresponding claim must equal it.  The JWT's `jti` is accepted
+exactly once, whichever arm it takes; replaying a token whose exchange already succeeded
+answers `401` however valid it still is.
 
 Success is `200`:
 
@@ -780,13 +784,16 @@ Success is `200`:
 
 The plaintext is rendered exactly once, in this response.  The minted token is a bearer token
 like any other, multi-use within its 30-minute lifetime (one ports run publishes its whole
-batch on one token) - `publish`-scoped, confined to the config's scope, and carrying the
-config's quota class.  Every exchange failure between the gate and the mint - a malformed
-body, a bad signature, an unknown repository, a mismatched workflow, ref, or environment, a
-replayed `jti` - answers the byte-identical uniform `401`, the
+batch on one token).  The config arm's token is `publish`-scoped, confined to the config's
+scope, and carries the config's quota class; the verifier arm's is `verify`-scoped with
+neither confinement nor a class of its own.  Every exchange failure - a malformed body, a bad
+signature, an unknown repository, a mismatched workflow, ref, or environment, a replayed
+`jti` - answers the byte-identical uniform `401`, the
 [challenge](#the-login-url-challenge) included, so the route is no oracle for what is
-registered.  The exchange is gated by the registry's budget breaker like every other write
-(`503` + `Retry-After` when tripped).
+registered.  The config arm is gated by the registry's budget breaker like every other write
+(`503` + `Retry-After` when tripped, once the JWT has verified); the verifier arm is
+deliberately exempt, like the verdict route - the verification pipeline must be able to drain
+the pending queue whatever the service mode.
 
 ### Revoking the exchanged token
 

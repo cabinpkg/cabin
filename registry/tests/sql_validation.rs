@@ -438,8 +438,8 @@ fn token_kind_domain_is_closed_in_the_schema() {
         )
         .expect_err("unknown kind must fail the CHECK");
     assert!(err.to_string().contains("CHECK"), "{err}");
-    // The domain's positive side: a trustpub row with an expiry, a
-    // scope limit, and a granted quota class is admitted.
+    // The publish shape's positive side: a trustpub row with an expiry,
+    // a scope limit, and a granted quota class is admitted.
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
                              expires_at, scope_limit, quota_class) \
@@ -447,12 +447,12 @@ fn token_kind_domain_is_closed_in_the_schema() {
                  '2026-07-15T00:30:00.000Z', 'cabin-ports', 'operator')",
         [user_id],
     )
-    .expect("a bounded trustpub token is in the domain");
+    .expect("a bounded publish-shape trustpub token is in the domain");
     // Short-lived, confined, and explicitly classed is schema-enforced
-    // for trustpub rows: a NULL expiry, a NULL or empty scope limit,
-    // and a NULL quota class each fail the CHECK, whatever the minting
-    // path does. Each case supplies every other required column so it
-    // isolates exactly its own violation.
+    // for publish-shape trustpub rows: a NULL expiry, a NULL or empty
+    // scope limit, and a NULL quota class each fail the CHECK, whatever
+    // the minting path does. Each case supplies every other required
+    // column so it isolates exactly its own violation.
     for (label, columns, values) in [
         (
             "no expiry",
@@ -488,8 +488,8 @@ fn token_kind_domain_is_closed_in_the_schema() {
             .expect_err(label);
         assert!(err.to_string().contains("CHECK"), "{label}: {err}");
     }
-    // Publish-only: any other scopes string - the verify scope that
-    // would reach the governor plane included - fails the CHECK.
+    // Two shapes exactly: any other scopes string - the verify scope on
+    // the publish arm's columns included - fails the CHECK.
     for scopes in ["verify", "publish,yank", ""] {
         let err = conn
             .execute(
@@ -525,6 +525,72 @@ fn token_kind_domain_is_closed_in_the_schema() {
         )
         .expect_err("past the ceiling must fail the CHECK");
     assert!(err.to_string().contains("CHECK"), "{err}");
+}
+
+#[test]
+fn the_verify_shape_is_bounded_unconfined_and_unclassed() {
+    let conn = migrated_connection();
+    let user_id = seed_token(&conn, "tok-1", "hash-1");
+    // The verify shape's positive side: the verifier arm's mint is
+    // bounded like the publish shape but unconfined and unclassed -
+    // NULL quota_class inherits the backing user's class, exactly what
+    // the static verify token's row carried.
+    conn.execute(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at) \
+         VALUES ('tok-v', ?1, 'x', 'hash-v', 'verify', '2026-07-15T00:00:00.000Z', 'trustpub', \
+                 '2026-07-15T00:30:00.000Z')",
+        [user_id],
+    )
+    .expect("a bounded verify-shape trustpub token is in the domain");
+    // The verify shape admits nothing beyond the bare scope: a scope
+    // limit, a quota class, or a missing expiry each fail the CHECK, so
+    // the verifier arm's mint can never carry a grant the static verify
+    // token did not.
+    for (label, columns, values) in [
+        (
+            "verify shape with a scope limit",
+            "expires_at, scope_limit",
+            "'2026-07-15T00:30:00.000Z', 'cabin-ports'",
+        ),
+        (
+            "verify shape with a quota class",
+            "expires_at, quota_class",
+            "'2026-07-15T00:30:00.000Z', 'operator'",
+        ),
+        ("verify shape without an expiry", "scope_limit", "NULL"),
+    ] {
+        let err = conn
+            .execute(
+                &format!(
+                    "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                                         kind, {columns}) \
+                     VALUES ('tok-4', ?1, 'x', 'hash-4', 'verify', \
+                             '2026-07-15T00:00:00.000Z', 'trustpub', {values})"
+                ),
+                [user_id],
+            )
+            .expect_err(label);
+        assert!(err.to_string().contains("CHECK"), "{label}: {err}");
+    }
+    // The verify shape's scopes conjunct is itself load-bearing: an
+    // unconfined, unclassed row with any OTHER scopes string satisfies
+    // neither shape.
+    for scopes in ["yank", "publish", ""] {
+        let err = conn
+            .execute(
+                &format!(
+                    "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                                         kind, expires_at) \
+                     VALUES ('tok-4', ?1, 'x', 'hash-4', '{scopes}', \
+                             '2026-07-15T00:00:00.000Z', 'trustpub', \
+                             '2026-07-15T00:30:00.000Z')"
+                ),
+                [user_id],
+            )
+            .expect_err(scopes);
+        assert!(err.to_string().contains("CHECK"), "{scopes}: {err}");
+    }
 }
 
 /// The lazy expiry cleanup the exchange rides on each mint: statement

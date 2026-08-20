@@ -253,18 +253,26 @@ bytes. One route is exempt from the token check: the trusted-publishing
 exchange (`PUT /api/v1/trusted_publishing/tokens`,
 `docs/remote-registry.md` "Trusted publishing"), whose credential is
 the GitHub Actions OIDC JWT in its body. It dispatches before
-`authenticate` but never before the breaker's write gate, and every
-refusal it emits - malformed body, failed verification, no matching
-config, an unclaimed scope, a replayed jti - is that same uniform 401,
-with the real reason logged for the operator only. The exchange mints
-against the matched config: a 30-minute multi-use token backed by the
-scope's oldest owner (publish requires scope membership and stamps
-`published_by`, so an unclaimed scope refuses before the jti is
-consumed), scope-limited to the config's scope, `publish`-only, and
-carrying the config's quota class on the token row itself
-(`tokens.quota_class`; the auth lookup coalesces token-first, so the
-granted tier expires with the token instead of upgrading the backing
-user). Each successful exchange lazily prunes expired
+`authenticate`, verifies the JWT first, and then takes one of two
+arms; every refusal it emits - malformed body, failed verification,
+no matching config, an unclaimed scope, a missing backing identity, a
+replayed jti - is that same uniform 401, with the real reason logged
+for the operator only. Claims matching the `VERIFIER_*` pins take the
+verifier arm: a 30-minute `verify`-scoped token backed by the
+operator identity `VERIFIER_BACKING_ACCOUNT_ID` names (resolved
+before the jti is consumed), unconfined and unclassed (`NULL`
+`quota_class` inherits the backing user's), and deliberately in front
+of the breaker's write gate - like the verdict route, the
+verification pipeline must be able to drain the pending queue
+whatever the service mode. Everything else is the config arm, behind
+the write gate: a 30-minute multi-use token minted against the
+matched config, backed by the scope's oldest owner (publish requires
+scope membership and stamps `published_by`, so an unclaimed scope
+refuses before the jti is consumed), scope-limited to the config's
+scope, `publish`-only, and carrying the config's quota class on the
+token row itself (`tokens.quota_class`; the auth lookup coalesces
+token-first, so the granted tier expires with the token instead of
+upgrading the backing user). Each successful exchange lazily prunes expired
 `oidc_used_jtis` rows and expired `trustpub` token rows -
 deliberately no cron. `DELETE` on the same path revokes the presented
 token iff it is a `trustpub` one (deliberately not behind the write
@@ -292,9 +300,10 @@ answers the write plane's uniform membership 403. Verdicts take no
 registry token at all ("The verification pipeline"). `kind` is a closed
 domain (`user` | `trustpub`), and the schema itself requires a
 `trustpub` row to be expiring (within one day of its `created_at`
-anchor), scope-limited, publish-only, and explicitly classed
-(`tokens.quota_class`) - the minting path cannot widen the exchange
-into a standing or privileged credential.
+anchor) and to take exactly one of two shapes - the config arm's
+scope-limited, publish-only, explicitly classed row, or the verifier
+arm's unconfined, unclassed `verify` row - so the minting paths
+cannot widen the exchange into a standing or privileged credential.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
@@ -728,8 +737,12 @@ rules, the artifact read gate, and the verdict body live in
   verdict. Every authentication failure answers the byte-identical
   uniform 401 with the reason logged server-side only. The read side
   (listings, corpus, pending downloads) and the governor stay on
-  `verify`-scoped registry tokens: they are operator surfaces, not the
-  workflow's. The external workflow pins the expected API origin
+  `verify`-scoped registry tokens - a verdict is never one of these,
+  and a verify token can never deliver a verdict. The same pinned
+  workflow identity can mint its own short-lived verify token through
+  the exchange's verifier arm ("Two credential planes"), backed by the
+  operator identity `VERIFIER_BACKING_ACCOUNT_ID` names.
+  The external workflow pins the expected API origin
   independently and requires `config.json` to match it before sending
   its credential, so registry-controlled discovery cannot redirect it
   to another host.

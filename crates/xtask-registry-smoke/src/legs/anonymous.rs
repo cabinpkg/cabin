@@ -258,6 +258,97 @@ fn verdict_oidc_surface(smoke: &mut Smoke) -> Result<()> {
     uniform_401_with(smoke, Base::Web, "PATCH", VERDICT_PATH, &fresh, Some(b"{}"))
 }
 
+/// The exchange's verifier arm, end to end: the same pinned identity
+/// the verdict route trusts, presented against the exchange's own
+/// audience, mints a 30-minute verify-scoped token - the verification
+/// pipeline's bootstrap credential - with no `Authorization` header at
+/// all.  Anonymous in spirit (nothing here touches [`Smoke::auth`])
+/// but called from the tokened phase: the arm's backing lookup needs
+/// the seeded operator identity, which a tokenless run never writes.
+/// Post-migration coverage with no shell ancestor.
+///
+/// # Errors
+///
+/// The first failed check, worded like the module's other legs.
+pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
+    step("the exchange's verifier arm mints, confines, and revokes the verify token");
+    let bearer = |token: &str| vec![("Authorization".to_owned(), format!("Bearer {token}"))];
+    // The pins hold at the exchange audience too: one mismatched claim
+    // falls through to the config arm, matches nothing there, and
+    // answers the uniform 401.
+    let jwt = smoke.mint_verifier_jwt(r#"{"aud":"cabinpkg.com","repository_id":"1"}"#)?;
+    let mismatched = format!(r#"{{"jwt":"{jwt}"}}"#);
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        TRUSTPUB_TOKENS_PATH,
+        &[],
+        Some(mismatched.as_bytes()),
+    )?;
+    // The pinned claims mint.
+    let jwt = smoke.mint_verifier_jwt(r#"{"aud":"cabinpkg.com"}"#)?;
+    let body = format!(r#"{{"jwt":"{jwt}"}}"#);
+    let url = smoke.url(Base::Web, TRUSTPUB_TOKENS_PATH);
+    let status = smoke.http("PUT", &url, &[], Some(body.as_bytes()))?;
+    if status != 200 {
+        bail!(
+            "the verifier exchange answered {status}, expected 200 (body: {})",
+            text(&smoke.body)
+        );
+    }
+    let minted: serde_json::Value =
+        serde_json::from_slice(&smoke.body).context("parse the exchange answer")?;
+    let token = minted
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .with_context(|| format!("no token in the exchange answer: {minted}"))?
+        .to_owned();
+    if minted
+        .get("expires_at")
+        .and_then(serde_json::Value::as_str)
+        .is_none()
+    {
+        bail!("no expires_at in the exchange answer: {minted}");
+    }
+    // The jti burned on the mint: the same JWT never exchanges twice.
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        TRUSTPUB_TOKENS_PATH,
+        &[],
+        Some(body.as_bytes()),
+    )?;
+    // The minted token is the verify plane and nothing more: it reads
+    // the pending listing, and holds no publish grant.
+    let auth = bearer(&token);
+    let listing = smoke.url(Base::Web, "/api/v1/admin/versions?status=pending");
+    let status = smoke.http("GET", &listing, &auth, None)?;
+    if status != 200 {
+        bail!("the minted verify token could not list pending versions: {status}");
+    }
+    let publish = smoke.url(Base::Web, "/api/v1/packages/smoke/withdep/0.1.0");
+    let status = smoke.http("PUT", &publish, &auth, Some(b"x"))?;
+    if status != 403 {
+        bail!("a publish with the minted verify token answered {status}, expected the scope 403");
+    }
+    smoke.expect_body("publish scope")?;
+    // Revocation by the token itself, and the revoked token is dead.
+    let status = smoke.http("DELETE", &url, &auth, None)?;
+    if status != 204 {
+        bail!("revoking the minted verify token answered {status}, expected 204");
+    }
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "GET",
+        "/api/v1/admin/versions?status=pending",
+        &auth,
+        None,
+    )
+}
+
 /// L572-584.
 fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
     step("session endpoints answer 401 json without a session (no challenge)");
