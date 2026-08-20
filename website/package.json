@@ -37,7 +37,6 @@
         "@biomejs/biome": "2.5.8",
         "@tailwindcss/typography": "^0.5.20",
         "@tailwindcss/vite": "^4.3.3",
-        "@types/markdown-it": "^14.1.2",
         "@types/node": "26.2.0",
         "@types/semver": "^7.8.0",
         "astro": "^7.2.1",
