@@ -90,7 +90,7 @@
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
-        "D1_DATABASE_ID": "ee6bc615-fd50-42c7-a792-db5c8fe9b831",
+        "D1_DATABASE_ID": "e8ad244c-3981-48a5-ae31-31c776cc9118",
         // The one workflow allowed to deliver verdicts and to mint the
         // verify-scoped exchange token: both take only a GitHub
         // Actions OIDC JWT whose claims match all four pins
@@ -114,7 +114,7 @@
         {
             "binding": "DB",
             "database_name": "cabin-registry",
-            "database_id": "ee6bc615-fd50-42c7-a792-db5c8fe9b831",
+            "database_id": "e8ad244c-3981-48a5-ae31-31c776cc9118",
             "migrations_dir": "migrations"
         }
     ],
