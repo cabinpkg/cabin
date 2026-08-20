@@ -19,9 +19,9 @@ concurrency:
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push, pull request, or merge group; the jobs below skip when
-  # theirs does not. A skipped job still satisfies its required
-  # status check.
+  # push, pull request, or merge group; the work jobs below skip
+  # when theirs does not. Every gated required context is an
+  # always() aggregate below that fails closed on a failed gate.
   changes:
     runs-on: ubuntu-slim
     permissions:
@@ -41,7 +41,8 @@ jobs:
         with:
           filters: .github/path-filters.yml
 
-  build:
+  # Branch protection pins `build` below, never this job.
+  build-work:
     needs: changes
     if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
@@ -70,3 +71,20 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Branch protection pins this, not `build-work`: `always()`, never
+  # `!cancelled()`, fails it closed on a failed or cancelled gate.
+  build:
+    needs: [changes, build-work]
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Fail unless build-work succeeded or the filter skipped it
+        env:
+          RESULT: ${{ needs.build-work.result }}
+          GATE: ${{ needs.changes.result }}
+          WEBSITE: ${{ needs.changes.outputs.website }}
+        run: |
+          if [ "$RESULT" = "success" ]; then exit 0; fi
+          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
+            && [ "$WEBSITE" = "false" ]

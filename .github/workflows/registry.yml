@@ -22,9 +22,9 @@ env:
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push, pull request, or merge group; the jobs below skip when
-  # theirs does not. A skipped job still satisfies its required
-  # status check.
+  # push, pull request, or merge group; the work jobs below skip
+  # when theirs does not. Every gated required context is an
+  # always() aggregate below that fails closed on a failed gate.
   changes:
     runs-on: ubuntu-slim
     permissions:
@@ -46,8 +46,9 @@ jobs:
 
   # Format, clippy, and the build share one runner: alone, each of
   # the cheap checks is dominated by checkout and toolchain setup.
-  # Cheapest first, so a formatting slip fails in seconds.
-  registry-build:
+  # Cheapest first, so a formatting slip fails in seconds. Branch
+  # protection pins `registry-build` below, never this job.
+  registry-build-work:
     needs: changes
     if: needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
@@ -110,6 +111,23 @@ jobs:
         run: cargo check-deploy --require-bundle
         working-directory: .
 
+  # Branch protection pins this, not `registry-build-work`: `always()`,
+  # never `!cancelled()`, fails it closed on a failed or cancelled gate.
+  registry-build:
+    needs: [changes, registry-build-work]
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Fail unless registry-build-work succeeded or the filter skipped it
+        env:
+          RESULT: ${{ needs.registry-build-work.result }}
+          GATE: ${{ needs.changes.result }}
+          REGISTRY: ${{ needs.changes.outputs.registry }}
+        run: |
+          if [ "$RESULT" = "success" ]; then exit 0; fi
+          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
+            && [ "$REGISTRY" = "false" ]
+
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
   # client's canonical output and the server's schema cannot drift apart.
@@ -149,7 +167,7 @@ jobs:
   # (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [registry-build, conformance]
+    needs: [registry-build-work, conformance]
     runs-on: ubuntu-latest
     environment: production
     concurrency:

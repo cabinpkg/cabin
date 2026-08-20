@@ -20,9 +20,9 @@ concurrency:
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push, pull request, or merge group; the jobs below skip when
-  # theirs does not. A skipped job still satisfies its required
-  # status check.
+  # push, pull request, or merge group; the work jobs below skip
+  # when theirs does not. Every gated required context is an
+  # always() aggregate below that fails closed on a failed gate.
   changes:
     if: github.ref_type != 'tag'
     runs-on: ubuntu-slim
@@ -227,4 +227,4 @@ jobs:
         run: |
           if [ "$RESULT" = "success" ]; then exit 0; fi
           [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
-            && [ "$DIST" != "true" ]
+            && [ "$DIST" = "false" ]
