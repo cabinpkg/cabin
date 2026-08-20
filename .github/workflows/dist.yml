@@ -205,3 +205,23 @@ jobs:
             artifacts/sha256.sum
             artifacts/*.sha256
           if-no-files-found: error
+
+  # Branch protection pins this instead of `checksums`, whose skip on
+  # a cancelled run or a failed `binaries` would read green. `always()`,
+  # never `!cancelled()`: a cancelled run must fail this check, not
+  # skip it to a green required check. Fails closed when the gate
+  # itself failed.
+  checksums-required:
+    needs: [changes, checksums]
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Fail unless checksums succeeded or the filter skipped it
+        env:
+          RESULT: ${{ needs.checksums.result }}
+          GATE: ${{ needs.changes.result }}
+          DIST: ${{ needs.changes.outputs.dist }}
+        run: |
+          if [ "$RESULT" = "success" ]; then exit 0; fi
+          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
+            && [ "$DIST" != "true" ]
