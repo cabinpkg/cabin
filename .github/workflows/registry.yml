@@ -151,6 +151,9 @@ jobs:
     environment: production
     concurrency:
       group: deploy-registry
+      # Queue burst deploys instead of cancelling all but the newest
+      # pending one; stale runs skip their Deploy step and stay green.
+      queue: max
       cancel-in-progress: false
 
     steps:
