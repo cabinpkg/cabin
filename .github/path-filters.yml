@@ -1,7 +1,8 @@
 # Shared per-component change filters. Two consumers: each workflow's
-# `changes` job (dorny/paths-filter) gates jobs on these lists - jobs,
-# not `paths:` triggers, so a skipped job still satisfies a required
-# check - and `cargo workflow-superseded --relevant-to <filter>`,
+# `changes` job (dorny/paths-filter) gates the work jobs on these
+# lists - jobs, not `paths:` triggers, and the required contexts are
+# always() aggregates that fail closed on a failed gate - and
+# `cargo workflow-superseded --relevant-to <filter>`,
 # which scopes the deploy and publish freshness guards. Keep entries
 # double-quoted on comment-free lines (the guard's strict parser
 # otherwise warns and falls back to unscoped supersession), and keep

@@ -89,13 +89,13 @@ tooling is left in this repository. Do not reintroduce any.
   `.github/**` back in a list. No test polices the file - the
   previous per-workflow copies grew a YAML-scraping test that broke
   on an unrelated rename.
-  Two carve-outs: a required matrix job reports through a non-matrix
-  aggregate (`build-and-test-required`), because skipping a matrix job
-  never expands it, so a required per-leg name would never report and
-  the merge would hang forever; and a failed (not skipped) `changes`
-  job skips its dependents to satisfied - the aggregate fails closed
-  on that, and the other required checks accept it with the red gate
-  run as the only signal.
+  Every gated required context is an `always()` aggregate over its
+  work job, so a failed or cancelled `changes` gate turns the
+  required check red instead of skipping it to satisfied. One
+  carve-out: a required matrix job reports through a non-matrix
+  aggregate (`build-and-test-required`), because skipping a matrix
+  job never expands it, so a required per-leg name would never
+  report and the merge would hang forever.
 - No test may read a file under `.github/` or depend on a workflow living at
   a particular path. Moving or renaming a workflow must never be able to
   fail the test suite.

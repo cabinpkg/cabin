@@ -23,9 +23,9 @@ concurrency:
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push, pull request, or merge group; the jobs below skip when
-  # theirs does not. A skipped job still satisfies its required
-  # status check.
+  # push, pull request, or merge group; the work jobs below skip
+  # when theirs does not. Every gated required context is an
+  # always() aggregate below that fails closed on a failed gate.
   changes:
     runs-on: ubuntu-slim
     permissions:
@@ -49,8 +49,9 @@ jobs:
 
   # Format, clippy, and docs share one runner: each alone is
   # dominated by setup. The clippy and docs steps keep the old
-  # per-job gate and skip on toml-only changes.
-  lint:
+  # per-job gate and skip on toml-only changes. Branch protection
+  # pins `lint` below, never this job.
+  lint-work:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
     runs-on: ubuntu-latest
@@ -91,6 +92,24 @@ jobs:
         run: cargo doc --workspace --all-features --no-deps --locked --verbose
         env:
           RUSTDOCFLAGS: -D warnings
+
+  # Branch protection pins this, not `lint-work`: `always()`, never
+  # `!cancelled()`, fails it closed on a failed or cancelled gate.
+  lint:
+    needs: [changes, lint-work]
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Fail unless lint-work succeeded or the filter skipped it
+        env:
+          RESULT: ${{ needs.lint-work.result }}
+          GATE: ${{ needs.changes.result }}
+          RUST: ${{ needs.changes.outputs.rust }}
+          TOML: ${{ needs.changes.outputs.toml }}
+        run: |
+          if [ "$RESULT" = "success" ]; then exit 0; fi
+          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
+            && [ "$RUST" = "false" ] && [ "$TOML" = "false" ]
 
   # The `docs` filter too: the workspace tests embed docs/ and the
   # root guides. Branch protection requires `build-and-test-required`
@@ -155,7 +174,7 @@ jobs:
         run: |
           if [ "$RESULT" = "success" ]; then exit 0; fi
           [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
-            && [ "$RUST" != "true" ] && [ "$DOCS" != "true" ]
+            && [ "$RUST" = "false" ] && [ "$DOCS" = "false" ]
 
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately
