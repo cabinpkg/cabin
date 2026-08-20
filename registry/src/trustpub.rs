@@ -1493,7 +1493,7 @@ mod tests {
             ],
         )?;
         tx.execute(sql::PRUNE_EXPIRED_OIDC_JTIS, [NOW])?;
-        tx.execute(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS, [created_at])?;
+        tx.execute(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS, [created_at])?;
         tx.commit()?;
         Ok((consumed, minted))
     }

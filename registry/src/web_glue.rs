@@ -615,8 +615,8 @@ fn claim_denied(cookies: &[String]) -> worker::Result<Response> {
 }
 
 #[derive(Deserialize)]
-struct UserRecord {
-    user_id: i64,
+pub(crate) struct UserRecord {
+    pub(crate) user_id: i64,
     login_snapshot: String,
     quota_class: String,
 }
@@ -1322,7 +1322,11 @@ async fn github_access_token(
 
 /// One authenticated read against the GitHub API: the body on a 200,
 /// `None` on any refusal.
-async fn github_get(env: &Env, access_token: &str, path: &str) -> worker::Result<Option<Vec<u8>>> {
+pub(crate) async fn github_get(
+    env: &Env,
+    access_token: &str,
+    path: &str,
+) -> worker::Result<Option<Vec<u8>>> {
     let headers = Headers::new();
     headers.set("authorization", &format!("Bearer {access_token}"))?;
     headers.set("accept", "application/vnd.github+json")?;
@@ -1371,7 +1375,10 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
 /// session (the transient, post-wipe ghost case) that answers the same
 /// 401 as no session, and the claim and membership planes refuse the
 /// account.
-async fn user_record(db: &D1Database, github_id: i64) -> worker::Result<Option<UserRecord>> {
+pub(crate) async fn user_record(
+    db: &D1Database,
+    github_id: i64,
+) -> worker::Result<Option<UserRecord>> {
     db.prepare(sql::USER_BY_IDENTITY)
         .bind(&[GITHUB_PROVIDER.into(), github_id.to_string().into()])?
         .first(None)

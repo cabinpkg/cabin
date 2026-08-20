@@ -21,7 +21,9 @@ use crate::governor_client::{self, Gate};
 use crate::publish;
 use crate::routes::{ApiRoute, Route, match_api_route, match_route, match_web_route};
 use crate::web_glue;
-use crate::{analytics, backup, breaker, quota, sql, telemetry, trustpub, verify};
+use crate::{
+    allowlist, analytics, backup, breaker, quota, session_tokens, sql, telemetry, trustpub, verify,
+};
 
 const GENERATION_HEADER: &str = "x-cabin-registry-generation";
 
@@ -325,6 +327,7 @@ async fn handle_registry(
 /// The read plane does not exist here - nothing outside those planes
 /// matches a data route, so this origin never serves `/config.json`,
 /// `/packages/*`, or `/artifacts/*`.
+#[allow(clippy::too_many_lines)] // one dispatch ladder, one route per arm
 async fn handle_website(
     req: &mut Request,
     env: &Env,
@@ -353,12 +356,21 @@ async fn handle_website(
     // Everything else is the Bearer plane: deny by default, the uniform
     // 401 before any route matching or data lookup.
     let db = env.d1("DB")?;
-    // The one auth-exempt route on the plane: the exchange PUT's
-    // credential is the OIDC JWT in its body, so it dispatches before
-    // the token check. The breaker's write gate runs inside the
-    // handler, on the config arm only ([`trustpub_exchange_response`]).
-    if path == crate::routes::TRUSTPUB_TOKENS_PATH && req.method() == Method::Put {
-        let (mut response, token_id) = trustpub_exchange_response(req, env, &db).await?;
+    // The auth-exempt mint routes on the plane: each PUT's credential
+    // travels in its body (the exchange's OIDC JWT, the session mint's
+    // GitHub access token), so both dispatch before the token check.
+    // The breaker's write gate runs inside each handler - on the
+    // exchange's config arm only, and first of all for the session
+    // mint.
+    if req.method() == Method::Put
+        && (path == crate::routes::TRUSTPUB_TOKENS_PATH
+            || path == crate::routes::SESSION_TOKENS_PATH)
+    {
+        let (mut response, token_id) = if path == crate::routes::TRUSTPUB_TOKENS_PATH {
+            trustpub_exchange_response(req, env, &db).await?
+        } else {
+            session_mint_response(req, env, &db).await?
+        };
         if let Some(generation) = registry_generation(&db).await {
             response.headers_mut().set(GENERATION_HEADER, &generation)?;
         }
@@ -422,13 +434,17 @@ async fn handle_website(
             None => error_response(404, error::NOT_FOUND)?,
         },
         Method::Delete => match match_api_route(path) {
-            Some(ApiRoute::TrustPubTokens) => {
+            Some(route @ (ApiRoute::TrustPubTokens | ApiRoute::SessionTokens)) => {
                 // Early return past the generation stamp below: the
                 // kind guard's 401 must stay HEADER-identical to the
                 // unauthenticated one (which never gets the stamp), or
                 // the debug header becomes a token-validity oracle on
                 // this route. The 204 goes unstamped with it.
-                let response = trustpub_revoke_response(env, &db, &auth).await?;
+                let statement = match route {
+                    ApiRoute::SessionTokens => db.prepare(sql::DELETE_SESSION_TOKEN),
+                    _ => db.prepare(sql::DELETE_TRUSTPUB_TOKEN),
+                };
+                let response = self_revoke_response(env, statement, &auth).await?;
                 return Ok((response, Some(auth.token_id)));
             }
             Some(_) => error_response(405, error::METHOD_NOT_ALLOWED)?,
@@ -1071,7 +1087,7 @@ async fn exchange_mint(
 ) -> worker::Result<(Response, Option<String>)> {
     let id = auth::hex(&web_glue::random_bytes::<16>()?);
     let token = auth::format_trustpub_token(&web_glue::random_bytes()?);
-    let (created_at, expires_at) = trustpub_token_window();
+    let (created_at, expires_at) = token_window(trustpub::TOKEN_TTL_SECS);
     let name = format!("trusted-publishing: {workflow_filename}");
     let minted = match mint {
         ExchangeMint::Publish { scope, quota_class } => {
@@ -1102,7 +1118,7 @@ async fn exchange_mint(
             minted,
             db.prepare(sql::PRUNE_EXPIRED_OIDC_JTIS)
                 .bind(&[js_int(now_secs)])?,
-            db.prepare(sql::PRUNE_EXPIRED_TRUSTPUB_TOKENS)
+            db.prepare(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS)
                 .bind(&[created_at.as_str().into()])?,
         ])
         .await?;
@@ -1130,9 +1146,9 @@ async fn exchange_mint(
     Ok((json_response(&body)?, Some(id)))
 }
 
-/// The exchange token's `(created_at, expires_at)` pair, exactly
-/// [`trustpub::TOKEN_TTL_SECS`] apart from a single clock read.
-fn trustpub_token_window() -> (String, String) {
+/// A minted token's `(created_at, expires_at)` pair, exactly
+/// `ttl_secs` apart from a single clock read.
+fn token_window(ttl_secs: i64) -> (String, String) {
     let now_ms = now_epoch_ms();
     let iso = |ms: f64| {
         worker::js_sys::Date::new(&worker::wasm_bindgen::JsValue::from_f64(ms))
@@ -1140,28 +1156,28 @@ fn trustpub_token_window() -> (String, String) {
             .as_string()
             .unwrap_or_default()
     };
-    #[allow(clippy::cast_precision_loss)] // 1800 is exact in f64
-    let ttl_ms = trustpub::TOKEN_TTL_SECS as f64 * 1000.0;
+    #[allow(clippy::cast_precision_loss)] // both TTLs are exact in f64
+    let ttl_ms = ttl_secs as f64 * 1000.0;
     (iso(now_ms), iso(now_ms + ttl_ms))
 }
 
-/// `DELETE /api/v1/trusted_publishing/tokens`: the presented (already
-/// authenticated) token revokes itself, iff it is a trustpub one - a
-/// user token's id changes no rows and answers the same uniform 401 as
-/// any invalid credential, so the endpoint is no token-kind oracle.
-/// Deletion also makes a repeat DELETE indistinguishable from an
-/// unknown token (the 401 again), which is the documented idempotent
-/// answer. Deliberately not behind the write gate, like the verdict
-/// route: revocation removes a live credential, and blocking it while
-/// over budget would keep that credential alive - the wrong fail
-/// direction for a security operation.
-async fn trustpub_revoke_response(
+/// `DELETE /api/v1/trusted_publishing/tokens` and
+/// `DELETE /api/v1/sessions/tokens`: the presented (already
+/// authenticated) token revokes itself, iff it is the route's kind -
+/// any other kind's id changes no rows and answers the same uniform
+/// 401 as any invalid credential, so neither endpoint is a token-kind
+/// oracle. Deletion also makes a repeat DELETE indistinguishable from
+/// an unknown token (the 401 again), which is the documented
+/// idempotent answer. Deliberately not behind the write gate, like the
+/// verdict route: revocation removes a live credential, and blocking
+/// it while over budget would keep that credential alive - the wrong
+/// fail direction for a security operation.
+async fn self_revoke_response(
     env: &Env,
-    db: &D1Database,
+    statement: worker::D1PreparedStatement,
     auth: &AuthContext,
 ) -> worker::Result<Response> {
-    let deleted = db
-        .prepare(sql::DELETE_TRUSTPUB_TOKEN)
+    let deleted = statement
         .bind(&[auth.token_id.as_str().into()])?
         .run()
         .await?;
@@ -1169,6 +1185,93 @@ async fn trustpub_revoke_response(
         return unauthorized(env);
     }
     Ok(Response::empty()?.with_status(204))
+}
+
+/// The production [`session_tokens::GithubUserProvider`]: one
+/// authenticated `GET /user` through [`web_glue::github_get`] (which
+/// carries the User-Agent GitHub requires and honors the
+/// `GITHUB_API_BASE` override). Every failure shape is a reason string
+/// for the log - never the access token itself - and the caller's one
+/// uniform 401.
+struct GithubUserApi<'a> {
+    env: &'a Env,
+}
+
+impl session_tokens::GithubUserProvider for GithubUserApi<'_> {
+    async fn user_id(&self, github_token: &str) -> Result<i64, String> {
+        let body = match web_glue::github_get(self.env, github_token, "/user").await {
+            Ok(Some(body)) => body,
+            Ok(None) => return Err("github /user refused the token".to_owned()),
+            Err(err) => return Err(format!("github /user fetch failed: {err}")),
+        };
+        session_tokens::parse_github_user_id(&body)
+            .ok_or_else(|| "github /user body did not parse".to_owned())
+    }
+}
+
+/// `PUT /api/v1/sessions/tokens` (`docs/remote-registry.md`, "Login
+/// sessions"): trades a GitHub access token from the CLI's device flow
+/// for a 12-hour `session` bearer token. The write gate answers first,
+/// before the credential is even read: the mint is a write, and a
+/// doomed request must not spend an outbound GitHub call - the
+/// pre-auth 503 deliberately tells an anonymous caller the breaker
+/// state, like the read plane's public over-budget answer. Then the
+/// GitHub `/user` proof, the allowlist, and the identity lookup - the
+/// exact resolution the web OAuth login uses, minus its account
+/// creation: `cabin login` is for accounts that exist, so an unknown
+/// or unallowlisted id is a refusal, never a signup. Every refusal
+/// past the gate answers the byte-identical uniform 401 with the real
+/// reason logged. Returns the minted row id so the request log ties to
+/// the row.
+async fn session_mint_response(
+    req: &mut Request,
+    env: &Env,
+    db: &D1Database,
+) -> worker::Result<(Response, Option<String>)> {
+    if let Some(blocked) = write_gate(env, db).await? {
+        return Ok((blocked, None));
+    }
+    let refused = |reason: String| -> worker::Result<(Response, Option<String>)> {
+        console_log!("session mint refused: {reason}");
+        Ok((unauthorized(env)?, None))
+    };
+    // A missing, oversized, or malformed body is an absent credential,
+    // not a 400, like the trustpub exchange's.
+    let Some(body) = bounded_body(req, MAX_MUTATION_BODY_BYTES).await? else {
+        return refused("body over the cap".to_owned());
+    };
+    let github_id = match session_tokens::resolve_github_id(&body, &GithubUserApi { env }).await {
+        Ok(github_id) => github_id,
+        Err(reason) => return refused(reason),
+    };
+    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
+    if !allowed.contains(&github_id) {
+        return refused(format!("github id {github_id} is not allowlisted"));
+    }
+    let Some(user) = web_glue::user_record(db, github_id).await? else {
+        return refused(format!("github id {github_id} has never signed in"));
+    };
+
+    let id = auth::hex(&web_glue::random_bytes::<16>()?);
+    let token = auth::format_session_token(&web_glue::random_bytes()?);
+    let (created_at, expires_at) = token_window(session_tokens::TOKEN_TTL_SECS);
+    db.batch(vec![
+        db.prepare(sql::INSERT_SESSION_TOKEN).bind(&[
+            id.as_str().into(),
+            js_int(user.user_id),
+            auth::token_hash(&token).into(),
+            created_at.as_str().into(),
+            expires_at.as_str().into(),
+        ])?,
+        db.prepare(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS)
+            .bind(&[created_at.as_str().into()])?,
+    ])
+    .await?;
+
+    // The plaintext is rendered exactly once, here; D1 holds only the
+    // SHA-256 hex.
+    let body = serde_json::json!({ "token": token, "expires_at": expires_at }).to_string();
+    Ok((json_response(&body)?, Some(id)))
 }
 
 fn has_verify_scope(auth: &AuthContext) -> bool {
