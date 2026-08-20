@@ -431,7 +431,7 @@ these values - registry resolution remains profile- and toolchain-independent.
 ## Windows / MSVC
 
 Windows is a supported platform, driven by the **MSVC** dialect.  CI builds, links, runs, and tests
-the example packages on a `windows-2025-vs2026` runner on every change.
+the example packages that need no outbound network on a `windows-2025-vs2026` runner.
 
 ### What works
 
