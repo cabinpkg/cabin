@@ -90,7 +90,7 @@
         // mirror d1_databases[0].database_id - a wipe that
         // recreates the database changes both (docs/runbook.md,
         // "Wipe procedure (pre-launch)").
-        "D1_DATABASE_ID": "b42acb9c-4f77-4f6e-8ad2-22d3f04bf3e4",
+        "D1_DATABASE_ID": "ee6bc615-fd50-42c7-a792-db5c8fe9b831",
         // The one workflow allowed to deliver verdicts: the verdict
         // PATCH accepts only a GitHub Actions OIDC JWT whose claims
         // match all four pins (src/trustpub.rs, VerifierPins). Pins,
@@ -107,7 +107,7 @@
         {
             "binding": "DB",
             "database_name": "cabin-registry",
-            "database_id": "b42acb9c-4f77-4f6e-8ad2-22d3f04bf3e4",
+            "database_id": "ee6bc615-fd50-42c7-a792-db5c8fe9b831",
             "migrations_dir": "migrations"
         }
     ],
