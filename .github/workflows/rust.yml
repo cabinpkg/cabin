@@ -44,7 +44,10 @@ jobs:
         with:
           filters: .github/path-filters.yml
 
-  format:
+  # Format, clippy, and docs share one runner: each alone is
+  # dominated by setup. The clippy and docs steps keep the old
+  # per-job gate and skip on toml-only changes.
+  clippy:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
     runs-on: ubuntu-latest
@@ -58,11 +61,14 @@ jobs:
         - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
           with:
             toolchain: stable
-            components: rustfmt
+            components: rustfmt, clippy
 
         - uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
           with:
             version: "0.10.0"
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        if: needs.changes.outputs.rust == 'true'
 
       - parallel:
         - name: Check Rust formatting
@@ -71,40 +77,15 @@ jobs:
         - name: Check TOML formatting
           run: taplo fmt --check
 
-  clippy:
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
-        with:
-          toolchain: stable
-          components: clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - run: |
+      - name: Clippy
+        if: needs.changes.outputs.rust == 'true'
+        run: |
           cargo clippy --workspace --all-targets --all-features --locked \
             --verbose -- -D warnings
 
-  docs:
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-      - run: cargo doc --workspace --all-features --no-deps --locked --verbose
+      - name: Docs
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo doc --workspace --all-features --no-deps --locked --verbose
         env:
           RUSTDOCFLAGS: -D warnings
 
