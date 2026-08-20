@@ -71,8 +71,9 @@ tooling is left in this repository. Do not reintroduce any.
   `demo.tape`, and devcontainer provisioning are not repository automation
   and are unaffected.
 - Workflows whose jobs back required status checks trigger on `push`
-  to `main` and on `pull_request` with no trigger-level `paths:`
-  filter: a filtered-out workflow leaves its required checks pending
+  to `main`, on `pull_request`, and on `merge_group` (the merge
+  queue's synthetic commits) with no trigger-level `paths:` filter:
+  a filtered-out workflow leaves its required checks pending
   forever, while a job skipped by an `if:` satisfies them. Their
   component scoping therefore happens at the job level - each
   workflow's `changes` job evaluates the shared filter lists in

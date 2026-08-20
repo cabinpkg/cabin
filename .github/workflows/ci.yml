@@ -4,13 +4,15 @@ on:
   push:
     branches: [ main ]
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, dispatches, calls, and schedules
-# are never cancelled or queued at the workflow level.
+# event gets a per-run group: pushes, merge groups, dispatches, calls,
+# and schedules are never cancelled or queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -31,20 +33,26 @@ jobs:
 
       - uses: crate-ci/typos@8a48f81b6c64dcfea44b3633223084c4be58ac5f # v1.49.0
 
+      # A merge group's commit is GitHub-generated, so only typos runs
+      # there; the commitlint steps validate real PR and main commits.
       - name: Setup node
+        if: github.event_name != 'merge_group'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
 
       - name: Install commitlint
+        if: github.event_name != 'merge_group'
         # zizmor: ignore[adhoc-packages] -- accepted CI-integrity risk; adding a root Node manifest + lockfile for this lint-only tool is a dedicated tooling follow-up
         run: npm install -D @commitlint/cli @commitlint/config-conventional
 
       - name: Setup commitlint
+        if: github.event_name != 'merge_group'
         run: |
           echo "export default { extends: ['@commitlint/config-conventional'] };" > commitlint.config.js
 
       - name: Print versions
+        if: github.event_name != 'merge_group'
         run: |
           git --version
           node --version

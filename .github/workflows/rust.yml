@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,16 +15,17 @@ permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, dispatches, calls, and schedules
-# are never cancelled or queued at the workflow level.
+# event gets a per-run group: pushes, merge groups, dispatches, calls,
+# and schedules are never cancelled or queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push or pull request; the jobs below skip when theirs does not.
-  # A skipped job still satisfies its required status check.
+  # push, pull request, or merge group; the jobs below skip when
+  # theirs does not. A skipped job still satisfies its required
+  # status check.
   changes:
     runs-on: ubuntu-slim
     permissions:
