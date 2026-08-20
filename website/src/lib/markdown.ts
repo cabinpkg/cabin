@@ -1,5 +1,5 @@
-import MarkdownIt from "markdown-it";
-import type Token from "markdown-it/lib/token.mjs";
+import type { MarkdownIt, Token } from "markdown-it";
+import markdownit from "markdown-it";
 import { parseHttpUrl } from "./url";
 
 let markdown: MarkdownIt | undefined;
@@ -10,7 +10,7 @@ export function renderReadmeMarkdown(readme: string): string {
 }
 
 function createMarkdownRenderer(): MarkdownIt {
-    const renderer = new MarkdownIt({
+    const renderer = new markdownit({
         html: false,
         linkify: true,
         typographer: true,
