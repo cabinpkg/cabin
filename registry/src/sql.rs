@@ -153,8 +153,8 @@ statements! {
     PRUNE_EXPIRED_TRUSTPUB_TOKENS =
         "DELETE FROM tokens WHERE kind = 'trustpub' AND expires_at <= ?1";
 
-    /// Mints the exchange's short-lived token - but only when the
-    /// immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
+    /// Mints the config arm's short-lived publish token - but only when
+    /// the immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
     /// actually inserted its row: `changes()` is connection-scoped and
     /// statement-sequential, the same cross-statement coupling
     /// [`INSERT_USER_FOR_NEW_IDENTITY`] / [`UPSERT_IDENTITY`] ride
@@ -163,13 +163,36 @@ statements! {
     /// failure rolls the consume back with the mint, so a 500 never
     /// burns a still-valid JWT. The schema's trustpub
     /// CHECK re-enforces the shape written here: expiring within a day
-    /// of `created_at`, scope-limited, publish-only, and carrying the
+    /// of `created_at`, scope-limited, publish-scoped, and carrying the
     /// config's granted quota class on the row itself.
     INSERT_TRUSTPUB_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, scope_limit, kind, quota_class) \
          SELECT ?1, ?2, ?3, ?4, 'publish', ?5, ?6, ?7, 'trustpub', ?8 \
          WHERE (SELECT changes()) = 1";
+
+    /// The verifier arm's mint, [`INSERT_TRUSTPUB_TOKEN`]'s sibling with
+    /// the same batch coupling: it must directly follow
+    /// [`CONSUME_OIDC_JTI`], whose `changes()` it guards on. The
+    /// schema's verify shape re-enforces what is written here:
+    /// verify-scoped, unconfined, and NULL `quota_class` so the token
+    /// inherits the backing user's class - exactly the row the static
+    /// verify token carried, minus the unbounded lifetime.
+    INSERT_TRUSTPUB_VERIFY_TOKEN =
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                             expires_at, kind) \
+         SELECT ?1, ?2, ?3, ?4, 'verify', ?5, ?6, 'trustpub' \
+         WHERE (SELECT changes()) = 1";
+
+    /// The verifier arm's backing user: the operator identity the
+    /// `VERIFIER_BACKING_ACCOUNT_ID` var names, by its immutable
+    /// numeric GitHub id. No row - the identity has never signed in
+    /// since the last wipe - refuses the exchange before the jti is
+    /// consumed, like [`TRUSTPUB_BACKING_OWNER`]'s unclaimed-scope
+    /// refusal, so signing in and retrying the same run stays possible.
+    VERIFIER_BACKING_USER =
+        "SELECT user_id FROM identities \
+         WHERE provider = 'github' AND provider_account_id = ?1";
 
     /// Revocation by the token itself: deletes the authenticated row
     /// iff it is a trustpub one. Zero changed rows - a user token's id -

@@ -473,7 +473,9 @@ impl DevServers {
     /// (deployed: 30 s batches).  The `GITHUB_*` entries point the claim
     /// flow's server-side calls and the verdict endpoint's JWKS fetch
     /// at the GitHub mock (the client secret only has to exist for the
-    /// mock exchange).
+    /// mock exchange).  `VERIFIER_BACKING_ACCOUNT_ID` overrides the
+    /// deployed operator id with the seeded account 0, so the
+    /// exchange's verifier arm mints against registry user 1.
     fn write_dev_vars(&mut self) -> Result<()> {
         if self.dev_vars.exists() {
             let backup = tempfile::Builder::new()
@@ -568,6 +570,7 @@ GITHUB_OAUTH_BASE=\"http://127.0.0.1:{github}\"
 GITHUB_API_BASE=\"http://127.0.0.1:{github}\"
 GITHUB_JWKS_URL=\"http://127.0.0.1:{github}/.well-known/jwks\"
 GITHUB_CLIENT_SECRET=\"smoke-client-secret\"
+VERIFIER_BACKING_ACCOUNT_ID=\"0\"
 "
     )
 }
@@ -769,7 +772,8 @@ mod tests {
              GITHUB_OAUTH_BASE=\"http://127.0.0.1:8790\"\n\
              GITHUB_API_BASE=\"http://127.0.0.1:8790\"\n\
              GITHUB_JWKS_URL=\"http://127.0.0.1:8790/.well-known/jwks\"\n\
-             GITHUB_CLIENT_SECRET=\"smoke-client-secret\"\n"
+             GITHUB_CLIENT_SECRET=\"smoke-client-secret\"\n\
+             VERIFIER_BACKING_ACCOUNT_ID=\"0\"\n"
         );
     }
 

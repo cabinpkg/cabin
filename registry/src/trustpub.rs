@@ -1,11 +1,12 @@
 //! GitHub Actions OIDC token verification, consumed by two endpoints in
 //! `crate::glue`: the trusted-publishing exchange trades a verified
-//! Actions token for a short-lived `trustpub` token bound to a
+//! Actions token for a short-lived `trustpub` token - bound to a
 //! `trustpub_configs` row (`registry/docs/architecture.md`, "D1 is
-//! canonical"), and the verifier callback authenticates each verdict
-//! against the [`VerifierPins`] deployment vars. The config matching
-//! ([`select_config`]) and the pin checks live here; the endpoints' D1
-//! plumbing stays in the glue.
+//! canonical"), or verify-scoped when the claims match the
+//! [`VerifierPins`] deployment vars - and the verifier callback
+//! authenticates each verdict against those same pins. The config
+//! matching ([`select_config`]) and the pin checks live here; the
+//! endpoints' D1 plumbing stays in the glue.
 //!
 //! The JWT handling is deliberately manual and `RS256`-only: GitHub signs
 //! Actions tokens with RSA keys published at a fixed JWKS URL, and a
@@ -210,10 +211,11 @@ pub fn select_config<'a>(
     Ok(selected)
 }
 
-/// The one workflow the verdict endpoint accepts verdicts from, as the
-/// `VERIFIER_*` wrangler vars pin it. Where the exchange matches claims
-/// against operator-editable `trustpub_configs` rows, the verifier
-/// identity is deployment configuration: nothing at runtime may widen it.
+/// The one workflow allowed to deliver verdicts and to take the
+/// exchange's verify-scoped verifier arm, as the `VERIFIER_*` wrangler
+/// vars pin it. Where the exchange's config arm matches claims against
+/// operator-editable `trustpub_configs` rows, the verifier identity is
+/// deployment configuration: nothing at runtime may widen it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifierPins {
     pub repository_owner_id: i64,
@@ -1599,6 +1601,109 @@ mod tests {
             .execute(sql::DELETE_TRUSTPUB_TOKEN, ["tok-tp-1"])
             .expect("repeat revoke executes");
         assert_eq!(repeat, 0);
+    }
+
+    /// The verifier arm at the same layer: the backing identity lookup
+    /// resolves the operator's numeric account id, the verify-shape
+    /// mint commits under the same jti guard, and the minted token
+    /// authenticates verify-scoped, unconfined, at the backing user's
+    /// own class (the token row's NULL `quota_class` falls through the
+    /// COALESCE) - the exact row the static verify token carried, now
+    /// bounded by the TTL.
+    #[test]
+    fn the_verifier_arm_flow_mints_a_bounded_verify_token() {
+        let conn = migrated_connection();
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at, quota_class)
+               VALUES (1, '2026-08-15T00:00:00.000Z', 'operator');
+             INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id)
+               VALUES ('github', '26405363', 'ken-matsui', 1);",
+        )
+        .expect("seed the backing identity");
+
+        let backing: i64 = conn
+            .query_row(sql::VERIFIER_BACKING_USER, ["26405363"], |row| row.get(0))
+            .expect("the backing identity resolves");
+        assert_eq!(backing, 1);
+        // An unknown account id is the pre-consume refusal's no-row
+        // answer, so a not-yet-signed-in operator never burns the JWT.
+        let missing = conn
+            .query_row(sql::VERIFIER_BACKING_USER, ["0"], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(Some)
+            .or_else(|err| match err {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+            .expect("the lookup runs");
+        assert_eq!(missing, None);
+
+        let claims = parsed_claims();
+        let token = auth::format_trustpub_token(&[9; 32]);
+        let hash = auth::token_hash(&token);
+        let created_at = "2026-08-15T00:00:00.000Z";
+        let expires_at = "2026-08-15T00:30:00.000Z";
+        let tx = conn.unchecked_transaction().expect("open the batch");
+        let consumed = tx
+            .execute(
+                sql::CONSUME_OIDC_JTI,
+                rusqlite::params![claims.jti, claims.verifiable_until],
+            )
+            .expect("consume the jti");
+        let minted = tx
+            .execute(
+                sql::INSERT_TRUSTPUB_VERIFY_TOKEN,
+                rusqlite::params![
+                    "tok-tv-1",
+                    backing,
+                    "trusted-publishing: registry-verify.yml",
+                    hash,
+                    created_at,
+                    expires_at
+                ],
+            )
+            .expect("mint the verify token");
+        tx.commit().expect("commit the batch");
+        assert_eq!((consumed, minted), (1, 1));
+
+        let (scopes, quota_class, scope_limit) =
+            auth_lookup(&conn, &hash, "2026-08-15T00:15:00.000Z").expect("the token is live");
+        assert_eq!(scopes, "verify");
+        assert_eq!(quota_class, "operator");
+        assert_eq!(scope_limit, None);
+        // Bounded like every trustpub row: past the TTL, the uniform
+        // no-row answer.
+        assert_eq!(auth_lookup(&conn, &hash, "2026-08-15T00:30:00.000Z"), None);
+
+        // Replaying the same jti consumes nothing AND mints nothing:
+        // the verify-shape mint carries the same in-SQL changes() guard
+        // as the publish shape, so a replay cannot even leave an orphan
+        // row behind.
+        let replay_hash = auth::token_hash(&auth::format_trustpub_token(&[10; 32]));
+        let tx = conn.unchecked_transaction().expect("open the replay batch");
+        let consumed = tx
+            .execute(
+                sql::CONSUME_OIDC_JTI,
+                rusqlite::params![claims.jti, claims.verifiable_until],
+            )
+            .expect("replay consume executes");
+        let minted = tx
+            .execute(
+                sql::INSERT_TRUSTPUB_VERIFY_TOKEN,
+                rusqlite::params![
+                    "tok-tv-2",
+                    backing,
+                    "trusted-publishing: registry-verify.yml",
+                    replay_hash,
+                    created_at,
+                    expires_at
+                ],
+            )
+            .expect("replay mint executes");
+        tx.commit().expect("commit the replay batch");
+        assert_eq!((consumed, minted), (0, 0));
+        assert_eq!(auth_lookup(&conn, &replay_hash, created_at), None);
     }
 
     #[test]

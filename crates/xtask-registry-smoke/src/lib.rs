@@ -90,6 +90,7 @@ fn tokened(
     token: &str,
     github_port: u16,
 ) -> Result<()> {
+    anonymous::verifier_exchange_surface(smoke)?;
     let setup = session::setup(registry)?;
     session::read_plane(smoke, &setup)?;
     let cookie = session::session_plane(smoke)?;

@@ -372,18 +372,52 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     let unknown = verdict_path(inputs, "9.9.9");
     smoke.verdict_patch(&unknown, inputs.verdict_verified, &[404])?;
     smoke.as_publisher();
-    // The trusted-publishing exchange sits behind this same gate - and
-    // in FRONT of the token check: no credential at all, yet the answer
-    // is the gate's 503, never a 401 (a 401 here would mean the route
-    // slipped behind `authenticate`).
+    // The trusted-publishing exchange gates only its config arm, and
+    // only after the JWT verifies: an unverifiable JWT stays the
+    // uniform 401 (the gate speaks only to callers presenting a
+    // verifiable credential, here as everywhere), a verified config-arm
+    // JWT is the gate's 503 before any config is consulted, and the
+    // verifier arm mints straight through - the verification pipeline's
+    // bootstrap is exempt like the verdicts above.
     let exchange = smoke.url(Base::Web, TRUSTPUB_TOKENS_PATH);
-    let got = smoke.http("PUT", &exchange, &[], Some(br#"{"jwt":"not-a-jwt"}"#))?;
+    uniform_401_with(
+        smoke,
+        Base::Web,
+        "PUT",
+        TRUSTPUB_TOKENS_PATH,
+        &[],
+        Some(br#"{"jwt":"not-a-jwt"}"#),
+    )?;
+    let jwt = smoke.mint_verifier_jwt(
+        r#"{"aud":"cabinpkg.com","workflow_ref":"cabinpkg/cabin/.github/workflows/ports-publish.yml@refs/heads/main"}"#,
+    )?;
+    let body = format!(r#"{{"jwt":"{jwt}"}}"#);
+    let got = smoke.http("PUT", &exchange, &[], Some(body.as_bytes()))?;
     if got != 503 {
-        bail!("the exchange under writes_blocked answered {got}, expected the gate's 503");
+        bail!("the config arm under writes_blocked answered {got}, expected the gate's 503");
     }
     smoke.expect_body("registry_over_budget")?;
     if !header_line(&smoke.headers, "retry-after: 900") {
         bail!("the exchange 503 must carry Retry-After: 900");
+    }
+    let jwt = smoke.mint_verifier_jwt(r#"{"aud":"cabinpkg.com"}"#)?;
+    let body = format!(r#"{{"jwt":"{jwt}"}}"#);
+    let got = smoke.http("PUT", &exchange, &[], Some(body.as_bytes()))?;
+    if got != 200 {
+        bail!("the verifier arm under writes_blocked answered {got}, expected 200");
+    }
+    // Revocation skips the gate too; revoking here both proves that
+    // positively and leaves no live credential behind.
+    let minted: Value = serde_json::from_slice(&smoke.body).context("parse the exchange answer")?;
+    let token = minted
+        .get("token")
+        .and_then(Value::as_str)
+        .with_context(|| format!("no token in the exchange answer: {minted}"))?
+        .to_owned();
+    let verifier_auth = vec![("Authorization".to_owned(), format!("Bearer {token}"))];
+    let got = smoke.http("DELETE", &exchange, &verifier_auth, None)?;
+    if got != 204 {
+        bail!("revoking the verifier-arm token under writes_blocked answered {got}, expected 204");
     }
     // Revocation deliberately skips the gate (blocking it would keep a
     // live credential alive), so even blocked, the answer is its kind

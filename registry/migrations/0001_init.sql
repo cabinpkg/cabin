@@ -143,15 +143,21 @@ CREATE TABLE tokens (
     -- from the website session, 'trustpub' tokens are the short-lived
     -- product of a GitHub Actions OIDC exchange.
     kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub')),
-    -- Short-lived, confined, and publish-only is what 'trustpub'
-    -- MEANS, and the schema enforces all three so a bug in the
-    -- minting path cannot widen the exchange into a standing or
-    -- privileged credential: scopes = 'publish' exactly (the governor
-    -- and verdict planes authorize on the verify scope alone, so a
-    -- workflow credential must be unable to hold it), and the expiry
-    -- sits within one day of issuance - a CEILING, not the policy;
-    -- the exchange sets the real TTL in code, the schema only refuses
-    -- a mint that could not belong to any legitimate exchange window.
+    -- Short-lived and exactly one of two shapes is what 'trustpub'
+    -- MEANS, and the schema enforces both so a bug in a minting path
+    -- cannot widen an exchange into a standing or over-privileged
+    -- credential. The publish shape (the config arm) is confined to
+    -- its config's scope and carries the config's granted quota
+    -- class; the verify shape (the pinned verifier arm) is
+    -- unconfined and unclassed - NULL quota_class inherits the
+    -- backing user's class - because the verify scope reads the
+    -- admin plane and drives the governor, never per-scope writes.
+    -- A verify-scoped token still cannot deliver a verdict: the
+    -- verdict route takes no registry token at all, only a per-PATCH
+    -- OIDC JWT bound to the VERIFIER_AUDIENCE. The expiry sits
+    -- within one day of issuance - a CEILING, not the policy; the
+    -- exchange sets the real TTL in code, the schema only refuses a
+    -- mint that could not belong to any legitimate exchange window.
     -- ifnull makes a malformed created_at anchor fail closed rather
     -- than NULL out of the comparison, and a FORGED far-future anchor
     -- buys nothing: the auth lookup refuses rows before their
@@ -163,9 +169,18 @@ CREATE TABLE tokens (
             expires_at IS NOT NULL
             AND expires_at <=
                 ifnull(strftime('%Y-%m-%dT%H:%M:%fZ', created_at, '+1 day'), '')
-            AND scope_limit IS NOT NULL AND scope_limit != ''
-            AND scopes = 'publish'
-            AND quota_class IS NOT NULL
+            AND (
+                (
+                    scopes = 'publish'
+                    AND scope_limit IS NOT NULL AND scope_limit != ''
+                    AND quota_class IS NOT NULL
+                )
+                OR (
+                    scopes = 'verify'
+                    AND scope_limit IS NULL
+                    AND quota_class IS NULL
+                )
+            )
         )
     )
 );
