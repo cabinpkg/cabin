@@ -60,7 +60,7 @@ running locally, including:
   workspace-wide via `[workspace.lints]` in the root `Cargo.toml`, so it no longer needs a
   command-line flag);
 - the `RUSTFLAGS="-D warnings"` environment variable on `cargo check` / `cargo test`, which holds
-  the macOS- and Windows-specific `cfg` code to the same warning-free bar the Linux-only `clippy`
+  the macOS- and Windows-specific `cfg` code to the same warning-free bar the Linux-only `lint`
   job enforces for everything else (CI sets it for every job; Cargo caps lints for registry
   dependencies, so only the workspace crates are held to it);
 - the `RUSTDOCFLAGS="-D warnings"` environment variable on `cargo doc`, so broken or redundant docs

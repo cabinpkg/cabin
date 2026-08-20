@@ -47,7 +47,7 @@ jobs:
   # Format, clippy, and docs share one runner: each alone is
   # dominated by setup. The clippy and docs steps keep the old
   # per-job gate and skip on toml-only changes.
-  clippy:
+  lint:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.toml == 'true'
     runs-on: ubuntu-latest
