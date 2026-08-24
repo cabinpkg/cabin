@@ -224,6 +224,7 @@ const IFS: [char; 2] = [' ', '\t'];
 pub fn run() -> ExitCode {
     ExitCode::from(poll(
         &mut Spawn,
+        &mut Console,
         &context("GITHUB_SHA"),
         &context("GITHUB_REPOSITORY"),
     ))
@@ -233,6 +234,23 @@ pub fn run() -> ExitCode {
 /// reads as the empty string the original spliced in.
 fn context(name: &str) -> String {
     std::env::var(name).unwrap_or_default()
+}
+
+trait Output {
+    fn stdout(&mut self, line: &str);
+    fn stderr(&mut self, line: &str);
+}
+
+struct Console;
+
+impl Output for Console {
+    fn stdout(&mut self, line: &str) {
+        println!("{line}");
+    }
+
+    fn stderr(&mut self, line: &str) {
+        eprintln!("{line}");
+    }
 }
 
 /// What one iteration decided, in the original's terms: the line it
@@ -253,18 +271,18 @@ enum Report {
 impl Report {
     /// Writes the line and answers with the exit the original took, or
     /// `None` where it went round again.
-    fn emit(&self) -> Option<u8> {
+    fn emit(&self, output: &mut dyn Output) -> Option<u8> {
         match self {
             Self::Retry(line) => {
-                println!("{line}");
+                output.stdout(line);
                 None
             }
             Self::Done(line) => {
-                println!("{line}");
+                output.stdout(line);
                 Some(0)
             }
             Self::Stop(line) => {
-                eprintln!("{line}");
+                output.stderr(line);
                 Some(1)
             }
             Self::Die => Some(1),
@@ -283,7 +301,7 @@ impl Report {
 /// its own fresh fetch, so any such race resolves to Done or Retry
 /// there; the first Stop just waits, as silently as the L54
 /// fall-through.
-fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
+fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &str) -> u8 {
     let mut provisional_stop = false;
     for _ in 0..ITERATIONS {
         let report = iteration(shell, sha, repository);
@@ -294,13 +312,13 @@ fn poll(shell: &mut dyn Shell, sha: &str, repository: &str) -> u8 {
         }
         provisional_stop = false;
         if let Some(report) = report
-            && let Some(code) = report.emit()
+            && let Some(code) = report.emit(output)
         {
             return code;
         }
         shell.wait();
     }
-    eprintln!("{TIMED_OUT}");
+    output.stderr(TIMED_OUT);
     1
 }
 
@@ -752,6 +770,22 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeOutput {
+        stdout: Vec<String>,
+        stderr: Vec<String>,
+    }
+
+    impl Output for FakeOutput {
+        fn stdout(&mut self, line: &str) {
+            self.stdout.push(line.to_owned());
+        }
+
+        fn stderr(&mut self, line: &str) {
+            self.stderr.push(line.to_owned());
+        }
+    }
+
     /// The candidate listing answering with one qualifying run.
     const ONE_CANDIDATE: (&str, bool, &str) = ("status=success", true, "77 head77\n");
     /// The iteration's `git fetch` succeeding - a terminal Stop
@@ -776,6 +810,17 @@ mod tests {
             TIMED_OUT,
             "timed out waiting for a registry deploy containing this SHA"
         );
+    }
+
+    #[test]
+    fn reports_use_the_original_streams_and_exit_codes() {
+        let mut output = FakeOutput::default();
+        assert_eq!(Report::Retry("retry".to_owned()).emit(&mut output), None);
+        assert_eq!(Report::Done("done".to_owned()).emit(&mut output), Some(0));
+        assert_eq!(Report::Stop("stop".to_owned()).emit(&mut output), Some(1));
+        assert_eq!(Report::Die.emit(&mut output), Some(1));
+        assert_eq!(output.stdout, ["retry", "done"]);
+        assert_eq!(output.stderr, ["stop"]);
     }
 
     #[test]
@@ -809,7 +854,6 @@ mod tests {
                 "registry deploy 77 (head head77) contains this SHA".to_owned()
             ))
         );
-        assert_eq!(Report::Done(String::new()).emit(), Some(0));
     }
 
     #[test]
@@ -892,7 +936,6 @@ mod tests {
             ("jq -r", false, ""),
         ]);
         assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(Report::Die));
-        assert_eq!(Report::Die.emit(), Some(1));
     }
 
     #[test]
@@ -946,7 +989,6 @@ mod tests {
                 .to_owned(),
         );
         assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(stale));
-        assert_eq!(Report::Stop(String::new()).emit(), Some(1));
     }
 
     /// The deploy-freeze fast-fail: a same-SHA run that SUCCEEDED
@@ -1117,7 +1159,8 @@ mod tests {
         );
         assert_eq!(shell.called("branch=main&per_page=100"), 0);
         let mut shell = Fake::answering(&answers);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 0);
         assert_eq!(shell.waits, 0);
     }
 
@@ -1170,7 +1213,8 @@ mod tests {
             ("runs/88/jobs", true, "success skipped\n"),
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 1);
         assert_eq!(shell.waits, 1);
         assert_eq!(shell.called("git fetch"), 2);
     }
@@ -1195,7 +1239,8 @@ mod tests {
         ])
         .answering_once(&[("status=success", true, "")])
         .descending_from(&["head99"]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 0);
         assert_eq!(shell.waits, 1);
     }
 
@@ -1204,15 +1249,19 @@ mod tests {
         // Every call fails, so each iteration takes the transient
         // branch: the loop reaches its ceiling and exits 1.
         let mut shell = Fake::default();
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 1);
         assert_eq!(shell.waits, ITERATIONS);
         assert_eq!(shell.called("git fetch"), ITERATIONS);
+        assert_eq!(output.stdout, vec![TRANSIENT_RUNS; ITERATIONS]);
+        assert_eq!(output.stderr, [TIMED_OUT]);
     }
 
     #[test]
     fn an_early_answer_stops_the_loop_without_waiting() {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0")]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 0);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 0);
         assert_eq!(shell.waits, 0);
     }
 
@@ -1225,7 +1274,8 @@ mod tests {
             ("branch=main&per_page=100", true, "pending77"),
         ])
         .descending_from(&["pending77"]);
-        assert_eq!(poll(&mut shell, "abc", "o/r"), 1);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 1);
         assert_eq!(shell.waits, ITERATIONS);
     }
 }
