@@ -16,8 +16,5 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 tempfile = { workspace = true }
 
-[dev-dependencies]
-assert_fs = { workspace = true }
-
 [lints]
 workspace = true

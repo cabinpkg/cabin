@@ -51,7 +51,7 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)
         .with_context(|| format!("failed to create man-page output dir {}", dir.display()))?;
 
-    let root_path = dir.join(filename_for_root());
+    let root_path = dir.join("cabin.1");
     let mut file = fs::File::create(&root_path)
         .with_context(|| format!("failed to create {}", root_path.display()))?;
     Man::new(cmd.clone())
@@ -84,7 +84,7 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
         // status and omits the command from its SUBCOMMANDS list
         // to match `cabin --help`.
         let renamed = sub.clone().name(display_name).hide(false);
-        let path = dir.join(filename_for_subcommand(display_name));
+        let path = dir.join(format!("{display_name}.1"));
         let mut file = fs::File::create(&path)
             .with_context(|| format!("failed to create {}", path.display()))?;
         Man::new(renamed)
@@ -94,30 +94,9 @@ fn write_to_dir(cmd: &clap::Command, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Filename for the root `cabin(1)` man page.
-fn filename_for_root() -> String {
-    "cabin.1".to_owned()
-}
-
-/// Filename for the per-subcommand `cabin-<sub>(1)` man page,
-/// given the already-prefixed display name.
-fn filename_for_subcommand(display_name: &str) -> String {
-    format!("{display_name}.1")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn root_filename_is_cabin_dot_one() {
-        assert_eq!(filename_for_root(), "cabin.1");
-    }
-
-    #[test]
-    fn subcommand_filename_uses_dashed_form() {
-        assert_eq!(filename_for_subcommand("cabin-build"), "cabin-build.1");
-    }
 
     #[test]
     fn hidden_subcommands_are_known_and_curated() {

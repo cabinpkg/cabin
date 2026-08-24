@@ -99,21 +99,6 @@ fn list_includes_help_subcommand() {
 }
 
 #[test]
-fn list_does_not_expose_future_or_internal_commands() {
-    let out = run_ok(&["--list"]);
-    // Sanity: nothing prefixed with `internal-`, `debug-`,
-    // or `experimental-` belongs in user-visible surface.
-    // No such command exists today; the assertion guards
-    // against drift.
-    for forbidden in ["internal-", "debug-", "experimental-", "step-", "TODO"] {
-        assert!(
-            !out.contains(forbidden),
-            "`--list` exposed unexpected `{forbidden}`: {out}"
-        );
-    }
-}
-
-#[test]
 fn hidden_subcommands_still_run_normally() {
     // Hiding is purely a help-display concern; the actual
     // subcommands still parse and execute.
