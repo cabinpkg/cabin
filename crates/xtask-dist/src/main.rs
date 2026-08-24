@@ -79,8 +79,6 @@ fn run(command: &Command) -> Result<ExitCode> {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser as _;
-
     use super::*;
 
     fn arguments(target: &str, ref_name: &str, ref_type: &str, sha: &str) -> package::Arguments {

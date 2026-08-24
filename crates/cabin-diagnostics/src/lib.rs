@@ -180,7 +180,7 @@ pub(crate) fn render_to_string(diagnostic: &dyn miette::Diagnostic) -> String {
 ///
 /// # Errors
 /// Returns an [`io::Error`] if `GraphicalReportHandler::render_report`
-/// fails (wrapped via [`io::Error::other`]), or if writing the
+/// fails (wrapped via `io::Error::other`), or if writing the
 /// rendered bytes to `writer` or flushing it fails.
 pub fn render(diagnostic: &dyn miette::Diagnostic, writer: &mut dyn WriteColor) -> io::Result<()> {
     let theme = if writer.supports_color() {
