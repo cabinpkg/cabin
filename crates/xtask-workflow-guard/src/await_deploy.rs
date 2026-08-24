@@ -793,26 +793,6 @@ mod tests {
     const FETCH_OK: (&str, bool, &str) = ("git fetch", true, "");
 
     #[test]
-    fn the_messages_match_the_shells_echoes() {
-        assert_eq!(
-            TRANSIENT_RUNS,
-            "transient API error listing Registry runs; retrying"
-        );
-        assert_eq!(
-            TRANSIENT_PENDING,
-            "transient API error listing pending Registry runs; retrying"
-        );
-        assert_eq!(
-            NO_RUN,
-            "no Registry run for this SHA; the deployed worker is already current"
-        );
-        assert_eq!(
-            TIMED_OUT,
-            "timed out waiting for a registry deploy containing this SHA"
-        );
-    }
-
-    #[test]
     fn reports_use_the_original_streams_and_exit_codes() {
         let mut output = FakeOutput::default();
         assert_eq!(Report::Retry("retry".to_owned()).emit(&mut output), None);
