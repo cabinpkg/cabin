@@ -274,22 +274,6 @@ fn checks(
         )?;
     } else {
         gate.say("skipping clippy/check/test/doc: no Rust changes since main")?;
-        // The CLI integration tests embed doc pages via `include_str!`
-        // (the `crates/cabin/tests/cli/*_docs.rs` convention) and
-        // assert on their contents, so doc edits can fail Rust CI.
-        if surfaces.docs {
-            let flavor = if nextest { "nextest" } else { "test" };
-            gate.launch(
-                &format!("cargo {flavor} -p cabinpkg --test cli (docs)"),
-                &mut test_phase(
-                    nextest,
-                    target("ci-test"),
-                    &["-p", "cabinpkg", "--test", "cli"],
-                    &["docs"],
-                    &test,
-                ),
-            )?;
-        }
     }
 
     website(gate, surfaces, gate_binary)

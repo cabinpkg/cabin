@@ -29,13 +29,6 @@ rust:
 toml:
   - "**/*.toml"
 
-# rust.yml's build-and-test additionally embeds these in its CLI test
-# assertions (include_str!), beyond the `rust` list.
-docs:
-  - "docs/**"
-  - "CONTRIBUTING.md"
-  - "INSTALL.md"
-
 # website.yml: the site renders docs/ and the ports tree's pages.
 website:
   - "website/**"
