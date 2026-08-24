@@ -32,6 +32,11 @@ updates:
       interval: monthly
     cooldown:
       default-days: 7
+    groups:
+      cargo:
+        update-types:
+        - "minor"
+        - "patch"
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -42,6 +47,11 @@ updates:
       interval: monthly
     cooldown:
       default-days: 7
+    groups:
+      cargo-registry:
+        update-types:
+        - "minor"
+        - "patch"
     commit-message:
       prefix: "chore"
       include: "scope"
