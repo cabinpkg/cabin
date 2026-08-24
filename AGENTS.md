@@ -31,10 +31,6 @@ same change and treat the architecture doc as authoritative.
   the surfaces changed relative to `origin/main`. Agent stop hooks run
   `cargo ci --hook`, which blocks one attempt to stop while the gate is
   red; a second stop is let through with a warning (`stop_hook_active`).
-- The exact per-command shapes are in `CONTRIBUTING.md` "Required checks".
-  Mirror the flags verbatim: `--all-features`, `--locked`,
-  `RUSTFLAGS="-D warnings"`, `RUSTDOCFLAGS="-D warnings"`, and clippy's
-  trailing `-- -D warnings` are intentional.
 - Changes under `docs/` or `website/` require, from `website/`:
   `npm ci && npm run lint && npm run build && npm test` (build runs
   typecheck, Astro build, CSP checks, and docs-link checks). For docs-only
