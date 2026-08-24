@@ -2777,30 +2777,6 @@ mod env_build_flags;
 #[path = "cli/version_output.rs"]
 mod version_output;
 
-#[path = "cli/environment_variable_docs.rs"]
-mod environment_variable_docs;
-
-#[path = "cli/vendoring_docs.rs"]
-mod vendoring_docs;
-
-#[path = "cli/toolchains_docs.rs"]
-mod toolchains_docs;
-
-#[path = "cli/architecture_docs.rs"]
-mod architecture_docs;
-
-#[path = "cli/installation_and_metadata_docs.rs"]
-mod installation_and_metadata_docs;
-
-#[path = "cli/profiles_docs.rs"]
-mod profiles_docs;
-
-#[path = "cli/workspaces_docs.rs"]
-mod workspaces_docs;
-
-#[path = "cli/cargo_interface_docs.rs"]
-mod cargo_interface_docs;
-
 #[path = "cli/curated_help_and_list.rs"]
 mod curated_help_and_list;
 
