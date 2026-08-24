@@ -20,6 +20,7 @@ rust:
   - "ports/**"
   - "Cargo.toml"
   - "Cargo.lock"
+  - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/rust.yml"
   - ".github/path-filters.yml"
@@ -56,6 +57,7 @@ registry:
   - "crates/**"
   - "Cargo.toml"
   - "Cargo.lock"
+  - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/registry.yml"
   - ".github/path-filters.yml"
@@ -67,6 +69,7 @@ ports:
   - "crates/**"
   - "Cargo.toml"
   - "Cargo.lock"
+  - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/ports-publish.yml"
   - ".github/path-filters.yml"
@@ -75,6 +78,7 @@ ports:
 # surfaces on the next Dockerfile-touching change (accepted).
 docker:
   - "Dockerfile"
+  - "rust-toolchain.toml"
   - ".dockerignore"
   - ".github/workflows/docker.yml"
   - ".github/path-filters.yml"
@@ -84,6 +88,7 @@ docker:
 dist:
   - "crates/xtask-dist/**"
   - "crates/cabin/Cargo.toml"
+  - "rust-toolchain.toml"
   - "demo.tape"
   - ".github/workflows/dist.yml"
   - ".github/path-filters.yml"

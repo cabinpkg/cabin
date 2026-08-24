@@ -16,6 +16,16 @@ updates:
       prefix: "ci"
       include: "scope"
 
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
