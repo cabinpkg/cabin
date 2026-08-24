@@ -63,15 +63,13 @@ jobs:
       - parallel:
         - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
           with:
-            cache: false
+            cache: ${{ needs.changes.outputs.rust == 'true' }}
+            cache-on-failure: false
             rustflags: ""
 
         - uses: uncenter/setup-taplo@b18c8c8302695fe63d6853bc004006215ac52b91 # v2
           with:
             version: "0.10.0"
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: needs.changes.outputs.rust == 'true'
 
       - parallel:
         - name: Check Rust formatting
@@ -133,9 +131,8 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          cache: false
+          cache-on-failure: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # Every build tool ships preinstalled on the matrix images;
       # macOS's llvm@20 is keg-only and just needs the path.
@@ -192,9 +189,8 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          cache: false
+          cache-on-failure: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build cabin and run examples without a pre-activated MSVC env
         run: |
@@ -243,9 +239,8 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          cache: false
+          cache-on-failure: false
           rustflags: ""
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # Under the gcc env already: ring's build script tracks CC/CXX,
       # so an env-less build here would be rebuilt by the gcc pass.
