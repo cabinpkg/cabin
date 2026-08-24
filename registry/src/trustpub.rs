@@ -665,7 +665,7 @@ mod tests {
                     return Ok(fresh.clone());
                 }
             }
-            Ok(self.cached.clone())
+            std::future::ready(Ok(self.cached.clone())).await
         }
     }
 
