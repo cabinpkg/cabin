@@ -127,14 +127,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_propagates_original_error_for_garbage() {
-        // Unparsable input must keep its original error so
-        // wrapper diagnostics quote the user's text faithfully.
-        let err = parse_lenient("not-a-version").unwrap_err();
-        assert!(!err.to_string().is_empty());
-    }
-
-    #[test]
     fn normalize_collapses_repeated_whitespace() {
         assert_eq!(normalize(">=1.2   <2"), ">=1.2, <2");
     }

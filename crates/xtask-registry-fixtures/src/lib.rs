@@ -151,7 +151,7 @@ pub fn generate(out: &Path) -> Result<()> {
 /// # Errors
 ///
 /// If any fixture file cannot be written.
-pub fn author(sources: &Path) -> Result<()> {
+fn author(sources: &Path) -> Result<()> {
     for package in PACKAGES {
         let directory = sources.join(package.name);
         write(&directory.join("cabin.toml"), package.manifest)?;
