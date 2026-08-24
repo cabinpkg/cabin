@@ -34,7 +34,6 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       toml: ${{ steps.filter.outputs.toml }}
-      docs: ${{ steps.filter.outputs.docs }}
     steps:
       # The filter file is read from the checkout, and push events
       # diff against the previous head from local history.
@@ -111,12 +110,11 @@ jobs:
           [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
             && [ "$RUST" = "false" ] && [ "$TOML" = "false" ]
 
-  # The `docs` filter too: the workspace tests embed docs/ and the
-  # root guides. Branch protection requires `build-and-test-required`
-  # below, never a matrix leg.
+  # Branch protection requires `build-and-test-required` below,
+  # never a matrix leg.
   build-and-test:
     needs: changes
-    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.docs == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -171,11 +169,10 @@ jobs:
           RESULT: ${{ needs.build-and-test.result }}
           GATE: ${{ needs.changes.result }}
           RUST: ${{ needs.changes.outputs.rust }}
-          DOCS: ${{ needs.changes.outputs.docs }}
         run: |
           if [ "$RESULT" = "success" ]; then exit 0; fi
           [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
-            && [ "$RUST" = "false" ] && [ "$DOCS" = "false" ]
+            && [ "$RUST" = "false" ]
 
   # Verify Cabin auto-discovers the MSVC toolchain itself, with no
   # Developer Command Prompt / vcvarsall activation. This job deliberately

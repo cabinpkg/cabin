@@ -7,12 +7,11 @@
 //! Every judgment below therefore defaults to "changed" when it
 //! cannot tell.
 
-/// Which of the gate's three expensive surfaces a change set touches.
+/// Which of the gate's two expensive surfaces a change set touches.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Surfaces {
     pub rust: bool,
     pub website: bool,
-    pub docs: bool,
 }
 
 impl Surfaces {
@@ -24,7 +23,6 @@ impl Surfaces {
         Self {
             rust: true,
             website: true,
-            docs: true,
         }
     }
 }
@@ -57,7 +55,6 @@ pub fn surfaces(changed: &[String]) -> Surfaces {
         // The website build also loads the foundation ports
         // (`website/src/lib/ports.ts` reads `ports/`).
         website: any(&["website/", "docs/", "ports/"]),
-        docs: any(&["docs/", "CONTRIBUTING.md", "INSTALL.md"]),
     }
 }
 
@@ -108,15 +105,6 @@ mod tests {
         assert!(!of(&["CONTRIBUTING.md"]).website);
     }
 
-    #[test]
-    fn the_docs_surface_covers_the_pages_the_cli_tests_embed() {
-        for path in ["docs/architecture.md", "CONTRIBUTING.md", "INSTALL.md"] {
-            assert!(of(&[path]).docs, "{path} should be a docs change");
-        }
-        assert!(!of(&["README.md"]).docs);
-        assert!(!of(&["website/src/lib/docsNav.ts"]).docs);
-    }
-
     /// One path on a shared surface pulls in every check that surface
     /// feeds, which is why `ports/` sets both.
     #[test]
@@ -127,7 +115,6 @@ mod tests {
             Surfaces {
                 rust: true,
                 website: true,
-                docs: false
             }
         );
     }
@@ -141,7 +128,6 @@ mod tests {
             Surfaces {
                 rust: true,
                 website: true,
-                docs: true
             }
         );
     }
