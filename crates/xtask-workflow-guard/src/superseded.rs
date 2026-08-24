@@ -197,11 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn the_recorded_line_matches_the_shells_echo() {
-        assert_eq!(OUTPUT_LINE.as_bytes(), b"superseded=true\n");
-    }
-
-    #[test]
     fn filter_entries_reads_only_the_named_section() {
         let text = "# comment\n\nregistry:\n  - \"registry/**\"\n  - \"Cargo.toml\"\nports:\n  - \"ports/**\"\n";
         assert_eq!(

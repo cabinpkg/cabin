@@ -222,10 +222,7 @@ pub fn status(command: &mut Command) -> Result<()> {
 }
 
 /// One step banner, exactly the shell's `step` from `lib.sh`:
-/// `==> <label>` on stdout.  The smoke crate re-exports this, and its
-/// governor-leg labels are pinned verbatim by
-/// `registry/tests/docs_drift.rs` - the `==> ` prefix is part of that
-/// operator-facing contract.
+/// `==> <label>` on stdout.
 pub fn step(message: &str) {
     println!("==> {message}");
 }

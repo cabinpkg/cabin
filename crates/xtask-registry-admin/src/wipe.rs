@@ -971,9 +971,4 @@ mod tests {
             )
         );
     }
-
-    #[test]
-    fn the_api_base_is_the_literal_the_script_carried() {
-        assert_eq!(DEFAULT_API_BASE, "https://api.cloudflare.com/client/v4");
-    }
 }

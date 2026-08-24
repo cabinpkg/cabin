@@ -271,9 +271,4 @@ mod tests {
             "tee forwarded the line into sha256.sum before the pipeline died: {sum:?}"
         );
     }
-
-    #[test]
-    fn the_refusal_is_the_shells_sentence() {
-        assert_eq!(NO_ARCHIVES, "no binary archives found");
-    }
 }

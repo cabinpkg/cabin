@@ -627,8 +627,6 @@ through the `cargo registry-smoke` alias.  It drives two local `wrangler dev` in
 registry role and the website role) over one local D1/R2 state, plus a local export-API mock and
 a local GitHub mock, through a fixed step sequence with per-step diagnostics.  The crate must:
 
-- keep the step labels stable (an incidental operational failure reports through the `FAIL:`
-  prefix): the governor-leg labels are pinned verbatim by `registry/tests/docs_drift.rs`;
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;
 - stay out of `registry/`'s own tooling: with `wipe.sh` and `lib.sh` gone, `registry/scripts/`

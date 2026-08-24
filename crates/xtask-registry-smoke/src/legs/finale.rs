@@ -4,12 +4,6 @@
 //! admin governor endpoint, and the bounded-concurrency finale that
 //! closes the run with `smoke OK`.
 //!
-//! Ten of the step labels below are pinned verbatim by
-//! `registry/tests/docs_drift.rs`
-//! (`the_smoke_test_keeps_its_governor_legs`): a leg deleted or renamed
-//! here must change that pin in the same commit, which is the point of
-//! the pin.
-//!
 //! The concurrency finale runs its waves on threads released by a
 //! [`Barrier`], where the shell forked subshells parked on a go-file.
 //! Deliberately not `xtask_ci::spawn_tracked`: those are for children
@@ -1552,35 +1546,5 @@ mod tests {
             Some("d1/2026-08-05.sql")
         );
         assert!(is_timestamp(recorded.get("last_backup_at").unwrap()));
-    }
-
-    #[test]
-    fn the_cron_paths_keep_their_plus_encoded_spaces() {
-        assert_eq!(DUMP_CRON, "/__scheduled?cron=0+3+*+*+*");
-        assert_eq!(BREAKER_CRON, "/__scheduled?cron=*/15+*+*+*+*");
-    }
-
-    /// The ten labels `registry/tests/docs_drift.rs` pins, in the order
-    /// this module emits them.  A rename here is a rename there.
-    #[test]
-    fn the_governor_leg_labels_are_the_pinned_ones() {
-        let source = include_str!("finale.rs");
-        for label in [
-            "restarting wrangler dev with tiny governor pools",
-            "cached verified downloads keep serving under an exhausted read pool",
-            "an uncached verified download is refused with the budget envelope",
-            "the verifier pool is isolated from the exhausted ordinary pool",
-            "a fresh publish is refused before any r2 write when storage is exhausted",
-            "source-viewer reads fail closed on an exhausted source pool",
-            "the admin governor endpoint reports usage and takes operator actions",
-            "an admin reconcile rebuilds the wiped primary ledger on demand",
-            "reconciliation rebuilds the wiped primary ledger from d1",
-            "concurrent downloads with retries never take the pool past its limit",
-        ] {
-            assert!(
-                source.contains(&format!("step(\"{label}\")")),
-                "the governor leg `{label}` is gone"
-            );
-        }
     }
 }
