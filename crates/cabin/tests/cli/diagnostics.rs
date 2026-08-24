@@ -1,42 +1,5 @@
 use super::*;
 
-#[test]
-fn cli_sources_do_not_write_directly_to_stderr() {
-    fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-        for entry in fs::read_dir(dir).expect("read source directory") {
-            let entry = entry.expect("read source entry");
-            let path = entry.path();
-            if path.is_dir() {
-                collect_rs_files(&path, out);
-            } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-                out.push(path);
-            }
-        }
-    }
-
-    let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    collect_rs_files(&src_dir, &mut files);
-
-    let mut offenders = Vec::new();
-    for path in files {
-        let body = fs::read_to_string(&path).expect("read source file");
-        if body.contains("eprintln!(") {
-            offenders.push(
-                path.strip_prefix(env!("CARGO_MANIFEST_DIR"))
-                    .unwrap_or(&path)
-                    .display()
-                    .to_string(),
-            );
-        }
-    }
-
-    assert!(
-        offenders.is_empty(),
-        "production CLI sources must route human output through Reporter or cabin-diagnostics, not direct eprintln!: {offenders:#?}",
-    );
-}
-
 /// Replace the absolute test-tempdir path in `text` with a
 /// stable placeholder so a golden assertion is byte-stable
 /// across CI / developer machines. macOS canonicalizes

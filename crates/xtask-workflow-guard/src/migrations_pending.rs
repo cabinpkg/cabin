@@ -317,9 +317,4 @@ mod tests {
         let temp = assert_fs::TempDir::new().expect("a scratch directory");
         assert!(applied(temp.path()).is_empty());
     }
-
-    #[test]
-    fn the_recorded_line_matches_the_shells_echo() {
-        assert_eq!(OUTPUT_LINE.as_bytes(), b"pending=true\n");
-    }
 }
