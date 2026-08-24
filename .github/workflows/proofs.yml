@@ -17,6 +17,7 @@ on:
       - "crates/xtask-ci/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/proofs.yml"
   pull_request:
     paths:
@@ -25,6 +26,7 @@ on:
       - "crates/xtask-ci/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/proofs.yml"
 
 permissions:
