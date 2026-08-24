@@ -65,16 +65,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           target: wasm32-unknown-unknown
-          cache: false
-          rustflags: ""
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
+          cache-on-failure: false
           # The root workspace too: the guard steps below build an
           # xtask crate from it.
-          workspaces: |
+          cache-workspaces: |
             .
             registry
+          rustflags: ""
 
       - name: Check formatting
         run: cargo fmt --all --verbose -- --check
@@ -143,14 +140,11 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          cache: false
-          rustflags: ""
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: |
+          cache-on-failure: false
+          cache-workspaces: |
             .
             registry
+          rustflags: ""
 
       - name: Generate fixtures with the in-tree cabin
         run: cargo gen-fixtures "$RUNNER_TEMP/fixtures"
@@ -186,19 +180,20 @@ jobs:
           # $GITHUB_SHA..origin/main.
           fetch-depth: 0
 
-      - run: rustup target add wasm32-unknown-unknown
-
       # Accepted risk: GitHub's cache isolation only lets this
       # main-branch job restore main-scoped entries (PR caches are
       # unreachable), and dropping the cache would roughly double
       # production deploy latency.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
+          target: wasm32-unknown-unknown
+          cache-on-failure: false
           # The root workspace too: the freshness step below builds an
           # xtask crate from it.
-          workspaces: |
+          cache-workspaces: |
             .
             registry
+          rustflags: ""
 
       # The concurrency group serializes deploys but does not order
       # them: an older run whose gate finished late would deploy after
