@@ -10,14 +10,12 @@
 # file itself plus this filter file, so an edit to either re-runs
 # exactly the workflows it affects and nothing else.
 
-# rust.yml: the workspace and everything its tests stage (examples/
-# run under the CLI tests, ports/ feed the publisher tests). Carries
+# rust.yml: the workspace and the examples exercised by its CLI tests. Carries
 # the .github entries for rust.yml's three lists: every rust.yml job
 # condition includes `rust`.
 rust:
   - "crates/**"
   - "examples/**"
-  - "ports/**"
   - "Cargo.toml"
   - "Cargo.lock"
   - "rust-toolchain.toml"
