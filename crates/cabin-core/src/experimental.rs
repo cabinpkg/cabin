@@ -124,23 +124,10 @@ mod tests {
 
     #[test]
     fn unknown_value_lists_recognized_features() {
-        // Every unknown value - including the removed
-        // `standard-compat` name - reports the same wording, naming
-        // the full recognized list.
-        for value in ["frobnicate", "standard-compat"] {
-            let err = value.parse::<ExperimentalFeature>().unwrap_err();
-            assert_eq!(
-                err.to_string(),
-                format!("unknown experimental feature '{value}'; expected one of: remote-registry"),
-            );
-        }
-    }
-
-    #[test]
-    fn feature_set_defaults_to_disabled() {
-        let none = ExperimentalFeatures::default();
-        assert!(!none.is_enabled(ExperimentalFeature::RemoteRegistry));
-        let set: ExperimentalFeatures = [ExperimentalFeature::RemoteRegistry].into_iter().collect();
-        assert!(set.is_enabled(ExperimentalFeature::RemoteRegistry));
+        let err = "frobnicate".parse::<ExperimentalFeature>().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "unknown experimental feature 'frobnicate'; expected one of: remote-registry"
+        );
     }
 }

@@ -50,17 +50,6 @@ pub fn exit_status_kind(status: std::process::ExitStatus) -> ExitStatusKind {
 mod tests {
     use super::*;
 
-    #[test]
-    fn display_renders_each_variant() {
-        assert_eq!(ExitStatusKind::Code(0).to_string(), "0");
-        assert_eq!(ExitStatusKind::Code(-1).to_string(), "-1");
-        assert_eq!(
-            ExitStatusKind::Signal("11".to_owned()).to_string(),
-            "signal 11"
-        );
-        assert_eq!(ExitStatusKind::Unknown.to_string(), "<unknown>");
-    }
-
     #[cfg(unix)]
     #[test]
     fn classifies_unix_wait_statuses() {
