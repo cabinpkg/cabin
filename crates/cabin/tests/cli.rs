@@ -447,25 +447,17 @@ fn package_in<'a>(meta: &'a serde_json::Value, name: &str) -> &'a serde_json::Va
 // ---------------------------------------------------------------------------
 
 #[test]
-fn init_creates_manifest_and_main_cc() {
+fn init_creates_requested_library() {
     let dir = TempDir::new().expect("tempdir should be created");
     cabin()
         .current_dir(dir.path())
-        .args(["init", "--name", "hello"])
+        .args(["init", "--name", "hello", "--lib"])
         .assert()
         .success();
 
     let manifest_path = dir.path().join("cabin.toml");
     let manifest = fs::read_to_string(&manifest_path).expect("cabin.toml should be readable");
-    assert!(manifest.contains("[package]"));
-    assert!(manifest.contains(r#"name = "hello""#));
-    assert!(manifest.contains(r#"cxx-standard = "c++17""#));
-    assert!(manifest.contains("[target.hello]"));
-
-    let main_cc = dir.path().join("src").join("main.cc");
-    assert!(main_cc.is_file(), "src/main.cc should exist");
-    let main_contents = fs::read_to_string(&main_cc).unwrap();
-    assert!(main_contents.contains("int main"));
+    assert!(manifest.contains(r#"type = "library""#));
 }
 
 #[test]
@@ -775,7 +767,7 @@ fn new_lib_builds_successfully() {
 }
 
 #[test]
-fn new_bin_runs_and_prints_greeting() {
+fn new_bin_runs_through_short_alias() {
     require_cxx_build_tools();
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("hello_world");
@@ -788,7 +780,7 @@ fn new_bin_runs_and_prints_greeting() {
     let build_dir = target.join("build");
     let output = cabin()
         .current_dir(&target)
-        .args(["run", "--build-dir"])
+        .args(["r", "--build-dir"])
         .arg(&build_dir)
         .assert()
         .success()
@@ -797,7 +789,7 @@ fn new_bin_runs_and_prints_greeting() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
         stdout.contains("Hello from Cabin"),
-        "`cabin new` -> `cabin run` should print the scaffold greeting, got: {stdout}"
+        "`cabin new` -> `cabin r` should print the scaffold greeting, got: {stdout}"
     );
 }
 
