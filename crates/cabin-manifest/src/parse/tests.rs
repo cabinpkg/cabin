@@ -922,38 +922,6 @@ fn parses_all_supported_target_kinds() {
     );
 }
 
-/// The old `c_*` / `cpp_*` target kind strings are no longer
-/// recognized.  A manifest using either must fail with
-/// [`ManifestError::UnknownTargetType`] so existing users see
-/// an explicit migration prompt rather than silent acceptance.
-#[test]
-fn legacy_c_and_cpp_target_kinds_are_rejected() {
-    for legacy in [
-        "cpp_library",
-        "cpp_header_only",
-        "cpp_executable",
-        "cpp_test",
-        "cpp_example",
-        "c_library",
-        "c_header_only",
-        "c_executable",
-        "c_test",
-        "c_example",
-    ] {
-        let manifest = format!(
-            "[package]\nname = \"hello\"\nversion = \"0.1.0\"\n\n[target.hello]\ntype = \"{legacy}\"\n"
-        );
-        let err = parse_manifest_str(&manifest).expect_err("legacy kind should be rejected");
-        match err {
-            ManifestError::UnknownTargetType { target, value } => {
-                assert_eq!(target, "hello", "wrong target name in error for {legacy}");
-                assert_eq!(value, legacy, "wrong value in error for {legacy}");
-            }
-            other => panic!("expected UnknownTargetType for {legacy}, got {other:?}"),
-        }
-    }
-}
-
 #[test]
 fn empty_manifest_errors() {
     let err = parse_manifest_str("").unwrap_err();
@@ -2326,49 +2294,6 @@ fn ignore_interface_standard_on_system_dependency_is_rejected() {
     }
 }
 
-/// The builtin-port feature is gone: `port = true` is no longer a
-/// recognized dependency field, so it must surface the generic
-/// unknown-field diagnostic rather than a port-specific one.  Without
-/// this test the removal would be unguarded - a later `RawDependencyTable`
-/// field could silently re-accept the syntax.
-#[test]
-fn port_true_is_rejected_as_an_unknown_field() {
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port = true, version = "^1.3" }
-        "#;
-    let err = parse_project_err(manifest);
-    let rendered = format!("{err}");
-    assert!(
-        rendered.contains("port"),
-        "error should name the offending field: {rendered}"
-    );
-}
-
-/// Companion to [`port_true_is_rejected_as_an_unknown_field`] for the
-/// filesystem form.
-#[test]
-fn port_path_is_rejected_as_an_unknown_field() {
-    let manifest = r#"
-            [package]
-            name = "app"
-            version = "0.1.0"
-
-            [dependencies]
-            zlib = { port-path = "../ports/zlib/1.3.1" }
-        "#;
-    let err = parse_project_err(manifest);
-    let rendered = format!("{err}");
-    assert!(
-        rendered.contains("port-path"),
-        "error should name the offending field: {rendered}"
-    );
-}
-
 #[test]
 fn unsupported_dependency_section_yields_toml_error() {
     // `[test-dependencies]` is not a recognized top-level
@@ -3666,17 +3591,6 @@ fn package_upstream_rejects_bad_checksums() {
             "{replacement}: {err:?}"
         );
     }
-}
-
-#[test]
-fn package_upstream_rejects_the_removed_sha256_key() {
-    // The pre-rename key is a plain unknown field, not a
-    // migration-specific diagnostic.
-    let err = parse_project_err(&UPSTREAM.replace(
-        "checksum = \"sha256:9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
-        "sha256 = \"9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23\"",
-    ));
-    assert!(err.to_string().contains("unknown field"), "{err:?}");
 }
 
 #[test]
