@@ -81,7 +81,8 @@ in the same change and follow the architecture document.
   pull requests, and `merge_group`, without trigger-level `paths:` filters.
   Scope expensive work at the job level with `.github/path-filters.yml`.
   Non-required workflows may use trigger-level path filters.
-- Keep each component dependency list only in `.github/path-filters.yml`.
+- Keep each job-level component dependency list only in
+  `.github/path-filters.yml`.
   Keep it coarse and end it with the consuming workflow plus the filter file;
   do not add a broad `.github/**` entry.
 - Required contexts for gated work must be non-matrix `if: always()`
