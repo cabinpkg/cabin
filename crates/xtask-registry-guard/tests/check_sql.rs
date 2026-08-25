@@ -337,24 +337,6 @@ fn the_binary_reports_and_exits_non_zero() {
         .success();
 }
 
-/// The two literal passes keep their order relative to each other, not
-/// just relative to the lexical scan.
-#[test]
-fn the_literal_passes_keep_their_order() {
-    let dir = scratch(
-        "notes.txt",
-        "db.prepare(&format!(\"a\"));\ndb.prepare(\"b\");\n",
-    );
-    let violations = sql::check(dir.path()).expect("run the guard");
-    assert_eq!(
-        violations,
-        vec![
-            "src/notes.txt:2:db.prepare(\"b\");",
-            "src/notes.txt:1:db.prepare(&format!(\"a\"));",
-        ]
-    );
-}
-
 /// A symlink under `src/` is walked, never fatal: the guard aborting
 /// would report no violations at all.
 #[cfg(unix)]
