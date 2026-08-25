@@ -374,6 +374,21 @@ fn cabin_build_dir_env_var_overrides_default_directory() {
     );
 }
 
+/// `--target-dir` is not a Cargo compatibility alias; Cabin reserves
+/// `--target` terminology for future platform/toolchain selection.
+#[test]
+fn target_dir_is_not_a_cabin_alias() {
+    let assertion = cabin()
+        .args(["build", "--target-dir", "out"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("--target-dir"),
+        "reserved flag was not diagnosed: {stderr}"
+    );
+}
+
 #[test]
 fn cli_build_dir_flag_wins_over_cabin_build_dir_env() {
     require_cxx_build_tools();
