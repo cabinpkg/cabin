@@ -64,6 +64,7 @@ fn verbose_build_reports_resolved_context() {
     assert!(stdout.contains("cabin: profile = "));
     assert!(stdout.contains("cabin: build dir = "));
     assert!(stdout.contains("cabin: c++ compiler = "));
+    assert!(!stdout.contains("cabin: archiver = "));
 }
 
 #[test]
