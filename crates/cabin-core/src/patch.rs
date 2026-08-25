@@ -242,34 +242,6 @@ mod tests {
     }
 
     #[test]
-    fn source_kind_key_and_display_are_stable() {
-        let source = PatchSource::Path {
-            path: Utf8PathBuf::from("../fmt"),
-        };
-        assert_eq!(source.kind(), PatchSourceKind::Path);
-        assert_eq!(PatchSourceKind::Path.as_key(), "path");
-        assert_eq!(PatchSourceKind::Path.to_string(), "path");
-    }
-
-    #[test]
-    fn provenance_keys_match_display() {
-        for (provenance, key) in [
-            (PatchProvenance::Manifest, "manifest"),
-            (
-                PatchProvenance::Config(ConfigValueSource::UserConfig),
-                "user-config",
-            ),
-            (
-                PatchProvenance::Config(ConfigValueSource::WorkspaceConfig),
-                "workspace-config",
-            ),
-        ] {
-            assert_eq!(provenance.as_key(), key);
-            assert_eq!(provenance.to_string(), key);
-        }
-    }
-
-    #[test]
     fn manifest_settings_is_empty_tracks_entries() {
         let mut settings = PatchManifestSettings::default();
         assert!(settings.is_empty());

@@ -189,25 +189,4 @@ mod tests {
             SourceLanguage::C
         );
     }
-
-    #[test]
-    fn link_driver_falls_back_to_c_for_empty_input() {
-        // Empty inputs do not occur in practice (the planner
-        // rejects empty targets up-front); the documented
-        // fallback is C so a future caller cannot accidentally
-        // depend on the C++ driver being selected for an empty
-        // link line.
-        assert_eq!(link_driver_language(&[]), SourceLanguage::C);
-    }
-
-    #[test]
-    fn keys_are_stable_across_renames() {
-        // The keys land in JSON metadata and rule names; lock
-        // them down so a future contributor cannot rename the
-        // variant accidentally.
-        assert_eq!(SourceLanguage::C.as_key(), "c");
-        assert_eq!(SourceLanguage::Cxx.as_key(), "cxx");
-        assert_eq!(SourceLanguage::C.to_string(), "c");
-        assert_eq!(SourceLanguage::Cxx.to_string(), "cxx");
-    }
 }

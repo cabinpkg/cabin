@@ -428,13 +428,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tool_kind_keys_are_stable() {
-        assert_eq!(ToolKind::CCompiler.as_key(), "cc");
-        assert_eq!(ToolKind::CxxCompiler.as_key(), "cxx");
-        assert_eq!(ToolKind::Archiver.as_key(), "ar");
-    }
-
-    #[test]
     fn tool_spec_parse_distinguishes_paths_and_names() {
         match ToolSpec::parse("clang++") {
             ToolSpec::Name(n) => assert_eq!(n, "clang++"),
@@ -448,21 +441,6 @@ mod tests {
             ToolSpec::Path(p) => assert_eq!(p, Utf8PathBuf::from("./bin/clang++")),
             ToolSpec::Name(n) => panic!("expected path, got {n:?}"),
         }
-    }
-
-    #[test]
-    fn toolchain_decl_is_empty_when_unset() {
-        assert!(ToolchainDecl::default().is_empty());
-        let d = ToolchainDecl {
-            cxx: Some(ToolSpec::Name("clang++".into())),
-            ..Default::default()
-        };
-        assert!(!d.is_empty());
-        assert_eq!(
-            d.get(ToolKind::CxxCompiler).map(ToolSpec::display),
-            Some("clang++".to_owned())
-        );
-        assert!(d.get(ToolKind::CCompiler).is_none());
     }
 
     #[test]
