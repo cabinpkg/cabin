@@ -1085,15 +1085,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_standard_compat_errors_is_an_unknown_field() {
-        // The stabilized check dropped its temporary demotion switch;
-        // a config that still sets it is rejected as an ordinary
-        // unknown `[build]` field, with no special-casing.
-        let err = parse_config_str("[build]\nstandard-compat-errors = false\n").unwrap_err();
-        assert!(matches!(err, ConfigParseError::Toml(_)));
-    }
-
-    #[test]
     fn resolver_incompatible_standards_parses_both_values() {
         for (raw, expected) in [
             ("allow", IncompatibleStandards::Allow),

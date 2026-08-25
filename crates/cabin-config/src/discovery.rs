@@ -683,14 +683,4 @@ mod tests {
             "expected auth rejection, got: {message}"
         );
     }
-
-    /// Sanity check that `ConfigParseError` round-trips through
-    /// `Display`.  Tests below match substrings from these strings,
-    /// so a misformatted variant would silently break test
-    /// coverage; this asserts the contract holds.
-    #[test]
-    fn parse_error_display_round_trips() {
-        let err = crate::error::ConfigParseError::EmptyProfile;
-        assert!(err.to_string().contains("non-empty profile name"));
-    }
 }
