@@ -15,17 +15,16 @@ fn short_version_alias_prints_the_compatibility_line() {
 }
 
 #[test]
-fn version_works_outside_a_workspace() {
+fn verbose_version_subcommand_works_outside_a_workspace() {
     let dir = TempDir::new().unwrap();
     let assertion = cabin()
         .current_dir(dir.path())
-        .arg("version")
+        .args(["version", "--verbose"])
         .assert()
         .success();
-    assert_eq!(
-        assertion.get_output().stdout,
-        format!("cabin {CABIN_VERSION}\n").as_bytes()
-    );
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(stdout.starts_with(&format!("cabin {CABIN_VERSION}\n")));
+    assert!(stdout.contains(&format!("release: {CABIN_VERSION}\n")));
 }
 
 #[test]

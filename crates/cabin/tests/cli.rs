@@ -721,8 +721,15 @@ fn new_fails_when_parent_does_not_exist() {
 }
 
 #[test]
-fn new_with_bin_and_lib_conflicts() {
+fn new_and_init_reject_conflicting_scaffold_kinds() {
     let parent = TempDir::new().expect("tempdir should be created");
+    cabin()
+        .current_dir(parent.path())
+        .args(["init", "--bin", "--lib"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--bin").and(predicate::str::contains("--lib")));
+
     let target = parent.path().join("either");
     cabin()
         .current_dir(parent.path())
