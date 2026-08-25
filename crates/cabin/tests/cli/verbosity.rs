@@ -47,6 +47,16 @@ fn quiet_does_not_suppress_errors() {
 }
 
 #[test]
+fn quiet_and_verbose_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    cabin()
+        .current_dir(dir.path())
+        .args(["init", "--name", "hello", "--quiet", "--verbose"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn verbose_build_reports_resolved_context() {
     require_cxx_build_tools();
     let dir = TempDir::new().unwrap();

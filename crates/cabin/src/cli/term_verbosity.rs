@@ -399,6 +399,7 @@ mod tests {
     fn defaults_to_normal_with_no_inputs() {
         let resolved = resolve_verbosity(cli(0, false), no_env, &cfg()).unwrap();
         assert_eq!(resolved, Verbosity::Normal);
+        assert!(!resolved.shows_verbose());
     }
 
     #[test]
