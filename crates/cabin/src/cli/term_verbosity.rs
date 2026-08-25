@@ -416,11 +416,11 @@ mod tests {
     fn env_overrides_config() {
         let resolved = resolve_verbosity(
             cli(0, false),
-            env_with(&[(cabin_env::CABIN_TERM_VERBOSE, "1")]),
-            &cfg_with_verbosity(Verbosity::Quiet),
+            env_with(&[(cabin_env::CABIN_TERM_QUIET, "1")]),
+            &cfg_with_verbosity(Verbosity::Verbose),
         )
         .unwrap();
-        assert_eq!(resolved, Verbosity::Verbose);
+        assert_eq!(resolved, Verbosity::Quiet);
     }
 
     #[test]
