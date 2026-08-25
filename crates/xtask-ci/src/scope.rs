@@ -41,9 +41,8 @@ pub fn surfaces(changed: &[String]) -> Surfaces {
     };
     Surfaces {
         // `ports/` counts as a Rust surface: the publisher's
-        // `committed_ports_all_load` and the CLI's registry fixtures
-        // stage the committed tree, so a ports-only change still has to
-        // run the Rust gate.
+        // committed-tree guard catches incomplete version directories,
+        // so a ports-only change still has to run the Rust gate.
         rust: any(&[
             "crates/",
             "examples/",
