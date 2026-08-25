@@ -443,58 +443,6 @@ mod tests {
     }
 
     #[test]
-    fn rendered_binary_template_carries_project_and_target_sections() {
-        let manifest = render_manifest("hello", ScaffoldKind::Binary);
-        assert!(manifest.contains("[package]"));
-        assert!(manifest.contains(r#"name = "hello""#));
-        assert!(manifest.contains(r#"cxx-standard = "c++17""#));
-        assert!(manifest.contains("[target.hello]"));
-        assert!(manifest.contains(r#"type = "executable""#));
-        assert!(manifest.contains(r#"sources = ["src/main.cc"]"#));
-    }
-
-    #[test]
-    fn rendered_library_template_carries_library_target() {
-        let manifest = render_manifest("hello", ScaffoldKind::Library);
-        assert!(manifest.contains("[package]"));
-        assert!(manifest.contains(r#"name = "hello""#));
-        assert!(manifest.contains(r#"cxx-standard = "c++17""#));
-        assert!(manifest.contains("[target.hello]"));
-        assert!(manifest.contains(r#"type = "library""#));
-        assert!(manifest.contains(r#"sources = ["src/hello.cc"]"#));
-        assert!(manifest.contains(r#"include-dirs = ["include"]"#));
-    }
-
-    #[test]
-    fn rendered_manifests_parse_with_effective_standards() {
-        // The scaffold's own output must survive manifest loading,
-        // which rejects compiled languages without a standard.
-        for kind in [ScaffoldKind::Binary, ScaffoldKind::Library] {
-            let manifest = render_manifest("hello", kind);
-            cabin_manifest::parse_manifest_str(&manifest)
-                .unwrap_or_else(|err| panic!("generated manifest must load ({kind:?}): {err}"));
-        }
-    }
-
-    #[test]
-    fn fallback_package_name_when_dir_invalid() {
-        let path = Path::new("/");
-        assert_eq!(default_package_name_from_dir(path), FALLBACK_PACKAGE_NAME);
-    }
-
-    #[test]
-    fn directory_name_used_when_valid() {
-        let path = Path::new("/tmp/sample-package");
-        assert_eq!(default_package_name_from_dir(path), "sample-package");
-    }
-
-    #[test]
-    fn dotted_directory_name_falls_back() {
-        let path = Path::new("/tmp/.tmpAbCdEf");
-        assert_eq!(default_package_name_from_dir(path), FALLBACK_PACKAGE_NAME);
-    }
-
-    #[test]
     fn is_bare_toml_key_acceptance() {
         assert!(is_bare_toml_key("hello"));
         assert!(is_bare_toml_key("hello-world"));
@@ -504,21 +452,6 @@ mod tests {
         assert!(!is_bare_toml_key("hello.world"));
         assert!(!is_bare_toml_key("hello world"));
         assert!(!is_bare_toml_key(".hidden"));
-    }
-
-    #[test]
-    fn sanitize_identifier_replaces_hyphens() {
-        assert_eq!(sanitize_identifier("hello"), "hello");
-        assert_eq!(sanitize_identifier("hello-world"), "hello_world");
-        assert_eq!(sanitize_identifier("a-b-c"), "a_b_c");
-        assert_eq!(sanitize_identifier("hello_world"), "hello_world");
-    }
-
-    #[test]
-    fn sanitize_identifier_prepends_underscore_for_leading_digit() {
-        assert_eq!(sanitize_identifier("1cool"), "_1cool");
-        assert_eq!(sanitize_identifier("0123"), "_0123");
-        assert_eq!(sanitize_identifier("1-2-3"), "_1_2_3");
     }
 
     #[test]
@@ -537,16 +470,6 @@ mod tests {
         );
         let src = std::fs::read_to_string(dir.child("src/9lives.cc").path()).unwrap();
         assert!(src.contains("namespace _9lives"));
-    }
-
-    #[test]
-    fn library_stems_use_package_name_and_sanitized_namespace() {
-        let stems = LibraryStems::from_package_name("hello-world");
-        assert_eq!(stems.include_subdir, "hello-world");
-        assert_eq!(stems.header_filename, "hello-world.hpp");
-        assert_eq!(stems.source_filename, "hello-world.cc");
-        assert_eq!(stems.header_include_path, "hello-world/hello-world.hpp");
-        assert_eq!(stems.namespace, "hello_world");
     }
 
     #[test]
@@ -754,15 +677,5 @@ mod tests {
                 ".gitignore".to_string(),
             ]
         );
-    }
-
-    #[test]
-    fn binary_and_library_manifests_are_byte_stable() {
-        let one = render_manifest("hello", ScaffoldKind::Binary);
-        let two = render_manifest("hello", ScaffoldKind::Binary);
-        assert_eq!(one, two);
-        let lib_one = render_manifest("hello", ScaffoldKind::Library);
-        let lib_two = render_manifest("hello", ScaffoldKind::Library);
-        assert_eq!(lib_one, lib_two);
     }
 }

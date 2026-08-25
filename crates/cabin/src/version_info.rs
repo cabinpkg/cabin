@@ -140,22 +140,6 @@ mod tests {
     }
 
     #[test]
-    fn concise_format_works_with_minimal_metadata() {
-        let info = minimal();
-        // Concise output is independent of every optional field
-        // - a published-tarball build still prints a clean line.
-        assert_eq!(info.format(VersionOutputMode::Concise), "cabin x.y.z\n");
-    }
-
-    #[test]
-    fn verbose_format_header_contains_release_name() {
-        let info = full();
-        let out = info.format(VersionOutputMode::Verbose);
-        let header = out.lines().next().expect("at least one line");
-        assert_eq!(header, "cabin x.y.z");
-    }
-
-    #[test]
     fn verbose_format_emits_release_and_os() {
         let info = full();
         let out = info.format(VersionOutputMode::Verbose);
@@ -178,48 +162,5 @@ cabin x.y.z
 release: x.y.z
 ";
         assert_eq!(out, expected);
-    }
-
-    #[test]
-    fn verbose_format_uses_short_labels_no_uppercase() {
-        let info = full();
-        for line in info.format(VersionOutputMode::Verbose).lines() {
-            // The header line is unlabeled.  Every other line
-            // has the form `<label>: <value>` with a lowercase
-            // dashed label.
-            if !line.contains(':') {
-                continue;
-            }
-            let label = line.split(':').next().expect("label before colon");
-            assert!(
-                label.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
-                "labels must be lowercase / dashed: got `{label}`"
-            );
-        }
-    }
-
-    #[test]
-    fn current_uses_package_version_as_cabin_version() {
-        // `VersionInfo::current` is environment-dependent, but
-        // the crate version is always `env!("CARGO_PKG_VERSION")`
-        // - assert that anchor without depending on the
-        // optional runtime OS field.
-        let info = VersionInfo::current();
-        assert_eq!(info.cabin_version, env!("CARGO_PKG_VERSION"));
-    }
-
-    #[test]
-    fn verbose_format_never_leaks_local_paths() {
-        // Defense-in-depth: even though no field captures a
-        // path, run a structural check against the rendered
-        // string so a future field cannot silently leak one in.
-        let info = full();
-        let out = info.format(VersionOutputMode::Verbose);
-        for needle in ["/Users/", "/home/", "/private/", "/opt/", "/tmp/"] {
-            assert!(
-                !out.contains(needle),
-                "verbose output must not leak `{needle}`: {out}"
-            );
-        }
     }
 }

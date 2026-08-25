@@ -156,128 +156,22 @@ mod tests {
     }
 
     #[test]
-    fn header_is_first_line() {
-        let out = format_command_list(&fixture_cmd());
-        let first = out.lines().next().expect("non-empty output");
-        assert_eq!(first, LIST_HEADING);
-    }
-
-    #[test]
-    fn output_ends_with_newline() {
-        let out = format_command_list(&fixture_cmd());
-        assert!(out.ends_with('\n'), "expected trailing newline: {out}");
-    }
-
-    #[test]
-    fn entries_are_sorted_alphabetically() {
-        let out = format_command_list(&fixture_cmd());
-        let names: Vec<&str> = out
-            .lines()
-            .skip(1)
-            .filter_map(|line| line.split_whitespace().next())
-            .collect();
-        let mut sorted = names.clone();
-        sorted.sort_unstable();
-        assert_eq!(names, sorted, "rows must be alphabetically sorted");
-    }
-
-    #[test]
-    fn hidden_commands_are_listed() {
-        let out = format_command_list(&fixture_cmd());
-        // `compgen` was annotated `#[command(hide = true)]`; the
-        // list view still surfaces it.
-        assert!(
-            out.contains("compgen"),
-            "hidden subcommands must still appear in `--list`: {out}"
+    fn formats_sorted_complete_rows() {
+        assert_eq!(
+            format_command_list(&fixture_cmd()),
+            "Installed Commands:\n    build, b  Build a thing\n    clean     Clean output\n    compgen   Generate completions (advanced)\n"
         );
     }
 
     #[test]
-    fn help_pseudo_subcommand_is_listed_when_built() {
-        // clap auto-injects a `help` pseudo-subcommand only
-        // after `Command::build`.  Once built, the row is
-        // included in the listing - matching cargo's
-        // `cargo --list` which also surfaces `help`.
+    fn built_command_includes_help_pseudo_subcommand() {
         let mut cmd = fixture_cmd();
         cmd.build();
-        let out = format_command_list(&cmd);
-        let names: Vec<&str> = out
-            .lines()
-            .skip(1)
-            .filter_map(|line| line.split_whitespace().next())
-            .collect();
-        assert!(
-            names.contains(&"help"),
-            "`help` should appear in --list once the command tree is built: {names:?}"
-        );
-    }
-
-    #[test]
-    fn name_about_separator_is_present() {
-        let out = format_command_list(&fixture_cmd());
-        // Each entry has the `<name> <about>` shape; spot-check
-        // one entry rather than over-coupling to the exact
-        // column width (which depends on the longest name).
-        // clap strips trailing punctuation from rustdoc-derived
-        // about lines, so we compare on the leading words only.
-        let build_line = out
-            .lines()
-            .find(|line| line.trim_start().starts_with("build"))
-            .expect("build row");
-        assert!(
-            build_line.contains("Build a thing"),
-            "build row should carry its about: {build_line}"
-        );
-    }
-
-    #[test]
-    fn entries_align_to_longest_name() {
-        let out = format_command_list(&fixture_cmd());
-        // The longest visible name in the fixture is `compgen`
-        // (7 chars).  Build (5 chars) gets right-padded to 7
-        // before its about text, so the gap is 2 columns.  This
-        // is a structural assertion: the formatter must compute
-        // the width once, not per-row.
-        let build_line = out
-            .lines()
-            .find(|line| line.trim_start().starts_with("build"))
-            .expect("build row");
-        let compgen_line = out
-            .lines()
-            .find(|line| line.trim_start().starts_with("compgen"))
-            .expect("compgen row");
-        // Both rows have an `about` and the about text starts
-        // at the same column.
-        let build_about_col = build_line.find("Build").unwrap();
-        let compgen_about_col = compgen_line.find("Generate").unwrap();
-        assert_eq!(
-            build_about_col, compgen_about_col,
-            "about columns must align across rows"
-        );
-    }
-
-    #[test]
-    fn visible_aliases_are_rendered_cargo_style() {
-        let out = format_command_list(&fixture_cmd());
-        // Cargo renders aliases comma-separated after the name
-        // (`build, b`), not in clap's `[aliases: b]` form.  The
-        // fixture's build subcommand has a `b` alias.
-        assert!(
-            out.contains("build, b"),
-            "expected cargo-style `build, b` row: {out}"
-        );
-        assert!(
-            !out.contains("[aliases:"),
-            "must not use clap's default `[aliases: ...]` form: {out}"
-        );
+        assert!(format_command_list(&cmd).contains("\n    help"));
     }
 
     #[test]
     fn empty_about_does_not_emit_separator() {
-        // Synthesize a command tree where one subcommand has no
-        // about text; the formatter must still emit the row,
-        // and the row must not contain the column separator
-        // spaces that other rows have.
         let cmd = clap::Command::new("test")
             .subcommand(clap::Command::new("alpha").about("Alpha command."))
             .subcommand(clap::Command::new("beta"));
