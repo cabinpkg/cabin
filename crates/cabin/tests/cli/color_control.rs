@@ -18,6 +18,42 @@ fn stderr_with_color(value: &str) -> String {
 }
 
 #[test]
+fn unknown_cli_color_is_rejected_before_dispatch() {
+    let dir = TempDir::new().unwrap();
+    let assertion = missing_manifest_command(&dir)
+        .args(["--color", "sometimes"])
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("--color") && stderr.contains("sometimes"),
+        "invalid color was not diagnosed: {stderr}"
+    );
+    assert!(
+        !stderr.contains("cabin::workspace::manifest_not_found"),
+        "invalid CLI color reached command dispatch: {stderr}"
+    );
+}
+
+#[test]
+fn invalid_environment_color_is_reported_before_dispatch() {
+    let dir = TempDir::new().unwrap();
+    let assertion = missing_manifest_command(&dir)
+        .env("CABIN_TERM_COLOR", "sometimes")
+        .assert()
+        .code(1);
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+    assert!(
+        stderr.contains("CABIN_TERM_COLOR") && stderr.contains("sometimes"),
+        "invalid environment color was not diagnosed: {stderr}"
+    );
+    assert!(
+        !stderr.contains("cabin::workspace::manifest_not_found"),
+        "invalid environment color reached command dispatch: {stderr}"
+    );
+}
+
+#[test]
 fn color_always_styles_diagnostics() {
     let stderr = stderr_with_color("always");
     assert!(

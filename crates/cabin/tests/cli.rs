@@ -2731,14 +2731,12 @@ mod diagnostics;
 /// The tests below exercise the user-visible color contract:
 /// - `--color` parsing (clap rejects unknown values),
 /// - `CABIN_TERM_COLOR` parsing (Cabin rejects unknown values
-///   with a documented wording),
+///   before dispatch),
 /// - `--color` overrides `CABIN_TERM_COLOR`,
 /// - `--color always` produces ANSI escape sequences in
 ///   diagnostic output even when stderr is captured,
 /// - `--color never` produces none even when the env says
-///   `always`,
-/// - help text exposes the option with the documented
-///   possible-value list.
+///   `always`.
 #[path = "cli/color_control.rs"]
 mod color_control;
 
