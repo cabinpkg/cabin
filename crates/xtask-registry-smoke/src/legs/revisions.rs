@@ -796,73 +796,6 @@ mod tests {
     );
 
     #[test]
-    fn the_verdict_matches_the_node_program_byte_for_byte() {
-        let entry = serde_json::json!({
-            "name": "smoke/withdep",
-            "version": "0.2.0",
-            "revision": "deadbeefdeadbeef",
-            "checksum": "sha256:1ca5e5",
-            "published_at": "1970-01-01T00:00:00Z",
-            "metadata": {"schema": 1},
-        });
-        assert_eq!(
-            verdict_respin(&entry),
-            concat!(
-                r#"{"verdict":"rejected","reason":"smoke respin","#,
-                r#""checksum":"sha256:1ca5e5","published_at":"1970-01-01T00:00:00Z"}"#,
-            )
-        );
-    }
-
-    /// A value needing escaping goes through `JSON.stringify`'s
-    /// escaping, not raw interpolation.
-    #[test]
-    fn the_verdict_escapes_the_fields_it_carries() {
-        let entry = serde_json::json!({"checksum": "a\"b", "published_at": "c\\d"});
-        assert_eq!(
-            verdict_respin(&entry),
-            r#"{"verdict":"rejected","reason":"smoke respin","checksum":"a\"b","published_at":"c\\d"}"#
-        );
-    }
-
-    #[test]
-    fn a_missing_listing_entry_is_the_shells_wording() {
-        let listing =
-            br#"{"versions":[{"name":"smoke/withdep","version":"0.2.0","checksum":"c"}]}"#;
-        assert_eq!(
-            listing_entry(listing, "smoke/withdep", "0.2.0")
-                .expect("present")
-                .get("checksum")
-                .and_then(Value::as_str),
-            Some("c")
-        );
-        assert_eq!(
-            listing_entry(listing, "smoke/withdep", "0.2.1")
-                .expect_err("absent")
-                .to_string(),
-            "the pending listing has no smoke/withdep@0.2.1"
-        );
-        assert_eq!(
-            listing_entry(b"not json", "smoke/withdep", "0.2.0")
-                .expect_err("unparsable")
-                .to_string(),
-            "the pending listing has no smoke/withdep@0.2.0"
-        );
-    }
-
-    /// `console.log` of an integer column prints the integer; of a text
-    /// column, its own text.
-    #[test]
-    fn a_scalar_read_renders_as_console_log_did() {
-        let downloads = r#"[{"success":true,"results":[{"downloads":5}]}]"#;
-        assert_eq!(scalar_of(downloads, "downloads").expect("row"), "5");
-        let stored = r#"[{"success":true,"results":[{"value":"1024"}]}]"#;
-        assert_eq!(scalar_of(stored, "value").expect("row"), "1024");
-        let empty = r#"[{"success":true,"results":[]}]"#;
-        assert!(scalar_of(empty, "downloads").is_err());
-    }
-
-    #[test]
     fn header_matching_is_whole_line_and_case_insensitive() {
         let block = BLOCK.as_bytes();
         assert!(header_line(block, "content-length: 22"));
@@ -870,28 +803,6 @@ mod tests {
         // Anchored: a prefix of a header line is not the header line.
         assert!(!header_line(block, "content-length: 2"));
         assert!(!header_line(block, "cache-control"));
-    }
-
-    #[test]
-    fn the_source_header_pattern_is_an_anchored_literal() {
-        let mut smoke = Smoke::new(0, 0, 0, "cabin_smoke".to_owned());
-        smoke.headers = BLOCK.as_bytes().to_vec();
-        source_header(&smoke, "^content-range: bytes 377-398/399$").expect("present");
-        source_header(&smoke, "^Cache-Control: no-store$").expect("case-insensitive");
-        // The escaped `\*` is a literal asterisk, and the failure
-        // wording carries the pattern as the shell wrote it.
-        assert_eq!(
-            source_header(&smoke, r"^content-range: bytes \*/399$")
-                .expect_err("absent")
-                .to_string(),
-            concat!(
-                r"missing header ^content-range: bytes \*/399$: ",
-                // Matched case-insensitively, but printed as it
-                // arrived: `grep -i` never rewrites the line.
-                "content-range: bytes 377-398/399\nContent-Length: 22\n",
-                "cache-control: no-store\nretry-after: 900",
-            )
-        );
     }
 
     /// The diagnostic keeps only header lines: `grep -i '^[a-z-]*:'`

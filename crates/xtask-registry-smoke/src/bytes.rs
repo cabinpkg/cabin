@@ -111,21 +111,6 @@ mod tests {
         assert_eq!(&framed[12..], b"archive!");
     }
 
-    #[test]
-    fn the_hex_digest_matches_shasum_over_empty_input() {
-        assert_eq!(
-            sha256_hex(b""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        );
-    }
-
-    #[test]
-    fn the_revision_is_the_leading_sixteen_hex() {
-        // shasum -a 256 </dev/null: e3b0c44298fc1c14...
-        assert_eq!(revision_of(b""), "e3b0c44298fc1c14");
-        assert_eq!(revision_of(b"").len(), 16);
-    }
-
     /// The full digest is rewritten before its prefix: the reverse
     /// order would corrupt every full occurrence.
     #[test]

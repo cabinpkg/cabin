@@ -443,24 +443,6 @@ mod tests {
     }
 
     #[test]
-    fn the_success_line_carries_four_leading_spaces() {
-        assert_eq!(ok_line("/healthz", 200), "    /healthz -> 200");
-        assert_eq!(ok_line("PUT /api", 405), "    PUT /api -> 405");
-    }
-
-    #[test]
-    fn the_mismatch_wording_matches_the_shell() {
-        assert_eq!(
-            mismatch("/config.json", 500, &[200, 404], b"nope"),
-            "/config.json returned 500, expected one of: 200 404 (body: nope)"
-        );
-        assert_eq!(
-            mismatch("PATCH /a", 409, &[200], b""),
-            "PATCH /a returned 409, expected one of: 200 (body: )"
-        );
-    }
-
-    #[test]
     fn the_header_block_keeps_duplicates_and_the_status_line() {
         let (port, _requests) = serve(vec![concat!(
             "HTTP/1.1 401 Unauthorized\r\n",

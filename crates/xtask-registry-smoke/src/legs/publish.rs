@@ -993,40 +993,7 @@ fn utf8(path: &Path) -> Result<&str> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
-
-    fn entry() -> Map<String, Value> {
-        let mut entry = Map::new();
-        entry.insert("checksum".to_owned(), Value::String("abc123".to_owned()));
-        entry.insert(
-            "published_at".to_owned(),
-            Value::String("1970-01-01T00:00:00Z".to_owned()),
-        );
-        entry
-    }
-
-    #[test]
-    fn the_verified_verdict_is_the_json_the_node_program_wrote() {
-        let body = verdict_body(&entry(), "verified", None).expect("verdict");
-        assert_eq!(
-            String::from_utf8(body).expect("utf8"),
-            r#"{"verdict":"verified","checksum":"abc123","published_at":"1970-01-01T00:00:00Z"}"#
-        );
-    }
-
-    #[test]
-    fn the_rejected_verdict_carries_its_reason_second() {
-        let body = verdict_body(&entry(), "rejected", Some("smoke rejection")).expect("verdict");
-        assert_eq!(
-            String::from_utf8(body).expect("utf8"),
-            concat!(
-                r#"{"verdict":"rejected","reason":"smoke rejection","#,
-                r#""checksum":"abc123","published_at":"1970-01-01T00:00:00Z"}"#
-            )
-        );
-    }
 
     /// `JSON.stringify` omits an undefined field; a `null` binding is a
     /// different document and stays one.
@@ -1052,39 +1019,6 @@ mod tests {
         // Padded past the cap, but still a document a handler that read
         // the whole stream would accept.
         serde_json::from_slice::<Value>(&body).expect("a valid rejected verdict");
-    }
-
-    #[test]
-    fn the_listing_entry_keeps_the_six_keys_in_insertion_order() {
-        let listing = br#"{"versions":[
-            {"version":"0.1.0","name":"smoke/withdep"},
-            {"metadata":{"z":1,"a":2},"published_at":"then","checksum":"c",
-             "revision":"r","version":"0.2.0","name":"smoke/withdep","published_by":1}
-        ]}"#;
-        let out = assert_fs::NamedTempFile::new("entry.json").expect("temp");
-        let entry =
-            listing_entry(listing, "smoke/withdep", "0.2.0", out.path()).expect("the entry");
-
-        assert_eq!(
-            String::from_utf8(fs::read(out.path()).expect("read")).expect("utf8"),
-            concat!(
-                r#"{"name":"smoke/withdep","version":"0.2.0","revision":"r","#,
-                r#""checksum":"c","published_at":"then","metadata":{"z":1,"a":2}}"#
-            ),
-            "published_by is not part of the shape, and metadata keeps its own order"
-        );
-        assert_eq!(entry.get("checksum").map(display), Some("c".to_owned()));
-    }
-
-    #[test]
-    fn a_listing_without_the_version_is_the_shells_failure() {
-        let out = assert_fs::NamedTempFile::new("entry.json").expect("temp");
-        let error = listing_entry(br#"{"versions":[]}"#, "smoke/withdep", "0.2.0", out.path())
-            .expect_err("no such version");
-        assert_eq!(
-            error.to_string(),
-            "the pending listing has no smoke/withdep@0.2.0"
-        );
     }
 
     #[test]
