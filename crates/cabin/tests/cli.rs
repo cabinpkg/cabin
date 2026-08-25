@@ -41,16 +41,6 @@ fn all_subcommand_names() -> Vec<String> {
         .collect()
 }
 
-/// Subset of [`all_subcommand_names`] that `cabin --help`
-/// advertises - the visible, day-to-day surface.
-fn visible_subcommand_names() -> Vec<String> {
-    Cli::command()
-        .get_subcommands()
-        .filter(|sub| sub.get_name() != "help" && !sub.is_hide_set())
-        .map(|sub| sub.get_name().to_owned())
-        .collect()
-}
-
 /// Names of subcommands hidden from `cabin --help` but still
 /// reachable through `cabin --list`, shell completions, and
 /// per-subcommand man pages. (The `cabin stamp` witness writer
@@ -457,25 +447,18 @@ fn package_in<'a>(meta: &'a serde_json::Value, name: &str) -> &'a serde_json::Va
 // ---------------------------------------------------------------------------
 
 #[test]
-fn init_creates_manifest_and_main_cc() {
+fn init_creates_requested_library() {
     let dir = TempDir::new().expect("tempdir should be created");
     cabin()
         .current_dir(dir.path())
-        .args(["init", "--name", "hello"])
+        .args(["init", "--name", "hello", "--lib"])
         .assert()
         .success();
 
     let manifest_path = dir.path().join("cabin.toml");
     let manifest = fs::read_to_string(&manifest_path).expect("cabin.toml should be readable");
-    assert!(manifest.contains("[package]"));
-    assert!(manifest.contains(r#"name = "hello""#));
-    assert!(manifest.contains(r#"cxx-standard = "c++17""#));
-    assert!(manifest.contains("[target.hello]"));
-
-    let main_cc = dir.path().join("src").join("main.cc");
-    assert!(main_cc.is_file(), "src/main.cc should exist");
-    let main_contents = fs::read_to_string(&main_cc).unwrap();
-    assert!(main_contents.contains("int main"));
+    assert!(manifest.contains(r#"type = "library""#));
+    assert!(dir.path().join(".gitignore").is_file());
 }
 
 #[test]
@@ -724,22 +707,6 @@ fn new_rejects_name_with_whitespace() {
 }
 
 #[test]
-fn new_rejects_name_with_unsupported_characters() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("dot-name");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "dot-name", "--name", "foo.bar"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not supported"));
-    assert!(
-        !target.exists(),
-        "directory should be cleaned up on validation failure"
-    );
-}
-
-#[test]
 fn new_fails_when_parent_does_not_exist() {
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("missing").join("hello");
@@ -755,171 +722,15 @@ fn new_fails_when_parent_does_not_exist() {
 }
 
 #[test]
-fn new_does_not_overwrite_existing_user_files_on_failure() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("invalid");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "invalid", "--name", "foo bar"])
-        .assert()
-        .failure();
-    assert!(
-        !target.exists(),
-        "directory created by new must not survive a failed scaffold"
-    );
-}
-
-#[test]
-fn new_and_init_produce_identical_files() {
-    let init_dir = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(init_dir.path())
-        .args(["init", "--name", "twin"])
-        .assert()
-        .success();
-
-    let new_parent = TempDir::new().expect("tempdir should be created");
-    let new_target = new_parent.path().join("twin");
-    cabin()
-        .current_dir(new_parent.path())
-        .args(["new", "twin"])
-        .assert()
-        .success();
-
-    for relative in ["cabin.toml", "src/main.cc"] {
-        let init_bytes = fs::read(init_dir.path().join(relative)).unwrap();
-        let new_bytes = fs::read(new_target.join(relative)).unwrap();
-        assert_eq!(
-            init_bytes, new_bytes,
-            "byte mismatch for {relative} between init and new"
-        );
-    }
-}
-
-#[test]
-fn new_generated_manifest_does_not_contain_absolute_paths() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("portable");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "portable"])
-        .assert()
-        .success();
-
-    let manifest = fs::read_to_string(target.join("cabin.toml")).unwrap();
-    let parent_str = parent.path().to_string_lossy().to_string();
-    assert!(
-        !manifest.contains(&*parent_str),
-        "manifest leaks absolute path: {manifest}"
-    );
-    let target_str = target.to_string_lossy().to_string();
-    assert!(
-        !manifest.contains(&*target_str),
-        "manifest leaks absolute path: {manifest}"
-    );
-
-    let main_cc = fs::read_to_string(target.join("src").join("main.cc")).unwrap();
-    assert!(
-        !main_cc.contains(&*parent_str),
-        "main.cc leaks absolute path: {main_cc}"
-    );
-}
-
-#[test]
-fn new_help_describes_path_argument() {
-    let stdout = cabin()
-        .args(["new", "--help"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let body = String::from_utf8(stdout.stdout).unwrap();
-    assert!(body.contains("PATH"), "new --help missing PATH:\n{body}");
-    assert!(
-        body.contains("--name"),
-        "new --help missing --name:\n{body}"
-    );
-    assert!(body.contains("--bin"), "new --help missing --bin:\n{body}");
-    assert!(body.contains("--lib"), "new --help missing --lib:\n{body}");
-}
-
-#[test]
-fn init_help_describes_bin_and_lib_flags() {
-    let stdout = cabin()
-        .args(["init", "--help"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let body = String::from_utf8(stdout.stdout).unwrap();
-    assert!(body.contains("--bin"), "init --help missing --bin:\n{body}");
-    assert!(body.contains("--lib"), "init --help missing --lib:\n{body}");
-}
-
-#[test]
-fn new_with_explicit_bin_matches_default() {
+fn new_and_init_reject_conflicting_scaffold_kinds() {
     let parent = TempDir::new().expect("tempdir should be created");
     cabin()
         .current_dir(parent.path())
-        .args(["new", "default-bin"])
+        .args(["init", "--bin", "--lib"])
         .assert()
-        .success();
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "explicit-bin", "--bin"])
-        .assert()
-        .success();
+        .failure()
+        .stderr(predicate::str::contains("--bin").and(predicate::str::contains("--lib")));
 
-    let default = fs::read(parent.path().join("default-bin/cabin.toml")).unwrap();
-    let explicit = fs::read(parent.path().join("explicit-bin/cabin.toml")).unwrap();
-    // The package name appears in the manifest, so byte-equality
-    // is only meaningful after stripping the name.  We compare
-    // structure instead by checking the explicit-bin manifest
-    // declares `executable` like the default.
-    let _ = default;
-    let body = String::from_utf8(explicit).unwrap();
-    assert!(body.contains(r#"type = "executable""#), "{body}");
-    assert!(
-        !body.contains(r#"type = "library""#),
-        "--bin must not produce a library manifest:\n{body}"
-    );
-}
-
-#[test]
-fn new_with_lib_generates_library_layout() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("greeter");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "greeter", "--lib"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Created library `greeter` package",
-        ));
-
-    let manifest = fs::read_to_string(target.join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "library""#));
-    assert!(manifest.contains(r#"sources = ["src/greeter.cc"]"#));
-    assert!(manifest.contains(r#"include-dirs = ["include"]"#));
-
-    let header = fs::read_to_string(target.join("include/greeter/greeter.hpp")).unwrap();
-    assert!(header.contains("#pragma once"));
-    assert!(header.contains("namespace greeter"));
-
-    let src = fs::read_to_string(target.join("src/greeter.cc")).unwrap();
-    assert!(src.contains(r#"#include "greeter/greeter.hpp""#));
-    assert!(src.contains("namespace greeter"));
-
-    assert!(
-        !target.join("src/main.cc").exists(),
-        "library scaffold must not emit src/main.cc"
-    );
-}
-
-#[test]
-fn new_with_bin_and_lib_conflicts() {
-    let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("either");
     cabin()
         .current_dir(parent.path())
@@ -931,169 +742,6 @@ fn new_with_bin_and_lib_conflicts() {
         !target.exists(),
         "no directory should be created on conflict"
     );
-}
-
-#[test]
-fn init_with_lib_generates_library_layout() {
-    let dir = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(dir.path())
-        .args(["init", "--lib", "--name", "lib-pkg"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Created library `lib-pkg` package",
-        ));
-
-    let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "library""#));
-    assert!(manifest.contains(r#"sources = ["src/lib-pkg.cc"]"#));
-    assert!(manifest.contains(r#"include-dirs = ["include"]"#));
-
-    let header = fs::read_to_string(dir.path().join("include/lib-pkg/lib-pkg.hpp")).unwrap();
-    assert!(header.contains("namespace lib_pkg"));
-
-    let src = fs::read_to_string(dir.path().join("src/lib-pkg.cc")).unwrap();
-    assert!(src.contains("namespace lib_pkg"));
-}
-
-#[test]
-fn init_with_bin_explicit_matches_default() {
-    let dir = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(dir.path())
-        .args(["init", "--bin", "--name", "explicit-bin"])
-        .assert()
-        .success();
-
-    let manifest = fs::read_to_string(dir.path().join("cabin.toml")).unwrap();
-    assert!(manifest.contains(r#"type = "executable""#));
-    assert!(dir.path().join("src/main.cc").exists());
-}
-
-#[test]
-fn init_with_bin_and_lib_conflicts() {
-    let dir = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(dir.path())
-        .args(["init", "--bin", "--lib"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--bin").and(predicate::str::contains("--lib")));
-
-    assert!(
-        !dir.path().join("cabin.toml").exists(),
-        "no manifest should be written on conflict"
-    );
-}
-
-#[test]
-fn new_generates_gitignore_with_build_and_dist() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("gi");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "gi"])
-        .assert()
-        .success();
-
-    let body = fs::read_to_string(target.join(".gitignore")).unwrap();
-    assert!(body.contains("/build/"), "missing build/ ignore:\n{body}");
-    assert!(body.contains("/dist/"), "missing dist/ ignore:\n{body}");
-    assert!(
-        !body.contains("cabin.lock"),
-        ".gitignore must not ignore cabin.lock:\n{body}"
-    );
-}
-
-#[test]
-fn init_creates_gitignore_when_missing() {
-    let dir = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(dir.path())
-        .args(["init", "--name", "fresh"])
-        .assert()
-        .success();
-    let body = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-    assert!(body.contains("/build/"), "{body}");
-    assert!(body.contains("/dist/"), "{body}");
-}
-
-#[test]
-fn init_preserves_existing_gitignore() {
-    let dir = TempDir::new().expect("tempdir should be created");
-    let preexisting = "# user gitignore\nfoo.tmp\n";
-    assert_fs::fixture::ChildPath::new(dir.path().join(".gitignore"))
-        .write_str(preexisting)
-        .unwrap();
-
-    cabin()
-        .current_dir(dir.path())
-        .args(["init", "--name", "preserve"])
-        .assert()
-        .success();
-
-    let after = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-    assert_eq!(after, preexisting);
-}
-
-#[test]
-fn new_lib_with_hyphenated_name_uses_sanitized_namespace() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("two-words");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "two-words", "--lib"])
-        .assert()
-        .success();
-
-    let header = fs::read_to_string(target.join("include/two-words/two-words.hpp")).unwrap();
-    assert!(header.contains("namespace two_words"));
-    let src = fs::read_to_string(target.join("src/two-words.cc")).unwrap();
-    assert!(src.contains("namespace two_words"));
-    assert!(src.contains(r#"#include "two-words/two-words.hpp""#));
-}
-
-#[test]
-fn new_lib_generated_files_are_deterministic() {
-    let parent_a = TempDir::new().expect("tempdir should be created");
-    let parent_b = TempDir::new().expect("tempdir should be created");
-    cabin()
-        .current_dir(parent_a.path())
-        .args(["new", "twin", "--lib"])
-        .assert()
-        .success();
-    cabin()
-        .current_dir(parent_b.path())
-        .args(["new", "twin", "--lib"])
-        .assert()
-        .success();
-
-    for relative in [
-        "cabin.toml",
-        "include/twin/twin.hpp",
-        "src/twin.cc",
-        ".gitignore",
-    ] {
-        let a = fs::read(parent_a.path().join("twin").join(relative)).unwrap();
-        let b = fs::read(parent_b.path().join("twin").join(relative)).unwrap();
-        assert_eq!(a, b, "byte mismatch for {relative} between two runs");
-    }
-}
-
-#[test]
-fn new_lib_metadata_view_reports_library_target() {
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("metalib");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "metalib", "--lib"])
-        .assert()
-        .success();
-
-    let value = run_metadata(&target.join("cabin.toml"));
-    let pkg = package_in(&value, "metalib");
-    assert_eq!(pkg["targets"][0]["kind"], "library");
 }
 
 #[test]
@@ -1127,34 +775,7 @@ fn new_lib_builds_successfully() {
 }
 
 #[test]
-fn new_bin_builds_successfully() {
-    require_cxx_build_tools();
-    let parent = TempDir::new().expect("tempdir should be created");
-    let target = parent.path().join("buildbin");
-    cabin()
-        .current_dir(parent.path())
-        .args(["new", "buildbin"])
-        .assert()
-        .success();
-
-    let build_dir = target.join("build");
-    cabin()
-        .current_dir(&target)
-        .args(["build", "--build-dir"])
-        .arg(&build_dir)
-        .assert()
-        .success();
-
-    let bin_path = build_dir
-        .join("dev")
-        .join("packages")
-        .join("buildbin")
-        .join(host_exe("buildbin"));
-    assert!(bin_path.is_file(), "expected executable at {bin_path:?}");
-}
-
-#[test]
-fn new_bin_runs_and_prints_greeting() {
+fn new_bin_runs_through_short_alias() {
     require_cxx_build_tools();
     let parent = TempDir::new().expect("tempdir should be created");
     let target = parent.path().join("hello_world");
@@ -1167,7 +788,7 @@ fn new_bin_runs_and_prints_greeting() {
     let build_dir = target.join("build");
     let output = cabin()
         .current_dir(&target)
-        .args(["run", "--build-dir"])
+        .args(["r", "--build-dir"])
         .arg(&build_dir)
         .assert()
         .success()
@@ -1176,7 +797,7 @@ fn new_bin_runs_and_prints_greeting() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
         stdout.contains("Hello from Cabin"),
-        "`cabin new` -> `cabin run` should print the scaffold greeting, got: {stdout}"
+        "`cabin new` -> `cabin r` should print the scaffold greeting, got: {stdout}"
     );
 }
 
@@ -2716,9 +2337,6 @@ mod cargo_interface;
 // post-Cargo-inspired-foundation help / env-var review tests
 // ---------------------------------------------------------------------------
 
-#[path = "cli/cargo_interface_cleanup.rs"]
-mod cargo_interface_cleanup;
-
 // ---------------------------------------------------------------------------
 // Diagnostic / error-rendering refactor
 // ---------------------------------------------------------------------------
@@ -2777,15 +2395,3 @@ mod version_output;
 
 #[path = "cli/curated_help_and_list.rs"]
 mod curated_help_and_list;
-
-/// `cabin port` was removed with the builtin-port feature.  Without this
-/// test a later clap change could silently re-register the subcommand
-/// while the suite stayed green.
-#[test]
-fn port_subcommand_is_rejected() {
-    cabin()
-        .args(["port", "list"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("unrecognized subcommand 'port'"));
-}

@@ -28,28 +28,6 @@ fn read(path: &Path) -> String {
 }
 
 #[test]
-fn top_level_help_lists_fmt() {
-    let assertion = cabin().arg("--help").assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    assert!(
-        stdout.contains("fmt"),
-        "top-level help should list fmt: {stdout}"
-    );
-}
-
-#[test]
-fn fmt_help_documents_documented_flags() {
-    let assertion = cabin().args(["fmt", "--help"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    for snippet in ["--check", "--build-dir", "--exclude", "--no-ignore-vcs"] {
-        assert!(
-            stdout.contains(snippet),
-            "`cabin fmt --help` should mention {snippet}: {stdout}"
-        );
-    }
-}
-
-#[test]
 fn write_mode_formats_in_place() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());

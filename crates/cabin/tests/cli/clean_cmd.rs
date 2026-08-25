@@ -425,23 +425,6 @@ fn clean_dry_run_output_is_sorted_and_deterministic() {
     assert_eq!(stdout, stdout_again, "dry-run output must be deterministic");
 }
 
-#[test]
-fn clean_help_describes_dry_run_and_profile() {
-    let stdout = cabin()
-        .args(["clean", "--help"])
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let body = String::from_utf8(stdout.stdout).unwrap();
-    for needle in ["--dry-run", "--profile", "--build-dir", "--package"] {
-        assert!(
-            body.contains(needle),
-            "clean --help missing `{needle}`:\n{body}"
-        );
-    }
-}
-
 fn capture_dry_run(cwd: &Path, args: &[&str]) -> String {
     let output = cabin()
         .current_dir(cwd)

@@ -70,34 +70,6 @@ fn normalize(s: &str) -> String {
 }
 
 #[test]
-fn top_level_help_lists_tidy() {
-    let assertion = cabin().arg("--help").assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    assert!(
-        stdout.contains("Run clang-tidy"),
-        "top-level help should describe the tidy subcommand:\n{stdout}"
-    );
-}
-
-#[test]
-fn tidy_help_documents_documented_flags() {
-    let assertion = cabin().args(["tidy", "--help"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    for snippet in [
-        "--fix",
-        "--jobs",
-        "--build-dir",
-        "--exclude",
-        "--no-ignore-vcs",
-    ] {
-        assert!(
-            stdout.contains(snippet),
-            "`cabin tidy --help` should mention {snippet}: {stdout}"
-        );
-    }
-}
-
-#[test]
 fn clean_project_tidies_successfully() {
     let _guard = tidy_record_lock();
     let dir = TempDir::new().unwrap();

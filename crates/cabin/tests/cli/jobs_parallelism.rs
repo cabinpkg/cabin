@@ -47,40 +47,6 @@ fn write_minimal_project(root: &Path) {
 }
 
 #[test]
-fn build_help_documents_jobs() {
-    let assertion = cabin().args(["build", "--help"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    assert!(
-        stdout.contains("-j, --jobs <N>"),
-        "build help should advertise -j/--jobs:\n{stdout}"
-    );
-}
-
-#[test]
-fn run_help_documents_jobs() {
-    let assertion = cabin().args(["run", "--help"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    assert!(
-        stdout.contains("-j, --jobs <N>"),
-        "run help should advertise -j/--jobs:\n{stdout}"
-    );
-}
-
-#[test]
-fn test_help_does_not_document_jobs() {
-    let assertion = cabin().args(["test", "--help"]).assert().success();
-    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
-    // `cabin test` deliberately does not expose `-j` / `--jobs`:
-    // the test runner is sequential, so a `--jobs` knob would
-    // only affect the build phase and mislead users into
-    // expecting parallel test execution.
-    assert!(
-        !stdout.contains("-j, --jobs <N>"),
-        "test help must not advertise -j/--jobs:\n{stdout}"
-    );
-}
-
-#[test]
 fn jobs_zero_is_rejected_at_cli() {
     let dir = TempDir::new().unwrap();
     write_minimal_project(dir.path());

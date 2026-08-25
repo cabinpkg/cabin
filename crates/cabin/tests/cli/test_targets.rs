@@ -163,11 +163,11 @@ fn build_default_does_not_build_dev_only_targets() {
 }
 
 #[test]
-fn cabin_test_builds_and_runs_passing_test() {
+fn short_alias_builds_and_runs_passing_test() {
     require_cxx_build_tools();
     let dir = passing_test_project();
     let assertion = cabin()
-        .args(["test", "--manifest-path"])
+        .args(["t", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
