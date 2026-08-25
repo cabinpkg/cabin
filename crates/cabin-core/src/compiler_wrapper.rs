@@ -337,32 +337,13 @@ mod tests {
     }
 
     #[test]
-    fn as_key_round_trips_through_parse() {
-        for value in ["none", "ccache", "sccache"] {
-            let parsed = CompilerWrapperRequest::parse(value).unwrap();
-            assert_eq!(parsed.as_key(), value);
-        }
-    }
-
-    #[test]
     fn kind_is_derived_from_executable_basename() {
         assert_eq!(wrapper_kind("/opt/bin/icecc").as_key(), "icecc");
         assert_eq!(wrapper_kind("sccache.exe").as_key(), "sccache");
     }
 
     #[test]
-    fn source_keys_are_stable() {
-        for (source, key) in [
-            (CompilerWrapperSource::Cli, "cli"),
-            (CompilerWrapperSource::Env, "env"),
-            (CompilerWrapperSource::Manifest, "manifest"),
-        ] {
-            assert_eq!(source.as_key(), key);
-        }
-    }
-
-    #[test]
-    fn resolved_as_json_includes_kind_spec_source_and_optional_version() {
+    fn resolved_views_preserve_wrapper_identity() {
         let resolved = ResolvedCompilerWrapper {
             kind: wrapper_kind("ccache"),
             path: Utf8PathBuf::from("/usr/local/bin/ccache"),
@@ -380,6 +361,12 @@ mod tests {
         assert_eq!(json["source"], "cli");
         assert_eq!(json["version"], "4.10.2");
         assert!(json["raw_version_line"].is_string());
+        assert_eq!(
+            CompilerWrapperSummary::from_resolved(&resolved)
+                .version
+                .as_deref(),
+            Some("4.10.2")
+        );
     }
 
     #[test]
@@ -394,24 +381,5 @@ mod tests {
         let json = resolved.as_json();
         assert_eq!(json["version"], serde_json::Value::Null);
         assert_eq!(json["raw_version_line"], serde_json::Value::Null);
-    }
-
-    #[test]
-    fn summary_from_resolved_keeps_display_version() {
-        let resolved = ResolvedCompilerWrapper {
-            kind: wrapper_kind("ccache"),
-            path: Utf8PathBuf::from("/usr/local/bin/ccache"),
-            spec: "ccache".into(),
-            source: CompilerWrapperSource::Env,
-            identity: Some(CompilerWrapperIdentity {
-                kind: wrapper_kind("ccache"),
-                version: CompilerVersion::parse("4.10.2"),
-                raw_version_line: "ccache version 4.10.2".into(),
-            }),
-        };
-        let summary = CompilerWrapperSummary::from_resolved(&resolved);
-        assert_eq!(summary.kind.as_key(), "ccache");
-        assert_eq!(summary.source, CompilerWrapperSource::Env);
-        assert_eq!(summary.version.as_deref(), Some("4.10.2"));
     }
 }

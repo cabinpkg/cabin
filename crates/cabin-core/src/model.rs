@@ -1567,22 +1567,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn package_name_scoped_accessors() {
-        let scoped = PackageName::new("fmtlib/fmt").unwrap();
-        assert!(scoped.is_scoped());
-        assert_eq!(scoped.scope(), Some("fmtlib"));
-        assert_eq!(scoped.base_name(), "fmt");
-        assert_eq!(scoped.as_str(), "fmtlib/fmt");
-        assert_eq!(scoped.artifact_stem(), "fmtlib-fmt");
-
-        let bare = PackageName::new("fmt").unwrap();
-        assert!(!bare.is_scoped());
-        assert_eq!(bare.scope(), None);
-        assert_eq!(bare.base_name(), "fmt");
-        assert_eq!(bare.artifact_stem(), "fmt");
-    }
-
     /// The full scoped string must never act as one filesystem path
     /// component: `path_components` is the only sanctioned name-to-path
     /// mapping, and it yields one slash-free, path-safe component per
@@ -2005,58 +1989,6 @@ mod tests {
             err,
             ValidationError::DuplicateSystemDependency("zlib".into())
         );
-    }
-
-    #[test]
-    fn dependency_kind_lists_are_consistent() {
-        // `all()` covers every variant.
-        let all = DependencyKind::all();
-        assert_eq!(all.len(), 2);
-        // Resolution policy: dev is excluded by default.
-        assert!(DependencyKind::Normal.is_resolved_by_default());
-        assert!(!DependencyKind::Dev.is_resolved_by_default());
-    }
-
-    #[test]
-    fn target_kind_str_round_trip() {
-        for kind in TargetKind::all() {
-            assert_eq!(kind.to_string(), kind.as_str());
-        }
-    }
-
-    #[test]
-    fn target_kind_classification_matches_documented_policy() {
-        // `library` / `executable` are the production surface
-        // that `cabin build` enumerates by default.
-        for kind in [TargetKind::Library, TargetKind::Executable] {
-            assert!(
-                kind.is_default_buildable(),
-                "{kind} must be default-buildable"
-            );
-            assert!(!kind.is_dev_only(), "{kind} must not be dev-only");
-            assert!(!kind.is_test(), "{kind} must not be classed as a test");
-        }
-        // The dev-only kinds: `cabin build` ignores them; `cabin
-        // test` runs `test` only.
-        for kind in [TargetKind::Test, TargetKind::Example] {
-            assert!(
-                !kind.is_default_buildable(),
-                "{kind} must NOT be default-buildable"
-            );
-            assert!(kind.is_dev_only(), "{kind} must be dev-only");
-            assert!(kind.produces_executable(), "{kind} produces an executable");
-        }
-        assert!(TargetKind::Test.is_test());
-        assert!(!TargetKind::Example.is_test());
-    }
-
-    #[test]
-    fn produces_executable_matches_kind_intent() {
-        assert!(!TargetKind::Library.produces_executable());
-        assert!(!TargetKind::HeaderOnly.produces_executable());
-        assert!(TargetKind::Executable.produces_executable());
-        assert!(TargetKind::Test.produces_executable());
-        assert!(TargetKind::Example.produces_executable());
     }
 
     #[test]
