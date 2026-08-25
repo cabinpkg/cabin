@@ -39,9 +39,10 @@ fn quiet_does_not_suppress_errors() {
         .args(["clean", "--quiet"])
         .assert()
         .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
     assert!(
-        !assertion.get_output().stderr.is_empty(),
-        "quiet suppressed the failure diagnostic"
+        stderr.contains("cabin::workspace::manifest_not_found"),
+        "quiet suppressed the failure diagnostic: {stderr}"
     );
 }
 
