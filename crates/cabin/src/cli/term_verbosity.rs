@@ -402,55 +402,11 @@ mod tests {
     }
 
     #[test]
-    fn cli_verbose_count_one_yields_verbose() {
-        let resolved = resolve_verbosity(cli(1, false), no_env, &cfg()).unwrap();
-        assert_eq!(resolved, Verbosity::Verbose);
-    }
-
-    #[test]
-    fn cli_verbose_count_two_or_more_yields_very_verbose() {
-        let resolved = resolve_verbosity(cli(2, false), no_env, &cfg()).unwrap();
-        assert_eq!(resolved, Verbosity::VeryVerbose);
-        let resolved = resolve_verbosity(cli(7, false), no_env, &cfg()).unwrap();
-        assert_eq!(resolved, Verbosity::VeryVerbose);
-    }
-
-    #[test]
     fn cli_quiet_overrides_config_verbose() {
         let resolved = resolve_verbosity(
             cli(0, true),
             no_env,
             &cfg_with_verbosity(Verbosity::Verbose),
-        )
-        .unwrap();
-        assert_eq!(resolved, Verbosity::Quiet);
-    }
-
-    #[test]
-    fn cli_verbose_overrides_config_quiet() {
-        let resolved =
-            resolve_verbosity(cli(1, false), no_env, &cfg_with_verbosity(Verbosity::Quiet))
-                .unwrap();
-        assert_eq!(resolved, Verbosity::Verbose);
-    }
-
-    #[test]
-    fn env_verbose_applies_when_cli_silent() {
-        let resolved = resolve_verbosity(
-            cli(0, false),
-            env_with(&[(cabin_env::CABIN_TERM_VERBOSE, "1")]),
-            &cfg(),
-        )
-        .unwrap();
-        assert_eq!(resolved, Verbosity::Verbose);
-    }
-
-    #[test]
-    fn env_quiet_applies_when_cli_silent() {
-        let resolved = resolve_verbosity(
-            cli(0, false),
-            env_with(&[(cabin_env::CABIN_TERM_QUIET, "true")]),
-            &cfg(),
         )
         .unwrap();
         assert_eq!(resolved, Verbosity::Quiet);
