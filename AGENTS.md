@@ -22,6 +22,8 @@ in the same change and follow the architecture document.
 
 - Resolve incompatible interpretations before coding. State any assumption
   that materially affects the result.
+- Do not modify `AGENTS.md` unless explicitly requested, or unless the current
+  change would otherwise make an existing instruction factually incorrect.
 - Make the smallest coherent change required. Do not refactor, reformat,
   clean up, or remove unrelated code, including pre-existing dead code.
 - Reuse existing code and patterns. Prefer direct Rust; add no speculative
