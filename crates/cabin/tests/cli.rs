@@ -2735,8 +2735,8 @@ mod diagnostics;
 /// - `--color` overrides `CABIN_TERM_COLOR`,
 /// - `--color always` produces ANSI escape sequences in
 ///   diagnostic output even when stderr is captured,
-/// - `--color never` produces none even when the env says
-///   `always`.
+/// - `--color never` produces no ANSI escape sequences,
+/// - top-level help exposes `--color`.
 #[path = "cli/color_control.rs"]
 mod color_control;
 

@@ -54,6 +54,13 @@ fn invalid_environment_color_is_reported_before_dispatch() {
 }
 
 #[test]
+fn top_level_help_advertises_color_option() {
+    let assertion = cabin().arg("--help").assert().success();
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
+    assert!(stdout.contains("--color"), "top-level help hid --color");
+}
+
+#[test]
 fn color_always_styles_diagnostics() {
     let stderr = stderr_with_color("always");
     assert!(
