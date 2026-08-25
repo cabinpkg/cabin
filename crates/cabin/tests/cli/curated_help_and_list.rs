@@ -22,6 +22,12 @@ fn list_includes_every_subcommand() {
         assert!(output.contains(&subcommand), "list omitted {subcommand}");
     }
     assert!(
+        output
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some("help")),
+        "list omitted help"
+    );
+    assert!(
         !output
             .lines()
             .any(|line| line.trim_start().starts_with("..."))

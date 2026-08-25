@@ -458,6 +458,7 @@ fn init_creates_requested_library() {
     let manifest_path = dir.path().join("cabin.toml");
     let manifest = fs::read_to_string(&manifest_path).expect("cabin.toml should be readable");
     assert!(manifest.contains(r#"type = "library""#));
+    assert!(dir.path().join(".gitignore").is_file());
 }
 
 #[test]
