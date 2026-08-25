@@ -169,6 +169,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn higher_levels_include_lower_level_output() {
+        assert!(Verbosity::Verbose.shows_status());
+        assert!(Verbosity::VeryVerbose.shows_verbose());
+    }
+
+    #[test]
     fn from_verbose_count_clamps_above_two() {
         assert_eq!(Verbosity::from_verbose_count(0), Verbosity::Normal);
         assert_eq!(Verbosity::from_verbose_count(1), Verbosity::Verbose);
