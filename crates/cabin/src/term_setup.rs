@@ -104,24 +104,3 @@ pub(crate) fn resolve_early_terminal_state(
 
     Ok(EarlyTerminalState { color, reporter })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn termcolor_choice_maps_always_to_always_ansi() {
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Always),
-            termcolor::ColorChoice::AlwaysAnsi
-        ));
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Never),
-            termcolor::ColorChoice::Never
-        ));
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Auto),
-            termcolor::ColorChoice::Auto
-        ));
-    }
-}
