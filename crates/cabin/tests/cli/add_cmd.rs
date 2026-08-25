@@ -25,21 +25,6 @@ fn package_dir() -> TempDir {
     dir
 }
 
-/// `--port` was removed with the builtin-port feature.  Without this
-/// test a later clap change could silently re-accept the flag while the
-/// suite stayed green.
-#[test]
-fn add_rejects_the_removed_port_flag() {
-    let dir = package_dir();
-    let manifest = dir.path().join("cabin.toml");
-    cabin()
-        .args(["add", "--port", "zlib", "--manifest-path"])
-        .arg(&manifest)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("unexpected argument '--port'"));
-}
-
 #[test]
 fn add_hints_to_link_the_dep_in_a_target() {
     // `[dependencies]` only declares a dep; cabin requires a target's

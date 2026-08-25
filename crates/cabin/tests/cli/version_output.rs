@@ -10,11 +10,8 @@ fn run_version(args: &[&str]) -> String {
 }
 
 #[test]
-fn top_level_version_prints_the_compatibility_line() {
-    assert_eq!(
-        run_version(&["--version"]),
-        format!("cabin {CABIN_VERSION}\n")
-    );
+fn short_version_alias_prints_the_compatibility_line() {
+    assert_eq!(run_version(&["-V"]), format!("cabin {CABIN_VERSION}\n"));
 }
 
 #[test]
