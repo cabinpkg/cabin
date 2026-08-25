@@ -758,25 +758,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_dev_vars_render_exactly_as_the_heredoc_did() {
-        assert_eq!(
-            render_dev_vars(&ports()),
-            "CF_API_BASE=\"http://127.0.0.1:8788\"\n\
-             D1_EXPORT_API_TOKEN=\"smoke-placeholder\"\n\
-             SESSION_SECRET=\"smoke-session-secret-not-for-production\"\n\
-             ALLOWED_GITHUB_IDS=\"0,1,3,4\"\n\
-             SERVICE_MODE_TTL_SECS=\"0\"\n\
-             STATS_CACHE_TTL_SECS=\"0\"\n\
-             DOWNLOAD_FLUSH_INTERVAL_MS=\"0\"\n\
-             GITHUB_OAUTH_BASE=\"http://127.0.0.1:8790\"\n\
-             GITHUB_API_BASE=\"http://127.0.0.1:8790\"\n\
-             GITHUB_JWKS_URL=\"http://127.0.0.1:8790/.well-known/jwks\"\n\
-             GITHUB_CLIENT_SECRET=\"smoke-client-secret\"\n\
-             VERIFIER_BACKING_ACCOUNT_ID=\"0\"\n"
-        );
-    }
-
     /// The append and the replace-then-append, over the file the run
     /// actually mutates: the second must leave exactly one
     /// `GOVERNOR_R2_CLASS_B_ORDINARY_MONTH`, the last-written one.

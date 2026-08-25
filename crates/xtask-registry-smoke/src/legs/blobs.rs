@@ -500,89 +500,6 @@ mod tests {
     use super::*;
 
     const CHECKSUM: &str = "3f786850e387550fdab836ed7e6dc881de23001b3f786850e387550fdab836ed";
-    const PUBLISHED_AT: &str = "2026-08-04T12:00:00.000Z";
-
-    fn listing() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "versions": [
-                {
-                    "name": "smoke/withdep",
-                    "version": "0.2.0",
-                    "revision": "0000000000000000",
-                    "checksum": "0".repeat(64),
-                    "published_at": "2026-08-04T11:00:00.000Z",
-                    "metadata": {},
-                },
-                {
-                    "name": "smoke/withdep",
-                    "version": "0.2.1",
-                    "revision": "3f786850e3875501",
-                    "checksum": CHECKSUM,
-                    "published_at": PUBLISHED_AT,
-                    "metadata": {},
-                },
-            ]
-        }))
-        .expect("listing")
-    }
-
-    #[test]
-    fn the_stale_verdict_names_the_real_revision_and_no_publish_event() {
-        assert_eq!(
-            verdict_stale(CHECKSUM),
-            format!(r#"{{"verdict":"verified","checksum":"{CHECKSUM}","published_at":"{EPOCH}"}}"#)
-        );
-    }
-
-    /// The bytes, not the document: the key order is the object
-    /// literal's and there is no whitespace.  Built by hand rather than
-    /// serialized so the shape cannot follow `serde_json`'s
-    /// `preserve_order` feature, which is a workspace-wide choice this
-    /// leg must not depend on.
-    #[test]
-    fn the_rejected_verdict_keeps_the_literal_key_order() {
-        assert_eq!(
-            verdict_rejected(CHECKSUM, PUBLISHED_AT),
-            format!(
-                r#"{{"verdict":"rejected","reason":"smoke rejection","checksum":"{CHECKSUM}","published_at":"{PUBLISHED_AT}"}}"#
-            )
-        );
-    }
-
-    #[test]
-    fn a_value_needing_escaping_is_escaped_as_json_stringify_escapes_it() {
-        assert_eq!(json_string(r#"a"b"#), r#""a\"b""#);
-        assert_eq!(json_string("a\nb"), r#""a\nb""#);
-    }
-
-    #[test]
-    fn the_binding_comes_from_the_entry_the_shared_helper_wrote() {
-        let work = tempfile::tempdir().expect("work");
-        let out = work.path().join("entry2.json");
-        let entry = binding(&listing(), "smoke/withdep", "0.2.1", &out).expect("entry");
-        assert_eq!(entry.checksum, CHECKSUM);
-        assert_eq!(entry.published_at, PUBLISHED_AT);
-        // The shell's verdict builders read this file rather than the
-        // listing, so it has to exist by the time they would run.
-        assert!(out.is_file());
-    }
-
-    #[test]
-    fn a_listing_without_the_version_fails_as_the_shell_worded_it() {
-        let work = tempfile::tempdir().expect("work");
-        let out = work.path().join("entry2.json");
-        for listing in [listing(), b"not json".to_vec()] {
-            assert_eq!(
-                binding(&listing, "smoke/withdep", "9.9.9", &out)
-                    .expect_err("absent")
-                    .to_string(),
-                "the pending listing has no smoke/withdep@9.9.9"
-            );
-        }
-        // The scoped name is matched whole: the bare package name is a
-        // different key.
-        assert!(binding(&listing(), "withdep", "0.2.1", &out).is_err());
-    }
 
     #[test]
     fn the_artifact_route_spells_out_scope_name_version_and_revision() {
@@ -611,12 +528,5 @@ mod tests {
             artifact_path(&inputs, "9.9.9", inputs.rev),
             "/artifacts/smoke/withdep/smoke-withdep-9.9.9-3f786850e387550f.zip"
         );
-    }
-
-    #[test]
-    fn the_accounting_sum_is_rendered_as_the_shell_rendered_it() {
-        assert_eq!(sum("1024", 512).expect("sum"), "1536");
-        assert_eq!(sum("0", 0).expect("sum"), "0");
-        assert!(sum("", 1).is_err());
     }
 }

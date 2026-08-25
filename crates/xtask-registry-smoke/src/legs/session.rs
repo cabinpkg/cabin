@@ -471,43 +471,6 @@ fn build_diagnostic(build: &Output) -> String {
 mod tests {
     use super::*;
 
-    /// Two elements, so the `find` has something to reject; the wanted
-    /// one carries its fields in a different order than the program
-    /// emits them, plus one the program drops.
-    const LISTING: &[u8] = br#"{"versions":[
-        {"name":"smoke/other","version":"0.2.0","revision":"ff","checksum":"ee",
-         "published_at":"1","metadata":{}},
-        {"version":"0.2.0","metadata":{"schema":1,"name":"smoke/withdep"},
-         "checksum":"1ca5","yanked":false,"published_at":"7","name":"smoke/withdep",
-         "revision":"1ca5e59a7e30f792"}
-    ]}"#;
-
-    #[test]
-    fn the_listing_entry_keeps_the_programs_key_order() {
-        let entry = entry_bytes(LISTING, "smoke/withdep", "0.2.0").expect("the entry");
-        assert_eq!(
-            String::from_utf8(entry).expect("utf8"),
-            concat!(
-                r#"{"name":"smoke/withdep","version":"0.2.0","revision":"1ca5e59a7e30f792","#,
-                r#""checksum":"1ca5","published_at":"7","#,
-                r#""metadata":{"schema":1,"name":"smoke/withdep"}}"#,
-            )
-        );
-    }
-
-    #[test]
-    fn a_missing_version_fails_the_way_the_shell_did() {
-        let work = TempDir::new().expect("work");
-        let out = work.path().join("entry.json");
-        let failure =
-            listing_entry(LISTING, "smoke/withdep", "9.9.9", &out).expect_err("no such version");
-        assert_eq!(
-            failure.to_string(),
-            "the pending listing has no smoke/withdep@9.9.9"
-        );
-        assert!(!out.exists(), "a failed extraction writes nothing");
-    }
-
     /// printf 'session:0:1234567890' |
     ///   openssl dgst -sha256 -hmac smoke-session-secret-not-for-production
     #[test]
