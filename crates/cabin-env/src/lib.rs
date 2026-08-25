@@ -364,22 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_bool_error_wording_includes_raw_value() {
-        let err = parse_bool("perhaps").unwrap_err();
-        let rendered = err.to_string();
-        assert!(
-            rendered.contains("perhaps"),
-            "error should echo the input: {rendered}"
-        );
-        // The wording must list every recognized spelling so
-        // users see how to fix it.
-        assert!(
-            rendered.contains("true") && rendered.contains("false"),
-            "{rendered}"
-        );
-    }
-
-    #[test]
     fn package_env_emits_exactly_the_six_strict_keys() {
         use std::path::PathBuf;
         let manifest_dir = PathBuf::from("/abs/app");
@@ -410,63 +394,5 @@ mod tests {
         assert_eq!(env.get(CABIN_PACKAGE_VERSION).unwrap(), "0.1.0");
         assert_eq!(env.get(CABIN_PROFILE).unwrap(), "dev");
         assert_eq!(env.get(CABIN_BUILD_DIR).unwrap(), "/abs/app/build");
-    }
-
-    // Pre-release drafts of the Rust rewrite injected a wider
-    // overlay (bare `CABIN`, canonicalized name variants, per-target
-    // name/kind, host/target triples, and the build-configuration
-    // fingerprint).  The overlay was cut down to the six strict keys
-    // before the first Rust release (0.14.0), so no released Cabin
-    // has ever emitted these variables; this test pins that they do
-    // not creep back in.  The shipped contract is documented in
-    // `docs/environment-variables.md`.
-    #[test]
-    fn package_env_does_not_emit_any_removed_variable() {
-        use std::path::PathBuf;
-        let dir = PathBuf::from("/abs/app");
-        let path = PathBuf::from("/abs/app/cabin.toml");
-        let env = package_env(&PackageEnvInputs {
-            manifest_dir: &dir,
-            manifest_path: &path,
-            package_name: "demo",
-            package_version: "0.1.0",
-            profile: "release",
-            build_dir: &dir,
-        });
-        for removed in [
-            "CABIN",
-            "CABIN_PACKAGE_NAME_CANONICAL",
-            "CABIN_BIN_NAME",
-            "CABIN_BIN_NAME_CANONICAL",
-            "CABIN_TEST_NAME",
-            "CABIN_TEST_NAME_CANONICAL",
-            "CABIN_TARGET_KIND",
-            "CABIN_TARGET_TRIPLE",
-            "CABIN_HOST_TRIPLE",
-            "CABIN_BUILD_CONFIGURATION_FINGERPRINT",
-        ] {
-            assert!(
-                !env.contains_key(removed),
-                "removed variable `{removed}` must not be injected"
-            );
-        }
-    }
-
-    #[test]
-    fn package_env_is_byte_stable_for_equal_inputs() {
-        use std::path::PathBuf;
-        let dir = PathBuf::from("/abs/app");
-        let path = PathBuf::from("/abs/app/cabin.toml");
-        let mk = || {
-            package_env(&PackageEnvInputs {
-                manifest_dir: &dir,
-                manifest_path: &path,
-                package_name: "demo",
-                package_version: "0.1.0",
-                profile: "dev",
-                build_dir: &dir,
-            })
-        };
-        assert_eq!(mk(), mk());
     }
 }

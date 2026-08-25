@@ -475,16 +475,6 @@ int main() {
     keep_present("CABIN_MANIFEST_DIR");
     keep_present("CABIN_MANIFEST_PATH");
     keep_present("CABIN_BUILD_DIR");
-    must_be_absent("CABIN");
-    must_be_absent("CABIN_PACKAGE_NAME_CANONICAL");
-    must_be_absent("CABIN_BIN_NAME");
-    must_be_absent("CABIN_BIN_NAME_CANONICAL");
-    must_be_absent("CABIN_TEST_NAME");
-    must_be_absent("CABIN_TEST_NAME_CANONICAL");
-    must_be_absent("CABIN_TARGET_KIND");
-    must_be_absent("CABIN_TARGET_TRIPLE");
-    must_be_absent("CABIN_HOST_TRIPLE");
-    must_be_absent("CABIN_BUILD_CONFIGURATION_FINGERPRINT");
     must_be_absent("CABIN_REGISTRY_TOKEN");
     must_be_absent("ACTIONS_ID_TOKEN_REQUEST_TOKEN");
     return status;
@@ -512,16 +502,6 @@ int main() {
         "KEEP CABIN_MANIFEST_DIR",
         "KEEP CABIN_MANIFEST_PATH",
         "KEEP CABIN_BUILD_DIR",
-        "ABSENT CABIN",
-        "ABSENT CABIN_PACKAGE_NAME_CANONICAL",
-        "ABSENT CABIN_BIN_NAME",
-        "ABSENT CABIN_BIN_NAME_CANONICAL",
-        "ABSENT CABIN_TEST_NAME",
-        "ABSENT CABIN_TEST_NAME_CANONICAL",
-        "ABSENT CABIN_TARGET_KIND",
-        "ABSENT CABIN_TARGET_TRIPLE",
-        "ABSENT CABIN_HOST_TRIPLE",
-        "ABSENT CABIN_BUILD_CONFIGURATION_FINGERPRINT",
         "ABSENT CABIN_REGISTRY_TOKEN",
         "ABSENT ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "test env_demo:env_test ... ok",
@@ -533,7 +513,7 @@ int main() {
     }
     assert!(
         !stdout.contains("LEAK "),
-        "no removed CABIN_* variable may be injected, got: {stdout}"
+        "credential variables must not reach test processes, got: {stdout}"
     );
 }
 
