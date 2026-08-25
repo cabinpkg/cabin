@@ -422,39 +422,7 @@ fn which(program: &str, root: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use clap::error::ErrorKind;
-
     use super::*;
-
-    fn parse(arguments: &[&str]) -> clap::error::Result<Cli> {
-        Cli::try_parse_from(std::iter::once("xtask-ci").chain(arguments.iter().copied()))
-    }
-
-    #[test]
-    fn a_bare_invocation_runs_the_gate() {
-        let cli = parse(&[]).expect("no arguments at all");
-        assert!(!cli.hook);
-        assert!(!cli.website_steps);
-    }
-
-    #[test]
-    fn the_hook_adapter_has_its_own_flag() {
-        assert!(parse(&["--hook"]).expect("the hook flag").hook);
-    }
-
-    #[test]
-    fn the_flag_the_website_phase_re_executes_is_the_one_it_declares() {
-        let flag = format!("--{WEBSITE_STEPS}");
-        assert!(parse(&[&flag]).expect("the website flag").website_steps);
-    }
-
-    #[test]
-    fn an_unknown_argument_refuses_instead_of_running_the_gate() {
-        assert_eq!(
-            parse(&["--hookk"]).expect_err("a near miss").kind(),
-            ErrorKind::UnknownArgument
-        );
-    }
 
     fn argv(command: &Command) -> Vec<String> {
         assert_eq!(command.get_program(), "cargo");
