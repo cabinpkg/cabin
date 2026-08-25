@@ -21,6 +21,11 @@ fn list_includes_every_subcommand() {
     for subcommand in all_subcommand_names() {
         assert!(output.contains(&subcommand), "list omitted {subcommand}");
     }
+    assert!(
+        !output
+            .lines()
+            .any(|line| line.trim_start().starts_with("..."))
+    );
 }
 
 #[test]
@@ -48,6 +53,7 @@ fn hidden_subcommands_still_get_man_pages() {
         assert!(page.is_file(), "missing man page {}", page.display());
         assert!(page.metadata().unwrap().len() > 0, "empty man page");
     }
+    assert!(!output_dir.join("cabin-....1").exists());
 }
 
 #[test]
