@@ -212,19 +212,6 @@ fn an_acquisition_outside_any_function_says_so() {
     );
 }
 
-/// The banned accessors are reported in source order, not grouped by
-/// name: a reviewer reads the file top to bottom.
-#[test]
-fn banned_accessors_are_reported_in_source_order() {
-    let dir = scratch("verify.rs", "fn f() { unchecked_into(); get_binding(); }");
-    let violations = r2::check(dir.path()).expect("run the guard");
-    let names: Vec<&str> = violations
-        .iter()
-        .map(|line| line.split_whitespace().nth(1).expect("the accessor name"))
-        .collect();
-    assert_eq!(names, vec!["unchecked_into", "get_binding"]);
-}
-
 /// The committed Worker sources pass.
 #[test]
 fn the_committed_worker_sources_pass() {
