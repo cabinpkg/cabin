@@ -390,6 +390,8 @@ mod tests {
             ],
             "package_env must emit exactly the six strict keys in BTreeMap order"
         );
+        assert_eq!(env.get(CABIN_MANIFEST_DIR).unwrap(), "/abs/app");
+        assert_eq!(env.get(CABIN_MANIFEST_PATH).unwrap(), "/abs/app/cabin.toml");
         assert_eq!(env.get(CABIN_PACKAGE_NAME).unwrap(), "my-pkg");
         assert_eq!(env.get(CABIN_PACKAGE_VERSION).unwrap(), "0.1.0");
         assert_eq!(env.get(CABIN_PROFILE).unwrap(), "dev");
