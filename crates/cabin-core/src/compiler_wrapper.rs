@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_as_json_includes_kind_spec_source_and_optional_version() {
+    fn resolved_views_preserve_wrapper_identity() {
         let resolved = ResolvedCompilerWrapper {
             kind: wrapper_kind("ccache"),
             path: Utf8PathBuf::from("/usr/local/bin/ccache"),
@@ -361,6 +361,12 @@ mod tests {
         assert_eq!(json["source"], "cli");
         assert_eq!(json["version"], "4.10.2");
         assert!(json["raw_version_line"].is_string());
+        assert_eq!(
+            CompilerWrapperSummary::from_resolved(&resolved)
+                .version
+                .as_deref(),
+            Some("4.10.2")
+        );
     }
 
     #[test]
