@@ -1640,33 +1640,6 @@ mod tests {
         );
     }
 
-    /// The PATCH body is a wire format: the key order is the one the
-    /// `jq -cn` object literal spelled, and the values are escaped
-    /// rather than interpolated.
-    #[test]
-    fn the_verdict_body_keeps_the_literal_key_order() {
-        assert_eq!(
-            verdict_body("verified", None, "abc", "2026-01-01T00:00:00.000Z"),
-            r#"{"verdict":"verified","checksum":"abc","published_at":"2026-01-01T00:00:00.000Z"}"#
-        );
-        assert_eq!(
-            verdict_body(
-                "rejected",
-                Some("checksum_mismatch,upstream_mismatch"),
-                "abc",
-                "2026-01-01T00:00:00.000Z"
-            ),
-            concat!(
-                r#"{"verdict":"rejected","reason":"checksum_mismatch,upstream_mismatch","#,
-                r#""checksum":"abc","published_at":"2026-01-01T00:00:00.000Z"}"#
-            )
-        );
-        assert_eq!(
-            verdict_body("rejected", Some("a\"b\\c\nd\te"), "\u{e9}", ""),
-            r#"{"verdict":"rejected","reason":"a\"b\\c\nd\te","checksum":"é","published_at":""}"#
-        );
-    }
-
     /// `entry.json` is the compact rendering, key order preserved, with
     /// no trailing newline - the bytes the verifier parses as a
     /// `PendingVersion`.

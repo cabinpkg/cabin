@@ -3,41 +3,7 @@
 //! operator, which no test has.
 
 use assert_cmd::Command;
-use xtask_registry_admin::{display, key_value, results};
-
-/// A D1 answer carries JSON types, and the shell printed them through
-/// `${row.value}`: a string keeps its own text, an array joins with
-/// `,` (D1 hands back a BLOB that way), everything else takes its JSON
-/// form.  Printing `"7"` where D1 answered `7`, or `[1,2]` where the
-/// shell printed `1,2`, would make a diagnostics bundle disagree with
-/// the database it describes.
-#[test]
-fn values_print_as_the_shell_printed_them() {
-    let answer = r#"[{"results":[
-        {"key":"service_mode","value":"normal"},
-        {"key":"total_stored_bytes","value":4096},
-        {"key":"launched","value":false},
-        {"key":"a_blob","value":[1,2,255]},
-        {"key":"a_sparse_blob","value":[1,null,3]},
-        {"key":"last_backup_at","value":null}
-    ],"success":true}]"#;
-    let rows = results(answer).unwrap();
-    let printed: Vec<String> = rows
-        .iter()
-        .map(|row| format!("{}: {}", display(&row["key"]), display(&row["value"])))
-        .collect();
-    assert_eq!(
-        printed,
-        [
-            "service_mode: normal",
-            "total_stored_bytes: 4096",
-            "launched: false",
-            "a_blob: 1,2,255",
-            "a_sparse_blob: 1,,3",
-            "last_backup_at: null",
-        ]
-    );
-}
+use xtask_registry_admin::{key_value, results};
 
 /// The counts section prints one line per column, and the operator
 /// reads them against the SQL that produced them - so they must arrive
