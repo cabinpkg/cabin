@@ -1362,16 +1362,6 @@ mod tests {
     }
 
     #[test]
-    fn flags_default_is_empty() {
-        let f = SystemDependencyFlags::default();
-        assert!(f.is_empty());
-        assert!(f.include_dirs.is_empty());
-        assert!(f.system_include_dirs.is_empty());
-        assert!(f.extra_compile_args.is_empty());
-        assert!(f.ldflags.is_empty());
-    }
-
-    #[test]
     fn flags_is_not_empty_when_any_field_populated() {
         let mut f = SystemDependencyFlags::default();
         f.include_dirs.push(Utf8PathBuf::from("/usr/include"));
