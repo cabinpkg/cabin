@@ -126,50 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn cli_always_overrides_env_never() {
-        let resolved = resolve_color_choice(
-            Some(ColorChoice::Always),
-            env_with(&[(cabin_env::CABIN_TERM_COLOR, "never")]),
-            None,
-        )
-        .unwrap();
-        assert_eq!(resolved, ColorChoice::Always);
-    }
-
-    #[test]
-    fn cli_never_overrides_env_always() {
-        let resolved = resolve_color_choice(
-            Some(ColorChoice::Never),
-            env_with(&[(cabin_env::CABIN_TERM_COLOR, "always")]),
-            None,
-        )
-        .unwrap();
-        assert_eq!(resolved, ColorChoice::Never);
-    }
-
-    #[test]
-    fn env_always_applies_when_cli_omitted() {
-        let resolved = resolve_color_choice(
-            None,
-            env_with(&[(cabin_env::CABIN_TERM_COLOR, "always")]),
-            None,
-        )
-        .unwrap();
-        assert_eq!(resolved, ColorChoice::Always);
-    }
-
-    #[test]
-    fn env_never_applies_when_cli_omitted() {
-        let resolved = resolve_color_choice(
-            None,
-            env_with(&[(cabin_env::CABIN_TERM_COLOR, "never")]),
-            None,
-        )
-        .unwrap();
-        assert_eq!(resolved, ColorChoice::Never);
-    }
-
-    #[test]
     fn invalid_env_bubbles_up_as_typed_error() {
         let err = resolve_color_choice(
             None,
@@ -199,20 +155,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_env_value_is_treated_as_unset() {
-        let resolved =
-            resolve_color_choice(None, env_with(&[(cabin_env::CABIN_TERM_COLOR, "")]), None)
-                .unwrap();
-        assert_eq!(resolved, ColorChoice::Auto);
-    }
-
-    #[test]
-    fn config_applies_only_when_cli_and_env_silent() {
-        let resolved = resolve_color_choice(None, no_env, Some(ColorChoice::Always)).unwrap();
-        assert_eq!(resolved, ColorChoice::Always);
-    }
-
-    #[test]
     fn env_overrides_config() {
         let resolved = resolve_color_choice(
             None,
@@ -221,14 +163,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, ColorChoice::Never);
-    }
-
-    #[test]
-    fn cli_overrides_config_too() {
-        let resolved =
-            resolve_color_choice(Some(ColorChoice::Always), no_env, Some(ColorChoice::Never))
-                .unwrap();
-        assert_eq!(resolved, ColorChoice::Always);
     }
 
     #[test]

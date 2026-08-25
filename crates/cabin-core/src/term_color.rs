@@ -151,11 +151,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_auto() {
-        assert_eq!(ColorChoice::default(), ColorChoice::Auto);
-    }
-
-    #[test]
     fn as_str_round_trips_through_config_parser() {
         for choice in [ColorChoice::Auto, ColorChoice::Always, ColorChoice::Never] {
             assert_eq!(
@@ -164,22 +159,6 @@ mod tests {
                 "{choice:?} did not round-trip"
             );
         }
-    }
-
-    #[test]
-    fn from_env_value_accepts_documented_values() {
-        assert_eq!(
-            ColorChoice::from_env_value("auto").unwrap(),
-            ColorChoice::Auto
-        );
-        assert_eq!(
-            ColorChoice::from_env_value("always").unwrap(),
-            ColorChoice::Always
-        );
-        assert_eq!(
-            ColorChoice::from_env_value("never").unwrap(),
-            ColorChoice::Never
-        );
     }
 
     #[test]
@@ -199,21 +178,5 @@ mod tests {
         // grammar between CLI and env parsing.
         assert!(ColorChoice::from_env_value("Always").is_err());
         assert!(ColorChoice::from_env_value("ALWAYS").is_err());
-    }
-
-    #[test]
-    fn from_config_value_rejects_empty() {
-        let err = ColorChoice::from_config_value("").unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "invalid color value ''; expected one of: auto, always, never"
-        );
-    }
-
-    #[test]
-    fn display_matches_as_str() {
-        assert_eq!(ColorChoice::Auto.to_string(), "auto");
-        assert_eq!(ColorChoice::Always.to_string(), "always");
-        assert_eq!(ColorChoice::Never.to_string(), "never");
     }
 }

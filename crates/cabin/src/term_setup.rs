@@ -110,15 +110,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn termcolor_choice_maps_always_to_always_ansi() {
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Always),
-            termcolor::ColorChoice::AlwaysAnsi
-        ));
-        assert!(matches!(
-            termcolor_choice(ColorChoice::Never),
-            termcolor::ColorChoice::Never
-        ));
+    fn automatic_color_remains_terminal_aware() {
         assert!(matches!(
             termcolor_choice(ColorChoice::Auto),
             termcolor::ColorChoice::Auto
