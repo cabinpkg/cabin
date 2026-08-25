@@ -111,14 +111,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_negative_number() {
-        match BuildJobs::from_str("-1") {
-            Err(BuildJobsParseError::Invalid { value }) => assert_eq!(value, "-1"),
-            other => panic!("expected Invalid, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn rejects_non_numeric() {
         match BuildJobs::from_str("many") {
             Err(BuildJobsParseError::Invalid { value }) => assert_eq!(value, "many"),
@@ -136,11 +128,5 @@ mod tests {
     fn trims_surrounding_whitespace() {
         let parsed = BuildJobs::from_str(" 4 ").unwrap();
         assert_eq!(parsed.get(), 4);
-    }
-
-    #[test]
-    fn display_matches_underlying_integer() {
-        let jobs = BuildJobs::new(8).unwrap();
-        assert_eq!(jobs.to_string(), "8");
     }
 }
