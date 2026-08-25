@@ -104,3 +104,16 @@ pub(crate) fn resolve_early_terminal_state(
 
     Ok(EarlyTerminalState { color, reporter })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_color_remains_terminal_aware() {
+        assert!(matches!(
+            termcolor_choice(ColorChoice::Auto),
+            termcolor::ColorChoice::Auto
+        ));
+    }
+}

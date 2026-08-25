@@ -107,10 +107,9 @@ fn discovered_config_color_applies_without_stronger_inputs() {
         .child("config.toml")
         .write_str("[term]\ncolor = \"always\"\n")
         .unwrap();
-    let assertion = cabin()
+    let assertion = cabin_with_config()
         .current_dir(dir.path())
         .arg("metadata")
-        .env_remove("CABIN_NO_CONFIG")
         .env_remove("CABIN_TERM_COLOR")
         .env("CABIN_CONFIG_HOME", config_home.path())
         .assert()
