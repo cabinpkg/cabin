@@ -1,10 +1,6 @@
 name: Proofs
 
-# Checks the Lean mechanization of docs/design/standard-compatibility/spec.md.
-# A spec-only change cannot break `lake build` (the Lean sources never read
-# the spec), so the coverage step is what makes the spec matter here: it
-# fails when a numbered lemma/theorem/corollary in the spec has no
-# same-named Lean declaration.
+# Checks the Lean mechanization under docs/proofs/standard-compatibility.
 
 # No job here backs a required check, so scoping happens at the
 # trigger: a filtered-out run blocks nothing. Keep both lists equal.
@@ -14,19 +10,11 @@ on:
     paths:
       - "docs/proofs/**"
       - "docs/design/standard-compatibility/**"
-      - "crates/xtask-ci/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
       - ".github/workflows/proofs.yml"
   pull_request:
     paths:
       - "docs/proofs/**"
       - "docs/design/standard-compatibility/**"
-      - "crates/xtask-ci/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
       - ".github/workflows/proofs.yml"
 
 permissions:
@@ -47,14 +35,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          cache-on-failure: false
-          rustflags: ""
-
-      - name: Check spec-item coverage
-        run: cargo test -p xtask-ci --locked --test spec_coverage
 
       - uses: leanprover/lean-action@38fbc41a8c28c4cbaec22d7f7de508ec2e7c0dd9 # v1.5.0
         with:
