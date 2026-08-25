@@ -30,7 +30,7 @@ fn version_works_outside_a_workspace() {
 
 #[test]
 fn verbose_version_reports_release_metadata() {
-    let stdout = run_version(&["version", "--verbose"]);
+    let stdout = run_version(&["--version", "--verbose"]);
     assert!(stdout.starts_with(&format!("cabin {CABIN_VERSION}\n")));
     assert!(stdout.contains(&format!("release: {CABIN_VERSION}\n")));
 }
