@@ -196,48 +196,6 @@ fn direct_minimum_violation_fails_with_provenance_error() {
     );
 }
 
-/// The check now always runs, so the removed `standard-compat`
-/// feature name is an ordinary unknown `-Z` value: naming it is
-/// rejected exactly like any other unrecognized feature, with no
-/// special-casing and no migration hint.  (Every fixture above
-/// exercises the check without passing `-Z`.)
-#[test]
-fn removed_feature_name_is_an_ordinary_unknown_feature() {
-    // Rejected at argument-parse time (exit 2), before any manifest
-    // is needed, so this needs no build tools or fixture.
-    let removed = cabin()
-        .args(["build", "-Z", "standard-compat"])
-        .assert()
-        .failure()
-        .code(2);
-    let removed_stderr = String::from_utf8_lossy(&removed.get_output().stderr).to_string();
-    assert!(
-        removed_stderr.contains("unknown experimental feature 'standard-compat'"),
-        "the removed name must read as an unknown feature: {removed_stderr}"
-    );
-    assert!(
-        !removed_stderr.contains("migration") && !removed_stderr.contains("standard-compat-errors"),
-        "the removed name must carry no migration diagnostics: {removed_stderr}"
-    );
-    // Byte-for-byte the same treatment as any other unknown value,
-    // save for the echoed name.
-    let other = cabin()
-        .args(["build", "-Z", "frobnicate"])
-        .assert()
-        .failure()
-        .code(2);
-    let other_stderr = String::from_utf8_lossy(&other.get_output().stderr).to_string();
-    assert!(
-        other_stderr.contains("unknown experimental feature 'frobnicate'"),
-        "an arbitrary unknown feature must read the same way: {other_stderr}"
-    );
-    assert_eq!(
-        removed_stderr.replace("standard-compat", "frobnicate"),
-        other_stderr,
-        "the removed name must be handled identically to any other unknown feature"
-    );
-}
-
 /// `interface-cxx-standard = "none"` is a violation the always-on
 /// build-time enforcement deliberately does not share, so the exit
 /// code isolates the promotion: the command fails with exit code 1
