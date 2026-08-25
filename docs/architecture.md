@@ -615,11 +615,6 @@ children: the signal-safe teardown (`spawn_tracked`/`reap`/`kill_group`, the tea
 restore) is public API consumed by `xtask-registry-smoke`, and a change to its process semantics
 is a change to every consumer's cancellation story.
 
-Its `tests/spec_coverage.rs` holds the spec-item coverage check that `proofs.yml` runs: every
-`**L/T/C<n>**` item in `docs/design/standard-compatibility/spec.md` must have a same-named
-`theorem`/`def` declaration in the Lean mechanization.  As a workspace test it also runs with
-every full test sweep, so spec drift does not wait for a proofs-path push.
-
 ### `xtask-registry-smoke`
 
 Repository-owned maintainer tool (`publish = false`) holding the registry smoke test, reached
