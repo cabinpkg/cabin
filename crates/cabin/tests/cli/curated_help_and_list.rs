@@ -61,8 +61,9 @@ fn no_arguments_prints_curated_help() {
 }
 
 #[test]
-fn help_ends_with_the_command_list_hint() {
+fn help_lists_a_command_before_the_command_list_hint() {
     let listed = parse_help_commands_block(&run_ok(&["--help"]));
+    assert!(listed.iter().any(|name| name == "init"));
     assert_eq!(listed.last().map(String::as_str), Some("..."));
 }
 
