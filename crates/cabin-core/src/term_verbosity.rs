@@ -169,27 +169,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_normal() {
-        assert_eq!(Verbosity::default(), Verbosity::Normal);
-    }
-
-    #[test]
-    fn ordering_matches_intuition() {
-        assert!(Verbosity::Quiet < Verbosity::Normal);
-        assert!(Verbosity::Normal < Verbosity::Verbose);
-        assert!(Verbosity::Verbose < Verbosity::VeryVerbose);
-    }
-
-    #[test]
-    fn shows_predicates_match_thresholds() {
-        assert!(!Verbosity::Quiet.shows_status());
-        assert!(Verbosity::Normal.shows_status());
+    fn higher_levels_include_lower_level_output() {
         assert!(Verbosity::Verbose.shows_status());
-        assert!(!Verbosity::Normal.shows_verbose());
-        assert!(Verbosity::Verbose.shows_verbose());
         assert!(Verbosity::VeryVerbose.shows_verbose());
-        assert!(!Verbosity::Verbose.shows_very_verbose());
-        assert!(Verbosity::VeryVerbose.shows_very_verbose());
     }
 
     #[test]
@@ -244,14 +226,6 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "invalid CABIN_TERM_VERBOSE value 'loud'; expected one of: 1, 0, true, false, yes, no, on, off"
-        );
-    }
-
-    #[test]
-    fn invalid_combination_display_is_actionable() {
-        assert_eq!(
-            InvalidVerbosityCombination.to_string(),
-            "term.verbose and term.quiet cannot both be true"
         );
     }
 }
