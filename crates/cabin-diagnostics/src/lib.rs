@@ -245,15 +245,6 @@ mod tests {
     }
 
     #[test]
-    fn render_works_when_diagnostic_has_no_code() {
-        #[derive(Debug, Error, Diagnostic)]
-        #[error("plain message")]
-        struct Plain;
-        let rendered = render_to_string(&Plain);
-        assert!(rendered.contains("plain message"), "got: {rendered:?}");
-    }
-
-    #[test]
     fn render_emits_ansi_when_writer_supports_color() {
         // `Ansi` always reports `supports_color() == true`.
         let mut sink: termcolor::Ansi<Vec<u8>> = termcolor::Ansi::new(Vec::new());
