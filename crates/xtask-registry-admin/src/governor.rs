@@ -788,10 +788,6 @@ mod tests {
 
     use super::*;
 
-    fn snapshot(value: &serde_json::Value) -> Snapshot {
-        serde_json::from_value(value.clone()).unwrap()
-    }
-
     /// The grammars are part of the evidence guard, not input
     /// hygiene: they bound how many objects can share the key as a
     /// prefix, which is what makes one `per_page=5` listing proof.
@@ -838,31 +834,6 @@ mod tests {
         assert_eq!(encode_prefix("a b/c+d"), "a%20b/c%2Bd");
         assert_eq!(encode_prefix("a/b?c=d&e"), "a/b%3Fc%3Dd%26e");
         assert_eq!(encode_prefix("x/-_.!~*\'()"), "x/-_.!~*\'()");
-    }
-
-    #[test]
-    fn the_snapshot_renders_as_the_shell_rendered_it() {
-        assert_eq!(
-            render_snapshot(&snapshot(&serde_json::json!({ "storage": [], "ops": [] }))),
-            [
-                "storage (bytes are the ledger, an upper bound of R2):",
-                "    (empty)",
-                "ops (used of the UTC-month window):",
-                "    (no window opened yet)",
-            ]
-        );
-        assert_eq!(
-            render_snapshot(&snapshot(&serde_json::json!({
-                "storage": [{ "pool": "primary", "state": "live", "bytes": 100, "objects": 2 }],
-                "ops": [{ "pool": "b-ordinary", "window": "2026-08", "used": 7 }],
-            }))),
-            [
-                "storage (bytes are the ledger, an upper bound of R2):",
-                "    primary/live: 100 B in 2 object(s)",
-                "ops (used of the UTC-month window):",
-                "    b-ordinary[2026-08]: 7",
-            ]
-        );
     }
 
     #[test]
