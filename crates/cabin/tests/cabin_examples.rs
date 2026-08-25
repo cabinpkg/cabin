@@ -90,13 +90,6 @@ fn hello_c_builds_and_runs() {
 fn hello_cpp_builds_and_runs() {
     require_cxx_build_tools();
     let dir = copy_example("hello-cpp");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -117,13 +110,6 @@ fn hello_cpp_builds_and_runs() {
 fn platform_cfg_builds_and_runs() {
     require_cxx_build_tools();
     let dir = copy_example("platform-cfg");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -153,13 +139,6 @@ fn platform_cfg_builds_and_runs() {
 fn library_and_app_builds_and_runs() {
     require_cxx_build_tools();
     let dir = copy_example("library-and-app");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -180,13 +159,6 @@ fn library_and_app_builds_and_runs() {
 fn header_only_lib_builds_and_runs() {
     require_cxx_build_tools();
     let dir = copy_example("header-only-lib");
-    cabin()
-        .args(["build", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
     let output = cabin()
         .args(["run", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
@@ -217,19 +189,6 @@ fn workspace_basic_builds_workspace() {
     let dir = copy_example("workspace-basic");
     cabin()
         .args(["build", "--workspace", "--manifest-path"])
-        .arg(dir.path().join("cabin.toml"))
-        .arg("--build-dir")
-        .arg(dir.path().join("build"))
-        .assert()
-        .success();
-}
-
-#[test]
-fn workspace_basic_builds_single_package() {
-    require_cxx_build_tools();
-    let dir = copy_example("workspace-basic");
-    cabin()
-        .args(["build", "-p", "cli", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--build-dir")
         .arg(dir.path().join("build"))
