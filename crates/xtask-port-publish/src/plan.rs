@@ -737,6 +737,25 @@ mod tests {
         assert!(scoped_package_name("foo.bar").is_err());
     }
 
+    /// Discovery intentionally skips incomplete version directories;
+    /// committed ones must not disappear silently from publication.
+    #[test]
+    fn every_committed_version_directory_has_a_manifest() {
+        let ports_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("ports");
+        for name_dir in read_sorted_dirs(&ports_dir).unwrap() {
+            for version_dir in read_sorted_dirs(&name_dir).unwrap() {
+                assert!(
+                    version_dir.join("cabin.toml").is_file(),
+                    "{} has no cabin.toml and would be skipped",
+                    version_dir.display()
+                );
+            }
+        }
+    }
+
     /// Scaffolding for the package-shape validation tests: one
     /// committed package directory under a temp ports tree, loaded
     /// through the real `load_conversions` entry.
