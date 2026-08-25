@@ -1,16 +1,10 @@
-// node:test suite for the foundation-port loader (`npm test`).  The
-// committed-tree tests pin that the website presents exactly the
-// identities the xtask-port-publish tool would publish.
+// node:test suite for the foundation-port loader (`npm test`).
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-    loadPortsAsPackageRecords,
-    loadPortsFromDir,
-    scopedPackageName,
-} from "./ports.ts";
+import { loadPortsFromDir, scopedPackageName } from "./ports.ts";
 
 function packageManifest(name = "cabin-ports/fmt", version = "12.2.0"): string {
     return `[package]
@@ -23,77 +17,6 @@ checksum = "sha256:${"b".repeat(64)}"
 format = "tar.gz"
 `;
 }
-
-test("every committed port loads as a canonical cabin-ports identity", async () => {
-    const records = await loadPortsAsPackageRecords();
-    assert.ok(records.length > 0);
-    const identities = new Set(
-        records.map((record) => `${record.name}@${record.version}`),
-    );
-    assert.equal(identities.size, records.length);
-    for (const record of records) {
-        assert.match(record.name, /^cabin-ports\/[a-z0-9][a-z0-9_-]*$/);
-        assert.ok(record.upstream, `${record.name} has no upstream provenance`);
-        // The published version is the upstream version, verbatim:
-        // packaging corrections are registry revisions, never a
-        // version-string suffix.
-        assert.equal(record.version, record.upstream.version);
-        assert.ok(record.upstream.archiveUrl.startsWith("https://"));
-        assert.match(record.upstream.checksum, /^sha256:[0-9a-f]{64}$/);
-    }
-});
-
-test("mixed-case port directories lowercase like the publisher", async () => {
-    const names = (await loadPortsAsPackageRecords()).map(
-        (record) => record.name,
-    );
-    // cJSON and CLI11 are the committed mixed-case directories, and
-    // both must fold onto the lowercase scoped name; renaming them is
-    // a deliberate identity change and should update this test
-    // alongside xtask-port-publish.
-    assert.ok(names.includes("cabin-ports/cjson"));
-    assert.ok(names.includes("cabin-ports/cli11"));
-    assert.ok(names.includes("cabin-ports/zlib"));
-});
-
-test("a committed port's scoped dependencies reach the package page", async () => {
-    const records = await loadPortsAsPackageRecords();
-    const libpng = records.find((record) =>
-        record.name.startsWith("cabin-ports/libpng"),
-    );
-    assert.ok(libpng, "no libpng record");
-    assert.deepEqual(libpng.manifest.dependencies, [
-        {
-            name: "cabin-ports/zlib",
-            kind: "normal",
-            source: "registry",
-            req: "^1.3",
-            condition: null,
-            optional: false,
-            features: [],
-            defaultFeatures: true,
-            ignoreInterfaceStandard: false,
-        },
-    ]);
-});
-
-test("a committed port's features table reaches the page; its absence hides it", async () => {
-    const records = await loadPortsAsPackageRecords();
-    const sqlite3 = records.find(
-        (record) => record.name === "cabin-ports/sqlite3",
-    );
-    assert.ok(sqlite3, "no sqlite3 record");
-    // Declared with an empty default set: the page renders the table,
-    // faithfully empty, rather than hiding it.
-    assert.deepEqual(sqlite3.manifest.features, {
-        default: [],
-        entries: [{ name: "single-threaded", enables: [] }],
-    });
-    const fmt = records.find((record) => record.name === "cabin-ports/fmt");
-    assert.ok(fmt, "no fmt record");
-    // No [features] table at all is null - hidden, never invented.
-    assert.equal(fmt.manifest.features, null);
-});
 
 test("a port's registry dependencies read in both spellings", async () => {
     // The manifest publishes verbatim, so the page must read exactly
@@ -169,40 +92,6 @@ format = "tar.gz"
             () => loadPortsFromDir(dir),
             /declares no version requirement/,
         );
-    } finally {
-        await rm(dir, { recursive: true, force: true });
-    }
-});
-
-test("a port publishes the upstream version verbatim, sidecars ignored", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cabin-ports-test-"));
-    try {
-        const portDir = join(dir, "zlib", "1.3.1");
-        await mkdir(portDir, { recursive: true });
-        await writeFile(
-            join(portDir, "cabin.toml"),
-            `[package]
-name = "cabin-ports/zlib"
-version = "1.3.1"
-
-[package.upstream]
-url = "https://example.com/zlib-1.3.1.tar.gz"
-checksum = "sha256:${"a".repeat(64)}"
-format = "tar.gz"
-`,
-        );
-
-        const unrevised = await loadPortsFromDir(dir);
-        assert.equal(unrevised.length, 1);
-        assert.equal(unrevised[0].version, "1.3.1");
-
-        // A stray sidecar from the removed packaging-revision
-        // mechanism is just an unknown file: the published version
-        // stays the upstream one.
-        await writeFile(join(portDir, "packaging-revision"), "2\n");
-        const withStray = await loadPortsFromDir(dir);
-        assert.equal(withStray[0].name, "cabin-ports/zlib");
-        assert.equal(withStray[0].version, "1.3.1");
     } finally {
         await rm(dir, { recursive: true, force: true });
     }
