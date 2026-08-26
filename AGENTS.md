@@ -42,9 +42,11 @@ in the same change and follow the architecture document.
 - Keep generated and machine-readable output sorted or normalized. See
   `docs/architecture.md` "Contributor-facing architecture guardrails" for
   the affected outputs.
-- Add focused tests for changed behavior: unit tests in the owning crate and
-  CLI integration coverage for user-facing behavior. Follow the portability
-  rules in `crates/AGENTS.md`.
+- Add focused tests that detect a concrete behavioral regression. Prefer the
+  lowest useful layer; add CLI integration coverage when end-to-end behavior
+  itself is the contract, not to duplicate unit coverage. Do not test
+  implementation text/layout, trivial derived behavior, or library/framework
+  guarantees. Follow the portability rules in `crates/AGENTS.md`.
 - Scripted or repeated edits must verify that the expected pattern matched
   and the old form is gone.
 - Claim verification only when an executed check could have detected the
