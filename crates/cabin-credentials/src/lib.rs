@@ -49,6 +49,10 @@ const TOKEN_PAYLOAD_LEN: std::ops::RangeInclusive<usize> = 8..=512;
 /// whose minted secret is unpadded base64url rather than base62.
 const TRUSTPUB_MARKER: &str = "tp_";
 
+/// Payload marker of a login-session token (`cabin_ses_...`), whose
+/// minted secret is unpadded base64url like a trusted-publishing one.
+const SESSION_MARKER: &str = "ses_";
+
 /// A registry bearer token.  The wrapped value is deliberately
 /// unreachable except through [`Token::expose`], and both `Debug`
 /// and `Display` redact so a token cannot leak through logging or
@@ -59,8 +63,9 @@ pub struct Token(String);
 impl Token {
     /// Validate and wrap a raw token: the `cabin_` prefix followed
     /// by 8 to 512 ASCII alphanumeric (base62) characters, except
-    /// that a trusted-publishing token (`cabin_tp_` prefix) carries
-    /// an unpadded-base64url payload, which adds `-` and `_`.  Either
+    /// that a minted token - a trusted-publishing exchange
+    /// (`cabin_tp_`) or a login session (`cabin_ses_`) - carries an
+    /// unpadded-base64url payload, which adds `-` and `_`.  Either
     /// character restriction doubles as header hygiene - a value
     /// that passes can never smuggle CR/LF or other control bytes
     /// into an `Authorization` header.
@@ -79,13 +84,17 @@ impl Token {
                 reason: "unexpected length",
             });
         }
-        if let Some(minted) = payload.strip_prefix(TRUSTPUB_MARKER) {
+        if let Some(minted) = payload
+            .strip_prefix(TRUSTPUB_MARKER)
+            .or_else(|| payload.strip_prefix(SESSION_MARKER))
+        {
             if !minted
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             {
                 return Err(CredentialsError::InvalidToken {
-                    reason: "expected only base64url characters after the `cabin_tp_` prefix",
+                    reason: "expected only base64url characters after the \
+                             `cabin_tp_` or `cabin_ses_` prefix",
                 });
             }
         } else if !payload.bytes().all(|b| b.is_ascii_alphanumeric()) {
@@ -642,6 +651,39 @@ mod tests {
             "cabin_tp_evil\r\nabc12", // header smuggling stays rejected
             "cabin_tp_has+plus99",    // standard-base64 alphabet is not base64url
             "cabin_tp_has=pad999",    // padding never appears unpadded
+        ] {
+            let err = Token::parse(raw).unwrap_err();
+            assert!(
+                matches!(err, CredentialsError::InvalidToken { .. }),
+                "{raw:?} should be rejected, got {err:?}"
+            );
+        }
+    }
+
+    /// Login-session tokens (`cabin_ses_<base64url>`) carry `-` and `_`
+    /// like trusted-publishing ones; the widened charset is confined to
+    /// the `ses_` marker, so plain user tokens stay base62-only
+    /// (`cabin_with-dash1` above keeps rejecting).
+    #[test]
+    fn token_parse_accepts_session_base64url_payloads() {
+        for raw in [
+            "cabin_ses_pVp-p_Wl",
+            // A real minted shape: 32 CSPRNG bytes render as 43
+            // unpadded base64url characters.
+            &format!("cabin_ses_{}", &"aB1-_c9Z".repeat(6)[..43]),
+        ] {
+            assert_eq!(Token::parse(raw).unwrap().expose(), raw);
+        }
+    }
+
+    #[test]
+    fn token_parse_rejects_malformed_session_payloads() {
+        for raw in [
+            "cabin_ses_",             // payload under the length floor
+            "cabin_ses_has space",    // spaces stay rejected
+            "cabin_ses_evil\r\nabc1", // header smuggling stays rejected
+            "cabin_ses_has+plus9",    // standard-base64 alphabet is not base64url
+            "cabin_ses_has=pad99",    // padding never appears unpadded
         ] {
             let err = Token::parse(raw).unwrap_err();
             assert!(
