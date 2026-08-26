@@ -807,6 +807,47 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
     );
 }
 
+/// A login-session token (`cabin_ses_<base64url>`, carrying `-` and `_`)
+/// is a first-class bearer at the CLI seam: `cabin login` accepts and
+/// stores it verbatim, and a later `resolve` loads it and authenticates
+/// with no env override - the user-facing half of the `Token::parse`
+/// widening that lets `cabin_ses_` tokens through.
+#[test]
+fn login_stores_and_reuses_a_session_token() {
+    const SESSION_TOKEN: &str = "cabin_ses_abcdefghij-klmnopqrst_uvwxyzABCDEFGHIJKLMNO";
+    let dir = TempDir::new().unwrap();
+    write_app_manifest(dir.path());
+    let registry = dir.path().join("registry");
+    write_registry(&registry, r#", "auth-required": true"#);
+    let server = AuthRegistryServer::serve(registry, SESSION_TOKEN);
+
+    let home = dir.path().join("config-home");
+    cabin()
+        .args(["login", "--index-url", server.url()])
+        .env("CABIN_CONFIG_HOME", &home)
+        .write_stdin(format!("{SESSION_TOKEN}\n"))
+        .assert()
+        .success();
+    // Persisted with its `-`/`_` bytes intact through the credentials
+    // round-trip.
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(
+        body.contains(SESSION_TOKEN),
+        "the session token must be stored verbatim: {body}"
+    );
+
+    // Reusable: the stored credential alone authenticates the resolve.
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fmt"));
+}
+
 /// A scoped package fetches end to end from an `auth-required`
 /// registry with no experimental flag: the credential rides the
 /// `config.json`, metadata, and artifact requests alike, and the
