@@ -141,8 +141,9 @@ CREATE TABLE tokens (
     quota_class TEXT,
     -- Closed domain like scope_members.role: 'user' tokens are minted
     -- from the website session, 'trustpub' tokens are the short-lived
-    -- product of a GitHub Actions OIDC exchange.
-    kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub')),
+    -- product of a GitHub Actions OIDC exchange, 'session' tokens are
+    -- the CLI login's short-lived human credential.
+    kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub', 'session')),
     -- Short-lived and exactly one of two shapes is what 'trustpub'
     -- MEANS, and the schema enforces both so a bug in a minting path
     -- cannot widen an exchange into a standing or over-privileged
@@ -181,6 +182,26 @@ CREATE TABLE tokens (
                     AND quota_class IS NULL
                 )
             )
+        )
+    ),
+    -- The 'session' shape, enforced for the same reason as trustpub's:
+    -- a session is the short-lived credential a signed-in human holds,
+    -- and a bug in the minting path must not widen it into a standing or
+    -- confined credential. Twelve hours is the TTL the mint sets in code
+    -- (src/session_tokens.rs); the schema reuses trustpub's one-day
+    -- ceiling with the same fail-closed ifnull anchor. The scope set is
+    -- the full human one - exactly what the website's create-token form
+    -- offered any signed-in user - and NULL quota_class inherits the
+    -- owning user's class live through the auth lookup's COALESCE.
+    CHECK (
+        kind != 'session'
+        OR (
+            expires_at IS NOT NULL
+            AND expires_at <=
+                ifnull(strftime('%Y-%m-%dT%H:%M:%fZ', created_at, '+1 day'), '')
+            AND scopes = 'publish,yank,verify'
+            AND scope_limit IS NULL
+            AND quota_class IS NULL
         )
     )
 );

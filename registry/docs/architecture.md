@@ -86,7 +86,8 @@ which routes and which credential exist where:
 | `/api/v1/user/search`, `/api/v1/user/package/<scope>/<name>`, `/api/v1/user/package/<scope>/<name>/reverse-dependencies` | - | Session cookie **only** ("Search and reverse dependencies" below) |
 | `/api/v1/stats` | - | public GET, no credential ("Download counts") |
 | `/api/v1/packages/*`, `/api/v1/admin/*` | - | Bearer **only** |
-| `/api/v1/trusted_publishing/tokens` | - | `PUT`: OIDC JWT in the body (the one token-auth-exempt Bearer-plane route); `DELETE`: the exchanged token itself |
+| `/api/v1/trusted_publishing/tokens` | - | `PUT`: OIDC JWT in the body (token-auth-exempt); `DELETE`: the exchanged token itself |
+| `/api/v1/sessions/tokens` | - | `PUT`: GitHub access token in the body (token-auth-exempt); `DELETE`: the session token itself |
 | everything else | uniform 401 + challenge | uniform 401 + challenge (unauthenticated) / authenticated 404 |
 
 A dash means the path does not exist on that hostname: on the registry
@@ -243,16 +244,18 @@ subtree ("Download counts"), which takes no credential at all.
 
 **The mutation surface is Bearer-only and deny-by-default.** Publish,
 yank, and the admin plane require `Authorization: Bearer
-cabin_<base62>` (or an exchanged `cabin_tp_<base64url>` token - same
-header, same hash lookup). The uniform
+cabin_<base62>` (or an exchanged `cabin_tp_<base64url>` or minted
+`cabin_ses_<base64url>` token - same header, same hash lookup). The uniform
 `401 {"errors":[{"detail":"authentication required"}]}` (plus the
 challenge header) is emitted before any route matching or D1/R2 data
 lookup, so unauthenticated callers cannot probe the mutation routes -
 and on the registry host every non-read-plane path answers the same
-bytes. One route is exempt from the token check: the trusted-publishing
+bytes. Two mint routes are exempt from the token check, because each
+PUT's credential travels in its body: the trusted-publishing
 exchange (`PUT /api/v1/trusted_publishing/tokens`,
 `docs/remote-registry.md` "Trusted publishing"), whose credential is
-the GitHub Actions OIDC JWT in its body. It dispatches before
+the GitHub Actions OIDC JWT in its body, and the login-session mint
+below. The exchange dispatches before
 `authenticate`, verifies the JWT first, and then takes one of two
 arms; every refusal it emits - malformed body, failed verification,
 no matching config, an unclaimed scope, a missing backing identity, a
@@ -273,11 +276,29 @@ scope, `publish`-only, and carrying the config's quota class on the
 token row itself (`tokens.quota_class`; the auth lookup coalesces
 token-first, so the granted tier expires with the token instead of
 upgrading the backing user). Each successful exchange lazily prunes expired
-`oidc_used_jtis` rows and expired `trustpub` token rows -
+`oidc_used_jtis` rows and expired `trustpub` and `session` token rows -
 deliberately no cron. `DELETE` on the same path revokes the presented
 token iff it is a `trustpub` one (deliberately not behind the write
 gate: blocking revocation would keep a live credential alive), and
-answers everything else with the uniform 401. The read plane itself is public for verified content ("Origins
+answers everything else with the uniform 401. The login-session mint
+(`PUT /api/v1/sessions/tokens`, `docs/remote-registry.md` "Login
+sessions") is the exchange's human sibling: the body carries a GitHub
+access token, the breaker's write gate
+answers first (before the GitHub lookup spends anything), and the
+identity resolves through the exact web sign-in semantics - the
+`ALLOWED_GITHUB_IDS` gate, then the `identities` lookup - with no
+account creation: an unknown or unadmitted id is one more uniform
+401, reason logged. The mint is a 12-hour `session` token - a Bearer
+credential, unrelated to the website's HMAC session cookie - carrying
+the full human scope set at the owning user's live quota class
+(`NULL` `tokens.quota_class`), it rides the same lazy prune, and
+`DELETE /api/v1/sessions/tokens` revokes the presented token iff it
+is a `session` one, under the trustpub revocation's exact contract.
+The GitHub access token is proven with a single check-token call
+authenticated by the registry's own OAuth client credentials - so it
+must have been issued by the registry's own OAuth app; another app's
+grant for the same account refuses - and dropped: never persisted,
+never logged. The read plane itself is public for verified content ("Origins
 and roles"); it honors an optional Bearer credential, and a presented
 credential that fails to validate is the same uniform 401. `/healthz`
 (registry host) and the public `/api/v1/stats` subtree (website
@@ -298,12 +319,15 @@ A row with `scope_limit` set may perform write-side package operations
 (publish, yank) only under exactly that scope; a mismatch
 answers the write plane's uniform membership 403. Verdicts take no
 registry token at all ("The verification pipeline"). `kind` is a closed
-domain (`user` | `trustpub`), and the schema itself requires a
+domain (`user` | `trustpub` | `session`), and the schema itself requires a
 `trustpub` row to be expiring (within one day of its `created_at`
 anchor) and to take exactly one of two shapes - the config arm's
 scope-limited, publish-only, explicitly classed row, or the verifier
 arm's unconfined, unclassed `verify` row - so the minting paths
 cannot widen the exchange into a standing or privileged credential.
+A `session` row is shape-checked the same way: expiring within the
+same one-day ceiling, carrying exactly the full human scope set,
+unconfined, and unclassed.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 
