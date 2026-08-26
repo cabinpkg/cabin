@@ -196,7 +196,7 @@ Smoke checks after any deploy:
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz   # 200
 curl -sS -D - https://registry.cabinpkg.com/config.json   # uniform 401 envelope,
-# with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
+# with WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
 curl -sS -o /dev/null -w '%{http_code}\n' https://cabinpkg.com/api/v1/user   # 401 (session plane)
 ```
 
@@ -254,8 +254,10 @@ smoke test). What it does, in order:
 7. Resets the governor ledger - a manual follow-up the command reminds
    you of: the ledger still accounts for the deleted primary blobs
    (conservative, so nothing overspends, but admission runs against
-   ghosts). Sign in, mint a verify-scoped token, and run
-   `cargo registry-governor wipe` (from the repository root) with it
+   ghosts). Sign in and mint a login-session token; because it carries
+   `publish`, block writes first ("Post-wipe re-provisioning" gives the
+   exact ordering and drain wait), then run `cargo registry-governor
+   wipe` (from the repository root) with it
    (`REGISTRY_VERIFY_TOKEN` plus
    `CLOUDFLARE_API_TOKEN` in the environment): it re-runs the launch
    guard, proves the primary bucket really carries no `blobs/` objects
@@ -285,7 +287,7 @@ finish by hand with the remaining steps ("First-time provisioning" has
 the same commands).
 
 Tokens live in the dropped database, so a wipe revokes everything; users
-re-issue tokens through the website's token page and `cabin login` again.
+re-authenticate afterward (`docs/remote-registry.md`).
 A browser still holding a pre-wipe session cookie recovers by visiting
 `/login`: GitHub auto-approves the already-authorized OAuth app, and
 `/callback` recreates the user row (the session API answers 401 for a
@@ -316,15 +318,20 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    `cabin-ports` claim is what re-arms ports publishing: the
    trusted-publishing exchange mints for the scope's oldest owner and
    refuses while the scope is unclaimed.
-3. Mint a **verify** token for the governor step below. The verifier
-   workflow needs no secret: each run mints its own token through the
-   trusted-publishing exchange, and step 2's sign-in is what re-creates
-   the backing identity its verifier arm resolves
+3. Mint a login-session token for the governor step below
+   (`docs/remote-registry.md`); it carries the full human scope set, so
+   its `verify` scope authenticates the `verify`-scoped admin endpoint.
+   The verifier workflow needs no secret of its own: each run mints its
+   token through the trusted-publishing exchange, and step 2's sign-in
+   re-creates the backing identity its verifier arm resolves
    (`VERIFIER_BACKING_ACCOUNT_ID`).
-4. Run `cargo registry-governor wipe`, from the repository root, with it
-   **before any publish-capable
-   token exists**: its no-delayed-publisher evidence gate requires zero
-   live publish tokens (revoked and expired ones no longer count).
+4. Run `cargo registry-governor wipe` from the repository root. Its
+   no-delayed-publisher evidence gate requires zero live publish tokens
+   (revoked and expired ones no longer count), and a login-session token
+   carries `publish`, so **block writes first**, wait out the in-flight
+   window (~5 minutes: the 60 s mode cache plus in-flight upload time),
+   then run the wipe under `writes_blocked` - the gate clears on the
+   blocked-writes path ("Budget breaker and service mode").
 5. Re-enable ports-publish (`gh workflow enable ports-publish.yml`),
    prove the trusted-publishing binding with an `exchange-check`
    dispatch (exchange + immediate revocation, publishes nothing), then
@@ -954,8 +961,9 @@ credential path - the `id-token` grant, the exchange, and the
 revocation - without verifying anything. The local operator flows are
 the exception: `cargo registry-governor`, `cargo registry-diagnose`,
 and the backup audit still read a manually minted token from
-`REGISTRY_VERIFY_TOKEN` - create it on the website's token page with
-**only** the `verify` scope (no publish, no yank).
+`REGISTRY_VERIFY_TOKEN` - a login-session token
+(`docs/remote-registry.md`) carrying the full human scope set, whose
+`verify` scope authenticates these flows.
 
 The verifier's caps are GitHub **repository variables** (`gh variable
 set <NAME>`), passed through to the binary; unset or empty means the

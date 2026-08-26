@@ -115,25 +115,6 @@ export interface ReverseDependent {
     newest_matching_version: string;
 }
 
-export interface TokenInfo {
-    id: string;
-    name: string;
-    scopes: string[];
-    created_at: string;
-    last_used_at: string | null;
-    revoked: boolean;
-}
-
-/// The one payload that ever carries a plaintext token.
-export interface CreatedToken {
-    id: string;
-    name: string;
-    scopes: string[];
-    token: string;
-}
-
-export const TOKEN_SCOPES = ["publish", "yank", "verify"] as const;
-
 export type FetchLike = (
     input: string,
     init?: RequestInit,
@@ -257,38 +238,12 @@ export function getReverseDependencies(
     );
 }
 
-export function getTokens(
-    fetchFn: FetchLike,
-): Promise<ApiResult<{ tokens: TokenInfo[] }>> {
-    return request(fetchFn, "/api/v1/user/tokens");
-}
-
-export function createToken(
-    fetchFn: FetchLike,
-    name: string,
-    scopes: string[],
-): Promise<ApiResult<CreatedToken>> {
-    return request(fetchFn, "/api/v1/user/tokens", mutation({ name, scopes }));
-}
-
 // Signing out is a session-plane mutation: the cookie is HttpOnly, so
 // only the response's Set-Cookie can clear it.
 export function signOut(
     fetchFn: FetchLike,
 ): Promise<ApiResult<{ ok: boolean }>> {
     return request(fetchFn, "/api/v1/user/logout", mutation({}));
-}
-
-export function revokeToken(
-    fetchFn: FetchLike,
-    id: string,
-): Promise<ApiResult<{ ok: boolean }>> {
-    // The empty object keeps the declared JSON content type truthful.
-    return request(
-        fetchFn,
-        `/api/v1/user/tokens/${encodeURIComponent(id)}/revoke`,
-        mutation({}),
-    );
 }
 
 // Settles the auth state machine: 200 -> signed-in, 401 -> signed-out,

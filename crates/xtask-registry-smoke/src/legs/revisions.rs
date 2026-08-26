@@ -152,6 +152,9 @@ fn respin(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
             capture(&smoke.body)
         );
     }
+    // Invisible to a no-verify credential (the session-shaped
+    // publisher token carries verify and would read it).
+    smoke.as_ci_publisher();
     smoke.check(&tampered_artifact_path, &[404])?;
     smoke.as_verifier();
     smoke.check(&tampered_artifact_path, &[200])?;
@@ -421,7 +424,7 @@ fn writes_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &
     }
     // Revocation deliberately skips the gate (blocking it would keep a
     // live credential alive), so even blocked, the answer is its kind
-    // guard's: the publisher's standing user token is refused with the
+    // guard's: the publisher's session-kind token is refused with the
     // uniform 401 - never a 503, and never a deletion.
     let auth = smoke.auth.clone();
     uniform_401_with(
@@ -472,8 +475,13 @@ fn reads_blocked(smoke: &mut Smoke, inputs: &RevisionInputs<'_>, source_path: &s
         bail!("a read under reads_blocked answered {got}");
     }
     over_budget(smoke, "the read 503 must carry Retry-After: 900")?;
+    // The artifact and config routes are the verify scope's exemption,
+    // which the session-shaped publisher token now rides - the gated
+    // answer needs the no-verify credential.
+    smoke.as_ci_publisher();
     smoke.check(inputs.artifact_path, &[503])?;
     smoke.check("/config.json", &[503])?;
+    smoke.as_publisher();
     smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[503])?;
     // Anonymous readers receive the same refusal - status, envelope,
     // and Retry-After.  A public over-budget answer reveals service

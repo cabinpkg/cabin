@@ -18,6 +18,15 @@
 > `docs/remote-registry.md`; the lifecycle observations and conclusions
 > are unchanged.
 >
+> **Historical note (2026-08-26).** The legacy long-lived API token
+> plane - the website's `/settings/tokens` page and the
+> `/api/v1/user/tokens[...]` session routes - has been removed: login
+> sessions and trusted publishing are the only credential mints, and
+> the login-URL challenge now names `/docs/remote-registry`. The
+> transcripts below that mint, list, or revoke tokens on those
+> surfaces are left verbatim as what was executed at the time; the
+> observations and conclusions are unchanged.
+>
 > **Historical note (2026-08-05).** The local smoke run the transcripts
 > below invoke as `scripts/smoke.sh` is now `cargo registry-smoke`
 > (`crates/xtask-registry-smoke`), run from the repository root.  The

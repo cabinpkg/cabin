@@ -46,9 +46,14 @@ pub fn run() -> Result<()> {
 
     servers::apply_migrations()?;
     if !token.is_empty() {
-        // L202: the verifier's credential is the publisher's by suffix,
-        // which is also what `Smoke::as_verifier` presents.
-        servers::seed_tokens(&token, &format!("{token}-verify"))?;
+        // L202: the verifier's and no-verify credentials are the
+        // publisher's by suffix, which is also what
+        // `Smoke::as_verifier` / `Smoke::as_ci_publisher` present.
+        servers::seed_tokens(
+            &token,
+            &format!("{token}-verify"),
+            &format!("{token}-noverify"),
+        )?;
     }
     // Declared before the servers so it outlives them: the mocks are
     // reading files from it right up until they are killed.
@@ -91,7 +96,7 @@ fn tokened(
     github_port: u16,
 ) -> Result<()> {
     anonymous::verifier_exchange_surface(smoke)?;
-    anonymous::login_session_surface(smoke, token)?;
+    anonymous::login_session_surface(smoke, &format!("{token}-verify"))?;
     let setup = session::setup(registry)?;
     session::read_plane(smoke, &setup)?;
     let cookie = session::session_plane(smoke)?;

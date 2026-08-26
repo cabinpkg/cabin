@@ -72,10 +72,10 @@ pub(crate) fn login(args: &LoginArgs, reporter: Reporter) -> Result<()> {
     };
     match login_url {
         Some(login_url) => {
-            reporter.note(format_args!("visit {login_url} to create a token"));
+            reporter.note(format_args!("see {login_url} for how to get a token"));
         }
         None => reporter.note(format_args!(
-            "create a token in the registry's web interface"
+            "see the registry's documentation for how to get a token"
         )),
     }
     let token = read_token()?;
@@ -179,7 +179,7 @@ fn env_token_is_set() -> bool {
 ///
 /// Kept separate from [`crate::cli::trustpub::exchange_origin_eligible`]
 /// although the two predicates now read alike: they guard different
-/// credentials (this long-lived token vs. the run's OIDC JWT), and
+/// credentials (this stored login token vs. the run's OIDC JWT), and
 /// loosening one must never silently loosen the other.
 pub(crate) fn env_token_eligible(origin: &str, user_chosen: bool) -> Result<bool> {
     let default_origin =

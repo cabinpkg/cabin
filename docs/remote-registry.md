@@ -89,31 +89,31 @@ The authenticated surfaces - publish, yank, the admin API, and any registry decl
 [`auth-required`](#registry-configuration) - authenticate with a bearer token:
 
 ```text
-Authorization: Bearer cabin_<base62>
+Authorization: Bearer cabin_ses_<base64url>
 ```
 
 - Reads on the hosted registry need no token.  When the client holds one for the origin it is
   [still attached](#when-the-token-is-sent); a presented token that fails to validate answers
   the uniform `401` rather than being ignored, so a rotated or revoked credential fails loudly
   instead of silently reading as anonymous.
-- Tokens are issued on the registry's web UI after GitHub sign-in.  Its URL is **not** derived
-  from the index origin by convention; it is discovered through the
-  [login-URL challenge](#the-login-url-challenge) below.
+- Every token is short-lived and machine-minted; there are no standing API keys.
+  [Login sessions](#login-sessions) mint `cabin_ses_<base64url>` tokens from a GitHub access
+  token (the human flow), and [trusted publishing](#trusted-publishing) mints
+  `cabin_tp_<base64url>` tokens from a workflow's OIDC JWT; both ride the same
+  `Authorization: Bearer` header.
 - Token scopes: `publish`, `yank`, and `verify` (the
   [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token
   additionally opens the read plane's `verify`-scope carve-outs (pending-artifact fetches).
-- [Trusted publishing](#trusted-publishing) mints short-lived `cabin_tp_<base64url>` tokens;
-  they ride the same `Authorization: Bearer` header as every other token.
-- [Login sessions](#login-sessions) mint short-lived `cabin_ses_<base64url>` tokens the same
-  way, from a GitHub access token instead of a workflow's OIDC JWT.
+- Where to get a token is **not** derived from the index origin by convention; it is
+  discovered through the [login-URL challenge](#the-login-url-challenge) below.
 
 ### The login-URL challenge
 
 Every unauthenticated (`401`) response from the Bearer plane carries a `WWW-Authenticate`
-challenge naming the token-creation page, mirroring Cargo's `Cargo login_url` challenge:
+challenge naming where to get a token, mirroring Cargo's `Cargo login_url` challenge:
 
 ```text
-WWW-Authenticate: Cabin login_url="https://cabinpkg.com/settings/tokens"
+WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
 ```
 
 The grammar is the scheme token `Cabin` (ASCII case-insensitive, per RFC 7235) followed by a
@@ -135,7 +135,7 @@ origin, the sparse HTTP client authenticates its reads with it, and `cabin login
 `cabin login` resolves the registry from `--index-url` (or the `[registry] index-url` setting in
 [`config.md`](config.md#registry), else the [default registry](#the-default-registry) - a local
 `index-path` is rejected, since tokens only apply to HTTP registries), names the resolved origin,
-discovers the token-creation page, and reads the token from stdin - without echo when stdin is a
+discovers where to get a token, and reads the token from stdin - without echo when stdin is a
 terminal, as a plain read otherwise so piping works.  The credential commands consult *user-level*
 config only: a checked-out project's `.cabin/config.toml` (registry selection or
 `[source-replacement]`) must not be able to steer where a pasted credential is stored.  The
@@ -144,7 +144,7 @@ advisory probe is skipped entirely under [offline mode](vendoring-offline.md):
 ```console
 $ echo "$TOKEN" | cabin login
 logging in to `https://registry.cabinpkg.com`
-visit https://cabinpkg.com/settings/tokens to create a token
+see https://cabinpkg.com/docs/remote-registry for how to get a token
        Login token for `https://registry.cabinpkg.com` saved
 ```
 
@@ -155,7 +155,8 @@ the uniform `401` with the same challenge on the hosted registry.  On a `401` ca
 [login-URL challenge](#the-login-url-challenge), the challenge's URL is
 printed verbatim.  Every other outcome - a missing or
 malformed challenge, an implausible URL, or a failed probe (offline) - degrades to a generic
-`create a token in the registry's web interface` hint.  The probe never blocks login: the
+`see the registry's documentation for how to get a token` hint.  The probe never blocks login:
+the
 pasted token is read and stored either way.
 
 The token must start with `cabin_`; the confirmation only ever names the origin.  `cabin logout`
@@ -376,7 +377,7 @@ experimental-feature error.  The flow is log in once, publish, then resolve like
 ```console
 $ echo "$TOKEN" | cabin login --index-url https://registry.cabinpkg.com
 logging in to `https://registry.cabinpkg.com`
-visit https://cabinpkg.com/settings/tokens to create a token
+see https://cabinpkg.com/docs/remote-registry for how to get a token
        Login token for `https://registry.cabinpkg.com` saved
 $ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
     --index-url https://registry.cabinpkg.com
@@ -804,7 +805,7 @@ DELETE /api/v1/trusted_publishing/tokens
 ```
 
 Authorized by the exchanged token itself (`Authorization: Bearer cabin_tp_...`): the token row
-is deleted and the answer is `204`.  Anything else - a standing user token, an unknown,
+is deleted and the answer is `204`.  Anything else - a token of any other kind, an unknown,
 expired, or already-revoked one - answers the uniform `401`, which also makes a repeated
 `DELETE` idempotent.  Workflows should revoke when their run completes rather than letting the
 lifetime lapse.

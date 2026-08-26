@@ -1,9 +1,10 @@
 //! The session-authenticated surface, `registry/scripts/smoke.sh`
-//! L806-996: the token create round-trip, the logout CSRF pair, the
-//! claim flow end to end against the GitHub mock, membership
-//! management, the owner gate's byte-identical 403, and the generation
-//! header - plus the claim-initiation fetch-metadata gate, which
-//! postdates the shell and so carries no `L` anchor.
+//! L806-996: the logout CSRF pair, the claim flow end to end against
+//! the GitHub mock, membership management, the owner gate's
+//! byte-identical 403, and the generation header - plus the
+//! claim-initiation fetch-metadata gate, which postdates the shell and
+//! so carries no `L` anchor.  (The shell's token create round-trip
+//! died with the legacy token plane.)
 //!
 //! Every request here rides the session cookie the session leg minted,
 //! so the cookie arrives as a parameter rather than being re-derived -
@@ -24,8 +25,7 @@ use serde_json::Value;
 use xtask_registry_admin::display;
 
 use crate::context::{Base, Smoke};
-use crate::legs::anonymous::uniform_401_with;
-use crate::legs::session::{CREATE_BODY, csrf_headers, session_request};
+use crate::legs::session::{csrf_headers, session_request};
 use crate::step;
 use crate::text::{capture, contains, first_line, grep_lines, status_line_is, strip_name, text};
 
@@ -40,7 +40,6 @@ const PROOF_QUERY: &str =
 ///
 /// The first failed check, worded as the shell's `fail` worded it.
 pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<()> {
-    token_round_trip(smoke, session_cookie)?;
     logout(smoke, session_cookie)?;
     claim_initiation_intent(smoke)?;
     claim_cookie_scope(smoke)?;
@@ -54,47 +53,6 @@ pub fn run(smoke: &mut Smoke, session_cookie: &str, github_port: u16) -> Result<
     last_owner(smoke, session_cookie)?;
     owner_gate(smoke, session_cookie)?;
     generation_header(smoke)
-}
-
-/// L806-827.
-fn token_round_trip(smoke: &mut Smoke, cookie: &str) -> Result<()> {
-    step("token create round-trip: plaintext once, usable, then revoked");
-    let create = CREATE_BODY.as_bytes();
-    session_request(
-        smoke,
-        cookie,
-        "POST",
-        "/api/v1/user/tokens",
-        201,
-        &csrf_headers(),
-        Some(create),
-    )?;
-    smoke.expect_body(r#""name":"smoke-session""#)?;
-    let (minted, minted_id) = minted(&smoke.body)?;
-
-    // The minted token works on the bearer plane...
-    smoke.auth = vec![("Authorization".to_owned(), format!("Bearer {minted}"))];
-    smoke.check("/config.json", &[200])?;
-    // ...and the listing shows metadata only - never the plaintext.
-    session_request(smoke, cookie, "GET", "/api/v1/user/tokens", 200, &[], None)?;
-    smoke.expect_body(r#""name":"smoke-session""#)?;
-    if contains(&smoke.body, minted.as_bytes()) {
-        bail!("the token listing leaked a plaintext token");
-    }
-    session_request(
-        smoke,
-        cookie,
-        "POST",
-        &format!("/api/v1/user/tokens/{minted_id}/revoke"),
-        200,
-        &csrf_headers(),
-        None,
-    )?;
-    smoke.expect_body(r#""ok":true"#)?;
-    let bearer = vec![("Authorization".to_owned(), format!("Bearer {minted}"))];
-    uniform_401_with(smoke, Base::Registry, "GET", "/config.json", &bearer, None)?;
-    smoke.as_publisher();
-    Ok(())
 }
 
 /// L829-840.
@@ -465,27 +423,6 @@ fn drift(smoke: &mut Smoke, github_port: u16, state: &str) -> Result<()> {
     Ok(())
 }
 
-/// The two `node` reads of the create response (L810-816).  A document
-/// that does not parse and a `token` that is not the plaintext shape
-/// were the same nonzero exit, and the shell answered both with one
-/// message; the id is read with no check of its own, rendered as
-/// JavaScript rendered it.
-fn minted(body: &[u8]) -> Result<(String, String)> {
-    let document = serde_json::from_slice::<Value>(body).unwrap_or(Value::Null);
-    let token = document
-        .get("token")
-        .and_then(Value::as_str)
-        .filter(|token| token.starts_with("cabin_"))
-        .with_context(|| {
-            format!(
-                "create response carries no plaintext token: {}",
-                capture(body)
-            )
-        })?;
-    let id = display(document.get("id").unwrap_or(&Value::Null));
-    Ok((token.to_owned(), id))
-}
-
 /// Fetch metadata as a browser stamps it onto one request.
 fn fetch_metadata(site: &str, mode: &str, purpose: Option<&str>) -> Vec<(String, String)> {
     let mut headers = vec![
@@ -645,34 +582,5 @@ mod tests {
             "HTTP/1.1 302 Found\r\nlocation: /dashboard?claim=granted\r\n\r\n"
         ));
         assert!(!refuses("x-echo: location: /dashboard?claim=denied\r\n"));
-    }
-
-    #[test]
-    fn the_minted_token_must_be_the_plaintext_shape() {
-        let body = br#"{"id":7,"token":"cabin_abc","name":"smoke-session"}"#;
-        assert_eq!(
-            minted(body).expect("minted"),
-            ("cabin_abc".to_owned(), "7".to_owned())
-        );
-        assert_eq!(
-            minted(br#"{"id":7}"#).expect_err("no token").to_string(),
-            r#"create response carries no plaintext token: {"id":7}"#
-        );
-        assert_eq!(
-            minted(br#"{"token":"nope"}"#)
-                .expect_err("wrong prefix")
-                .to_string(),
-            r#"create response carries no plaintext token: {"token":"nope"}"#
-        );
-        // A document that does not parse takes the same message.
-        assert!(minted(b"<html>").is_err());
-    }
-
-    /// The id is rendered as `console.log` rendered it: a string id
-    /// keeps its own text rather than gaining JSON quotes.
-    #[test]
-    fn a_string_id_keeps_its_text() {
-        let body = br#"{"id":"tok_1","token":"cabin_x"}"#;
-        assert_eq!(minted(body).expect("minted").1, "tok_1");
     }
 }

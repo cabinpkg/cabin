@@ -149,11 +149,12 @@ fn d1_execute(tail: &[&str]) -> Command {
 /// # Errors
 ///
 /// If wrangler cannot be run, or the statements fail.
-pub fn seed_tokens(token: &str, verify_token: &str) -> Result<()> {
+pub fn seed_tokens(token: &str, verify_token: &str, noverify_token: &str) -> Result<()> {
     step("seeding the smoke tokens and fixtures into the local database");
     let sql = seed_sql(
         &sha256_hex(token.as_bytes()),
         &sha256_hex(verify_token.as_bytes()),
+        &sha256_hex(noverify_token.as_bytes()),
     );
     d1(&sql)
 }
@@ -166,7 +167,7 @@ pub fn seed_tokens(token: &str, verify_token: &str) -> Result<()> {
 /// 'foreign' stays a seeded fixture, because it must belong to
 /// somebody else (user 2): publishing there must be exactly as
 /// forbidden as the unclaimed 'ghost'.
-fn seed_sql(hash: &str, verify_hash: &str) -> String {
+fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     format!(
         "
     INSERT OR IGNORE INTO users (id, created_at)
@@ -181,10 +182,29 @@ fn seed_sql(hash: &str, verify_hash: &str) -> String {
       VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
       VALUES ('foreign', 2, 'owner');
-    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke', 1, 'smoke', '{hash}', 'publish,yank', '1970-01-01T00:00:00.000Z');
-    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-      VALUES ('smoke-verify', 1, 'smoke-verify', '{verify_hash}', 'verify', '1970-01-01T00:00:00.000Z');
+    -- The three credentials wear the only shapes the schema still
+    -- admits, timestamped at seeding so every run stays inside the
+    -- one-day expiry ceiling: the publisher is a login-session row
+    -- (the full human scope set), the verifier a trustpub verify-arm
+    -- row, and the no-verify probe subject a trustpub publish-arm row
+    -- confined to the 'smoke' scope - the shape a CI workflow holds,
+    -- which must never see the admin plane.
+    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
+                                   expires_at, kind)
+      VALUES ('smoke', 1, 'smoke', '{hash}', 'publish,yank,verify',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'session');
+    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
+                                   expires_at, kind)
+      VALUES ('smoke-verify', 1, 'smoke-verify', '{verify_hash}', 'verify',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub');
+    INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
+                                   expires_at, kind, scope_limit, quota_class)
+      VALUES ('smoke-noverify', 1, 'smoke-noverify', '{noverify_hash}', 'publish',
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+              strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub',
+              'smoke', 'default');
     DELETE FROM revisions WHERE scope = 'smoke';
     DELETE FROM versions WHERE scope = 'smoke';
     DELETE FROM packages WHERE scope = 'smoke';
@@ -795,19 +815,25 @@ mod tests {
 
     #[test]
     fn the_seeding_sql_carries_the_token_hashes() {
-        // shasum -a 256 of "cabin_smoke" and "cabin_smoke-verify".
+        // shasum -a 256 of "cabin_smoke", "cabin_smoke-verify", and
+        // "cabin_smoke-noverify".
         let sql = seed_sql(
             &sha256_hex(b"cabin_smoke"),
             &sha256_hex(b"cabin_smoke-verify"),
+            &sha256_hex(b"cabin_smoke-noverify"),
         );
         assert!(sql.starts_with("\n    INSERT OR IGNORE INTO users (id, created_at)\n"));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke', 1, 'smoke', '{}', 'publish,yank', '1970-01-01T00:00:00.000Z');",
+            "VALUES ('smoke', 1, 'smoke', '{}', 'publish,yank,verify',",
             sha256_hex(b"cabin_smoke")
         )));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke-verify', 1, 'smoke-verify', '{}', 'verify', '1970-01-01T00:00:00.000Z');",
+            "VALUES ('smoke-verify', 1, 'smoke-verify', '{}', 'verify',",
             sha256_hex(b"cabin_smoke-verify")
+        )));
+        assert!(sql.contains(&format!(
+            "VALUES ('smoke-noverify', 1, 'smoke-noverify', '{}', 'publish',",
+            sha256_hex(b"cabin_smoke-noverify")
         )));
         assert!(
             sql.ends_with("\n    UPDATE meta SET value = 'normal' WHERE key = 'service_mode';")

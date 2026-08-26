@@ -320,7 +320,7 @@ fn login_skips_the_probe_when_offline() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "create a token in the registry's web interface",
+            "see the registry's documentation for how to get a token",
         ))
         .stdout(predicate::str::contains(format!("token for `{url}` saved")));
     assert_eq!(
@@ -436,7 +436,7 @@ fn login_stores_the_token_keyed_by_normalized_origin() {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     assert!(
-        stdout.contains("create a token in the registry's web interface"),
+        stdout.contains("see the registry's documentation for how to get a token"),
         "expected the offline fallback hint in: {stdout}"
     );
     assert!(
@@ -476,7 +476,7 @@ fn login_discovers_the_login_url_from_the_challenge() {
 
     // A 401 carrying the challenge: the login URL is printed verbatim.
     let server = ChallengeRegistryServer::serve(Some(
-        r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#,
+        r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#,
     ));
     let home = dir.path().join("home-a");
     cabin()
@@ -487,7 +487,7 @@ fn login_discovers_the_login_url_from_the_challenge() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "visit https://cabinpkg.com/settings/tokens to create a token",
+            "see https://cabinpkg.com/docs/remote-registry for how to get a token",
         ));
     let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
     assert!(body.contains(TEST_TOKEN), "token must be stored: {body}");
@@ -504,7 +504,7 @@ fn login_discovers_the_login_url_from_the_challenge() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "create a token in the registry's web interface",
+            "see the registry's documentation for how to get a token",
         ));
     assert!(home.join("credentials.toml").exists());
 }

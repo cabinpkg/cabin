@@ -51,33 +51,11 @@ statements! {
                 t.rl_tokens, t.rl_updated_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
-         AND t.created_at <= ?2 \
-         AND (t.expires_at IS NULL OR t.expires_at > ?2)";
+         AND t.created_at <= ?2 AND t.expires_at > ?2";
 
     /// Best-effort `last_used_at` bookkeeping on every
     /// bearer-authenticated request.
     TOUCH_TOKEN_LAST_USED = "UPDATE tokens SET last_used_at = ?1 WHERE id = ?2";
-
-    /// The dashboard token listing: metadata only, never hashes, and
-    /// `user` rows only - the machine-minted kinds (`trustpub`,
-    /// `session`) are expiry-pruned infrastructure credentials whose
-    /// rows carry none of the state this listing renders, so surfacing
-    /// them would show an expired-but-unpruned session as a live token.
-    LIST_USER_TOKENS =
-        "SELECT id, name, scopes, created_at, last_used_at, revoked_at \
-         FROM tokens WHERE user_id = ?1 AND kind = 'user' \
-         ORDER BY created_at DESC, id";
-
-    /// Issues a token; D1 stores only the SHA-256 hex of the plaintext.
-    INSERT_TOKEN =
-        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
-
-    /// Revokes one of the session user's own tokens; first `revoked_at`
-    /// wins.
-    REVOKE_TOKEN =
-        "UPDATE tokens SET revoked_at = ?1 \
-         WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL";
 
     /// Creates the registry-native user row exactly when the identity
     /// is new. Must run in one batch (one transaction) directly before
@@ -152,12 +130,11 @@ statements! {
     PRUNE_EXPIRED_OIDC_JTIS = "DELETE FROM oidc_used_jtis WHERE expires_at <= ?1";
 
     /// Lazy minted-token cleanup beside the jti prune, ridden on each
-    /// exchange and each session mint (deliberately no cron). Trustpub
-    /// and session rows only: an expired *user* token stays listed
-    /// (and revocable) on its owner's dashboard, while an expired
-    /// short-lived token is pure residue nobody manages.
+    /// exchange and each session mint (deliberately no cron): every
+    /// token kind is machine-minted and expiring now, and an expired
+    /// row is pure residue nobody manages.
     PRUNE_EXPIRED_SHORT_LIVED_TOKENS =
-        "DELETE FROM tokens WHERE kind IN ('trustpub', 'session') AND expires_at <= ?1";
+        "DELETE FROM tokens WHERE expires_at <= ?1";
 
     /// Mints the config arm's short-lived publish token - but only when
     /// the immediately preceding [`CONSUME_OIDC_JTI`] in the same batch
@@ -201,9 +178,9 @@ statements! {
          WHERE provider = 'github' AND provider_account_id = ?1";
 
     /// Revocation by the token itself: deletes the authenticated row
-    /// iff it is a trustpub one. Zero changed rows - a user token's id -
-    /// is the caller's uniform 401, so the endpoint is no token-kind
-    /// oracle.
+    /// iff it is a trustpub one. Zero changed rows - a session token's
+    /// id - is the caller's uniform 401, so the endpoint is no
+    /// token-kind oracle.
     DELETE_TRUSTPUB_TOKEN = "DELETE FROM tokens WHERE id = ?1 AND kind = 'trustpub'";
 
     // ------------------------------------------------------------------

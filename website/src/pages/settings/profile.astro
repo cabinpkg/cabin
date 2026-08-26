@@ -3,7 +3,6 @@
 // account beyond what GitHub provides, so this page shows the GitHub
 // identity and the quota class, and points at GitHub for the rest.
 import AccountShell from "../../components/account/AccountShell.astro";
-import SettingsNav from "../../components/account/SettingsNav.astro";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import Icon from "../../components/Icon.astro";
 import ExternalLink from "../../components/ui/ExternalLink.astro";
@@ -19,7 +18,6 @@ const valueClass = "font-mono text-sm text-ink";
     canonicalPath="/settings/profile"
     contentClass="container-shell max-w-4xl py-10"
 >
-    <SettingsNav current="profile" />
     <AccountShell title="Profile">
         <section aria-labelledby="identity-heading">
             <h2 id="identity-heading" class="spec-label mb-4">

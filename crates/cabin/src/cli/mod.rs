@@ -420,7 +420,7 @@ pub(crate) enum Command {
     ///
     /// Resolves the registry from `--index-url` (or the
     /// `[registry] index-url` config setting, defaulting to Cabin's
-    /// hosted registry), prints where to create a token, reads the
+    /// hosted registry), prints where to get a token, reads the
     /// token from stdin (without echo when stdin is a terminal), and
     /// stores it in the user-level `credentials.toml`.
     #[command(hide = true)]

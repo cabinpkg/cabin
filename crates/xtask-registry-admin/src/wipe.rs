@@ -315,14 +315,17 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
-  3. mint a verify-scoped token FIRST (before any publish-capable one)
-     for the governor step below; the verifier workflow needs no
-     secret - each run mints its own through the trusted-publishing
-     exchange once step 2's sign-in re-creates the backing identity
-  4. run cargo registry-governor wipe (from the repository root) BEFORE
-     any publish-capable token exists - its no-delayed-publisher
-     evidence gate requires zero live publish tokens (refused once
-     launched); ports-publish stays disabled until the next step
+  3. mint a login-session token for the governor step below - it carries
+     the full human scope set, so its verify scope authenticates the
+     admin endpoint; the verifier workflow needs no secret of its own -
+     each run mints its own through the trusted-publishing exchange once
+     step 2's sign-in re-creates the backing identity
+  4. run cargo registry-governor wipe (from the repository root); its
+     no-delayed-publisher evidence gate requires zero live publish tokens
+     and a login-session token carries publish, so block writes first,
+     wait out the in-flight window (~5 min), then run under writes_blocked
+     - the gate clears on that path; ports-publish stays disabled until
+     the next step
   5. re-enable ports-publish (gh workflow enable ports-publish.yml),
      prove the binding with an exchange-check dispatch, then dispatch
      it plainly from main to republish the set - no publish token or
