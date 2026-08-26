@@ -265,9 +265,9 @@ fn an_unknown_identity_resolves_to_nothing() {
     assert_eq!(resolve(&conn, "github", "583231"), None);
 }
 
-/// Creates a user and a token row through the real statements
-/// ([`sql::INSERT_TOKEN`] writes none of the trustpub-era columns, so
-/// every row it makes is a legacy-shaped one), returning the user id.
+/// Creates a user and a session token row through the real statements
+/// (the mint's own 12-hour TTL: issued 2026-07-15T00:00, expiring
+/// 2026-07-15T12:00), returning the user id.
 fn seed_token(conn: &rusqlite::Connection, token_id: &str, token_hash: &str) -> i64 {
     sign_in(
         conn,
@@ -278,17 +278,16 @@ fn seed_token(conn: &rusqlite::Connection, token_id: &str, token_hash: &str) -> 
     );
     let (user_id, ..) = resolve(conn, "github", "26405363").expect("identity resolves");
     conn.execute(
-        sql::INSERT_TOKEN,
+        sql::INSERT_SESSION_TOKEN,
         rusqlite::params![
             token_id,
             user_id,
-            "ci token",
             token_hash,
-            "publish,yank",
-            "2026-07-15T00:00:00.000Z"
+            "2026-07-15T00:00:00.000Z",
+            "2026-07-15T12:00:00.000Z"
         ],
     )
-    .expect("insert token");
+    .expect("insert session token");
     user_id
 }
 
@@ -315,14 +314,10 @@ fn auth_lookup(
 #[test]
 fn an_expired_token_is_the_same_no_row_answer_as_an_unknown_one() {
     let conn = migrated_connection();
+    // The seeded session row expires at 2026-07-15T12:00:00.000Z.
     seed_token(&conn, "tok-1", "hash-1");
-    conn.execute(
-        "UPDATE tokens SET expires_at = '2026-08-14T12:00:00.000Z' WHERE id = 'tok-1'",
-        [],
-    )
-    .expect("set expiry");
 
-    let now = "2026-08-14T12:00:00.001Z";
+    let now = "2026-07-15T12:00:00.001Z";
     // The uniform-401 invariant at the layer that decides it: the
     // expired row and a hash that never existed produce the exact same
     // lookup result, so the glue's single `unauthorized()` constructor
@@ -334,11 +329,11 @@ fn an_expired_token_is_the_same_no_row_answer_as_an_unknown_one() {
     );
     // Strictly-greater boundary: a token expiring exactly now is gone.
     assert_eq!(
-        auth_lookup(&conn, "hash-1", "2026-08-14T12:00:00.000Z"),
+        auth_lookup(&conn, "hash-1", "2026-07-15T12:00:00.000Z"),
         None
     );
     // One millisecond earlier it still authenticates.
-    let live = auth_lookup(&conn, "hash-1", "2026-08-14T11:59:59.999Z").expect("not yet expired");
+    let live = auth_lookup(&conn, "hash-1", "2026-07-15T11:59:59.999Z").expect("not yet expired");
     assert_eq!(live.0, "tok-1");
 }
 
@@ -351,7 +346,8 @@ fn a_future_dated_token_does_not_authenticate_before_its_anchor() {
     let conn = migrated_connection();
     seed_token(&conn, "tok-1", "hash-1");
     conn.execute(
-        "UPDATE tokens SET created_at = '9998-01-01T00:00:00.000Z' WHERE id = 'tok-1'",
+        "UPDATE tokens SET created_at = '9998-01-01T00:00:00.000Z', \
+                           expires_at = '9998-01-01T12:00:00.000Z' WHERE id = 'tok-1'",
         [],
     )
     .expect("forge the anchor");
@@ -379,33 +375,29 @@ fn a_future_dated_token_does_not_authenticate_before_its_anchor() {
 }
 
 #[test]
-fn legacy_token_rows_authenticate_exactly_as_before() {
+fn a_revoked_token_is_the_same_no_row_answer_as_an_unknown_one() {
     let conn = migrated_connection();
     seed_token(&conn, "tok-1", "hash-1");
-    // A pre-trustpub row: NULL expires_at never expires, NULL
-    // scope_limit stays unlimited, and the kind column defaulted.
+    // The live session row delivers its stored columns: the full human
+    // scope set, the owner's inherited class, no confinement.
     let (id, scopes, quota_class, scope_limit) =
-        auth_lookup(&conn, "hash-1", "2099-01-01T00:00:00.000Z").expect("legacy row matches");
+        auth_lookup(&conn, "hash-1", "2026-07-15T06:00:00.000Z").expect("live row matches");
     assert_eq!(id, "tok-1");
-    assert_eq!(scopes, "publish,yank");
+    assert_eq!(scopes, "publish,yank,verify");
     assert_eq!(quota_class, "default");
     assert_eq!(scope_limit, None);
-    let kind: String = conn
-        .query_row("SELECT kind FROM tokens WHERE id = 'tok-1'", [], |row| {
-            row.get(0)
-        })
-        .expect("kind column");
-    assert_eq!(kind, "user");
-    // Revocation still refuses on the rewritten lookup, exactly as it
-    // did before the expiry conjunct joined it.
+    // A revoked row answers exactly like an unknown hash, within its
+    // expiry window included.
     conn.execute(
-        "UPDATE tokens SET revoked_at = '2026-07-16T00:00:00.000Z' WHERE id = 'tok-1'",
+        "UPDATE tokens SET revoked_at = '2026-07-15T06:00:00.000Z' WHERE id = 'tok-1'",
         [],
     )
     .expect("revoke token");
+    let now = "2026-07-15T06:00:00.001Z";
+    assert_eq!(auth_lookup(&conn, "hash-1", now), None);
     assert_eq!(
-        auth_lookup(&conn, "hash-1", "2099-01-01T00:00:00.000Z"),
-        None
+        auth_lookup(&conn, "hash-1", now),
+        auth_lookup(&conn, "no-such-hash", now)
     );
 }
 
@@ -415,14 +407,19 @@ fn a_scope_limited_token_authenticates_and_carries_its_limit() {
     // (`AuthContext::scope_limit_refuses`, unit-tested in src/auth.rs);
     // this pins that the lookup delivers the column the glue decides on.
     let conn = migrated_connection();
-    seed_token(&conn, "tok-1", "hash-1");
+    let user_id = seed_token(&conn, "tok-1", "hash-1");
+    // A confined row is the trustpub exchange's publish shape; the
+    // session shape schema-forbids a scope_limit.
     conn.execute(
-        "UPDATE tokens SET scope_limit = 'cabin-ports' WHERE id = 'tok-1'",
-        [],
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at, scope_limit, quota_class) \
+         VALUES ('tok-2', ?1, 'x', 'hash-2', 'publish', '2026-07-15T00:00:00.000Z', 'trustpub', \
+                 '2026-07-15T00:30:00.000Z', 'cabin-ports', 'operator')",
+        [user_id],
     )
-    .expect("set scope limit");
+    .expect("seed a confined trustpub row");
     let (.., scope_limit) =
-        auth_lookup(&conn, "hash-1", "2026-08-14T12:00:00.000Z").expect("limited row matches");
+        auth_lookup(&conn, "hash-2", "2026-07-15T00:10:00.000Z").expect("limited row matches");
     assert_eq!(scope_limit.as_deref(), Some("cabin-ports"));
 }
 
@@ -430,14 +427,32 @@ fn a_scope_limited_token_authenticates_and_carries_its_limit() {
 fn token_kind_domain_is_closed_in_the_schema() {
     let conn = migrated_connection();
     let user_id = seed_token(&conn, "tok-1", "hash-1");
+    // 'user' is out of the domain with the legacy token plane: only the
+    // machine-minted kinds remain.
+    for kind in ["admin", "user"] {
+        let err = conn
+            .execute(
+                &format!(
+                    "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
+                                         kind) \
+                     VALUES ('tok-2', ?1, 'x', 'hash-2', 'publish', \
+                             '2026-07-15T00:00:00.000Z', '{kind}')"
+                ),
+                [user_id],
+            )
+            .expect_err(kind);
+        assert!(err.to_string().contains("CHECK"), "{kind}: {err}");
+    }
+    // No DEFAULT survives either: a mint that forgets the column fails
+    // outright instead of minting a kind outside the domain.
     let err = conn
         .execute(
-            "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind) \
-             VALUES ('tok-2', ?1, 'x', 'hash-2', 'publish', '2026-07-15T00:00:00.000Z', 'admin')",
+            "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at) \
+             VALUES ('tok-2', ?1, 'x', 'hash-2', 'publish', '2026-07-15T00:00:00.000Z')",
             [user_id],
         )
-        .expect_err("unknown kind must fail the CHECK");
-    assert!(err.to_string().contains("CHECK"), "{err}");
+        .expect_err("kind omitted must fail NOT NULL");
+    assert!(err.to_string().contains("NOT NULL"), "{err}");
     // The publish shape's positive side: a trustpub row with an expiry,
     // a scope limit, and a granted quota class is admitted.
     conn.execute(
@@ -673,20 +688,15 @@ fn the_session_shape_is_bounded_unconfined_and_unclassed() {
 }
 
 /// The lazy expiry cleanup the exchange and the session mint ride on
-/// each mint: statement semantics `prepare` cannot see - the `kind`
-/// filter (an expired *user* token stays listed and revocable on its
-/// owner's dashboard), the inclusive `<=` boundary matching the auth
-/// lookup's strict `>` liveness, and the jti prune against the
-/// acceptance window's end.
+/// each mint: statement semantics `prepare` cannot see - the inclusive
+/// `<=` boundary matching the auth lookup's strict `>` liveness across
+/// both kinds, and the jti prune against the acceptance window's end.
 #[test]
-fn expiry_pruning_is_short_lived_only_and_boundary_inclusive() {
+fn expiry_pruning_is_boundary_inclusive() {
     let conn = migrated_connection();
-    let user_id = seed_token(&conn, "tok-user", "hash-user");
-    conn.execute(
-        "UPDATE tokens SET expires_at = '2026-08-14T00:00:00.000Z' WHERE id = 'tok-user'",
-        [],
-    )
-    .expect("expire the user token");
+    // The seeded session row expired 2026-07-15T12:00 - long dead at
+    // the prune instant below, so it goes with the boundary rows.
+    let user_id = seed_token(&conn, "tok-seed", "hash-seed");
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
                              expires_at, scope_limit, quota_class) \
@@ -711,12 +721,12 @@ fn expiry_pruning_is_short_lived_only_and_boundary_inclusive() {
     // At the boundary instant the dead rows no longer authenticate
     // (the lookup's strict >), so the prune's inclusive <= removes
     // exactly the rows the auth plane already refuses - across both
-    // short-lived kinds in the one statement.
+    // kinds in the one statement.
     let now = "2026-08-15T00:00:00.000Z";
     let pruned = conn
         .execute(sql::PRUNE_EXPIRED_SHORT_LIVED_TOKENS, [now])
         .expect("prune tokens");
-    assert_eq!(pruned, 2, "exactly the dead trustpub and session rows");
+    assert_eq!(pruned, 3, "the seed row and the dead boundary rows");
     let survivors: Vec<String> = conn
         .prepare("SELECT id FROM tokens ORDER BY id")
         .expect("prepare")
@@ -724,7 +734,7 @@ fn expiry_pruning_is_short_lived_only_and_boundary_inclusive() {
         .expect("list tokens")
         .collect::<Result<_, _>>()
         .expect("token ids");
-    assert_eq!(survivors, ["tok-ses-live", "tok-tp-live", "tok-user"]);
+    assert_eq!(survivors, ["tok-ses-live", "tok-tp-live"]);
 
     // The jti prune: expires_at is the END of the verifier's acceptance
     // window, so a row at exactly now protects nothing and goes; a
@@ -753,19 +763,18 @@ fn expiry_pruning_is_short_lived_only_and_boundary_inclusive() {
 #[test]
 fn self_revocation_never_crosses_token_kinds() {
     let conn = migrated_connection();
-    let user_id = seed_token(&conn, "tok-user", "hash-user");
+    let user_id = seed_token(&conn, "tok-ses", "hash-ses");
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
                              expires_at) \
-         VALUES ('tok-ses', ?1, 'x', 'hash-ses', 'publish,yank,verify', \
-                 '2026-08-15T00:00:00.000Z', 'session', '2026-08-15T12:00:00.000Z')",
+         VALUES ('tok-tp', ?1, 'x', 'hash-tp', 'verify', \
+                 '2026-07-15T00:00:00.000Z', 'trustpub', '2026-07-15T00:30:00.000Z')",
         [user_id],
     )
-    .expect("seed a session row");
+    .expect("seed a trustpub row");
     for (statement, foreign) in [
-        (sql::DELETE_TRUSTPUB_TOKEN, "tok-user"),
         (sql::DELETE_TRUSTPUB_TOKEN, "tok-ses"),
-        (sql::DELETE_SESSION_TOKEN, "tok-user"),
+        (sql::DELETE_SESSION_TOKEN, "tok-tp"),
     ] {
         let deleted = conn
             .execute(statement, [foreign])
@@ -773,42 +782,13 @@ fn self_revocation_never_crosses_token_kinds() {
         assert_eq!(deleted, 0, "{statement} must not delete {foreign}");
     }
     assert!(
-        auth_lookup(&conn, "hash-user", "2026-08-15T00:00:00.000Z").is_some(),
-        "the user token stays live"
-    );
-    assert!(
-        auth_lookup(&conn, "hash-ses", "2026-08-15T06:00:00.000Z").is_some(),
+        auth_lookup(&conn, "hash-ses", "2026-07-15T06:00:00.000Z").is_some(),
         "the session token stays live"
     );
-}
-
-/// [`sql::LIST_USER_TOKENS`] is the dashboard's listing of `user` rows
-/// alone: the machine-minted kinds ride the same table under the same
-/// owner but must never surface there - the listing renders any
-/// unrevoked row as live, which an expired-but-unpruned session is not.
-#[test]
-fn the_token_listing_lists_user_rows_only() {
-    let conn = migrated_connection();
-    let user_id = seed_token(&conn, "tok-user", "hash-user");
-    conn.execute(
-        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
-                             expires_at, scope_limit, quota_class) \
-         VALUES ('tok-ses', ?1, 'x', 'hash-ses', 'publish,yank,verify', \
-                 '2026-08-15T00:00:00.000Z', 'session', '2026-08-15T12:00:00.000Z', \
-                 NULL, NULL), \
-                ('tok-tp', ?1, 'x', 'hash-tp', 'publish', '2026-08-15T00:00:00.000Z', \
-                 'trustpub', '2026-08-15T00:30:00.000Z', 'cabin-ports', 'operator')",
-        [user_id],
-    )
-    .expect("seed one row of each machine-minted kind");
-    let listed: Vec<String> = conn
-        .prepare(sql::LIST_USER_TOKENS)
-        .expect("prepare listing")
-        .query_map([user_id], |row| row.get(0))
-        .expect("list tokens")
-        .collect::<Result<_, _>>()
-        .expect("token ids");
-    assert_eq!(listed, ["tok-user"]);
+    assert!(
+        auth_lookup(&conn, "hash-tp", "2026-07-15T00:10:00.000Z").is_some(),
+        "the trustpub token stays live"
+    );
 }
 
 #[test]
@@ -841,7 +821,7 @@ fn expiry_timestamps_must_be_the_fixed_width_iso_shape() {
         assert!(err.to_string().contains("CHECK"), "{malformed}: {err}");
     }
     conn.execute(
-        "UPDATE tokens SET expires_at = '2026-08-14T12:00:00.000Z' WHERE id = 'tok-1'",
+        "UPDATE tokens SET expires_at = '2026-07-15T18:00:00.000Z' WHERE id = 'tok-1'",
         [],
     )
     .expect("the canonical shape is admitted");

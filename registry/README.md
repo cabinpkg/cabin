@@ -10,8 +10,8 @@ content) plus the authenticated `publish` and `yank`
 API routes and the verifier's `verify`-scoped admin routes (validation
 order, the immutability rule, and the verification lifecycle are described
 in [`docs/architecture.md`](docs/architecture.md)), and the browser
-plane - GitHub OAuth sign-in plus a session-cookie JSON user API for
-issuing and revoking tokens - served on the **website origin**
+plane - GitHub OAuth sign-in plus a session-cookie JSON user API backing
+the account dashboard - served on the **website origin**
 (`cabinpkg.com`) while the registry domain serves only the machine read
 plane: one role per hostname, dispatched on the Host header. See
 [`docs/architecture.md`](docs/architecture.md) ("Origins and roles") for
@@ -47,12 +47,13 @@ checklist").
 
 ## Getting a token
 
-Sign in with GitHub on the website origin (`https://cabinpkg.com/login`)
-and create a token with the scopes you need through the token page (its
-URL is what the `WWW-Authenticate` challenge on the mutation surface's
-uniform `401` names, and what `cabin login` prints) - the plaintext is shown
-exactly once; the registry stores only its hash. Then hand it to the
-client with `cabin login`.
+The registry's authentication mechanisms are specified in
+[`../docs/remote-registry.md`](../docs/remote-registry.md), the
+authoritative protocol document: trusted publishing for CI, and
+login-session tokens for interactive use. The mutation surface's uniform
+`401` carries a `WWW-Authenticate` challenge naming that document's login
+URL - the same URL `cabin login` prints. The registry stores only a
+token's SHA-256 hash; a minted plaintext is shown exactly once.
 
 Sign-in is restricted to the numeric GitHub user ids listed in
 `ALLOWED_GITHUB_IDS` (a plain var in `wrangler.jsonc`); adding a user later

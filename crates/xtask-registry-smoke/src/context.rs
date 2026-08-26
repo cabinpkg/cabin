@@ -124,6 +124,16 @@ impl Smoke {
         self.auth = bearer(&format!("{}-verify", self.token));
     }
 
+    /// `as_ci_publisher`: the seeded trustpub publish-arm token, the
+    /// confined no-verify shape a CI workflow holds.  The negative
+    /// subject for the verify-scope gates: since every human (session)
+    /// token now carries `verify`, this is the credential that must
+    /// still be refused on the admin plane and see pending versions
+    /// as missing.
+    pub fn as_ci_publisher(&mut self) {
+        self.auth = bearer(&format!("{}-noverify", self.token));
+    }
+
     /// A fresh verifier OIDC JWT from the GitHub mock's local-only mint
     /// endpoint, claims overridden by the `overrides` JSON object
     /// (`{}` mints the pinned defaults).  Fresh per call on purpose:
@@ -446,7 +456,7 @@ mod tests {
     fn the_header_block_keeps_duplicates_and_the_status_line() {
         let (port, _requests) = serve(vec![concat!(
             "HTTP/1.1 401 Unauthorized\r\n",
-            "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/settings/tokens\"\r\n",
+            "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/docs/remote-registry\"\r\n",
             "Set-Cookie: a=1\r\n",
             "Set-Cookie: b=2\r\n",
             "Content-Length: 5\r\n",

@@ -79,7 +79,7 @@ mod tests {
     const BLOCK: &str = concat!(
         "HTTP/1.1 401 Unauthorized\r\n",
         "content-type: application/json\r\n",
-        "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/settings/tokens\"\r\n",
+        "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/docs/remote-registry\"\r\n",
         "\r\n",
     );
 

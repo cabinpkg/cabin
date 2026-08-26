@@ -102,7 +102,9 @@ CREATE TABLE tokens (
     -- take.
     rl_tokens REAL,
     rl_updated_at TEXT,
-    -- NULL never expires. Same ISO-8601 UTC text shape as created_at
+    -- Required (non-NULL) for every kind by the shape CHECK
+    -- constraints below: no token stands forever. Same ISO-8601 UTC
+    -- text shape as created_at
     -- (JS toISOString: fixed-width, so lexicographic comparison is the
     -- ordering): the auth lookup enforces expiry with a string
     -- comparison in SQL. The shape is schema-enforced because the
@@ -133,17 +135,18 @@ CREATE TABLE tokens (
     -- write-side operations on packages under exactly this scope; the
     -- refusal is the same uniform 403 as a membership miss.
     scope_limit TEXT,
-    -- NULL inherits the owning user's users.quota_class (every 'user'
-    -- token: the session mint never writes this column). The trustpub
-    -- exchange persists its config's granted tier here so the grant
-    -- rides the short-lived token instead of rewriting the backing
-    -- user's standing class; the auth lookup coalesces token-first.
+    -- NULL inherits the owning user's users.quota_class (the session
+    -- mint never writes this column). The trustpub exchange persists
+    -- its config's granted tier here so the grant rides the
+    -- short-lived token instead of rewriting the backing user's
+    -- standing class; the auth lookup coalesces token-first.
     quota_class TEXT,
-    -- Closed domain like scope_members.role: 'user' tokens are minted
-    -- from the website session, 'trustpub' tokens are the short-lived
-    -- product of a GitHub Actions OIDC exchange, 'session' tokens are
-    -- the CLI login's short-lived human credential.
-    kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'trustpub', 'session')),
+    -- Closed domain like scope_members.role: 'trustpub' tokens are the
+    -- short-lived product of a GitHub Actions OIDC exchange, 'session'
+    -- tokens are the CLI login's short-lived human credential. Every
+    -- kind is machine-minted and expiring; no standing credential
+    -- exists, and both mints write the column explicitly (no DEFAULT).
+    kind TEXT NOT NULL CHECK (kind IN ('trustpub', 'session')),
     -- Short-lived and exactly one of two shapes is what 'trustpub'
     -- MEANS, and the schema enforces both so a bug in a minting path
     -- cannot widen an exchange into a standing or over-privileged
@@ -190,9 +193,8 @@ CREATE TABLE tokens (
     -- confined credential. Twelve hours is the TTL the mint sets in code
     -- (src/session_tokens.rs); the schema reuses trustpub's one-day
     -- ceiling with the same fail-closed ifnull anchor. The scope set is
-    -- the full human one - exactly what the website's create-token form
-    -- offered any signed-in user - and NULL quota_class inherits the
-    -- owning user's class live through the auth lookup's COALESCE.
+    -- the full human one, and NULL quota_class inherits the owning
+    -- user's class live through the auth lookup's COALESCE.
     CHECK (
         kind != 'session'
         OR (

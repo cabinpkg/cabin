@@ -381,7 +381,7 @@ fn origin_for_error(url: &str) -> String {
 /// couple of seconds, never hang the login for the full read timeout.
 const LOGIN_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Discover a registry's token-creation page from the
+/// Discover where a registry's tokens are obtained from the
 /// `Cabin login_url="<url>"` challenge (`docs/remote-registry.md`,
 /// "Authentication"): one unauthenticated `GET` of
 /// `<index_url>/config.json` - an `auth-required` registry answers it
@@ -1101,15 +1101,16 @@ mod tests {
     #[test]
     fn parse_login_url_accepts_the_documented_challenge() {
         assert_eq!(
-            parse_login_url(r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#).as_deref(),
-            Some("https://cabinpkg.com/settings/tokens")
+            parse_login_url(r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#)
+                .as_deref(),
+            Some("https://cabinpkg.com/docs/remote-registry")
         );
         // The scheme token is case-insensitive (RFC 7235), loopback http
         // is plausible (local testing), and other parameters may precede.
         assert_eq!(
-            parse_login_url(r#"cabin login_url="http://127.0.0.1:8787/settings/tokens""#)
+            parse_login_url(r#"cabin login_url="http://127.0.0.1:8787/docs/remote-registry""#)
                 .as_deref(),
-            Some("http://127.0.0.1:8787/settings/tokens")
+            Some("http://127.0.0.1:8787/docs/remote-registry")
         );
         assert_eq!(
             parse_login_url(r#"Cabin realm="reg", login_url="https://cabinpkg.com/t""#).as_deref(),
@@ -1138,7 +1139,7 @@ mod tests {
             r#"Cabin not_login_url="https://attacker.example/""#,
             // Unquoted, relative, non-http(s), userinfo, control chars.
             "Cabin login_url=https://x/y",
-            r#"Cabin login_url="/settings/tokens""#,
+            r#"Cabin login_url="/docs/remote-registry""#,
             r#"Cabin login_url="ftp://x/y""#,
             r#"Cabin login_url="https://user:pw@x/y""#,
             "Cabin login_url=\"https://x/\u{7}y\"",
@@ -1195,12 +1196,12 @@ mod tests {
             "{}",
             &[(
                 "WWW-Authenticate",
-                r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#,
+                r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#,
             )],
         );
         assert_eq!(
             fetch_login_url(&url).as_deref(),
-            Some("https://cabinpkg.com/settings/tokens")
+            Some("https://cabinpkg.com/docs/remote-registry")
         );
         server.unblock();
         assert!(
@@ -1239,7 +1240,7 @@ mod tests {
                         .with_header(
                             tiny_http::Header::from_bytes(
                                 "WWW-Authenticate".as_bytes(),
-                                r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+                                r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#
                                     .as_bytes(),
                             )
                             .expect("valid test header"),
@@ -1254,7 +1255,7 @@ mod tests {
         // `/reg/`, and `config.json` must come first.
         assert_eq!(
             fetch_login_url(&format!("http://{addr}/reg")).as_deref(),
-            Some("https://cabinpkg.com/settings/tokens")
+            Some("https://cabinpkg.com/docs/remote-registry")
         );
         server.unblock();
         let (seen, saw_authorization) = thread.join().unwrap();

@@ -55,20 +55,20 @@ pub const GOVERNOR_LEDGER_LAUNCHED: &str =
 pub const GOVERNOR_UNAVAILABLE: &str = "the governor did not answer; try again";
 pub const CSRF_REQUIRED: &str = "the request must declare Content-Type: application/json and \
      carry the X-CSRF-Protection header";
-pub const INVALID_TOKEN_NAME_OR_SCOPES: &str = "invalid token name or scopes";
 
 /// The `WWW-Authenticate` challenge every Bearer-plane 401 carries,
 /// mirroring Cargo's `login_url` challenge: byte-identical on every path
 /// and failure reason, so unauthenticated responses stay
 /// indistinguishable and leak nothing about package existence.
 ///
-/// The token page it names is the website's `/settings/tokens` on the
-/// origin holding the browser plane (`docs/runbook.md`, "Integrated
-/// topology and route management") - but `cabin login` never depends
-/// on the URL resolving, only on the grammar.
+/// The page it names is the registry docs on the origin holding the
+/// browser plane (`docs/runbook.md`, "Integrated topology and route
+/// management"), where the `cabin login` credential flow is described -
+/// but `cabin login` never depends on the URL resolving, only on the
+/// grammar.
 pub fn www_authenticate(web_origin: &str) -> String {
     format!(
-        "Cabin login_url=\"{origin}/settings/tokens\"",
+        "Cabin login_url=\"{origin}/docs/remote-registry\"",
         origin = web_origin.trim_end_matches('/'),
     )
 }
@@ -94,12 +94,12 @@ mod tests {
     fn www_authenticate_matches_the_challenge_grammar() {
         assert_eq!(
             www_authenticate("https://cabinpkg.com"),
-            r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+            r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#
         );
         // A trailing slash on the env var never doubles the separator.
         assert_eq!(
             www_authenticate("https://cabinpkg.com/"),
-            r#"Cabin login_url="https://cabinpkg.com/settings/tokens""#
+            r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#
         );
     }
 

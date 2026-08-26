@@ -207,7 +207,11 @@ fn twin_and_reserved_names(
 
 /// L1042-1079.
 fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
-    step("pending versions are invisible to ordinary tokens and anonymous readers");
+    step("pending versions are invisible to no-verify tokens and anonymous readers");
+    // The no-verify subject is the CI publish-arm credential: every
+    // session token carries verify, so this is the valid token pending
+    // must stay missing for.
+    smoke.as_ci_publisher();
     smoke.check(inputs.package_path, &[404])?;
     smoke.check(inputs.artifact_path, &[404])?;
     // Anonymous readers see byte-identical 404s: pending, rejected, and
@@ -267,10 +271,14 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
         &[],
     )?;
 
+    // The verify-scope gate's negative subject is the no-verify CI
+    // credential (the session-shaped publisher token carries verify).
+    smoke.as_ci_publisher();
     smoke.wcheck("/api/v1/admin/versions?status=pending", &[403])?;
     smoke.expect_body("verify scope")?;
     smoke.wcheck("/api/v1/admin/packages", &[403])?;
     smoke.expect_body("verify scope")?;
+    smoke.as_publisher();
     write(&inputs.work.join("verdict-unbound.json"), VERDICT_UNBOUND)?;
     // The verdict route takes no registry token at all: its credential
     // is the verifier workflow's OIDC JWT, so the publisher's bearer is

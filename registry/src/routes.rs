@@ -250,10 +250,6 @@ pub enum SessionRoute<'a> {
     /// `GET /api/v1/user/packages`: the user's packages and the
     /// verification/yanked state of every version.
     Packages,
-    /// `GET` lists tokens, `POST` creates one.
-    Tokens,
-    /// `POST /api/v1/user/tokens/<id>/revoke`.
-    RevokeToken { id: &'a str },
     /// `GET /api/v1/user/source/<scope>/<name>/<version>`: a ranged
     /// read of a **verified** version's archive for the website's
     /// source viewer. Any verified version is readable, so the route
@@ -293,18 +289,17 @@ pub enum SessionRoute<'a> {
     Logout,
 }
 
-/// Matches `path` against the session routes. Token ids
-/// (`[A-Za-z0-9_-]+`), scopes (the scope grammar), GitHub ids
-/// (numeric), and the source route's package triple (the read-plane
-/// grammars, like [`match_route`] - the components become an R2-backed
-/// read) are validated here before they reach a D1 query.
+/// Matches `path` against the session routes. Scopes (the scope
+/// grammar), GitHub ids (numeric), and the source route's package
+/// triple (the read-plane grammars, like [`match_route`] - the
+/// components become an R2-backed read) are validated here before they
+/// reach a D1 query.
 pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
     match path {
         "/api/v1/user" => Some(SessionRoute::User),
         "/api/v1/user/usage" => Some(SessionRoute::Usage),
         "/api/v1/user/packages" => Some(SessionRoute::Packages),
         "/api/v1/user/search" => Some(SessionRoute::Search),
-        "/api/v1/user/tokens" => Some(SessionRoute::Tokens),
         "/api/v1/user/logout" => Some(SessionRoute::Logout),
         _ => {
             if let Some(rest) = path.strip_prefix("/api/v1/user/package/") {
@@ -354,14 +349,7 @@ pub fn match_session_route(path: &str) -> Option<SessionRoute<'_>> {
                 }
                 return Some(SessionRoute::RemoveScopeMember { scope, github_id });
             }
-            let id = path
-                .strip_prefix("/api/v1/user/tokens/")?
-                .strip_suffix("/revoke")?;
-            let valid = !id.is_empty()
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-            valid.then_some(SessionRoute::RevokeToken { id })
+            None
         }
     }
 }
@@ -691,14 +679,6 @@ mod tests {
             Some(SessionRoute::Packages)
         );
         assert_eq!(
-            match_session_route("/api/v1/user/tokens"),
-            Some(SessionRoute::Tokens)
-        );
-        assert_eq!(
-            match_session_route("/api/v1/user/tokens/0aB_-9/revoke"),
-            Some(SessionRoute::RevokeToken { id: "0aB_-9" })
-        );
-        assert_eq!(
             match_session_route("/api/v1/user/logout"),
             Some(SessionRoute::Logout)
         );
@@ -778,12 +758,8 @@ mod tests {
         for path in [
             "/",
             "/api/v1/user/",
-            "/api/v1/user/tokens/",
-            "/api/v1/user/tokens//revoke",
-            "/api/v1/user/tokens/abc",
-            "/api/v1/user/tokens/abc/revoke/extra",
-            "/api/v1/user/tokens/a.b/revoke",
-            "/api/v1/user/tokens/a%2f/revoke",
+            "/api/v1/user/tokens",
+            "/api/v1/user/tokens/abc/revoke",
             "/api/v1/user/packages/",
             "/api/v1/user/packages/fmt",
             "/api/v1/user/packages/fmtlib/fmt/10.2.1",
@@ -843,8 +819,6 @@ mod tests {
         for path in [
             "/api/v1/user",
             "/api/v1/user/usage",
-            "/api/v1/user/tokens",
-            "/api/v1/user/tokens/abc/revoke",
             "/api/v1/user/scopes/fmtlib/members",
             "/api/v1/user/scopes/fmtlib/members/1/remove",
             "/api/v1/user/source/fmtlib/fmt/10.2.1",

@@ -386,7 +386,7 @@ pub fn verifier_exchange_surface(smoke: &mut Smoke) -> Result<()> {
 /// # Errors
 ///
 /// The first failed check, worded like the module's other legs.
-pub fn login_session_surface(smoke: &mut Smoke, publisher_token: &str) -> Result<()> {
+pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Result<()> {
     step("the login-session mint answers a token that authenticates and revokes itself");
     let bearer = |token: &str| vec![("Authorization".to_owned(), format!("Bearer {token}"))];
     let url = smoke.url(Base::Web, SESSION_TOKENS_PATH);
@@ -400,8 +400,11 @@ pub fn login_session_surface(smoke: &mut Smoke, publisher_token: &str) -> Result
         &[],
         Some(br#"{"github_token":"gho_wrong"}"#),
     )?;
+    // The seeded publisher credential is itself a session row, so the
+    // leftover probe excludes it by id.
     let rows = crate::servers::d1_rows(
-        "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens WHERE kind = 'session'",
+        "SELECT ifnull(group_concat(id, ','), '') AS ids FROM tokens \
+         WHERE kind = 'session' AND id != 'smoke'",
     )?;
     let leftovers = rows
         .first()
@@ -443,14 +446,15 @@ pub fn login_session_surface(smoke: &mut Smoke, publisher_token: &str) -> Result
     if status != 200 {
         bail!("the minted session token could not list pending versions: {status}");
     }
-    // A live token of another kind changes no rows through this route
-    // and answers the uniform 401: the revoke is not a kind oracle.
+    // A live token of another kind - the seeded trustpub verify
+    // credential - changes no rows through this route and answers the
+    // uniform 401: the revoke is not a kind oracle.
     uniform_401_with(
         smoke,
         Base::Web,
         "DELETE",
         SESSION_TOKENS_PATH,
-        &bearer(publisher_token),
+        &bearer(non_session_token),
         None,
     )?;
     // Revocation by the token itself, and the revoked token is dead.
@@ -478,7 +482,6 @@ fn session_endpoints(smoke: &mut Smoke) -> Result<()> {
         "/api/v1/user/search?q=withdep",
         "/api/v1/user/package/smoke/withdep",
         "/api/v1/user/package/smoke/withdep/reverse-dependencies",
-        "/api/v1/user/tokens",
         // L584 spells `-X POST` after the expected status, where
         // `check_at` reads everything past the path as another expected
         // status: the request the shell makes is this GET, and the
@@ -696,7 +699,7 @@ fn challenge(smoke: &Smoke, at: Base) -> String {
         Base::Registry => smoke.web_origin().to_owned(),
         Base::Web => smoke.url(Base::Web, ""),
     };
-    format!("Cabin login_url=\"{origin}/settings/tokens\"")
+    format!("Cabin login_url=\"{origin}/docs/remote-registry\"")
 }
 
 /// `curl -o /dev/null -D "$headers"`: the header block is the whole
@@ -733,12 +736,12 @@ fn has_challenge(block: &str) -> bool {
 mod tests {
     use super::*;
 
-    const CHALLENGE: &str = "Cabin login_url=\"https://cabinpkg.com/settings/tokens\"";
+    const CHALLENGE: &str = "Cabin login_url=\"https://cabinpkg.com/docs/remote-registry\"";
 
     const BLOCK: &str = concat!(
         "HTTP/1.1 401 Unauthorized\r\n",
         "content-type: application/json\r\n",
-        "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/settings/tokens\"\r\n",
+        "WWW-Authenticate: Cabin login_url=\"https://cabinpkg.com/docs/remote-registry\"\r\n",
         "\r\n",
     );
 
@@ -751,7 +754,7 @@ mod tests {
     fn a_duplicated_challenge_can_never_equal_the_expected_one() {
         let doubled = BLOCK.replace(
             "content-type: application/json\r\n",
-            "www-authenticate: Cabin login_url=\"https://cabinpkg.com/settings/tokens\"\r\n",
+            "www-authenticate: Cabin login_url=\"https://cabinpkg.com/docs/remote-registry\"\r\n",
         );
         let got = challenge_value(&doubled);
         assert_eq!(got, format!("{CHALLENGE}\n{CHALLENGE}"));
@@ -760,7 +763,10 @@ mod tests {
 
     #[test]
     fn a_suffixed_challenge_can_never_equal_the_expected_one() {
-        let suffixed = BLOCK.replace("/settings/tokens\"\r\n", "/settings/tokens\", Basic\r\n");
+        let suffixed = BLOCK.replace(
+            "/docs/remote-registry\"\r\n",
+            "/docs/remote-registry\", Basic\r\n",
+        );
         assert_ne!(challenge_value(&suffixed), CHALLENGE);
     }
 

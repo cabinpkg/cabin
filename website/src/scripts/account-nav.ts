@@ -1,7 +1,7 @@
 // Progressive enhancement for the header's account area: the static
 // markup shows the signed-out "Sign in" affordance, and this swaps in the
-// account menu (a disclosure: Dashboard / API tokens / Profile / Sign
-// out) when the session-cookie probe answers signed-in. On error or with
+// account menu (a disclosure: Dashboard / Profile / Sign out) when the
+// session-cookie probe answers signed-in. On error or with
 // the registry unreachable the static default stays.
 import { type FetchLike, sharedAuth, signOut } from "../lib/account.ts";
 import { loadAvatar } from "../lib/avatar.ts";

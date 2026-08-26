@@ -152,7 +152,8 @@ protocol both sides implement is specified in
   recognized unconditionally; the read routes never consult `api`
   (only the gated mutation commands do);
 - client-side credential handling uses `Authorization: Bearer` tokens
-  issued on the registry's web UI, whose URL the client discovers from
+  minted by the registry's login-session and trusted-publishing flows;
+  where to get one the client discovers from
   the `WWW-Authenticate` `Cabin login_url` challenge the registry's
   authenticated surfaces answer unauthenticated requests with (the
   hosted registry's verified reads themselves are public);

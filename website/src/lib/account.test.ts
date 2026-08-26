@@ -6,12 +6,10 @@ import { test } from "node:test";
 import {
     type ApiResult,
     asOutcome,
-    createToken,
     type FetchLike,
     getUser,
     packageDownloads,
     resolveAuth,
-    revokeToken,
     signOut,
 } from "./account.ts";
 
@@ -101,41 +99,6 @@ test("a failure without the error envelope falls back to the status", async () =
     });
 });
 
-test("createToken sends the CSRF pair and returns the plaintext once", async () => {
-    const created = {
-        id: "abc",
-        name: "ci",
-        scopes: ["publish", "yank"],
-        token: "cabin_secret",
-    };
-    const { fetch, calls } = mockFetch(jsonResponse(201, created));
-
-    const result = await createToken(fetch, "ci", ["publish", "yank"]);
-    assert.deepEqual(result, { ok: true, data: created });
-
-    const init = calls[0]?.init;
-    assert.equal(calls[0]?.input, "/api/v1/user/tokens");
-    assert.equal(init?.method, "POST");
-    assert.equal(init?.credentials, "same-origin");
-    const headers = init?.headers as Record<string, string>;
-    assert.equal(headers["Content-Type"], "application/json");
-    assert.equal(headers["X-CSRF-Protection"], "1");
-    assert.deepEqual(JSON.parse(String(init?.body)), {
-        name: "ci",
-        scopes: ["publish", "yank"],
-    });
-});
-
-test("createToken surfaces the API's validation detail verbatim", async () => {
-    const detail =
-        'the body must be {"name": <1-64 chars>, "scopes": [..]} with scopes' +
-        ' drawn from "publish", "yank", "verify"';
-    const { fetch } = mockFetch(jsonResponse(400, envelope(detail)));
-
-    const result = await createToken(fetch, "", []);
-    assert.deepEqual(result, { ok: false, status: 400, message: detail });
-});
-
 test("quota refusals keep the API's detail and code-carrying envelope", async () => {
     const detail =
         "publish rate limit exceeded; retry after the token bucket refills";
@@ -147,19 +110,6 @@ test("quota refusals keep the API's detail and code-carrying envelope", async ()
 
     const result: ApiResult<unknown> = await getUser(fetch);
     assert.deepEqual(result, { ok: false, status: 429, message: detail });
-});
-
-test("revokeToken hits the id's revoke route with the CSRF pair", async () => {
-    const { fetch, calls } = mockFetch(jsonResponse(200, { ok: true }));
-
-    const result = await revokeToken(fetch, "a/b");
-    assert.deepEqual(result, { ok: true, data: { ok: true } });
-    // The id is URL-encoded, never spliced raw into the path.
-    assert.equal(calls[0]?.input, "/api/v1/user/tokens/a%2Fb/revoke");
-    const headers = calls[0]?.init?.headers as Record<string, string>;
-    assert.equal(headers["X-CSRF-Protection"], "1");
-    // The declared JSON content type stays truthful: a JSON body rides.
-    assert.equal(String(calls[0]?.init?.body), "{}");
 });
 
 test("signOut posts the logout mutation with the CSRF pair", async () => {
@@ -175,26 +125,25 @@ test("signOut posts the logout mutation with the CSRF pair", async () => {
     assert.equal(headers["X-CSRF-Protection"], "1");
 });
 
-test("the create flow settles created, signed-out, or failed", async () => {
-    // Success carries the plaintext through to the page...
-    const created = { id: "a", name: "ci", scopes: [], token: "cabin_x" };
-    let { fetch } = mockFetch(jsonResponse(201, created));
-    assert.deepEqual(asOutcome(await createToken(fetch, "ci", [])), {
+test("a mutation's outcome settles done, signed-out, or failed", async () => {
+    // Success carries the payload through to the page...
+    let { fetch } = mockFetch(jsonResponse(200, { ok: true }));
+    assert.deepEqual(asOutcome(await signOut(fetch)), {
         state: "done",
-        data: created,
+        data: { ok: true },
     });
 
     // ...a 401 mid-operation sends the whole page signed-out...
     ({ fetch } = mockFetch(
         jsonResponse(401, envelope("authentication required")),
     ));
-    assert.deepEqual(asOutcome(await createToken(fetch, "ci", [])), {
+    assert.deepEqual(asOutcome(await signOut(fetch)), {
         state: "signed-out",
     });
 
     // ...and any other refusal surfaces the API's detail as the notice.
     ({ fetch } = mockFetch(jsonResponse(403, envelope("csrf detail"))));
-    assert.deepEqual(asOutcome(await createToken(fetch, "ci", [])), {
+    assert.deepEqual(asOutcome(await signOut(fetch)), {
         state: "failed",
         message: "csrf detail",
     });

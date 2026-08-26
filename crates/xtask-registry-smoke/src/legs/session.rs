@@ -35,9 +35,9 @@ pub const SCOPE: &str = "smoke";
 pub const NAME: &str = "withdep";
 pub const VERSION: &str = "0.2.0";
 
-/// L799's `create_body`, defined inside the CSRF step but read again by
-/// the token round-trip that follows it (L808).
-pub const CREATE_BODY: &str = r#"{"name":"smoke-session","scopes":["publish"]}"#;
+/// A well-formed member mutation body for the ghost and CSRF probes:
+/// both refusals fire before the body is ever consulted.
+const MEMBER_BODY: &str = r#"{"github_id":2,"role":"member"}"#;
 
 /// What L670-723 leaves behind for every leg after it: the work
 /// directory, the built verifier, the fixture pair as bytes *and* as
@@ -271,29 +271,21 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
 
     step("a valid session whose identity row is gone answers 401 everywhere");
     // The post-wipe ghost: allowlisted id 1 has a validly sealed cookie
-    // but no identity row - every endpoint (the token routes included)
-    // answers the same 401 as no session, never an empty listing or a
-    // 500.  L786-787 swaps it into the one cookie variable the requests
+    // but no identity row - every endpoint (mutations included) answers
+    // the same 401 as no session, never an empty listing or a 500.
+    // L786-787 swaps it into the one cookie variable the requests
     // read, and L796 restores the real one.
     let real_session = std::mem::replace(&mut session, session_cookie(1, expires_in_an_hour()));
     session_request(smoke, &session, "GET", "/api/v1/user", 401, &[], None)?;
-    session_request(
-        smoke,
-        &session,
-        "GET",
-        "/api/v1/user/tokens",
-        401,
-        &[],
-        None,
-    )?;
+    session_request(smoke, &session, "GET", "/api/v1/user/usage", 401, &[], None)?;
     session_request(
         smoke,
         &session,
         "POST",
-        "/api/v1/user/tokens",
+        "/api/v1/user/scopes/smoke/members",
         401,
         &csrf,
-        Some(br#"{"name":"ghost","scopes":[]}"#),
+        Some(MEMBER_BODY.as_bytes()),
     )?;
     // Logout is the one exception: a validly sealed cookie is always
     // cleared, identity row or not.
@@ -311,26 +303,28 @@ pub fn session_plane(smoke: &mut Smoke) -> Result<String> {
 
     step("session mutations enforce the csrf header pair");
     // Each half of the pair alone, spelled out as L800-804 spells it.
+    // The csrf refusal fires before any scope logic, so the member
+    // route answers it whether or not the scope exists yet.
     let content_type = vec![("Content-Type".to_owned(), "application/json".to_owned())];
     let protection = vec![("X-CSRF-Protection".to_owned(), "1".to_owned())];
     session_request(
         smoke,
         &session,
         "POST",
-        "/api/v1/user/tokens",
+        "/api/v1/user/scopes/smoke/members",
         403,
         &content_type,
-        Some(CREATE_BODY.as_bytes()),
+        Some(MEMBER_BODY.as_bytes()),
     )?;
     smoke.expect_body("X-CSRF-Protection")?;
     session_request(
         smoke,
         &session,
         "POST",
-        "/api/v1/user/tokens",
+        "/api/v1/user/scopes/smoke/members",
         403,
         &protection,
-        Some(CREATE_BODY.as_bytes()),
+        Some(MEMBER_BODY.as_bytes()),
     )?;
     Ok(session)
 }

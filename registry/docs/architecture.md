@@ -81,7 +81,7 @@ which routes and which credential exist where:
 | `/config.json`, `/packages/*`, `/artifacts/*` | public GET, verified content only (the read plane; a Bearer credential is optional and still honored) | - |
 | `/login`, `/callback` | - | OAuth browser flow, no credential in / session cookie out |
 | `/claim/<scope>`, `/callback/claim` | - | the scope-claim flow's dedicated OAuth roundtrip ("Scopes" below) |
-| `/api/v1/user`, `/api/v1/user/{usage,packages,logout}`, `/api/v1/user/tokens[...]` | - | Session cookie **only** |
+| `/api/v1/user`, `/api/v1/user/{usage,packages,logout}` | - | Session cookie **only** |
 | `/api/v1/user/source/<scope>/<name>/<version>` | - | Session cookie **only**, ranged read ("The source viewer's ranged reads" below) |
 | `/api/v1/user/search`, `/api/v1/user/package/<scope>/<name>`, `/api/v1/user/package/<scope>/<name>/reverse-dependencies` | - | Session cookie **only** ("Search and reverse dependencies" below) |
 | `/api/v1/stats` | - | public GET, no credential ("Download counts") |
@@ -97,7 +97,7 @@ path; on the website origin nothing ever matches a machine read route, so
 the read plane does not exist there - the one package-data surface
 on this origin is the source viewer's session-authenticated ranged read
 (below). Every Bearer-plane 401 carries the
-byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/settings/tokens"`
+byte-identical `WWW-Authenticate: Cabin login_url="<WEB_ORIGIN>/docs/remote-registry"`
 challenge (`docs/remote-registry.md`, "The login-URL challenge"); session
 401s deliberately do not, keeping the planes distinguishable.
 
@@ -243,9 +243,10 @@ credential, separated by route on top of the hostname split: the
 subtree ("Download counts"), which takes no credential at all.
 
 **The mutation surface is Bearer-only and deny-by-default.** Publish,
-yank, and the admin plane require `Authorization: Bearer
-cabin_<base62>` (or an exchanged `cabin_tp_<base64url>` or minted
-`cabin_ses_<base64url>` token - same header, same hash lookup). The uniform
+yank, and the admin plane require an `Authorization: Bearer` header
+carrying an exchanged `cabin_tp_<base64url>` or minted
+`cabin_ses_<base64url>` token (same header, same hash lookup either
+way). The uniform
 `401 {"errors":[{"detail":"authentication required"}]}` (plus the
 challenge header) is emitted before any route matching or D1/R2 data
 lookup, so unauthenticated callers cannot probe the mutation routes -
@@ -307,19 +308,19 @@ Cookies are never read here.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
 exists only in the client's hands (it is rendered exactly once, in the
-create-token response). A valid token additionally opens the read
+mint response). A valid token additionally opens the read
 plane's `verify`-scope carve-outs;
 `scopes` (a subset of `publish,yank,verify`) gates the mutation routes and
 the verifier's admin plane.
-A token row is live only from `created_at` through `expires_at` (`NULL`
-never expires), enforced inside the single lookup's WHERE clause, so an
+A token row is live only from `created_at` through `expires_at` (required
+for every kind), enforced inside the single lookup's WHERE clause, so an
 expired or not-yet-valid token produces the exact no-row answer an
 unknown one does - the uniform 401, with no response or timing oracle.
 A row with `scope_limit` set may perform write-side package operations
 (publish, yank) only under exactly that scope; a mismatch
 answers the write plane's uniform membership 403. Verdicts take no
 registry token at all ("The verification pipeline"). `kind` is a closed
-domain (`user` | `trustpub` | `session`), and the schema itself requires a
+domain (`trustpub` | `session`), and the schema itself requires a
 `trustpub` row to be expiring (within one day of its `created_at`
 anchor) and to take exactly one of two shapes - the config arm's
 scope-limited, publish-only, explicitly classed row, or the verifier
@@ -364,11 +365,6 @@ website frontend consumes:
   contract lives in "Search and reverse dependencies"); both package
   routes answer the authenticated 404 for a package with no verified
   version;
-- `GET /api/v1/user/tokens` -> token metadata (never hashes);
-- `POST /api/v1/user/tokens` (`{"name":..,"scopes":[..]}`, unknown or
-  repeated scopes refused) -> `201` with the plaintext token, exactly once;
-- `POST /api/v1/user/tokens/<id>/revoke` -> idempotent `{"ok":true}`,
-  scoped to the session's own tokens (a foreign or unknown id is a no-op);
 - `GET /api/v1/user/scopes/<scope>/members` -> the scope's members
   (GitHub numeric id, display login, role) - like the two mutations
   below it is owner-gated behind one uniform `403` ("the scope does not

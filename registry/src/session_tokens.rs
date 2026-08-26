@@ -409,8 +409,7 @@ mod tests {
     }
 
     /// The lazy prune sweeps expired trustpub AND session rows in one
-    /// statement, boundary-inclusive, and never touches a live session
-    /// or a standing user token.
+    /// statement, boundary-inclusive, and never touches a live row.
     #[test]
     fn the_prune_sweeps_both_short_lived_kinds() {
         let conn = migrated_connection();
@@ -426,11 +425,9 @@ mod tests {
                                  expires_at, scope_limit, kind, quota_class)
                VALUES ('tp-dead', 1, 'tp', 'h3', 'publish',
                        '2026-08-15T00:00:00.000Z', '2026-08-15T00:30:00.000Z', 'smoke',
-                       'trustpub', 'default');
-             INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at)
-               VALUES ('user-old', 1, 'laptop', 'h4', 'publish', '1970-01-01T00:00:00.000Z');",
+                       'trustpub', 'default');",
         )
-        .expect("seed the four rows");
+        .expect("seed the three rows");
 
         let swept = conn
             .execute(
@@ -439,13 +436,9 @@ mod tests {
             )
             .expect("prune");
         assert_eq!(swept, 2);
-        let survivors: String = conn
-            .query_row(
-                "SELECT group_concat(id, ',') FROM (SELECT id FROM tokens ORDER BY id)",
-                [],
-                |row| row.get(0),
-            )
+        let survivor: String = conn
+            .query_row("SELECT id FROM tokens", [], |row| row.get(0))
             .expect("list survivors");
-        assert_eq!(survivors, "ses-live,user-old");
+        assert_eq!(survivor, "ses-live");
     }
 }

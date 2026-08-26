@@ -104,12 +104,6 @@ pub async fn respond_session(
             let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
             package_source(req, env, &db, &user, &scope, &name, &version).await
         }
-        (SessionRoute::Tokens, Method::Get) => list_tokens(&db, user.user_id).await,
-        (SessionRoute::Tokens, Method::Post) => create_token(req, &db, user.user_id).await,
-        (SessionRoute::RevokeToken { id }, Method::Post) => {
-            let id = id.to_owned();
-            revoke_token(req, &db, user.user_id, &id).await
-        }
         (SessionRoute::ScopeMembers { scope }, Method::Get) => {
             let scope = scope.to_owned();
             list_scope_members(&db, user.user_id, &scope).await
@@ -1026,95 +1020,9 @@ async fn package_source(
     Ok(response)
 }
 
-#[derive(Deserialize)]
-struct TokenListRecord {
-    id: String,
-    name: String,
-    scopes: String,
-    created_at: String,
-    last_used_at: Option<String>,
-    revoked_at: Option<String>,
-}
-
-/// `GET /api/v1/user/tokens`: metadata only, never hashes.
-async fn list_tokens(db: &D1Database, user_id: i64) -> worker::Result<Response> {
-    let records: Vec<TokenListRecord> = db
-        .prepare(sql::LIST_USER_TOKENS)
-        .bind(&[js_int(user_id)])?
-        .all()
-        .await?
-        .results()?;
-    let rows: Vec<user_api::TokenRow> = records
-        .into_iter()
-        .map(|record| user_api::TokenRow {
-            id: record.id,
-            name: record.name,
-            scopes: record.scopes,
-            created_at: record.created_at,
-            last_used_at: record.last_used_at,
-            revoked: record.revoked_at.is_some(),
-        })
-        .collect();
-    json_response(&user_api::tokens_json(&rows))
-}
-
 /// Reads a session-plane mutation under the shared JSON-body cap.
 async fn session_body(req: &mut Request) -> worker::Result<Option<Vec<u8>>> {
     crate::glue::bounded_body(req, crate::glue::MAX_MUTATION_BODY_BYTES).await
-}
-
-/// `POST /api/v1/user/tokens`: issue a token. The plaintext is rendered
-/// exactly once, on this response; D1 stores only the SHA-256 hex.
-async fn create_token(
-    req: &mut Request,
-    db: &D1Database,
-    user_id: i64,
-) -> worker::Result<Response> {
-    if !csrf_ok(req)? {
-        return json_error(403, error::CSRF_REQUIRED);
-    }
-    let Some(body) = session_body(req).await? else {
-        return json_error(400, user_api::INVALID_CREATE_TOKEN_BODY);
-    };
-    let parsed = match user_api::parse_create_token(&body) {
-        Ok(parsed) => parsed,
-        Err(detail) => return json_error(400, detail),
-    };
-
-    let id = auth::hex(&random_bytes::<16>()?);
-    let token = auth::format_token(&random_bytes()?);
-    db.prepare(sql::INSERT_TOKEN)
-        .bind(&[
-            id.as_str().into(),
-            js_int(user_id),
-            parsed.name.as_str().into(),
-            auth::token_hash(&token).into(),
-            parsed.scopes.as_str().into(),
-            now_iso8601().into(),
-        ])?
-        .run()
-        .await?;
-    let body = user_api::token_created_json(&id, &parsed.name, &parsed.scopes, &token);
-    Ok(json_response(&body)?.with_status(201))
-}
-
-/// `POST /api/v1/user/tokens/<id>/revoke`: idempotent, scoped to the
-/// session's own tokens (a foreign or unknown id is a no-op), first
-/// `revoked_at` wins.
-async fn revoke_token(
-    req: &Request,
-    db: &D1Database,
-    user_id: i64,
-    id: &str,
-) -> worker::Result<Response> {
-    if !csrf_ok(req)? {
-        return json_error(403, error::CSRF_REQUIRED);
-    }
-    db.prepare(sql::REVOKE_TOKEN)
-        .bind(&[now_iso8601().into(), id.into(), js_int(user_id)])?
-        .run()
-        .await?;
-    json_response(r#"{"ok":true}"#)
 }
 
 #[derive(Deserialize)]
