@@ -14,6 +14,8 @@ in the same change and follow the architecture document.
   `crates/cabin/AGENTS.md`.
 - Read `website/AGENTS.md` before changing `website/` or docs rendering.
   `docs/` contains the canonical Markdown rendered by the website.
+- Read `.github/AGENTS.md` before changing GitHub Actions workflows or other
+  `.github/` configuration.
 - Use `RELEASING.md` for release procedure. Do not infer release policy from
   CI or change cargo-dist, binstall, publishing, or release workflows during
   unrelated work.
@@ -58,6 +60,8 @@ in the same change and follow the architecture document.
   itself is the contract, not to duplicate unit coverage. Do not test
   implementation text/layout, trivial derived behavior, or library/framework
   guarantees. Follow the portability rules in `crates/AGENTS.md`.
+- Tests must not read `.github/` files or depend on a workflow path. Workflow
+  moves or renames must not break the test suite.
 - Scripted or repeated edits must verify that the expected pattern matched
   and the old form is gone.
 - Claim verification only when an executed check could have detected the
@@ -72,37 +76,18 @@ in the same change and follow the architecture document.
   `--target-dir` is not an alias.
 - A port directory is published verbatim, so every edit, including a comment,
   changes archive bytes. Compare its published digest before editing and do
-  not fold a port correction into unrelated work. A byte-only correction is
-  a packaging revision. Changes to `dependencies`, `features`, or `standards`
-  require a new upstream version; `links` may only be added when absent. The
-  temporary-registry preflight cannot validate this distinction. See
-  `docs/foundation-ports.md` "Packaging revisions".
+  not fold a port correction into unrelated work. Follow
+  `docs/foundation-ports.md` "Packaging revisions" for which corrections may
+  respin as a packaging revision and which need a new upstream version; the
+  temporary-registry preflight cannot validate this distinction.
 
-## Repository automation and GitHub Actions
+## Repository automation
 
-- Repository automation belongs in private, `publish = false`
-  `crates/xtask-*` crates exposed through aliases in `.cargo/config.toml`.
-  Extend the owning xtask; add one only for a new responsibility with a new
-  dependency set. Run aliases from the repository root because `registry/`
-  is a separate workspace.
-- Do not reintroduce shell or Perl repository tooling, or substantial logic
-  in workflow `run:` blocks: loops, conditionals, functions, traps, heredocs,
-  or embedded `node`, Python, or Perl. Plain command invocations remain
-  inline. This restriction does not cover product or website source, npm
-  scripts, `Dockerfile`, `demo.tape`, or devcontainer provisioning.
-- A workflow that backs a required check must trigger on pushes to `main`,
-  pull requests, and `merge_group`, without trigger-level `paths:` filters.
-  Scope expensive work at the job level with `.github/path-filters.yml`.
-  Non-required workflows may use trigger-level path filters.
-- Keep each job-level component dependency list only in
-  `.github/path-filters.yml`.
-  Keep it coarse and end it with the consuming workflow plus the filter file;
-  do not add a broad `.github/**` entry.
-- Required contexts for gated work must be non-matrix `if: always()`
-  aggregates that fail closed when the change gate or work job fails or is
-  cancelled. Protect the aggregate, never a skippable work or matrix job.
-- Tests must not read `.github/` files or depend on a workflow path. Workflow
-  moves or renames must not break the test suite.
+- Repository automation is implemented in private Rust `crates/xtask-*`
+  crates run through cargo aliases; see `crates/AGENTS.md` "Repository
+  automation (xtasks)". Do not reintroduce shell or Perl repository tooling.
+  This restriction does not cover product or website source, npm scripts,
+  `Dockerfile`, `demo.tape`, or devcontainer provisioning.
 
 ## Checks
 
@@ -131,9 +116,9 @@ in the same change and follow the architecture document.
 ## Git and pull requests
 
 - All implementation work uses a branch and PR; never implement directly on
-  the default branch. Before editing, inspect status, preserve all unrelated
-  local changes, update the default branch from its remote, and create a fresh
-  branch. Do not discard, reset, overwrite, or commit unrelated changes.
+  the default branch. Before editing, inspect status, update the default
+  branch from its remote, and create a fresh branch. Preserve all unrelated
+  local changes: do not discard, reset, overwrite, or commit them.
 - Use one branch per PR. Each PR must be the smallest cohesive change that is
   independently buildable, testable, and reviewable. Split independent
   changes by default; keep changes together when a split would leave a
