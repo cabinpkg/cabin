@@ -28,6 +28,17 @@ in the same change and follow the architecture document.
   clean up, or remove unrelated code, including pre-existing dead code.
 - Reuse existing code and patterns. Prefer direct Rust; add no speculative
   abstraction, configuration, or flexibility.
+- Treat review comments as findings to evaluate, not requirements to
+  implement. Fix security issues, supported-path correctness bugs, and
+  documented contract violations. Do not expand the design solely to handle
+  speculative edge cases or make behavior theoretically complete.
+- Complexity must be proportional to the failure being prevented. Do not add
+  state, reconciliation, lifecycle tracking, or cleanup machinery for rare
+  combinations of transient failures unless they can cause a security issue,
+  data loss, or a realistic user-visible correctness failure.
+- Prefer reducing the state space or simplifying an invariant over adding
+  logic to make every possible state behave perfectly. Once supported
+  behavior is correct and secure, stop.
 - Comments explain non-obvious constraints, compatibility requirements, or
   rationale. Do not restate mechanics that clearer code can express.
 - Business logic belongs in its owning crate. `crates/cabin` parses flags,
@@ -138,6 +149,8 @@ in the same change and follow the architecture document.
 - Before opening or updating a PR, run the relevant checks and report their
   results. Fix failures caused by the change.
 - Squash merge only. Merge after required approval, passing required checks,
-  and resolution of all review comments and requested changes. Delete the
-  merged branch when authorized; otherwise stop when the PR is ready for an
-  authorized maintainer.
+  and resolution of all review comments and requested changes. Resolving a
+  review comment does not imply implementing it: reject findings that are
+  incorrect, speculative, out of scope, or disproportionately complex, with
+  a concise rationale. Delete the merged branch when authorized; otherwise
+  stop when the PR is ready for an authorized maintainer.
