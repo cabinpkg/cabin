@@ -416,19 +416,21 @@ pub(crate) enum Command {
     /// the `[registry] index-url` config setting) uploads the same
     /// staged bytes to the registry's API origin.
     Publish(PublishArgs),
-    /// Save a registry token for authenticated registry access.
+    /// Log in to a registry through GitHub.
     ///
     /// Resolves the registry from `--index-url` (or the
     /// `[registry] index-url` config setting, defaulting to Cabin's
-    /// hosted registry), prints where to get a token, reads the
-    /// token from stdin (without echo when stdin is a terminal), and
-    /// stores it in the user-level `credentials.toml`.
+    /// hosted registry), runs GitHub's device flow (a code to enter
+    /// at github.com), and stores the minted short-lived session in
+    /// the platform keychain (or the user-level `credentials.toml`
+    /// when no keychain is available).
     #[command(hide = true)]
     Login(crate::cli::login::LoginArgs),
-    /// Remove the stored registry token for an index origin.
+    /// Log out of a registry.
     ///
-    /// The counterpart of `cabin login`; reports whether a token was
-    /// stored for the effective registry origin.
+    /// The counterpart of `cabin login`: revokes the stored session
+    /// on the registry (best-effort) and removes it from local
+    /// storage.
     #[command(hide = true)]
     Logout(crate::cli::login::LogoutArgs),
     /// Yank or un-yank a published version on a remote registry.

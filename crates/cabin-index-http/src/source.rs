@@ -19,8 +19,11 @@ struct HttpIndexConfig {
     kind: String,
     packages: String,
     artifacts: String,
-    /// `auth-required`: every request to this registry must carry
-    /// `Authorization: Bearer <token>`.
+    /// `auth-required`: every request to this registry except
+    /// `config.json` itself must carry `Authorization: Bearer
+    /// <token>`.  `config.json` stays public so `cabin login` can
+    /// discover the `api` origin before any credential exists
+    /// (`docs/remote-registry.md`, "Registry configuration").
     auth_required: bool,
     /// `api`: absolute base URL of the registry web/API origin.
     /// Validated (http(s), no userinfo).
@@ -1246,12 +1249,13 @@ mod tests {
     }
 
     /// End-to-end auth flow over the real `open` / `fetch_package`
-    /// path: an `auth-required` registry that 401s every tokenless
-    /// request (config.json included) loads only when the client
-    /// carries the credential, and the tokenless failure advises
-    /// `cabin login`.
+    /// path: an `auth-required` registry serves `config.json` to
+    /// anyone (the protocol's login-bootstrap rule), 401s every other
+    /// tokenless request with the login advice, and the client still
+    /// attaches its credential to every request - `config.json`
+    /// included.
     #[test]
-    fn open_and_fetch_attach_the_credential_to_every_request() {
+    fn config_json_is_public_and_every_other_route_requires_the_credential() {
         use crate::client::RegistryAuth;
 
         const TOKEN: &str = "cabin_sourceTest1234";
@@ -1264,20 +1268,32 @@ mod tests {
         }"#;
         const PACKAGE: &str = r#"{ "schema": 1, "name": "fmt", "versions": {} }"#;
 
-        // Auth-enforcing variant of `StaticRegistry`: every route
-        // requires the exact bearer token, mirroring the protocol's
-        // rule that `config.json` itself is behind auth.
+        // Auth-enforcing variant of `StaticRegistry`: every route but
+        // `config.json` requires the exact bearer token, mirroring the
+        // protocol's rule that `config.json` alone stays public so
+        // `cabin login` can bootstrap.
         let server = std::sync::Arc::new(
             tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
         );
         let addr = server.server_addr().to_ip().expect("loopback addr");
         let base_url = format!("http://{addr}/");
+        let config_saw_bearer = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let server_for_thread = std::sync::Arc::clone(&server);
+        let config_saw_bearer_in_thread = std::sync::Arc::clone(&config_saw_bearer);
         let thread = std::thread::spawn(move || {
             while let Ok(req) = server_for_thread.recv() {
                 let authorized = req.headers().iter().any(|h| {
                     h.field.equiv("Authorization") && h.value == format!("Bearer {TOKEN}")
                 });
+                let path = req.url().to_string();
+                if path == "/config.json" {
+                    if authorized {
+                        config_saw_bearer_in_thread
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    let _ = req.respond(tiny_http::Response::from_string(CONFIG));
+                    continue;
+                }
                 if !authorized {
                     let _ = req.respond(
                         tiny_http::Response::from_string(
@@ -1287,10 +1303,7 @@ mod tests {
                     );
                     continue;
                 }
-                let path = req.url().to_string();
-                if path == "/config.json" {
-                    let _ = req.respond(tiny_http::Response::from_string(CONFIG));
-                } else if path == "/packages/fmt.json" {
+                if path == "/packages/fmt.json" {
                     let _ = req.respond(tiny_http::Response::from_string(PACKAGE));
                 } else {
                     let _ = req.respond(tiny_http::Response::empty(404));
@@ -1298,16 +1311,21 @@ mod tests {
             }
         });
 
-        // Without a credential the very first request (config.json)
-        // fails with the login advice.
-        let err = HttpIndex::open(&base_url, HttpClient::new()).unwrap_err();
+        // Without a credential `open` succeeds - `config.json` is the
+        // login bootstrap - and the first protected request fails with
+        // the login advice.
+        let index = HttpIndex::open(&base_url, HttpClient::new()).unwrap();
+        let err = index
+            .fetch_package(&PackageName::new("fmt").unwrap())
+            .unwrap_err();
         assert!(
             matches!(err, IndexHttpError::AuthRequired { .. }),
             "expected AuthRequired, got {err:?}"
         );
 
-        // With the credential both config.json and the package
-        // metadata fetch succeed.
+        // With the credential both requests succeed, and the client
+        // attached the token to `config.json` too even though the
+        // route does not demand it.
         let auth =
             RegistryAuth::for_index_url(&base_url, cabin_credentials::Token::parse(TOKEN).unwrap())
                 .unwrap();
@@ -1316,6 +1334,10 @@ mod tests {
             .fetch_package(&PackageName::new("fmt").unwrap())
             .unwrap();
         assert!(entry.versions.is_empty());
+        assert!(
+            config_saw_bearer.load(std::sync::atomic::Ordering::SeqCst),
+            "the authenticated client must attach its token to config.json as well"
+        );
 
         server.unblock();
         let _ = thread.join();

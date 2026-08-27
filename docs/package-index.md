@@ -78,8 +78,8 @@ a filesystem path disagree about what those characters mean.  See
 [`registry-design.md`](registry-design.md) for the full layout contract.
 
 `config.json` may also carry two optional fields belonging to the remote-registry protocol:
-`auth-required` (bool; every request to the registry must carry
-`Authorization: Bearer <token>`) and `api` (string; absolute `http(s)` base URL of the registry
+`auth-required` (bool; every request to the registry except the always-public `config.json`
+itself must carry `Authorization: Bearer <token>`) and `api` (string; absolute `http(s)` base URL of the registry
 web/API origin, rejecting non-`http(s)` schemes and `userinfo` credentials).  Both index loaders -
 this local loader and the sparse HTTP client - recognize the fields unconditionally, so a
 vendored or mirrored copy of a hosted registry loads like any other file registry; the read

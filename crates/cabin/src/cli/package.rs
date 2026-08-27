@@ -313,6 +313,7 @@ fn publish_batch_to_remote_registry(
         )
     };
     let (exchanged, token, index) = match crate::cli::trustpub::publish_credential(
+        index_url,
         &origin,
         registry.user_chosen,
         registry.from_cli,
@@ -338,7 +339,26 @@ fn publish_batch_to_remote_registry(
         credential => {
             let token = match credential {
                 crate::cli::trustpub::PublishCredential::Token(token) => Some(token),
-                _ => None,
+                crate::cli::trustpub::PublishCredential::None { expired_at } => {
+                    // No stored credential (or an expired session):
+                    // an interactive terminal is offered the login
+                    // flow inline - for a user-chosen registry only -
+                    // and the publish proceeds with the fresh
+                    // session; otherwise an expired session fails
+                    // here with its cause, and a truly absent
+                    // credential proceeds tokenless into the
+                    // server's own `authentication required` answer.
+                    crate::cli::login::offer_interactive_login(
+                        index_url,
+                        &origin,
+                        expired_at.as_deref(),
+                        registry.user_chosen,
+                        reporter,
+                    )?
+                }
+                crate::cli::trustpub::PublishCredential::NeedsExchange => {
+                    unreachable!("handled by the arm above")
+                }
             };
             let mut client = cabin_index_http::HttpClient::new();
             if let Some(token) = token.clone() {

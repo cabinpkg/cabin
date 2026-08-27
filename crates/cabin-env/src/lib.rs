@@ -136,6 +136,13 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 /// Read by the `cabin-credentials` crate.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
+/// Base URL of the GitHub OAuth host `cabin login`'s device flow
+/// contacts, `https://github.com` when unset or empty.  A test seam:
+/// integration tests point it at a loopback mock so the flow runs
+/// without the network.  Cleartext is refused beyond loopback hosts -
+/// the flow's responses carry the GitHub access token.
+pub const CABIN_GITHUB_OAUTH_URL: &str = "CABIN_GITHUB_OAUTH_URL";
+
 /// GitHub Actions' own "am I running under Actions" marker, always
 /// `true` there.  Not a `CABIN_*` variable: the runner sets it, Cabin
 /// only reads it - to decide whether the trusted-publishing

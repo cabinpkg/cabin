@@ -17,8 +17,14 @@
 //!   [`RegistryApi::revoke_trusted_publishing`] -
 //!   `PUT` / `DELETE /api/v1/trusted_publishing/tokens`, plus
 //!   [`fetch_github_actions_jwt`], the GitHub Actions runner OIDC
-//!   fetch the exchange consumes (the crate's one non-registry call,
-//!   kept here for the shared transport rules and secret hygiene).
+//!   fetch the exchange consumes;
+//! - [`exchange_login_session`] / [`RegistryApi::revoke_session`] -
+//!   `PUT` / `DELETE /api/v1/sessions/tokens`, plus
+//!   [`request_device_authorization`] and [`poll_device_token`], the
+//!   GitHub OAuth device flow `cabin login` drives to obtain the
+//!   access token the mint consumes.  The GitHub calls are the
+//!   crate's non-registry calls, kept here for the shared transport
+//!   rules and secret hygiene.
 //!
 //! Every route lives on the registry's `api` origin (the `api` field
 //! of its `config.json`) and, package routes and revocation alike,
@@ -255,7 +261,30 @@ impl RegistryApi {
     pub fn revoke_trusted_publishing(&self) -> Result<(), RegistryApiError> {
         let url = self.trustpub_route()?;
         let request = self.request("DELETE", &url);
-        match self.send_trustpub(request.call())? {
+        match self.send_minted(request.call(), trustpub_refused)? {
+            (200 | 204, _) => Ok(()),
+            (status, _) => Err(RegistryApiError::ServerError {
+                status,
+                detail: None,
+            }),
+        }
+    }
+
+    /// `DELETE <api>/api/v1/sessions/tokens`
+    /// (`docs/remote-registry.md`, "Revoking a session token"): the
+    /// presented session token - the one this client was built with -
+    /// revokes itself.  `204` is the deletion; anything else,
+    /// including the uniform `401` a repeat DELETE answers, surfaces
+    /// as an error the caller is expected to tolerate (the token
+    /// expires on its own).
+    ///
+    /// # Errors
+    /// Returns [`RegistryApiError::SessionRefused`] on the uniform
+    /// `401` and the shared protocol mappings otherwise.
+    pub fn revoke_session(&self) -> Result<(), RegistryApiError> {
+        let url = self.sessions_route()?;
+        let request = self.request("DELETE", &url);
+        match self.send_minted(request.call(), session_refused)? {
             (200 | 204, _) => Ok(()),
             (status, _) => Err(RegistryApiError::ServerError {
                 status,
@@ -273,13 +302,25 @@ impl RegistryApi {
             })
     }
 
-    /// [`Self::send`] for the trusted-publishing routes, which have no
-    /// package to name in `404`/`409` diagnostics and whose `401` is
-    /// the registry's deliberately uniform refusal - advising `cabin
-    /// login` there would point at the wrong fix.
-    fn send_trustpub(
+    /// `<api>/api/v1/sessions/tokens`.
+    fn sessions_route(&self) -> Result<url::Url, RegistryApiError> {
+        self.base
+            .join("api/v1/sessions/tokens")
+            .map_err(|err| RegistryApiError::InvalidApiUrl {
+                message: format!("cannot build the sessions route: {err}"),
+            })
+    }
+
+    /// [`Self::send`] for the minted-token routes (trusted publishing
+    /// and login sessions), which have no package to name in
+    /// `404`/`409` diagnostics and whose `401` is the registry's
+    /// deliberately uniform refusal - advising `cabin login` there
+    /// would point at the wrong fix, so `refused` maps it to the
+    /// route family's own wording.
+    fn send_minted(
         &self,
         result: Result<ureq::Response, ureq::Error>,
+        refused: impl FnOnce(String) -> RegistryApiError,
     ) -> Result<(u16, ureq::Response), RegistryApiError> {
         match result {
             Ok(response) => {
@@ -301,9 +342,7 @@ impl RegistryApi {
                     None => (None, None),
                 };
                 Err(match status {
-                    401 => RegistryApiError::TrustedPublishingRefused {
-                        origin: self.origin.clone(),
-                    },
+                    401 => refused(self.origin.clone()),
                     429 => RegistryApiError::RateLimited { retry_after_secs },
                     503 if code.as_deref() == Some(OVER_BUDGET_CODE) => {
                         RegistryApiError::RegistryOverBudget { retry_after_secs }
@@ -509,7 +548,7 @@ pub fn exchange_trusted_publishing(api_url: &str, jwt: &str) -> Result<Token, Re
     let request = api
         .request("PUT", &url)
         .set("Content-Type", "application/json");
-    let (status, response) = api.send_trustpub(request.send_string(&body))?;
+    let (status, response) = api.send_minted(request.send_string(&body), trustpub_refused)?;
     if status != 200 {
         return Err(RegistryApiError::ServerError {
             status,
@@ -528,6 +567,340 @@ pub fn exchange_trusted_publishing(api_url: &str, jwt: &str) -> Result<Token, Re
         .map_err(|_| unparsable())?;
     let parsed: ExchangeSuccessBody = serde_json::from_slice(&body).map_err(|_| unparsable())?;
     Token::parse(&parsed.token).map_err(|_| unparsable())
+}
+
+/// The trusted-publishing routes' uniform `401`.
+fn trustpub_refused(origin: String) -> RegistryApiError {
+    RegistryApiError::TrustedPublishingRefused { origin }
+}
+
+/// The session routes' uniform `401`.
+fn session_refused(origin: String) -> RegistryApiError {
+    RegistryApiError::SessionRefused { origin }
+}
+
+/// A minted login session: the registry token plus the mint
+/// response's `expires_at`, verbatim (terminal-safe).  `Token`'s own
+/// `Debug` redacts, so the derive cannot leak the secret.
+#[derive(Debug)]
+pub struct SessionGrant {
+    pub token: Token,
+    pub expires_at: String,
+}
+
+/// Exchange a GitHub access token for a login-session registry token:
+/// `PUT <api>/api/v1/sessions/tokens` with `{"github_token": ...}` as
+/// the body (`docs/remote-registry.md`, "Minting a session token").
+/// Like the trusted-publishing exchange the route carries no
+/// `Authorization` header - the GitHub token in the body is the
+/// credential - so the client is built tokenless on purpose, and the
+/// GitHub token lives only on this call's stack.
+///
+/// # Errors
+/// Returns [`RegistryApiError::SessionRefused`] on the registry's
+/// deliberately uniform `401`, and [`RegistryApiError::ServerError`]
+/// when a success response carries no parseable minted token; URL
+/// hygiene and the shared protocol mappings otherwise.
+pub fn exchange_login_session(
+    api_url: &str,
+    github_token: &str,
+) -> Result<SessionGrant, RegistryApiError> {
+    /// Serde shape of the mint success body; unknown fields are the
+    /// registry's business.
+    #[derive(Deserialize)]
+    struct MintSuccessBody {
+        token: String,
+        expires_at: String,
+    }
+
+    let api = RegistryApi::new(api_url, None)?;
+    let url = api.sessions_route()?;
+    let body = serde_json::json!({ "github_token": github_token }).to_string();
+    let request = api
+        .request("PUT", &url)
+        .set("Content-Type", "application/json");
+    // The mint's error contract is the uniform 401 (plus the shared
+    // breaker/rate-limit answers, which carry no free text).  Any
+    // other error detail is registry-controlled prose on the one call
+    // whose request body held a live GitHub token - a registry could
+    // reflect it - so it is dropped, never rendered.
+    let (status, response) = api
+        .send_minted(request.send_string(&body), session_refused)
+        .map_err(|err| match err {
+            RegistryApiError::ServerError { status, .. } => RegistryApiError::ServerError {
+                status,
+                detail: None,
+            },
+            other => other,
+        })?;
+    if status != 200 {
+        return Err(RegistryApiError::ServerError {
+            status,
+            detail: None,
+        });
+    }
+    let mut body = Vec::new();
+    let unparsable = || RegistryApiError::ServerError {
+        status: 200,
+        detail: Some("the login-session mint answered without a usable token".to_owned()),
+    };
+    response
+        .into_reader()
+        .take(MAX_ERROR_BODY_BYTES as u64)
+        .read_to_end(&mut body)
+        .map_err(|_| unparsable())?;
+    let parsed: MintSuccessBody = serde_json::from_slice(&body).map_err(|_| unparsable())?;
+    // `expires_at` gets stored on disk and echoed in the login
+    // confirmation, so it must actually be a timestamp - not an
+    // arbitrary registry-chosen string (which could even be the
+    // GitHub token, reflected).  The accepted shape is deliberately
+    // UTC-only RFC 3339 (`Z` or `+00:00`, `humantime`'s parse; the
+    // hosted registry mints the millisecond `Z` form) - a non-UTC
+    // offset refuses.  Validation subsumes control-char escaping: a
+    // stamp that parses is constrained ASCII.
+    match humantime::parse_rfc3339(&parsed.expires_at) {
+        Err(_) => {
+            return Err(RegistryApiError::ServerError {
+                status: 200,
+                detail: Some("the login-session mint answered without a usable expiry".to_owned()),
+            });
+        }
+        // An already-expired grant could be stored but never used -
+        // every credential lookup would immediately withhold it - so
+        // a mint answering one fails the login instead of reporting
+        // a success the next command contradicts.
+        Ok(expiry) if expiry <= std::time::SystemTime::now() => {
+            return Err(RegistryApiError::ServerError {
+                status: 200,
+                detail: Some(
+                    "the login-session mint answered an already-expired session".to_owned(),
+                ),
+            });
+        }
+        Ok(_) => {}
+    }
+    // The mint's grant is specifically a session token: any other
+    // Cabin credential shape (`cabin_tp_...`) would carry the wrong
+    // scopes, and the session revocation route deletes only
+    // session-kind rows, so `cabin logout` could never retire it.
+    if !parsed.token.starts_with("cabin_ses_") {
+        return Err(unparsable());
+    }
+    Ok(SessionGrant {
+        token: Token::parse(&parsed.token).map_err(|_| unparsable())?,
+        expires_at: parsed.expires_at,
+    })
+}
+
+/// A pending GitHub OAuth device-flow authorization
+/// (`POST <github>/login/device/code`): what the user must do
+/// (`user_code` at `verification_uri`) and how to poll for the
+/// outcome.  Both user-facing strings arrive terminal-safe.
+pub struct DeviceAuthorization {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    /// Seconds to wait between polls, floored at 1 so a degenerate
+    /// answer cannot turn the poll loop into a hammer.
+    pub interval_secs: u64,
+    /// Seconds until the device code itself expires.
+    pub expires_in_secs: u64,
+}
+
+/// Start the GitHub OAuth device flow: request a device + user code
+/// pair for `client_id` with an empty scope.  `github_url` is the
+/// OAuth host (`https://github.com` in production; tests point it at
+/// a loopback mock, the only cleartext host allowed).
+///
+/// # Errors
+/// Returns [`RegistryApiError::GithubDeviceFlow`] for every failure
+/// shape: a cleartext non-loopback URL, transport errors, a non-200
+/// answer, or an unparsable body.
+pub fn request_device_authorization(
+    github_url: &str,
+    client_id: &str,
+) -> Result<DeviceAuthorization, RegistryApiError> {
+    /// Serde shape of the device-code response; unknown fields are
+    /// GitHub's business.
+    #[derive(Deserialize)]
+    struct DeviceCodeResponse {
+        device_code: String,
+        user_code: String,
+        verification_uri: String,
+        expires_in: u64,
+        #[serde(default)]
+        interval: u64,
+    }
+
+    let agent = github_oauth_agent(github_url)?;
+    let url = format!("{}/login/device/code", github_url.trim_end_matches('/'));
+    let response = agent
+        .request("POST", &url)
+        .set("Accept", "application/json")
+        .send_form(&[("client_id", client_id), ("scope", "")])
+        .map_err(|err| RegistryApiError::GithubDeviceFlow {
+            message: match err {
+                ureq::Error::Status(status, _) => {
+                    format!("GitHub's device-code endpoint answered {status}")
+                }
+                ureq::Error::Transport(transport) => transport.to_string(),
+            },
+        })?;
+    let parsed: DeviceCodeResponse = serde_json::from_reader(
+        response.into_reader().take(MAX_ERROR_BODY_BYTES as u64),
+    )
+    .map_err(|_| RegistryApiError::GithubDeviceFlow {
+        message: "GitHub's device-code response was not the expected JSON".to_owned(),
+    })?;
+    Ok(DeviceAuthorization {
+        device_code: parsed.device_code,
+        user_code: escape_control_chars(&parsed.user_code),
+        verification_uri: escape_control_chars(&parsed.verification_uri),
+        interval_secs: parsed.interval.max(1),
+        expires_in_secs: parsed.expires_in,
+    })
+}
+
+/// Poll GitHub's device-flow token endpoint
+/// (`POST <github>/login/oauth/access_token`, grant type
+/// `urn:ietf:params:oauth:grant-type:device_code`) until the user
+/// approves or the flow ends: `authorization_pending` keeps polling
+/// at the current interval, `slow_down` adds five seconds to it, and
+/// `expired_token` / `access_denied` end the flow with an actionable
+/// error.  `sleep` runs before every poll (tests inject a recorder);
+/// the loop gives up before the next poll once the slept time - or
+/// the real elapsed time, since slow responses consume lifetime no
+/// sleep accounts for - exceeds the device code's own lifetime, so a
+/// server that answers pending forever (or slowly) cannot hang the
+/// login.  A token the server does grant is still accepted: GitHub
+/// is the authority on the code's real lifetime.  The slept-time leg
+/// keeps the bound deterministic under the tests' no-op sleep.
+///
+/// The returned GitHub access token is a secret: callers use it for
+/// exactly one [`exchange_login_session`] call and drop it - never
+/// stored, never logged.  GitHub's response may also carry
+/// `refresh_token` fields (the OAuth app has token expiration
+/// enabled); the tolerant parse discards them unread, since Cabin
+/// re-runs the device flow instead of refreshing.
+///
+/// # Errors
+/// Returns [`RegistryApiError::GithubDeviceFlow`] naming the terminal
+/// outcome (expired, denied, transport failure, or an unexpected
+/// answer).
+pub fn poll_device_token(
+    github_url: &str,
+    client_id: &str,
+    authorization: &DeviceAuthorization,
+    mut sleep: impl FnMut(Duration),
+) -> Result<String, RegistryApiError> {
+    /// Serde shape of the token-poll response: exactly one of the
+    /// two fields answers, and everything else (`refresh_token`
+    /// included) is discarded unread.
+    #[derive(Deserialize)]
+    struct DeviceTokenResponse {
+        #[serde(default)]
+        access_token: Option<String>,
+        #[serde(default)]
+        error: Option<String>,
+    }
+
+    let agent = github_oauth_agent(github_url)?;
+    let url = format!(
+        "{}/login/oauth/access_token",
+        github_url.trim_end_matches('/')
+    );
+    let mut interval_secs = authorization.interval_secs.max(1);
+    let mut slept_secs = 0u64;
+    let started = std::time::Instant::now();
+    loop {
+        sleep(Duration::from_secs(interval_secs));
+        slept_secs += interval_secs;
+        // Give up once the device code's own lifetime has passed -
+        // measured both in requested sleep (deterministic under the
+        // tests' no-op sleep) and in real elapsed time (slow
+        // responses consume lifetime no sleep accounts for) - before
+        // spending another poll on a code the server would refuse.
+        if slept_secs > authorization.expires_in_secs
+            || started.elapsed().as_secs() > authorization.expires_in_secs
+        {
+            return Err(RegistryApiError::GithubDeviceFlow {
+                message: "the device code expired before the login was approved; run `cabin \
+                          login` again"
+                    .to_owned(),
+            });
+        }
+        // GitHub signals the flow's own outcomes in the body under
+        // varying HTTP statuses, so a status error still carries the
+        // answer; only transport failures have no body to read.
+        let response = match agent
+            .request("POST", &url)
+            .set("Accept", "application/json")
+            .send_form(&[
+                ("client_id", client_id),
+                ("device_code", &authorization.device_code),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ]) {
+            Ok(response) | Err(ureq::Error::Status(_, response)) => response,
+            Err(ureq::Error::Transport(transport)) => {
+                return Err(RegistryApiError::GithubDeviceFlow {
+                    message: transport.to_string(),
+                });
+            }
+        };
+        let parsed: DeviceTokenResponse =
+            serde_json::from_reader(response.into_reader().take(MAX_ERROR_BODY_BYTES as u64))
+                .map_err(|_| RegistryApiError::GithubDeviceFlow {
+                    message: "GitHub's token response was not the expected JSON".to_owned(),
+                })?;
+        match (parsed.access_token, parsed.error.as_deref()) {
+            // A token the server grants is accepted even when the
+            // local deadline lapsed mid-poll: GitHub owns the device
+            // code's real lifetime (an expired code answers
+            // `expired_token`), and the local bound exists only so a
+            // non-conforming server cannot hold the loop open.
+            (Some(token), None) => return Ok(token),
+            (_, Some("authorization_pending")) => {}
+            (_, Some("slow_down")) => interval_secs += 5,
+            (_, Some("expired_token")) => {
+                return Err(RegistryApiError::GithubDeviceFlow {
+                    message: "the device code expired before the login was approved; run `cabin \
+                              login` again"
+                        .to_owned(),
+                });
+            }
+            (_, Some("access_denied")) => {
+                return Err(RegistryApiError::GithubDeviceFlow {
+                    message: "the login request was denied on github.com".to_owned(),
+                });
+            }
+            (_, Some(error)) => {
+                return Err(RegistryApiError::GithubDeviceFlow {
+                    message: format!("GitHub answered `{}`", escape_control_chars(error)),
+                });
+            }
+            (None, None) => {
+                return Err(RegistryApiError::GithubDeviceFlow {
+                    message: "GitHub's token response carried neither a token nor an error"
+                        .to_owned(),
+                });
+            }
+        }
+    }
+}
+
+/// Shared agent + URL hygiene for the GitHub OAuth calls: the device
+/// flow carries a secret in its responses, so cleartext is refused
+/// beyond loopback, mirroring the registry-API rule.
+fn github_oauth_agent(github_url: &str) -> Result<ureq::Agent, RegistryApiError> {
+    if !github_url.starts_with("https://") && !cabin_credentials::url_is_loopback(github_url) {
+        return Err(RegistryApiError::GithubDeviceFlow {
+            message: "the GitHub OAuth endpoint is not an https URL".to_owned(),
+        });
+    }
+    Ok(ureq::AgentBuilder::new()
+        .timeout(DEFAULT_TIMEOUT)
+        .redirects(0)
+        .build())
 }
 
 /// Fetch the workflow run's OIDC JWT from the GitHub Actions runner:
@@ -847,6 +1220,16 @@ pub enum RegistryApiError {
     #[error("cannot obtain the workflow's GitHub Actions OIDC token: {message}")]
     GithubOidc { message: String },
 
+    #[error("cannot complete the GitHub device login: {message}")]
+    GithubDeviceFlow { message: String },
+
+    #[error(
+        "registry API `{origin}` refused the session request; the refusal is deliberately \
+         uniform - for a login, check that the GitHub account has signed in to the registry and \
+         is admitted; for a revocation, the session was likely already expired or revoked"
+    )]
+    SessionRefused { origin: String },
+
     #[error(
         "registry API `{origin}` refused the trusted-publishing request; the refusal is \
          deliberately uniform, so check that this repository, workflow file, and ref are \
@@ -1049,7 +1432,14 @@ mod tests {
             body: impl Into<String>,
             headers: &[(&str, &str)],
         ) -> Self {
-            let body = body.into();
+            Self::respond_with_script(vec![(status, body.into())], headers)
+        }
+
+        /// Mock whose responses follow `script` in request order, the
+        /// last entry repeating once the script is exhausted - how the
+        /// device-flow poll tests walk pending -> `slow_down` -> success.
+        fn respond_with_script(script: Vec<(u16, String)>, headers: &[(&str, &str)]) -> Self {
+            assert!(!script.is_empty(), "a mock needs at least one response");
             let server = Arc::new(
                 tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
             );
@@ -1065,6 +1455,7 @@ mod tests {
                 })
                 .collect();
             let thread = std::thread::spawn(move || {
+                let mut answered = 0usize;
                 while let Ok(mut req) = server_for_thread.recv() {
                     let mut body_bytes = Vec::new();
                     let _ = req.as_reader().read_to_end(&mut body_bytes);
@@ -1078,8 +1469,10 @@ mod tests {
                             .map(|h| h.value.to_string()),
                         body: body_bytes,
                     });
+                    let (status, body) = &script[answered.min(script.len() - 1)];
+                    answered += 1;
                     let mut response =
-                        tiny_http::Response::from_string(body.clone()).with_status_code(status);
+                        tiny_http::Response::from_string(body.clone()).with_status_code(*status);
                     for header in &response_headers {
                         response.add_header(header.clone());
                     }
@@ -1917,6 +2310,260 @@ mod tests {
         assert_eq!(
             captured.authorization.as_deref(),
             Some("Bearer cabin_tp_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp")
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Login sessions: the GitHub device flow and the session routes
+    // -----------------------------------------------------------------
+
+    const SESSION_TOKEN: &str = "cabin_ses_pVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVpVp";
+
+    fn authorization(interval_secs: u64, expires_in_secs: u64) -> DeviceAuthorization {
+        DeviceAuthorization {
+            device_code: "device-code-1".to_owned(),
+            user_code: "ABCD-1234".to_owned(),
+            verification_uri: "https://github.com/login/device".to_owned(),
+            interval_secs,
+            expires_in_secs,
+        }
+    }
+
+    /// The device-code request: `POST /login/device/code` with the
+    /// client id and an empty scope as the form body, parsing the
+    /// code pair and the poll parameters.
+    #[test]
+    fn request_device_authorization_posts_the_client_id() {
+        let mock = MockApi::respond_with(
+            200,
+            r#"{"device_code":"dc-1","user_code":"ABCD-1234","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"#,
+        );
+        let granted = request_device_authorization(&mock.url, "Ov23xTest").unwrap();
+        assert_eq!(granted.device_code, "dc-1");
+        assert_eq!(granted.user_code, "ABCD-1234");
+        assert_eq!(granted.verification_uri, "https://github.com/login/device");
+        assert_eq!(granted.interval_secs, 5);
+        assert_eq!(granted.expires_in_secs, 900);
+
+        let captured = mock.captured();
+        assert_eq!(captured.method, "POST");
+        assert_eq!(captured.path, "/login/device/code");
+        assert_eq!(captured.authorization, None);
+        assert_eq!(captured.body, b"client_id=Ov23xTest&scope=");
+    }
+
+    /// The poll state machine: `authorization_pending` keeps the
+    /// interval, `slow_down` adds five seconds, and the success
+    /// response yields the access token - `refresh_token` fields and
+    /// the like discarded unread.  The injected sleeper proves the
+    /// pacing without a real wait.
+    #[test]
+    fn poll_device_token_walks_pending_slow_down_success() {
+        let mock = MockApi::respond_with_script(
+            vec![
+                (200, r#"{"error":"authorization_pending"}"#.to_owned()),
+                (200, r#"{"error":"slow_down","interval":10}"#.to_owned()),
+                (
+                    200,
+                    r#"{"access_token":"gho_secret1","token_type":"bearer","scope":"","expires_in":28800,"refresh_token":"ghr_secret2","refresh_token_expires_in":15811200}"#
+                        .to_owned(),
+                ),
+            ],
+            &[],
+        );
+        let mut slept = Vec::new();
+        let token = poll_device_token(&mock.url, "Ov23xTest", &authorization(5, 900), |pause| {
+            slept.push(pause.as_secs());
+        })
+        .unwrap();
+        assert_eq!(token, "gho_secret1");
+        assert_eq!(slept, vec![5, 5, 10], "slow_down must add five seconds");
+
+        let captured = mock.captured();
+        assert_eq!(captured.method, "POST");
+        assert_eq!(captured.path, "/login/oauth/access_token");
+        assert_eq!(
+            captured.body,
+            b"client_id=Ov23xTest&device_code=device-code-1&\
+              grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"
+                .as_slice()
+        );
+    }
+
+    /// The two terminal refusals end the flow with actionable
+    /// wording, whatever HTTP status carries them.
+    #[test]
+    fn poll_device_token_maps_expired_and_denied() {
+        for (body, expected) in [
+            (r#"{"error":"expired_token"}"#, "expired"),
+            (r#"{"error":"access_denied"}"#, "denied"),
+        ] {
+            // GitHub answers flow errors under varying statuses; both
+            // shapes must map identically.
+            for status in [200, 400] {
+                let mock = MockApi::respond_with(status, body);
+                let err =
+                    poll_device_token(&mock.url, "Ov23xTest", &authorization(5, 900), |_pause| {})
+                        .unwrap_err();
+                match &err {
+                    RegistryApiError::GithubDeviceFlow { message } => {
+                        assert!(message.contains(expected), "{status}: {message}");
+                    }
+                    other => panic!("expected GithubDeviceFlow, got {other:?}"),
+                }
+            }
+        }
+    }
+
+    /// A server that answers pending forever cannot hang the login:
+    /// the loop gives up once the slept time reaches the device
+    /// code's own lifetime.
+    #[test]
+    fn poll_device_token_gives_up_when_the_device_code_lifetime_elapses() {
+        let mock = MockApi::respond_with(200, r#"{"error":"authorization_pending"}"#);
+        let mut polls = 0u64;
+        let err = poll_device_token(&mock.url, "Ov23xTest", &authorization(5, 12), |_pause| {
+            polls += 1;
+        })
+        .unwrap_err();
+        match &err {
+            RegistryApiError::GithubDeviceFlow { message } => {
+                assert!(message.contains("expired"), "{message}");
+            }
+            other => panic!("expected GithubDeviceFlow, got {other:?}"),
+        }
+        assert_eq!(polls, 3, "12s lifetime at a 5s interval is three polls");
+    }
+
+    /// The mint: `PUT /api/v1/sessions/tokens` with the GitHub token
+    /// as the JSON body and no `Authorization` header (the GitHub
+    /// token is the credential), parsing the minted token and its
+    /// expiry.
+    #[test]
+    fn exchange_login_session_puts_the_github_token_and_parses_the_grant() {
+        let mock = MockApi::respond_with(
+            200,
+            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"2999-01-01T12:00:00.000Z"}}"#),
+        );
+        let grant = exchange_login_session(&mock.url, "gho_secret1").unwrap();
+        assert_eq!(grant.token.expose(), SESSION_TOKEN);
+        assert_eq!(grant.expires_at, "2999-01-01T12:00:00.000Z");
+        let captured = mock.captured();
+        assert_eq!(captured.method, "PUT");
+        assert_eq!(captured.path, "/api/v1/sessions/tokens");
+        assert_eq!(captured.authorization, None);
+        assert_eq!(captured.body, br#"{"github_token":"gho_secret1"}"#);
+    }
+
+    /// The registry's refusal is a deliberately uniform `401`; a
+    /// mint the client cannot parse is a server-shaped failure.
+    #[test]
+    fn exchange_login_session_maps_the_uniform_401_and_unparsable_grants() {
+        let mock = MockApi::respond_with(401, r#"{"errors":[{"detail":"unauthorized"}]}"#);
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::SessionRefused { .. }),
+            "{err:?}"
+        );
+
+        let mock = MockApi::respond_with(200, r#"{"token":"not a cabin token"}"#);
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::ServerError { .. }),
+            "{err:?}"
+        );
+
+        // A syntactically valid NON-session Cabin credential is not
+        // a session grant: wrong scopes, and beyond the session
+        // revocation route's reach.
+        let mock = MockApi::respond_with(
+            200,
+            r#"{"token":"cabin_tp_pVp-p_Wl","expires_at":"2999-01-01T00:00:00.000Z"}"#.to_owned(),
+        );
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(err.to_string().contains("without a usable token"), "{err}");
+
+        // A well-formed but already-expired grant is a server fault:
+        // login would report a success every later lookup contradicts.
+        let mock = MockApi::respond_with(
+            200,
+            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"2000-01-01T00:00:00.000Z"}}"#),
+        );
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(err.to_string().contains("already-expired"), "{err}");
+    }
+
+    /// The mint request body held a live GitHub token, so nothing
+    /// registry-controlled from the response may reach diagnostics or
+    /// disk: an error envelope's detail is dropped (a registry could
+    /// reflect the token there), and a grant whose `expires_at` is
+    /// not an RFC 3339 stamp - which login would store and print - is
+    /// refused.
+    #[test]
+    fn exchange_login_session_never_surfaces_registry_chosen_text() {
+        let mock = MockApi::respond_with(400, r#"{"errors":[{"detail":"gho_reflected"}]}"#);
+        let err = exchange_login_session(&mock.url, "gho_reflected").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            !message.contains("gho_reflected") && !format!("{err:?}").contains("gho_reflected"),
+            "a reflected detail must be dropped: {message}"
+        );
+
+        let mock = MockApi::respond_with(
+            200,
+            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"gho_reflected"}}"#),
+        );
+        let err = exchange_login_session(&mock.url, "gho_reflected").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("without a usable expiry") && !message.contains("gho_reflected"),
+            "{message}"
+        );
+
+        // The contract is UTC-only RFC 3339: a non-UTC offset - valid
+        // RFC 3339, but not what the protocol mints - refuses rather
+        // than being stored in a shape the client's expiry check
+        // cannot read, while the `+00:00` UTC spelling stays accepted.
+        let mock = MockApi::respond_with(
+            200,
+            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"2999-01-01T08:00:00-04:00"}}"#),
+        );
+        let err = exchange_login_session(&mock.url, "gho_secret1").unwrap_err();
+        assert!(err.to_string().contains("without a usable expiry"), "{err}");
+        let mock = MockApi::respond_with(
+            200,
+            format!(r#"{{"token":"{SESSION_TOKEN}","expires_at":"2999-01-01T08:00:00+00:00"}}"#),
+        );
+        assert_eq!(
+            exchange_login_session(&mock.url, "gho_secret1")
+                .unwrap()
+                .expires_at,
+            "2999-01-01T08:00:00+00:00"
+        );
+    }
+
+    /// Session self-revocation: `DELETE /api/v1/sessions/tokens`
+    /// authorized by the session token itself; the uniform `401` a
+    /// repeat DELETE answers maps to the session refusal the caller
+    /// tolerates.
+    #[test]
+    fn revoke_session_deletes_with_the_bearer_and_tolerates_the_401() {
+        let mock = MockApi::respond_with(204, "");
+        let minted = Token::parse(SESSION_TOKEN).unwrap();
+        mock.client(Some(minted.clone())).revoke_session().unwrap();
+        let captured = mock.captured();
+        assert_eq!(captured.method, "DELETE");
+        assert_eq!(captured.path, "/api/v1/sessions/tokens");
+        assert_eq!(
+            captured.authorization.as_deref(),
+            Some(format!("Bearer {SESSION_TOKEN}").as_str())
+        );
+
+        let mock = MockApi::respond_with(401, r#"{"errors":[{"detail":"unauthorized"}]}"#);
+        let err = mock.client(Some(minted)).revoke_session().unwrap_err();
+        assert!(
+            matches!(err, RegistryApiError::SessionRefused { .. }),
+            "{err:?}"
         );
     }
 }
