@@ -11,7 +11,8 @@
 //! an object that still exists is exactly that, so absence has to be
 //! *proven* - never inferred from a check that failed.
 //!
-//! Every action needs `REGISTRY_VERIFY_TOKEN` (a verify-scoped token).
+//! Every action needs `CABIN_REGISTRY_TOKEN` (a login-session token
+//! whose `verify` scope authenticates the admin endpoint).
 //! `release` and `wipe` also need `CLOUDFLARE_API_TOKEN`: their guards
 //! prove object absence through the R2 REST API, and unlike the audit
 //! and the diagnostics bundle - which skip a section when a token is
@@ -19,7 +20,10 @@
 //! is not evidence.
 //!
 //! `CABIN_API_ORIGIN` overrides the API origin for scratch rehearsal
-//! deployments (default `https://cabinpkg.com`; https only).
+//! deployments (default `https://cabinpkg.com`; https only).  The
+//! bearer token goes to whichever origin the operator names here, so
+//! a rehearsal uses a session minted on that scratch deployment,
+//! never the production one.
 //!
 //! Two places where this is deliberately STRICTER than the shell it
 //! replaces, because the shell contradicted its own stated rule
@@ -257,12 +261,16 @@ pub(crate) struct Api {
 impl Api {
     /// # Errors
     ///
-    /// If `CABIN_API_ORIGIN` is not https, or the verify token is
+    /// If `CABIN_API_ORIGIN` is not https, or the registry token is
     /// missing.
     pub(crate) fn new() -> Result<Self> {
-        let token = std::env::var("REGISTRY_VERIFY_TOKEN").unwrap_or_default();
+        let token = std::env::var(cabin_env::CABIN_REGISTRY_TOKEN).unwrap_or_default();
         if token.is_empty() {
-            bail!("REGISTRY_VERIFY_TOKEN (verify scope) is required");
+            bail!(
+                "{} is required: mint a login-session token and export it \
+                 (registry/docs/runbook.md)",
+                cabin_env::CABIN_REGISTRY_TOKEN
+            );
         }
         Ok(Self {
             endpoint: format!("{}/api/v1/admin/governor", origin()?),

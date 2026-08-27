@@ -44,9 +44,9 @@
 //!
 //! The verifier child inherits the whole environment, exactly as the
 //! shell's child did, minus the OIDC mint pair and any inherited
-//! `REGISTRY_VERIFY_TOKEN`, all scrubbed (`capture`): the pair could
-//! mint the verdict-delivering JWT, and the token variable - which
-//! the workflow no longer sets, but a local operator shell still may
+//! `CABIN_REGISTRY_TOKEN`, all scrubbed (`capture`): the pair could
+//! mint the verdict-delivering JWT, and the token variable - never
+//! set by the workflow, but a local operator shell may export it
 //! (`registry/docs/runbook.md`) - is a credential the child has no
 //! use for.  The run's own registry token is minted at start and
 //! lives only in driver memory.  The child reads only the `VERIFY_*`
@@ -1286,7 +1286,7 @@ fn spent(began: u64, now: u64) -> i64 {
 /// stdin and the environment inherited as the shell's child had them -
 /// minus the credentials.  The child parses publisher-controlled
 /// bytes: the request token could mint the verdict-delivering JWT,
-/// and `REGISTRY_VERIFY_TOKEN` - unset in the workflow, but a local
+/// and `CABIN_REGISTRY_TOKEN` - unset in the workflow, but a local
 /// operator shell may export it for the governor tools - is a
 /// registry credential it has no use for.  The run's own registry
 /// token lives only in driver memory.  `None` is any non-zero exit, a
@@ -1296,7 +1296,7 @@ fn capture(command: &mut Command) -> Option<String> {
     let output = command
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_URL")
         .env_remove("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-        .env_remove("REGISTRY_VERIFY_TOKEN")
+        .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
         .stderr(Stdio::inherit())
         .stdin(Stdio::inherit())
         .output()

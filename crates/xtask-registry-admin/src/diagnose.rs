@@ -6,7 +6,7 @@
 //! only; every section names its source so a reader can go deeper with
 //! the runbook.
 //!
-//! Read-only.  Requires wrangler auth; with `REGISTRY_VERIFY_TOKEN` set
+//! Read-only.  Requires wrangler auth; with `CABIN_REGISTRY_TOKEN` set
 //! it also includes the governor's usage snapshot (aggregates only).
 
 use std::process::{Command, Stdio};
@@ -56,6 +56,9 @@ pub fn run() -> Result<()> {
     step("deploy configuration (cargo check-deploy)");
     let checked = Command::new("cargo")
         .arg("check-deploy")
+        // A registry credential the deploy-configuration guard has no
+        // use for.
+        .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
         .current_dir(repo_root())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -160,8 +163,8 @@ fn migrations_stamp() -> Result<()> {
 fn governor_ledger() -> Result<()> {
     // The token is read from the environment by the governor itself;
     // this only decides whether the section runs at all.
-    if std::env::var_os("REGISTRY_VERIFY_TOKEN").is_none_or(|token| token.is_empty()) {
-        step("governor ledger: skipped (REGISTRY_VERIFY_TOKEN unset)");
+    if std::env::var_os(cabin_env::CABIN_REGISTRY_TOKEN).is_none_or(|token| token.is_empty()) {
+        step("governor ledger: skipped (CABIN_REGISTRY_TOKEN unset)");
         return Ok(());
     }
     step("governor ledger (cargo registry-governor usage)");

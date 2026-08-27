@@ -187,6 +187,9 @@ pub fn wrangler(arguments: &[&str]) -> Command {
         // where every one of these ran attached to the operator's
         // terminal.
         .stdin(Stdio::inherit())
+        // A registry credential the operator's shell may export for
+        // the governor commands; no wrangler invocation needs it.
+        .env_remove(cabin_env::CABIN_REGISTRY_TOKEN)
         .current_dir(registry_dir());
     command
 }

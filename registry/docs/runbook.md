@@ -258,7 +258,7 @@ smoke test). What it does, in order:
    `publish`, block writes first ("Post-wipe re-provisioning" gives the
    exact ordering and drain wait), then run `cargo registry-governor
    wipe` (from the repository root) with it
-   (`REGISTRY_VERIFY_TOKEN` plus
+   (`CABIN_REGISTRY_TOKEN` plus
    `CLOUDFLARE_API_TOKEN` in the environment): it re-runs the launch
    guard, proves the primary bucket really carries no `blobs/` objects
    (an interrupted sweep would otherwise leave the fresh ledger
@@ -531,7 +531,7 @@ evaluation - `wrangler tail` or the dashboard shows both - and the
 reconciliation report right after it: objects added conservatively,
 plus `governor ledger divergence: N unreferenced entr(ies), M byte
 mismatch(es)` when the ledger carries entries D1 does not prove live.
-On demand (with a verify-scoped token in `REGISTRY_VERIFY_TOKEN`):
+On demand (with a login-session token in `CABIN_REGISTRY_TOKEN`):
 
 ```sh
 (cd .. && cargo registry-governor usage)      # the snapshot, readable
@@ -736,8 +736,8 @@ npx --yes wrangler@4.112.0 deployments list
 
 # 4. Post-deploy validation (see "Deploy skew" for the smoke curls):
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
-(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor usage)
-(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor compare)
+(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
+(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor compare)
 ```
 
 What the local smoke run proves, and what it cannot: `wrangler dev`
@@ -778,8 +778,8 @@ npx --yes wrangler@4.112.0 deployments list   # find the target version
 npx --yes wrangler@4.112.0 rollback           # interactive; or pass the version id
 # then validate exactly like a deploy:
 curl -sS -o /dev/null -w '%{http_code}\n' https://registry.cabinpkg.com/healthz
-(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor usage)
-(cd .. && REGISTRY_VERIFY_TOKEN=... cargo registry-governor compare)
+(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor usage)
+(cd .. && CABIN_REGISTRY_TOKEN=... cargo registry-governor compare)
 ```
 
 The newer accounting state a rollback leaves behind is safe by the
@@ -961,7 +961,7 @@ credential path - the `id-token` grant, the exchange, and the
 revocation - without verifying anything. The local operator flows are
 the exception: `cargo registry-governor`, `cargo registry-diagnose`,
 and the backup audit still read a manually minted token from
-`REGISTRY_VERIFY_TOKEN` - a login-session token
+`CABIN_REGISTRY_TOKEN` - a login-session token
 (`docs/remote-registry.md`) carrying the full human scope set, whose
 `verify` scope authenticates these flows.
 
@@ -1024,9 +1024,9 @@ was rehearsed pre-launch (see [`verification.md`](verification.md)).
   older restore - reported because each holds backup-pool allowance,
   never deleted by tooling; removing one is a per-object operator
   decision paired with `cargo registry-governor release`), dumps without a
-  validating sidecar, sidecars without their dump, and - given a
-  verify token - the governor's backup and dump pools against the
-  bucket's actual contents.
+  validating sidecar, sidecars without their dump, and - given
+  `CABIN_REGISTRY_TOKEN` - the governor's backup and dump pools
+  against the bucket's actual contents.
 - **D1 metadata (RPO <= 24 h).** A second cron schedule (`0 3 * * *`)
   runs a nightly logical dump from the Worker itself: it drives the D1
   REST export endpoint (the same API `wrangler d1 export --remote`
@@ -1196,7 +1196,7 @@ For an incident report or a bug thread, `cargo registry-diagnose`, run from
 the repository root, gathers
 the shareable aggregate state in one pass - config and stamp status,
 service mode, corpus and queue counts, the governor snapshot (with
-`REGISTRY_VERIFY_TOKEN`), and the deployment list - and deliberately
+`CABIN_REGISTRY_TOKEN`), and the deployment list - and deliberately
 prints no tokens, content checksums, package names, or user data. The
 one object key it carries is `meta.last_backup_key`, which the backup
 job writes as `d1/<date>.sql` and nothing else writes at all.

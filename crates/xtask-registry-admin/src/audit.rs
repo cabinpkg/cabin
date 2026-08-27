@@ -1,8 +1,8 @@
 //! Read-only audit of the BACKUP bucket (`registry/docs/runbook.md`,
 //! "Disaster recovery"): verified-only coverage (every verified
 //! checksum has its backup copy), the dump/sidecar pairing, and - when
-//! a verify token is available - the governor's backup and dump pools
-//! against the bucket's actual contents.
+//! a registry token is available - the governor's backup and dump
+//! pools against the bucket's actual contents.
 //!
 //! It never deletes anything: the deployed BACKUP bucket's `blobs/`
 //! namespace is append-only (the nightly job prunes its own `d1/`
@@ -13,7 +13,7 @@
 //! never a bulk sweep.
 //!
 //! Requires `CLOUDFLARE_API_TOKEN` (the R2 listing) and wrangler auth
-//! (D1).  `REGISTRY_VERIFY_TOKEN` additionally compares the governor's
+//! (D1).  `CABIN_REGISTRY_TOKEN` additionally compares the governor's
 //! ledger; without it the ledger sections are skipped.
 //!
 //! This is where the crate departs from the disclosure rule
@@ -236,17 +236,17 @@ pub(crate) fn encode_uri_component(value: &str) -> String {
     encoded
 }
 
-/// The governor's ledger, when a verify token is to hand.
+/// The governor's ledger, when a registry token is to hand.
 fn snapshot() -> Result<Option<Snapshot>> {
     // The token itself is read again by `Api::new`; this only decides
     // whether the ledger sections run at all, and reads through
     // `var`'s lossy default so a non-UTF-8 value still skips rather
     // than erroring one call later.
-    if std::env::var("REGISTRY_VERIFY_TOKEN")
+    if std::env::var(cabin_env::CABIN_REGISTRY_TOKEN)
         .unwrap_or_default()
         .is_empty()
     {
-        step("REGISTRY_VERIFY_TOKEN unset; skipping the governor ledger sections");
+        step("CABIN_REGISTRY_TOKEN unset; skipping the governor ledger sections");
         return Ok(None);
     }
     step("reading the governor ledger snapshot");
