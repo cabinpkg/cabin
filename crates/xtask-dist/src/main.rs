@@ -1,15 +1,14 @@
-//! Command-line shim for the dist packaging steps; the steps
-//! themselves live in the library.
+//! Command-line shim for the dist packaging step; the step itself
+//! lives in the library.
 
 use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use xtask_dist::checksums;
 use xtask_dist::package;
 
-/// Release packaging steps for .github/workflows/dist.yml, run from a
-/// workflow step through their Cargo aliases.
+/// Release packaging step for .github/workflows/dist.yml, run from a
+/// workflow step through its Cargo alias.
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -21,9 +20,6 @@ enum Command {
     /// Stage the release binary, README.md and LICENSE, archive them,
     /// and print the archive's path (`cargo dist-package`).
     Package(PackageArgs),
-    /// Write <archive>.sha256 and sha256.sum for every release archive
-    /// in the working directory (`cargo dist-checksums`).
-    Checksums,
 }
 
 /// The flags the workflow step passes, which this shim translates into
@@ -60,7 +56,7 @@ impl From<&PackageArgs> for package::Arguments {
 
 fn main() -> ExitCode {
     match run(&Cli::parse().command) {
-        Ok(code) => code,
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
@@ -68,11 +64,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// `checksums` owns its status outright: its refusal is its own
-/// sentence rather than this shim's `error:` rendering.
-fn run(command: &Command) -> Result<ExitCode> {
+fn run(command: &Command) -> Result<()> {
     match command {
-        Command::Package(args) => package::run(&args.into()).map(|()| ExitCode::SUCCESS),
-        Command::Checksums => Ok(checksums::run()),
+        Command::Package(args) => package::run(&args.into()),
     }
 }

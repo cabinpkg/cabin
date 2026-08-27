@@ -50,7 +50,7 @@ crates/
   cabin-artifact/    source-archive cache, checksum verifier, extractor
   cabin-package/     deterministic source-archive + canonical metadata writer
   xtask-ci/          repository tool: the local mirror of the CI gate
-  xtask-dist/        repository tool: release packaging steps for dist.yml
+  xtask-dist/        repository tool: release packaging step for dist.yml
   xtask-port-publish/ repository tool: publishes committed ports to cabin-ports
   xtask-registry-admin/ repository tool: operator commands against the hosted registry
   xtask-registry-fixtures/ repository tool: publish-conformance fixtures from the in-tree cabin
@@ -687,15 +687,12 @@ The `migrations/*.sql` glob rule ([`migration_files`]) lives here with the gate,
 ### `xtask-dist`
 
 Repository-owned maintainer tool (`publish = false`, not part of the shipped `cabin` binary)
-holding the release-packaging steps of `dist.yml`.  `cargo dist-package` is that workflow's
+holding the release-packaging step of `dist.yml`.  `cargo dist-package` is that workflow's
 "Package binary" step: it stages `target/<triple>/release/cabin`
 (`cabin.exe` on Windows), `README.md` and `LICENSE` into `cabin-<version>-<triple>/`, archives
 that directory, and prints the archive's path.  The version is the ref name for a tag build and
 `dev-<sha[..12]>` for every other ref type, which is what keeps a branch build's artifacts from
-claiming a release name.  `cargo dist-checksums` is the same for the "Generate checksums" step:
-it writes `sha256sum -b`'s exact line for every release archive in the working directory to
-`<archive>.sha256` and `sha256.sum`, and prints the summary that becomes the step's log.  The
-crate must:
+claiming a release name.  The crate must:
 
 - keep the archive names and formats a cargo-binstall contract: `tar -cJf` on Unix and
   `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because
@@ -1948,10 +1945,10 @@ sweep does not "fix" them:
   on `cabin-core` at runtime - it is a standalone wasm workspace - and a host-only parity test
   plus the fixture drift check (`cargo gen-fixtures` + the worker's gated `publish_validation`
   run) pin the mirror to the shared type.
-- **Release-distribution checksums stay bare coreutils format** (`sha256.sum`, `*.sha256`):
-  the release xtask pins `sha256sum -b`'s line format byte for byte so standard `shasum -c`
-  verification keeps working.  The registry backup's `.sha256` sidecar keeps the same
-  `shasum -c`-compatible format for operators.
+- **The registry backup's `.sha256` sidecar stays bare coreutils format** (`sha256sum -b`'s
+  line, `shasum -c`-compatible) for operators.  Release binary archives carry no checksum
+  files at all: their integrity story is the GitHub artifact attestation `release.yml`
+  generates over the final archives before publishing.
 - **Migration stamps and the build fingerprint are not checksums**: both are opaque
   equality-compared digests rendered through the shared `cabin_core::hash` primitives, never
   parsed or served as package checksums, and stay bare.

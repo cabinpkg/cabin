@@ -1,5 +1,5 @@
-//! The release-packaging steps of `.github/workflows/dist.yml`, ported
-//! one-to-one from the `run:` bodies they replace.
+//! The release-packaging step of `.github/workflows/dist.yml`, ported
+//! one-to-one from the `run:` body it replaces.
 //!
 //! The crate stages and archives what the run it was invoked from has
 //! already built. It reads no `GITHUB_*` context - that is
@@ -8,5 +8,4 @@
 //! instead, and it writes no `$GITHUB_ENV`: it prints what it made and
 //! leaves the workflow to record it.
 
-pub mod checksums;
 pub mod package;

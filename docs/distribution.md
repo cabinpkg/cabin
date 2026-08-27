@@ -104,5 +104,5 @@ cabin mangen --output-dir /usr/local/share/man/man1
   identical output.
 - Bundling the generated completion and man-page artifacts into a Homebrew formula, deb / rpm
   package, or release tarball is a downstream concern.  The repository's tag-triggered release
-  workflow packages the Cabin binary archives and checksums, but it does not run `cabin compgen` /
+  workflow packages and attests the Cabin binary archives, but it does not run `cabin compgen` /
   `cabin mangen` or attach those generated files.

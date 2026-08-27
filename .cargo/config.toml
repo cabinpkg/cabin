@@ -11,11 +11,9 @@
 # inside the root workspace but not from `registry/`, which cargo
 # resolves against its own manifest. Run the aliases from the repository
 # root; the tools themselves locate what they operate on from their own
-# manifest directory, never from the working directory - except the
-# `dist-*` aliases, whose steps work on the invoking run's own
-# directories by the same relative paths the shell they replaced used:
-# the repository root for `dist-package`, the downloaded `artifacts/`
-# for `dist-checksums`.
+# manifest directory, never from the working directory - except
+# `dist-package`, whose step works on the invoking run's repository
+# root by the same relative paths the shell it replaced used.
 #
 # Scalar (whitespace-split) alias values, not arrays: cargo JOINS array
 # config values across layers instead of overriding them, so a same-named
@@ -28,7 +26,6 @@ check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 ci = "run --quiet --locked -p xtask-ci --"
-dist-checksums = "run --quiet --locked -p xtask-dist -- checksums"
 dist-package = "run --quiet --locked -p xtask-dist -- package"
 gen-fixtures = "run --quiet --locked -p xtask-registry-fixtures --"
 registry-backup-audit = "run --quiet --locked -p xtask-registry-admin -- backup-audit"
