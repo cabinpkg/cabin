@@ -27,6 +27,14 @@ rules that are easy to violate:
 - Treat public diagnostic codes and serialized JSON/TOML field names as
   stable user-facing API.
 
+## Repository automation (xtasks)
+
+- Repository automation belongs in private, `publish = false`
+  `crates/xtask-*` crates exposed through aliases in `.cargo/config.toml`.
+  Extend the owning xtask; add one only for a new responsibility with a new
+  dependency set. Run aliases from the repository root because `registry/`
+  is a separate workspace.
+
 ## Test Portability
 
 - Tests that compile real C/C++ sources must gate on tools via helpers in
