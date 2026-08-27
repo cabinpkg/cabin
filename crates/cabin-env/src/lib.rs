@@ -133,7 +133,9 @@ pub const CABIN_PKG_CONFIG: &str = "CABIN_PKG_CONFIG";
 /// `.cabin/config.toml` or a `[source-replacement]` hop picked: the
 /// override carries no origin key of its own, so serving it to a
 /// project-picked origin would hand the credential to that project.
-/// Read by the `cabin-credentials` crate.
+/// Read by the `cabin-credentials` crate, and by the repository's own
+/// maintainer tooling (`xtask-registry-admin`) as the operator
+/// credential for the hosted registry's admin endpoints.
 pub const CABIN_REGISTRY_TOKEN: &str = "CABIN_REGISTRY_TOKEN";
 
 /// Base URL of the GitHub OAuth host `cabin login`'s device flow
