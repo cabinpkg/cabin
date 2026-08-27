@@ -35,14 +35,21 @@ pub(crate) enum PublishCredential {
     /// origin is eligible: call [`exchange`] once the registry's
     /// `api` origin is discovered.
     NeedsExchange,
-    /// No credential source applies.
-    None,
+    /// No credential source applies.  `expired_at` carries the
+    /// stored session's lapsed expiry when one existed, so the
+    /// caller can name the cause (the registry's uniform 401
+    /// cannot) instead of failing inexplicably.
+    None { expired_at: Option<String> },
 }
 
 /// The one place publish-credential precedence is defined: the
 /// explicit `CABIN_REGISTRY_TOKEN` override, then the GitHub Actions
-/// auto-exchange, then stored credentials (`credentials.toml` today;
-/// a browser-session source would slot in exactly there), then none.
+/// auto-exchange, then the stored login session (`cabin login`'s
+/// minted `cabin_ses_` token, from the platform keychain or the
+/// fallback credentials file), then none.  Sessions sit *below* the
+/// override and the exchange on purpose: CI's explicit or ambient
+/// credential always wins over a personal session that happens to be
+/// on the same machine.
 /// The override leg keeps its own origin-trust gate
 /// ([`env_token_eligible`](super::login::env_token_eligible)), which
 /// asks whether the *user* chose the origin; the exchange leg is
@@ -58,6 +65,7 @@ pub(crate) enum PublishCredential {
 /// falling through to a `401` whose cause the user would have to
 /// guess.
 pub(crate) fn publish_credential(
+    index_url: &str,
     origin: &str,
     index_user_chosen: bool,
     index_from_cli: bool,
@@ -82,12 +90,16 @@ pub(crate) fn publish_credential(
         Some(OidcDecision::NotGithubActions) | None => {}
     }
     let lookup = cabin_credentials::stored_token(origin)?;
-    if let Some(warning) = lookup.permissions_warning {
+    if let Some(warning) = lookup.warning {
         reporter.warning(format_args!("{warning}"));
     }
     let Some(token) = lookup.token else {
-        super::login::warn_if_env_token_withheld(origin, env_eligible, reporter);
-        return Ok(PublishCredential::None);
+        if lookup.expired_at.is_none() {
+            super::login::warn_if_env_token_withheld(index_url, origin, env_eligible, reporter);
+        }
+        return Ok(PublishCredential::None {
+            expired_at: lookup.expired_at,
+        });
     };
     Ok(PublishCredential::Token(token))
 }

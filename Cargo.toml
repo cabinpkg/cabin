@@ -64,8 +64,17 @@ atomic-write-file = "0.3"
 base64ct = { version = "1", features = ["alloc"] }
 camino = { version = "1", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
+humantime = "2"
 ignore = "0.4"
 icu_normalizer = "2"
+# Platform credential stores only; the Linux secret-service backend
+# vendors its D-Bus client so builds need no system libdbus.
+keyring = { version = "3", default-features = false, features = [
+  "apple-native",
+  "windows-native",
+  "sync-secret-service",
+  "vendored",
+] }
 libc = "0.2"
 clap_complete = "4"
 clap_mangen = "0.3"
@@ -75,7 +84,6 @@ miette = { version = "7", default-features = false }
 predicates = "3"
 pubgrub = "0.4"
 rand = "0.10"
-rpassword = "7"
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

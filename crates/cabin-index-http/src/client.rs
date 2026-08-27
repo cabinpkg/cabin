@@ -375,82 +375,6 @@ fn origin_for_error(url: &str) -> String {
         .unwrap_or_else(|_| crate::source::redact_raw_url_userinfo(url))
 }
 
-/// Deadline for the login-URL discovery probe.  Deliberately far below
-/// [`DEFAULT_TIMEOUT`]: the probe is advisory (`cabin login` prints a
-/// generic hint without it), so an offline machine must fail it in a
-/// couple of seconds, never hang the login for the full read timeout.
-const LOGIN_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// Discover where a registry's tokens are obtained from the
-/// `Cabin login_url="<url>"` challenge (`docs/remote-registry.md`,
-/// "Authentication"): one unauthenticated `GET` of
-/// `<index_url>/config.json` - an `auth-required` registry answers it
-/// with the challenged 401 - and, when that read succeeds instead
-/// (public reads), one `GET` of the index root, which is off the read
-/// plane and answers the uniform 401 with the same challenge on the
-/// hosted registry.  Every other outcome - any other status, a missing
-/// or malformed challenge, an implausible URL, or a transport failure
-/// (offline) - is `None`: the probe must never block `cabin login`.
-///
-/// The probe never carries a credential (no `Authorization` header,
-/// whatever `CABIN_REGISTRY_TOKEN` or `credentials.toml` hold): it
-/// exists to see what an unauthenticated caller is told.
-pub fn fetch_login_url(index_url: &str) -> Option<String> {
-    let base = crate::source::parse_base_url(index_url).ok()?;
-    let config_url = base.join("config.json").ok()?;
-    let agent = ureq::AgentBuilder::new()
-        .timeout(LOGIN_PROBE_TIMEOUT)
-        .redirects(0)
-        .build();
-    match agent.get(config_url.as_str()).call() {
-        Err(ureq::Error::Status(401, response)) => response
-            .header("www-authenticate")
-            .and_then(parse_login_url),
-        Ok(_) => match agent.get(base.as_str()).call() {
-            Err(ureq::Error::Status(401, response)) => response
-                .header("www-authenticate")
-                .and_then(parse_login_url),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Parses the `Cabin login_url="<url>"` challenge.  Deliberately strict
-/// to the one challenge the protocol defines (scheme token `Cabin`,
-/// parameter `login_url`), not a general RFC 7235 parser.  The value
-/// must parse as an absolute `http(s)` URL without userinfo, made of
-/// printable ASCII only - the string is printed to a terminal, and
-/// looser charsets admit control or bidi characters that can visually
-/// reorder or spoof the instruction.
-fn parse_login_url(header: &str) -> Option<String> {
-    let header = header.trim();
-    let scheme_len = "Cabin".len();
-    if header.len() < scheme_len || !header.is_char_boundary(scheme_len) {
-        return None;
-    }
-    let (scheme, params) = header.split_at(scheme_len);
-    if !scheme.eq_ignore_ascii_case("Cabin") || !params.starts_with(char::is_whitespace) {
-        return None;
-    }
-    // The parameter name must sit on a boundary: `not_login_url="..."`
-    // is a different parameter, not ours. `params` starts with
-    // whitespace, so every match has a preceding byte.
-    let marker = "login_url=\"";
-    let start = params
-        .match_indices(marker)
-        .find(|(idx, _)| matches!(params.as_bytes()[idx - 1], b' ' | b'\t' | b','))?
-        .0;
-    let value = &params[start + marker.len()..];
-    let url = &value[..value.find('"')?];
-    let parsed = url::Url::parse(url).ok()?;
-    let plausible = matches!(parsed.scheme(), "http" | "https")
-        && parsed.username().is_empty()
-        && parsed.password().is_none()
-        && url.chars().all(|c| c.is_ascii_graphic());
-    plausible.then(|| url.to_owned())
-}
-
 impl Default for HttpClient {
     fn default() -> Self {
         Self::new()
@@ -846,6 +770,39 @@ mod tests {
         }
     }
 
+    /// Server answering every request with a fixed status, body, and
+    /// headers, recording whether any request carried an
+    /// `Authorization` header.
+    fn challenge_server(
+        status: u16,
+        body: impl Into<String>,
+        headers: &'static [(&'static str, &'static str)],
+    ) -> (Arc<tiny_http::Server>, String, JoinHandle<bool>) {
+        let body = body.into();
+        let server =
+            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let server_for_thread = Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            let mut saw_authorization = false;
+            while let Ok(req) = server_for_thread.recv() {
+                saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
+                let mut response =
+                    tiny_http::Response::from_string(body.clone()).with_status_code(status);
+                for (name, value) in headers {
+                    response.add_header(
+                        tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes())
+                            .expect("valid test header"),
+                    );
+                }
+                let _ = req.respond(response);
+            }
+            saw_authorization
+        });
+        (server, url, thread)
+    }
+
     /// A 503 carrying the `registry_over_budget` code is the registry's
     /// read-side budget breaker: the message says reads are paused and
     /// carries the `Retry-After` seconds when the header is usable,
@@ -1092,204 +1049,6 @@ mod tests {
             rendered.contains("https://registry.example.com"),
             "the origin should stay visible for debugging: {rendered}"
         );
-    }
-
-    // -----------------------------------------------------------------
-    // Login-URL discovery (`cabin login`'s advisory probe)
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn parse_login_url_accepts_the_documented_challenge() {
-        assert_eq!(
-            parse_login_url(r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#)
-                .as_deref(),
-            Some("https://cabinpkg.com/docs/remote-registry")
-        );
-        // The scheme token is case-insensitive (RFC 7235), loopback http
-        // is plausible (local testing), and other parameters may precede.
-        assert_eq!(
-            parse_login_url(r#"cabin login_url="http://127.0.0.1:8787/docs/remote-registry""#)
-                .as_deref(),
-            Some("http://127.0.0.1:8787/docs/remote-registry")
-        );
-        assert_eq!(
-            parse_login_url(r#"Cabin realm="reg", login_url="https://cabinpkg.com/t""#).as_deref(),
-            Some("https://cabinpkg.com/t")
-        );
-        // A comma boundary without a space still counts.
-        assert_eq!(
-            parse_login_url(r#"Cabin realm="reg",login_url="https://cabinpkg.com/t""#).as_deref(),
-            Some("https://cabinpkg.com/t")
-        );
-    }
-
-    #[test]
-    fn parse_login_url_rejects_other_challenges_and_implausible_urls() {
-        for header in [
-            "",
-            "Cabin",
-            "Cabin ",
-            r#"Basic realm="x""#,
-            // No whitespace after the scheme token.
-            r#"Cabinlogin_url="https://x/y""#,
-            // A different scheme's login_url is not ours.
-            r#"Cargo login_url="https://x/y""#,
-            // A different parameter that merely ends in our name is not
-            // ours either.
-            r#"Cabin not_login_url="https://attacker.example/""#,
-            // Unquoted, relative, non-http(s), userinfo, control chars.
-            "Cabin login_url=https://x/y",
-            r#"Cabin login_url="/docs/remote-registry""#,
-            r#"Cabin login_url="ftp://x/y""#,
-            r#"Cabin login_url="https://user:pw@x/y""#,
-            "Cabin login_url=\"https://x/\u{7}y\"",
-            // Unicode bidi controls are not `char::is_control`, but
-            // they can visually reorder a printed URL; the printable-
-            // ASCII rule rejects them (and every other non-ASCII
-            // character).
-            "Cabin login_url=\"https://x/\u{202e}y\"",
-            "Cabin login_url=\"https://x/\u{2066}y\"",
-        ] {
-            assert_eq!(parse_login_url(header), None, "header: {header:?}");
-        }
-    }
-
-    /// Server answering `/config.json` with a fixed status, body, and
-    /// headers, recording whether the request carried an
-    /// `Authorization` header.
-    fn challenge_server(
-        status: u16,
-        body: impl Into<String>,
-        headers: &'static [(&'static str, &'static str)],
-    ) -> (Arc<tiny_http::Server>, String, JoinHandle<bool>) {
-        let body = body.into();
-        let server =
-            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
-        let addr = server.server_addr().to_ip().expect("loopback addr");
-        let url = format!("http://{addr}");
-        let server_for_thread = Arc::clone(&server);
-        let thread = std::thread::spawn(move || {
-            let mut saw_authorization = false;
-            while let Ok(req) = server_for_thread.recv() {
-                saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
-                let mut response =
-                    tiny_http::Response::from_string(body.clone()).with_status_code(status);
-                for (name, value) in headers {
-                    response.add_header(
-                        tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes())
-                            .expect("valid test header"),
-                    );
-                }
-                let _ = req.respond(response);
-            }
-            saw_authorization
-        });
-        (server, url, thread)
-    }
-
-    /// The probe returns the challenge's URL on a 401 and stays
-    /// credential-less on the wire.
-    #[test]
-    fn fetch_login_url_reads_the_challenge_from_a_401() {
-        let (server, url, thread) = challenge_server(
-            401,
-            "{}",
-            &[(
-                "WWW-Authenticate",
-                r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#,
-            )],
-        );
-        assert_eq!(
-            fetch_login_url(&url).as_deref(),
-            Some("https://cabinpkg.com/docs/remote-registry")
-        );
-        server.unblock();
-        assert!(
-            !thread.join().unwrap(),
-            "the probe must never send Authorization"
-        );
-    }
-
-    /// A public-reads registry serves `config.json` to everyone, so the
-    /// probe falls back to the index root - off the read plane, where
-    /// the uniform 401 still carries the challenge.  The order is
-    /// load-bearing: `config.json` must be probed FIRST, because an
-    /// `auth-required` registry carries the challenge only there, and
-    /// the fallback must keep the index URL's own path prefix so a
-    /// subdirectory-hosted registry is probed under its own root.
-    #[test]
-    fn fetch_login_url_falls_back_to_the_index_root_on_public_reads() {
-        let server =
-            Arc::new(tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"));
-        let addr = server.server_addr().to_ip().expect("loopback addr");
-        let server_for_thread = Arc::clone(&server);
-        let thread = std::thread::spawn(move || {
-            let mut seen: Vec<String> = Vec::new();
-            let mut saw_authorization = false;
-            while let Ok(req) = server_for_thread.recv() {
-                saw_authorization |= req.headers().iter().any(|h| h.field.equiv("Authorization"));
-                let url = req.url().to_owned();
-                seen.push(url.clone());
-                let response = if url.ends_with("/config.json") {
-                    tiny_http::Response::from_string(
-                        r#"{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts","auth-required":false,"api":"https://cabinpkg.com"}"#,
-                    )
-                } else {
-                    tiny_http::Response::from_string("{}")
-                        .with_status_code(401)
-                        .with_header(
-                            tiny_http::Header::from_bytes(
-                                "WWW-Authenticate".as_bytes(),
-                                r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#
-                                    .as_bytes(),
-                            )
-                            .expect("valid test header"),
-                        )
-                };
-                let _ = req.respond(response);
-            }
-            (seen, saw_authorization)
-        });
-
-        // A subdirectory-hosted registry: both probes must stay under
-        // `/reg/`, and `config.json` must come first.
-        assert_eq!(
-            fetch_login_url(&format!("http://{addr}/reg")).as_deref(),
-            Some("https://cabinpkg.com/docs/remote-registry")
-        );
-        server.unblock();
-        let (seen, saw_authorization) = thread.join().unwrap();
-        assert_eq!(seen, ["/reg/config.json", "/reg/"], "probe order");
-        assert!(
-            !saw_authorization,
-            "the probe must never send Authorization"
-        );
-    }
-
-    /// Every non-challenge outcome degrades to `None`: a 401 without (or
-    /// with a foreign) challenge, a registry that answers 200 (auth not
-    /// required), other statuses, and a machine that is offline.
-    #[test]
-    fn fetch_login_url_degrades_to_none_on_everything_else() {
-        for (status, headers) in [
-            (401, &[][..]),
-            (401, &[("WWW-Authenticate", r#"Basic realm="reg""#)][..]),
-            (200, &[][..]),
-            (500, &[][..]),
-        ] {
-            let (server, url, thread) = challenge_server(status, "{}", headers);
-            assert_eq!(fetch_login_url(&url), None, "status: {status}");
-            server.unblock();
-            let _ = thread.join();
-        }
-
-        // Offline: a closed loopback port fails the probe, quickly and
-        // silently.
-        let addr = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-            listener.local_addr().expect("loopback addr")
-        };
-        assert_eq!(fetch_login_url(&format!("http://{addr}")), None);
     }
 
     #[test]

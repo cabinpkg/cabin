@@ -61,7 +61,7 @@ A remote registry serves the same registry-root layout as the sparse HTTP index 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `auth-required` | bool | `false` | When `true`, **every** request to this registry - including `config.json` itself, package metadata, and artifact downloads - must carry `Authorization: Bearer <token>`.  The hosted registry serves `false`: its verified reads are public (`registry/docs/architecture.md`, "Origins and roles"). |
+| `auth-required` | bool | `false` | When `true`, every request to this registry **except `config.json` itself** - package metadata and artifact downloads included - must carry `Authorization: Bearer <token>`.  `config.json` stays publicly readable so `cabin login` can discover the `api` origin before any credential exists: sessions are the only credential, so a registry that authenticated its own configuration could never be logged in to.  The hosted registry serves `false`: its verified reads are public (`registry/docs/architecture.md`, "Origins and roles"). |
 | `api` | string | absent | Absolute base URL of the registry's API origin - on the hosted registry the **website origin** `"https://cabinpkg.com"`, following crates.io's `"api": "https://crates.io"` discipline (see [One role per hostname](#one-role-per-hostname)).  Non-`http(s)` schemes and URLs with `userinfo` credentials are rejected, mirroring the index-URL hygiene of the sparse HTTP client.  The read routes never consult it.  When absent, `cabin publish` fails with an error naming the field: mutation requests are only ever sent to an explicitly declared API origin. |
 
 Both index parsers (the local `--index-path` loader and the sparse HTTP client) recognize the
@@ -104,13 +104,15 @@ Authorization: Bearer cabin_ses_<base64url>
 - Token scopes: `publish`, `yank`, and `verify` (the
   [verification lifecycle](#verification-lifecycle)'s verifier scope).  Any valid token
   additionally opens the read plane's `verify`-scope carve-outs (pending-artifact fetches).
-- Where to get a token is **not** derived from the index origin by convention; it is
-  discovered through the [login-URL challenge](#the-login-url-challenge) below.
+- How to get a token is documented, not negotiated: [`cabin login`](#cabin-login-and-cabin-logout)
+  discovers only the `api` origin (from `config.json`) before running GitHub's device flow, and
+  the [login-URL challenge](#the-login-url-challenge) below points humans at this documentation.
 
 ### The login-URL challenge
 
 Every unauthenticated (`401`) response from the Bearer plane carries a `WWW-Authenticate`
-challenge naming where to get a token, mirroring Cargo's `Cargo login_url` challenge:
+challenge naming where to read how to get a token, mirroring Cargo's `Cargo login_url`
+challenge:
 
 ```text
 WWW-Authenticate: Cabin login_url="https://cabinpkg.com/docs/remote-registry"
@@ -122,7 +124,7 @@ on every path and failure reason - a missing token on the mutation surface, an i
 and an unknown path all answer the same challenge - so the 401s the Bearer plane still emits
 stay indistinguishable from one another.  Because the read plane serves unauthenticated `GET`s,
 reads themselves no longer challenge; the challenge survives on every non-read-plane path of
-the index host, which is where [discovery](#cabin-login-and-cabin-logout) finds it.
+the index host.
 
 ## Client-side token handling
 
@@ -134,64 +136,97 @@ origin, the sparse HTTP client authenticates its reads with it, and `cabin login
 
 `cabin login` resolves the registry from `--index-url` (or the `[registry] index-url` setting in
 [`config.md`](config.md#registry), else the [default registry](#the-default-registry) - a local
-`index-path` is rejected, since tokens only apply to HTTP registries), names the resolved origin,
-discovers where to get a token, and reads the token from stdin - without echo when stdin is a
-terminal, as a plain read otherwise so piping works.  The credential commands consult *user-level*
-config only: a checked-out project's `.cabin/config.toml` (registry selection or
-`[source-replacement]`) must not be able to steer where a pasted credential is stored.  The
-advisory probe is skipped entirely under [offline mode](vendoring-offline.md):
+`index-path` is rejected, since sessions only apply to HTTP registries), names the resolved
+origin, and mints a [login session](#login-sessions) through GitHub's OAuth device flow:
 
 ```console
-$ echo "$TOKEN" | cabin login
+$ cabin login
 logging in to `https://registry.cabinpkg.com`
-see https://cabinpkg.com/docs/remote-registry for how to get a token
-       Login token for `https://registry.cabinpkg.com` saved
+
+To authorize this login, open https://github.com/login/device and enter the code:
+
+    ABCD-1234
+
+waiting for the login to be approved on github.com ...
+       Login session for `https://registry.cabinpkg.com` saved (expires <RFC 3339>)
 ```
 
-Discovery is advisory and always unauthenticated: one `GET` of the index's `config.json` - an
-`auth-required` registry answers it with the challenged `401` - and, when that read succeeds
-instead (public reads), one `GET` of the index root, which is off the read plane and answers
-the uniform `401` with the same challenge on the hosted registry.  On a `401` carrying the
-[login-URL challenge](#the-login-url-challenge), the challenge's URL is
-printed verbatim.  Every other outcome - a missing or
-malformed challenge, an implausible URL, or a failed probe (offline) - degrades to a generic
-`see the registry's documentation for how to get a token` hint.  The probe never blocks login:
-the
-pasted token is read and stored either way.
+The client discovers the registry's [`api`](#registry-configuration) origin from `config.json`
+(public even on an [`auth-required`](#registry-configuration) registry, so a first login needs
+no credential), requests a device code from github.com, and prints the verification URL and user code (to
+stderr, so they show under `--quiet`).  On an interactive terminal it offers to open the page
+in the browser - only after Enter, never unprompted - and piped runs just print the URL and
+code.  It then polls GitHub at the server-set interval, honoring `slow_down`, until the login
+is approved, denied, or the device code expires.  The GitHub access token the grant answers is
+presented to the registry's [mint route](#minting-a-session-token) exactly once and then
+dropped - never written to disk, never logged - and GitHub's refresh-token fields are discarded
+the same way: an expired session is replaced by running `cabin login` again, not refreshed.
+What is stored is the minted `cabin_ses_` token, its expiry, and the `api` origin it was minted
+for.
 
-The token must start with `cabin_`; the confirmation only ever names the origin.  `cabin logout`
-removes the entry for the effective index origin and reports whether one existed.
+The credential commands consult *user-level* config only: a checked-out project's
+`.cabin/config.toml` (registry selection or `[source-replacement]`) must not be able to steer
+where a minted credential is stored.  Login refuses a plain-`http` origin beyond loopback up
+front, and refuses to run at all under [offline mode](vendoring-offline.md).  The confirmation
+only ever names the origin and the expiry, never token bytes.
+
+`cabin logout` best-effort [revokes](#revoking-a-session-token) the stored session against the
+`api` origin it was minted for, then removes it from storage and reports whether one existed.
+A failed revocation (the session already expired or was revoked, or the registry is
+unreachable) is tolerated, and offline mode skips the revocation outright; local storage or
+configuration failures can still fail the command.  When the platform keychain itself cannot be asked,
+logout says so - a session stored there survives and would be used again once the keychain is
+back, so the warning advises re-running `cabin logout` then.
 
 ### Credential storage
 
-Tokens live in `credentials.toml` inside the user config home - the same directory resolution as
-the user-level `config.toml` in [`config.md`](config.md#file-locations): `$CABIN_CONFIG_HOME`
-verbatim when set, else the platform user config home with the `cabin` suffix (Linux and macOS:
-`$XDG_CONFIG_HOME/cabin` / `$HOME/.config/cabin`; Windows: `%APPDATA%\cabin`).
+Sessions are stored in the platform keychain when one is available - the macOS Keychain,
+the Windows Credential Manager, or the Linux secret service - under the `cabin-registry`
+service, one entry per normalized index origin.  When no keychain is reachable (headless
+Linux, typically), the session falls back to `credentials.toml` inside the user config home -
+the same directory resolution as the user-level `config.toml` in
+[`config.md`](config.md#file-locations): `$CABIN_CONFIG_HOME` verbatim when set, else the
+platform user config home with the `cabin` suffix (Linux and macOS: `$XDG_CONFIG_HOME/cabin` /
+`$HOME/.config/cabin`; Windows: `%APPDATA%\cabin`) - and `cabin login` says so with a one-line
+notice.  Setting `$CABIN_CONFIG_HOME` bypasses the keychain entirely, which is what keeps
+tests and sandboxed runs off the real one.
 
 ```toml
 [registries."https://registry.cabinpkg.com"]
-token = "cabin_..."
+token = "cabin_ses_..."
+expires-at = "<RFC 3339, as the mint answered>"
+api-url = "https://cabinpkg.com"
 ```
 
-Keys are normalized index origins - scheme + host + port, no path, no trailing slash.  Unknown
-fields are rejected.  On Unix the file is created with mode `0600`, and Cabin warns once per
-invocation when an existing file is group- or world-readable.  Writes are atomic (sibling temp
-file + rename).  Credentials are deliberately **not** part of `config.toml`:
-[`config.md`](config.md#what-config-does-not-do) rejects credential-shaped tables so a secret can
-never ride along in a published archive.
+Keys are normalized index origins - scheme + host + port, no path, no trailing slash.  All
+three fields are required and unknown fields are rejected; `api-url` is the
+[`api`](#registry-configuration) origin the session was minted for, so `cabin logout` can
+revoke without re-reading `config.json`.  A file this client cannot read - the pre-session
+`token`-only shape included, whose long-lived keys no registry accepts any more - holds no
+usable session: reads treat it as absent (with a warning naming the state) and the next
+`cabin login` replaces it wholesale.  On Unix the file is created with mode `0600`, and
+Cabin warns once per invocation when an existing file is group- or world-readable.  Writes are
+atomic (sibling temp file + rename).  Credentials are deliberately **not** part of
+`config.toml`: [`config.md`](config.md#what-config-does-not-do) rejects credential-shaped
+tables so a secret can never ride along in a published archive.
+
+Client-side, the stored `expires-at` is advisory: an expired session is withheld from requests
+and surfaced with a warning naming the expiry and the fix (`cabin login`), because the
+registry's own [uniform `401`](#minting-a-session-token) could never name the cause.  The
+server remains authoritative - a session revoked early still answers `401` with the token
+present.
 
 ### Environment override
 
 When [`CABIN_REGISTRY_TOKEN`](environment-variables.md) is set and non-empty, its value wins over
-`credentials.toml` for the origins it applies to: the [default registry](#the-default-registry)'s
+a stored session for the origins it applies to: the [default registry](#the-default-registry)'s
 origin, and a loopback origin (local testing) **that the user chose** - named by `--index-url`, or
 configured in the user-level `config.toml` (the file `CABIN_CONFIG` points at counts as
-user-level).  Any other registry always uses `credentials.toml`, and so does a loopback origin
+user-level).  Any other registry always uses the stored session, and so does a loopback origin
 that a workspace- or package-level `.cabin/config.toml` picked or that a `[source-replacement]`
 hop rewrote the index onto.  The override carries no origin key of its own, so without that
 restriction a checked-out project could aim the index at a listener it started itself and collect
-the token; `credentials.toml` is origin-keyed by construction and has no such hole.
+the token; session storage is origin-keyed by construction and has no such hole.
 
 `[source-replacement]` disqualifies the override even when the user declared the replacement in
 their own `config.toml`: a resolution records the hops it walked, not which file declared each of
@@ -216,13 +251,15 @@ Inside a GitHub Actions run whose workflow (or job) grants `permissions: id-toke
 `CABIN_REGISTRY_TOKEN` set, the client fetches the run's own OIDC token from the runner and
 performs the [trusted-publishing exchange](#trusted-publishing) automatically.  The
 credential-source precedence is fixed: the explicit `CABIN_REGISTRY_TOKEN` override first, then
-the GitHub Actions auto-exchange, then `credentials.toml`.  The override keeps its documented
+the GitHub Actions auto-exchange, then the stored [login session](#login-sessions) - so CI's
+explicit or ambient credential always wins over an ambient personal session.  The override
+keeps its documented
 origin gate ([above](#environment-override)); the exchange is stricter, because the run's OIDC
 token is itself a credential the hosted registry accepts from any presenter: it serves the
 default hosted registry always, a loopback registry only when named by an explicit `--index-url`
 (the test-harness path), and a loopback index's config.json may only declare a loopback `api` -
 so an index or `api` origin steered by a checked-out project's config never sees the JWT.  Only `cabin publish` exchanges: the minted token carries exactly the
-`publish` scope, so `cabin yank` keeps using the override or a stored token - an auto-exchange
+`publish` scope, so `cabin yank` keeps using the override or a stored session - an auto-exchange
 there would trade a working yank credential for a token the route must refuse.
 
 The exchange runs at most once per command invocation - the minted token is multi-use within its
@@ -253,7 +290,13 @@ client discovers `api` from an *unauthenticated* `config.json` read (it has no t
 presents the run's OIDC token to that origin's exchange route to obtain one.
 Client-side error mapping: a `401` without a stored credential advises
 `cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
-reports the token as rejected (revoked or expired); a `403` reports a missing scope.  The token never appears in logs, error messages,
+reports the token as rejected (revoked or expired); a `403` reports a missing scope.  On an
+interactive terminal, `cabin publish` and `cabin yank` with no usable stored credential offer
+to run the login flow inline before contacting the registry - only for a registry the user
+chose (`--index-url` or user-level config), never one steered by a checked-out project's
+config, the same user-level-only rule `cabin login` itself enforces; non-interactive runs with
+an *expired* session fail with the expiry as the cause, since the registry's uniform `401`
+cannot name it.  The token never appears in logs, error messages,
 or debug output; the GitHub Actions flow emits each secret exactly once as an `::add-mask::`
 workflow command on stderr, which is what keeps it out of the rendered log.
 
@@ -274,9 +317,10 @@ present a token gets it validated - an invalid one is the uniform `401` with the
 [error envelope](#error-envelope) body
 `{"errors":[{"detail":"authentication required"}]}` and the
 [login-URL challenge](#the-login-url-challenge), never a silent downgrade to anonymous.  On a
-registry declaring [`auth-required`](#registry-configuration), all three instead return that
-same `401` whenever the request carries no valid token, identical whether or not the requested
-package exists.  Either way the `401` bytes match every
+registry declaring [`auth-required`](#registry-configuration), the package and artifact routes
+instead return that same `401` whenever the request carries no valid token, identical whether
+or not the requested package exists - only `config.json` stays public, the discovery
+[`cabin login`](#cabin-login-and-cabin-logout) bootstraps from.  Either way the `401` bytes match every
 [non-read-plane path](#one-role-per-hostname) of the index host, so the mutation surface stays
 indistinguishable from unknown paths.
 
@@ -375,10 +419,15 @@ with `--dry-run`) and publishing against a config-supplied HTTP index both fail 
 experimental-feature error.  The flow is log in once, publish, then resolve like any consumer:
 
 ```console
-$ echo "$TOKEN" | cabin login --index-url https://registry.cabinpkg.com
+$ cabin login --index-url https://registry.cabinpkg.com
 logging in to `https://registry.cabinpkg.com`
-see https://cabinpkg.com/docs/remote-registry for how to get a token
-       Login token for `https://registry.cabinpkg.com` saved
+
+To authorize this login, open https://github.com/login/device and enter the code:
+
+    ABCD-1234
+
+waiting for the login to be approved on github.com ...
+       Login session for `https://registry.cabinpkg.com` saved (expires <RFC 3339>)
 $ cabin -Z remote-registry publish --manifest-path fmt/cabin.toml \
     --index-url https://registry.cabinpkg.com
 Published fmt 10.2.1 to https://registry.cabinpkg.com
@@ -840,13 +889,25 @@ nothing and refuses, so a third party's GitHub grant can never become a registry
 presented GitHub access token is used for that single call and dropped: never stored, never
 logged.
 
+The same pinning bounds `cabin login` itself: the CLI's device flow requests its grants under
+the hosted registry's OAuth app, so a mint pinned to a different app refuses them.  The CLI
+enforces the boundary up front, because the grant is itself a credential: `cabin login` sends
+it only to the hosted registry's API, or to a loopback API declared by a loopback registry,
+and refuses any other index before the device flow starts - a malicious registry could
+otherwise relay the grant to the hosted mint and trade it for the user's session.
+Registry-supplied client-id discovery is deliberately left to a future revision of
+`config.json`.
+
 Success is `200`:
 
 ```json
-{ "token": "cabin_ses_<base64url>", "expires_at": "<RFC 3339>" }
+{ "token": "cabin_ses_<base64url>", "expires_at": "<RFC 3339, UTC>" }
 ```
 
-The plaintext is rendered exactly once, in this response.  The minted token is a bearer token
+`expires_at` is UTC RFC 3339 (the hosted registry mints the millisecond `Z` form); the client
+refuses a non-UTC stamp - or any non-timestamp - before storing or printing it, so a registry
+cannot smuggle arbitrary text through the field.  The plaintext is rendered exactly once, in
+this response.  The minted token is a bearer token
 like any other, multi-use within its 12-hour lifetime, carrying the full human scope set
 (`publish`, `yank`, `verify`) at the account's own quota class.  Every mint failure - a
 malformed body, a rejected or unreadable GitHub lookup, an unknown or unadmitted identity -

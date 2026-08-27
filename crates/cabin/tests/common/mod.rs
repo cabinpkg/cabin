@@ -187,6 +187,9 @@ pub fn cabin() -> Command {
         // credential can never authenticate (or leak into) a test's
         // registry traffic; auth tests set it explicitly.
         "CABIN_REGISTRY_TOKEN",
+        // Strip the GitHub OAuth base override so login tests only
+        // ever contact the mock they point it at explicitly.
+        "CABIN_GITHUB_OAUTH_URL",
         // The repository's own CI runs inside GitHub Actions, where
         // `GITHUB_ACTIONS=true` is ambient: without this strip, every
         // tokenless mutation test would take the trusted-publishing

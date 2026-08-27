@@ -60,7 +60,7 @@ crates/
   cabin-publish/     publish-workflow orchestration
   cabin-registry-file/ local file-registry layout, atomic writes, lock
   cabin-index-http/  sparse HTTP index client (read-only)
-  cabin-credentials/ registry token storage (credentials.toml)
+  cabin-credentials/ registry session storage (keychain, credentials.toml fallback)
   cabin-registry-api/ remote registry API client (publish / yank, -Z remote-registry)
   cabin-registry-verify/ hosted-registry archive verifier (verification lifecycle)
   cabin-vendor/      typed VendorPlan + file-registry materialiser
@@ -366,10 +366,7 @@ public surface is intentionally small:
   PackageIndex` that returns the same shape as the local file loader;
 - [`cabin_index_http::RegistryAuth`] - a caller-supplied bearer credential scoped to one normalized
   origin (see [`remote-registry.md`](remote-registry.md)).  The token is attached only to requests
-  on that exact origin and never over cleartext `http` beyond loopback hosts;
-- [`cabin_index_http::fetch_login_url`] - `cabin login`'s advisory, always-unauthenticated probe of
-  `config.json` for the `WWW-Authenticate` `Cabin login_url` challenge; every failure degrades to
-  `None` so the probe can never block a login.
+  on that exact origin and never over cleartext `http` beyond loopback hosts.
 
 The crate must:
 
@@ -388,16 +385,20 @@ The crate must:
 ### `cabin-credentials`
 
 Owns registry credential storage for the remote-registry client
-([`remote-registry.md`](remote-registry.md)): the `credentials.toml` file in the user config home
-(the same `CABIN_CONFIG_HOME` / `etcetera` resolution as the user-level `config.toml`), keyed by
-normalized index origins, plus the `CABIN_REGISTRY_TOKEN` environment override and the redacting
-`Token` newtype.  The crate must:
+([`remote-registry.md`](remote-registry.md)): login-session storage in the platform keychain
+(macOS Keychain / Windows Credential Manager / Linux secret service, via the `keyring` crate),
+falling back to the `credentials.toml` file in the user config home (the same
+`CABIN_CONFIG_HOME` / `etcetera` resolution as the user-level `config.toml`) when no keychain
+is available - a set `CABIN_CONFIG_HOME` bypasses the keychain outright, which keeps tests
+hermetic.  Entries are keyed by normalized index origins and carry the session token, its
+expiry, and the `api` origin it was minted for; the crate also owns the
+`CABIN_REGISTRY_TOKEN` environment override and the redacting `Token` newtype.  The crate must:
 
 - never let token bytes surface through `Debug` / `Display` output or its own error messages;
 - keep credentials out of `cabin-config` - the config parser continues to reject
-  credential-shaped tables, and this crate reads only `credentials.toml`;
-- write atomically (sibling temp file + rename) and, on Unix, create the file with mode `0600`,
-  surfacing a warning (not an error) for an existing group/world-readable file;
+  credential-shaped tables, and this crate reads only its own stores;
+- write the fallback file atomically (sibling temp file + rename) and, on Unix, create it with
+  mode `0600`, surfacing a warning (not an error) for an existing group/world-readable file;
 - not perform HTTP; the client crates receive tokens as typed values from the orchestration layer.
 
 ### `cabin-registry-api`
@@ -406,19 +407,23 @@ Owns the typed HTTP client for the experimental remote-registry *mutations*
 ([`remote-registry.md`](remote-registry.md)): `PUT /api/v1/packages/<scope>/<name>/<version>`
 with the crates.io-style length-prefixed metadata + archive frame,
 `PATCH /api/v1/packages/<scope>/<name>/<version>/yank` (the package routes address scoped names
-only), and the trusted-publishing pair `PUT` / `DELETE /api/v1/trusted_publishing/tokens`
-([`remote-registry.md`](remote-registry.md#trusted-publishing)).  It also owns the client side of
+only), the trusted-publishing pair `PUT` / `DELETE /api/v1/trusted_publishing/tokens`
+([`remote-registry.md`](remote-registry.md#trusted-publishing)), and the login-session pair
+`PUT` / `DELETE /api/v1/sessions/tokens`
+([`remote-registry.md`](remote-registry.md#login-sessions)).  It also owns the client side of
 the GitHub Actions OIDC fetch (`GET` on the runner's `ACTIONS_ID_TOKEN_REQUEST_URL`, with a
-bounded 5xx retry) - the one HTTP call in the crate that targets a non-registry origin, kept here
-because it shares the crate's transport rules and secret hygiene.
+bounded 5xx retry) and of GitHub's OAuth device flow (the device-code request and the grant
+poll `cabin login` drives) - the HTTP calls in the crate that target non-registry origins, kept
+here because they share the crate's transport rules and secret hygiene.
 Requests target the API origin a registry's
 `config.json` declares (`api`), carry the caller-supplied bearer token, and map the protocol's
 status codes (`200` no-op, `201` created, `400`, `401`, `403`, `404`, `409`) plus the
 `{"errors":[{"detail":"..."}]}` envelope into typed errors, degrading to the raw status when the
-envelope is malformed.  Two deliberate exceptions to the bearer rule: the trusted-publishing
-exchange sends no `Authorization` header (the OIDC JWT in its body is the credential), and its
-uniform `401` maps to a dedicated trusted-publishing error rather than the login advice; the OIDC
-fetch carries the runner's request token, not a registry credential.  The crate must:
+envelope is malformed.  Deliberate exceptions to the bearer rule: the trusted-publishing
+exchange and the login-session mint send no `Authorization` header (the OIDC JWT or GitHub
+access token in the body is the credential), and their uniform `401`s map to dedicated errors
+rather than the login advice; the OIDC fetch carries the runner's request token, and the device
+flow GitHub's device code, not a registry credential.  The crate must:
 
 - not stage, validate, or lint packages - it frames and ships bytes produced by `cabin-package` /
   `cabin-publish`;

@@ -153,8 +153,8 @@ const TEST_TOKEN: &str = "cabin_integrationTok1";
 
 /// File server over `root` that 401s (with the protocol's error
 /// envelope) every request not carrying `Authorization: Bearer
-/// <token>` - the shape of an `auth-required` registry, where even
-/// `config.json` is behind auth.
+/// <token>` - the shape of an `auth-required` registry.  `config.json`
+/// alone is served to anyone, the protocol's login-bootstrap rule.
 struct AuthRegistryServer {
     server: std::sync::Arc<tiny_http::Server>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -174,7 +174,8 @@ impl AuthRegistryServer {
                 let authorized = req.headers().iter().any(|h| {
                     h.field.equiv("Authorization") && h.value == format!("Bearer {token}")
                 });
-                if !authorized {
+                let path = req.url().trim_start_matches('/').to_owned();
+                if !authorized && path != "config.json" {
                     let _ = req.respond(
                         tiny_http::Response::from_string(
                             r#"{"errors":[{"detail":"authentication required"}]}"#,
@@ -183,7 +184,6 @@ impl AuthRegistryServer {
                     );
                     continue;
                 }
-                let path = req.url().trim_start_matches('/').to_owned();
                 if path.contains("..") {
                     let _ = req.respond(tiny_http::Response::empty(400));
                     continue;
@@ -220,30 +220,347 @@ impl Drop for AuthRegistryServer {
     }
 }
 
+/// Far-future expiry every seeded test session carries.
+const TEST_EXPIRES_AT: &str = "2999-01-01T00:00:00.000Z";
+
+/// A lapsed expiry, for the expired-session UX tests.
+const PAST_EXPIRES_AT: &str = "2000-01-01T00:00:00.000Z";
+
+/// The session token the mock registry's mint answers.
+const MINTED_SESSION: &str = "cabin_ses_mintedSession-Token_0123456789abcdefghij";
+
+/// The GitHub access token the mock OAuth server's poll answers.
+const GITHUB_ACCESS_TOKEN: &str = "gho_testAccessSecret";
+
+/// The user code the mock OAuth server hands out.
+const DEVICE_USER_CODE: &str = "ABCD-1234";
+
+/// Seed `home/credentials.toml` with a session for `origin`, exactly
+/// as a `cabin login` against it would leave it, with `api_url` as
+/// the revocation origin and mode 0600.
+fn write_session_credentials_full(home: &Path, origin: &str, token: &str, expires_at: &str) {
+    fs::create_dir_all(home).unwrap();
+    let credentials_path = home.join("credentials.toml");
+    fs::write(
+        &credentials_path,
+        format!(
+            "[registries.\"{origin}\"]\ntoken = \"{token}\"\nexpires-at = \"{expires_at}\"\n\
+             api-url = \"{origin}\"\n"
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&credentials_path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+/// [`write_session_credentials_full`] with the far-future expiry.
+fn write_session_credentials(home: &Path, origin: &str, token: &str) {
+    write_session_credentials_full(home, origin, token, TEST_EXPIRES_AT);
+}
+
+/// GitHub OAuth mock for the device flow: `POST /login/device/code`
+/// answers an immediate one-second-interval grant (with the extra
+/// fields GitHub sends), and `POST /login/oauth/access_token` answers
+/// the access token plus the refresh-token fields the OAuth app's
+/// token expiration adds - which the client must tolerate and
+/// discard.
+struct GithubOauthServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    url: String,
+}
+
+impl GithubOauthServer {
+    fn start() -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let device_code_body = format!(
+            r#"{{"device_code":"dc-test","user_code":"{DEVICE_USER_CODE}","verification_uri":"{url}/login/device","expires_in":900,"interval":1}}"#
+        );
+        let token_body = format!(
+            r#"{{"access_token":"{GITHUB_ACCESS_TOKEN}","token_type":"bearer","scope":"","expires_in":28800,"refresh_token":"ghr_testRefreshSecret","refresh_token_expires_in":15811200}}"#
+        );
+        let thread = std::thread::spawn(move || {
+            while let Ok(req) = server_for_thread.recv() {
+                let body = match req.url() {
+                    "/login/device/code" => device_code_body.clone(),
+                    "/login/oauth/access_token" => token_body.clone(),
+                    _ => {
+                        let _ = req.respond(tiny_http::Response::empty(404));
+                        continue;
+                    }
+                };
+                let _ = req.respond(tiny_http::Response::from_string(body));
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            url,
+        }
+    }
+}
+
+impl Drop for GithubOauthServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// One captured session-route request.
+struct CapturedSessionRequest {
+    method: String,
+    authorization: Option<String>,
+    body: Vec<u8>,
+}
+
+/// Mock registry for the login flow: serves `config.json` under any
+/// path prefix (declaring this server as its own `api` origin) and
+/// answers `/api/v1/sessions/tokens` with the configured status -
+/// a `200` mint, the uniform `401`, or a `204` revocation - capturing
+/// each session-route request.
+struct SessionRegistryServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    url: String,
+    captured: std::sync::Arc<std::sync::Mutex<Vec<CapturedSessionRequest>>>,
+}
+
+impl SessionRegistryServer {
+    fn start() -> Self {
+        Self::start_with_mint_body(
+            200,
+            format!(r#"{{"token":"{MINTED_SESSION}","expires_at":"{TEST_EXPIRES_AT}"}}"#),
+        )
+    }
+
+    fn start_with_mint_body(mint_status: u16, mint_body: String) -> Self {
+        Self::start_inner(mint_status, mint_body, false)
+    }
+
+    /// Declare `auth-required: true` and 401 every route other than
+    /// the public `config.json` and the session routes - the protocol
+    /// shape whose login bootstrap the docs guarantee.
+    fn start_auth_required() -> Self {
+        Self::start_inner(
+            200,
+            format!(r#"{{"token":"{MINTED_SESSION}","expires_at":"{TEST_EXPIRES_AT}"}}"#),
+            true,
+        )
+    }
+
+    fn start_inner(mint_status: u16, mint_body: String, auth_required: bool) -> Self {
+        let server = std::sync::Arc::new(
+            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
+        );
+        let addr = server.server_addr().to_ip().expect("loopback addr");
+        let url = format!("http://{addr}");
+        let auth_field = if auth_required {
+            r#""auth-required":true,"#
+        } else {
+            ""
+        };
+        let config = format!(
+            r#"{{"schema":1,"kind":"file-registry","packages":"packages","artifacts":"artifacts",{auth_field}"api":"{url}"}}"#
+        );
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_for_thread = std::sync::Arc::clone(&captured);
+        let server_for_thread = std::sync::Arc::clone(&server);
+        let thread = std::thread::spawn(move || {
+            while let Ok(mut req) = server_for_thread.recv() {
+                let path = req.url().to_owned();
+                if path.ends_with("/config.json") {
+                    let _ = req.respond(tiny_http::Response::from_string(config.clone()));
+                } else if path == "/api/v1/sessions/tokens" {
+                    let mut body = Vec::new();
+                    let _ = req.as_reader().read_to_end(&mut body);
+                    let method = req.method().as_str().to_owned();
+                    captured_for_thread
+                        .lock()
+                        .unwrap()
+                        .push(CapturedSessionRequest {
+                            method: method.clone(),
+                            authorization: req
+                                .headers()
+                                .iter()
+                                .find(|h| h.field.equiv("Authorization"))
+                                .map(|h| h.value.to_string()),
+                            body,
+                        });
+                    let (status, body) = if method == "DELETE" {
+                        (204, String::new())
+                    } else {
+                        (mint_status, mint_body.clone())
+                    };
+                    let _ = req
+                        .respond(tiny_http::Response::from_string(body).with_status_code(status));
+                } else if auth_required {
+                    let _ = req.respond(
+                        tiny_http::Response::from_string(
+                            r#"{"errors":[{"detail":"authentication required"}]}"#,
+                        )
+                        .with_status_code(401),
+                    );
+                } else {
+                    let _ = req.respond(tiny_http::Response::empty(404));
+                }
+            }
+        });
+        Self {
+            server,
+            thread: Some(thread),
+            url,
+            captured,
+        }
+    }
+
+    fn captured(&self) -> Vec<CapturedSessionRequest> {
+        std::mem::take(&mut *self.captured.lock().unwrap())
+    }
+}
+
+impl Drop for SessionRegistryServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(handle) = self.thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 /// The credential commands are part of the stable read path: login
-/// and logout work without any experimental flag.
+/// and logout work without any experimental flag.  End to end against
+/// the mocks: the device flow's user code is shown, the GitHub access
+/// token reaches exactly the mint's body (no `Authorization` header),
+/// the minted session lands in `credentials.toml`, and logout
+/// self-revokes with the session as the bearer before removing it.
 #[test]
 fn login_and_logout_need_no_experimental_flag() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    let base = dead_loopback_url();
-    cabin()
-        .args(["login", "--index-url", &base])
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    let assertion = cabin()
+        .args(["login", "--index-url", &registry.url])
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{base}` saved"
+            "session for `{}` saved",
+            registry.url
         )));
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains(DEVICE_USER_CODE),
+        "the user code must be shown: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
+    for secret in [GITHUB_ACCESS_TOKEN, MINTED_SESSION] {
+        assert!(
+            !stdout.contains(secret) && !stderr.contains(secret),
+            "secrets must never be echoed; stdout: {stdout}; stderr: {stderr}"
+        );
+    }
+
+    let captured = registry.captured();
+    assert_eq!(captured.len(), 1, "exactly one mint request");
+    assert_eq!(captured[0].method, "PUT");
+    assert_eq!(captured[0].authorization, None);
+    assert_eq!(
+        captured[0].body,
+        format!(r#"{{"github_token":"{GITHUB_ACCESS_TOKEN}"}}"#).as_bytes()
+    );
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(body.contains(MINTED_SESSION), "session stored: {body}");
+    assert!(body.contains(TEST_EXPIRES_AT), "expiry stored: {body}");
+
     cabin()
-        .args(["logout", "--index-url", &base])
+        .args(["logout", "--index-url", &registry.url])
         .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{base}` removed"
+            "session for `{}` removed",
+            registry.url
         )));
+    let captured = registry.captured();
+    assert_eq!(captured.len(), 1, "exactly one revocation request");
+    assert_eq!(captured[0].method, "DELETE");
+    assert_eq!(
+        captured[0].authorization.as_deref(),
+        Some(format!("Bearer {MINTED_SESSION}").as_str()),
+        "the session revokes itself"
+    );
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(!body.contains(MINTED_SESSION), "entry removed: {body}");
+}
+
+/// A repeat `cabin login` revokes the session it displaces - after
+/// the new one is stored, so the mint lands first.  The registry
+/// keeps one row per mint and revocation deletes only the presented
+/// token, so the overwritten session would otherwise stay live
+/// server-side until it expired, beyond any later `cabin logout`.
+#[test]
+fn login_revokes_the_session_it_displaces() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    write_session_credentials_full(&home, &registry.url, TEST_TOKEN, TEST_EXPIRES_AT);
+    cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
+        .assert()
+        .success();
+    let captured = registry.captured();
+    assert_eq!(captured.len(), 2, "one mint, then one revocation");
+    assert_eq!(captured[0].method, "PUT", "the mint lands first");
+    assert_eq!(captured[1].method, "DELETE");
+    assert_eq!(
+        captured[1].authorization.as_deref(),
+        Some(format!("Bearer {TEST_TOKEN}").as_str()),
+        "the displaced token is the one revoked"
+    );
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(body.contains(MINTED_SESSION), "new session stored: {body}");
+    assert!(!body.contains(TEST_TOKEN), "old session replaced: {body}");
+}
+
+/// A first `cabin login` against an `auth-required` registry
+/// bootstraps from the public `config.json` alone: with sessions the
+/// only credential, discovery must precede authentication, so a login
+/// that grew a dependency on any protected route would 401 here with
+/// no way to ever obtain a token.
+#[test]
+fn login_bootstraps_an_auth_required_registry() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start_auth_required();
+    cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "session for `{}` saved",
+            registry.url
+        )));
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert!(body.contains(MINTED_SESSION), "session stored: {body}");
 }
 
 /// With no `--index-url` and no config, the credential commands
@@ -259,7 +576,7 @@ fn bare_logout_targets_the_default_registry() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "no token was stored for `https://registry.cabinpkg.com`",
+            "no session was stored for `https://registry.cabinpkg.com`",
         ));
 }
 
@@ -289,11 +606,11 @@ fn yank_requires_an_explicit_index_source() {
     );
 }
 
-/// Under `CABIN_NET_OFFLINE` the advisory login-URL probe is skipped
-/// outright: `cabin login` still succeeds, prints the generic hint,
-/// and the registry receives zero requests.
+/// The device-flow login needs github.com and the registry, so under
+/// `CABIN_NET_OFFLINE` it refuses up front - after naming its target
+/// - and the registry receives zero requests.
 #[test]
-fn login_skips_the_probe_when_offline() {
+fn login_refuses_to_run_offline() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let dir = TempDir::new().unwrap();
@@ -316,13 +633,9 @@ fn login_skips_the_probe_when_offline() {
         .args(["login", "--index-url", &url])
         .env("CABIN_CONFIG_HOME", dir.path().join("config-home"))
         .env("CABIN_NET_OFFLINE", "1")
-        .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "see the registry's documentation for how to get a token",
-        ))
-        .stdout(predicate::str::contains(format!("token for `{url}` saved")));
+        .failure()
+        .stderr(predicate::str::contains("needs the network"));
     assert_eq!(
         hits.load(Ordering::SeqCst),
         0,
@@ -333,11 +646,11 @@ fn login_skips_the_probe_when_offline() {
 }
 
 /// A checked-out project's `.cabin/config.toml` cannot steer where a
-/// pasted credential is stored: the credential commands resolve their
+/// minted credential is stored: the credential commands resolve their
 /// registry from user-level config only, so a project-declared
 /// `[registry] index-url` is ignored and bare `cabin login` targets
 /// the default registry.  (`CABIN_NET_OFFLINE` keeps the run
-/// hermetic - the advisory probe is skipped.)
+/// hermetic - login names its target, then refuses to go online.)
 #[test]
 fn login_ignores_project_config_when_choosing_the_registry() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -375,19 +688,14 @@ fn login_ignores_project_config_when_choosing_the_registry() {
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_NET_OFFLINE", "1")
-        .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
-        .success()
+        .failure()
         .stdout(predicate::str::contains(
             "logging in to `https://registry.cabinpkg.com`",
-        ))
-        .stdout(predicate::str::contains(
-            "token for `https://registry.cabinpkg.com` saved",
         ));
-    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
     assert!(
-        body.contains("https://registry.cabinpkg.com") && !body.contains(&attacker_url),
-        "the token must be stored for the default origin, never the project-picked one: {body}"
+        !home.join("credentials.toml").exists(),
+        "the refused login must store nothing"
     );
     assert_eq!(
         hits.load(Ordering::SeqCst),
@@ -409,50 +717,34 @@ fn dead_loopback_url() -> String {
     format!("http://{addr}")
 }
 
-/// `cabin login` reads the token from (piped) stdin and stores it
-/// keyed by the normalized origin - path and trailing slash
-/// stripped.  With the login-URL probe failing (nothing listens on
-/// the port), the hint degrades to the generic wording and login
-/// still succeeds: the probe never blocks it.  The token itself
-/// never appears on stdout or stderr.
+/// The minted session is stored keyed by the normalized index
+/// origin (path and trailing slash stripped) with the mint's expiry
+/// and the discovered `api` origin alongside, in a 0600 file.
 #[test]
-fn login_stores_the_token_keyed_by_normalized_origin() {
+fn login_stores_the_session_keyed_by_normalized_origin() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    let base = dead_loopback_url();
-    let assertion = cabin()
-        .args([
-            "-Z",
-            "remote-registry",
-            "login",
-            "--index-url",
-            &format!("{base}/some/path/"),
-        ])
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    let base = registry.url.clone();
+    cabin()
+        .args(["login", "--index-url", &format!("{base}/some/path/")])
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
-        .success();
-    let output = assertion.get_output();
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    assert!(
-        stdout.contains("see the registry's documentation for how to get a token"),
-        "expected the offline fallback hint in: {stdout}"
-    );
-    assert!(
-        stdout.contains(&format!("token for `{base}` saved")),
-        "expected the origin-only confirmation in: {stdout}"
-    );
-    assert!(
-        !stdout.contains(TEST_TOKEN) && !stderr.contains(TEST_TOKEN),
-        "the token must never be echoed; stdout: {stdout}; stderr: {stderr}"
-    );
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "session for `{base}` saved"
+        )));
 
     let credentials_path = home.join("credentials.toml");
     let body = fs::read_to_string(&credentials_path).unwrap();
     assert_eq!(
         body,
-        format!("[registries.\"{base}\"]\ntoken = \"{TEST_TOKEN}\"\n")
+        format!(
+            "[registries.\"{base}\"]\ntoken = \"{MINTED_SESSION}\"\n\
+             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"{base}\"\n"
+        )
     );
     #[cfg(unix)]
     {
@@ -465,129 +757,57 @@ fn login_stores_the_token_keyed_by_normalized_origin() {
     }
 }
 
-/// Against a live `auth-required` registry, `cabin login` probes
-/// `config.json` unauthenticated, parses the `WWW-Authenticate`
-/// challenge, and prints the server-declared login URL; a 401
-/// without the challenge degrades to the generic wording.  Either
-/// way the pasted token is stored.
+/// The registry's mint endpoint refuses with its deliberately
+/// uniform 401: login fails with the uniform-refusal wording and
+/// stores nothing.
 #[test]
-fn login_discovers_the_login_url_from_the_challenge() {
-    let dir = TempDir::new().unwrap();
-
-    // A 401 carrying the challenge: the login URL is printed verbatim.
-    let server = ChallengeRegistryServer::serve(Some(
-        r#"Cabin login_url="https://cabinpkg.com/docs/remote-registry""#,
-    ));
-    let home = dir.path().join("home-a");
-    cabin()
-        .args(["-Z", "remote-registry", "login", "--index-url"])
-        .arg(server.url())
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "see https://cabinpkg.com/docs/remote-registry for how to get a token",
-        ));
-    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
-    assert!(body.contains(TEST_TOKEN), "token must be stored: {body}");
-    drop(server);
-
-    // A 401 without the challenge: the generic wording, still stored.
-    let server = ChallengeRegistryServer::serve(None);
-    let home = dir.path().join("home-b");
-    cabin()
-        .args(["-Z", "remote-registry", "login", "--index-url"])
-        .arg(server.url())
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "see the registry's documentation for how to get a token",
-        ));
-    assert!(home.join("credentials.toml").exists());
-}
-
-/// Registry answering every request 401, optionally with the
-/// `WWW-Authenticate` challenge - the shape `cabin login`'s probe
-/// sees on an `auth-required` registry.
-struct ChallengeRegistryServer {
-    server: std::sync::Arc<tiny_http::Server>,
-    thread: Option<std::thread::JoinHandle<()>>,
-    url: String,
-}
-
-impl ChallengeRegistryServer {
-    fn serve(challenge: Option<&'static str>) -> Self {
-        let server = std::sync::Arc::new(
-            tiny_http::Server::http("127.0.0.1:0").expect("bind tiny_http on loopback"),
-        );
-        let addr = server.server_addr().to_ip().expect("loopback addr");
-        let url = format!("http://{addr}");
-        let server_for_thread = std::sync::Arc::clone(&server);
-        let thread = std::thread::spawn(move || {
-            while let Ok(req) = server_for_thread.recv() {
-                let mut response = tiny_http::Response::from_string(
-                    r#"{"errors":[{"detail":"authentication required"}]}"#,
-                )
-                .with_status_code(401);
-                if let Some(challenge) = challenge {
-                    response.add_header(
-                        tiny_http::Header::from_bytes(&b"WWW-Authenticate"[..], challenge)
-                            .expect("valid test header"),
-                    );
-                }
-                let _ = req.respond(response);
-            }
-        });
-        Self {
-            server,
-            thread: Some(thread),
-            url,
-        }
-    }
-
-    fn url(&self) -> &str {
-        &self.url
-    }
-}
-
-impl Drop for ChallengeRegistryServer {
-    fn drop(&mut self) {
-        self.server.unblock();
-        if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-/// A pasted value that is not a Cabin token is rejected before
-/// anything is written, and the error never echoes the value.
-#[test]
-fn login_rejects_invalid_tokens_without_writing() {
+fn login_reports_the_uniform_mint_refusal() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start_with_mint_body(
+        401,
+        r#"{"errors":[{"detail":"authentication required"}]}"#.to_owned(),
+    );
     let assertion = cabin()
-        .args([
-            "-Z",
-            "remote-registry",
-            "login",
-            "--index-url",
-            &dead_loopback_url(),
-        ])
+        .args(["login", "--index-url", &registry.url])
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin("ghp_notACabinToken12345\n")
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        flat_contains(&stderr, "expected the `cabin_` prefix"),
-        "expected the token-shape error in: {stderr}"
+        flat_contains(&stderr, "refused the session request"),
+        "expected the uniform-refusal wording in: {stderr}"
+    );
+    assert!(!home.join("credentials.toml").exists());
+}
+
+/// A mint response whose token is not a Cabin token is rejected
+/// before anything is written, and the error never echoes the value.
+#[test]
+fn login_rejects_invalid_tokens_without_writing() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start_with_mint_body(
+        200,
+        r#"{"token":"ghp_notACabinToken12345","expires_at":"2999-01-01T00:00:00.000Z"}"#.to_owned(),
+    );
+    let assertion = cabin()
+        .args(["login", "--index-url", &registry.url])
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "without a usable token"),
+        "expected the unusable-token error in: {stderr}"
     );
     assert!(
         !stderr.contains("notACabinToken"),
-        "the pasted value must not be echoed: {stderr}"
+        "the minted value must not be echoed: {stderr}"
     );
     assert!(!home.join("credentials.toml").exists());
 }
@@ -601,7 +821,9 @@ fn login_rejects_invalid_tokens_without_writing() {
 fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    let base = dead_loopback_url();
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    let base = registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{base}/index/\"\n"))
         .unwrap();
@@ -610,11 +832,11 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     cmd.args(["-Z", "remote-registry", "login"])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{base}` saved"
+            "session for `{base}` saved"
         )));
 
     // Same setup with a local index-path: refused.
@@ -627,7 +849,7 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
         .args(["-Z", "remote-registry", "login"])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
@@ -640,8 +862,9 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     // hosted registry.  A `[source-replacement]` entry for the
     // default origin applies to it exactly like a config-supplied
     // source, which also keeps this hermetic - the replacement wins
-    // before the login-URL probe could contact the real registry.
-    let mirror = dead_loopback_url();
+    // before any request could contact the real registry.
+    let mirror_registry = SessionRegistryServer::start();
+    let mirror = mirror_registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
             "[source-replacement]\n\"https://registry.cabinpkg.com\" = \
@@ -653,11 +876,11 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     cmd.args(["login"])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{mirror}` saved"
+            "session for `{mirror}` saved"
         )));
 }
 
@@ -673,7 +896,9 @@ fn logout_removes_the_entry_and_reports_absence() {
         &credentials_path,
         format!(
             "[registries.\"https://keep.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n\
-             [registries.\"https://registry.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n"
+             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"https://keep.example.com\"\n\
+             [registries.\"https://registry.example.com\"]\ntoken = \"{TEST_TOKEN}\"\n\
+             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"https://registry.example.com\"\n"
         ),
     )
     .unwrap();
@@ -683,6 +908,8 @@ fn logout_removes_the_entry_and_reports_absence() {
         fs::set_permissions(&credentials_path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
+    // The revocation call to the (unreachable) stored `api-url` is
+    // best-effort: the local removal succeeds regardless.
     cabin()
         .args([
             "-Z",
@@ -692,10 +919,11 @@ fn logout_removes_the_entry_and_reports_absence() {
             "https://registry.example.com",
         ])
         .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_NET_OFFLINE", "1")
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "token for `https://registry.example.com` removed",
+            "session for `https://registry.example.com` removed",
         ));
     let body = fs::read_to_string(&credentials_path).unwrap();
     assert!(body.contains("keep.example.com"), "{body}");
@@ -713,7 +941,7 @@ fn logout_removes_the_entry_and_reports_absence() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "no token was stored for `https://registry.example.com`",
+            "no session was stored for `https://registry.example.com`",
         ));
 }
 
@@ -769,20 +997,31 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     assert!(stdout.contains("fmt"), "{stdout}");
 
-    // A stored credential (via `cabin login`) works the same way.
+    // A stored session works the same way.
     let home = dir.path().join("config-home");
-    cabin()
-        .args(["login", "--index-url", server.url()])
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
-        .assert()
-        .success();
+    write_session_credentials(&home, server.url(), TEST_TOKEN);
     cabin()
         .args(["resolve", "--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .arg("--index-url")
         .arg(server.url())
         .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fmt"));
+
+    // The env override outranks the stored session: with a session
+    // stored that the server rejects, the env token still wins and
+    // the resolve succeeds.
+    let overridden = dir.path().join("config-home-overridden");
+    write_session_credentials(&overridden, server.url(), "cabin_storedButOutranked1");
+    cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &overridden)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
         .success()
         .stdout(predicate::str::contains("fmt"));
@@ -808,12 +1047,13 @@ fn resolve_against_an_auth_required_registry_uses_the_credential() {
 }
 
 /// A login-session token (`cabin_ses_<base64url>`, carrying `-` and `_`)
-/// is a first-class bearer at the CLI seam: `cabin login` accepts and
-/// stores it verbatim, and a later `resolve` loads it and authenticates
-/// with no env override - the user-facing half of the `Token::parse`
-/// widening that lets `cabin_ses_` tokens through.
+/// is a first-class bearer at the CLI seam: a stored session survives
+/// the credentials round-trip with those bytes intact, and a later
+/// `resolve` loads it and authenticates with no env override - the
+/// user-facing half of the `Token::parse` widening that lets
+/// `cabin_ses_` tokens through.
 #[test]
-fn login_stores_and_reuses_a_session_token() {
+fn a_stored_session_token_authenticates_reads() {
     const SESSION_TOKEN: &str = "cabin_ses_abcdefghij-klmnopqrst_uvwxyzABCDEFGHIJKLMNO";
     let dir = TempDir::new().unwrap();
     write_app_manifest(dir.path());
@@ -822,12 +1062,7 @@ fn login_stores_and_reuses_a_session_token() {
     let server = AuthRegistryServer::serve(registry, SESSION_TOKEN);
 
     let home = dir.path().join("config-home");
-    cabin()
-        .args(["login", "--index-url", server.url()])
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{SESSION_TOKEN}\n"))
-        .assert()
-        .success();
+    write_session_credentials(&home, server.url(), SESSION_TOKEN);
     // Persisted with its `-`/`_` bytes intact through the credentials
     // round-trip.
     let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
@@ -846,6 +1081,190 @@ fn login_stores_and_reuses_a_session_token() {
         .assert()
         .success()
         .stdout(predicate::str::contains("fmt"));
+}
+
+/// An expired stored session is withheld from reads: the client warns
+/// with the cause and the fix, proceeds tokenless, and the
+/// `auth-required` registry's own 401 stands - the registry's uniform
+/// refusal could never name the expiry.
+#[test]
+fn an_expired_session_warns_and_reads_proceed_tokenless() {
+    let dir = TempDir::new().unwrap();
+    write_app_manifest(dir.path());
+    let registry = dir.path().join("registry");
+    write_registry(&registry, r#", "auth-required": true"#);
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+
+    let home = dir.path().join("config-home");
+    write_session_credentials_full(&home, server.url(), TEST_TOKEN, PAST_EXPIRES_AT);
+    let assertion = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            &format!(
+                "the stored session for `{}` has expired (at {PAST_EXPIRES_AT})",
+                server.url()
+            )
+        ),
+        "expected the expiry warning in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "authentication required by registry"),
+        "the tokenless request must still reach the server's 401: {stderr}"
+    );
+}
+
+/// A pre-session `token`-only credentials file (whose long-lived keys
+/// no registry accepts any more) must not break reads: the file reads
+/// as absent with a warning naming it, the resolve proceeds
+/// tokenless, and the auth-required registry's own 401 stands with
+/// the login advice.
+#[test]
+fn an_unreadable_credentials_file_does_not_break_reads() {
+    let dir = TempDir::new().unwrap();
+    write_app_manifest(dir.path());
+    let registry = dir.path().join("registry");
+    write_registry(&registry, r#", "auth-required": true"#);
+    let server = AuthRegistryServer::serve(registry, TEST_TOKEN);
+
+    let home = dir.path().join("config-home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(
+        home.join("credentials.toml"),
+        format!(
+            "[registries.\"{}\"]\ntoken = \"{TEST_TOKEN}\"\n",
+            server.url()
+        ),
+    )
+    .unwrap();
+    let assertion = cabin()
+        .args(["resolve", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-url")
+        .arg(server.url())
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "ignoring unreadable credentials file"),
+        "expected the unreadable-file warning in: {stderr}"
+    );
+    assert!(
+        flat_contains(&stderr, "authentication required by registry"),
+        "the tokenless request must still reach the server's 401: {stderr}"
+    );
+}
+
+/// `cabin login` over a pre-session `token`-only credentials file
+/// replaces it wholesale - the actionable advice the unreadable-file
+/// errors give must actually work.
+#[test]
+fn login_replaces_an_unreadable_legacy_credentials_file() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    fs::create_dir_all(&home).unwrap();
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    let base = registry.url.clone();
+    fs::write(
+        home.join("credentials.toml"),
+        format!("[registries.\"{base}\"]\ntoken = \"{TEST_TOKEN}\"\n"),
+    )
+    .unwrap();
+
+    cabin()
+        .args(["login", "--index-url", &base])
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "session for `{base}` saved"
+        )));
+    let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
+    assert_eq!(
+        body,
+        format!(
+            "[registries.\"{base}\"]\ntoken = \"{MINTED_SESSION}\"\n\
+             expires-at = \"{TEST_EXPIRES_AT}\"\napi-url = \"{base}\"\n"
+        )
+    );
+}
+
+/// A mutation with only an expired session, non-interactive: publish
+/// fails with the expiry as the cause before any network request -
+/// the dead index port would fail differently if one were made.
+#[test]
+fn publish_with_an_expired_session_fails_actionably() {
+    let dir = TempDir::new().unwrap();
+    write_scoped_publishable_package(dir.path());
+    let base = dead_loopback_url();
+    let home = dir.path().join("config-home");
+    write_session_credentials_full(&home, &base, TEST_TOKEN, PAST_EXPIRES_AT);
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["--index-url", &base])
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            &format!(
+                "the stored session for `{base}` has expired (at {PAST_EXPIRES_AT}); run `cabin \
+                 login --index-url"
+            )
+        ),
+        "expected the expired-session error in: {stderr}"
+    );
+}
+
+/// The same expired-session bail on the yank path, likewise before
+/// any network request.  The index URL carries a path here to pin
+/// the advice's URL choice: sessions are origin-keyed, but the
+/// recommended `cabin login` command must quote the full index URL -
+/// the origin alone would point it at the wrong `config.json`.
+#[test]
+fn yank_with_an_expired_session_fails_actionably() {
+    let dir = TempDir::new().unwrap();
+    let base = dead_loopback_url();
+    let index_url = format!("{base}/idx");
+    let home = dir.path().join("config-home");
+    write_session_credentials_full(&home, &base, TEST_TOKEN, PAST_EXPIRES_AT);
+    let assertion = cabin()
+        .args([
+            "-Z",
+            "remote-registry",
+            "yank",
+            "acme/demo@0.1.0",
+            "--index-url",
+            &index_url,
+        ])
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            &format!(
+                "the stored session for `{base}` has expired (at {PAST_EXPIRES_AT}); run `cabin \
+                 login --index-url {index_url}` to start a new one"
+            )
+        ),
+        "expected the expired-session error in: {stderr}"
+    );
 }
 
 /// A scoped package fetches end to end from an `auth-required`
@@ -1027,6 +1446,9 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
 
     // `cabin yank` resolves its origin the same way, from the config
     // of the directory it runs in, and must withhold the token too.
+    // The withheld-override warning is the discriminator here: it only
+    // prints when the exported token was deliberately not attached
+    // (the api-less fixture fails the same way with or without one).
     let assertion = cabin()
         .args(["-Z", "remote-registry", "yank", "acme/demo@0.1.0"])
         .current_dir(&app)
@@ -1036,8 +1458,14 @@ fn a_project_config_loopback_index_never_receives_the_env_token() {
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
-        flat_contains(&stderr, &auth_required_for(server.url())),
-        "`cabin yank` must reach the project-picked registry unauthenticated: {stderr}"
+        flat_contains(
+            &stderr,
+            &format!(
+                "CABIN_REGISTRY_TOKEN is set but was not used for `{}`",
+                server.url()
+            )
+        ),
+        "`cabin yank` must say the override was withheld: {stderr}"
     );
 
     // Control: the same origin, named by the user on the command
@@ -1304,13 +1732,43 @@ fn login_refuses_plain_http_beyond_loopback() {
             "http://registry.example.com",
         ])
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
         .assert()
         .failure();
     let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
     assert!(
         flat_contains(&stderr, "never sent over plain `http`"),
         "expected the cleartext rejection in: {stderr}"
+    );
+    assert!(!home.join("credentials.toml").exists());
+}
+
+/// The GitHub grant the device flow mints is confined to the hosted
+/// registry's API and loopback: `cabin login` refuses any other
+/// index up front - before fetching its `config.json`, so this needs
+/// no network - because a malicious registry could otherwise relay
+/// the grant to the hosted mint and trade it for the user's session.
+#[test]
+fn login_refuses_a_non_hosted_https_registry() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("config-home");
+    let assertion = cabin()
+        .args([
+            "-Z",
+            "remote-registry",
+            "login",
+            "--index-url",
+            "https://third-party.example",
+        ])
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "refusing to log in to `https://third-party.example`: the login's GitHub grant"
+        ),
+        "expected the grant-confinement rejection in: {stderr}"
     );
     assert!(!home.join("credentials.toml").exists());
 }
@@ -1322,7 +1780,9 @@ fn login_refuses_plain_http_beyond_loopback() {
 fn login_with_explicit_index_url_ignores_broken_config() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    let base = dead_loopback_url();
+    let github = GithubOauthServer::start();
+    let registry = SessionRegistryServer::start();
+    let base = registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str("this is not toml [")
         .unwrap();
@@ -1331,11 +1791,11 @@ fn login_with_explicit_index_url_ignores_broken_config() {
     cmd.args(["-Z", "remote-registry", "login", "--index-url", &base])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{base}` saved"
+            "session for `{base}` saved"
         )));
 }
 
@@ -1830,21 +2290,7 @@ fn publish_sends_the_token_to_the_config_declared_api_origin() {
     // The credential is stored under the *index* origin, exactly as
     // `cabin login` would leave it.
     let home = dir.path().join("config-home");
-    fs::create_dir_all(&home).unwrap();
-    let credentials_path = home.join("credentials.toml");
-    fs::write(
-        &credentials_path,
-        format!(
-            "[registries.\"{}\"]\ntoken = \"{TEST_TOKEN}\"\n",
-            index_server.url
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&credentials_path, fs::Permissions::from_mode(0o600)).unwrap();
-    }
+    write_session_credentials(&home, &index_server.url, TEST_TOKEN);
 
     cabin()
         .args(["-Z", "remote-registry", "publish", "--index-url"])
@@ -2276,10 +2722,11 @@ fn yank_requires_the_api_url_in_the_registry_config() {
 fn login_applies_source_replacement_to_the_config_registry() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    // The upstream is never contacted (the replacement wins before the
-    // login-URL probe); the mirror is a dead loopback port, so the
-    // probe degrades to the generic wording.
-    let mirror = dead_loopback_url();
+    // The upstream is never contacted (the replacement wins before
+    // any request); the mirror mints the session.
+    let github = GithubOauthServer::start();
+    let mirror_registry = SessionRegistryServer::start();
+    let mirror = mirror_registry.url.clone();
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!(
             "[registry]\nindex-url = \"https://upstream.example.com/index\"\n\n\
@@ -2292,11 +2739,11 @@ fn login_applies_source_replacement_to_the_config_registry() {
     cmd.args(["-Z", "remote-registry", "login"])
         .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
+        .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "token for `{mirror}` saved"
+            "session for `{mirror}` saved"
         )));
     let body = fs::read_to_string(home.join("credentials.toml")).unwrap();
     assert!(body.contains(&mirror), "{body}");
@@ -2665,15 +3112,7 @@ fn the_exchange_outranks_a_stored_credential() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
     write_scoped_publishable_package(dir.path());
-    cabin()
-        .args(["login", "--index-url", &registry.url])
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
-        .assert()
-        .success();
-    // Drain the login-URL probe's config.json read (not under
-    // /api/v1/, so nothing was recorded).
-    assert_eq!(registry.captured().len(), 0);
+    write_session_credentials(&home, &registry.url, TEST_TOKEN);
 
     cabin_under_actions(&oidc)
         .env("CABIN_CONFIG_HOME", &home)
@@ -2730,13 +3169,7 @@ fn yank_never_auto_exchanges_under_github_actions() {
     let oidc = OidcServer::start();
     let dir = TempDir::new().unwrap();
     let home = dir.path().join("config-home");
-    cabin()
-        .args(["login", "--index-url", &registry.url])
-        .env("CABIN_CONFIG_HOME", &home)
-        .write_stdin(format!("{TEST_TOKEN}\n"))
-        .assert()
-        .success();
-    assert_eq!(registry.captured().len(), 0);
+    write_session_credentials(&home, &registry.url, TEST_TOKEN);
 
     cabin_under_actions(&oidc)
         .env("CABIN_CONFIG_HOME", &home)

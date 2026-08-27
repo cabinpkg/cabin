@@ -73,12 +73,27 @@ pub(crate) fn yank(
     let origin = cabin_credentials::normalize_origin(&index_url)?;
     let eligible = crate::cli::login::env_token_eligible(&origin, index.user_chosen)?;
     let lookup = cabin_credentials::lookup_token(&origin, eligible)?;
-    if let Some(warning) = lookup.permissions_warning {
+    if let Some(warning) = lookup.warning {
         reporter.warning(format_args!("{warning}"));
     }
-    let token = lookup.token;
+    let mut token = lookup.token;
     if token.is_none() {
-        crate::cli::login::warn_if_env_token_withheld(&origin, eligible, reporter);
+        // No stored credential (or an expired session): an
+        // interactive terminal is offered the login flow inline (for
+        // a user-chosen registry only); otherwise an expired session
+        // fails with its cause and a truly absent credential proceeds
+        // tokenless into the server's own `authentication required`
+        // answer.
+        if lookup.expired_at.is_none() {
+            crate::cli::login::warn_if_env_token_withheld(&index_url, &origin, eligible, reporter);
+        }
+        token = crate::cli::login::offer_interactive_login(
+            &index_url,
+            &origin,
+            lookup.expired_at.as_deref(),
+            index.user_chosen,
+            reporter,
+        )?;
     }
     let mut client = cabin_index_http::HttpClient::new();
     if let Some(token) = token.clone() {

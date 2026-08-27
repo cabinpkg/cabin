@@ -58,7 +58,6 @@ clap = { workspace = true }
 clap_complete = { workspace = true }
 clap_mangen = { workspace = true }
 os_info = { version = "3", default-features = false }
-rpassword = { workspace = true }
 semver = { workspace = true }
 url = { workspace = true }
 etcetera = { workspace = true }

@@ -153,10 +153,12 @@ protocol both sides implement is specified in
   (only the gated mutation commands do);
 - client-side credential handling uses `Authorization: Bearer` tokens
   minted by the registry's login-session and trusted-publishing flows;
-  where to get one the client discovers from
-  the `WWW-Authenticate` `Cabin login_url` challenge the registry's
-  authenticated surfaces answer unauthenticated requests with (the
-  hosted registry's verified reads themselves are public);
+  `cabin login` mints one by discovering the `api` origin from
+  `config.json` and running GitHub's OAuth device flow, while the
+  `WWW-Authenticate` `Cabin login_url` challenge the registry's
+  authenticated surfaces answer unauthenticated requests with points
+  humans at the documentation (the hosted registry's verified reads
+  themselves are public);
 - publishing uses `PUT /api/v1/packages/<scope>/<name>/<version>`
   with a length-prefixed metadata + archive frame, and yanking uses
   `PATCH /api/v1/packages/<scope>/<name>/<version>/yank`;

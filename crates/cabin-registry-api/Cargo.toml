@@ -13,6 +13,7 @@ name = "cabin_registry_api"
 [dependencies]
 cabin-core = { workspace = true }
 cabin-credentials = { workspace = true }
+humantime = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
