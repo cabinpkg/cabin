@@ -29,11 +29,13 @@ rules that are easy to violate:
 
 ## Repository automation (xtasks)
 
-- Repository automation belongs in private, `publish = false`
-  `crates/xtask-*` crates exposed through aliases in `.cargo/config.toml`.
-  Extend the owning xtask; add one only for a new responsibility with a new
-  dependency set. Run aliases from the repository root because `registry/`
-  is a separate workspace.
+- Repository-owned automation and orchestration belongs in private,
+  `publish = false` `crates/xtask-*` crates exposed through aliases in
+  `.cargo/config.toml`. Xtasks may invoke external tools; do not reimplement
+  those tools' functionality or compatibility semantics in an xtask solely
+  to eliminate the external dependency or runtime. Extend the owning xtask;
+  add one only for a new responsibility with a new dependency set. Run aliases
+  from the repository root because `registry/` is a separate workspace.
 
 ## Test Portability
 
