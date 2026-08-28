@@ -55,11 +55,13 @@ pub const EXPECTED_VIEWS: &[&str] = &["current_revisions"];
 /// All are populated by the migrations themselves, so even a
 /// brand-new, empty registry dumps rows here - which catches a
 /// schema-only or data-truncated export that would otherwise validate
-/// and record success while restoring an empty registry. The
-/// `trustpub_configs` seed matters beyond truncation evidence: a restored
-/// `d1_migrations` table keeps migration 0001 from ever re-seeding it,
-/// so a dump that lost the row would silently drop the cabin-ports
-/// publishing authorization.
+/// and record success while restoring an empty registry. The seeds
+/// matter beyond truncation evidence: a restored `d1_migrations` table
+/// keeps migration 0001 from ever re-seeding them, so a dump that lost
+/// the rows would silently drop the cabin-ports publishing
+/// authorization (`trustpub_configs`) or the operator's pre-promoted
+/// account and the verifier's backing identity (`users`,
+/// `identities`).
 ///
 /// Presence-only on purpose: this scanner is a streaming textual
 /// integrity check over an export format the exporter owns, so it can
@@ -69,7 +71,13 @@ pub const EXPECTED_VIEWS: &[&str] = &["current_revisions"];
 /// exist beside the seed, verifying the seeded row itself is the
 /// restore drill's job: it queries a real scratch database, not the
 /// dump's text.
-pub const EXPECTED_ROWS: &[&str] = &["trustpub_configs", "meta", "d1_migrations"];
+pub const EXPECTED_ROWS: &[&str] = &[
+    "users",
+    "identities",
+    "trustpub_configs",
+    "meta",
+    "d1_migrations",
+];
 
 /// `d1/<date>.sql` for a `YYYY-MM-DD` date.
 pub fn dump_object_key(date: &str) -> String {
@@ -699,7 +707,13 @@ mod tests {
         let check = scanner.finish();
         assert_eq!(
             check.missing_rows,
-            vec!["trustpub_configs", "meta", "d1_migrations"]
+            vec![
+                "users",
+                "identities",
+                "trustpub_configs",
+                "meta",
+                "d1_migrations"
+            ]
         );
         let error = check.error().unwrap();
         assert!(error.contains("no rows"), "{error}");

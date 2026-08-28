@@ -105,9 +105,9 @@
         "VERIFIER_GIT_REF": "refs/heads/main",
         // The operator identity backing the verifier arm's mint, by
         // its immutable numeric GitHub account id (26405363 =
-        // ken-matsui). The identity must have signed in since the
-        // last wipe; until then the arm refuses and the run retries
-        // after the sign-in.
+        // ken-matsui). The baseline migration seeds this identity, so
+        // it exists from apply time; a no-row refusal means this var
+        // and the migration seed disagree.
         "VERIFIER_BACKING_ACCOUNT_ID": "26405363"
     },
     "d1_databases": [

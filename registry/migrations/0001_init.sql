@@ -266,6 +266,18 @@ INSERT INTO trustpub_configs (
     'refs/heads/main', NULL, 'operator', '2026-08-14T00:00:00.000Z'
 );
 
+-- The operator's own account, pre-promoted so a wipe never resets it
+-- to 'default' (docs/architecture.md, "Quota classes"). Keyed by the
+-- immutable numeric GitHub id like the trustpub seed above
+-- (26405363 = ken-matsui); `login_snapshot` is display-only and
+-- refreshed at every sign-in. Sign-in finds this identity and binds
+-- to this row instead of creating one, so the class survives.
+-- users.id 1 is explicit and deliberate: the operator is user 1.
+INSERT INTO users (id, created_at, quota_class)
+VALUES (1, '2026-08-27T00:00:00.000Z', 'operator');
+INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id)
+VALUES ('github', '26405363', 'ken-matsui', 1);
+
 -- `created_by` / `published_by` hold the registry-native users.id as
 -- real foreign keys - attribution is always written explicitly, and a
 -- provider account id (or any other stray number) can never enter

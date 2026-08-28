@@ -58,7 +58,8 @@ const DEFAULT: ClassQuotas = ClassQuotas {
 
 /// Bulk-publishing tier for the operator's own accounts, granted
 /// manually via `users.quota_class` (docs/architecture.md, "Per-user
-/// quotas"). Sized for the cabin-ports publish pipeline, which
+/// quotas"); the operator's own account is seeded pre-promoted by the
+/// baseline migration. Sized for the cabin-ports publish pipeline, which
 /// publishes the whole curated port set - currently 17 packages -
 /// in one serial run: the burst must cover a full set so a routine
 /// republish never waits on the refill, and the daily new-package cap

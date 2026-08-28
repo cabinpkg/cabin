@@ -291,8 +291,11 @@ re-authenticate afterward (`docs/remote-registry.md`).
 A browser still holding a pre-wipe session cookie recovers by visiting
 `/login`: GitHub auto-approves the already-authorized OAuth app, and
 `/callback` recreates the user row (the session API answers 401 for a
-session whose user row is gone until then). Re-provisioning also always
-includes re-issuing the verifier's token (see "Verification pipeline").
+session whose user row is gone until then). The operator's cookie skips
+even that round trip: the baseline migration seeds the operator's
+identity, so it resolves from apply time - which also means a wipe never
+invalidates that cookie; rotating `SESSION_SECRET` is what would. The
+verifier needs no re-provisioning at all (see "Verification pipeline").
 
 ### Post-wipe re-provisioning
 
@@ -322,8 +325,8 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    (`docs/remote-registry.md`); it carries the full human scope set, so
    its `verify` scope authenticates the `verify`-scoped admin endpoint.
    The verifier workflow needs no secret of its own: each run mints its
-   token through the trusted-publishing exchange, and step 2's sign-in
-   re-creates the backing identity its verifier arm resolves
+   token through the trusted-publishing exchange, and the baseline
+   migration seeds the backing identity its verifier arm resolves
    (`VERIFIER_BACKING_ACCOUNT_ID`).
 4. Run `cargo registry-governor wipe` from the repository root. Its
    no-delayed-publisher evidence gate requires zero live publish tokens
@@ -338,11 +341,7 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    dispatch it plainly from `main` to republish the set. There is no
    publish token to mint and no `CABIN_PORTS_TOKEN` secret: the run's
    OIDC exchange is the credential.
-6. Re-promote the quota class of the operator's own account ("Quota
-   classes", `docs/architecture.md`): the wipe resets every user to
-   `default`. The ports run is unaffected - its minted token carries
-   the trustpub config's `operator` class.
-7. Rerun whatever main CI went red against the old registry
+6. Rerun whatever main CI went red against the old registry
    (`gh run rerun <id> --failed`); byte-identical republication of the
    already-landed packages no-ops, so a partial run resumes cleanly.
 
@@ -953,9 +952,9 @@ flow, and empty it after.
 The workflow carries no registry-token secret. Each run's listings
 credential is minted through the trusted-publishing exchange (the
 verifier arm, `docs/architecture.md` in this directory) and revoked at
-run end, so there is nothing to rotate and nothing a wipe invalidates:
-re-provisioning needs only the backing identity
-(`VERIFIER_BACKING_ACCOUNT_ID` in `wrangler.jsonc`) to sign in again.
+run end, so there is nothing to rotate, nothing a wipe invalidates,
+and nothing to re-provision: the baseline migration seeds the backing
+identity (`VERIFIER_BACKING_ACCOUNT_ID` in `wrangler.jsonc`).
 Dispatching the workflow with `check_oidc: true` proves the whole
 credential path - the `id-token` grant, the exchange, and the
 revocation - without verifying anything. The local operator flows are

@@ -1509,15 +1509,15 @@ mod tests {
     #[test]
     fn the_exchange_flow_mints_authenticates_revokes_and_refuses_replay() {
         let conn = migrated_connection();
-        // The cabin-ports scope claimed by user 1, whose own class
+        // The cabin-ports scope claimed by user 2, whose own class
         // stays 'default' - the granted tier must come from the token
         // row, not the backing user.
         conn.execute_batch(
-            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-08-15T00:00:00.000Z');
              INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
                VALUES ('cabin-ports', 'github', '35998702', '2026-08-15T00:00:00.000Z');
              INSERT INTO scope_members (scope_name, user_id, role)
-               VALUES ('cabin-ports', 1, 'owner');",
+               VALUES ('cabin-ports', 2, 'owner');",
         )
         .expect("seed the claimed scope");
 
@@ -1532,7 +1532,7 @@ mod tests {
                 row.get(0)
             })
             .expect("the claimed scope backs the token");
-        assert_eq!(owner, 1);
+        assert_eq!(owner, 2);
 
         let token = auth::format_trustpub_token(&[7; 32]);
         let hash = auth::token_hash(&token);
@@ -1612,21 +1612,18 @@ mod tests {
     /// bounded by the TTL.
     #[test]
     fn the_verifier_arm_flow_mints_a_bounded_verify_token() {
+        // No hand seeding: the baseline migration itself provides the
+        // backing rows - the pre-promoted operator user and its github
+        // identity - so this drives the arm against exactly what a
+        // fresh apply leaves behind.
         let conn = migrated_connection();
-        conn.execute_batch(
-            "INSERT INTO users (id, created_at, quota_class)
-               VALUES (1, '2026-08-15T00:00:00.000Z', 'operator');
-             INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id)
-               VALUES ('github', '26405363', 'ken-matsui', 1);",
-        )
-        .expect("seed the backing identity");
 
         let backing: i64 = conn
             .query_row(sql::VERIFIER_BACKING_USER, ["26405363"], |row| row.get(0))
             .expect("the backing identity resolves");
         assert_eq!(backing, 1);
         // An unknown account id is the pre-consume refusal's no-row
-        // answer, so a not-yet-signed-in operator never burns the JWT.
+        // answer - a var/seed mismatch never burns the JWT.
         let missing = conn
             .query_row(sql::VERIFIER_BACKING_USER, ["0"], |row| {
                 row.get::<_, i64>(0)
@@ -1713,7 +1710,7 @@ mod tests {
         // retries cleanly instead of answering as a replay.
         let conn = migrated_connection();
         conn.execute_batch(
-            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');",
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-08-15T00:00:00.000Z');",
         )
         .expect("seed the backing user");
         let claims = parsed_claims();
@@ -1728,7 +1725,7 @@ mod tests {
             "hash-x",
             "2026-08-15T00:00:00.000Z",
             "2026-08-17T00:00:00.000Z",
-            1,
+            2,
             &config,
         )
         .expect_err("an over-ceiling mint must abort the batch");
@@ -1745,7 +1742,7 @@ mod tests {
             "hash-x",
             "2026-08-15T00:00:00.000Z",
             "2026-08-15T00:30:00.000Z",
-            1,
+            2,
             &config,
         )
         .expect("the retry batch commits");
@@ -1777,11 +1774,11 @@ mod tests {
         // audiences, so a cross-endpoint hit only ever means replay.
         let conn = migrated_connection();
         conn.execute_batch(
-            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-08-15T00:00:00.000Z');
              INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
                VALUES ('cabin-ports', 'github', '35998702', '2026-08-15T00:00:00.000Z');
              INSERT INTO scope_members (scope_name, user_id, role)
-               VALUES ('cabin-ports', 1, 'owner');",
+               VALUES ('cabin-ports', 2, 'owner');",
         )
         .expect("seed the claimed scope");
         let claims = parsed_claims();
@@ -1798,7 +1795,7 @@ mod tests {
             &hash,
             "2026-08-15T00:00:00.000Z",
             "2026-08-15T00:30:00.000Z",
-            1,
+            2,
             &base_config(),
         )
         .expect("the batch commits");
@@ -1814,7 +1811,7 @@ mod tests {
             &hash,
             "2026-08-15T00:00:00.000Z",
             "2026-08-15T00:30:00.000Z",
-            1,
+            2,
             &base_config(),
         )
         .expect("the batch commits");

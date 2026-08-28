@@ -159,29 +159,37 @@ pub fn seed_tokens(token: &str, verify_token: &str, noverify_token: &str) -> Res
     d1(&sql)
 }
 
-/// The seeded identities mirror first sign-ins: GitHub account 0 is
-/// the claiming user (registry user 1), account 2 ('friend', registry
-/// user 2) exists so membership management has an account to add.  The
-/// scopes user 1 works with ('smoke', 'smokeorg', 'denyorg') are
-/// claimed through the real flow against the GitHub mock - only
-/// 'foreign' stays a seeded fixture, because it must belong to
-/// somebody else (user 2): publishing there must be exactly as
-/// forbidden as the unclaimed 'ghost'.
+/// The seeded identities mirror first sign-ins after the migration's
+/// own seed (registry user 1 is the pre-promoted operator, which the
+/// fixtures must stay off so the smoke user keeps the default quota
+/// class): GitHub account 0 is the claiming user (registry user 2),
+/// account 2 ('friend', registry user 3) exists so membership
+/// management has an account to add.  The scopes the claiming user
+/// works with ('smoke', 'smokeorg', 'denyorg') are claimed through the
+/// real flow against the GitHub mock - only 'foreign' stays a seeded
+/// fixture, because it must belong to somebody else (user 3):
+/// publishing there must be exactly as forbidden as the unclaimed
+/// 'ghost'.
 fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     format!(
         "
     INSERT OR IGNORE INTO users (id, created_at)
-      VALUES (1, '1970-01-01T00:00:00.000Z');
-    INSERT OR IGNORE INTO users (id, created_at)
       VALUES (2, '1970-01-01T00:00:00.000Z');
-    INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
-      VALUES ('github', '0', 'smoke', 1);
-    INSERT OR IGNORE INTO identities (provider, provider_account_id, login_snapshot, user_id)
-      VALUES ('github', '2', 'friend', 2);
+    INSERT OR IGNORE INTO users (id, created_at)
+      VALUES (3, '1970-01-01T00:00:00.000Z');
+    -- OR REPLACE, and the 'foreign' membership cleared first: local
+    -- state seeded before the migration's operator seed bound these
+    -- accounts to users 1/2, and a rerun must rebind them, not keep
+    -- the fossil rows beside the shifted ids.
+    INSERT OR REPLACE INTO identities (provider, provider_account_id, login_snapshot, user_id)
+      VALUES ('github', '0', 'smoke', 2);
+    INSERT OR REPLACE INTO identities (provider, provider_account_id, login_snapshot, user_id)
+      VALUES ('github', '2', 'friend', 3);
     INSERT OR IGNORE INTO scopes (name, proof_provider, proof_account_id, claimed_at)
       VALUES ('foreign', 'github', '2', '1970-01-01T00:00:00.000Z');
-    INSERT OR IGNORE INTO scope_members (scope_name, user_id, role)
-      VALUES ('foreign', 2, 'owner');
+    DELETE FROM scope_members WHERE scope_name = 'foreign';
+    INSERT INTO scope_members (scope_name, user_id, role)
+      VALUES ('foreign', 3, 'owner');
     -- The three credentials wear the only shapes the schema still
     -- admits, timestamped at seeding so every run stays inside the
     -- one-day expiry ceiling: the publisher is a login-session row
@@ -191,17 +199,17 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     -- which must never see the admin plane.
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
                                    expires_at, kind)
-      VALUES ('smoke', 1, 'smoke', '{hash}', 'publish,yank,verify',
+      VALUES ('smoke', 2, 'smoke', '{hash}', 'publish,yank,verify',
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'session');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
                                    expires_at, kind)
-      VALUES ('smoke-verify', 1, 'smoke-verify', '{verify_hash}', 'verify',
+      VALUES ('smoke-verify', 2, 'smoke-verify', '{verify_hash}', 'verify',
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub');
     INSERT OR REPLACE INTO tokens (id, user_id, name, token_hash, scopes, created_at,
                                    expires_at, kind, scope_limit, quota_class)
-      VALUES ('smoke-noverify', 1, 'smoke-noverify', '{noverify_hash}', 'publish',
+      VALUES ('smoke-noverify', 2, 'smoke-noverify', '{noverify_hash}', 'publish',
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+12 hours'), 'trustpub',
               'smoke', 'default');
@@ -495,7 +503,7 @@ impl DevServers {
     /// at the GitHub mock (the client secret only has to exist for the
     /// mock exchange).  `VERIFIER_BACKING_ACCOUNT_ID` overrides the
     /// deployed operator id with the seeded account 0, so the
-    /// exchange's verifier arm mints against registry user 1.
+    /// exchange's verifier arm mints against registry user 2.
     fn write_dev_vars(&mut self) -> Result<()> {
         if self.dev_vars.exists() {
             let backup = tempfile::Builder::new()
@@ -824,15 +832,15 @@ mod tests {
         );
         assert!(sql.starts_with("\n    INSERT OR IGNORE INTO users (id, created_at)\n"));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke', 1, 'smoke', '{}', 'publish,yank,verify',",
+            "VALUES ('smoke', 2, 'smoke', '{}', 'publish,yank,verify',",
             sha256_hex(b"cabin_smoke")
         )));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke-verify', 1, 'smoke-verify', '{}', 'verify',",
+            "VALUES ('smoke-verify', 2, 'smoke-verify', '{}', 'verify',",
             sha256_hex(b"cabin_smoke-verify")
         )));
         assert!(sql.contains(&format!(
-            "VALUES ('smoke-noverify', 1, 'smoke-noverify', '{}', 'publish',",
+            "VALUES ('smoke-noverify', 2, 'smoke-noverify', '{}', 'publish',",
             sha256_hex(b"cabin_smoke-noverify")
         )));
         assert!(
