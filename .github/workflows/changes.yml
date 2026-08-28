@@ -1,0 +1,54 @@
+name: Changes
+
+# The shared change gate. Each path-filtered workflow calls this to
+# learn which .github/path-filters.yml filters match the push, pull
+# request, or merge group; its work jobs skip when theirs does not.
+# A gating job, not trigger-level `paths:` filters: workflows backing
+# required checks must always report (.github/AGENTS.md), so the
+# callers' required contexts are always() aggregates that fail closed
+# on a failed gate.
+on:
+  workflow_call:
+    # One output per .github/path-filters.yml filter; each caller
+    # consumes its own subset.
+    outputs:
+      rust:
+        value: ${{ jobs.changes.outputs.rust }}
+      toml:
+        value: ${{ jobs.changes.outputs.toml }}
+      website:
+        value: ${{ jobs.changes.outputs.website }}
+      registry:
+        value: ${{ jobs.changes.outputs.registry }}
+      ports:
+        value: ${{ jobs.changes.outputs.ports }}
+      docker:
+        value: ${{ jobs.changes.outputs.docker }}
+      dist:
+        value: ${{ jobs.changes.outputs.dist }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      toml: ${{ steps.filter.outputs.toml }}
+      website: ${{ steps.filter.outputs.website }}
+      registry: ${{ steps.filter.outputs.registry }}
+      ports: ${{ steps.filter.outputs.ports }}
+      docker: ${{ steps.filter.outputs.docker }}
+      dist: ${{ steps.filter.outputs.dist }}
+    steps:
+      # The filter file is read from the checkout, and push events
+      # diff against the previous head from local history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: .github/path-filters.yml

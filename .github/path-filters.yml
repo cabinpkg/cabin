@@ -1,14 +1,16 @@
-# Shared per-component change filters. Two consumers: each workflow's
-# `changes` job (dorny/paths-filter) gates the work jobs on these
-# lists - jobs, not `paths:` triggers, and the required contexts are
+# Shared per-component change filters. Two consumers: the shared
+# `changes` gate (.github/workflows/changes.yml, dorny/paths-filter)
+# that each workflow calls to gate its work jobs on these lists -
+# jobs, not `paths:` triggers, and the required contexts are
 # always() aggregates that fail closed on a failed gate - and
 # `cargo workflow-superseded --relevant-to <filter>`,
 # which scopes the deploy and publish freshness guards. Keep entries
 # double-quoted on comment-free lines (the guard's strict parser
 # otherwise warns and falls back to unscoped supersession), and keep
 # the lists coarse. Each workflow's gate list ends with the workflow
-# file itself plus this filter file, so an edit to either re-runs
-# exactly the workflows it affects and nothing else.
+# file itself, the shared gate workflow, plus this filter file, so an
+# edit to any of them re-runs exactly the workflows it affects and
+# nothing else.
 
 # rust.yml: the workspace and everything its tests stage (examples/
 # run under the CLI tests, ports/ feed the publisher tests). Carries
@@ -23,6 +25,7 @@ rust:
   - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/rust.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
 
 # rust.yml's format job also checks every TOML file in the tree.
@@ -35,6 +38,7 @@ website:
   - "docs/**"
   - "ports/**"
   - ".github/workflows/website.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
 
 # registry.yml: the registry workspace, its crates/ path-deps, and
@@ -53,6 +57,7 @@ registry:
   - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/registry.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
 
 # ports-publish.yml: ports/ are what it publishes; the publisher and
@@ -65,6 +70,7 @@ ports:
   - "rust-toolchain.toml"
   - ".cargo/**"
   - ".github/workflows/ports-publish.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
 
 # docker.yml proves the packaging only; a docker-only breakage
@@ -74,6 +80,7 @@ docker:
   - "rust-toolchain.toml"
   - ".dockerignore"
   - ".github/workflows/docker.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
 
 # dist.yml on push/PR proves the packaging tooling; tags always build
@@ -84,4 +91,5 @@ dist:
   - "rust-toolchain.toml"
   - "demo.tape"
   - ".github/workflows/dist.yml"
+  - ".github/workflows/changes.yml"
   - ".github/path-filters.yml"
