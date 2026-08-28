@@ -121,49 +121,24 @@ impl Gate {
     }
 
     /// An anonymous scratch file for a child's output, as a (writer,
-    /// reader) pair.  Created exclusively under a random name with
-    /// mode 0600 (`create_new` refuses to follow a planted symlink,
-    /// and the mode keeps the briefly-named file unreadable - both
-    /// exactly `mktemp`), reopened so the reader is an INDEPENDENT
-    /// file description, then unlinked, so no path is left for a
-    /// squatter to attack and an unlinked log cannot outlive the gate
-    /// on any exit path - the shell needed `rm` traps for that.  A
-    /// FAILED unlink is ignored, as the shell's `rm -f ... || true`
+    /// reader) pair.  `NamedTempFile` creates it exclusively under a
+    /// random name with mode 0600 (exactly `mktemp`); `reopen` gives
+    /// the reader an INDEPENDENT file description, because it must
+    /// not share the writer's cursor - a grandchild still holding
+    /// the write end after the reaped child exits would otherwise
+    /// have its position moved by the replay's seek, as `cat`'s
+    /// separate open never did.  Dropping the `TempPath` unlinks the
+    /// file right away, so no path is left for a squatter to attack
+    /// and an unlinked log cannot outlive the gate on any exit
+    /// path - the shell needed `rm` traps for that.  A FAILED
+    /// unlink is ignored, as the shell's `rm -f ... || true`
     /// ignored it; the straggler is an unreadable 0600 file.
-    ///
-    /// The reader must not share the writer's cursor: a grandchild
-    /// still holding the write end after the reaped child exits would
-    /// otherwise have its position moved by the replay's seek, as
-    /// `cat`'s separate open never did.
     fn log() -> Result<(std::fs::File, std::fs::File)> {
-        use std::hash::{BuildHasher as _, Hasher as _};
-        for _ in 0..16 {
-            let tag = std::collections::hash_map::RandomState::new()
-                .build_hasher()
-                .finish();
-            let path = std::env::temp_dir()
-                .join(format!("cabin-ci-{}-{tag:016x}.log", std::process::id()));
-            let mut options = std::fs::File::options();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt as _;
-                options.mode(0o600);
-            }
-            match options.open(&path) {
-                Ok(writer) => {
-                    let reader = std::fs::File::open(&path)
-                        .with_context(|| format!("reopen {}", path.display()));
-                    let _ = std::fs::remove_file(&path);
-                    return Ok((writer, reader?));
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(err) => {
-                    return Err(err).with_context(|| format!("create {}", path.display()));
-                }
-            }
-        }
-        bail!("could not create a scratch log file");
+        let file = tempfile::NamedTempFile::new().context("create a scratch log file")?;
+        let reader = file.reopen().context("reopen the scratch log file")?;
+        let (writer, path) = file.into_parts();
+        drop(path);
+        Ok((writer, reader))
     }
 
     /// Everything a finished child wrote to its log, as bytes: one
