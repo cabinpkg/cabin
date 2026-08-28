@@ -13,8 +13,8 @@
 //!
 //! This crate owns the layout, the package-index file format, the
 //! atomic write helpers that keep partially-written state from
-//! sticking around, and a simple `.cabin-registry.lock` lock file so
-//! concurrent `cabin publish --registry-dir` invocations are
+//! sticking around, and an OS advisory lock on `.cabin-registry.lock`
+//! so concurrent `cabin publish --registry-dir` invocations are
 //! detected.
 //!
 //! Crate boundaries:

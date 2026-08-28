@@ -736,8 +736,9 @@ sticking around.  Given a [`cabin_package::StagedPackage`] plus a registry root,
 - detects orphaned artifacts before any bytes are written;
 - places the artifact and updates the per-package index file via atomic write + rename, rolling back
   the artifact if the index update fails;
-- guards concurrent runs with a simple `<registry>/.cabin-registry.lock` lock file (best-effort -
-  recovery from a crashed publisher is out of scope today);
+- guards concurrent runs with an OS advisory lock on `<registry>/.cabin-registry.lock` (released
+  automatically when the holding process exits, so a crashed publisher never leaves the registry
+  locked);
 - never parses arbitrary `cabin.toml`s, runs the resolver, builds packages, or implements
   networking.
 
@@ -1312,7 +1313,7 @@ cabin_registry_file::publish_to_registry
    |           delete the placed artifact so the registry
    |           never carries an orphan.
    |
-   |  RegistryLock::drop  (lock file removed)
+   |  RegistryLock::drop  (OS lock released; the file stays)
    v
 RegistryPublishReport
    {
@@ -1494,8 +1495,8 @@ files only (directories implied).
 
 Local file-registry publish path that drops a freshly created package archive plus updated
 `<package>.json` index entries into a directory.  No network, no auth, no server.  Implemented as
-`cabin-registry-file` with atomic rename writes via `atomic-write-file` and a simple
-`.cabin-registry.lock` lock file.
+`cabin-registry-file` with atomic rename writes via `atomic-write-file` and an OS advisory lock
+on `.cabin-registry.lock`.
 
 ### Sparse HTTP index / artifact client
 
