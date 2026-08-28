@@ -7,10 +7,10 @@
 # which scopes the deploy and publish freshness guards. Keep entries
 # double-quoted on comment-free lines (the guard's strict parser
 # otherwise warns and falls back to unscoped supersession), and keep
-# the lists coarse. Each workflow's gate list ends with the workflow
-# file itself, the shared gate workflow, plus this filter file, so an
-# edit to any of them re-runs exactly the workflows it affects and
-# nothing else.
+# the lists coarse. Each workflow's gate list ends with the CI files
+# it consumes - its own workflow file, the shared gate workflow, any
+# local action, and this filter file - so an edit to any of them
+# re-runs exactly the workflows it affects and nothing else.
 
 # rust.yml: the workspace and everything its tests stage (examples/
 # run under the CLI tests, ports/ feed the publisher tests). Carries
@@ -26,6 +26,7 @@ rust:
   - ".cargo/**"
   - ".github/workflows/rust.yml"
   - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
 # rust.yml's format job also checks every TOML file in the tree.
@@ -39,6 +40,7 @@ website:
   - "ports/**"
   - ".github/workflows/website.yml"
   - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
 # registry.yml: the registry workspace, its crates/ path-deps, and
@@ -58,6 +60,7 @@ registry:
   - ".cargo/**"
   - ".github/workflows/registry.yml"
   - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
 # ports-publish.yml: ports/ are what it publishes; the publisher and
@@ -81,6 +84,7 @@ docker:
   - ".dockerignore"
   - ".github/workflows/docker.yml"
   - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
 # dist.yml on push/PR proves the packaging tooling; tags always build
@@ -92,4 +96,5 @@ dist:
   - "demo.tape"
   - ".github/workflows/dist.yml"
   - ".github/workflows/changes.yml"
+  - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"

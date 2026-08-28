@@ -104,15 +104,18 @@ jobs:
     if: always()
     runs-on: ubuntu-slim
     steps:
+      # The gate logic is a local action; the sparse checkout keeps
+      # this fetch small.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/actions/required-gate
       - name: Fail unless registry-build-work succeeded or the filter skipped it
-        env:
-          RESULT: ${{ needs.registry-build-work.result }}
-          GATE: ${{ needs.changes.result }}
-          REGISTRY: ${{ needs.changes.outputs.registry }}
-        run: |
-          if [ "$RESULT" = "success" ]; then exit 0; fi
-          [ "$RESULT" = "skipped" ] && [ "$GATE" = "success" ] \
-            && [ "$REGISTRY" = "false" ]
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.registry-build-work.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.registry }}
 
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
