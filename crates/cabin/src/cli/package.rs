@@ -158,12 +158,15 @@ pub(super) fn publish(
             }
             // Publishing without a local registry targets the
             // effective HTTP index source, when one is configured;
-            // anything else keeps the file-registry error path.  A
-            // batch resolves the source once, through the FIRST
-            // manifest's effective config: one invocation publishes
-            // to one registry.
-            let Some(index) =
-                effective_publish_index_url(args.index_url.as_deref(), &selections[0].0)?
+            // anything else keeps the file-registry error path.  One
+            // invocation publishes to one registry: every manifest
+            // resolves its own effective config, and the batch must
+            // agree ([`effective_batch_index_url`]).
+            let Some(index) = effective_batch_index_url(
+                args.index_url.as_deref(),
+                features.is_enabled(ExperimentalFeature::RemoteRegistry),
+                &selections,
+            )?
             else {
                 return Err(cabin_publish::PublishError::DryRunRequired.into());
             };
@@ -216,6 +219,85 @@ fn effective_publish_index_url(
                 from_cli: cli_index_url.is_some(),
             }))
         }
+    }
+}
+
+/// The one registry a registry-less batch publishes to.  `--index-url`
+/// is an explicit whole-batch override (config discovery is skipped,
+/// so every manifest resolves identically).  Without it, each
+/// manifest's OWN effective config - discovery plus
+/// `[source-replacement]` - must name the same remote index URL: a
+/// later member must never be published to a registry an earlier
+/// member selected.  Agreement is byte equality of the resolved URLs -
+/// nothing on this path canonicalizes spelling variants, and guessing
+/// that two spellings mean one registry is how bytes land on the
+/// wrong one - and the merged origin stays credential-eligible
+/// (`user_chosen`) only when it would be for EVERY member alone.
+/// Returns `None` - the local-staging error path - only when no
+/// member resolves to a remote source; a batch mixing a remote member
+/// with a local-or-absent one refuses, naming one member of each
+/// kind.  Runs before staging, credential resolution, the OIDC
+/// exchange, and every network read, so a refusal here has no remote
+/// side effects.  Without `-Z remote-registry` both refusals answer
+/// the standard experimental-feature error instead: config-supplied
+/// HTTP indexes without the feature always fail with that diagnostic
+/// (`docs/remote-registry.md`, "Publishing from the client"), and
+/// which agreement refusal a batch would earn is feature-gated
+/// detail.
+fn effective_batch_index_url(
+    cli_index_url: Option<&str>,
+    remote_enabled: bool,
+    selections: &[(
+        PathBuf,
+        Option<cabin_core::Package>,
+        cabin_core::WorkspaceDepRequirements,
+    )],
+) -> Result<Option<crate::cli::login::EffectiveRegistryIndex>> {
+    if cli_index_url.is_some() {
+        return effective_publish_index_url(cli_index_url, &selections[0].0);
+    }
+    let mut remote: Option<(&Path, crate::cli::login::EffectiveRegistryIndex)> = None;
+    let mut unresolved: Option<&Path> = None;
+    for (manifest_path, _, _) in selections {
+        match effective_publish_index_url(None, manifest_path)? {
+            Some(index) => match &mut remote {
+                None => remote = Some((manifest_path, index)),
+                Some((first_path, first)) => {
+                    if first.url != index.url {
+                        if !remote_enabled {
+                            bail!(cabin_core::registry::remote_registry_command_error(
+                                "cabin publish --index-url"
+                            ));
+                        }
+                        bail!(
+                            "the batch does not agree on one registry: {} publishes to `{}` but \
+                             {} publishes to `{}`; publish them in separate invocations, or pass \
+                             an explicit `--index-url` for the whole batch",
+                            first_path.display(),
+                            first.url,
+                            manifest_path.display(),
+                            index.url
+                        );
+                    }
+                    first.user_chosen &= index.user_chosen;
+                }
+            },
+            None => unresolved = unresolved.or(Some(manifest_path)),
+        }
+    }
+    match (remote, unresolved) {
+        (Some(_), Some(_)) if !remote_enabled => bail!(
+            cabin_core::registry::remote_registry_command_error("cabin publish --index-url")
+        ),
+        (Some((remote_path, _)), Some(unresolved_path)) => bail!(
+            "the batch does not agree on one registry: {} publishes to a remote registry but {} \
+             resolves no remote index (a local or absent registry source); publish them in \
+             separate invocations",
+            remote_path.display(),
+            unresolved_path.display()
+        ),
+        (Some((_, index)), None) => Ok(Some(index)),
+        (None, _) => Ok(None),
     }
 }
 
