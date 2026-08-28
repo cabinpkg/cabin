@@ -342,7 +342,7 @@ fn verify_scope_listing(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     smoke.expect_body(&format!(r#""name":"{}""#, scoped_name(inputs)))?;
     smoke.expect_body(r#""version":"0.2.0""#)?;
     smoke.expect_body(&format!(r#""revision":"{}""#, inputs.rev))?;
-    smoke.expect_body(r#""published_by":1"#)?;
+    smoke.expect_body(r#""published_by":2"#)?;
     smoke.expect_body(r#""metadata":{"#)?;
     let pending = smoke.body.clone();
     write(&inputs.work.join("pending.json"), &pending)?;

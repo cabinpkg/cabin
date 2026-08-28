@@ -975,8 +975,10 @@ async fn trustpub_exchange_response(
     // The verifier arm. Missing or unparsable pins fail the arm closed
     // (never a default identity); the claims then fall through to the
     // config arm like anybody else's. The backing lookup runs before
-    // the jti consume, like the config arm's owner lookup: a
-    // not-yet-signed-in operator identity must not burn the JWT.
+    // the jti consume, like the config arm's owner lookup: the
+    // identity is migration-seeded, so a missing row is a
+    // var/seed mismatch, and the refusal must not burn the JWT so
+    // the same run can retry once the mismatch is fixed.
     if let Some(pins) = verifier_pins(env)
         && pins.refuses(&claims).is_none()
     {

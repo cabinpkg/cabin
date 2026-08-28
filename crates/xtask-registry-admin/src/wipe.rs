@@ -318,8 +318,8 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
   3. mint a login-session token for the governor step below - it carries
      the full human scope set, so its verify scope authenticates the
      admin endpoint; the verifier workflow needs no secret of its own -
-     each run mints its own through the trusted-publishing exchange once
-     step 2's sign-in re-creates the backing identity
+     each run mints its own through the trusted-publishing exchange, and
+     the baseline migration seeds the backing identity it resolves
   4. run cargo registry-governor wipe (from the repository root); its
      no-delayed-publisher evidence gate requires zero live publish tokens
      and a login-session token carries publish, so block writes first,
@@ -330,11 +330,7 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
      prove the binding with an exchange-check dispatch, then dispatch
      it plainly from main to republish the set - no publish token or
      secret to mint: each run's OIDC exchange is the credential
-  6. re-promote the quota class of the operator's own account - the
-     wipe reset every user to 'default'; the ports run is unaffected,
-     its minted token carries the trustpub config's class
-     (registry/docs/architecture.md, \"Quota classes\")
-  7. rerun whatever main CI went red against the old registry
+  6. rerun whatever main CI went red against the old registry
      (gh run rerun <id> --failed)
 "
     );

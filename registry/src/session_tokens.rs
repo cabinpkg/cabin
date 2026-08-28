@@ -280,9 +280,9 @@ mod tests {
     /// row behind it, the mint's resolution fixture.
     fn seed_identity(conn: &rusqlite::Connection) {
         conn.execute_batch(
-            "INSERT INTO users (id, created_at) VALUES (1, '2026-08-15T00:00:00.000Z');
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-08-15T00:00:00.000Z');
              INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id)
-               VALUES ('github', '42', 'octocat', 1);",
+               VALUES ('github', '42', 'octocat', 2);",
         )
         .expect("seed the identity");
     }
@@ -331,7 +331,7 @@ mod tests {
         .expect("the fake proves the id");
         assert!(allowlist::parse_allowed_ids("0,42").contains(&github_id));
         let user_id = user_by_identity(&conn, github_id).expect("the identity resolves");
-        assert_eq!(user_id, 1);
+        assert_eq!(user_id, 2);
 
         let token = auth::format_session_token(&[7; 32]);
         let hash = auth::token_hash(&token);
@@ -416,14 +416,14 @@ mod tests {
         seed_identity(&conn);
         conn.execute_batch(
             "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, expires_at, kind)
-               VALUES ('ses-dead', 1, 'login session', 'h1', 'publish,yank,verify',
+               VALUES ('ses-dead', 2, 'login session', 'h1', 'publish,yank,verify',
                        '2026-08-15T00:00:00.000Z', '2026-08-15T12:00:00.000Z', 'session');
              INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, expires_at, kind)
-               VALUES ('ses-live', 1, 'login session', 'h2', 'publish,yank,verify',
+               VALUES ('ses-live', 2, 'login session', 'h2', 'publish,yank,verify',
                        '2026-08-15T06:00:00.000Z', '2026-08-15T18:00:00.000Z', 'session');
              INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at,
                                  expires_at, scope_limit, kind, quota_class)
-               VALUES ('tp-dead', 1, 'tp', 'h3', 'publish',
+               VALUES ('tp-dead', 2, 'tp', 'h3', 'publish',
                        '2026-08-15T00:00:00.000Z', '2026-08-15T00:30:00.000Z', 'smoke',
                        'trustpub', 'default');",
         )

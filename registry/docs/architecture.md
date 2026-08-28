@@ -949,10 +949,14 @@ per-user daily read-fairness caps (charged artifact reads and
 source-viewer reads). Two classes exist: `default`, and `operator` -
 the bulk-publishing tier for the operator's own accounts, sized so the
 cabin-ports conversion pipeline can seed the entire curated port set in
-one serial run (values in `src/quota.rs`). Granting a class is a manual
+one serial run (values in `src/quota.rs`). The operator's own account
+is seeded pre-promoted by the baseline migration, keyed by its immutable
+numeric GitHub id in the spirit of the trustpub seed, so a wipe never
+resets it to `default`. For anyone else, granting a class is a manual
 `UPDATE users SET quota_class = '...'`; there is deliberately no admin
 route. Class limits are read live on every request, but the token
-bucket's *balance* persists on the token row, so a promotion becomes
+bucket's *balance* persists on the token row, so a post-hoc promotion
+(never the seed, which predates every token) becomes
 fully effective only after the balance refills toward the new burst at
 the new rate (minutes) - reset the account's buckets in the same change
 (`UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE

@@ -169,10 +169,11 @@ statements! {
 
     /// The verifier arm's backing user: the operator identity the
     /// `VERIFIER_BACKING_ACCOUNT_ID` var names, by its immutable
-    /// numeric GitHub id. No row - the identity has never signed in
-    /// since the last wipe - refuses the exchange before the jti is
-    /// consumed, like [`TRUSTPUB_BACKING_OWNER`]'s unclaimed-scope
-    /// refusal, so signing in and retrying the same run stays possible.
+    /// numeric GitHub id. The baseline migration seeds this identity,
+    /// so no row means the var and the seed disagree; the refusal
+    /// still runs before the jti is consumed, like
+    /// [`TRUSTPUB_BACKING_OWNER`]'s unclaimed-scope refusal, so fixing
+    /// the mismatch and retrying the same run stays possible.
     VERIFIER_BACKING_USER =
         "SELECT user_id FROM identities \
          WHERE provider = 'github' AND provider_account_id = ?1";

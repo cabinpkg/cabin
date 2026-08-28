@@ -133,15 +133,17 @@ fn first_sign_in_creates_the_user_and_binds_the_identity() {
     sign_in(
         &conn,
         "github",
-        "26405363",
-        "ken-matsui",
+        "424242",
+        "mona",
         "2026-07-15T00:00:00.000Z",
     );
-    assert_eq!(count(&conn, "users"), 1);
-    assert_eq!(count(&conn, "identities"), 1);
+    // The migrated baseline already holds one user and one identity
+    // (the seeded operator account), so every count here starts at 1.
+    assert_eq!(count(&conn, "users"), 2);
+    assert_eq!(count(&conn, "identities"), 2);
     let (user_id, login, quota_class) =
-        resolve(&conn, "github", "26405363").expect("identity resolves");
-    assert_eq!(login, "ken-matsui");
+        resolve(&conn, "github", "424242").expect("identity resolves");
+    assert_eq!(login, "mona");
     assert_eq!(quota_class, "default");
     let created_at: String = conn
         .query_row(
@@ -159,11 +161,11 @@ fn repeat_sign_in_refreshes_the_login_and_keeps_the_user_binding() {
     sign_in(
         &conn,
         "github",
-        "26405363",
-        "ken-matsui",
+        "424242",
+        "mona",
         "2026-07-15T00:00:00.000Z",
     );
-    let (user_id, _, _) = resolve(&conn, "github", "26405363").expect("identity resolves");
+    let (user_id, _, _) = resolve(&conn, "github", "424242").expect("identity resolves");
     // A second account's sign-in leaves a different, newer
     // `last_insert_rowid()` behind on the connection; the repeat
     // sign-in's conflict arm must discard it, not rebind the identity.
@@ -177,13 +179,13 @@ fn repeat_sign_in_refreshes_the_login_and_keeps_the_user_binding() {
     sign_in(
         &conn,
         "github",
-        "26405363",
+        "424242",
         "renamed",
         "2026-07-15T02:00:00.000Z",
     );
-    assert_eq!(count(&conn, "users"), 2);
-    assert_eq!(count(&conn, "identities"), 2);
-    let (resolved_id, login, _) = resolve(&conn, "github", "26405363").expect("identity resolves");
+    assert_eq!(count(&conn, "users"), 3);
+    assert_eq!(count(&conn, "identities"), 3);
+    let (resolved_id, login, _) = resolve(&conn, "github", "424242").expect("identity resolves");
     assert_eq!(resolved_id, user_id);
     assert_eq!(login, "renamed");
 }
@@ -194,8 +196,8 @@ fn distinct_accounts_get_distinct_users() {
     sign_in(
         &conn,
         "github",
-        "26405363",
-        "ken-matsui",
+        "424242",
+        "mona",
         "2026-07-15T00:00:00.000Z",
     );
     sign_in(
@@ -205,10 +207,10 @@ fn distinct_accounts_get_distinct_users() {
         "octocat",
         "2026-07-15T01:00:00.000Z",
     );
-    let (first, ..) = resolve(&conn, "github", "26405363").expect("first identity");
+    let (first, ..) = resolve(&conn, "github", "424242").expect("first identity");
     let (second, ..) = resolve(&conn, "github", "583231").expect("second identity");
     assert_ne!(first, second);
-    assert_eq!(count(&conn, "users"), 2);
+    assert_eq!(count(&conn, "users"), 3);
 }
 
 #[test]
@@ -217,33 +219,27 @@ fn identities_are_keyed_by_provider_and_account_never_login() {
     sign_in(
         &conn,
         "github",
-        "26405363",
-        "ken-matsui",
+        "424242",
+        "mona",
         "2026-07-15T00:00:00.000Z",
     );
     // The same numeric account id under another provider is a distinct
     // identity and a distinct user (the schema is provider-neutral even
     // though policy admits only GitHub today)...
-    sign_in(
-        &conn,
-        "other",
-        "26405363",
-        "ken-matsui",
-        "2026-07-15T01:00:00.000Z",
-    );
+    sign_in(&conn, "other", "424242", "mona", "2026-07-15T01:00:00.000Z");
     // ...and a login reused by a different account never merges
     // identities: logins are display-only snapshots.
     sign_in(
         &conn,
         "github",
         "583231",
-        "ken-matsui",
+        "mona",
         "2026-07-15T02:00:00.000Z",
     );
-    assert_eq!(count(&conn, "users"), 3);
-    assert_eq!(count(&conn, "identities"), 3);
-    let (github_user, ..) = resolve(&conn, "github", "26405363").expect("github identity");
-    let (other_user, ..) = resolve(&conn, "other", "26405363").expect("other-provider identity");
+    assert_eq!(count(&conn, "users"), 4);
+    assert_eq!(count(&conn, "identities"), 4);
+    let (github_user, ..) = resolve(&conn, "github", "424242").expect("github identity");
+    let (other_user, ..) = resolve(&conn, "other", "424242").expect("other-provider identity");
     let (reused_login_user, ..) =
         resolve(&conn, "github", "583231").expect("reused-login identity");
     assert_ne!(github_user, other_user);
@@ -258,25 +254,59 @@ fn an_unknown_identity_resolves_to_nothing() {
     sign_in(
         &conn,
         "github",
-        "26405363",
-        "ken-matsui",
+        "424242",
+        "mona",
         "2026-07-15T00:00:00.000Z",
     );
     assert_eq!(resolve(&conn, "github", "583231"), None);
+}
+
+#[test]
+fn the_migration_seeds_the_operator_pre_promoted() {
+    // The baseline migration itself seeds the operator's account
+    // (users.id 1, class 'operator') and its github identity, so the
+    // class survives a wipe and the verifier arm's backing row exists
+    // from apply time. Literal values on purpose: editing the seed must
+    // fail this test.
+    let conn = migrated_connection();
+    assert_eq!(count(&conn, "users"), 1);
+    assert_eq!(count(&conn, "identities"), 1);
+    let (user_id, login, quota_class) =
+        resolve(&conn, "github", "26405363").expect("seeded identity resolves");
+    assert_eq!(user_id, 1);
+    assert_eq!(login, "ken-matsui");
+    assert_eq!(quota_class, "operator");
+    let seeded_created_at = || -> String {
+        conn.query_row("SELECT created_at FROM users WHERE id = 1", [], |row| {
+            row.get(0)
+        })
+        .expect("seeded user row")
+    };
+    assert_eq!(seeded_created_at(), "2026-08-27T00:00:00.000Z");
+    // A sign-in for the seeded identity binds to the seeded row instead
+    // of creating a user: only `login_snapshot` changes.
+    sign_in(
+        &conn,
+        "github",
+        "26405363",
+        "renamed",
+        "2026-09-01T00:00:00.000Z",
+    );
+    assert_eq!(count(&conn, "users"), 1);
+    let (resolved_id, login, quota_class) =
+        resolve(&conn, "github", "26405363").expect("identity still resolves");
+    assert_eq!(resolved_id, 1);
+    assert_eq!(login, "renamed");
+    assert_eq!(quota_class, "operator");
+    assert_eq!(seeded_created_at(), "2026-08-27T00:00:00.000Z");
 }
 
 /// Creates a user and a session token row through the real statements
 /// (the mint's own 12-hour TTL: issued 2026-07-15T00:00, expiring
 /// 2026-07-15T12:00), returning the user id.
 fn seed_token(conn: &rusqlite::Connection, token_id: &str, token_hash: &str) -> i64 {
-    sign_in(
-        conn,
-        "github",
-        "26405363",
-        "ken-matsui",
-        "2026-07-15T00:00:00.000Z",
-    );
-    let (user_id, ..) = resolve(conn, "github", "26405363").expect("identity resolves");
+    sign_in(conn, "github", "424242", "mona", "2026-07-15T00:00:00.000Z");
+    let (user_id, ..) = resolve(conn, "github", "424242").expect("identity resolves");
     conn.execute(
         sql::INSERT_SESSION_TOKEN,
         rusqlite::params![
@@ -947,15 +977,15 @@ fn member_role(conn: &rusqlite::Connection, scope: &str, user_id: i64) -> Option
 fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
     let conn = migrated_connection();
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z'),
-                                                   (2, '2026-07-15T00:00:00.000Z');",
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z'),
+                                                   (3, '2026-07-15T00:00:00.000Z');",
     )
     .expect("seed users");
 
     let applied =
-        claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z", 3).expect("winning claim");
+        claim(&conn, "fmtlib", "7280970", 2, "2026-07-15T00:00:00.000Z", 3).expect("winning claim");
     assert!(applied);
-    assert_eq!(member_role(&conn, "fmtlib", 1), Some("owner".to_owned()));
+    assert_eq!(member_role(&conn, "fmtlib", 2), Some("owner".to_owned()));
 
     // The claim callback pre-checks SCOPE_EXISTS, but the write must
     // stay correct without it: a claim that lost the race between the
@@ -964,9 +994,9 @@ fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
     // admins of one org produce - which aborts and rolls back its
     // batch, so the loser never becomes an owner and the winner's row
     // is untouched.
-    let lost = claim(&conn, "fmtlib", "7280970", 2, "2026-07-15T00:00:00.000Z", 3);
+    let lost = claim(&conn, "fmtlib", "7280970", 3, "2026-07-15T00:00:00.000Z", 3);
     assert!(lost.is_err(), "a second claim must fail the insert");
-    assert_eq!(member_role(&conn, "fmtlib", 2), None);
+    assert_eq!(member_role(&conn, "fmtlib", 3), None);
     // The rollback covers the claim-history insert too: a failed claim
     // never consumes claim capacity.
     assert_eq!(
@@ -1002,8 +1032,8 @@ fn a_claim_seeds_its_owner_and_a_lost_race_fails_seedless() {
 fn the_lifetime_claim_limit_counts_history_not_ownership() {
     let conn = migrated_connection();
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z'),
-                                                   (2, '2026-07-15T00:00:00.000Z');",
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z'),
+                                                   (3, '2026-07-15T00:00:00.000Z');",
     )
     .expect("seed users");
     let now = "2026-07-15T00:00:00.000Z";
@@ -1011,17 +1041,17 @@ fn the_lifetime_claim_limit_counts_history_not_ownership() {
     // The default class's lifetime capacity: three grants land...
     for (scope, account_id) in [("one", "10"), ("two", "20"), ("three", "30")] {
         assert!(
-            claim(&conn, scope, account_id, 1, now, 3).expect("claim under the limit"),
+            claim(&conn, scope, account_id, 2, now, 3).expect("claim under the limit"),
             "scope: {scope}"
         );
     }
     // ...and the fourth refuses in-band: every statement of the batch
     // repeats the guard, so nothing is inserted anywhere.
-    assert!(!claim(&conn, "four", "40", 1, now, 3).expect("over-limit claim still executes"));
+    assert!(!claim(&conn, "four", "40", 2, now, 3).expect("over-limit claim still executes"));
     for (table, expected) in [("scopes", 3), ("scope_members", 3), ("scope_claims", 3)] {
         assert_eq!(count(&conn, table), expected, "table: {table}");
     }
-    assert_eq!(member_role(&conn, "four", 1), None);
+    assert_eq!(member_role(&conn, "four", 2), None);
 
     // Releasing scopes - today the operator's manual surgery, tomorrow
     // a transfer/release endpoint - never restores capacity: the
@@ -1031,14 +1061,14 @@ fn the_lifetime_claim_limit_counts_history_not_ownership() {
          DELETE FROM scopes WHERE name IN ('one', 'two');",
     )
     .expect("release two scopes");
-    assert!(!claim(&conn, "five", "50", 1, now, 3).expect("claim after release"));
+    assert!(!claim(&conn, "five", "50", 2, now, 3).expect("claim after release"));
 
     // The limit is per user: another account's capacity is untouched,
     // and a re-claim of a released name spends the new claimant's.
-    assert!(claim(&conn, "one", "10", 2, now, 3).expect("another user's claim"));
+    assert!(claim(&conn, "one", "10", 3, now, 3).expect("another user's claim"));
 
     // The usage read reports the history count the guard enforces.
-    for (user, expected) in [(1, 3), (2, 1)] {
+    for (user, expected) in [(2, 3), (3, 1)] {
         let n: i64 = conn
             .query_row(sql::USER_SCOPE_CLAIM_COUNT, [user], |row| row.get(0))
             .expect("claim count");
@@ -1050,14 +1080,14 @@ fn the_lifetime_claim_limit_counts_history_not_ownership() {
 fn membership_management_enforces_the_last_owner_rule() {
     let conn = migrated_connection();
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z'),
-                                                   (2, '2026-07-15T00:00:00.000Z');
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z'),
+                                                   (3, '2026-07-15T00:00:00.000Z');
          INSERT INTO identities (provider, provider_account_id, login_snapshot, user_id)
-           VALUES ('github', '26405363', 'ken-matsui', 1),
-                  ('github', '583231', 'octocat', 2);",
+           VALUES ('github', '424242', 'mona', 2),
+                  ('github', '583231', 'octocat', 3);",
     )
     .expect("seed users");
-    claim(&conn, "fmtlib", "7280970", 1, "2026-07-15T00:00:00.000Z", 3).expect("claim");
+    claim(&conn, "fmtlib", "7280970", 2, "2026-07-15T00:00:00.000Z", 3).expect("claim");
 
     // The role domain is closed in the schema itself:
     // membership disputes are manual SQL, and a typo there must not
@@ -1065,21 +1095,21 @@ fn membership_management_enforces_the_last_owner_rule() {
     // INSERT OR IGNORE a bad role is swallowed instead - either way it
     // never lands.)
     let bad_role = conn.execute(
-        "INSERT INTO scope_members (scope_name, user_id, role) VALUES ('fmtlib', 2, 'admin')",
+        "INSERT INTO scope_members (scope_name, user_id, role) VALUES ('fmtlib', 3, 'admin')",
         [],
     );
     assert!(bad_role.is_err(), "the role CHECK must refuse 'admin'");
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 2, "admin"],
+        rusqlite::params!["fmtlib", 3, "admin"],
     )
     .expect("an ignored bad-role insert");
-    assert_eq!(member_role(&conn, "fmtlib", 2), None);
+    assert_eq!(member_role(&conn, "fmtlib", 3), None);
 
     // Only the owner role passes the management gate.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 2, "member"],
+        rusqlite::params!["fmtlib", 3, "member"],
     )
     .expect("add member");
     let owner_gate = |user_id: i64| -> i64 {
@@ -1090,17 +1120,17 @@ fn membership_management_enforces_the_last_owner_rule() {
         )
         .expect("owner gate")
     };
-    assert_eq!(owner_gate(1), 1);
-    assert_eq!(owner_gate(2), 0);
+    assert_eq!(owner_gate(2), 1);
+    assert_eq!(owner_gate(3), 0);
 
     // Adding an existing member never rewrites their role: an upsert
     // here could demote the last owner.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 1, "member"],
+        rusqlite::params!["fmtlib", 2, "member"],
     )
     .expect("re-add owner");
-    assert_eq!(member_role(&conn, "fmtlib", 1), Some("owner".to_owned()));
+    assert_eq!(member_role(&conn, "fmtlib", 2), Some("owner".to_owned()));
 
     // The listing resolves members back to their GitHub identity,
     // deterministically ordered.
@@ -1115,11 +1145,7 @@ fn membership_management_enforces_the_last_owner_rule() {
     assert_eq!(
         members,
         vec![
-            (
-                "26405363".to_owned(),
-                "ken-matsui".to_owned(),
-                "owner".to_owned()
-            ),
+            ("424242".to_owned(), "mona".to_owned(), "owner".to_owned()),
             (
                 "583231".to_owned(),
                 "octocat".to_owned(),
@@ -1131,36 +1157,36 @@ fn membership_management_enforces_the_last_owner_rule() {
     // Removing the last owner is refused inside the statement itself;
     // an ordinary member and a co-owned owner both remove fine.
     let removed = conn
-        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 1])
+        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 2])
         .expect("remove last owner");
     assert_eq!(removed, 0, "the last owner must survive removal");
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 2, "owner"],
+        rusqlite::params!["fmtlib", 3, "owner"],
     )
     .expect("promote nobody");
-    // User 2 is already a member: the add was ignored, so user 1 is
+    // User 3 is already a member: the add was ignored, so user 2 is
     // still the only owner and still protected.
     let removed = conn
-        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 1])
+        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 2])
         .expect("remove still-last owner");
     assert_eq!(removed, 0);
     let removed = conn
-        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 2])
+        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 3])
         .expect("remove member");
     assert_eq!(removed, 1);
 
     // With a genuine second owner the first one may leave.
     conn.execute(
         sql::ADD_SCOPE_MEMBER,
-        rusqlite::params!["fmtlib", 2, "owner"],
+        rusqlite::params!["fmtlib", 3, "owner"],
     )
     .expect("add second owner");
     let removed = conn
-        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 1])
+        .execute(sql::REMOVE_SCOPE_MEMBER, rusqlite::params!["fmtlib", 2])
         .expect("remove co-owner");
     assert_eq!(removed, 1);
-    assert_eq!(owner_gate(2), 1);
+    assert_eq!(owner_gate(3), 1);
 }
 
 /// Seeds one user, two scopes the user is a member of, and the same
@@ -1168,20 +1194,20 @@ fn membership_management_enforces_the_last_owner_rule() {
 /// must keep apart.
 fn seed_scope_collision(conn: &rusqlite::Connection) {
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-15T00:00:00.000Z');
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z');
          INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
            VALUES ('alpha', 'github', '1', '2026-07-15T00:00:00.000Z'),
                   ('beta', 'github', '2', '2026-07-15T00:00:00.000Z');
-         INSERT INTO scope_members (scope_name, user_id, role) VALUES ('alpha', 1, 'owner');
+         INSERT INTO scope_members (scope_name, user_id, role) VALUES ('alpha', 2, 'owner');
          INSERT INTO packages (scope, name, created_at, created_by)
-           VALUES ('alpha', 'pkg', '2026-07-15T00:00:00.000Z', 1),
-                  ('beta', 'pkg', '2026-07-15T00:00:00.000Z', 1);
+           VALUES ('alpha', 'pkg', '2026-07-15T00:00:00.000Z', 2),
+                  ('beta', 'pkg', '2026-07-15T00:00:00.000Z', 2);
          INSERT INTO versions (scope, name, version) VALUES ('alpha', 'pkg', '1.0.0'),
                   ('beta', 'pkg', '1.0.0');
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
                                 published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'pkg', '1.0.0', 'aa', 'aa', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'verified'),
-                  ('beta', 'pkg', '1.0.0', 'bb', 'bb', '{}', '2026-07-15T00:00:00.000Z', 20, 1, 'pending');
+           VALUES ('alpha', 'pkg', '1.0.0', 'aa', 'aa', '{}', '2026-07-15T00:00:00.000Z', 10, 2, 'verified'),
+                  ('beta', 'pkg', '1.0.0', 'bb', 'bb', '{}', '2026-07-15T00:00:00.000Z', 20, 2, 'pending');
          UPDATE meta SET value = '30' WHERE key = 'total_stored_bytes';",
     )
     .expect("seed the cross-scope collision");
@@ -1223,7 +1249,7 @@ fn scoped_statements_never_cross_scopes() {
     // missing scope.
     for (scope, expected) in [("alpha", 1), ("beta", 0), ("ghost", 0)] {
         let members: i64 = conn
-            .query_row(sql::SCOPE_MEMBERSHIP, rusqlite::params![scope, 1], |row| {
+            .query_row(sql::SCOPE_MEMBERSHIP, rusqlite::params![scope, 2], |row| {
                 row.get(0)
             })
             .expect("membership count");
@@ -1380,22 +1406,22 @@ fn download_counting_is_verified_only_and_scope_isolated() {
 /// lifecycle state.
 fn seed_search_corpus(conn: &rusqlite::Connection) {
     conn.execute_batch(
-        "INSERT INTO users (id, created_at) VALUES (1, '2026-07-18T00:00:00.000Z');
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-18T00:00:00.000Z');
          INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
            VALUES ('alpha', 'github', '1', '2026-07-18T00:00:00.000Z'),
                   ('beta', 'github', '2', '2026-07-18T00:00:00.000Z'),
                   ('gabime', 'github', '3', '2026-07-18T00:00:00.000Z'),
                   ('acme', 'github', '4', '2026-07-18T00:00:00.000Z');
          INSERT INTO packages (scope, name, created_at, created_by)
-           VALUES ('alpha', 'target', '2026-07-18T00:00:00.000Z', 1),
-                  ('beta', 'target-pending', '2026-07-18T00:00:00.000Z', 1),
-                  ('alpha', 'my_pkg', '2026-07-18T00:00:00.000Z', 1),
-                  ('alpha', 'myxpkg', '2026-07-18T00:00:00.000Z', 1),
-                  ('gabime', 'spdlog', '2026-07-18T00:00:00.000Z', 1),
-                  ('acme', 'pending-dep', '2026-07-18T00:00:00.000Z', 1),
-                  ('acme', 'rejected-dep', '2026-07-18T00:00:00.000Z', 1),
-                  ('acme', 'bare-dep', '2026-07-18T00:00:00.000Z', 1),
-                  ('acme', 'dev-dep', '2026-07-18T00:00:00.000Z', 1);
+           VALUES ('alpha', 'target', '2026-07-18T00:00:00.000Z', 2),
+                  ('beta', 'target-pending', '2026-07-18T00:00:00.000Z', 2),
+                  ('alpha', 'my_pkg', '2026-07-18T00:00:00.000Z', 2),
+                  ('alpha', 'myxpkg', '2026-07-18T00:00:00.000Z', 2),
+                  ('gabime', 'spdlog', '2026-07-18T00:00:00.000Z', 2),
+                  ('acme', 'pending-dep', '2026-07-18T00:00:00.000Z', 2),
+                  ('acme', 'rejected-dep', '2026-07-18T00:00:00.000Z', 2),
+                  ('acme', 'bare-dep', '2026-07-18T00:00:00.000Z', 2),
+                  ('acme', 'dev-dep', '2026-07-18T00:00:00.000Z', 2);
          INSERT INTO versions (scope, name, version, yanked, downloads)
            VALUES ('alpha', 'target', '1.0.0', 1, 3),
                   ('alpha', 'target', '1.1.0', 0, 4),
@@ -1412,33 +1438,33 @@ fn seed_search_corpus(conn: &rusqlite::Connection) {
                                 published_at, archive_size, published_by, verification)
            VALUES
            ('alpha', 'target', '1.0.0', 'c01', 'c01', '{\"dependencies\":{}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('alpha', 'target', '1.1.0', 'c02', 'c02', '{\"dependencies\":{}}',
-            '2026-07-18T01:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T01:00:00.000Z', 10, 2, 'verified'),
            ('beta', 'target-pending', '1.0.0', 'c03', 'c03', '{\"dependencies\":{}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'pending'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'pending'),
            ('alpha', 'my_pkg', '1.0.0', 'c04', 'c04', '{\"dependencies\":{}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('alpha', 'myxpkg', '1.0.0', 'c05', 'c05', '{\"dependencies\":{}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('gabime', 'spdlog', '1.13.0', 'c06', 'c06',
             '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('gabime', 'spdlog', '1.14.0', 'c07', 'c07',
             '{\"dependencies\":{\"alpha/target\":{\"version\":\"^1\",\"optional\":true}}}',
-            '2026-07-18T01:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T01:00:00.000Z', 10, 2, 'verified'),
            ('acme', 'pending-dep', '1.0.0', 'c08', 'c08',
             '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'pending'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'pending'),
            ('acme', 'rejected-dep', '1.0.0', 'c09', 'c09',
             '{\"dependencies\":{\"alpha/target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'rejected'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'rejected'),
            ('acme', 'bare-dep', '1.0.0', 'c10', 'c10',
             '{\"dependencies\":{\"target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified'),
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified'),
            ('acme', 'dev-dep', '1.0.0', 'c11', 'c11',
             '{\"dependencies\":{},\"dev-dependencies\":{\"alpha/target\":\"^1\"}}',
-            '2026-07-18T00:00:00.000Z', 10, 1, 'verified');",
+            '2026-07-18T00:00:00.000Z', 10, 2, 'verified');",
     )
     .expect("seed the search corpus");
 }
@@ -1596,8 +1622,8 @@ fn registry_stats_totals_are_verified_only_and_name_distinct() {
            VALUES ('alpha', 'pkg', '1.1.0', 5), ('beta', 'pkg', '2.0.0', 7);
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json, \
                                 published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'pkg', '1.1.0', 'cc', 'cc', '{}', '2026-07-15T01:00:00.000Z', 10, 1, 'verified'),
-                  ('beta', 'pkg', '2.0.0', 'dd', 'dd', '{}', '2026-07-15T02:00:00.000Z', 10, 1, 'verified');
+           VALUES ('alpha', 'pkg', '1.1.0', 'cc', 'cc', '{}', '2026-07-15T01:00:00.000Z', 10, 2, 'verified'),
+                  ('beta', 'pkg', '2.0.0', 'dd', 'dd', '{}', '2026-07-15T02:00:00.000Z', 10, 2, 'verified');
          UPDATE versions SET downloads = 100 WHERE scope = 'beta' AND version = '1.0.0';",
     )
     .expect("seed verified versions and a pending counter");
@@ -1635,7 +1661,7 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     };
     conn.execute(
         "INSERT INTO packages (scope, name, created_at, created_by)
-           VALUES ('alpha', 'foo-bar', '2026-07-15T00:00:00.000Z', 1)",
+           VALUES ('alpha', 'foo-bar', '2026-07-15T00:00:00.000Z', 2)",
         [],
     )
     .expect("seed the twinnable package");
@@ -1654,7 +1680,7 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     let insert_package = |scope: &str, name: &str| -> usize {
         conn.execute(
             sql::INSERT_PACKAGE,
-            rusqlite::params![scope, name, "2026-07-15T01:00:00.000Z", 1],
+            rusqlite::params![scope, name, "2026-07-15T01:00:00.000Z", 2],
         )
         .expect("guarded package insert")
     };
@@ -1678,7 +1704,7 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
                 "{}",
                 "2026-07-15T01:00:00.000Z",
                 10,
-                1,
+                2,
                 0
             ],
         )
@@ -1701,7 +1727,7 @@ fn twin_guard_blocks_dash_underscore_twins_within_a_scope() {
     // row.
     conn.execute(
         "INSERT INTO packages (scope, name, created_at, created_by)
-           VALUES ('alpha', 'foo_bar', '2026-07-15T00:00:00.000Z', 1)",
+           VALUES ('alpha', 'foo_bar', '2026-07-15T00:00:00.000Z', 2)",
         [],
     )
     .expect("seed the legacy twin directly");
@@ -1739,7 +1765,7 @@ fn publish_accounting_mirrors_the_insert_guards() {
     let insert = |scope: &str, name: &str, version: &str, stamp: &str| -> usize {
         conn.execute(
             sql::INSERT_REVISION,
-            rusqlite::params![scope, name, version, "ee", "ee", "{}", stamp, 40, 1, 0],
+            rusqlite::params![scope, name, version, "ee", "ee", "{}", stamp, 40, 2, 0],
         )
         .expect("guarded revision insert")
     };
@@ -1749,7 +1775,7 @@ fn publish_accounting_mirrors_the_insert_guards() {
     // and the insert applies.
     conn.execute(
         sql::INSERT_PACKAGE,
-        rusqlite::params!["alpha", "foo-bar", "2026-07-15T01:00:00.000Z", 1],
+        rusqlite::params!["alpha", "foo-bar", "2026-07-15T01:00:00.000Z", 2],
     )
     .expect("winner package");
     conn.execute(
@@ -1781,7 +1807,7 @@ fn publish_accounting_mirrors_the_insert_guards() {
     assert_eq!(
         conn.execute(
             sql::INSERT_PACKAGE,
-            rusqlite::params!["alpha", "foo_bar", "2026-07-15T01:00:01.000Z", 1],
+            rusqlite::params!["alpha", "foo_bar", "2026-07-15T01:00:01.000Z", 2],
         )
         .expect("twin package"),
         0
@@ -1830,12 +1856,12 @@ fn admin_packages_reports_names_and_vetted_flags_deterministically() {
     // that same name's next version from the advisories).
     conn.execute_batch(
         "INSERT INTO packages (scope, name, created_at, created_by)
-           VALUES ('alpha', 'zed', '2026-07-15T00:00:00.000Z', 1),
-                  ('beta', 'arc', '2026-07-15T00:00:00.000Z', 1);
+           VALUES ('alpha', 'zed', '2026-07-15T00:00:00.000Z', 2),
+                  ('beta', 'arc', '2026-07-15T00:00:00.000Z', 2);
          INSERT INTO versions (scope, name, version) VALUES ('alpha', 'zed', '1.0.0');
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
-           VALUES ('alpha', 'zed', '1.0.0', 'ff', 'ff', '{}', '2026-07-15T00:00:00.000Z', 10, 1, 'rejected');",
+           VALUES ('alpha', 'zed', '1.0.0', 'ff', 'ff', '{}', '2026-07-15T00:00:00.000Z', 10, 2, 'rejected');",
     )
     .expect("seed the rejected-only and versionless packages");
 
@@ -1892,7 +1918,7 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
                 "{}",
                 "2026-07-15T02:00:00.000Z",
                 10,
-                1,
+                2,
                 opt_in
             ],
         )
@@ -1933,7 +1959,7 @@ fn revision_opt_in_guard_is_enforced_inside_the_insert() {
             rusqlite::params![
                 "{}",
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 opt_in,
@@ -1972,7 +1998,7 @@ fn links_revision_guards_are_one_way_and_prefer_links_bearing_siblings() {
                 metadata,
                 "2026-07-15T02:00:00.000Z",
                 10,
-                1,
+                2,
                 1 // always opt in: the links rule must hold regardless
             ],
         )
@@ -2017,7 +2043,7 @@ fn links_revision_guards_are_one_way_and_prefer_links_bearing_siblings() {
             rusqlite::params![
                 metadata,
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 1,
@@ -2068,7 +2094,7 @@ fn links_accounting_guards_mirror_the_revision_guards() {
                 metadata,
                 "2026-07-15T02:00:00.000Z",
                 40,
-                1,
+                2,
                 1
             ],
         )
@@ -2113,7 +2139,7 @@ fn links_accounting_guards_mirror_the_revision_guards() {
             rusqlite::params![
                 metadata,
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 1,
@@ -2166,7 +2192,7 @@ fn current_revisions_view_serves_the_newest_verified_revision() {
         "INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
          VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{}',
-                 '2026-07-15T02:00:00.000Z', 10, 1, 'pending')",
+                 '2026-07-15T02:00:00.000Z', 10, 2, 'pending')",
         [],
     )
     .expect("pending respin");
@@ -2249,7 +2275,7 @@ fn a_refused_revival_never_counts_its_bytes() {
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
            VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{}',
-                   '2026-07-15T02:00:00.000Z', 10, 1, 'pending');",
+                   '2026-07-15T02:00:00.000Z', 10, 2, 'pending');",
     )
     .expect("reject alpha and land a live sibling");
     let stored = || -> String {
@@ -2270,7 +2296,7 @@ fn a_refused_revival_never_counts_its_bytes() {
             rusqlite::params![
                 "{}",
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 0,
@@ -2295,7 +2321,7 @@ fn a_refused_revival_never_counts_its_bytes() {
             rusqlite::params![
                 "{}",
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 1,
@@ -2327,7 +2353,7 @@ fn revival_invariance_guard_is_enforced_inside_the_update() {
          INSERT INTO revisions (scope, name, version, revision, checksum, metadata_json,
                                 published_at, archive_size, published_by, verification)
            VALUES ('alpha', 'pkg', '1.0.0', 'a2', 'a2', '{\"dependencies\":{}}',
-                   '2026-07-15T02:00:00.000Z', 10, 1, 'verified');",
+                   '2026-07-15T02:00:00.000Z', 10, 2, 'verified');",
     )
     .expect("reject alpha and land a conflicting live sibling");
     let stored = || -> String {
@@ -2346,7 +2372,7 @@ fn revival_invariance_guard_is_enforced_inside_the_update() {
             rusqlite::params![
                 metadata,
                 "2026-07-15T03:00:00.000Z",
-                1,
+                2,
                 "alpha",
                 "pkg",
                 1,
@@ -2403,7 +2429,7 @@ fn revision_inserts_enforce_resolver_metadata_invariance() {
                 metadata,
                 "2026-07-15T02:00:00.000Z",
                 10,
-                1,
+                2,
                 1 // opted in - the invariance must hold regardless
             ],
         )
