@@ -186,27 +186,26 @@ fn run(out: Box<dyn std::io::Write + Send>, capture: bool) -> Result<()> {
     if let Some(base) = &base
         && commits > 0
     {
-        // `npx.cmd`: the same Windows cmd shim as npm (see
-        // `website_steps`), which `Command::new("npx")` cannot
-        // resolve.
+        // `npm.cmd`/`npx.cmd`: the same Windows cmd shims as in
+        // `website_steps`, which `Command::new` cannot resolve from
+        // the bare names.  Running from `.github/commitlint` picks up
+        // the committed config and the `npm ci`-installed lockfile
+        // versions; git discovery still resolves the repository from
+        // that subdirectory.
+        let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
         let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
+        let tooling = root.join(".github").join("commitlint");
+        gate.step(
+            "npm ci (commitlint)",
+            Command::new(npm)
+                .args(["ci", "--ignore-scripts"])
+                .current_dir(&tooling),
+        )?;
         gate.step(
             "commitlint",
-            Command::new(npx).args([
-                "--yes",
-                "--package",
-                "@commitlint/cli",
-                "--package",
-                "@commitlint/config-conventional",
-                "commitlint",
-                "--extends",
-                "@commitlint/config-conventional",
-                "--from",
-                base,
-                "--to",
-                "HEAD",
-                "--verbose",
-            ]),
+            Command::new(npx)
+                .args(["commitlint", "--from", base, "--to", "HEAD", "--verbose"])
+                .current_dir(&tooling),
         )?;
     }
 

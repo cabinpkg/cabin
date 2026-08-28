@@ -47,8 +47,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 # must be a valid conventional commit, e.g. `chore: release X.Y.Z`,
 # and short enough that the squash suffix " (#N)" keeps it <= 100
 # chars - CI lints the combined header.
-npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
-  commitlint --extends @commitlint/config-conventional --last --verbose
+(cd .github/commitlint && npm ci --ignore-scripts && npx commitlint --last --verbose)
 
 # This is the real pre-flight gate: it packages and verifies every crate without uploading.
 cargo publish --workspace --dry-run --allow-dirty

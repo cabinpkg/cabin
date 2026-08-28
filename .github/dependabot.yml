@@ -57,6 +57,21 @@ updates:
       include: "scope"
 
   - package-ecosystem: "npm"
+    directory: "/.github/commitlint/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      npm-commitlint:
+        update-types:
+        - "minor"
+        - "patch"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "npm"
     directory: "/website/"
     schedule:
       interval: monthly
