@@ -28,6 +28,14 @@ in the same change and follow the architecture document.
   change would otherwise make an existing instruction factually incorrect.
 - Make the smallest coherent change required. Do not refactor, reformat,
   clean up, or remove unrelated code, including pre-existing dead code.
+- Prefer maintained upstream tools, libraries, platform features, and existing
+  repository mechanisms over repository-owned replacements. Do not reimplement
+  or compatibility-port third-party semantics merely to remove a dependency,
+  runtime, or implementation language.
+- If exact behavioral parity with an external tool is required, use that tool
+  as the source of truth rather than cloning its behavior. Owning a replacement
+  parser, linter, formatter, protocol implementation, or compatibility layer
+  requires explicit maintainer approval.
 - Reuse existing code and patterns. Prefer direct Rust; add no speculative
   abstraction, configuration, or flexibility.
 - Treat review comments as findings to evaluate, not requirements to
@@ -83,11 +91,19 @@ in the same change and follow the architecture document.
 
 ## Repository automation
 
-- Repository automation is implemented in private Rust `crates/xtask-*`
-  crates run through cargo aliases; see `crates/AGENTS.md` "Repository
-  automation (xtasks)". Do not reintroduce shell or Perl repository tooling.
-  This restriction does not cover product or website source, npm scripts,
-  `Dockerfile`, `demo.tape`, or devcontainer provisioning.
+- Cabin-specific repository automation and orchestration belongs in private
+  Rust `crates/xtask-*` crates run through cargo aliases; see
+  `crates/AGENTS.md` "Repository automation (xtasks)". Xtasks may invoke
+  established external tools; do not absorb or reproduce those tools'
+  semantics merely to keep the orchestration in Rust.
+- Moving automation to an xtask, removing a runtime, or removing a dependency
+  does not by itself authorize reimplementing the removed tool. If the stated
+  constraints would require a compatibility implementation, surface that
+  conflict instead of creating one without explicit maintainer approval.
+- Do not reintroduce shell or Perl repository tooling. This restriction does
+  not cover product or website source, npm scripts, `Dockerfile`, `demo.tape`,
+  devcontainer provisioning, or normal invocation/configuration of external
+  tools.
 
 ## Checks
 
