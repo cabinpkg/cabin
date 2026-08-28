@@ -322,9 +322,13 @@ fn overlaps_source_path(build_dir: &Path, source_path: &Path) -> bool {
     }
 }
 
+/// Platform home directory for the destructive-operation guard.
+/// `std::env::home_dir` honors `HOME` / `USERPROFILE` overrides but
+/// still resolves the home through platform APIs when the variable
+/// is unset, so an unset variable alone does not silently disable
+/// the guard.
 fn home_dir() -> Option<PathBuf> {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(key).map(PathBuf::from)
+    std::env::home_dir()
 }
 
 #[cfg(test)]
