@@ -94,6 +94,7 @@ dist:
   - "crates/cabin/Cargo.toml"
   - "rust-toolchain.toml"
   - "demo.tape"
+  - ".github/dist-demo/**"
   - ".github/workflows/dist.yml"
   - ".github/workflows/changes.yml"
   - ".github/actions/required-gate/**"

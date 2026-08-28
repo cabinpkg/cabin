@@ -56,16 +56,22 @@ jobs:
         # alone took ~10 minutes on this image. Pin ffmpeg to a BtbN
         # MONTH-END autobuild (kept two years); dailies prune after 14
         # days and would 404 here.
+        # Every download below verifies against a digest pinned in
+        # .github/dist-demo/ before anything is extracted or installed.
+        # The digests come from each release's published checksum file,
+        # except bat (none published): its digest was computed from the
+        # release asset once and trusted from then on.
         - name: Install ffmpeg, ttyd, and bat
           working-directory: ${{ runner.temp }}
           run: |
             wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
+            wget -q https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
+            wget -q https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            sha256sum --check --strict "$GITHUB_WORKSPACE/.github/dist-demo/ffmpeg-ttyd-bat.sha256"
             tar -xJf ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1.tar.xz
             sudo mv ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-gpl-8.1/bin/ffmpeg /usr/local/bin
-            wget -q -O ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
-            chmod +x ttyd
-            sudo mv ttyd /usr/local/bin
-            wget -q https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
+            chmod +x ttyd.x86_64
+            sudo mv ttyd.x86_64 /usr/local/bin/ttyd
             tar -xzf bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz
             sudo mv bat-v0.26.1-x86_64-unknown-linux-musl/bat /usr/local/bin
 
@@ -74,27 +80,40 @@ jobs:
             cargo build --bin cabin --release --locked
             sudo cp target/release/cabin /usr/local/bin
 
+        # The parallel steps below share this checkout as their working
+        # directory, so each verifies its own pin file: one shared list
+        # would race against a sibling step's in-flight download.
         - name: Install VHS
           run: |
             wget https://github.com/charmbracelet/vhs/releases/download/v0.11.0/vhs_0.11.0_Linux_x86_64.tar.gz
+            sha256sum --check --strict .github/dist-demo/vhs.sha256
             tar -xzf vhs_0.11.0_Linux_x86_64.tar.gz
             sudo mv vhs_0.11.0_Linux_x86_64/vhs /usr/local/bin
 
         - name: Install Nerd Font
           run: |
-            mkdir -p ~/.local/share/fonts
             wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip
+            sha256sum --check --strict .github/dist-demo/nerd-font.sha256
+            mkdir -p ~/.local/share/fonts
             unzip FiraCode.zip -d ~/.local/share/fonts/
             fc-cache -fv
 
+        # Pinned to the master commit the unpinned clone resolved to
+        # when the pin was taken.
         - name: Install zsh-syntax-highlighting
           run: |
             git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ~/z
+            git -C ~/z checkout --detach 2fc57d63067c18b1100ecdbf684fa5baf49459d1
             echo 'source ~/z/zsh-syntax-highlighting.zsh' >> ~/.zshrc
 
+        # A pinned release archive instead of piping starship.rs's
+        # installer into sh.
         - name: Install Starship
           run: |
-            curl -sS https://starship.rs/install.sh | sh -s -- -y
+            wget -q https://github.com/starship/starship/releases/download/v1.26.0/starship-x86_64-unknown-linux-gnu.tar.gz
+            sha256sum --check --strict .github/dist-demo/starship.sha256
+            tar -xzf starship-x86_64-unknown-linux-gnu.tar.gz
+            sudo mv starship /usr/local/bin
             printf "%s\n" "eval \"\$(starship init zsh)\"" >> ~/.zshrc
 
       - name: Generate a new demo
