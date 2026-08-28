@@ -717,6 +717,19 @@ fn dead_loopback_url() -> String {
     format!("http://{addr}")
 }
 
+/// Two distinct dead loopback URLs: both listeners are held bound
+/// while the ports are read, so the second bind can never reuse the
+/// first port the way two consecutive `dead_loopback_url` calls can.
+fn dead_loopback_url_pair() -> (String, String) {
+    let first = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let second = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let addrs = (
+        first.local_addr().expect("loopback addr"),
+        second.local_addr().expect("loopback addr"),
+    );
+    (format!("http://{}", addrs.0), format!("http://{}", addrs.1))
+}
+
 /// The minted session is stored keyed by the normalized index
 /// origin (path and trailing slash stripped) with the mint's expiry
 /// and the discovered `api` origin alongside, in a 0600 file.
@@ -3525,4 +3538,306 @@ sources = ["src/z.c"]
         .failure()
         .stdout(predicate::str::contains("Published acme/zlib 1.3.1"))
         .stderr(predicate::str::contains("publishing acme/demo 0.1.0"));
+}
+
+/// Like [`write_scoped_publishable_package`], under another name, so
+/// a batch can carry two distinct packages.
+fn write_scoped_zlib_package(root: &Path) {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "acme/zlib"
+version = "1.3.1"
+c-standard = "c11"
+
+[target.z]
+type = "library"
+sources = ["src/z.c"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("src/z.c"))
+        .write_str("int z(void) { return 0; }\n")
+        .unwrap();
+}
+
+/// A flagless batch under one shared user-level config publishes both
+/// members to the configured registry - and a user-chosen origin
+/// keeps its `CABIN_REGISTRY_TOKEN` eligibility for the whole batch.
+#[test]
+fn a_batch_publishes_to_the_shared_user_config_registry() {
+    let server = RemoteRegistryServer::start(true, false, &[201, 201]);
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url))
+        .unwrap();
+
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+
+    let puts = server.puts.lock().unwrap();
+    let sequence: Vec<&str> = puts.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        sequence,
+        [
+            "/api/v1/packages/acme/zlib/1.3.1",
+            "/api/v1/packages/acme/demo/0.1.0"
+        ],
+        "both members upload to the one configured registry, in argv order"
+    );
+    for upload in puts.iter() {
+        assert_eq!(
+            upload.authorization.as_deref(),
+            Some(&*format!("Bearer {TEST_TOKEN}")),
+            "a user-chosen origin keeps the env token for every member"
+        );
+    }
+}
+
+/// Two different config files resolving to the same URL agree - but
+/// consolidating them must not make the origin MORE trusted than it
+/// would be for an individual member: one member picking the origin
+/// through its project config drops `CABIN_REGISTRY_TOKEN`
+/// eligibility for the whole batch, exactly as it would publishing
+/// alone.
+#[test]
+fn an_agreeing_batch_is_only_as_credential_eligible_as_its_least_member() {
+    let server = RemoteRegistryServer::start(true, false, &[201, 201]);
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    // The same origin, chosen two ways: the user's own config file for
+    // the batch, and demo's in-tree project config for demo.
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{}\"\n", server.url))
+        .unwrap();
+
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+
+    let puts = server.puts.lock().unwrap();
+    assert_eq!(puts.len(), 2, "both members published");
+    for upload in puts.iter() {
+        assert_eq!(
+            upload.authorization, None,
+            "a project-chosen member must strip the env token from the whole batch"
+        );
+    }
+}
+
+/// Members whose effective configs name different registries refuse
+/// before staging, credentials, or any connection: both URLs are dead
+/// loopback ports, so any network attempt would surface as a
+/// connection error instead of the agreement refusal.
+#[test]
+fn a_batch_disagreeing_on_the_registry_fails_before_any_network() {
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    let (first, second) = dead_loopback_url_pair();
+    assert_fs::fixture::ChildPath::new(zlib.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{first}\"\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{second}\"\n"))
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "the batch does not agree on one registry")
+            && flat_contains(&stderr, &first)
+            && flat_contains(&stderr, &second),
+        "expected the agreement refusal naming both registries in: {stderr}"
+    );
+}
+
+/// Without `-Z remote-registry` a disagreeing batch answers the
+/// standard experimental-feature error, not the agreement refusal:
+/// config-supplied HTTP indexes without the feature always fail with
+/// that diagnostic (`docs/remote-registry.md`, "Publishing from the
+/// client").
+#[test]
+fn a_flagless_disagreeing_batch_answers_the_feature_error() {
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    let (first, second) = dead_loopback_url_pair();
+    assert_fs::fixture::ChildPath::new(zlib.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{first}\"\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{second}\"\n"))
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(
+            &stderr,
+            "`cabin publish --index-url` requires the experimental remote-registry client"
+        ) && !flat_contains(&stderr, "does not agree"),
+        "expected the gated-command error without the agreement refusal in: {stderr}"
+    );
+}
+
+/// A `[source-replacement]` hop is part of a member's effective
+/// config: a hop that reroutes only one member splits the batch and
+/// is refused, again without touching the network.
+#[test]
+fn a_source_replacement_hop_splitting_the_batch_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    let (declared, replaced) = dead_loopback_url_pair();
+    let home = dir.path().join("config-home");
+    assert_fs::fixture::ChildPath::new(home.join("config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{declared}\"\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+        .write_str(&format!(
+            "[source-replacement]\n\"{declared}\" = {{ index-url = \"{replaced}\" }}\n"
+        ))
+        .unwrap();
+
+    let assertion = cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_CONFIG_HOME", &home)
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        flat_contains(&stderr, "the batch does not agree on one registry")
+            && flat_contains(&stderr, &declared)
+            && flat_contains(&stderr, &replaced),
+        "expected the post-replacement refusal naming both registries in: {stderr}"
+    );
+}
+
+/// A batch mixing a remote member with a local-path or
+/// registry-source-less member refuses too - never a partial remote
+/// publish, and never the single-member DryRunRequired error that
+/// would misdescribe the remote member.
+#[test]
+fn a_remote_and_local_mix_in_a_batch_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    assert_fs::fixture::ChildPath::new(zlib.join(".cabin/config.toml"))
+        .write_str(&format!(
+            "[registry]\nindex-url = \"{}\"\n",
+            dead_loopback_url()
+        ))
+        .unwrap();
+
+    // demo with no registry source at all, then with a local path:
+    // both are the same "no remote index" answer.
+    for local_config in [None, Some("[registry]\nindex-path = \"registry\"\n")] {
+        if let Some(config) = local_config {
+            assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+                .write_str(config)
+                .unwrap();
+        }
+        let assertion = cabin()
+            .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+            .arg(zlib.join("cabin.toml"))
+            .arg("--manifest-path")
+            .arg(demo.join("cabin.toml"))
+            .env_remove("CABIN_NO_CONFIG")
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+        assert!(
+            flat_contains(&stderr, "resolves no remote index"),
+            "expected the remote/local mix refusal in: {stderr}"
+        );
+    }
+}
+
+/// `--index-url` stays an explicit whole-batch override: conflicting
+/// project configs are never consulted, and every member publishes to
+/// the named registry.
+#[test]
+fn an_explicit_index_url_overrides_every_member_config() {
+    let server = RemoteRegistryServer::start(true, false, &[201, 201]);
+    let dir = TempDir::new().unwrap();
+    let zlib = dir.path().join("zlib");
+    write_scoped_zlib_package(&zlib);
+    let demo = dir.path().join("demo");
+    write_scoped_publishable_package(&demo);
+    let (zlib_url, demo_url) = dead_loopback_url_pair();
+    assert_fs::fixture::ChildPath::new(zlib.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{zlib_url}\"\n"))
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(demo.join(".cabin/config.toml"))
+        .write_str(&format!("[registry]\nindex-url = \"{demo_url}\"\n"))
+        .unwrap();
+
+    cabin()
+        .args(["-Z", "remote-registry", "publish", "--manifest-path"])
+        .arg(zlib.join("cabin.toml"))
+        .arg("--manifest-path")
+        .arg(demo.join("cabin.toml"))
+        .args(["--index-url", &server.url])
+        .env_remove("CABIN_NO_CONFIG")
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .success();
+
+    let puts = server.puts.lock().unwrap();
+    assert_eq!(puts.len(), 2, "both members land on the flag's registry");
 }

@@ -461,8 +461,16 @@ Client-side behavior:
   naming the failing package; the members before it are already live (the registry has no
   cross-package transaction), and their reports were already printed.  One credential serves the
   whole batch, which is what lets a [trusted-publishing](#publishing-from-github-actions) run
-  exchange exactly one OIDC token however many packages it publishes; the registry source
-  resolves once, through the first manifest's effective config.  In a multi-package batch a
+  exchange exactly one OIDC token however many packages it publishes.  What makes that
+  consolidation safe: each member's registry resolves through its **own** effective config
+  (including any `[source-replacement]` hop), and unless every member resolves the same remote
+  index URL - byte-for-byte; spelling variants of one origin do not agree - the batch refuses
+  before staging, credentials, or any connection, naming the first two members that disagree.  A
+  batch mixing a remote member with one that resolves no remote index (a local or absent registry
+  source) is refused the same way, and the consolidated registry counts as
+  [user-chosen](#environment-override) only when it would for every member alone.  An explicit
+  `--index-url` remains a whole-batch override: member configs are never consulted.  In a
+  multi-package batch a
   registry `429` between uploads is waited out (the advertised `Retry-After`, capped, a few
   attempts) rather than failing the batch - a serial batch can outrun a token's publish bucket,
   and every attempt charges it; a single-package publish keeps its fail-fast `429` unless
