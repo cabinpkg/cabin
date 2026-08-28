@@ -39,6 +39,7 @@ pub mod build_flags;
 
 pub use build_flags::{
     CFLAGS, CPPFLAGS, CXXFLAGS, EnvBuildFlags, EnvBuildFlagsError, LDFLAGS, parse_env_build_flags,
+    split_flag_text,
 };
 
 use std::collections::BTreeMap;

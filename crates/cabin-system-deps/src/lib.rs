@@ -767,87 +767,16 @@ fn wildcard_upper_bound(comp: &semver::Comparator) -> Option<String> {
     }
 }
 
-/// Whitespace + minimal-quoting splitter for `pkg-config`
-/// output.  Handles single quotes, double quotes, and backslash
-/// escapes.  Returns the literal token sequence.
+/// Split `pkg-config` output into argv tokens using POSIX shell
+/// word rules: whitespace separation, single quotes, double
+/// quotes, and backslash escapes ([`cabin_env::split_flag_text`],
+/// whose pre-pass keeps `#` literal and treats `\r` as a
+/// separator - flag text is not a shell command line).  `Err`
+/// reports malformed input - an unterminated quote or a trailing
+/// backslash - for the caller to wrap into
+/// [`PkgConfigError::MalformedOutput`].
 fn split_pkg_config_output(input: &str) -> Result<Vec<String>, &'static str> {
-    let mut out: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut chars = input.chars().peekable();
-    let mut has_token = false;
-    while let Some(c) = chars.next() {
-        if in_single {
-            if c == '\'' {
-                in_single = false;
-                has_token = true;
-            } else {
-                current.push(c);
-                has_token = true;
-            }
-            continue;
-        }
-        if in_double {
-            if c == '"' {
-                in_double = false;
-                has_token = true;
-                continue;
-            }
-            if c == '\\' {
-                if let Some(&next) = chars.peek()
-                    && matches!(next, '"' | '\\' | '$' | '`')
-                {
-                    current.push(next);
-                    chars.next();
-                    has_token = true;
-                    continue;
-                }
-                current.push(c);
-                has_token = true;
-                continue;
-            }
-            current.push(c);
-            has_token = true;
-            continue;
-        }
-        if c.is_whitespace() {
-            if has_token {
-                out.push(std::mem::take(&mut current));
-                has_token = false;
-            }
-            continue;
-        }
-        match c {
-            '\'' => {
-                in_single = true;
-                has_token = true;
-            }
-            '"' => {
-                in_double = true;
-                has_token = true;
-            }
-            '\\' => {
-                if let Some(next) = chars.next() {
-                    current.push(next);
-                    has_token = true;
-                } else {
-                    return Err("trailing backslash");
-                }
-            }
-            _ => {
-                current.push(c);
-                has_token = true;
-            }
-        }
-    }
-    if in_single || in_double {
-        return Err("unterminated quoted string");
-    }
-    if has_token {
-        out.push(current);
-    }
-    Ok(out)
+    cabin_env::split_flag_text(input).ok_or("unbalanced quotes or trailing backslash")
 }
 
 struct PkgConfigOutput {
@@ -1019,8 +948,37 @@ mod tests {
 
     #[test]
     fn split_rejects_unterminated_quotes() {
-        let err = split_pkg_config_output("'unterminated").unwrap_err();
-        assert_eq!(err, "unterminated quoted string");
+        split_pkg_config_output("'unterminated").unwrap_err();
+    }
+
+    #[test]
+    fn split_keeps_hash_tokens_literal() {
+        // A `.pc` value can carry a `#` mid-line; it must stay a
+        // literal token, never start a comment that silently drops
+        // the flags after it.
+        let tokens = split_pkg_config_output("-L/opt/lib #legacy -lfoo").unwrap();
+        assert_eq!(tokens, vec!["-L/opt/lib", "#legacy", "-lfoo"]);
+    }
+
+    #[test]
+    fn split_treats_carriage_return_as_separator() {
+        // CRLF-contaminated multi-line output must not glue a `\r`
+        // onto a token.
+        let tokens = split_pkg_config_output("-Ifoo\r\n-Ibar").unwrap();
+        assert_eq!(tokens, vec!["-Ifoo", "-Ibar"]);
+    }
+
+    #[test]
+    fn split_rejects_trailing_backslash() {
+        split_pkg_config_output("-lfoo \\").unwrap_err();
+    }
+
+    #[test]
+    fn split_yields_empty_quoted_token() {
+        // An explicitly quoted empty argument must survive as an
+        // empty token, not disappear.
+        let tokens = split_pkg_config_output("-DEMPTY= ''").unwrap();
+        assert_eq!(tokens, vec!["-DEMPTY=", ""]);
     }
 
     #[test]

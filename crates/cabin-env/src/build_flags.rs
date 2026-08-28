@@ -126,7 +126,16 @@ where
     if value.trim().is_empty() {
         return Ok(Vec::new());
     }
-    shlex::split(&normalize(&value)).ok_or(EnvBuildFlagsError::Parse { name })
+    split_flag_text(&value).ok_or(EnvBuildFlagsError::Parse { name })
+}
+
+/// Split flag-style text - an env-var value or `pkg-config`
+/// output - into argv tokens: POSIX shell-style word splitting
+/// (via [`shlex::split`]) behind the `normalize` pre-pass below.
+/// `None` reports malformed input (an unterminated quote or a
+/// trailing backslash).
+pub fn split_flag_text(input: &str) -> Option<Vec<String>> {
+    shlex::split(&normalize(input))
 }
 
 /// Normalize an env-var value before handing it to
