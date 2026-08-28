@@ -67,8 +67,9 @@ git push origin X.Y.Z
 ```
 
 Pushing the tag triggers `.github/workflows/release.yml`, which calls the dist workflow, builds the
-supported binary archives, generates SHA-256 checksums, and creates a published GitHub release with
-auto-generated notes, the binary archives, checksum files, and `demo.gif`.
+supported binary archives, attests them with GitHub artifact attestations (verifiable with
+`gh attestation verify`), and creates a published GitHub release with auto-generated notes, the
+binary archives, and `demo.gif`.
 
 ## crates.io release
 

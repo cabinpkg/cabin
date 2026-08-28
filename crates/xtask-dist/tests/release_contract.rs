@@ -6,13 +6,10 @@
 //! what unpacks it for the layout assertion.
 #![cfg(unix)]
 
-use std::fmt::Write as _;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::process::Command;
-
-use sha2::{Digest as _, Sha256};
 
 fn tool(dir: &Path, arguments: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_xtask-dist"))
@@ -95,32 +92,4 @@ fn a_tag_build_packages_the_staged_trio() {
         .permissions()
         .mode();
     assert_ne!(mode & 0o111, 0, "the binary lost its executable bit");
-}
-
-/// `checksums` writes `sha256.sum` over every release archive in the
-/// working directory and prints the same summary it wrote.
-#[test]
-fn checksums_print_what_they_write() {
-    let root = assert_fs::TempDir::new().unwrap();
-    fs::write(root.path().join("cabin-0.14.0-triple.tar.xz"), b"archive").unwrap();
-
-    let run = tool(root.path(), &["checksums"]);
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let digest = Sha256::digest(b"archive")
-        .iter()
-        .fold(String::new(), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        });
-    let line = format!("{digest} *cabin-0.14.0-triple.tar.xz\n");
-    let written = fs::read(root.path().join("sha256.sum")).expect("sha256.sum");
-    assert_eq!(written, line.as_bytes());
-    assert_eq!(run.stdout, written);
-    let sidecar = fs::read(root.path().join("cabin-0.14.0-triple.tar.xz.sha256"))
-        .expect("the per-archive sidecar");
-    assert_eq!(sidecar, line.as_bytes());
 }
