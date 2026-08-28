@@ -131,5 +131,33 @@
     "durable_objects": {
         "bindings": [{ "name": "GOVERNOR", "class_name": "Governor" }]
     },
-    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Governor"] }]
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Governor"] }],
+    // Admission control for the two public OIDC endpoints (the
+    // trusted-publishing exchange PUT and the verdict PATCH), which
+    // accept unauthenticated traffic and can be made to fetch GitHub's
+    // JWKS (src/trustpub.rs, the unknown-kid refetch). Two budgets:
+    // OIDC_LIMITER is the per-client-IP gate spent before any JWT work
+    // (glue.rs `oidc_admission`; its 429 carries a Retry-After of the
+    // period below), and JWKS_LIMITER is the single-key global bound
+    // on cache-bypass JWKS refetches (trustpub.rs `GithubJwks`).
+    // `cargo check-deploy` requires both bindings; the worker fails
+    // closed without them. Counters are per-colo, not global - the
+    // dashboard WAF rule stays as the outer layer (docs/runbook.md,
+    // "Zone rate limiting (WAF)").
+    "unsafe": {
+        "bindings": [
+            {
+                "name": "OIDC_LIMITER",
+                "type": "ratelimit",
+                "namespace_id": "1001",
+                "simple": { "limit": 60, "period": 60 }
+            },
+            {
+                "name": "JWKS_LIMITER",
+                "type": "ratelimit",
+                "namespace_id": "1002",
+                "simple": { "limit": 6, "period": 60 }
+            }
+        ]
+    }
 }

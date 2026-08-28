@@ -390,7 +390,12 @@ async fn handle_website(
         }) = match_api_route(path)
     {
         let (scope, name, version) = (scope.to_owned(), name.to_owned(), version.to_owned());
-        let mut response = if verdict_authn(req, env, &db).await? {
+        // The same pre-verification admission gate as the exchange,
+        // ahead of `verdict_authn`'s JWT work; the refusal takes the
+        // generation stamp below like the route's other answers.
+        let mut response = if let Some(refusal) = oidc_admission(req, env).await? {
+            refusal
+        } else if verdict_authn(req, env, &db).await? {
             verdict_response(req, env, ctx, &db, &scope, &name, &version).await?
         } else {
             unauthorized(env)?
@@ -905,6 +910,37 @@ async fn yank_response(
     )
 }
 
+/// Pre-verification admission for the two public OIDC surfaces (the
+/// exchange PUT and the verdict PATCH): one per-client-IP budget from
+/// the `OIDC_LIMITER` ratelimit binding (`wrangler.jsonc`), spent
+/// before the body, the JWT, or any JWKS access is touched, so
+/// unauthenticated traffic cannot buy verification work - in
+/// particular the unknown-kid JWKS refetch (`trustpub::verify`) -
+/// beyond the budget. The refusal is one fixed 429 on both endpoints,
+/// decided before any credential is read, so it carries no validity
+/// signal; its `Retry-After` mirrors the binding's period. A missing
+/// binding or a limiter error refuses too: the gate is load-bearing
+/// for the JWKS refetch contract, so it fails closed (`cargo
+/// check-deploy` requires the binding, so a healthy deploy never
+/// takes that path).
+async fn oidc_admission(req: &Request, env: &Env) -> worker::Result<Option<Response>> {
+    // Cloudflare stamps `CF-Connecting-IP` on every edge request (see
+    // `quota::artifact_read_fairness`); a request without it - only
+    // reachable off the edge, e.g. `wrangler dev` - shares one bucket.
+    let key = req.headers().get("cf-connecting-ip")?.unwrap_or_default();
+    let allowed = match env.rate_limiter("OIDC_LIMITER") {
+        Ok(limiter) => limiter
+            .limit(key)
+            .await
+            .is_ok_and(|outcome| outcome.success),
+        Err(_) => false,
+    };
+    if allowed {
+        return Ok(None);
+    }
+    denial_response(env, &quota::OIDC_RATE_LIMITED, Some(60)).map(Some)
+}
+
 /// The trusted-publishing exchange body, exactly `{"jwt": "<token>"}`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -921,8 +957,9 @@ const MAX_EXCHANGE_BODY_BYTES: usize = 16 * 1024;
 /// `PUT /api/v1/trusted_publishing/tokens`
 /// (`docs/remote-registry.md`, "Trusted publishing"): exchanges a
 /// verified GitHub Actions OIDC JWT for a short-lived multi-use
-/// `trustpub` token, through one of two arms. The fully stateless JWT
-/// verification runs first (JWKS via Cache/network, never D1). Claims
+/// `trustpub` token, through one of two arms. [`oidc_admission`] runs
+/// first of all - before the body is read - then the fully stateless
+/// JWT verification (JWKS via Cache/network, never D1). Claims
 /// matching the deployment-pinned verifier identity take the verifier
 /// arm: a verify-scoped mint backed by the operator identity
 /// `VERIFIER_BACKING_ACCOUNT_ID` names, deliberately in front of the
@@ -943,6 +980,9 @@ async fn trustpub_exchange_response(
     env: &Env,
     db: &D1Database,
 ) -> worker::Result<(Response, Option<String>)> {
+    if let Some(refusal) = oidc_admission(req, env).await? {
+        return Ok((refusal, None));
+    }
     let refused = |reason: String| -> worker::Result<(Response, Option<String>)> {
         console_log!("trustpub exchange refused: {reason}");
         Ok((unauthorized(env)?, None))

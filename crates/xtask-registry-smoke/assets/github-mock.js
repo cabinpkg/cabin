@@ -77,6 +77,8 @@ const api = {
     organization: { id: 901, login: "sm0keorg" },
   },
 };
+// GET /__jwks/hits reports how often the JWKS was fetched.
+let jwksHits = 0;
 // POST /__drift/on makes /users/smoke name a different account than
 // /user, so the self-claim's id-equality refusal can be exercised and
 // then reverted within one run.
@@ -112,8 +114,13 @@ http.createServer((req, res) => {
     signin = mode;
     res.end("{}");
   } else if (req.method === "GET" && req.url === "/.well-known/jwks") {
-    // Unauthenticated, like GitHub's real JWKS.
+    // Unauthenticated, like GitHub's real JWKS. Counted, so the
+    // admission leg can bound how many upstream fetches an
+    // unknown-kid flood buys.
+    jwksHits += 1;
     res.end(JSON.stringify({ keys: [jwk] }));
+  } else if (req.method === "GET" && req.url === "/__jwks/hits") {
+    res.end(JSON.stringify({ hits: jwksHits }));
   } else if (req.method === "POST" && req.url === "/__oidc/token") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));

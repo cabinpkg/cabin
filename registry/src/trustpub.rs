@@ -348,8 +348,10 @@ pub async fn verify(
         // can force this origin fetch with a fresh random `kid` per
         // request, so every pre-auth endpoint calling this verifier (the
         // exchange PUT and the verdict PATCH) must keep its callers
-        // behind the registry's admission control / rate limiting before
-        // it gets public traffic - coalescing or negative-caching here
+        // behind admission control: `glue::oidc_admission` gates both
+        // per client IP before any JWT work, and the production
+        // provider's bypass path spends the global `JWKS_LIMITER`
+        // budget ([`GithubJwks`]). Coalescing or negative-caching here
         // would trade away the bounded exactly-one-refetch contract.
         set = provider.jwks(true).await?;
     }
@@ -495,6 +497,14 @@ fn id_claim(
 #[cfg(target_arch = "wasm32")]
 pub struct GithubJwks {
     url: String,
+    /// The global bound on cache-bypass origin refetches: the
+    /// `JWKS_LIMITER` ratelimit binding (`wrangler.jsonc`), spent under
+    /// one fixed key. The per-IP admission gate (`glue::oidc_admission`)
+    /// bounds how much verification work any one caller buys; this
+    /// bounds the aggregate origin-fetch rate across all admitted
+    /// callers. `None` - the binding missing - refuses every bypass:
+    /// fail closed, `cargo check-deploy` requires the binding.
+    bypass_limiter: Option<worker::RateLimiter>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -508,6 +518,7 @@ impl GithubJwks {
             url: env
                 .var("GITHUB_JWKS_URL")
                 .map_or_else(|_| GITHUB_JWKS_URL.to_owned(), |var| var.to_string()),
+            bypass_limiter: env.rate_limiter("JWKS_LIMITER").ok(),
         }
     }
 }
@@ -516,8 +527,26 @@ impl GithubJwks {
 impl JwksProvider for GithubJwks {
     async fn jwks(&self, bypass_cache: bool) -> Result<JwkSet, VerifyError> {
         let cache = worker::Cache::default();
-        if !bypass_cache
-            && let Ok(Some(mut cached)) = cache.get(JWKS_CACHE_KEY, false).await
+        if bypass_cache {
+            // A refused or failed take answers as a provider error,
+            // which the callers refuse with the same uniform 401 as an
+            // unknown kid - no budget oracle. A rotation still recovers:
+            // the budget refuses only under sustained bypass pressure,
+            // and the first admitted refetch refreshes the cache for
+            // everyone else.
+            let allowed = match &self.bypass_limiter {
+                Some(limiter) => limiter
+                    .limit("github-jwks".to_owned())
+                    .await
+                    .is_ok_and(|outcome| outcome.success),
+                None => false,
+            };
+            if !allowed {
+                return Err(VerifyError::Provider(
+                    "the jwks cache-bypass budget is exhausted".to_owned(),
+                ));
+            }
+        } else if let Ok(Some(mut cached)) = cache.get(JWKS_CACHE_KEY, false).await
             && let Ok(set) = cached.json::<JwkSet>().await
         {
             return Ok(set);

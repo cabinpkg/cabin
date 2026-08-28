@@ -82,6 +82,17 @@ exactly 50 requests reached the Worker, the rest answered a Cloudflare
 no error envelope; cabin's rate-limit mapping degrades to the same "try
 again" hint off the header alone.
 
+This dashboard-managed rule is the OUTER layer only. The two public
+OIDC endpoints (the trusted-publishing exchange and the verdict PATCH)
+additionally sit behind the Worker's own admission control: the
+`OIDC_LIMITER` and `JWKS_LIMITER` ratelimit bindings in
+`wrangler.jsonc`, required by `cargo check-deploy` and failing closed
+when missing (`docs/architecture.md`, "Two credential planes"). Losing
+or misconfiguring the WAF rule therefore degrades defense in depth but
+never re-opens the unmetered-JWKS-refetch exposure; the worker's `429`
+carries the registry's own `rate_limited` envelope with a
+`retry-after: 60`, which is how it is told apart from the WAF's.
+
 ## Integrated topology and route management
 
 Two hostnames, one zone:

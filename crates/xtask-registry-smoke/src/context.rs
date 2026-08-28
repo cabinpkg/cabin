@@ -158,6 +158,27 @@ impl Smoke {
             .with_context(|| format!("no jwt in the mint answer: {minted}"))
     }
 
+    /// The GitHub mock's count of `/.well-known/jwks` fetches
+    /// (`/__jwks/hits`) - the upstream-cost observable the admission
+    /// leg bounds.
+    ///
+    /// # Errors
+    ///
+    /// If the mock cannot answer or answers an unexpected shape.
+    pub fn jwks_hits(&mut self) -> Result<u64> {
+        let url = format!("{}/__jwks/hits", self.github_base);
+        let status = self.http("GET", &url, &[], None)?;
+        if status != 200 {
+            bail!("the GitHub mock refused the jwks hit count: {status}");
+        }
+        let counted: serde_json::Value =
+            serde_json::from_slice(&self.body).context("parse the jwks hit count")?;
+        counted
+            .get("hits")
+            .and_then(serde_json::Value::as_u64)
+            .with_context(|| format!("no hits in the count answer: {counted}"))
+    }
+
     /// A verdict PATCH as the verify workflow delivers it: a freshly
     /// minted OIDC JWT as the bearer.  Deliberately not through
     /// [`Smoke::auth`], which keeps whatever credential the surrounding

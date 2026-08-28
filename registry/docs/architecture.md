@@ -57,7 +57,8 @@ the service.
   operation), and the GitHub Actions OIDC JWKS copy under one fixed
   synthetic same-zone key (`src/trustpub.rs`; ~600s TTL, refreshed by
   every origin fetch, with one cache-bypass refetch on an unknown key
-  id).
+  id, globally budgeted by the `JWKS_LIMITER` ratelimit binding -
+  "Two credential planes").
 - **The governor's ledger lives in one SQLite-backed Durable Object.**
   Every billable R2 resource Cabin can initiate - stored bytes and
   Class A/B operations - passes through its serialized admission
@@ -305,6 +306,32 @@ credential that fails to validate is the same uniform 401. `/healthz`
 (registry host) and the public `/api/v1/stats` subtree (website
 origin; "Download counts") are the only routes outside both planes.
 Cookies are never read here.
+
+**The two OIDC surfaces sit behind deployment-pinned admission
+control.** The exchange PUT and the verdict PATCH are the only
+unauthenticated entry points that buy real verification work - in
+particular, an unknown `kid` buys the JWKS rotation-recovery refetch
+against GitHub (`src/trustpub.rs`). Two Workers rate-limiting
+bindings in `wrangler.jsonc` bound that before any body read or JWT
+parsing: `OIDC_LIMITER` admits per client IP (`CF-Connecting-IP`,
+which the edge overwrites) on both endpoints, and `JWKS_LIMITER`
+bounds cache-bypass origin refetches globally under one fixed key, so
+even admitted traffic in aggregate cannot turn random `kid`s into
+unbounded upstream fetches. The admission refusal is one fixed
+`429 rate_limited` with a `Retry-After` on both endpoints, decided
+before any credential is inspected, so it carries no
+JWT/config/identity validity signal; a refused bypass answers the
+same uniform 401 an unknown kid does, and a real key rotation still
+recovers - the first admitted refetch refreshes the shared cache for
+everyone. Both bindings fail closed (missing, they refuse everything
+on these two endpoints), and `cargo check-deploy` requires them, so
+the protection is reviewed with the deployment rather than assumed
+from the dashboard; the dashboard WAF rule stays the outer layer
+([`runbook.md`](runbook.md), "Zone rate limiting (WAF)"). Limiter
+counters are per-colo, not global, and asynchronously updated - the
+JWKS budget is an approximate per-colo aggregate that a concurrent
+burst can briefly overshoot, not a hard cap; bounded-not-exact is the
+accepted residual.
 
 Tokens are stored as the SHA-256 hex of the full token string; the plaintext
 exists only in the client's hands (it is rendered exactly once, in the

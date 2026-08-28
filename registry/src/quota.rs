@@ -171,6 +171,15 @@ pub const READ_RATE_LIMITED: Denial = Denial {
     code: "read_rate_limited",
     detail: "read rate limit exceeded; retry after the daily read allowance resets",
 };
+/// The pre-verification admission refusal on the two public OIDC
+/// endpoints (`glue::oidc_admission`): one fixed shape for both,
+/// decided before any credential is read, so it carries no validity
+/// signal.
+pub const OIDC_RATE_LIMITED: Denial = Denial {
+    status: 429,
+    code: "rate_limited",
+    detail: "request rate limit exceeded; retry later",
+};
 pub const ARCHIVE_TOO_LARGE: Denial = Denial {
     status: 413,
     code: "archive_too_large",
@@ -419,7 +428,7 @@ mod tests {
             "total package quota exhausted; \
              see https://cabinpkg.com/dashboard for current usage"
         );
-        for denial in [&RATE_LIMITED, &ARCHIVE_TOO_LARGE] {
+        for denial in [&RATE_LIMITED, &OIDC_RATE_LIMITED, &ARCHIVE_TOO_LARGE] {
             assert_eq!(
                 detail_with_usage_url(denial, "https://cabinpkg.com"),
                 denial.detail,
