@@ -13,7 +13,8 @@ crates (see `crates/AGENTS.md`); workflows invoke their cargo aliases.
   Non-required workflows may use trigger-level path filters.
 - Keep each job-level component dependency list only in
   `.github/path-filters.yml`. Keep it coarse and end it with the consuming
-  workflow plus the filter file; do not add a broad `.github/**` entry.
+  workflow, the shared `changes` gate workflow, plus the filter file; do
+  not add a broad `.github/**` entry.
 - Required contexts for gated work must be non-matrix `if: always()`
   aggregates that fail closed when the change gate or work job fails or is
   cancelled. Protect the aggregate, never a skippable work or matrix job.
