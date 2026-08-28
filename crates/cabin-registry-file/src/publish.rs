@@ -81,8 +81,8 @@ pub fn publish_to_registry(
     })?;
     let lock = RegistryLock::acquire(registry_dir)?;
     let result = publish_locked(request);
-    // Drop runs even if `result` is Err, so the lock file is always
-    // removed.
+    // Drop runs even if `result` is Err, so the lock is always
+    // released.
     drop(lock);
     result
 }
@@ -458,10 +458,8 @@ mod tests {
         assert!(outcome.registry_initialized);
         assert!(outcome.artifact_path.is_file());
         assert!(outcome.package_index_path.is_file());
-        // Lock file removed on success.
-        registry_dir
-            .child(".cabin-registry.lock")
-            .assert(predicate::path::missing());
+        // Lock released on success: a fresh acquire succeeds.
+        RegistryLock::acquire(registry_dir.path()).unwrap();
         // Source path is registry-relative and revision-qualified.
         assert_eq!(
             outcome.source_path,
@@ -719,12 +717,8 @@ mod tests {
     fn lock_collision_fails_clearly() {
         let dir = TempDir::new().unwrap();
         let registry_dir = dir.child("registry");
-        // Pre-create the lock file.
-        registry_dir.create_dir_all().unwrap();
-        registry_dir
-            .child(".cabin-registry.lock")
-            .write_binary(b"")
-            .unwrap();
+        // Hold the lock the way a concurrent publish would.
+        let _held = RegistryLock::acquire(registry_dir.path()).unwrap();
 
         let err = publish_to_registry(&RegistryPublishRequest {
             registry_dir: registry_dir.path(),

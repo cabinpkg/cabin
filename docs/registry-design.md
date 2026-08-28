@@ -25,6 +25,7 @@ that the resolver can read back through `--index-path <dir>`.
 
 ```text
 <registry>/
+  .cabin-registry.lock
   config.json
   packages/
     fmtlib/
@@ -75,7 +76,8 @@ The file-registry writer:
   file is staged in a sibling temporary file and only renamed onto
   its destination after a successful write, so an interrupted
   publish leaves the previous artifact and index in place;
-- uses a simple registry lock file to avoid concurrent mutation;
+- uses an OS advisory lock on `.cabin-registry.lock` to avoid concurrent
+  mutation (released automatically when the publishing process exits);
 - keeps each revision's archive checksum in the index so the artifact
   pipeline can verify bytes before extraction.
 
