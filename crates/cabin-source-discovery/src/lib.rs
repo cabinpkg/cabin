@@ -188,6 +188,17 @@ fn walk_root(
         return Ok(());
     }
 
+    // The walker's `filter_entry` below is never consulted for the
+    // root itself (`ignore` exempts depth 0), so an exclusion that
+    // names the root or an ancestor of it must be resolved here or
+    // the root's direct-child files would leak into the result.
+    let canonical_root = cabin_fs::canonicalize_or_input(root);
+    if path_under_any(&canonical_root, excluded_paths)
+        || path_under_any(&canonical_root, excluded_dirs)
+    {
+        return Ok(());
+    }
+
     let mut builder = WalkBuilder::new(root);
     builder
         .standard_filters(false)
@@ -210,6 +221,34 @@ fn walk_root(
         // deterministic.
         .sort_by_file_name(std::ffi::OsStr::cmp);
 
+    // Prune excluded directories instead of walking them and
+    // filtering their files afterwards: descending into `build/`,
+    // `node_modules/`, or an excluded vendor tree can be arbitrarily
+    // expensive, and an unreadable entry inside one would fail the
+    // whole walk for files the caller never asked about.  Exclusions
+    // are matched against the canonical spelling (see the set
+    // construction in `discover_sources`).
+    let excluded_paths_filter = excluded_paths.clone();
+    let excluded_dirs_filter = excluded_dirs.clone();
+    builder.filter_entry(move |entry| {
+        if !entry.file_type().is_some_and(|t| t.is_dir()) {
+            return true;
+        }
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| BUILTIN_EXCLUDED_DIR_NAMES.contains(&name))
+        {
+            return false;
+        }
+        if excluded_paths_filter.is_empty() && excluded_dirs_filter.is_empty() {
+            return true;
+        }
+        let canonical = cabin_fs::canonicalize_or_input(entry.path());
+        !path_under_any(&canonical, &excluded_paths_filter)
+            && !path_under_any(&canonical, &excluded_dirs_filter)
+    });
+
     for entry in builder.build() {
         let entry = entry?;
         let path = entry.path();
@@ -222,15 +261,11 @@ fn walk_root(
         if !file_type.is_file() || !has_recognized_extension(path) {
             continue;
         }
-        // Match exclusions against the canonical spelling (see the set
-        // construction in `discover_sources`), but store the raw walked
-        // path so returned paths keep the walker's spelling, not the
-        // canonicalized one.
+        // Directory exclusions were pruned above; only per-file
+        // excludes remain.  Store the raw walked path so returned
+        // paths keep the walker's spelling, not the canonical one.
         let canonical = cabin_fs::canonicalize_or_input(path);
-        if excluded_paths.contains(&canonical)
-            || path_under_any(&canonical, excluded_dirs)
-            || path_under_any_builtin_name(path)
-        {
+        if excluded_paths.contains(&canonical) || excluded_dirs.contains(&canonical) {
             continue;
         }
 
@@ -242,15 +277,6 @@ fn walk_root(
 fn path_under_any(path: &Path, dirs: &BTreeSet<PathBuf>) -> bool {
     dirs.iter()
         .any(|dir| path == dir.as_path() || path.starts_with(dir))
-}
-
-fn path_under_any_builtin_name(path: &Path) -> bool {
-    path.ancestors().any(|ancestor| {
-        ancestor
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| BUILTIN_EXCLUDED_DIR_NAMES.contains(&n))
-    })
 }
 
 /// Recognized C/C++ source and header extensions.
@@ -413,6 +439,103 @@ mod tests {
 
         let found = discover_sources(&req).unwrap();
         let names = relative(dir.path(), &found);
+        assert_eq!(names, vec!["src/main.cc"]);
+    }
+
+    #[test]
+    fn excluded_paths_directory_excludes_descendants() {
+        // The documented `--exclude <dir>` contract: a directory
+        // entry skips every descendant.
+        let dir = TempDir::new().unwrap();
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("vendored/dep.cc").touch().unwrap();
+
+        let mut req = request(dir.path());
+        req.excluded_paths.push(dir.path().join("vendored"));
+
+        let found = discover_sources(&req).unwrap();
+        let names = relative(dir.path(), &found);
+        assert_eq!(names, vec!["src/main.cc"]);
+    }
+
+    #[test]
+    fn root_equal_to_excluded_directory_yields_nothing() {
+        // The walker's `filter_entry` is never consulted for the
+        // root itself, so the root-boundary guard must catch an
+        // exclusion naming the root - direct-child files must not
+        // leak while subdirectories are pruned.
+        let dir = TempDir::new().unwrap();
+        dir.child("main.cc").touch().unwrap();
+        dir.child("sub/other.cc").touch().unwrap();
+
+        let mut req = request(dir.path());
+        req.excluded_directories.push(dir.path().to_path_buf());
+        assert!(discover_sources(&req).unwrap().is_empty());
+    }
+
+    #[test]
+    fn root_inside_excluded_paths_directory_yields_nothing() {
+        // Same boundary through the `--exclude <dir>` channel, with
+        // the root strictly below the excluded directory.
+        let dir = TempDir::new().unwrap();
+        dir.child("vendored/pkg/main.cc").touch().unwrap();
+
+        let root = dir.path().join("vendored").join("pkg");
+        let req = SourceDiscoveryRequest {
+            roots: vec![root],
+            excluded_paths: vec![dir.path().join("vendored")],
+            excluded_directories: Vec::new(),
+            respect_vcs_ignore: true,
+        };
+        assert!(discover_sources(&req).unwrap().is_empty());
+    }
+
+    #[test]
+    fn root_beneath_builtin_named_directory_is_walked() {
+        // Only directories inside the walk are pruned by name: a
+        // package that happens to be checked out under a directory
+        // named `out` (or `dist`, `build`, ...) must still have its
+        // sources discovered.
+        let dir = TempDir::new().unwrap();
+        dir.child("out/proj/src/main.cc").touch().unwrap();
+
+        let root = dir.path().join("out").join("proj");
+        let req = SourceDiscoveryRequest {
+            roots: vec![root.clone()],
+            excluded_paths: Vec::new(),
+            excluded_directories: Vec::new(),
+            respect_vcs_ignore: true,
+        };
+        let found = discover_sources(&req).unwrap();
+        let names = relative(&root, &found);
+        assert_eq!(names, vec!["src/main.cc"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn excluded_trees_are_pruned_not_traversed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Pruning must skip the excluded tree entirely: an
+        // unreadable directory inside `build/` would otherwise fail
+        // the whole walk for files the caller never asked about.
+        let dir = TempDir::new().unwrap();
+        dir.child("src/main.cc").touch().unwrap();
+        dir.child("build/unreadable/trap.cc").touch().unwrap();
+        let unreadable = dir.path().join("build").join("unreadable");
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let restore =
+            || std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o755));
+        // Root reads through 0o000; the assertion is only
+        // meaningful when the directory really is unreadable.
+        if std::fs::read_dir(&unreadable).is_ok() {
+            restore().unwrap();
+            return;
+        }
+
+        let found = discover_sources(&request(dir.path()));
+        restore().unwrap();
+        let names = relative(dir.path(), &found.unwrap());
         assert_eq!(names, vec!["src/main.cc"]);
     }
 

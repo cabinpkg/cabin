@@ -121,6 +121,30 @@ fn exclude_path_skips_named_file() {
 }
 
 #[test]
+fn exclude_path_skips_directory_descendants() {
+    // docs/fmt.md: "a directory entry skips every descendant".
+    let dir = TempDir::new().unwrap();
+    dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
+    dir.child("src/main.cc")
+        .write_str("int main() {}\n")
+        .unwrap();
+    dir.child("vendored/dep.cc")
+        .write_str("int dep() {}\n")
+        .unwrap();
+
+    cabin_with_fake_formatter()
+        .current_dir(dir.path())
+        .arg("fmt")
+        .arg("--exclude")
+        .arg("vendored")
+        .assert()
+        .success();
+
+    assert!(read(&dir.path().join("src/main.cc")).contains(MARKER));
+    assert!(!read(&dir.path().join("vendored/dep.cc")).contains(MARKER));
+}
+
+#[test]
 fn repeated_exclude_accumulates() {
     let dir = TempDir::new().unwrap();
     dir.child("cabin.toml").write_str(VALID_MANIFEST).unwrap();
