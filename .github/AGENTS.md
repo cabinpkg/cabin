@@ -1,8 +1,10 @@
 # AGENTS.md - GitHub Actions and workflows
 
 These rules apply under `.github/`. The repository-root `AGENTS.md` also
-applies. Repository automation logic lives in private Rust `crates/xtask-*`
-crates (see `crates/AGENTS.md`); workflows invoke their cargo aliases.
+applies. Cabin-specific repository automation and orchestration lives in
+private Rust `crates/xtask-*` crates (see `crates/AGENTS.md`); workflows invoke
+their cargo aliases. Established external tools may be invoked directly or
+through an xtask; their semantics do not belong in the xtask.
 
 - Do not put substantial logic in workflow `run:` blocks: loops,
   conditionals, functions, traps, heredocs, or embedded `node`, Python, or
