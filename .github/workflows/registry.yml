@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, merge groups, dispatches, calls,
-# and schedules are never cancelled or queued at the workflow level.
+# event gets a per-run group: pushes and merge groups are never
+# cancelled or queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -36,10 +36,11 @@ jobs:
   # Format, clippy, and the build share one runner: alone, each of
   # the cheap checks is dominated by checkout and toolchain setup.
   # Cheapest first, so a formatting slip fails in seconds. Branch
-  # protection pins `registry-build` below, never this job.
+  # protection pins `registry-build` below, never this job. Merge
+  # Queue validates pre-merge; a main push only deploys.
   registry-build-work:
     needs: changes
-    if: needs.changes.outputs.registry == 'true'
+    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -97,11 +98,13 @@ jobs:
         run: cargo check-deploy --require-bundle
         working-directory: .
 
-  # Branch protection pins this, not `registry-build-work`: `always()`,
-  # never `!cancelled()`, fails it closed on a failed or cancelled gate.
+  # Branch protection pins this, not the work jobs: `always()`, never
+  # `!cancelled()`, fails it closed on a failed or cancelled gate.
+  # Both validation jobs feed it: a conformance failure must block the
+  # merge, and with it the deploy the merged push performs.
   registry-build:
-    needs: [changes, registry-build-work]
-    if: always()
+    needs: [changes, registry-build-work, conformance]
+    if: always() && github.event_name != 'push'
     runs-on: ubuntu-slim
     steps:
       # The gate logic is a local action; the sparse checkout keeps
@@ -116,13 +119,19 @@ jobs:
           result: ${{ needs.registry-build-work.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.registry }}
+      - name: Fail unless conformance succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.conformance.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.registry }}
 
   # Feeds archive + metadata pairs freshly produced by the in-tree cabin
   # binary through the server's full publish validation path, so the
   # client's canonical output and the server's schema cannot drift apart.
   conformance:
     needs: changes
-    if: needs.changes.outputs.registry == 'true'
+    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -148,13 +157,14 @@ jobs:
           CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
           RUSTFLAGS: -D warnings
 
-  # Ships the Worker once the jobs above are green. No build step of
-  # its own: `wrangler deploy` runs wrangler.jsonc's build.command.
-  # D1 migrations stay manual - the deploy token cannot apply them
-  # (registry/docs/runbook.md, "Deploy skew").
+  # Ships the Worker on a registry-relevant main push. Validation ran
+  # pre-merge (Merge Queue), so only the change gate runs here. No
+  # build step of its own: `wrangler deploy` runs wrangler.jsonc's
+  # build.command. D1 migrations stay manual - the deploy token cannot
+  # apply them (registry/docs/runbook.md, "Deploy skew").
   deploy-registry:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [registry-build-work, conformance]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.registry == 'true'
+    needs: changes
     runs-on: ubuntu-latest
     environment: production
     concurrency:

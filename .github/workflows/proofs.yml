@@ -3,7 +3,9 @@ name: Proofs
 # Checks the Lean mechanization under docs/proofs/standard-compatibility.
 
 # No job here backs a required check, so scoping happens at the
-# trigger: a filtered-out run blocks nothing. Keep both lists equal.
+# trigger: a filtered-out run blocks nothing. There is no merge_group
+# run; the filtered main push is the advisory final-state check after
+# relevant merges. Keep both lists equal.
 on:
   push:
     branches: [main]
@@ -21,8 +23,8 @@ permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, dispatches, calls, and schedules
-# are never cancelled or queued at the workflow level.
+# event gets a per-run group: main pushes are never cancelled or
+# queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
