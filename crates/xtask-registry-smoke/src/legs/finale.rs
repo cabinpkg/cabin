@@ -135,6 +135,10 @@ pub fn run(smoke: &mut Smoke, inputs: &mut FinaleInputs<'_>) -> Result<()> {
     admin_reconcile(smoke)?;
     cron_reconcile(smoke, inputs)?;
     concurrency(smoke, inputs, &fixtures)?;
+    // Dead last on purpose: the exhaustion burst empties the shared
+    // local admission bucket (crate::legs::admission), and any OIDC
+    // request after it would answer the 429 for up to a minute.
+    crate::legs::admission::run(smoke)?;
     println!("smoke OK");
     Ok(())
 }

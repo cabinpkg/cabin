@@ -220,6 +220,48 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""binding": "BACKUPS""#,
     ),
     (
+        // A lost admission binding fails closed at runtime: the OIDC
+        // endpoints refuse everything and the queue cannot drain.
+        "lost_oidc_limiter",
+        r#""name": "OIDC_LIMITER""#,
+        r#""name": "OIDC_LIMITERS""#,
+    ),
+    (
+        "lost_jwks_limiter",
+        r#""name": "JWKS_LIMITER""#,
+        r#""name": "JWKS""#,
+    ),
+    (
+        "wrong_ratelimit_type",
+        r#""type": "ratelimit""#,
+        r#""type": "kv_namespace""#,
+    ),
+    (
+        "zero_ratelimit_limit",
+        r#""simple": { "limit": 6, "period": 60 }"#,
+        r#""simple": { "limit": 0, "period": 60 }"#,
+    ),
+    (
+        // Wrangler wants numbers here; a stringy limit is not the
+        // config the platform applies.
+        "stringy_ratelimit_limit",
+        r#""simple": { "limit": 60, "period": 60 }"#,
+        r#""simple": { "limit": "60", "period": 60 }"#,
+    ),
+    (
+        // The platform accepts only 10 or 60; any other period would
+        // pass a naive positivity check and then fail the real deploy.
+        "unsupported_ratelimit_period",
+        r#""simple": { "limit": 6, "period": 60 }"#,
+        r#""simple": { "limit": 6, "period": 30 }"#,
+    ),
+    (
+        // The platform wants a positive integer in a string here.
+        "unparsable_ratelimit_namespace",
+        r#""namespace_id": "1002""#,
+        r#""namespace_id": "abc""#,
+    ),
+    (
         "renamed_database",
         r#""database_name": "cabin-registry""#,
         r#""database_name": "cabin-registry-2""#,

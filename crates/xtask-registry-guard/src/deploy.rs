@@ -52,6 +52,13 @@ const DUMP_CRON: &str = "0 3 * * *";
 /// replays, so the deployed history's first entry is pinned verbatim.
 const DEPLOYED_V1_MIGRATION: &str = r#"{"tag":"v1","new_sqlite_classes":["Governor"]}"#;
 
+/// The ratelimit bindings the OIDC admission control looks up by name
+/// (`src/glue.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
+/// Both fail closed at runtime when missing - the exchange and verdict
+/// endpoints then refuse everything - so a lost or renamed binding
+/// belongs to CI, not to an undrainable verification queue.
+const RATE_LIMITERS: [&str; 2] = ["OIDC_LIMITER", "JWKS_LIMITER"];
+
 /// The exact sets the Rust code reads. A misspelled name parses fine and
 /// is silently ignored, which is the worst failure mode of all (the
 /// operator believes the override is live).
@@ -132,6 +139,7 @@ pub fn check(registry_dir: &Path, require_bundle: bool) -> Report {
 
     let mut failures = Vec::new();
     validate_bindings(&config, &mut failures);
+    validate_rate_limiters(&config, &mut failures);
     validate_crons(&config, &mut failures);
     let local_classes = validate_durable_objects(&config, &mut failures);
     validate_limit_vars(&config, &mut failures);
@@ -275,6 +283,57 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
         failures,
     );
     bound
+}
+
+/// The OIDC admission budgets ([`RATE_LIMITERS`]): each binding must be
+/// declared with the ratelimit type, a positive-integer-string
+/// `namespace_id`, a positive integer limit, and a period of 10 or 60
+/// (the only periods the platform accepts), or the deploy ships a
+/// worker whose OIDC endpoints refuse every request.
+fn validate_rate_limiters(config: &Value, failures: &mut Vec<String>) {
+    let bindings = config
+        .get("unsafe")
+        .map_or(&[][..], |section| array(section, "bindings"));
+    for name in RATE_LIMITERS {
+        let Some(entry) = bindings
+            .iter()
+            .find(|entry| entry.get("name") == Some(&Value::from(name)))
+        else {
+            failures.push(format!(
+                "unsafe.bindings must declare the {name} ratelimit binding"
+            ));
+            continue;
+        };
+        require(
+            entry.get("type") == Some(&Value::from("ratelimit")),
+            &format!("the {name} binding must have type ratelimit"),
+            failures,
+        );
+        require(
+            entry
+                .get("namespace_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.parse::<u64>().is_ok_and(|id| id > 0)),
+            &format!("the {name} binding needs a positive integer string namespace_id"),
+            failures,
+        );
+        let simple = |key| {
+            entry
+                .get("simple")
+                .and_then(|simple| simple.get(key))
+                .and_then(Value::as_u64)
+        };
+        require(
+            simple("limit").is_some_and(|value| value > 0),
+            &format!("the {name} binding needs a positive integer simple.limit"),
+            failures,
+        );
+        require(
+            simple("period").is_some_and(|value| matches!(value, 10 | 60)),
+            &format!("the {name} binding needs a simple.period of 10 or 60"),
+            failures,
+        );
+    }
 }
 
 fn validate_crons(config: &Value, failures: &mut Vec<String>) {
