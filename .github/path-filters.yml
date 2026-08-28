@@ -87,8 +87,8 @@ docker:
   - ".github/actions/required-gate/**"
   - ".github/path-filters.yml"
 
-# dist.yml on push/PR proves the packaging tooling; tags always build
-# every target through release.yml, so the workspace stays out.
+# dist.yml on pull requests proves the packaging tooling; tags always
+# build every target through release.yml, so the workspace stays out.
 dist:
   - "crates/xtask-dist/**"
   - "crates/cabin/Cargo.toml"

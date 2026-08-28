@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
+    # `edited` re-runs the squash-title check when the PR title changes.
+    types: [opened, synchronize, reopened, edited]
   merge_group:
     types: [checks_requested]
 
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, merge groups, dispatches, calls,
-# and schedules are never cancelled or queued at the workflow level.
+# event gets a per-run group: merge groups are never cancelled or
+# queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -34,7 +34,8 @@ jobs:
       - uses: crate-ci/typos@8a48f81b6c64dcfea44b3633223084c4be58ac5f # v1.49.0
 
       # A merge group's commit is GitHub-generated, so only typos runs
-      # there; the commitlint steps validate real PR and main commits.
+      # there; the commitlint steps validate the real PR commits and
+      # the squash title the merge would generate.
       - name: Setup node
         if: github.event_name != 'merge_group'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -59,10 +60,23 @@ jobs:
           npm --version
           npx commitlint --version
 
-      - name: Validate current commit (last commit) with commitlint
-        if: github.event_name == 'push'
-        run: npx commitlint --last --verbose
-
       - name: Validate PR commits with commitlint
         if: github.event_name == 'pull_request'
         run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+      # The squash merge titles the main commit with the commit
+      # subject (single-commit PR) or the PR title (multi-commit,
+      # COMMIT_OR_PR_TITLE) and appends " (#N)" either way; lint the
+      # exact generated string.
+      - name: Validate the single-commit squash title with commitlint
+        if: github.event_name == 'pull_request' && github.event.pull_request.commits == 1
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git log -1 --format="%s (#$PR_NUMBER)" "$HEAD_SHA" | npx commitlint --verbose
+
+      - name: Validate the multi-commit squash title with commitlint
+        if: github.event_name == 'pull_request' && github.event.pull_request.commits > 1
+        env:
+          SQUASH_TITLE: ${{ github.event.pull_request.title }} (#${{ github.event.pull_request.number }})
+        run: printf '%s\n' "$SQUASH_TITLE" | npx commitlint --verbose

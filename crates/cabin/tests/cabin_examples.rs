@@ -222,7 +222,7 @@ fn workspace_basic_runs_selected_package() {
 // pipeline (one shared staging per test process, downloading the
 // pinned upstream archives) and consumes the published
 // `cabin-ports/*` packages from it.  They intentionally do not run in
-// default PR/push CI; the required CI exercises the same consumption
+// default PR CI; the required CI exercises the same consumption
 // path hermetically via `cli/registry_ports.rs`.
 #[test]
 #[ignore = "requires external network"]

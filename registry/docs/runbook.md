@@ -99,11 +99,13 @@ Deploy skew: `cabin-website` deploys automatically on every push to
 `main` (Workers Builds); `cabin-registry` deploys from CI (the
 `deploy-registry` job in `.github/workflows/registry.yml`) on pushes
 to `main` with registry-relevant changes (the `registry` filter in
-`.github/path-filters.yml`), after its gate jobs pass. A merge that changes the session-plane JSON
+`.github/path-filters.yml`); the build and conformance jobs validate
+the change pre-merge, on its pull-request and merge-queue runs, and a
+red merge-queue run never merges, so the previous Worker keeps
+serving. A merge that changes the session-plane JSON
 contract therefore briefly has the account pages ahead of the live
-registry Worker while the gate runs - accepted pre-launch (private
-alpha), with no legacy-field fallbacks in the frontend. A red gate
-leaves the previous Worker serving. A red deploy job may or may not
+registry Worker while the deploy runs - accepted pre-launch (private
+alpha), with no legacy-field fallbacks in the frontend. A red deploy job may or may not
 have activated the new version (`wrangler deploy` can fail after
 activation), so check `npx --yes wrangler@4.112.0 deployments list` and run
 the smoke checks below; `npx --yes wrangler@4.112.0 deploy` from this directory stays
@@ -728,8 +730,9 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 (cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
-# 3. Merge to main; CI's build + conformance jobs gate deploy-registry
-#    (skipped while the migrations stamp is pending - cargo registry-migrate).
+# 3. Merge through the merge queue; its build + conformance runs gate
+#    the merge, and the main push runs deploy-registry (skipped while
+#    the migrations stamp is pending - cargo registry-migrate).
 #    Watch it land:
 npx --yes wrangler@4.112.0 deployments list
 

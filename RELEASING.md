@@ -30,8 +30,8 @@ rg 'x\.y\.z'  # must not show Cabin workspace version pins
 
 ## Run all required checks
 
-These mirror CI, which runs on `main` and pull requests but not on tags, so they must pass on the
-release commit before you tag:
+These mirror CI, which validates pull requests and merge-queue runs but not tags, so they must pass
+on the release commit before you tag:
 
 ```sh
 cargo fmt --all --verbose -- --check
@@ -43,9 +43,10 @@ cargo test --workspace --all-targets --all-features --locked --verbose -- --show
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --verbose
 
 # Conventional-commit lint of the release commit (mirrors CI's
-# @commitlint/config-conventional gate, which runs `commitlint --last`
-# on pushes to `main`). The header must be a valid conventional commit
-# and stay <= 100 chars, e.g. `chore: release X.Y.Z`.
+# @commitlint/config-conventional gate on pull requests). The header
+# must be a valid conventional commit, e.g. `chore: release X.Y.Z`,
+# and short enough that the squash suffix " (#N)" keeps it <= 100
+# chars - CI lints the combined header.
 npx --yes --package @commitlint/cli --package @commitlint/config-conventional \
   commitlint --extends @commitlint/config-conventional --last --verbose
 
@@ -54,14 +55,19 @@ cargo publish --workspace --dry-run --allow-dirty
 ```
 
 Commit the version bump (including `Cargo.lock`) with a conventional-commit message such as `chore:
-release X.Y.Z` - CI's commitlint rejects non-conventional messages - then push and confirm CI is
-green on `main`.
+release X.Y.Z` - CI's commitlint rejects non-conventional messages - then open a pull request and
+land it through the merge queue like any other change.  CI validates the pull request and its
+merge-group run; workspace validation does not rerun after the merge, so once the queue merges it
+the release commit on `main` is the validated one.  (The main push still runs CodeQL, and the
+version bump matches the registry filter, so it also deploys the registry Worker - both are normal.)
 
 ## GitHub release
 
-Tags are bare semver with no `v` prefix, matching every prior release:
+Tags are bare semver with no `v` prefix, matching every prior release.  Tag the squash-merged
+release commit on updated `main`:
 
 ```sh
+git switch main && git pull
 git tag X.Y.Z
 git push origin X.Y.Z
 ```

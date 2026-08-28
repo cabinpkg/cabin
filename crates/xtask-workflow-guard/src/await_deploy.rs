@@ -75,8 +75,8 @@
 //!
 //! - A same-SHA Registry run whose `deploy-registry` JOB itself
 //!   concluded `skipped` - the workflow's change gate found no
-//!   registry-relevant files in the push, so `build` and `conformance`
-//!   never ran and `needs` skipped the deploy - answers 0 immediately,
+//!   registry-relevant files in the push, so the deploy job's own
+//!   `if` skipped it - answers 0 immediately,
 //!   like L26's no-run arm: the gate is a deterministic property of
 //!   the commit (a rerun re-answers the same), such a run can never
 //!   deploy, and the deployed Worker is already current for this SHA.
@@ -206,10 +206,9 @@ const TIMED_OUT: &str = "timed out waiting for a registry deploy containing this
 const CANDIDATES_JQ: &str = r#".workflow_runs[] | "\(.id) \(.head_sha)""#;
 const DEPLOY_STEP_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry") | .steps[] | select(.name == "Deploy") | .conclusion][0]"#;
 /// The job's own conclusion and its Deploy step's, in one projection:
-/// a job skipped by its `needs` chain has an EMPTY `steps` array, so
-/// the step half alone cannot tell "the gate skipped the job"
-/// (`skipped null`) from "the job ran and skipped its Deploy step"
-/// (`success skipped`).
+/// a skipped job has an EMPTY `steps` array, so the step half alone
+/// cannot tell "the gate skipped the job" (`skipped null`) from "the
+/// job ran and skipped its Deploy step" (`success skipped`).
 const DEPLOY_OUTCOME_JQ: &str = r#"[.jobs[] | select(.name == "deploy-registry") | "\(.conclusion) \([.steps[] | select(.name == "Deploy") | .conclusion][0])"][0]"#;
 const RUNS_JQ: &str = ".workflow_runs";
 const PENDING_JQ: &str = r#".workflow_runs[] | select(.status != "completed") | .head_sha"#;
@@ -493,9 +492,9 @@ fn landed_deploy(shell: &mut dyn Shell, sha: &str, repository: &str) -> Landed {
 /// How the same-SHA Registry run left its `deploy-registry` job.
 #[derive(Debug, PartialEq, Eq)]
 enum SameShaDeploy {
-    /// The job itself concluded `skipped`: its `needs` chain was
-    /// skipped by the workflow's change gate, so this push can never
-    /// deploy and the deployed Worker is already current.
+    /// The job itself concluded `skipped`: the workflow's change gate
+    /// answered false to its `if`, so this push can never deploy and
+    /// the deployed Worker is already current.
     JobSkipped,
     /// The job ran but its Deploy step concluded `skipped`:
     /// superseded, or the pre-launch deploy freeze.
