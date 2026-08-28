@@ -10,17 +10,15 @@ name: Ports Publish
 # ports change reaches the registry at the next dispatch, and the
 # same dispatch is the recovery path after a pre-launch registry
 # wipe. Dispatching with the exchange-check input instead only
-# proves the trusted-publishing binding without publishing. Pushes
-# to main run no job here. No long-lived credential exists
-# anywhere in this workflow: `cabin publish` exchanges the run's OIDC
-# token for a short-lived registry token and revokes it on exit
+# proves the trusted-publishing binding without publishing. No
+# long-lived credential exists anywhere in this workflow: `cabin
+# publish` exchanges the run's OIDC token for a short-lived registry
+# token and revokes it on exit
 # (docs/remote-registry.md, "Publishing from GitHub Actions"). The
 # ports tree and this workflow live in cabinpkg/cabin - the
 # cabin-ports GitHub organization is the registry scope authority,
 # not a separate source repository.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -33,8 +31,8 @@ permissions:
   contents: read
 
 # A newer push to a PR branch cancels the PR's stale runs. Every other
-# event gets a per-run group: pushes, dispatches, calls, and schedules
-# are never cancelled or queued at the workflow level.
+# event gets a per-run group: dispatches are never cancelled or
+# queued at the workflow level.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -45,11 +43,10 @@ env:
 
 jobs:
   # Which shared path filters (.github/path-filters.yml) match this
-  # push or pull request; the jobs below skip when theirs does not.
-  # A skipped job still satisfies its required status check.
+  # pull request; the jobs below skip when theirs does not.
   changes:
-    # Only the pull-request dry-run consumes the filter: pushes run
-    # no job here and dispatches bypass the gate.
+    # Only the pull-request dry-run consumes the filter: dispatches
+    # bypass the gate.
     if: github.event_name == 'pull_request'
     # The gate's token comes from this job: a called workflow can
     # never exceed the calling job's permissions.
