@@ -1,0 +1,32 @@
+name: required-gate
+description: >-
+  Fail-closed aggregate behind a required check: pass when the guarded
+  job succeeded, or when the change gate succeeded and skipped it; fail
+  everything else, cancellation included.
+inputs:
+  result:
+    description: The guarded job's `needs.<job>.result`.
+    required: true
+  gate-result:
+    description: The change gate's `needs.changes.result`.
+    required: true
+  filter-values:
+    description: >-
+      The gate outputs the guarded job is conditioned on, joined with
+      commas; a skip only passes when every one is "false". The
+      full-string match keeps every bad shape failing closed: a
+      mis-wired output name expands to the empty string, and a stray
+      comma or "true" anywhere fails the same way.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RESULT: ${{ inputs.result }}
+        GATE_RESULT: ${{ inputs.gate-result }}
+        FILTER_VALUES: ${{ inputs.filter-values }}
+      run: |
+        if [ "$RESULT" = "success" ]; then exit 0; fi
+        [ "$RESULT" = "skipped" ] && [ "$GATE_RESULT" = "success" ] \
+          && [[ "$FILTER_VALUES" =~ ^false(,false)*$ ]]
