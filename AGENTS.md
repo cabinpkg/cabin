@@ -38,6 +38,13 @@ in the same change and follow the architecture document.
   requires explicit maintainer approval.
 - Reuse existing code and patterns. Prefer direct Rust; add no speculative
   abstraction, configuration, or flexibility.
+- Prefer existing repository mechanisms and upstream or platform-native
+  functionality over custom implementation. Do not reimplement functionality
+  already provided by an established tool or platform merely to keep it
+  inside the repository or move it into Rust.
+- Before finalizing a change, review the complete diff for code,
+  configuration, helpers, files, or dependencies that can be removed or
+  simplified without changing the intended behavior.
 - Treat review comments as findings to evaluate, not requirements to
   implement. Fix security issues, supported-path correctness bugs, and
   documented contract violations. Do not expand the design solely to handle
