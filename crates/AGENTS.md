@@ -35,7 +35,7 @@ rules that are easy to violate:
   responsibility with a new dependency set. Run aliases from the repository
   root because `registry/` is a separate workspace.
 
-## Test Portability
+## Test portability
 
 - No host-specific absolute paths (`/tmp/...`, `/usr/bin/...`) in
   integration tests; use `assert_fs::TempDir`. Fake POSIX absolute paths are
@@ -48,7 +48,7 @@ rules that are easy to violate:
 - No external internet access; protocol tests use a local `tiny_http`
   server on `127.0.0.1:0`.
 
-## Platform Notes
+## Platform portability
 
 - Keep paths and tool assumptions portable across Linux and macOS.
 - Windows/MSVC is supported. MSVC/GNU command-dialect and discovery
