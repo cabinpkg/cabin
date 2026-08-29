@@ -37,8 +37,9 @@ in the same change and follow the architecture document.
   as the source of truth rather than cloning its behavior. Owning a replacement
   parser, linter, formatter, protocol implementation, or compatibility layer
   requires explicit maintainer approval.
-- Reuse existing code and patterns. Prefer direct Rust; add no speculative
-  abstraction, configuration, or flexibility.
+- Reuse existing code and patterns. Within Cabin-owned Rust code, prefer
+  direct implementations over speculative abstraction, configuration, or
+  flexibility.
 - Before finalizing a change, review the complete diff for code,
   configuration, helpers, files, or dependencies that can be removed or
   simplified without changing the intended behavior.
@@ -110,8 +111,9 @@ in the same change and follow the architecture document.
 - Changes under `docs/`, `website/`, or `ports/` require the website gate
   defined in `website/AGENTS.md`. `cargo ci` runs it for those paths; run it
   manually if site output changes through another path.
-- Commit subjects use Conventional Commits, lower case, at most 100
-  characters.
+- Commit-message policy follows `@commitlint/config-conventional`; treat
+  upstream commitlint behavior as authoritative. The generated squash-merge
+  header must remain within its 100-character limit.
 
 ## Documentation sync
 
