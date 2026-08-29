@@ -67,7 +67,7 @@ fn the_canonical_call_site_passes() {
 }
 
 #[test]
-fn executed_sql_outside_sql_rs_is_caught() {
+fn executed_sql_outside_the_sql_module_is_caught() {
     // Each is a distinct way the executed-SQL invariant could be broken.
     let cases: &[(&str, &str)] = &[
         (

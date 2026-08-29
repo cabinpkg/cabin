@@ -10,8 +10,8 @@
 //! upsert additionally gets **executed** here: its two statements are
 //! coupled through `last_insert_rowid()`, which `prepare` cannot check.
 //!
-//! The executed-semantics tests live in one module per `src/sql/`
-//! statement module; the every-statement guarantee stays here, global.
+//! The executed-semantics tests are grouped by `src/sql/` statement
+//! domain; the every-statement guarantee stays here, global.
 #![cfg(not(target_arch = "wasm32"))]
 
 mod auth;
