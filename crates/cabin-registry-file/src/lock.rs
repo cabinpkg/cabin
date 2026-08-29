@@ -1,6 +1,7 @@
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crate::error::RegistryError;
 
@@ -29,14 +30,16 @@ pub struct RegistryLock {
 }
 
 impl RegistryLock {
-    /// Acquire the registry lock without blocking by taking an
-    /// exclusive OS lock on `<registry>/.cabin-registry.lock`.
+    /// Acquire the registry lock by taking an exclusive OS lock on
+    /// `<registry>/.cabin-registry.lock`, retrying a contended lock
+    /// for a short bounded grace instead of blocking indefinitely.
     ///
     /// # Errors
     /// Returns [`RegistryError::Locked`] when another process (or
-    /// another handle in this process) holds the lock, and
-    /// [`RegistryError::Io`] when creating the registry root or
-    /// opening / locking the lock file fails for any other reason.
+    /// another handle in this process) still holds the lock after
+    /// the grace, and [`RegistryError::Io`] when creating the
+    /// registry root or opening / locking the lock file fails for
+    /// any other reason.
     pub fn acquire(registry_root: &Path) -> Result<Self, RegistryError> {
         fs::create_dir_all(registry_root).map_err(|source| RegistryError::Io {
             path: registry_root.to_path_buf(),
@@ -66,10 +69,25 @@ impl RegistryLock {
                 path: path.clone(),
                 source,
             })?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { _file: file }),
-            Err(TryLockError::WouldBlock) => Err(RegistryError::Locked),
-            Err(TryLockError::Error(source)) => Err(RegistryError::Io { path, source }),
+        // A child process spawned by any thread inherits a copy of
+        // every open descriptor until its exec completes, so a lock
+        // another handle just released can read as held for a few
+        // extra milliseconds (observed up to ~8ms under spawn load).
+        // Retry briefly so `Locked` means a real concurrent holder.
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(TryLockError::WouldBlock) => {
+                    if Instant::now() >= deadline {
+                        return Err(RegistryError::Locked);
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(TryLockError::Error(source)) => {
+                    return Err(RegistryError::Io { path, source });
+                }
+            }
         }
     }
 
@@ -102,6 +120,24 @@ mod tests {
         drop(lock);
         // After release, a fresh acquire works.
         let _again = RegistryLock::acquire(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn acquire_absorbs_a_briefly_held_lock() {
+        // Models the spawn transient: a child forked by another
+        // thread keeps an inherited copy of the descriptor alive for
+        // a moment after the lock's owner released it. An acquire
+        // that starts during that moment must succeed via the grace
+        // retry instead of reporting `Locked`.
+        let dir = TempDir::new().unwrap();
+        let lock = RegistryLock::acquire(dir.path()).unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            drop(lock);
+        });
+        let reacquired = RegistryLock::acquire(dir.path());
+        holder.join().unwrap();
+        reacquired.unwrap();
     }
 
     #[test]
