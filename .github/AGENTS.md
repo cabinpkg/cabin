@@ -30,6 +30,3 @@ their cargo aliases or established external tools directly.
 - Required contexts for gated work must be non-matrix `if: always()`
   aggregates that fail closed when the change gate or work job fails or is
   cancelled. Protect the aggregate, never a skippable work or matrix job.
-- Workflow moves or renames must not break the test suite; tests must not
-  read `.github/` files or depend on a workflow path (root `AGENTS.md`
-  rule).
