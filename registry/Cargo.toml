@@ -47,7 +47,7 @@ js-sys = "=0.3.102"
 web-sys = "=0.3.102"
 wasm-bindgen-futures = "=0.4.75"
 
-# Host-target only: tests/sql_validation.rs prepares every executed
+# Host-target only: tests/sql_validation/ prepares every executed
 # statement (src/sql/) against the real migrated schema, and the
 # names module's parity test pins its mirrored DOS device stems to
 # cabin-fs's shared predicate. The wasm build never sees either.
