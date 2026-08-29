@@ -31,23 +31,12 @@ rules that are easy to violate:
 
 - Repository-owned automation and orchestration belongs in private,
   `publish = false` `crates/xtask-*` crates exposed through aliases in
-  `.cargo/config.toml`. Xtasks may invoke external tools; do not reimplement
-  those tools' functionality or compatibility semantics in an xtask solely
-  to eliminate the external dependency or runtime. Extend the owning xtask;
-  add one only for a new responsibility with a new dependency set. Run aliases
-  from the repository root because `registry/` is a separate workspace.
+  `.cargo/config.toml`. Extend the owning xtask; add one only for a new
+  responsibility with a new dependency set. Run aliases from the repository
+  root because `registry/` is a separate workspace.
 
-## Test Portability
+## Test portability
 
-- Tests that compile real C/C++ sources must gate on tools via helpers in
-  `crates/cabin/tests/common/mod.rs`: `require_cxx_build_tools` for C++-only
-  builds, `require_c_and_cxx_build_tools` when any `.c` source is compiled
-  (Cabin still resolves both CC and CXX). Pure data-model tests need no
-  gating.
-- CLI tests invoke Cabin through the shared `cabin()` helper so config,
-  toolchain, cache, color, and tool-override env vars are scrubbed. Tests
-  that exercise env precedence opt back in with `.env(KEY, VALUE)` after
-  calling `cabin()`; config-discovery tests use `cabin_with_config()`.
 - No host-specific absolute paths (`/tmp/...`, `/usr/bin/...`) in
   integration tests; use `assert_fs::TempDir`. Fake POSIX absolute paths are
   acceptable only in pure planner/model tests that never execute them.
@@ -59,13 +48,10 @@ rules that are easy to violate:
 - No external internet access; protocol tests use a local `tiny_http`
   server on `127.0.0.1:0`.
 
-## Platform Notes
+## Platform portability
 
-- Linux and macOS CI exercise the main Rust workspace; keep paths and tool
-  assumptions portable across both.
+- Keep paths and tool assumptions portable across Linux and macOS.
 - Windows/MSVC is supported. MSVC/GNU command-dialect and discovery
   differences live in `cabin-driver` / `cabin-toolchain` (see
   `../docs/toolchains.md`); avoid scattering `cfg(windows)` command policy
   in higher layers.
-- `pkg-config` and `run-clang-tidy` smoke tests are ignored on Windows
-  because those tools are unavailable on the CI runners.

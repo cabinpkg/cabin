@@ -10,10 +10,11 @@ in the same change and follow the architecture document.
 
 ## Scoped instructions and canonical docs
 
-- Read `crates/AGENTS.md` before changing `crates/`. For CLI work, also read
-  `crates/cabin/AGENTS.md`.
-- Read `website/AGENTS.md` before changing `website/` or docs rendering.
-  `docs/` contains the canonical Markdown rendered by the website.
+- Read `crates/AGENTS.md` before changing `crates/`. Before changing
+  `crates/cabin/`, also read `crates/cabin/AGENTS.md`.
+- Read `website/AGENTS.md` before changing `website/`, `docs/`, or `ports/`;
+  those paths share the website verification gate. `docs/` contains the
+  canonical Markdown rendered by the website.
 - Read `.github/AGENTS.md` before changing GitHub Actions workflows or other
   `.github/` configuration.
 - Use `RELEASING.md` for release procedure. Do not infer release policy from
@@ -28,20 +29,17 @@ in the same change and follow the architecture document.
   change would otherwise make an existing instruction factually incorrect.
 - Make the smallest coherent change required. Do not refactor, reformat,
   clean up, or remove unrelated code, including pre-existing dead code.
-- Prefer maintained upstream tools, libraries, platform features, and existing
-  repository mechanisms over repository-owned replacements. Do not reimplement
-  or compatibility-port third-party semantics merely to remove a dependency,
-  runtime, or implementation language.
+- Prefer existing repository mechanisms and maintained upstream tools,
+  libraries, and platform features over repository-owned replacements. Do not
+  reimplement or compatibility-port third-party semantics merely to remove a
+  dependency, runtime, or implementation language.
 - If exact behavioral parity with an external tool is required, use that tool
   as the source of truth rather than cloning its behavior. Owning a replacement
   parser, linter, formatter, protocol implementation, or compatibility layer
   requires explicit maintainer approval.
-- Reuse existing code and patterns. Prefer direct Rust; add no speculative
-  abstraction, configuration, or flexibility.
-- Prefer existing repository mechanisms and upstream or platform-native
-  functionality over custom implementation. Do not reimplement functionality
-  already provided by an established tool or platform merely to keep it
-  inside the repository or move it into Rust.
+- Reuse existing code and patterns. Within Cabin-owned Rust code, prefer
+  direct implementations over speculative abstraction, configuration, or
+  flexibility.
 - Before finalizing a change, review the complete diff for code,
   configuration, helpers, files, or dependencies that can be removed or
   simplified without changing the intended behavior.
@@ -58,8 +56,6 @@ in the same change and follow the architecture document.
   behavior is correct and secure, stop.
 - Comments explain non-obvious constraints, compatibility requirements, or
   rationale. Do not restate mechanics that clearer code can express.
-- Business logic belongs in its owning crate. `crates/cabin` parses flags,
-  calls typed APIs, and renders results.
 - Do not implement features listed as deferred or "not implemented" in
   `docs/architecture.md`. Unknown future syntax must use generic
   `deny_unknown_fields` or clap unknown-flag diagnostics, not tailored
@@ -100,13 +96,7 @@ in the same change and follow the architecture document.
 
 - Cabin-specific repository automation and orchestration belongs in private
   Rust `crates/xtask-*` crates run through cargo aliases; see
-  `crates/AGENTS.md` "Repository automation (xtasks)". Xtasks may invoke
-  established external tools; do not absorb or reproduce those tools'
-  semantics merely to keep the orchestration in Rust.
-- Moving automation to an xtask, removing a runtime, or removing a dependency
-  does not by itself authorize reimplementing the removed tool. If the stated
-  constraints would require a compatibility implementation, surface that
-  conflict instead of creating one without explicit maintainer approval.
+  `crates/AGENTS.md` "Repository automation (xtasks)".
 - Do not reintroduce shell or Perl repository tooling. This restriction does
   not cover product or website source, npm scripts, `Dockerfile`, `demo.tape`,
   devcontainer provisioning, or normal invocation/configuration of external
@@ -116,17 +106,17 @@ in the same change and follow the architecture document.
 
 - Run `cargo ci` from the repository root. It scopes expensive checks to
   changes relative to `origin/main`.
-- Changes under `docs/`, `website/`, or `ports/` require the website gate:
-  from `website/`, run `npm ci`, `npm run lint`, `npm test`, and
-  `npm run build`. `cargo ci` runs these for those paths; run them manually if
-  site output changes through another path.
-- Commit subjects use Conventional Commits, lower case, at most 100
-  characters.
+- Changes under `docs/`, `website/`, or `ports/` require the website gate
+  defined in `website/AGENTS.md`. `cargo ci` runs it for those paths; run it
+  manually if site output changes through another path.
+- Commit-message policy follows `@commitlint/config-conventional`; treat
+  upstream commitlint behavior as authoritative. The generated squash-merge
+  header must remain within its 100-character limit.
 
 ## Documentation sync
 
 - Update the matching `docs/` page with user-visible behavior or architecture
-  changes. Add new `docs/*.md` pages to `website/src/lib/docsNav.ts`.
+  changes.
 - Update `website/` in the same change, or identify the required follow-up,
   when changing product positioning, supported languages or platforms,
   installation, top-level commands, or package-page snippets.
