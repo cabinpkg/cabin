@@ -36,8 +36,8 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Login-session tokens (`cabin login`) | `src/session_tokens.rs` |
 | Trusted publishing (Actions OIDC) | `src/trustpub.rs` |
 | Verification lifecycle and read gate | `src/verify.rs` |
-| Read-plane documents, source viewer, errors | `src/documents.rs`, `src/source.rs`, `src/error.rs`, `src/stats.rs` |
-| SQL statements (one authoritative home) | `src/sql.rs`, validated by `tests/sql_validation.rs` |
+| Served documents, source viewer, public stats, errors | `src/documents.rs`, `src/source.rs`, `src/stats.rs`, `src/error.rs` |
+| D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs`) | `src/sql.rs`, validated by `tests/sql_validation.rs` |
 | Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
 | Cloudflare runtime glue (wasm32) | `src/glue.rs` (dispatch, read plane, Bearer planes), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
@@ -63,7 +63,8 @@ cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-unknown-unknown -- -D warnings
 ```
 
-From the repository root, the CI-only lexical guards: `cargo check-sql`,
+From the repository root, the static guards no local gate runs for you
+(CI does): `cargo check-sql`,
 `cargo check-r2`, `cargo check-deploy` (CI runs the latter with
 `--require-bundle` against a built Worker, and also the publish-fixture
 conformance test — `README.md`, "Development"). For changes to dispatch,
