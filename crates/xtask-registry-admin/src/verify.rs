@@ -91,7 +91,7 @@
 //!   exact parity is not stable even against the runner's own `jq` -
 //!   and every field this loop reads (`name`, `version`, `revision`,
 //!   `checksum`, `published_at`) the production listing types as a
-//!   string (`registry/src/glue.rs`, `AdminVersionRecord`);
+//!   string (`registry/src/glue/bearer.rs`, `AdminVersionRecord`);
 //!   `published_by` is its one integer, and nothing here reads it.
 //!   `jq`'s own input extensions - `NaN` and kin read as `null`,
 //!   lenient numeric forms like a leading zero, `+1` or `1.`, lone
@@ -99,7 +99,7 @@
 //! - every parse here carries `serde_json`'s 128-level recursion cap,
 //!   where `jq` read deeper.  The registry parses each metadata
 //!   document with the same cap at publish and again when the listing
-//!   embeds it (`registry/src/publish.rs`, `registry/src/glue.rs`), so
+//!   embeds it (`registry/src/publish.rs`, `registry/src/glue/bearer.rs`), so
 //!   only a document within the listing wrapper's few levels of the
 //!   cap can thread the needle - and it aborts the run fail-safe
 //!   (everything stays pending, the run goes red) where the shell
