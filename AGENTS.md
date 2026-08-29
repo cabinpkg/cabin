@@ -118,7 +118,7 @@ in the same change and follow the architecture document.
 ## Documentation sync
 
 - Update the matching `docs/` page with user-visible behavior or architecture
-  changes. Add new `docs/*.md` pages to `website/src/lib/docsNav.ts`.
+  changes.
 - Update `website/` in the same change, or identify the required follow-up,
   when changing product positioning, supported languages or platforms,
   installation, top-level commands, or package-page snippets.
