@@ -1,8 +1,8 @@
 //! The SQL consolidation guard (`registry/docs/architecture.md`, "Why no
 //! ORM").
 //!
-//! Every SQL statement the Worker executes must live in `src/sql.rs`,
-//! where `tests/sql_validation.rs` prepares it against the real migrated
+//! Every SQL statement the Worker executes must live in `src/sql/`,
+//! where `tests/sql_validation/` prepares it against the real migrated
 //! schema.  This guard keeps executed SQL from growing outside that
 //! module: the two literal patterns below must never appear, every
 //! `prepare()` call must name a `sql::` const, and D1's unprepared
@@ -101,7 +101,7 @@ pub fn check(registry_dir: &Path) -> Result<Vec<String>> {
 fn scan(source: &[u8], file: &str) -> Vec<String> {
     let mut violations = Vec::new();
     // The governor's Durable Object SQLite statements have their own
-    // consolidated home with the same assurance model as sql.rs: every
+    // consolidated home with the same assurance model as sql/: every
     // statement is a module-local const in src/governor.rs, executed by
     // the engine and prepared against the real governor schema by its
     // host tests.  So src/governor.rs may exec a bare SCREAMING_CASE

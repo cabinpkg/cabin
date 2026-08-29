@@ -1,7 +1,7 @@
 //! Regression cases for the SQL consolidation guard (see
 //! `registry/docs/architecture.md`, "Why no ORM"): the guard runs
 //! against a scratch tree whose `src/` holds one synthetic call site, so
-//! every way executed SQL could grow outside `src/sql.rs` - a literal, a
+//! every way executed SQL could grow outside `src/sql/` - a literal, a
 //! `format!`, a dynamic argument, the multi-line spelling, the
 //! raw-identifier and UFCS spellings, and D1's unprepared `exec` - stays
 //! caught. An untested guard is the one that rots.
@@ -67,7 +67,7 @@ fn the_canonical_call_site_passes() {
 }
 
 #[test]
-fn executed_sql_outside_sql_rs_is_caught() {
+fn executed_sql_outside_the_sql_module_is_caught() {
     // Each is a distinct way the executed-SQL invariant could be broken.
     let cases: &[(&str, &str)] = &[
         (
@@ -147,7 +147,7 @@ fn executed_sql_outside_sql_rs_is_caught() {
         .collect();
     assert!(
         escaped.is_empty(),
-        "the guard accepted executed SQL outside src/sql.rs: {escaped:?}"
+        "the guard accepted executed SQL outside src/sql/: {escaped:?}"
     );
 }
 
