@@ -29,22 +29,26 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Area | Modules |
 | --- | --- |
 | Route matching, role-per-hostname, path validation | `src/routes.rs` |
-| Publish validation and policy | `src/publish.rs` (+ `src/names.rs`, `src/quota.rs`; runtime write path in `src/glue.rs`) |
-| Scope claims and membership rules | `src/claim.rs` |
+| Publish validation and policy | `src/publish.rs` (+ `src/names.rs`, `src/quota.rs`, `src/checksum.rs`; runtime write path in `src/glue.rs`) |
+| Scope-claim grant rules | `src/claim.rs` |
+| Session-plane user API, membership management | `src/user_api.rs` |
 | Bearer tokens, scopes, auth header | `src/auth.rs` |
 | Login-session tokens (`cabin login`) | `src/session_tokens.rs` |
 | Trusted publishing (Actions OIDC) | `src/trustpub.rs` |
 | Verification lifecycle and read gate | `src/verify.rs` |
-| Served JSON documents and errors | `src/documents.rs`, `src/error.rs`, `src/stats.rs`, `src/user_api.rs` |
+| Read-plane documents, source viewer, errors | `src/documents.rs`, `src/source.rs`, `src/error.rs`, `src/stats.rs` |
 | SQL statements (one authoritative home) | `src/sql.rs`, validated by `tests/sql_validation.rs` |
 | Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
 | Cloudflare runtime glue (wasm32) | `src/glue.rs` (dispatch, read plane, Bearer planes), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
 
+The table routes the common areas; the complete module inventory is
+`docs/architecture.md` "Code layout".
+
 Unless the task is about them, do not read or touch the governor and
-breaker, the backup modules, `migrations/` (append-only, applied manually),
-`wrangler.jsonc` (deployment), or the root-workspace `crates/xtask-*`
-registry tooling.
+breaker, the backup modules, `migrations/` (schema-change policy in
+`docs/runbook.md`), `wrangler.jsonc` (deployment), or the root-workspace
+`crates/xtask-*` registry tooling.
 
 ## Checks
 

@@ -112,6 +112,8 @@ in the same change and follow the architecture document.
 - Changes under `docs/`, `website/`, or `ports/` require the website gate
   defined in `website/AGENTS.md`. `cargo ci` runs it for those paths; run it
   manually if site output changes through another path.
+- Changes under `registry/` require the registry checks listed in
+  `registry/AGENTS.md`; `cargo ci` does not run them.
 - Commit-message policy follows `@commitlint/config-conventional`; treat
   upstream commitlint behavior as authoritative. The generated squash-merge
   header must remain within its 100-character limit.
