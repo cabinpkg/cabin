@@ -1,4 +1,4 @@
-name: Audit GitHub Actions workflows
+name: Audit GH Actions
 
 # Not a required check, and it audits only .github/. The filtered main
 # push re-audits the final state after relevant merges (there is no
@@ -24,7 +24,6 @@ concurrency:
 
 jobs:
   zizmor:
-    name: Run zizmor
     runs-on: ubuntu-slim
     permissions:
       contents: read # checkout of this repository only
