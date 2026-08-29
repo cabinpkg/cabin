@@ -50,11 +50,8 @@ rules that are easy to violate:
 
 ## Platform Notes
 
-- Linux and macOS CI exercise the main Rust workspace; keep paths and tool
-  assumptions portable across both.
+- Keep paths and tool assumptions portable across Linux and macOS.
 - Windows/MSVC is supported. MSVC/GNU command-dialect and discovery
   differences live in `cabin-driver` / `cabin-toolchain` (see
   `../docs/toolchains.md`); avoid scattering `cfg(windows)` command policy
   in higher layers.
-- `pkg-config` and `run-clang-tidy` smoke tests are ignored on Windows
-  because those tools are unavailable on the CI runners.
