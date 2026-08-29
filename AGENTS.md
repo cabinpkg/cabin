@@ -12,6 +12,9 @@ in the same change and follow the architecture document.
 
 - Read `crates/AGENTS.md` before changing `crates/`. Before changing
   `crates/cabin/`, also read `crates/cabin/AGENTS.md`.
+- Read `registry/AGENTS.md` before changing `registry/`; it routes registry
+  work to the owning module and names the registry-specific checks, which
+  `cargo ci` does not cover.
 - Read `website/AGENTS.md` before changing `website/`, `docs/`, or `ports/`;
   those paths share the website verification gate. `docs/` contains the
   canonical Markdown rendered by the website.
