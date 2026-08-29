@@ -49,8 +49,8 @@ directory.
 
 ## Verification
 
-- Use the website checks required by the root `AGENTS.md`: `npm ci`,
-  `npm run lint`, `npm run build`, and `npm test`.
+- The website gate referenced by the root `AGENTS.md` is `npm ci`,
+  `npm run lint`, `npm test`, and `npm run build`.
 - `npm run build` runs type checking, the Astro production build, and
   `npm run verify`. The verify scripts check generated `dist/` output for CSP,
   docs links, progressive independence, and meaningful script-less content.
