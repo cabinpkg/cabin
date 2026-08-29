@@ -9,6 +9,10 @@ through an xtask; their semantics do not belong in the xtask.
 - Do not put substantial logic in workflow `run:` blocks: loops,
   conditionals, functions, traps, heredocs, or embedded `node`, Python, or
   Perl. Plain command invocations remain inline.
+- When the same configuration or command is repeated across workflow steps,
+  prefer the narrowest native workflow- or job-level mechanism that preserves
+  the same semantics. Do not introduce a custom abstraction merely to remove
+  incidental duplication.
 - A workflow that backs a required check must trigger on pull requests
   and `merge_group`, without trigger-level `paths:` filters. Scope
   expensive work at the job level with `.github/path-filters.yml`.
