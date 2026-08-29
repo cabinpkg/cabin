@@ -204,7 +204,7 @@ mod tests {
     }
 
     /// The migrations applied to an in-memory database, as
-    /// `tests/sql_validation.rs` applies them. Duplicated here (an
+    /// `tests/sql_validation/` applies them. Duplicated here (an
     /// integration test cannot reach unit-test fixtures, and the fake
     /// provider lives in this module) so the mint flow below runs end
     /// to end: the fake GitHub through [`resolve_github_id`], then the
@@ -213,7 +213,7 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().expect("open in-memory sqlite");
         conn.pragma_update(None, "foreign_keys", true)
             .expect("enable foreign_keys");
-        // D1 parity, like tests/sql_validation.rs's copy: patterns
+        // D1 parity, like tests/sql_validation/'s copy: patterns
         // evaluate under D1's 50-byte LIKE/GLOB cap here too, so a
         // statement this module exercises cannot pass on host defaults
         // while failing in production.

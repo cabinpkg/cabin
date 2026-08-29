@@ -23,7 +23,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Guard {
-    /// Executed SQL must stay inside src/sql.rs.
+    /// Executed SQL must stay inside src/sql/.
     CheckSql,
     /// R2 bucket handles may only be acquired in the pinned,
     /// governor-admitting functions.
@@ -70,7 +70,7 @@ fn run(cli: &Cli) -> Result<bool> {
         }
         Guard::CheckSql => (
             sql::check(&directory)?,
-            "error: executed SQL outside src/sql.rs; \
+            "error: executed SQL outside src/sql/; \
              route the statements above through sql:: consts",
         ),
         Guard::CheckR2 => (

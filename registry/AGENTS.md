@@ -37,7 +37,7 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Trusted publishing (Actions OIDC) | `src/trustpub.rs` |
 | Verification lifecycle and read gate | `src/verify.rs` |
 | Served documents, source viewer, public stats, errors | `src/documents.rs`, `src/source.rs`, `src/stats.rs`, `src/error.rs` |
-| D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs` and `src/governor_do.rs`) | `src/sql.rs`, validated by `tests/sql_validation.rs` |
+| D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs` and `src/governor_do.rs`) | `src/sql/` (one module per domain), validated by `tests/sql_validation/` |
 | Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
 | Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer.rs` mutation/admin planes, `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |

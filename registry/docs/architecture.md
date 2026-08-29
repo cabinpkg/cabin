@@ -1345,7 +1345,7 @@ for the governor Durable Object and `src/governor_client.rs` for its
 Worker-side client, wasm32 only) is thin
 binding-and-I/O wiring covered by
 `cargo registry-smoke`. Every D1 statement the glue executes is a named
-const in `src/sql.rs`, schema-validated at test time and guarded in CI
+const in `src/sql/`, schema-validated at test time and guarded in CI
 (see "Why no ORM" below; the guard grants `src/governor.rs` and its
 adapter the same consolidated-home treatment for the Durable Object's
 SQLite statements). Read-plane path
@@ -1426,8 +1426,8 @@ would actually buy is covered without one:
   explicit batches with their guards spelled out in SQL.
 - **Typo and schema-drift assurance** - what an ORM's typed columns
   would catch at compile time - comes at test time instead: every
-  executed statement is a named const in `src/sql.rs`, and
-  `tests/sql_validation.rs` prepares each one with `rusqlite` against
+  executed statement is a named const in `src/sql/` (one module per
+  domain), and `tests/sql_validation/` prepares each one with `rusqlite` against
   the real schema, freshly migrated from zero (D1 speaks `SQLite`'s
   dialect for everything the service uses). `cargo check-sql`,
   run by CI, keeps executed SQL from growing outside that module.
