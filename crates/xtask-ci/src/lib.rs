@@ -180,7 +180,9 @@ impl Gate {
     /// If the program cannot be spawned or exits non-zero.
     pub fn step(&mut self, name: &str, command: &mut Command) -> Result<()> {
         self.say(&format!("==> {name}"))?;
-        command.current_dir(&self.root);
+        if command.get_current_dir().is_none() {
+            command.current_dir(&self.root);
+        }
         let status = if self.capture {
             // A serial child inherits stdout by default, which in hook
             // mode would put compiler output ahead of the JSON.

@@ -25,6 +25,14 @@ jobs:
   # of work, dominated by checkout and setup.
   commitlint:
     runs-on: ubuntu-slim
+    # Run steps work from .github/commitlint so commitlint picks up
+    # the committed config and locked node_modules; git discovery
+    # still resolves the repository from that subdirectory.  Only
+    # run: steps are affected; uses: steps (checkout, typos) keep
+    # scanning from the repository root.
+    defaults:
+      run:
+        working-directory: .github/commitlint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,16 +49,12 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: lts/*
+          cache: npm
+          cache-dependency-path: .github/commitlint/package-lock.json
 
       - name: Install commitlint
         if: github.event_name != 'merge_group'
-        # zizmor: ignore[adhoc-packages] -- accepted CI-integrity risk; adding a root Node manifest + lockfile for this lint-only tool is a dedicated tooling follow-up
-        run: npm install -D @commitlint/cli @commitlint/config-conventional
-
-      - name: Setup commitlint
-        if: github.event_name != 'merge_group'
-        run: |
-          echo "export default { extends: ['@commitlint/config-conventional'] };" > commitlint.config.js
+        run: npm ci --ignore-scripts
 
       - name: Print versions
         if: github.event_name != 'merge_group'
