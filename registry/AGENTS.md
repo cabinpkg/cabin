@@ -13,8 +13,8 @@ restating their invariants.
 - `docs/architecture.md` — the hosted service: storage, origins and roles,
   credential planes, the write path, the verification lifecycle, the
   governor and breaker, code layout.
-- `docs/runbook.md` — operations: provisioning, wipe, deploys, incident
-  procedure. Needed for ops work, not for code changes.
+- `docs/runbook.md` — operations: provisioning, wipe, deploys, migrations
+  policy, incident procedure.
 
 Do not read `README.md` or these documents end to end by default; jump to
 the section the change needs.
@@ -31,7 +31,7 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Route matching, role-per-hostname, path validation | `src/routes.rs` |
 | Publish validation and policy | `src/publish.rs` (+ `src/names.rs`, `src/quota.rs`, `src/checksum.rs`; runtime write path in `src/glue.rs`) |
 | Scope-claim grant rules | `src/claim.rs` |
-| Session-plane user API, membership management | `src/user_api.rs` |
+| Session-plane user API shapes, membership validation | `src/user_api.rs` (runtime handlers in `src/web_glue.rs`) |
 | Bearer tokens, scopes, auth header | `src/auth.rs` |
 | Login-session tokens (`cabin login`) | `src/session_tokens.rs` |
 | Trusted publishing (Actions OIDC) | `src/trustpub.rs` |
@@ -42,8 +42,9 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
 | Cloudflare runtime glue (wasm32) | `src/glue.rs` (dispatch, read plane, Bearer planes), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
 
-The table routes the common areas; the complete module inventory is
-`docs/architecture.md` "Code layout".
+The table routes the common areas; for anything else, the module doc
+comments in `src/` and `docs/architecture.md` "Code layout" identify the
+owner.
 
 Unless the task is about them, do not read or touch the governor and
 breaker, the backup modules, `migrations/` (schema-change policy in
@@ -63,6 +64,8 @@ cargo clippy --target wasm32-unknown-unknown -- -D warnings
 ```
 
 From the repository root, the CI-only lexical guards: `cargo check-sql`,
-`cargo check-r2`, `cargo check-deploy`. For changes to dispatch, routing, or
-another end-to-end surface, also run the local smoke test:
+`cargo check-r2`, `cargo check-deploy` (CI runs the latter with
+`--require-bundle` against a built Worker, and also the publish-fixture
+conformance test — `README.md`, "Development"). For changes to dispatch,
+routing, or another end-to-end surface, also run the local smoke test:
 `CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke`.
