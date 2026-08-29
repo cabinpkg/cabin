@@ -56,8 +56,6 @@ in the same change and follow the architecture document.
   behavior is correct and secure, stop.
 - Comments explain non-obvious constraints, compatibility requirements, or
   rationale. Do not restate mechanics that clearer code can express.
-- Business logic belongs in its owning crate. `crates/cabin` parses flags,
-  calls typed APIs, and renders results.
 - Do not implement features listed as deferred or "not implemented" in
   `docs/architecture.md`. Unknown future syntax must use generic
   `deny_unknown_fields` or clap unknown-flag diagnostics, not tailored
