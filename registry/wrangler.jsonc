@@ -57,7 +57,7 @@
         { "pattern": "cabinpkg.com/claim/*", "zone_name": "cabinpkg.com" }
     ],
     // The budget-breaker evaluation plus the nightly D1 dump
-    // (src/glue.rs `scheduled` routes on the expression: the
+    // (src/glue/mod.rs `scheduled` routes on the expression: the
     // breaker's `*/15 * * * *` exactly, any other schedule runs
     // the backup job); ~100 invocations/day, negligible against
     // the free limits.
@@ -137,7 +137,7 @@
     // accept unauthenticated traffic and can be made to fetch GitHub's
     // JWKS (src/trustpub.rs, the unknown-kid refetch). Two budgets:
     // OIDC_LIMITER is the per-client-IP gate spent before any JWT work
-    // (glue.rs `oidc_admission`; its 429 carries a Retry-After of the
+    // (glue/bearer.rs `oidc_admission`; its 429 carries a Retry-After of the
     // period below), and JWKS_LIMITER is the single-key global bound
     // on cache-bypass JWKS refetches (trustpub.rs `GithubJwks`).
     // `cargo check-deploy` requires both bindings; the worker fails

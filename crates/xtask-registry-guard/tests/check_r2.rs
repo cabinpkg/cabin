@@ -17,8 +17,9 @@ use xtask_registry_guard::{r2, registry_dir};
 /// A scratch registry tree whose `src/<file>` holds `call_site`.
 fn scratch(file: &str, call_site: &str) -> assert_fs::TempDir {
     let dir = assert_fs::TempDir::new().expect("scratch tree");
-    fs::create_dir_all(dir.path().join("src")).expect("create scratch src/");
-    fs::write(dir.path().join("src").join(file), call_site).expect("write the call site");
+    let path = dir.path().join("src").join(file);
+    fs::create_dir_all(path.parent().expect("src parent")).expect("create scratch src/");
+    fs::write(path, call_site).expect("write the call site");
     dir
 }
 
@@ -35,7 +36,7 @@ fn guard_accepts_in(file: &str, call_site: &str) -> bool {
 #[test]
 fn the_canonical_call_sites_pass() {
     let accepted = guard_accepts_in(
-        "glue.rs",
+        "glue/read.rs",
         concat!(
             "async fn artifact_response(env: &Env) -> worker::Result<Response> {\n",
             "    let Some(object) = env.bucket(\"BLOBS\")?.get(&key).execute().await? else {\n",
@@ -134,7 +135,7 @@ fn unsanctioned_acquisitions_are_caught() {
     ];
     let escaped: Vec<&str> = cases
         .iter()
-        .filter(|(_, call_site)| guard_accepts_in("glue.rs", call_site))
+        .filter(|(_, call_site)| guard_accepts_in("glue/read.rs", call_site))
         .map(|(name, _)| *name)
         .collect();
     assert!(
@@ -143,7 +144,7 @@ fn unsanctioned_acquisitions_are_caught() {
     );
 }
 
-/// The pins are file-scoped: a sanctioned glue.rs function does not
+/// The pins are file-scoped: a sanctioned glue/read.rs function does not
 /// sanction the same name elsewhere, and a pinned function that no
 /// longer acquires its bucket is drift the pin must follow.
 #[test]
@@ -153,7 +154,7 @@ fn the_pins_are_file_scoped_and_track_drift() {
         "async fn artifact_response(env: &Env) { let b = env.bucket(\"BLOBS\")?; }",
     ));
     assert!(!guard_accepts_in(
-        "glue.rs",
+        "glue/read.rs",
         "async fn artifact_response(env: &Env) { serve_from_cache(env).await }",
     ));
 }
@@ -180,7 +181,7 @@ fn a_drifted_pin_names_its_counts() {
 #[test]
 fn drifted_pins_are_reported_in_name_order() {
     let dir = scratch(
-        "glue.rs",
+        "glue/bearer.rs",
         // Chosen so the allowlist order and the alphabetical order
         // disagree: `persist_new_revision` is pinned before
         // `delete_blob_if_unreferenced` but sorts after it.

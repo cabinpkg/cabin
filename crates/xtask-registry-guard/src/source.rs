@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result};
 /// One file under the scanned tree.
 pub struct Source {
     /// Slash-separated and prefixed exactly as the guard reports it
-    /// (`src/glue.rs`), so diagnostics read the same on every platform.
+    /// (`src/glue/read.rs`), so diagnostics read the same on every platform.
     pub relative: String,
     pub path: PathBuf,
 }

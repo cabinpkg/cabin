@@ -13,9 +13,9 @@
 //! Two things differ from the Perl guard this replaces.  Violations come
 //! out sorted by path rather than in `find`'s directory order.  And the
 //! allowlist keys on the reported path exactly, where the Perl matched
-//! any path ENDING in a sanctioned one - so a nested `src/x/src/glue.rs`
-//! no longer inherits `src/glue.rs`'s pins.  Nothing else about which
-//! call sites are accepted changes.
+//! any path ENDING in a sanctioned one - so a nested
+//! `src/x/src/glue/read.rs` no longer inherits `src/glue/read.rs`'s
+//! pins.  Nothing else about which call sites are accepted changes.
 //!
 //! ponytail: pins where handles are acquired, not that every use is
 //! admitted - a new call inside an already-pinned function passes, and a
@@ -36,18 +36,20 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 
 /// (reported path) => \[(enclosing fn, sanctioned acquisition count)\].
 ///
-/// `glue.rs`: the four request-path acquisitions are each immediately
+/// `glue/`: the four request-path acquisitions are each immediately
 /// preceded by a governor decide (artifact/read/publish paths), the
 /// reclaim delete is R2's one free operation, and the heal helper admits
 /// per call inside.  `web_glue`'s source viewer and `backup_glue`'s jobs
 /// (the dump job, and the queue drain that acquires both buckets once
 /// per pass) admit before every billable call.
-const SANCTIONED: [(&str, &[(&str, usize)]); 3] = [
+const SANCTIONED: [(&str, &[(&str, usize)]); 4] = [
     (
-        "src/glue.rs",
+        "src/glue/read.rs",
+        &[("artifact_response", 1), ("charged_blob_read", 1)],
+    ),
+    (
+        "src/glue/bearer.rs",
         &[
-            ("artifact_response", 1),
-            ("charged_blob_read", 1),
             ("persist_new_revision", 1),
             ("revive_rejected_revision", 1),
             ("delete_blob_if_unreferenced", 1),

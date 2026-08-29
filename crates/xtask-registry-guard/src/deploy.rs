@@ -33,14 +33,14 @@ use std::path::Path;
 
 use serde_json::Value;
 
-/// The bindings the Worker code looks up by name (`src/glue.rs`,
+/// The bindings the Worker code looks up by name (`src/glue/`,
 /// `src/web_glue.rs`, `src/backup_glue.rs`, `src/governor_client.rs`).
 const DATABASE: &str = "cabin-registry";
 const BLOBS_BUCKET: &str = "cabin-registry-blobs";
 const BACKUP_BUCKET: &str = "cabin-registry-backup";
 
 /// The scheduled handler routes on the exact breaker expression; any
-/// other schedule runs the nightly dump (`src/glue.rs`). The daily dump
+/// other schedule runs the nightly dump (`src/glue/mod.rs`). The daily dump
 /// cadence is pinned literally - a monthly rehearsal schedule may be
 /// ADDED, but replacing it would quietly stretch the documented <= 24 h
 /// metadata RPO.
@@ -53,7 +53,7 @@ const DUMP_CRON: &str = "0 3 * * *";
 const DEPLOYED_V1_MIGRATION: &str = r#"{"tag":"v1","new_sqlite_classes":["Governor"]}"#;
 
 /// The ratelimit bindings the OIDC admission control looks up by name
-/// (`src/glue.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
+/// (`src/glue/bearer.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
 /// Both fail closed at runtime when missing - the exchange and verdict
 /// endpoints then refuse everything - so a lost or renamed binding
 /// belongs to CI, not to an undrainable verification queue.
@@ -463,7 +463,7 @@ fn validate_limit_vars(config: &Value, failures: &mut Vec<String>) {
         );
         // Mirror each family's runtime parser exactly: the governor
         // trims before parsing (`src/governor.rs`), the breaker parses
-        // the raw string (`src/glue.rs` env_budget) - so a
+        // the raw string (`src/glue/cron.rs` env_budget) - so a
         // whitespace-padded BUDGET_* value would silently revert to the
         // default at runtime and must be refused here, while the same
         // padding on a GOVERNOR_* var is fine. A value past u64::MAX
