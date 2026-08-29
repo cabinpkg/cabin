@@ -138,17 +138,20 @@ in the same change and follow the architecture document.
   broken, untestable, unsafe, misleading, or meaningless intermediate state.
 - If work needs multiple PRs, state their order and responsibility. Handle
   dependent PRs sequentially: do not start or open a later dependent branch
-  or PR until the current PR is approved, green, rebased or autosquashed as
-  needed, squash-merged, and the local default branch is updated. Independent
-  PRs may overlap in time only when they do not overlap in scope.
-- Normally keep the initial implementation in one cohesive commit. Fixup
-  commits for review feedback, CI failures, test corrections, or small
-  omissions are allowed when they remain within the PR's scope.
+  or PR until the current PR has no blocking review findings, is green,
+  squash-merged, and the local default branch is updated. Independent PRs may
+  overlap in time only when they do not overlap in scope.
 - Before opening or updating a PR, run the relevant checks and report their
   results. Fix failures caused by the change.
-- Squash merge only. Merge after required approval, passing required checks,
-  and resolution of all review comments and requested changes. Resolving a
-  review comment does not imply implementing it: reject findings that are
-  incorrect, speculative, out of scope, or disproportionately complex, with
-  a concise rationale. Delete the merged branch when authorized; otherwise
-  stop when the PR is ready for an authorized maintainer.
+- Keep the initial implementation in one cohesive commit. Once a PR is open,
+  fixup commits for review feedback, CI failures, test corrections, or small
+  omissions are allowed when they remain within the PR's scope. Do not rewrite
+  commit history solely to prepare a PR for squash merge.
+- After a content-changing fixup, obtain a fresh review of the updated PR
+  before merge.
+- If you have permission, squash merge once the latest review reports no
+  blocking findings, required checks pass, and all review comments and
+  requested changes are resolved. Resolving a review comment does not imply
+  implementing it: reject findings that are incorrect, speculative, out of
+  scope, or disproportionately complex, with a concise rationale. Delete the
+  merged branch.
