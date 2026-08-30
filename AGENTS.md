@@ -148,10 +148,10 @@ in the same change and follow the architecture document.
   overlap in time only when they do not overlap in scope.
 - Before opening or updating a PR, run the relevant checks and report their
   results. Fix failures caused by the change.
-- Keep the initial implementation in one cohesive commit. Once a PR is open,
-  fixup commits for review feedback, CI failures, test corrections, or small
-  omissions are allowed when they remain within the PR's scope. Do not rewrite
-  commit history solely to prepare a PR for squash merge.
+- Open a PR as one cohesive commit; its subject becomes the PR title. Once a
+  PR is open, land review feedback, CI failures, test corrections, and small
+  omissions as ordinary commits on top, within the PR's scope. Do not rewrite
+  pushed commit history to prepare a PR for squash merge.
 - After any content change, obtain a fresh review of the updated PR before
   merge.
 - If you have permission, squash merge once the latest review reports no
