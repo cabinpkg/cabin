@@ -42,19 +42,22 @@ const PIN_SITE: &str = "crates/xtask-registry-guard/src/r2.rs";
 /// per call inside.  `web_glue`'s source viewer and `backup_glue`'s jobs
 /// (the dump job, and the queue drain that acquires both buckets once
 /// per pass) admit before every billable call.
-const SANCTIONED: [(&str, &[(&str, usize)]); 4] = [
+const SANCTIONED: [(&str, &[(&str, usize)]); 5] = [
     (
         "src/glue/read.rs",
         &[("artifact_response", 1), ("charged_blob_read", 1)],
     ),
     (
-        "src/glue/bearer.rs",
+        "src/glue/bearer/package.rs",
         &[
             ("persist_new_revision", 1),
             ("revive_rejected_revision", 1),
-            ("delete_blob_if_unreferenced", 1),
             ("heal_blobs_on_retry", 1),
         ],
+    ),
+    (
+        "src/glue/bearer/verifier.rs",
+        &[("delete_blob_if_unreferenced", 1)],
     ),
     ("src/web_glue.rs", &[("package_source", 1)]),
     (

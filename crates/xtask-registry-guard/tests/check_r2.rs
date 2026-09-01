@@ -181,21 +181,18 @@ fn a_drifted_pin_names_its_counts() {
 #[test]
 fn drifted_pins_are_reported_in_name_order() {
     let dir = scratch(
-        "glue/bearer.rs",
+        "glue/bearer/package.rs",
         // Chosen so the allowlist order and the alphabetical order
         // disagree: `persist_new_revision` is pinned before
-        // `delete_blob_if_unreferenced` but sorts after it.
-        "fn persist_new_revision() {}\nfn delete_blob_if_unreferenced() {}\n",
+        // `heal_blobs_on_retry` but sorts after it.
+        "fn persist_new_revision() {}\nfn heal_blobs_on_retry() {}\n",
     );
     let violations = r2::check(dir.path()).expect("run the guard");
     let names: Vec<&str> = violations
         .iter()
         .map(|line| line.split_whitespace().nth(1).expect("the function name"))
         .collect();
-    assert_eq!(
-        names,
-        vec!["delete_blob_if_unreferenced", "persist_new_revision"]
-    );
+    assert_eq!(names, vec!["heal_blobs_on_retry", "persist_new_revision"]);
 }
 
 /// An acquisition outside every function is attributed to no function

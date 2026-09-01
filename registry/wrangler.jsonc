@@ -137,7 +137,7 @@
     // accept unauthenticated traffic and can be made to fetch GitHub's
     // JWKS (src/trustpub.rs, the unknown-kid refetch). Two budgets:
     // OIDC_LIMITER is the per-client-IP gate spent before any JWT work
-    // (glue/bearer.rs `oidc_admission`; its 429 carries a Retry-After of the
+    // (glue/bearer/mod.rs `oidc_admission`; its 429 carries a Retry-After of the
     // period below), and JWKS_LIMITER is the single-key global bound
     // on cache-bypass JWKS refetches (trustpub.rs `GithubJwks`).
     // `cargo check-deploy` requires both bindings; the worker fails

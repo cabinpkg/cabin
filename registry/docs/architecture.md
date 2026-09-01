@@ -1337,7 +1337,7 @@ and the backup
 logic - retention, dump validation, freshness (`src/backup.rs`) - compiles
 and unit-tests on the host target. The Cloudflare glue
 (`src/glue/` for the role dispatch and the read, Bearer, and cron
-planes - `mod.rs`, `read.rs`, `bearer.rs`, `cron.rs` -
+planes - `mod.rs`, `read.rs`, `bearer/`, `cron.rs` -
 `src/web_glue.rs` for the OAuth and session planes,
 `src/backup_glue.rs` for the nightly dump job and the backup-queue
 drain, `src/governor_do.rs`

@@ -53,7 +53,7 @@ const DUMP_CRON: &str = "0 3 * * *";
 const DEPLOYED_V1_MIGRATION: &str = r#"{"tag":"v1","new_sqlite_classes":["Governor"]}"#;
 
 /// The ratelimit bindings the OIDC admission control looks up by name
-/// (`src/glue/bearer.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
+/// (`src/glue/bearer/mod.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
 /// Both fail closed at runtime when missing - the exchange and verdict
 /// endpoints then refuse everything - so a lost or renamed binding
 /// belongs to CI, not to an undrainable verification queue.
