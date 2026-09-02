@@ -48,6 +48,10 @@ const DEV_INTERVAL: Duration = Duration::from_secs(1);
 const MOCK_POLLS: u32 = 20;
 const PORT_FREE_POLLS: u32 = 30;
 const HALF_SECOND: Duration = Duration::from_millis(500);
+/// Wrangler relays the Worker's console output on its own channel, so
+/// the line explaining a refused request lands behind the response
+/// (`await_log` polls for the same reason).
+const LOG_SETTLE: Duration = Duration::from_secs(2);
 
 /// The four ports, as strings.  The shell interpolated `$SMOKE_PORT`
 /// and friends straight into URLs and into `.dev.vars` without ever
@@ -315,19 +319,25 @@ impl DevServers {
         servers.start_mocks(mock_dir)?;
         servers.write_dev_vars()?;
         servers.refuse_stale_ports()?;
+        servers
+            .start_dev_servers()
+            .inspect_err(|_| servers.dump_log_tails())?;
+        Ok(servers)
+    }
+
+    fn start_dev_servers(&mut self) -> Result<()> {
         step(&format!(
             "starting wrangler dev on port {} (first build takes a while)",
-            servers.ports.registry
+            self.ports.registry
         ));
-        servers.start_registry_dev()?;
+        self.start_registry_dev()?;
         // Started second so the first instance's build is already
         // cached.
         step(&format!(
             "starting the website-role wrangler dev on port {}",
-            servers.ports.web
+            self.ports.web
         ));
-        servers.start_web_dev()?;
-        Ok(servers)
+        self.start_web_dev()
     }
 
     /// The registry-role instance (L446-463).  `spawn_tracked` is the
@@ -344,10 +354,8 @@ impl DevServers {
         log_to(&mut command, self.dev_log.path())?;
         self.registry = Some(xtask_ci::spawn_tracked(&mut command).context("start wrangler dev")?);
         let url = format!("{}/healthz", self.ports.base());
-        let log = self.dev_log.path().to_path_buf();
         await_dev(
             &mut self.registry,
-            &log,
             "wrangler dev exited early",
             "wrangler dev never answered /healthz",
             || alive(&url),
@@ -371,10 +379,8 @@ impl DevServers {
             xtask_ci::spawn_tracked(&mut command).context("start the website-role wrangler dev")?,
         );
         let url = format!("{}/healthz", self.ports.web_base());
-        let log = self.web_log.path().to_path_buf();
         await_dev(
             &mut self.web,
-            &log,
             "the website-role wrangler dev exited early",
             "the website-role wrangler dev never answered",
             || probe(&url).is_some(),
@@ -439,6 +445,16 @@ impl DevServers {
     /// The website-role log.
     pub fn web_log(&self) -> &Path {
         self.web_log.path()
+    }
+
+    /// Both dev-server log tails on stderr, for a wrangler start or a
+    /// leg that failed: the Worker's reason is only ever in here.
+    pub fn dump_log_tails(&self) {
+        std::thread::sleep(LOG_SETTLE);
+        for (role, log) in [("registry", self.dev_log()), ("website", self.web_log())] {
+            eprintln!("--- {role}-role wrangler dev log, last {LOG_TAIL} bytes ---");
+            dump(log);
+        }
     }
 
     fn start_mocks(&mut self, mock_dir: &Path) -> Result<()> {
@@ -724,27 +740,29 @@ fn exited_no_reap(child: &mut std::process::Child) -> bool {
     child.try_wait().map_or(true, |state| state.is_some())
 }
 
-/// `cat "$log" >&2`: the whole log, not a tail - the reason a dev
-/// server exited during its first build is usually its first lines.
+/// `cat "$log" >&2`, bounded: a boot log fits whole, a full run's
+/// request lines would swamp a CI log, and the exit or the refused
+/// request is at the end either way.
+const LOG_TAIL: usize = 64 * 1024;
+
 fn dump(log: &Path) {
     if let Ok(text) = fs::read(log) {
-        let _ = std::io::stderr().write_all(&text);
+        let _ = std::io::stderr().write_all(&text[text.len().saturating_sub(LOG_TAIL)..]);
     }
 }
 
 /// The dev-server readiness loop (L449-462, L471-476): 300 × 1 s, with
 /// the liveness check before every probe, so a child that died fails
-/// with its log instead of after five minutes of polling a dead port.
+/// at once instead of after five minutes of polling a dead port.  The
+/// logs are printed by whoever owns the failure (`start`, `run`).
 fn await_dev(
     child: &mut Option<std::process::Child>,
-    log: &Path,
     exited_early: &str,
     never_answered: &str,
     mut ready: impl FnMut() -> bool,
 ) -> Result<()> {
     for _ in 0..DEV_POLLS {
         if exited(child) {
-            dump(log);
             bail!("{exited_early}");
         }
         if ready() {
