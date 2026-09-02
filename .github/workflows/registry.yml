@@ -98,6 +98,14 @@ jobs:
         run: cargo check-deploy --require-bundle
         working-directory: .
 
+      # The one check that executes the glue: the publish, verify,
+      # session, and governor paths against a local wrangler dev.
+      - name: Local smoke
+        run: cargo registry-smoke
+        working-directory: .
+        env:
+          CABIN_REGISTRY_SMOKE_TOKEN: cabin_smoke
+
   # Branch protection pins this, not the work jobs: `always()`, never
   # `!cancelled()`, fails it closed on a failed or cancelled gate.
   # Both validation jobs feed it: a conformance failure must block the

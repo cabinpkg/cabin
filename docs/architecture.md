@@ -625,7 +625,10 @@ is a change to every consumer's cancellation story.
 Repository-owned maintainer tool (`publish = false`) holding the registry smoke test, reached
 through the `cargo registry-smoke` alias.  It drives two local `wrangler dev` instances (the
 registry role and the website role) over one local D1/R2 state, plus a local export-API mock and
-a local GitHub mock, through a fixed step sequence with per-step diagnostics.  The crate must:
+a local GitHub mock, through a fixed step sequence with per-step diagnostics.  `registry.yml`
+runs it after the Worker build on every registry-touching pull request and merge-queue run
+(the `registry` filter in `.github/path-filters.yml`), so it is the one check that executes the
+wasm32 glue before a deploy.  The crate must:
 
 - stay local-only: state lives in `.wrangler/`, and nothing in the crate reaches a deployed
   environment;

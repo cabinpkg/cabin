@@ -742,8 +742,9 @@ cargo install -q "worker-build@=0.8.5" --locked && worker-build --release
 (cd .. && CABIN_WIPE_YES=1 cargo registry-wipe --local)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)
 
-# 3. Merge through the merge queue; its build + conformance runs gate
-#    the merge, and the main push runs deploy-registry (skipped while
+# 3. Merge through the merge queue; its build (smoke included) +
+#    conformance runs gate the merge, and the main push runs
+#    deploy-registry (skipped while
 #    the migrations stamp is pending - cargo registry-migrate).
 #    Watch it land:
 npx --yes wrangler@4.112.0 deployments list

@@ -68,5 +68,6 @@ From the repository root, the static guards no local gate runs for you
 `cargo check-r2`, `cargo check-deploy` (CI runs the latter with
 `--require-bundle` against a built Worker, and also the publish-fixture
 conformance test — `README.md`, "Development"). For changes to dispatch,
-routing, or another end-to-end surface, also run the local smoke test:
+routing, or another end-to-end surface, also run the local smoke test,
+which CI repeats after the Worker build:
 `CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke`.
