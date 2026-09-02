@@ -68,15 +68,7 @@ pub fn run() -> Result<()> {
         github_port,
         token.clone(),
     );
-    anonymous::run(&mut smoke, &registry, github_port)?;
-
-    if token.is_empty() {
-        // L655-659: the only success path that is not the tail.
-        step("CABIN_REGISTRY_SMOKE_TOKEN not set; skipping authenticated checks");
-        println!("smoke OK");
-        return Ok(());
-    }
-    tokened(
+    legs(
         &mut smoke,
         &mut servers,
         &registry,
@@ -84,6 +76,29 @@ pub fn run() -> Result<()> {
         &token,
         github_port,
     )
+    .inspect_err(|_| servers.dump_log_tails())
+}
+
+/// Every leg, so that `run` still holds the servers when one fails: a
+/// leg's error names the request, but why the Worker answered it that
+/// way is only in the dev-server logs, which `DevServers` takes with it.
+fn legs(
+    smoke: &mut Smoke,
+    servers: &mut DevServers,
+    registry: &Path,
+    mock_dir: &Path,
+    token: &str,
+    github_port: u16,
+) -> Result<()> {
+    anonymous::run(smoke, registry, github_port)?;
+
+    if token.is_empty() {
+        // L655-659: the only success path that is not the tail.
+        step("CABIN_REGISTRY_SMOKE_TOKEN not set; skipping authenticated checks");
+        println!("smoke OK");
+        return Ok(());
+    }
+    tokened(smoke, servers, registry, mock_dir, token, github_port)
 }
 
 /// Everything from L663 on, which only a seeded token reaches.

@@ -14,7 +14,7 @@
 //! a fresh `curl` per request.
 
 use std::fs;
-use std::io::{Read as _, Write as _};
+use std::io::Read as _;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Barrier};
@@ -159,7 +159,6 @@ fn backup_cron(smoke: &mut Smoke, inputs: &FinaleInputs<'_>, dump_key: &str) -> 
         std::thread::sleep(HALF_SECOND);
     }
     if !appeared {
-        tail_to_stderr(inputs.servers.dev_log(), 40);
         bail!("dump {dump_key} never appeared in the BACKUP bucket");
     }
     if read(&stored)? != read(&inputs.mock_dir.join("dump.sql"))? {
@@ -1215,19 +1214,6 @@ fn tail(log: &Path, from: usize) -> Result<String> {
         }
     }
     Ok(rest.to_owned())
-}
-
-/// `tail -40 "$dev_log" >&2` before the failure that needs it.
-fn tail_to_stderr(log: &Path, lines: usize) {
-    let Ok(text) = fs::read(log) else {
-        return;
-    };
-    let text = String::from_utf8_lossy(&text);
-    let kept: Vec<&str> = text.lines().rev().take(lines).collect();
-    let mut stderr = std::io::stderr();
-    for line in kept.iter().rev() {
-        let _ = writeln!(stderr, "{line}");
-    }
 }
 
 /// `date -u +%F`.  UTC, not local: the backup key, the sidecar's name
