@@ -840,12 +840,12 @@ fn column(json: &str, name: &str) -> Result<String> {
     Ok(display(value))
 }
 
-/// The publish-bucket refund (L1009-1010, L1039-1040), kept as the one
-/// statement the shell sent, whitespace included.
+/// The publish-bucket refund (L1009-1010, L1039-1040) on the smoke
+/// token's owner: the bucket is the user's, not the token's.
 fn refund() -> Result<()> {
     crate::servers::d1_quiet(
         "
-  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';",
+  UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');",
     )
 }
 

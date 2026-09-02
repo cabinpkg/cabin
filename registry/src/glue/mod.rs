@@ -41,6 +41,7 @@ struct TokenRecord {
     scopes: String,
     quota_class: String,
     scope_limit: Option<String>,
+    user_quota_class: String,
     rl_tokens: Option<f64>,
     rl_updated_at: Option<String>,
 }
@@ -212,6 +213,7 @@ async fn authenticate(
         scopes: auth::parse_scopes(&record.scopes),
         quota_class: record.quota_class,
         scope_limit: record.scope_limit,
+        user_quota_class: record.user_quota_class,
         bucket,
     }))
 }

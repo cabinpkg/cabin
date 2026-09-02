@@ -51,7 +51,7 @@ const GOVERNOR: &str = "/api/v1/admin/governor";
 /// publishes, so a rate limit can never stand in for the refusal a leg
 /// is actually asserting.
 const BURST_RESET: &str = "
-  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';";
+  UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');";
 
 /// The frozen fixture's own version, which the metadata names in
 /// several places and every derived fixture textually replaces.

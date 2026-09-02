@@ -344,7 +344,7 @@ struct RemotePublishReport {
 /// authenticated sparse-HTTP read path; the uploads themselves go
 /// through `cabin-registry-api` with the same credential, paced on
 /// the registry's `429` answers when the batch has more than one
-/// package (a serial batch can outrun the per-token publish bucket,
+/// package (a serial batch can outrun the per-user publish bucket,
 /// and every attempt charges it; a single publish keeps today's
 /// fail-fast `429`).
 fn publish_batch_to_remote_registry(
@@ -560,7 +560,7 @@ const MAX_RETRY_DELAY_SECS: u64 = 300;
 
 /// Upload one staged package.  In a multi-package batch the
 /// registry's `429` answers are waited out: a serial batch can outrun
-/// the per-token publish bucket, and every attempt - byte-identical
+/// the per-user publish bucket, and every attempt - byte-identical
 /// no-ops included - charges it, so a rate-limited upload is retried
 /// after the server-advertised delay instead of failing the batch.
 /// The typed [`cabin_registry_api::RegistryApiError::RateLimited`] is

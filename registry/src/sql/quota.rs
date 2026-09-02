@@ -1,13 +1,13 @@
 //! quota: the publish rate limit and the per-user quota counts.
 
 statements! {
-    /// The current token-bucket state straight from the token row.
-    TOKEN_BUCKET = "SELECT rl_tokens, rl_updated_at FROM tokens WHERE id = ?1";
+    /// The current token-bucket state straight from the user row.
+    USER_BUCKET = "SELECT rl_tokens, rl_updated_at FROM users WHERE id = ?1";
 
     /// Persists a bucket take iff the row still holds the state the take
     /// was computed from (`IS` keeps the comparison NULL-safe).
-    CAS_TOKEN_BUCKET =
-        "UPDATE tokens SET rl_tokens = ?1, rl_updated_at = ?2 \
+    CAS_USER_BUCKET =
+        "UPDATE users SET rl_tokens = ?1, rl_updated_at = ?2 \
          WHERE id = ?3 AND rl_tokens IS ?4 AND rl_updated_at IS ?5";
 
     /// The publisher's stored bytes; rejected rows were refunded.

@@ -37,7 +37,14 @@ pub struct AuthContext {
     /// every write-side operation to packages under exactly that scope
     /// (see [`AuthContext::scope_limit_refuses`]).
     pub scope_limit: Option<String>,
-    /// Publish token-bucket state from the token row, `None` for a token
+    /// The owning user's own class (`users.quota_class`), which sizes
+    /// the publish bucket: the bucket lives on the user row and every
+    /// token the user holds draws on it, so a token-level class grant
+    /// (`quota_class` above) raises resource limits but cannot resize
+    /// it - two rates on one balance would let one token refill what
+    /// another spends.
+    pub user_quota_class: String,
+    /// Publish token-bucket state from the user row, `None` for a user
     /// that has never published.
     pub bucket: Option<crate::quota::Bucket>,
 }
@@ -201,6 +208,7 @@ mod tests {
             scopes: vec![Scope::Publish],
             quota_class: "default".to_owned(),
             scope_limit: scope_limit.map(str::to_owned),
+            user_quota_class: "default".to_owned(),
             bucket: None,
         };
         // An unlimited token writes anywhere.

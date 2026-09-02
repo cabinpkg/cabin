@@ -277,7 +277,9 @@ refuses before the jti is consumed), scope-limited to the config's
 scope, `publish`-only, and carrying the config's quota class on the
 token row itself (`tokens.quota_class`; the auth lookup coalesces
 token-first, so the granted tier expires with the token instead of
-upgrading the backing user). Each successful exchange lazily prunes expired
+upgrading the backing user; the publish bucket alone stays at the
+backing user's own class, because it lives on the user row and every
+token the user holds draws on it - "Per-user quotas"). Each successful exchange lazily prunes expired
 `oidc_used_jtis` rows and expired `trustpub` and `session` token rows -
 deliberately no cron. `DELETE` on the same path revokes the presented
 token iff it is a `trustpub` one (deliberately not behind the write
@@ -974,8 +976,11 @@ selects a quota set from the map in
 packages per day, total packages, versions per package per day, a
 lifetime scope-claim cap (counted over the append-only `scope_claims`
 history - "Scopes" above), a
-publish token bucket (burst plus per-minute refill, state on the token row
-in `tokens.rl_tokens` / `tokens.rl_updated_at`), and the governor's
+publish token bucket (burst plus per-minute refill, state on the user row
+in `users.rl_tokens` / `users.rl_updated_at`, so every token a user holds
+draws on the one bucket, sized by the user's own class even under a
+trustpub token's class grant - one balance cannot carry two rates), and
+the governor's
 per-user daily read-fairness caps (charged artifact reads and
 source-viewer reads). Two classes exist: `default`, and `operator` -
 the bulk-publishing tier for the operator's own accounts, sized so the
@@ -986,12 +991,12 @@ numeric GitHub id in the spirit of the trustpub seed, so a wipe never
 resets it to `default`. For anyone else, granting a class is a manual
 `UPDATE users SET quota_class = '...'`; there is deliberately no admin
 route. Class limits are read live on every request, but the token
-bucket's *balance* persists on the token row, so a post-hoc promotion
+bucket's *balance* persists on the user row, so a post-hoc promotion
 (never the seed, which predates every token) becomes
 fully effective only after the balance refills toward the new burst at
-the new rate (minutes) - reset the account's buckets in the same change
-(`UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE
-user_id = ...`; a NULL bucket reads as full) when the promotion must
+the new rate (minutes) - reset the account's bucket in the same change
+(`UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE
+id = ...`; a NULL bucket reads as full) when the promotion must
 take effect immediately. Daily windows are UTC calendar days. Publish
 enforces, in order: the budget gate (`503`), the token scope (`403`),
 the rate limit (`429`, `Retry-After`, charged per attempt), scope
@@ -1006,7 +1011,7 @@ per-package quota counts key on the full `(scope, name)` pair, so equal
 package parts under two scopes never share a bucket. Attribution rides on
 `revisions.published_by`, `revisions.archive_size`, and `packages.created_by`,
 keyed by the registry-native `users.id` (never a provider account
-id). The bucket take is persisted as a compare-and-swap on the token
+id). The bucket take is persisted as a compare-and-swap on the user
 row (retried up to a burst's worth of lost races), so concurrent requests
 cannot spend one snapshot twice, and the storage self-accounting is
 decided inside the write batch itself - the meta bump counts an archive
@@ -1014,8 +1019,8 @@ only when the just-inserted row is the checksum's sole reference, so
 concurrent duplicate archives cannot double-count. The count quotas stay
 a preflight on purpose - concurrent publishes can overshoot a near-limit
 quota by at most the in-flight request count, which the bucket burst
-bounds per token (an allowlisted user holding several tokens scales that
-by their token count) and the budget headroom absorbs.
+bounds per user, however many tokens the user holds, and the budget
+headroom absorbs.
 
 **The service-wide breaker** compares usage against budgets set comfortably
 below the free limits (`src/breaker.rs`; the `BUDGET_*` env vars override

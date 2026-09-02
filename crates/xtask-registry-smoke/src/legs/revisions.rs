@@ -110,6 +110,7 @@ pub fn run(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<RevisionOut
     writes_blocked(smoke, inputs, &source_path)?;
     reads_blocked(smoke, inputs, &source_path)?;
     restore_normal(smoke, inputs)?;
+    shared_bucket(smoke, inputs)?;
     second_version(inputs)
 }
 
@@ -539,12 +540,29 @@ fn restore_normal(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> 
     smoke.expect_body(r#""no_op":true"#)
 }
 
+/// One bucket per user: with the publisher's bucket drained, the same
+/// user's trustpub token is refused too - minting a second token buys
+/// no second burst. Drained explicitly (an empty balance stamped now)
+/// rather than by counting the PUTs above, so refill timing cannot
+/// let the attempt through.
+fn shared_bucket(smoke: &mut Smoke, inputs: &RevisionInputs<'_>) -> Result<()> {
+    step("a drained publish bucket refuses every token the user holds");
+    d1(
+        "\n  UPDATE users SET rl_tokens = 0, rl_updated_at = strftime('%s', 'now') * 1000 \
+         WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');",
+    )?;
+    smoke.as_ci_publisher();
+    smoke.wrequest("PUT", inputs.publish_path, inputs.publish_bin, &[429])?;
+    smoke.as_publisher();
+    Ok(())
+}
+
 /// L1576-1598: the reject -> blob reclaim -> quota refund -> republish
 /// flow's fixtures.  `0.2.1` carries the exact archive `0.2.0`
 /// published, so this version's first revision carries the same id.
 fn second_version(inputs: &RevisionInputs<'_>) -> Result<RevisionOutputs> {
     // The PUTs above consumed the publish bucket's full burst; give the
-    // next leg its own by resetting the token's bucket columns.
+    // next leg its own by resetting the user's bucket columns.
     d1(RESET_PUBLISH_BUCKET)?;
     let version2 = "0.2.1";
     let rev = revision_of(inputs.fixture_archive);
@@ -749,7 +767,7 @@ fn json_field(entry: &Value, key: &str) -> String {
 
 /// L1347-1348 and L1579-1580, which reset the publish bucket's burst.
 const RESET_PUBLISH_BUCKET: &str = "
-  UPDATE tokens SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 'smoke';";
+  UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = (SELECT user_id FROM tokens WHERE id = 'smoke');";
 
 /// The version row's download counter, for the never-counted
 /// assertions (L1420-1427).
