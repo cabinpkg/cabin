@@ -341,14 +341,53 @@ mod tests {
             .expect("the mint batch commits");
 
         // The publish path's auth check: within the TTL the token
-        // authenticates with the full human scope set, unconfined, at
-        // the owning user's class (the row's own quota_class is NULL;
-        // COALESCE must answer the user's).
+        // authenticates with publish and yank - no verify, the user is
+        // not the operator - unconfined, at the owning user's class
+        // (the row's own quota_class is NULL; COALESCE must answer the
+        // user's).
         let (scopes, quota_class, scope_limit) =
             auth_lookup(&conn, &hash, "2026-08-15T06:00:00.000Z").expect("the token is live");
-        assert_eq!(scopes, "publish,yank,verify");
+        assert_eq!(scopes, "publish,yank");
         assert_eq!(quota_class, "default");
         assert_eq!(scope_limit, None);
+
+        // The operator's own session - user 1, the row the baseline
+        // migration seeds as the operator - is the one that carries
+        // verify.
+        let operator_hash = auth::token_hash(&auth::format_session_token(&[8; 32]));
+        mint_batch(
+            &conn,
+            "tok-ses-op",
+            1,
+            &operator_hash,
+            created_at,
+            expires_at,
+        )
+        .expect("the operator's mint batch commits");
+        let (scopes, _, _) = auth_lookup(&conn, &operator_hash, "2026-08-15T06:00:00.000Z")
+            .expect("the operator's token is live");
+        assert_eq!(scopes, "publish,yank,verify");
+
+        // A quota promotion is not an admin grant: the operator class
+        // raises another account's limits, and its next mint still
+        // carries no verify.
+        conn.execute("UPDATE users SET quota_class = 'operator' WHERE id = 2", ())
+            .expect("the manual promotion");
+        let promoted_hash = auth::token_hash(&auth::format_session_token(&[9; 32]));
+        mint_batch(
+            &conn,
+            "tok-ses-promoted",
+            user_id,
+            &promoted_hash,
+            created_at,
+            expires_at,
+        )
+        .expect("the promoted user's mint batch commits");
+        let (scopes, quota_class, _) =
+            auth_lookup(&conn, &promoted_hash, "2026-08-15T06:00:00.000Z")
+                .expect("the promoted user's token is live");
+        assert_eq!(scopes, "publish,yank");
+        assert_eq!(quota_class, "operator");
 
         // Expiry is boundary-inclusive refusal, and an expired session
         // is byte-for-byte the same no-row answer an unknown hash gets -

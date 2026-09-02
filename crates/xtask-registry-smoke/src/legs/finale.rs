@@ -497,7 +497,7 @@ fn source_reads(smoke: &mut Smoke, inputs: &FinaleInputs<'_>) -> Result<()> {
 fn admin_governor(smoke: &mut Smoke) -> Result<()> {
     step("the admin governor endpoint reports usage and takes operator actions");
     // The verify-scope gate's negative subject is the no-verify CI
-    // credential (the session-shaped publisher token carries verify).
+    // credential (the seeded publisher session carries verify).
     smoke.as_ci_publisher();
     smoke.wcheck(GOVERNOR, &[403])?;
     smoke.expect_body("verify scope")?;

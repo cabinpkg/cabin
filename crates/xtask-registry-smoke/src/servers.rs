@@ -193,7 +193,8 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
     -- The three credentials wear the only shapes the schema still
     -- admits, timestamped at seeding so every run stays inside the
     -- one-day expiry ceiling: the publisher is a login-session row
-    -- (the full human scope set), the verifier a trustpub verify-arm
+    -- seeded with the operator's scope set (the mint itself gives user
+    -- 2 no verify), the verifier a trustpub verify-arm
     -- row, and the no-verify probe subject a trustpub publish-arm row
     -- confined to the 'smoke' scope - the shape a CI workflow holds,
     -- which must never see the admin plane.

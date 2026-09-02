@@ -208,9 +208,9 @@ fn twin_and_reserved_names(
 /// L1042-1079.
 fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result<()> {
     step("pending versions are invisible to no-verify tokens and anonymous readers");
-    // The no-verify subject is the CI publish-arm credential: every
-    // session token carries verify, so this is the valid token pending
-    // must stay missing for.
+    // The no-verify subject is the CI publish-arm credential: the
+    // seeded publisher session carries verify, so this is the valid
+    // token pending must stay missing for.
     smoke.as_ci_publisher();
     smoke.check(inputs.package_path, &[404])?;
     smoke.check(inputs.artifact_path, &[404])?;
@@ -272,7 +272,7 @@ fn pending_invisibility(smoke: &mut Smoke, inputs: &PublishInputs<'_>) -> Result
     )?;
 
     // The verify-scope gate's negative subject is the no-verify CI
-    // credential (the session-shaped publisher token carries verify).
+    // credential (the seeded publisher session carries verify).
     smoke.as_ci_publisher();
     smoke.wcheck("/api/v1/admin/versions?status=pending", &[403])?;
     smoke.expect_body("verify scope")?;

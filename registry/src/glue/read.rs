@@ -306,9 +306,10 @@ async fn artifact_response(
     // The verifier's pending fetch: never cached (the bytes are not yet
     // part of the registry), charged to the isolated verifier pool so
     // ordinary traffic can never starve verification - and vice versa.
-    // The per-user cap rides along because the verify scope is mintable
-    // by every allowlisted user today: one user must not be able to
-    // drain the whole verifier pool either.
+    // The per-user cap rides along: every verify-scoped credential -
+    // the operator's session, the trustpub verify arm - resolves to the
+    // operator's own account today, and one account must not be able
+    // to drain the whole verifier pool either.
     let quotas = quota::quotas_for_class(&auth.quota_class);
     let decision = Decision {
         consume: vec![Consume {

@@ -58,13 +58,21 @@ statements! {
     /// Mints a login-session token
     /// (`PUT /api/v1/sessions/tokens`); D1 stores only the SHA-256 hex
     /// of the plaintext. The shape is fixed here and re-enforced by the
-    /// schema's session CHECK: the full human scope set, unconfined,
-    /// and NULL `quota_class` so the row inherits the owning user's
-    /// class live through [`AUTH_TOKEN_LOOKUP`]'s COALESCE.
+    /// schema's session CHECK: bounded, unconfined, and NULL
+    /// `quota_class` so the row inherits the owning user's class live
+    /// through [`AUTH_TOKEN_LOOKUP`]'s COALESCE. The scope set is
+    /// `publish,yank`, plus `verify` only for the operator's own account
+    /// - `users.id` 1, the row the baseline migration seeds as the
+    /// operator. Quota classes stay resource tiers: promoting another
+    /// account to 'operator' raises its limits and nothing else. The
+    /// CHECK admits both strings; which user gets which is decided here
+    /// alone.
     INSERT_SESSION_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, kind) \
-         VALUES (?1, ?2, 'login session', ?3, 'publish,yank,verify', ?4, ?5, 'session')";
+         VALUES (?1, ?2, 'login session', ?3, \
+                 CASE WHEN ?2 = 1 THEN 'publish,yank,verify' ELSE 'publish,yank' END, \
+                 ?4, ?5, 'session')";
 
     /// [`DELETE_TRUSTPUB_TOKEN`](super::trustpub::DELETE_TRUSTPUB_TOKEN)'s session sibling, with the same
     /// zero-changes-is-401 discipline.

@@ -292,8 +292,9 @@ identity resolves through the exact web sign-in semantics - the
 account creation: an unknown or unadmitted id is one more uniform
 401, reason logged. The mint is a 12-hour `session` token - a Bearer
 credential, unrelated to the website's HMAC session cookie - carrying
-the full human scope set at the owning user's live quota class
-(`NULL` `tokens.quota_class`), it rides the same lazy prune, and
+`publish,yank`, with `verify` only for the operator's own account, at
+the owning user's live quota class (`NULL` `tokens.quota_class`), it
+rides the same lazy prune, and
 `DELETE /api/v1/sessions/tokens` revokes the presented token iff it
 is a `session` one, under the trustpub revocation's exact contract.
 The GitHub access token is proven with a single check-token call
@@ -354,8 +355,9 @@ scope-limited, publish-only, explicitly classed row, or the verifier
 arm's unconfined, unclassed `verify` row - so the minting paths
 cannot widen the exchange into a standing or privileged credential.
 A `session` row is shape-checked the same way: expiring within the
-same one-day ceiling, carrying exactly the full human scope set,
-unconfined, and unclassed.
+same one-day ceiling, carrying one of the two mintable scope sets
+(`publish,yank`, or with `verify` for the operator), unconfined, and
+unclassed.
 `last_used_at` is updated best-effort off the response path, and log lines
 carry the token row id - never the token or its hash.
 

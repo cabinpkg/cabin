@@ -916,8 +916,8 @@ Success is `200`:
 refuses a non-UTC stamp - or any non-timestamp - before storing or printing it, so a registry
 cannot smuggle arbitrary text through the field.  The plaintext is rendered exactly once, in
 this response.  The minted token is a bearer token
-like any other, multi-use within its 12-hour lifetime, carrying the full human scope set
-(`publish`, `yank`, `verify`) at the account's own quota class.  Every mint failure - a
+like any other, multi-use within its 12-hour lifetime, carrying `publish` and `yank` - plus
+`verify` when the account is the operator's own - at the account's own quota class.  Every mint failure - a
 malformed body, a rejected or unreadable GitHub lookup, an unknown or unadmitted identity -
 answers the byte-identical uniform `401`, the [challenge](#the-login-url-challenge) included.
 The mint is gated by the registry's budget breaker like every other write (`503` +

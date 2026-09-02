@@ -286,12 +286,13 @@ fn a_future_dated_token_does_not_authenticate_before_its_anchor() {
 fn a_revoked_token_is_the_same_no_row_answer_as_an_unknown_one() {
     let conn = migrated_connection();
     seed_token(&conn, "tok-1", "hash-1");
-    // The live session row delivers its stored columns: the full human
-    // scope set, the owner's inherited class, no confinement.
+    // The live session row delivers its stored columns: the mint's
+    // non-operator scope set, the owner's inherited class, no
+    // confinement.
     let (id, scopes, quota_class, scope_limit) =
         auth_lookup(&conn, "hash-1", "2026-07-15T06:00:00.000Z").expect("live row matches");
     assert_eq!(id, "tok-1");
-    assert_eq!(scopes, "publish,yank,verify");
+    assert_eq!(scopes, "publish,yank");
     assert_eq!(quota_class, "default");
     assert_eq!(scope_limit, None);
     // A revoked row answers exactly like an unknown hash, within its
@@ -517,8 +518,9 @@ fn the_verify_shape_is_bounded_unconfined_and_unclassed() {
 }
 
 /// The session shape CHECK: `kind = 'session'` means bounded (within a
-/// day of issuance), carrying exactly the full human scope set,
-/// unconfined, and unclassed - so a bug in the minting path can never
+/// day of issuance), carrying one of the two mintable scope sets
+/// (`publish,yank`, or with `verify` for the operator), unconfined, and
+/// unclassed - so a bug in the minting path can never
 /// widen a login into a standing or confined credential, and a
 /// long-lived session can never be inserted again once the legacy
 /// token plane is gone.
@@ -527,7 +529,7 @@ fn the_session_shape_is_bounded_unconfined_and_unclassed() {
     let conn = migrated_connection();
     let user_id = seed_token(&conn, "tok-1", "hash-1");
     // The positive side: the mint's own shape - a 12-hour window, the
-    // full human scope set, nothing else - is admitted.
+    // operator's scope set, nothing else - is admitted.
     conn.execute(
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
                              expires_at) \
@@ -545,6 +547,15 @@ fn the_session_shape_is_bounded_unconfined_and_unclassed() {
         [user_id],
     )
     .expect("the ceiling boundary is admitted");
+    // The non-operator mint's shape: the human pair without verify.
+    conn.execute(
+        "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, kind, \
+                             expires_at) \
+         VALUES ('tok-s4', ?1, 'x', 'hash-s4', 'publish,yank', \
+                 '2026-07-15T00:00:00.000Z', 'session', '2026-07-15T12:00:00.000Z')",
+        [user_id],
+    )
+    .expect("the verify-less session shape is admitted");
     for (label, columns, values) in [
         ("no expiry", "scope_limit", "NULL"),
         (
@@ -577,8 +588,8 @@ fn the_session_shape_is_bounded_unconfined_and_unclassed() {
         assert!(err.to_string().contains("CHECK"), "{label}: {err}");
     }
     // The scopes conjunct is load-bearing: any other scopes string -
-    // a narrowed set included - fails the CHECK.
-    for scopes in ["publish", "publish,yank", "verify", ""] {
+    // a narrowed set, or verify without the human pair - fails the CHECK.
+    for scopes in ["publish", "publish,verify", "verify", ""] {
         let err = conn
             .execute(
                 &format!(

@@ -126,10 +126,9 @@ impl Smoke {
 
     /// `as_ci_publisher`: the seeded trustpub publish-arm token, the
     /// confined no-verify shape a CI workflow holds.  The negative
-    /// subject for the verify-scope gates: since every human (session)
-    /// token now carries `verify`, this is the credential that must
-    /// still be refused on the admin plane and see pending versions
-    /// as missing.
+    /// subject for the verify-scope gates: the seeded publisher session
+    /// carries `verify`, so this is the credential that must be refused
+    /// on the admin plane and see pending versions as missing.
     pub fn as_ci_publisher(&mut self) {
         self.auth = bearer(&format!("{}-noverify", self.token));
     }
