@@ -23,7 +23,14 @@ CREATE TABLE users (
     created_at TEXT NOT NULL,
     -- Quota class name; the class -> quota map lives in code
     -- (src/quota.rs).
-    quota_class TEXT NOT NULL DEFAULT 'default'
+    quota_class TEXT NOT NULL DEFAULT 'default',
+    -- Publish token-bucket state, NULL until the user's first publish:
+    -- rl_tokens is the remaining fractional token count, rl_updated_at
+    -- the Unix epoch milliseconds (as text) of the last successful
+    -- take. One bucket per user: every token the user holds draws on
+    -- it, so minting more tokens buys no more burst.
+    rl_tokens REAL,
+    rl_updated_at TEXT
 );
 
 -- One row per external account that ever signed in. The numeric
@@ -96,12 +103,6 @@ CREATE TABLE tokens (
     ),
     last_used_at TEXT,
     revoked_at TEXT,
-    -- Publish token-bucket state, NULL until the token's first publish:
-    -- rl_tokens is the remaining fractional token count, rl_updated_at
-    -- the Unix epoch milliseconds (as text) of the last successful
-    -- take.
-    rl_tokens REAL,
-    rl_updated_at TEXT,
     -- Required (non-NULL) for every kind by the shape CHECK
     -- constraints below: no token stands forever. Same ISO-8601 UTC
     -- text shape as created_at

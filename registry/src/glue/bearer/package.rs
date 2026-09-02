@@ -89,7 +89,8 @@ pub(super) async fn publish_response(
     }
 
     let quotas = quota::quotas_for_class(&auth.quota_class);
-    if let Some(limited) = publish_rate_limit(env, db, auth, &quotas).await? {
+    let bucket_quotas = quota::quotas_for_class(&auth.user_quota_class);
+    if let Some(limited) = publish_rate_limit(env, db, auth, &bucket_quotas).await? {
         return Ok(limited);
     }
 
@@ -190,11 +191,10 @@ pub(super) async fn publish_response(
     // ponytail: the quota counts below are a preflight, not a serialized
     // transaction - concurrent publishes can each pass the same
     // near-limit check and overshoot a quota by up to the in-flight
-    // request count. The CAS'd rate limit bounds that per token at the
-    // bucket burst (an allowlisted user holding several tokens scales it
-    // by their token count); the budget headroom and the breaker absorb
-    // the transient. Move the checks into conditional inserts if that
-    // ever stops holding.
+    // request count. The CAS'd rate limit bounds that per user at the
+    // bucket burst, however many tokens the user holds; the budget
+    // headroom and the breaker absorb the transient. Move the checks
+    // into conditional inserts if that ever stops holding.
     let now = now_iso8601();
     let Some(day_prefix) = quota::utc_day_prefix(&now).map(str::to_owned) else {
         console_error!("clock produced a non-ISO timestamp: {now}");
@@ -919,7 +919,7 @@ async fn live_metadata_conflict(
 /// The publish token bucket (`429`), charged per publish attempt - valid
 /// or not - before the body is even buffered. On an allowed take the new
 /// bucket state is persisted as a compare-and-swap against the state the
-/// take was computed from, so concurrent requests on one token cannot
+/// take was computed from, so concurrent requests as one user cannot
 /// all spend the same snapshot; a loser re-reads the row and retries
 /// once. On a denial the stored state is left untouched, so refill keeps
 /// accruing from the last persisted take, and the response carries
@@ -931,7 +931,7 @@ async fn publish_rate_limit(
     quotas: &quota::ClassQuotas,
 ) -> worker::Result<Option<Response>> {
     // Enough attempts to drain a full burst even when every one of them
-    // loses a race to a parallel publisher on the same token.
+    // loses a race to a parallel publisher as the same user.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // small quota constant
     let attempts = quotas.publish_burst.ceil() as usize + 1;
     let mut bucket = auth.bucket;
@@ -944,13 +944,13 @@ async fn publish_rate_limit(
                 Some(outcome.retry_after_secs),
             )?));
         }
-        if cas_bucket(db, &auth.token_id, bucket, outcome.bucket).await? {
+        if cas_bucket(db, auth.user_id, bucket, outcome.bucket).await? {
             return Ok(None);
         }
-        bucket = read_bucket(db, &auth.token_id).await?;
+        bucket = read_bucket(db, auth.user_id).await?;
     }
-    // Losing a burst's worth of races in a row means the token is being
-    // spent concurrently right now; refusing the attempt is the limiter
+    // Losing a burst's worth of races in a row means the user's bucket is
+    // being spent concurrently right now; refusing the attempt is the limiter
     // working. The bucket refills within a minute, hence the short
     // Retry-After.
     denial_response(env, &quota::RATE_LIMITED, Some(1)).map(Some)
@@ -962,11 +962,11 @@ struct BucketRecord {
     rl_updated_at: Option<String>,
 }
 
-/// The current bucket state straight from the token row.
-async fn read_bucket(db: &D1Database, token_id: &str) -> worker::Result<Option<quota::Bucket>> {
+/// The current bucket state straight from the user row.
+async fn read_bucket(db: &D1Database, user_id: i64) -> worker::Result<Option<quota::Bucket>> {
     let record: Option<BucketRecord> = db
-        .prepare(sql::TOKEN_BUCKET)
-        .bind(&[token_id.into()])?
+        .prepare(sql::USER_BUCKET)
+        .bind(&[js_int(user_id)])?
         .first(None)
         .await?;
     Ok(record
@@ -974,12 +974,12 @@ async fn read_bucket(db: &D1Database, token_id: &str) -> worker::Result<Option<q
 }
 
 /// Persists a bucket take iff the row still holds `prev` (`IS` makes the
-/// comparison NULL-safe for a token that has never published). `false`
+/// comparison NULL-safe for a user that has never published). `false`
 /// means a concurrent request won the race. Round-trip exactness holds:
 /// the stored text and REAL came from these same f64 values.
 async fn cas_bucket(
     db: &D1Database,
-    token_id: &str,
+    user_id: i64,
     prev: Option<quota::Bucket>,
     next: quota::Bucket,
 ) -> worker::Result<bool> {
@@ -992,11 +992,11 @@ async fn cas_bucket(
         None => (JsValue::NULL, JsValue::NULL),
     };
     let result = db
-        .prepare(sql::CAS_TOKEN_BUCKET)
+        .prepare(sql::CAS_USER_BUCKET)
         .bind(&[
             next.tokens.into(),
             next.updated_at_ms.to_string().into(),
-            token_id.into(),
+            js_int(user_id),
             prev_tokens,
             prev_updated_at,
         ])?

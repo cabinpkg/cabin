@@ -17,7 +17,7 @@ statements! {
     AUTH_TOKEN_LOOKUP =
         "SELECT t.id, t.user_id, t.scopes, \
                 COALESCE(t.quota_class, u.quota_class) AS quota_class, t.scope_limit, \
-                t.rl_tokens, t.rl_updated_at \
+                u.quota_class AS user_quota_class, u.rl_tokens, u.rl_updated_at \
          FROM tokens t JOIN users u ON u.id = t.user_id \
          WHERE t.token_hash = ?1 AND t.revoked_at IS NULL \
          AND t.created_at <= ?2 AND t.expires_at > ?2";

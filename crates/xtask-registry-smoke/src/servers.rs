@@ -177,6 +177,9 @@ fn seed_sql(hash: &str, verify_hash: &str, noverify_hash: &str) -> String {
       VALUES (2, '1970-01-01T00:00:00.000Z');
     INSERT OR IGNORE INTO users (id, created_at)
       VALUES (3, '1970-01-01T00:00:00.000Z');
+    -- The publish bucket lives on the user row OR IGNORE keeps; clear it
+    -- so a rerun after an aborted run starts on a full burst.
+    UPDATE users SET rl_tokens = NULL, rl_updated_at = NULL WHERE id = 2;
     -- OR REPLACE, and the 'foreign' membership cleared first: local
     -- state seeded before the migration's operator seed bound these
     -- accounts to users 1/2, and a rerun must rebind them, not keep

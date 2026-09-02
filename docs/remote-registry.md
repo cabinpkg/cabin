@@ -472,7 +472,7 @@ Client-side behavior:
   `--index-url` remains a whole-batch override: member configs are never consulted.  In a
   multi-package batch a
   registry `429` between uploads is waited out (the advertised `Retry-After`, capped, a few
-  attempts) rather than failing the batch - a serial batch can outrun a token's publish bucket,
+  attempts) rather than failing the batch - a serial batch can outrun the user's publish bucket,
   and every attempt charges it; a single-package publish keeps its fail-fast `429` unless
   `--retry-rate-limits` opts it into the same pacing (automation whose reruns hit the same
   drained bucket).  Later batch members see the versions published earlier in the same

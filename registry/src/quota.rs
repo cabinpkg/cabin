@@ -86,7 +86,7 @@ pub fn quotas_for_class(class: &str) -> ClassQuotas {
     }
 }
 
-/// Publish token-bucket state, as stored on the token row (`rl_tokens`,
+/// Publish token-bucket state, as stored on the user row (`rl_tokens`,
 /// `rl_updated_at`; the timestamp is Unix epoch milliseconds).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bucket {
@@ -105,7 +105,7 @@ pub struct TakeOutcome {
     pub retry_after_secs: u64,
 }
 
-/// Takes one publish token from `prev` (or a full bucket for a token row
+/// Takes one publish token from `prev` (or a full bucket for a user
 /// that has never published), refilling first from the elapsed time.
 pub fn take_publish_token(prev: Option<Bucket>, now_ms: f64, quotas: &ClassQuotas) -> TakeOutcome {
     let tokens = match prev {
