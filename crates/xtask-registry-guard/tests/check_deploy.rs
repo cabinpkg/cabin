@@ -220,8 +220,9 @@ const BREAKAGES: &[(&str, &str, &str)] = &[
         r#""binding": "BACKUPS""#,
     ),
     (
-        // A lost admission binding fails closed at runtime: the OIDC
-        // endpoints refuse everything and the queue cannot drain.
+        // A lost admission binding fails closed at runtime: the gated
+        // endpoints (exchange, verdict, session mint) refuse everything
+        // and the queue cannot drain.
         "lost_oidc_limiter",
         r#""name": "OIDC_LIMITER""#,
         r#""name": "OIDC_LIMITERS""#,

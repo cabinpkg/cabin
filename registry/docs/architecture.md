@@ -285,8 +285,8 @@ gate: blocking revocation would keep a live credential alive), and
 answers everything else with the uniform 401. The login-session mint
 (`PUT /api/v1/sessions/tokens`, `docs/remote-registry.md` "Login
 sessions") is the exchange's human sibling: the body carries a GitHub
-access token, the breaker's write gate
-answers first (before the GitHub lookup spends anything), and the
+access token, the per-IP admission budget and then the breaker's
+write gate answer first (before the GitHub lookup spends anything), and the
 identity resolves through the exact web sign-in semantics - the
 `ALLOWED_GITHUB_IDS` gate, then the `identities` lookup - with no
 account creation: an unknown or unadmitted id is one more uniform
@@ -308,24 +308,26 @@ credential that fails to validate is the same uniform 401. `/healthz`
 origin; "Download counts") are the only routes outside both planes.
 Cookies are never read here.
 
-**The two OIDC surfaces sit behind deployment-pinned admission
-control.** The exchange PUT and the verdict PATCH are the only
-unauthenticated entry points that buy real verification work - in
-particular, an unknown `kid` buys the JWKS rotation-recovery refetch
-against GitHub (`src/trustpub.rs`). Two Workers rate-limiting
-bindings in `wrangler.jsonc` bound that before any body read or JWT
-parsing: `OIDC_LIMITER` admits per client IP (`CF-Connecting-IP`,
-which the edge overwrites) on both endpoints, and `JWKS_LIMITER`
+**The pre-credential surfaces sit behind deployment-pinned admission
+control.** The exchange PUT, the verdict PATCH, and the session mint
+PUT are the unauthenticated entry points that buy real work before
+any credential is read - an unknown `kid` buys the JWKS
+rotation-recovery refetch against GitHub (`src/trustpub.rs`), and a
+mint attempt buys a GitHub check-token call. Two Workers
+rate-limiting bindings in `wrangler.jsonc` bound that before any body
+read or JWT parsing: `OIDC_LIMITER` admits per client IP
+(`CF-Connecting-IP`, which the edge overwrites) on all three
+endpoints, and `JWKS_LIMITER`
 bounds cache-bypass origin refetches globally under one fixed key, so
 even admitted traffic in aggregate cannot turn random `kid`s into
 unbounded upstream fetches. The admission refusal is one fixed
-`429 rate_limited` with a `Retry-After` on both endpoints, decided
+`429 rate_limited` with a `Retry-After` on every gated endpoint, decided
 before any credential is inspected, so it carries no
 JWT/config/identity validity signal; a refused bypass answers the
 same uniform 401 an unknown kid does, and a real key rotation still
 recovers - the first admitted refetch refreshes the shared cache for
 everyone. Both bindings fail closed (missing, they refuse everything
-on these two endpoints), and `cargo check-deploy` requires them, so
+they gate), and `cargo check-deploy` requires them, so
 the protection is reviewed with the deployment rather than assumed
 from the dashboard; the dashboard WAF rule stays the outer layer
 ([`runbook.md`](runbook.md), "Zone rate limiting (WAF)"). Limiter

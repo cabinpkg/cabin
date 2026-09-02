@@ -54,8 +54,9 @@ const DEPLOYED_V1_MIGRATION: &str = r#"{"tag":"v1","new_sqlite_classes":["Govern
 
 /// The ratelimit bindings the OIDC admission control looks up by name
 /// (`src/glue/bearer/mod.rs` `oidc_admission`, `src/trustpub.rs` `GithubJwks`).
-/// Both fail closed at runtime when missing - the exchange and verdict
-/// endpoints then refuse everything - so a lost or renamed binding
+/// Both fail closed at runtime when missing - no `OIDC_LIMITER` refuses the
+/// exchange, verdict, and session-mint endpoints outright, no `JWKS_LIMITER`
+/// refuses every cache-bypass JWKS refetch - so a lost or renamed binding
 /// belongs to CI, not to an undrainable verification queue.
 const RATE_LIMITERS: [&str; 2] = ["OIDC_LIMITER", "JWKS_LIMITER"];
 
@@ -289,7 +290,8 @@ fn validate_bindings<'a>(config: &'a Value, failures: &mut Vec<String>) -> Optio
 /// declared with the ratelimit type, a positive-integer-string
 /// `namespace_id`, a positive integer limit, and a period of 10 or 60
 /// (the only periods the platform accepts), or the deploy ships a
-/// worker whose OIDC endpoints refuse every request.
+/// worker with a fail-closed binding (see [`RATE_LIMITERS`] for what
+/// each one then refuses).
 fn validate_rate_limiters(config: &Value, failures: &mut Vec<String>) {
     let bindings = config
         .get("unsafe")

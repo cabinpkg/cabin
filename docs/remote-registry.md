@@ -920,8 +920,10 @@ like any other, multi-use within its 12-hour lifetime, carrying `publish` and `y
 `verify` when the account is the operator's own - at the account's own quota class.  Every mint failure - a
 malformed body, a rejected or unreadable GitHub lookup, an unknown or unadmitted identity -
 answers the byte-identical uniform `401`, the [challenge](#the-login-url-challenge) included.
-The mint is gated by the registry's budget breaker like every other write (`503` +
-`Retry-After` when tripped); the gate answers first, before the GitHub lookup spends anything.
+The mint sits behind the same per-client admission control as the trusted-publishing exchange
+(`429` with code `rate_limited` and `Retry-After`, decided before the body is read) and behind the
+registry's budget breaker like every other write (`503` + `Retry-After` when tripped); both answer
+first, before the GitHub lookup spends anything.
 
 ### Revoking a session token
 
@@ -947,7 +949,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
 | `409` | Publish of different bytes for a version with a live revision and no `new-revision` opt-in; a revision-id collision between two different archives; or a conflicting [verdict](#admin-api-scope-verify). |
 | `413` | The uploaded archive exceeds the per-archive size limit (envelope code `archive_too_large`). |
-| `429` | A rate limit: the publish token bucket is empty (code `rate_limited`), or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |
+| `429` | A rate limit: the publish token bucket is empty, or the per-client admission budget of the [trusted-publishing](#trusted-publishing) exchange, the verdict route, and the [login-session](#login-sessions) mint is spent (both code `rate_limited`); or the caller's daily allowance of registry-side archive reads is spent (code `read_rate_limited`).  Carries `Retry-After` (seconds) saying when the limit resets. |
 | `503` | The registry is protecting its own infrastructure budget (the hosted service blocks itself before provider limits or real spend are reached): its service-wide breaker tripped, or its per-request cost governor refused - or could not be reached - for the specific resource the request needed.  Writes refuse first; archive downloads refuse when the registry's read allowance for fresh storage reads is exhausted (recently downloaded archives can keep serving from the registry's edge cache through that), or service-wide when the registry's operator has paused reads outright.  Carries `Retry-After` (seconds) and the envelope code `registry_over_budget`.  The refusal is operator-side and temporary, so it is a `503` rather than a `402`: nothing the caller can pay clears it, and `503` has explicit `Retry-After` semantics where `402` has none. |
 
 ## Error envelope
@@ -969,7 +971,7 @@ before.  The defined codes:
 
 | `code` | Status | Meaning |
 | --- | --- | --- |
-| `rate_limited` | `429` | The publish token bucket is empty; `Retry-After` says when it refills. |
+| `rate_limited` | `429` | The publish token bucket is empty, or the per-client admission budget of the exchange, verdict, and login-session mint routes is spent; `Retry-After` says when it refills. |
 | `read_rate_limited` | `429` | The caller's daily allowance of registry-side archive reads is spent; `Retry-After` reaches the next UTC day.  Cached downloads are unaffected. |
 | `archive_too_large` | `413` | The archive exceeds the per-archive size limit. |
 | `quota_storage` | `403` | The publish would exceed the total stored-bytes quota. |
