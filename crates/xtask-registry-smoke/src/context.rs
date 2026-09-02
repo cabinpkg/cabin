@@ -65,11 +65,7 @@ impl Smoke {
             //
             // No connection reuse: every `curl` was its own process,
             // so no connection ever outlived its request.  Pooling
-            // would be this port's own invention, and a request the
-            // server refuses before reading the whole body (the body
-            // caps) leaves the rest on the wire, where a reused
-            // connection would serve the next request out of the
-            // leftovers.
+            // would be this port's own invention.
             // The five-minute ceiling exists only to turn a wedged
             // local dev server into a loud failure naming its URL;
             // curl ran with no timeout, and no healthy leg comes
@@ -217,9 +213,7 @@ impl Smoke {
         // startup (~30 ms), and the local dev servers have never been
         // driven faster than that, so the pacing is part of the
         // environment the run was written for, not an optimization to
-        // strip.  It is not what keeps the dev proxy usable after the
-        // early-answered oversized PATCH: the worker draining the
-        // refused body is (`bounded_body` in the registry crate).
+        // strip.
         std::thread::sleep(std::time::Duration::from_millis(25));
         let mut request = self.agent.request(method, url);
         for (name, value) in headers {
