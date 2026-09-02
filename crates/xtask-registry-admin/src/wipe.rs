@@ -315,9 +315,10 @@ Follow-ups, IN THIS ORDER (docs/runbook.md, \"Post-wipe re-provisioning\"):
      OAuth app grant survives the wipe, so re-claims grant immediately);
      the cabin-ports claim is what re-arms ports publishing - the
      trusted-publishing exchange refuses an unclaimed scope
-  3. mint a login-session token for the governor step below - it carries
-     the full human scope set, so its verify scope authenticates the
-     admin endpoint; the verifier workflow needs no secret of its own -
+  3. mint a login-session token for the governor step below as the
+     operator - only the operator's session carries the verify scope that
+     authenticates the admin endpoint; the verifier workflow needs no
+     secret of its own -
      each run mints its own through the trusted-publishing exchange, and
      the baseline migration seeds the backing identity it resolves
   4. run cargo registry-governor wipe (from the repository root); its

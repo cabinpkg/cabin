@@ -438,13 +438,18 @@ pub fn login_session_surface(smoke: &mut Smoke, non_session_token: &str) -> Resu
     {
         bail!("no expires_at in the mint answer: {minted}");
     }
-    // The full human scope set, live: the verify-plane listing answers
-    // the session token.
+    // The mint is user 2's, not the operator's: publish and yank, no
+    // verify - the admin plane answers the session token the scope 403.
     let auth = bearer(&token);
-    let listing = smoke.url(Base::Web, "/api/v1/admin/versions?status=pending");
-    let status = smoke.http("GET", &listing, &auth, None)?;
-    if status != 200 {
-        bail!("the minted session token could not list pending versions: {status}");
+    for path in [
+        "/api/v1/admin/versions?status=pending",
+        "/api/v1/admin/governor",
+    ] {
+        let admin = smoke.url(Base::Web, path);
+        let status = smoke.http("GET", &admin, &auth, None)?;
+        if status != 403 {
+            bail!("the minted session token reached the admin plane at {path}: {status}");
+        }
     }
     // A live token of another kind - the seeded trustpub verify
     // credential - changes no rows through this route and answers the

@@ -193,15 +193,17 @@ CREATE TABLE tokens (
     -- confined credential. Twelve hours is the TTL the mint sets in code
     -- (src/session_tokens.rs); the schema reuses trustpub's one-day
     -- ceiling with the same fail-closed ifnull anchor. The scope set is
-    -- the full human one, and NULL quota_class inherits the owning
-    -- user's class live through the auth lookup's COALESCE.
+    -- publish,yank, with verify only for the operator's own account (the
+    -- mint derives it from users.quota_class), and NULL quota_class
+    -- inherits the owning user's class live through the auth lookup's
+    -- COALESCE.
     CHECK (
         kind != 'session'
         OR (
             expires_at IS NOT NULL
             AND expires_at <=
                 ifnull(strftime('%Y-%m-%dT%H:%M:%fZ', created_at, '+1 day'), '')
-            AND scopes = 'publish,yank,verify'
+            AND scopes IN ('publish,yank', 'publish,yank,verify')
             AND scope_limit IS NULL
             AND quota_class IS NULL
         )

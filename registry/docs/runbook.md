@@ -335,8 +335,9 @@ the deploy, before the governor gate has run. Re-enable it in step 5.
    trusted-publishing exchange mints for the scope's oldest owner and
    refuses while the scope is unclaimed.
 3. Mint a login-session token for the governor step below
-   (`docs/remote-registry.md`); it carries the full human scope set, so
-   its `verify` scope authenticates the `verify`-scoped admin endpoint.
+   (`docs/remote-registry.md`) as the operator: only the operator's own
+   session carries the `verify` scope that authenticates the
+   `verify`-scoped admin endpoint.
    The verifier workflow needs no secret of its own: each run mints its
    token through the trusted-publishing exchange, and the baseline
    migration seeds the backing identity its verifier arm resolves
@@ -974,9 +975,9 @@ credential path - the `id-token` grant, the exchange, and the
 revocation - without verifying anything. The local operator flows are
 the exception: `cargo registry-governor`, `cargo registry-diagnose`,
 and the backup audit still read a manually minted token from
-`CABIN_REGISTRY_TOKEN` - a login-session token
-(`docs/remote-registry.md`) carrying the full human scope set, whose
-`verify` scope authenticates these flows.
+`CABIN_REGISTRY_TOKEN` - the operator's own login-session token
+(`docs/remote-registry.md`), the one session shape that carries the
+`verify` scope these flows need.
 
 The verifier's caps are GitHub **repository variables** (`gh variable
 set <NAME>`), passed through to the binary; unset or empty means the
