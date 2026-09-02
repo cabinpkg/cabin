@@ -62,18 +62,17 @@ statements! {
     /// `quota_class` so the row inherits the owning user's class live
     /// through [`AUTH_TOKEN_LOOKUP`]'s COALESCE. The scope set is
     /// `publish,yank`, plus `verify` only for the operator's own account
-    /// - the user whose `quota_class` is 'operator', which the baseline
-    /// migration seeds, so promoting an account to that class also
-    /// hands it the admin plane. The CHECK admits both strings; which
-    /// user gets which is decided here alone.
+    /// - `users.id` 1, the row the baseline migration seeds as the
+    /// operator. Quota classes stay resource tiers: promoting another
+    /// account to 'operator' raises its limits and nothing else. The
+    /// CHECK admits both strings; which user gets which is decided here
+    /// alone.
     INSERT_SESSION_TOKEN =
         "INSERT INTO tokens (id, user_id, name, token_hash, scopes, created_at, \
                              expires_at, kind) \
-         SELECT ?1, id, 'login session', ?3, \
-                CASE WHEN quota_class = 'operator' THEN 'publish,yank,verify' \
-                     ELSE 'publish,yank' END, \
-                ?4, ?5, 'session' \
-         FROM users WHERE id = ?2";
+         VALUES (?1, ?2, 'login session', ?3, \
+                 CASE WHEN ?2 = 1 THEN 'publish,yank,verify' ELSE 'publish,yank' END, \
+                 ?4, ?5, 'session')";
 
     /// [`DELETE_TRUSTPUB_TOKEN`](super::trustpub::DELETE_TRUSTPUB_TOKEN)'s session sibling, with the same
     /// zero-changes-is-401 discipline.

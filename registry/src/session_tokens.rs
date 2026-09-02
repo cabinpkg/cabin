@@ -351,8 +351,9 @@ mod tests {
         assert_eq!(quota_class, "default");
         assert_eq!(scope_limit, None);
 
-        // The operator's own session - user 1, the class the baseline
-        // migration seeds - is the one that carries verify.
+        // The operator's own session - user 1, the row the baseline
+        // migration seeds as the operator - is the one that carries
+        // verify.
         let operator_hash = auth::token_hash(&auth::format_session_token(&[8; 32]));
         mint_batch(
             &conn,
@@ -363,10 +364,29 @@ mod tests {
             expires_at,
         )
         .expect("the operator's mint batch commits");
-        let (scopes, quota_class, _) =
-            auth_lookup(&conn, &operator_hash, "2026-08-15T06:00:00.000Z")
-                .expect("the operator's token is live");
+        let (scopes, _, _) = auth_lookup(&conn, &operator_hash, "2026-08-15T06:00:00.000Z")
+            .expect("the operator's token is live");
         assert_eq!(scopes, "publish,yank,verify");
+
+        // A quota promotion is not an admin grant: the operator class
+        // raises another account's limits, and its next mint still
+        // carries no verify.
+        conn.execute("UPDATE users SET quota_class = 'operator' WHERE id = 2", ())
+            .expect("the manual promotion");
+        let promoted_hash = auth::token_hash(&auth::format_session_token(&[9; 32]));
+        mint_batch(
+            &conn,
+            "tok-ses-promoted",
+            user_id,
+            &promoted_hash,
+            created_at,
+            expires_at,
+        )
+        .expect("the promoted user's mint batch commits");
+        let (scopes, quota_class, _) =
+            auth_lookup(&conn, &promoted_hash, "2026-08-15T06:00:00.000Z")
+                .expect("the promoted user's token is live");
+        assert_eq!(scopes, "publish,yank");
         assert_eq!(quota_class, "operator");
 
         // Expiry is boundary-inclusive refusal, and an expired session

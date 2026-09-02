@@ -194,9 +194,9 @@ CREATE TABLE tokens (
     -- (src/session_tokens.rs); the schema reuses trustpub's one-day
     -- ceiling with the same fail-closed ifnull anchor. The scope set is
     -- publish,yank, with verify only for the operator's own account (the
-    -- mint derives it from users.quota_class), and NULL quota_class
-    -- inherits the owning user's class live through the auth lookup's
-    -- COALESCE.
+    -- mint keys it on the seeded operator row, users.id 1), and NULL
+    -- quota_class inherits the owning user's class live through the auth
+    -- lookup's COALESCE.
     CHECK (
         kind != 'session'
         OR (
