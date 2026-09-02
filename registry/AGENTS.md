@@ -29,18 +29,18 @@ and are not the default owner of domain behavior: keep glue a thin caller.
 | Area | Modules |
 | --- | --- |
 | Route matching, role-per-hostname, path validation | `src/routes.rs` |
-| Publish validation and policy | `src/publish.rs` (+ `src/names.rs`, `src/quota.rs`, `src/checksum.rs`; runtime write path in `src/glue/bearer.rs`) |
+| Publish validation and policy | `src/publish.rs` (+ `src/names.rs`, `src/quota.rs`, `src/checksum.rs`; runtime write path in `src/glue/bearer/package.rs`) |
 | Scope-claim grant rules | `src/claim.rs` |
 | Session-plane user API shapes, membership validation | `src/user_api.rs` (runtime handlers in `src/web_glue.rs`) |
 | Bearer tokens, scopes, auth header | `src/auth.rs` |
-| Login-session tokens (`cabin login`) | `src/session_tokens.rs` |
-| Trusted publishing (Actions OIDC) | `src/trustpub.rs` |
-| Verification lifecycle and read gate | `src/verify.rs` |
+| Login-session tokens (`cabin login`) | `src/session_tokens.rs` (runtime mint in `src/glue/bearer/tokens.rs`) |
+| Trusted publishing (Actions OIDC) | `src/trustpub.rs` (runtime exchange in `src/glue/bearer/tokens.rs`) |
+| Verification lifecycle and read gate | `src/verify.rs` (verdict and listings runtime in `src/glue/bearer/verifier.rs`) |
 | Served documents, source viewer, public stats, errors | `src/documents.rs`, `src/source.rs`, `src/stats.rs`, `src/error.rs` |
 | D1 SQL statements (one authoritative home; the governor's Durable Object SQL stays in `src/governor.rs` and `src/governor_do.rs`) | `src/sql/` (one module per domain), validated by `tests/sql_validation/` |
-| Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` |
+| Cost governor / budget breaker | `src/governor.rs`, `src/breaker.rs` (operator admin surface in `src/glue/bearer/governor.rs`) |
 | Browser cookies, CSRF, session plane | `src/session.rs` (runtime in `src/web_glue.rs`) |
-| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer.rs` mutation/admin planes, `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
+| Cloudflare runtime glue (wasm32) | `src/glue/` (`mod.rs` dispatch/auth, `read.rs` read plane, `bearer/` mutation/admin planes (`package.rs` publish/yank, `tokens.rs` token mint/revocation, `verifier.rs` listings/verdict, `governor.rs` ledger admin), `cron.rs` breaker budgets), `src/web_glue.rs` (OAuth/session), `src/backup_glue.rs`, `src/governor_client.rs`, `src/governor_do.rs` |
 
 The table routes the common areas; for anything else, the module doc
 comments in `src/` and `docs/architecture.md` "Code layout" identify the

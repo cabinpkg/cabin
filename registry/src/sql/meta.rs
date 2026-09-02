@@ -85,7 +85,7 @@ statements! {
 
     /// Refunds a rejected archive's bytes exactly when the row - still
     /// pending, still holding the bytes the verdict was read against -
-    /// is the checksum's sole live reference (see `src/glue/bearer.rs`,
+    /// is the checksum's sole live reference (see `src/glue/bearer/verifier.rs`,
     /// `apply_rejection`).
     REFUND_STORED_BYTES_ON_REJECTION =
         "UPDATE meta SET value = MAX(CAST(value AS INTEGER) - \
@@ -103,7 +103,7 @@ statements! {
 
     /// Re-counts a revived rejected revision's bytes exactly when the
     /// revival is about to apply and no other live row references the
-    /// checksum - a rejection refunded them (see `src/glue/bearer.rs`,
+    /// checksum - a rejection refunded them (see `src/glue/bearer/package.rs`,
     /// `revive_rejected_revision`; revivals are byte-identical, so
     /// the checksum is the row's own).  The conditions mirror
     /// [`REVIVE_REJECTED_REVISION`](super::packages::REVIVE_REJECTED_REVISION)'s guards one-for-one - the
