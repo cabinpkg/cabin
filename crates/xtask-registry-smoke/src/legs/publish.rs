@@ -897,14 +897,20 @@ fn r2_put(bucket: &str, key: &str, file: &Path) -> Result<()> {
 
 // --- Pure shapes. ---
 
-/// L1095-1097: `printf '…%4097s}'` with an empty argument - 4097 spaces
-/// of padding *inside* an otherwise well-formed rejected verdict, so an
-/// uncapped handler would parse and apply it and only the body cap can
-/// be what refused.
+/// L1095-1097: `printf '…%4097s}'` with an empty argument - padding
+/// *inside* an otherwise well-formed rejected verdict, so an uncapped
+/// handler would parse and apply it and only the body cap can be what
+/// refused.  Ten caps of it rather than the shell's one byte past: the
+/// refused body then spans several chunked wire frames and runs past
+/// any bound a drain might stop at, so the request after it succeeds
+/// only if the worker read the body to its end.
+const OVERSIZED_PADDING: usize = 10 * 4096;
+
 fn oversized_verdict(checksum: &str, published_at: &str) -> Vec<u8> {
     format!(
-        r#"{{"verdict":"rejected","reason":"oversized","checksum":"{checksum}","published_at":"{published_at}"{:4097}}}"#,
-        ""
+        r#"{{"verdict":"rejected","reason":"oversized","checksum":"{checksum}","published_at":"{published_at}"{:pad$}}}"#,
+        "",
+        pad = OVERSIZED_PADDING
     )
     .into_bytes()
 }
@@ -1020,9 +1026,12 @@ mod tests {
     fn the_oversized_verdict_pads_inside_the_document() {
         let body = oversized_verdict("dead", "1970-01-01T00:00:00Z");
         let head = r#"{"verdict":"rejected","reason":"oversized","checksum":"dead","published_at":"1970-01-01T00:00:00Z""#;
-        assert_eq!(body.len(), head.len() + 4097 + 1);
+        assert_eq!(body.len(), head.len() + OVERSIZED_PADDING + 1);
         assert!(body.starts_with(head.as_bytes()), "{}", text(&body));
-        assert_eq!(&body[head.len()..head.len() + 4097], vec![b' '; 4097]);
+        assert_eq!(
+            &body[head.len()..head.len() + OVERSIZED_PADDING],
+            vec![b' '; OVERSIZED_PADDING]
+        );
         assert_eq!(body.last(), Some(&b'}'));
         // Padded past the cap, but still a document a handler that read
         // the whole stream would accept.
