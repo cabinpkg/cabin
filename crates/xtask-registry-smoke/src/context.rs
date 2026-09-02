@@ -65,13 +65,7 @@ impl Smoke {
             //
             // No connection reuse: every `curl` was its own process,
             // so no connection ever outlived its request.  Pooling
-            // would be this port's own invention, and a leg whose
-            // server answers BEFORE draining the request body (the
-            // oversized chunked verdict, the body caps) leaves unread
-            // bytes on a pooled connection - the next request on it
-            // then hangs forever waiting for a response the server
-            // will never parse out of the leftovers.  Found wedged,
-            // not by review.
+            // would be this port's own invention.
             // The five-minute ceiling exists only to turn a wedged
             // local dev server into a loud failure naming its URL;
             // curl ran with no timeout, and no healthy leg comes
@@ -217,12 +211,9 @@ impl Smoke {
     ) -> Result<u16> {
         // Every one of the shell's ~500 requests paid a forked curl's
         // startup (~30 ms), and the local dev servers have never been
-        // driven faster than that.  In-process HTTP without the pause
-        // wedges workerd nondeterministically (an admin-plane GET
-        // right after the early-answered oversized PATCH hangs with
-        // no response, on a FRESH connection - twice in three runs),
-        // so the pacing is part of the environment the run was
-        // written for, not an optimization to strip.
+        // driven faster than that, so the pacing is part of the
+        // environment the run was written for, not an optimization to
+        // strip.
         std::thread::sleep(std::time::Duration::from_millis(25));
         let mut request = self.agent.request(method, url);
         for (name, value) in headers {

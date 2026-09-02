@@ -98,7 +98,8 @@ async fn handle(
 
 /// Reads at most `limit` request-body bytes without asking the runtime to
 /// materialize the complete body. The declared length is an early refusal;
-/// the streaming count is authoritative for chunked or dishonest requests.
+/// the streaming count is authoritative for chunked or dishonest requests,
+/// and a body it refuses is still drained rather than abandoned.
 pub(crate) async fn bounded_body(
     req: &mut Request,
     limit: usize,
@@ -119,6 +120,19 @@ pub(crate) async fn bounded_body(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         if chunk.len() > limit.saturating_sub(body.len()) {
+            // Refused, but read to its end so the connection carrying it
+            // stays usable: a chunked upload abandoned mid-stream cannot
+            // be resynchronised by the server in front of the worker.
+            // The local `wrangler dev` proxy shows the cost of abandoning
+            // it: its next request hangs or fails on 4.112.0, and 4.128.0
+            // exits wrangler outright. The accepted prefix is released
+            // first so the discard holds no memory, and the drain is not
+            // bounded: the edge caps the request body, and an under-cap
+            // trickle already holds an invocation open just as long. A
+            // stream error just ends the drain; the refusal is decided.
+            drop(body);
+            drop(chunk);
+            while let Some(Ok(_)) = stream.next().await {}
             return Ok(None);
         }
         body.extend_from_slice(&chunk);
