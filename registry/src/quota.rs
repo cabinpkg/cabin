@@ -171,10 +171,10 @@ pub const READ_RATE_LIMITED: Denial = Denial {
     code: "read_rate_limited",
     detail: "read rate limit exceeded; retry after the daily read allowance resets",
 };
-/// The pre-verification admission refusal on the two public OIDC
-/// endpoints (`glue::oidc_admission`): one fixed shape for both,
-/// decided before any credential is read, so it carries no validity
-/// signal.
+/// The pre-credential admission refusal on the two public OIDC
+/// endpoints and the session mint (`glue::oidc_admission`): one fixed
+/// shape for all three, decided before any credential is read, so it
+/// carries no validity signal.
 pub const OIDC_RATE_LIMITED: Denial = Denial {
     status: 429,
     code: "rate_limited",

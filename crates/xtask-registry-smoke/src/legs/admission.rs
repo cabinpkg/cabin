@@ -1,10 +1,12 @@
 //! The OIDC admission control, post-migration coverage with no shell
 //! ancestor: the global cache-bypass budget on unknown-kid JWKS
 //! refetches, then the per-client-IP gate on the two public OIDC
-//! endpoints (`registry/wrangler.jsonc`, the ratelimit bindings).
+//! endpoints and the session mint (`registry/wrangler.jsonc`, the
+//! ratelimit bindings).
 //! Deliberately the run's LAST leg: every local request shares one
 //! admission bucket (no `CF-Connecting-IP` off the edge), so the
-//! exhaustion burst would answer any later OIDC request with the 429
+//! exhaustion burst would answer any later OIDC request or session
+//! mint with the 429
 //! for up to a minute.  The budget arithmetic below counts against a
 //! full bucket, which holds twice over: the concurrency leg's dev
 //! restart starts fresh in-process limiter state, and the legs since
@@ -14,7 +16,7 @@
 use anyhow::{Result, bail};
 
 use crate::context::{Base, Smoke};
-use crate::legs::anonymous::{TRUSTPUB_TOKENS_PATH, uniform_401_with};
+use crate::legs::anonymous::{SESSION_TOKENS_PATH, TRUSTPUB_TOKENS_PATH, uniform_401_with};
 use crate::step;
 use crate::text::{capture, grep_lines, text};
 
@@ -31,7 +33,7 @@ const UNKNOWN_KID_JWT: &str = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImFkbWlzc2lvbi11bmtub
 /// so the version under it never matters.
 const VERDICT_PATH: &str = "/api/v1/admin/versions/smoke/withdep/0.1.0";
 
-/// The fixed refusal both endpoints must answer once admission
+/// The fixed refusal every gated endpoint must answer once admission
 /// refuses: `quota::OIDC_RATE_LIMITED` through the error envelope,
 /// decided before any credential is read.
 const EXPECTED_429: &str =
@@ -112,12 +114,12 @@ fn jwks_budget(smoke: &mut Smoke) -> Result<()> {
 }
 
 /// The per-IP admission bucket: burst the exchange endpoint until the
-/// 429 appears, then hold that the verdict endpoint answers the
-/// byte-identical refusal out of the same bucket - one fixed shape
-/// with a `Retry-After` on both endpoints, before any credential is
-/// read.
+/// 429 appears, then hold that the verdict endpoint and the session
+/// mint answer the byte-identical refusal out of the same bucket - one
+/// fixed shape with a `Retry-After` on all three, before any
+/// credential is read.
 fn exhaustion(smoke: &mut Smoke) -> Result<()> {
-    step("an admission-exhausting burst answers one fixed 429 on both oidc endpoints");
+    step("an admission-exhausting burst answers one fixed 429 on the oidc endpoints and the mint");
     let url = smoke.url(Base::Web, TRUSTPUB_TOKENS_PATH);
     let mut refused_at = None;
     // The bucket is 60/min shared by every local request; earlier legs
@@ -157,6 +159,19 @@ fn exhaustion(smoke: &mut Smoke) -> Result<()> {
     }
     if grep_lines(&text(&smoke.headers), "retry-after:").is_empty() {
         bail!("the verdict 429 carries no Retry-After");
+    }
+    // The session mint, same bucket: a credential GitHub would refuse
+    // is never sent there.
+    let mint = smoke.url(Base::Web, SESSION_TOKENS_PATH);
+    let status = smoke.http("PUT", &mint, &[], Some(br#"{"github_token":"gho_wrong"}"#))?;
+    if status != 429 {
+        bail!("the session mint answered {status} out of the exhausted bucket, expected 429");
+    }
+    if capture(&smoke.body) != EXPECTED_429 {
+        bail!("session mint 429 body mismatch: {}", capture(&smoke.body));
+    }
+    if grep_lines(&text(&smoke.headers), "retry-after:").is_empty() {
+        bail!("the session mint 429 carries no Retry-After");
     }
     Ok(())
 }

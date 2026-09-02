@@ -336,11 +336,12 @@ impl session_tokens::GithubUserProvider for GithubUserApi<'_> {
 
 /// `PUT /api/v1/sessions/tokens` (`docs/remote-registry.md`, "Login
 /// sessions"): trades a GitHub access token
-/// for a 12-hour `session` bearer token. The write gate answers first,
-/// before the credential is even read: the mint is a write, and a
-/// doomed request must not spend an outbound GitHub call - the
-/// pre-auth 503 deliberately tells an anonymous caller the breaker
-/// state, like the read plane's public over-budget answer. Then the
+/// for a 12-hour `session` bearer token. [`oidc_admission`] answers
+/// first, then the write gate, both before the credential is even
+/// read: the mint is a write that spends an outbound GitHub call, and
+/// a doomed request must not buy one - the pre-auth 503 deliberately
+/// tells an anonymous caller the breaker state, like the read plane's
+/// public over-budget answer. Then the
 /// GitHub check-token proof, the allowlist, and the identity lookup - the
 /// exact resolution the web OAuth login uses, minus its account
 /// creation: `cabin login` is for accounts that exist, so an unknown
@@ -353,6 +354,9 @@ pub(super) async fn session_mint_response(
     env: &Env,
     db: &D1Database,
 ) -> worker::Result<(Response, Option<String>)> {
+    if let Some(refusal) = oidc_admission(req, env).await? {
+        return Ok((refusal, None));
+    }
     if let Some(blocked) = write_gate(env, db).await? {
         return Ok((blocked, None));
     }

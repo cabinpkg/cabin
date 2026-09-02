@@ -84,10 +84,12 @@ again" hint off the header alone.
 
 This dashboard-managed rule is the OUTER layer only. The two public
 OIDC endpoints (the trusted-publishing exchange and the verdict PATCH)
-additionally sit behind the Worker's own admission control: the
-`OIDC_LIMITER` and `JWKS_LIMITER` ratelimit bindings in
-`wrangler.jsonc`, required by `cargo check-deploy` and failing closed
-when missing (`docs/architecture.md`, "Two credential planes"). Losing
+and the login-session mint additionally sit behind the Worker's own
+admission control: the `OIDC_LIMITER` ratelimit binding in
+`wrangler.jsonc` admits all three per client IP, and `JWKS_LIMITER`
+bounds the two OIDC endpoints' JWKS refetches; both are required by
+`cargo check-deploy` and fail closed when missing
+(`docs/architecture.md`, "Two credential planes"). Losing
 or misconfiguring the WAF rule therefore degrades defense in depth but
 never re-opens the unmetered-JWKS-refetch exposure; the worker's `429`
 carries the registry's own `rate_limited` envelope with a

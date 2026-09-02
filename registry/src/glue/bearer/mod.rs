@@ -65,9 +65,9 @@ pub(super) async fn handle_website(
     // The auth-exempt mint routes on the plane: each PUT's credential
     // travels in its body (the exchange's OIDC JWT, the session mint's
     // GitHub access token), so both dispatch before the token check.
-    // The breaker's write gate runs inside each handler - on the
-    // exchange's config arm only, and first of all for the session
-    // mint.
+    // Admission control and the breaker's write gate run inside each
+    // handler: the gate on the exchange's config arm only, and right
+    // after admission for the session mint.
     if req.method() == Method::Put
         && (path == crate::routes::TRUSTPUB_TOKENS_PATH
             || path == crate::routes::SESSION_TOKENS_PATH)
@@ -186,13 +186,15 @@ pub(super) async fn handle_website(
     Ok((response, Some(auth.token_id)))
 }
 
-/// Pre-verification admission for the two public OIDC surfaces (the
-/// exchange PUT and the verdict PATCH): one per-client-IP budget from
-/// the `OIDC_LIMITER` ratelimit binding (`wrangler.jsonc`), spent
-/// before the body, the JWT, or any JWKS access is touched, so
-/// unauthenticated traffic cannot buy verification work - in
-/// particular the unknown-kid JWKS refetch (`trustpub::verify`) -
-/// beyond the budget. The refusal is one fixed 429 on both endpoints,
+/// Pre-credential admission for the public surfaces that spend work
+/// before any credential is read - the two OIDC endpoints (the
+/// exchange PUT and the verdict PATCH) and the session mint PUT: one
+/// per-client-IP budget from the `OIDC_LIMITER` ratelimit binding
+/// (`wrangler.jsonc`), spent before the body, the JWT, or any JWKS
+/// access is touched, so unauthenticated traffic cannot buy
+/// verification work - in particular the unknown-kid JWKS refetch
+/// (`trustpub::verify`) - or the mint's outbound GitHub call beyond
+/// the budget. The refusal is one fixed 429 on every endpoint,
 /// decided before any credential is read, so it carries no validity
 /// signal; its `Retry-After` mirrors the binding's period. A missing
 /// binding or a limiter error refuses too: the gate is load-bearing
