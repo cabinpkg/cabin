@@ -50,8 +50,11 @@ repository context. Do not invent missing details.
 
 1. Read the issue and its comments.
 2. Inspect the repository's available labels and issue types.
-3. Search open and recent closed issues for the same symptoms, request, error
-   messages, affected component, or expected behavior.
+3. Search both open and closed issues for the same symptoms, request, error
+   messages, affected component, or user-visible outcome. Search by the
+   requested outcome, not only by title wording. If the first search does not
+   produce a high-confidence match, try a second concise query using concrete
+   examples or synonyms from the issue.
 4. Consult relevant repository documentation when it clarifies expected behavior
    or contribution requirements.
 
@@ -104,6 +107,12 @@ Distinguish between:
   or request. Apply `duplicate`, then close the triggering issue with
   `state_reason: duplicate` and `duplicate_of` set to the canonical issue.
   Do not continue triaging after closing it.
+  A closed issue, including one closed as `not planned`, can be the canonical
+  duplicate. Read the candidate's body and maintainer discussion before
+  deciding it is merely related. If both issues request substantially the same
+  user-visible outcome, treat them as duplicates even when their titles or
+  wording differ. A closed issue containing an explicit maintainer decision on
+  the same request is a strong duplicate candidate.
 - **Related**: shared component or context, but a distinct problem or request.
   Mention it without applying `duplicate`.
 
