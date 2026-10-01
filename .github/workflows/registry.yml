@@ -52,7 +52,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           target: wasm32-unknown-unknown
           cache-on-failure: false
@@ -147,7 +147,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           cache-on-failure: false
           cache-workspaces: |
@@ -194,7 +194,7 @@ jobs:
       # main-branch job restore main-scoped entries (PR caches are
       # unreachable), and dropping the cache would roughly double
       # production deploy latency.
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with: # zizmor: ignore[cache-poisoning] -- accepted: low-trust runs cannot write main-scoped caches; see comment above
           target: wasm32-unknown-unknown
           cache-on-failure: false
