@@ -39,7 +39,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: crate-ci/typos@8a48f81b6c64dcfea44b3633223084c4be58ac5f # v1.49.0
+      - uses: crate-ci/typos@512fc24f32f44ab01972217aaaf3dc86ec234d53 # v1.50.2
 
       # A merge group's commit is GitHub-generated, so only typos runs
       # there; the commitlint steps validate the real PR commits and
