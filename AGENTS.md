@@ -21,7 +21,7 @@ in the same change and follow the architecture document.
 - Read `.github/AGENTS.md` before changing GitHub Actions workflows or other
   `.github/` configuration.
 - Use `RELEASING.md` for release procedure. Do not infer release policy from
-  CI or change cargo-dist, binstall, publishing, or release workflows during
+  CI or change binstall, publishing, or release workflows during
   unrelated work.
 
 ## Working rules
