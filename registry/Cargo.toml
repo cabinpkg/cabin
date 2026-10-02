@@ -62,3 +62,5 @@ rusqlite = { version = "0.40", features = ["bundled", "limits"] }
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }
 must_use_candidate = "allow"
+# `assert!(x.is_empty())` reads better than the `assert_eq!(x, [] as [T; 0])` it suggests.
+assert_is_empty = "allow"
