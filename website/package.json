@@ -23,7 +23,7 @@
         "@github/combobox-nav": "^3.0.2",
         "@lucide/astro": "^1.48.0",
         "fuse.js": "^7.5.0",
-        "katex": "^0.18.10",
+        "katex": "^0.19.0",
         "markdown-it": "^15.0.2",
         "rehype-katex": "^7.0.1",
         "remark-math": "^6.0.0",
