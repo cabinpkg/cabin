@@ -402,8 +402,10 @@ fn safe_extract_zip_with_limits(
 
     for index in 0..zip.len() {
         let entry = zip.by_index(index).map_err(extract_err)?;
+        let display = entry.name().map_err(extract_err)?.into_owned();
         write_zip_entry(
             entry,
+            display,
             dest,
             limits,
             max_total_bytes,
@@ -429,6 +431,7 @@ fn safe_extract_zip_with_limits(
 #[allow(clippy::too_many_arguments)]
 fn write_zip_entry<R: Read>(
     mut entry: zip::read::ZipFile<'_, R>,
+    display: String,
     dest: &Path,
     limits: ExtractLimits,
     max_total_bytes: u64,
@@ -437,13 +440,12 @@ fn write_zip_entry<R: Read>(
     saw_prefix: &mut bool,
     total_bytes: &mut u64,
 ) -> Result<(), ArtifactError> {
-    if entry.name().len() > limits.max_path_bytes {
+    if display.len() > limits.max_path_bytes {
         return Err(ArtifactError::ArchiveEntryPathTooLong {
-            path: truncate_for_display(entry.name().as_bytes()),
+            path: truncate_for_display(display.as_bytes()),
             limit: limits.max_path_bytes,
         });
     }
-    let display = entry.name().to_owned();
 
     // Zip has no first-class entry-type field; the Unix mode bits
     // travel in the external attributes when the archive was produced
@@ -465,7 +467,7 @@ fn write_zip_entry<R: Read>(
     // Path-safety and prefix checks run for skipped symlinks too,
     // exactly like the tar path: skipping avoids materializing the
     // entry, not validating the archive.
-    let entry_path = PathBuf::from(entry.name());
+    let entry_path = PathBuf::from(&display);
     let Some(target) = resolve_safe_target(
         &entry_path,
         dest,
@@ -2364,9 +2366,10 @@ mod tests {
         // still finds the record and opens the archive.  Because the
         // check walks from the crate's own `central_directory_start`, it
         // inspects the same directory the crate extracts, so the
-        // duplicate is still caught however many bytes trail the EOCD.
+        // duplicate is still caught for any tail the crate tolerates
+        // (zip 9 refuses an EOCD more than 64 KiB from EOF outright).
         let mut appended = bytes.clone();
-        appended.extend(std::iter::repeat_n(0u8, 70_000));
+        appended.extend(std::iter::repeat_n(0u8, 60_000));
         let archive2 = dir.child("appended.zip");
         fs::write(archive2.path(), &appended).unwrap();
         let dest2 = dir.child("out2");

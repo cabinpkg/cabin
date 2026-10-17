@@ -50,7 +50,7 @@ fn read_archive_entries(archive: &Path) -> BTreeSet<String> {
     let mut zip = zip::ZipArchive::new(f).unwrap();
     let mut out = BTreeSet::new();
     for i in 0..zip.len() {
-        out.insert(zip.by_index(i).unwrap().name().to_owned());
+        out.insert(zip.by_index(i).unwrap().name().unwrap().into_owned());
     }
     out
 }

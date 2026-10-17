@@ -638,7 +638,7 @@ fmt = { workspace = true, features = ["color"] }
         // nothing under `missing-parent/` snuck in.
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(staged.archive_bytes)).unwrap();
         let seen: Vec<String> = (0..zip.len())
-            .map(|i| zip.by_index(i).unwrap().name().to_owned())
+            .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
             .collect();
         assert!(seen.contains(&"cabin.toml".to_owned()));
         assert!(seen.contains(&"src/lib.cc".to_owned()));
@@ -914,7 +914,7 @@ sources = ["src/main.cc"]
         .unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(staged.archive_bytes)).unwrap();
         for i in 0..zip.len() {
-            let path = zip.by_index(i).unwrap().name().to_owned();
+            let path = zip.by_index(i).unwrap().name().unwrap().into_owned();
             assert!(
                 !path.starts_with("custom-out"),
                 "stale output leaked: {path}"

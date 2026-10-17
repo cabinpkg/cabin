@@ -531,7 +531,7 @@ compiler-wrapper = "ccache"
     let f = fs::File::open(&archive).unwrap();
     let mut zip = zip::ZipArchive::new(f).unwrap();
     for i in 0..zip.len() {
-        let path = zip.by_index(i).unwrap().name().to_owned();
+        let path = zip.by_index(i).unwrap().name().unwrap().into_owned();
         assert!(
             !path.contains(".cabin"),
             "archive must not contain .cabin entries, found: {path}",
