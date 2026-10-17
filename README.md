@@ -35,6 +35,8 @@ See [GitHub Discussions](https://github.com/orgs/cabinpkg/discussions).
 
 ## Sponsorship
 
+Support Cabin's ongoing development by [becoming a sponsor](https://github.com/sponsors/cabinpkg).
+
 This project was initially funded in 2018 by the
 [MITOU IT Program](https://www.ipa.go.jp/en/it-talents/mitou/index.html)
 ([project page (ja)](https://www.ipa.go.jp/jinzai/mitou/it/2018/gaiyou_t-2.html)),
