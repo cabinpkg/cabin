@@ -763,6 +763,13 @@ fn package_archive_includes_test_and_example_sources() {
 fn list_zip_paths(bytes: &[u8]) -> Vec<String> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("zip archive");
     (0..archive.len())
-        .map(|i| archive.by_index(i).expect("entry").name().to_owned())
+        .map(|i| {
+            archive
+                .by_index(i)
+                .expect("entry")
+                .name()
+                .expect("name")
+                .into_owned()
+        })
         .collect()
 }

@@ -528,7 +528,7 @@ mod tests {
 
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
         let mut seen: Vec<String> = (0..zip.len())
-            .map(|i| zip.by_index(i).unwrap().name().to_owned())
+            .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
             .collect();
         seen.sort();
         assert_eq!(seen, vec!["cabin.toml", "src/main.cc"]);
@@ -552,7 +552,7 @@ mod tests {
             assert!(
                 entry.extra_data().unwrap_or_default().is_empty(),
                 "entry `{}` carries extra-field bytes",
-                entry.name()
+                entry.name().unwrap()
             );
             assert_eq!(entry.compression(), CompressionMethod::Deflated);
             assert_eq!(entry.last_modified(), Some(DateTime::default()));
