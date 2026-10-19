@@ -16,83 +16,13 @@ use cabin_resolver::{
 };
 use cabin_workspace::{PackageGraph, RegistryPackageSource};
 
+use super::seed::{ResolutionSeed, SeedInputs, activated_fork_claims, merge_versioned_deps};
 use super::{
     Context, FROZEN_INDEX_URL_ERR, FetchArgs, Reporter, ResolveArgs, ResolveFormat, Result,
     UpdateArgs, WorkspaceSelectionArgsForUpdate, absolutise, bail, build_selection_request,
-    build_workspace_selection, collect_patched_versioned_deps, compute_feature_resolution,
-    emit_fetch_output, enabled_features_by_package, resolve_invocation_manifest,
+    build_workspace_selection, collect_patched_versioned_deps, emit_fetch_output,
+    enabled_features_by_package, resolve_invocation_manifest,
 };
-
-/// Declared `links` claims of the local packages a command's
-/// resolution actually includes - the feature resolver's exact
-/// reachable set, so a disabled optional path dependency never
-/// contributes a claim it could not collide with.  Patched packages
-/// are graph packages like any local, so an included patch's claims
-/// participate; what never participates is the patched *name*'s
-/// index metadata - stripped from root deps, and skipped by the
-/// resolver for transitive selections via
-/// [`ResolveInput::locally_supplied`].
-///
-/// Callers validate the returned claims against each other with
-/// [`enforce_local_links_uniqueness`] *before* any
-/// no-versioned-deps fast path, then hand the same claims to
-/// [`ResolveInput::local_links`] so the resolver's post-solve check
-/// sees local and registry claims together.
-pub(crate) fn local_links_claims(
-    graph: &PackageGraph,
-    features: &cabin_feature::FeatureResolution,
-) -> Vec<LinksClaim> {
-    let mut claims = links_claims_of(graph, &features.included);
-    claims.sort();
-    claims.dedup();
-    claims
-}
-
-/// The declared `links` claims of the given graph packages, in
-/// index order (callers sort/dedup the combined seed themselves).
-fn links_claims_of(graph: &PackageGraph, indices: &BTreeSet<usize>) -> Vec<LinksClaim> {
-    let mut claims = Vec::new();
-    for &idx in indices {
-        let package = &graph.packages[idx].package;
-        for target in &package.targets {
-            if let Some(links) = &target.links {
-                claims.push(LinksClaim {
-                    package: package.name.clone(),
-                    version: package.version.clone(),
-                    target: target.name.as_str().to_owned(),
-                    links: links.clone(),
-                });
-            }
-        }
-    }
-    claims
-}
-
-/// Local-vs-local `links` uniqueness, run unconditionally before a
-/// command's fast paths: a workspace with no versioned dependencies
-/// must reject duplicate claims exactly like a resolved graph.
-pub(crate) fn enforce_local_links_uniqueness(claims: &[LinksClaim]) -> Result<()> {
-    cabin_resolver::detect_links_collision(claims).context("dependency resolution failed")?;
-    Ok(())
-}
-
-/// [`enforce_local_links_uniqueness`] over the full pre-resolution
-/// seed: the included local packages' claims plus the activated
-/// patch forks' - a purely-local patched chain still links its
-/// forks, so their claims cannot wait for a resolution that never
-/// runs.
-pub(crate) fn enforce_seed_links_uniqueness(
-    graph: &PackageGraph,
-    features: &cabin_feature::FeatureResolution,
-    active_patches: &cabin_workspace::ActivePatchSet,
-    activated: &BTreeSet<String>,
-) -> Result<()> {
-    let mut claims = local_links_claims(graph, features);
-    claims.extend(activated_fork_claims(graph, active_patches, activated)?);
-    claims.sort();
-    claims.dedup();
-    enforce_local_links_uniqueness(&claims)
-}
 
 /// Everything the iterative patch activation below needs from the
 /// call site.  Both resolution pipelines build one of these so the
@@ -425,39 +355,6 @@ fn enforce_activated_fork_versions(
     Ok(())
 }
 
-/// The declared `links` claims of the activated patches' forks and
-/// of everything the forks' manifests pull into the graph (path
-/// dependencies) - the local packages the final
-/// reload will link in place of, or alongside, the upstream
-/// packages the activation suppressed.  Feature resolution never
-/// included any of them (nothing selected reaches a
-/// transitively-activated fork locally), so
-/// [`cabin_feature::resolve_fork_island_features`] runs a dedicated
-/// under-approximating pass over the fork islands - see it for why
-/// only mandatory members claim here; the exact, edge-aware check
-/// runs in the build pipeline over the final reloaded graph, whose
-/// feature resolution applies the fetched manifests' real edge
-/// requests.  Scoping to the pass's `included` set - not the
-/// loader-stitch closure - matches [`local_links_claims`]: a
-/// feature-disabled optional path dependency is loaded into the
-/// graph but never linked, so its claims must not participate.
-fn activated_fork_claims(
-    graph: &PackageGraph,
-    active_patches: &cabin_workspace::ActivePatchSet,
-    activated: &BTreeSet<String>,
-) -> Result<Vec<LinksClaim>> {
-    let fork_roots = cabin_workspace::activated_fork_indices(graph, active_patches, activated);
-    if fork_roots.is_empty() {
-        return Ok(Vec::new());
-    }
-    let resolution = cabin_feature::resolve_fork_island_features(
-        graph,
-        &fork_roots,
-        &cabin_core::TargetPlatform::current(),
-    )?;
-    Ok(links_claims_of(graph, &resolution.included))
-}
-
 /// Versioned dependencies across the activated forks' islands - the
 /// forks plus the feature-included local packages their path edges
 /// pull in.  Complements [`collect_patched_versioned_deps`] (fork
@@ -589,11 +486,6 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         ..
     } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
-    // validate the workspace selection up-front so a typo
-    // like `--package missing` fails even when there are no
-    // versioned deps to fetch.
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     // `cabin fetch` does not currently expose feature flags,
     // so feature resolution runs with the documented defaults
     // (each selected root's `default` feature, no extras).  This
@@ -601,41 +493,24 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     // index-requirement check below - the user opts into them
     // via `cabin build --features ...` / `cabin resolve
     // --features ...`.
-    let initial_features = compute_feature_resolution(
-        &initial_graph,
-        &resolved_selection,
-        &cabin_core::SelectionRequest::default(),
-        &BTreeSet::new(),
-    )?;
-    // Checked below, after the patched-deps preview computes the
-    // activated patch set, so fork claims join the local ones.
-
-    // scope the index requirement to the selected
-    // closure.  Unrelated members' versioned deps no longer force a
-    // user who passed `--package <selected>` to also pass
-    // `--index-path`.  Patched manifests contribute their own
-    // versioned deps too, so a workspace whose only versioned
-    // edge comes from `[patch]` still needs the index.
+    let fetch_request = cabin_core::SelectionRequest::default();
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let closure_deps_preview = collect_closure_versioned_deps_excluding_patches(
-        &initial_graph,
-        &resolved_selection,
-        &initial_features,
-        &patched_names,
-        &dev_for,
-    )?;
-    let patched_root_deps_preview = collect_patched_versioned_deps(
-        &active_patches,
-        &patched_names,
-        &closure_deps_preview.referenced_excluded,
-    )?;
-    enforce_seed_links_uniqueness(
-        &initial_graph,
-        &initial_features,
-        &active_patches,
-        &patched_root_deps_preview.activated,
-    )?;
-    if patched_root_deps_preview.deps.is_empty() && closure_deps_preview.deps.is_empty() {
+    // Computed before the fast path so a selection typo like
+    // `--package missing` fails even when there is nothing to
+    // fetch, and so the index requirement is scoped to the selected
+    // closure: unrelated members' versioned deps never force a user
+    // who passed `--package <selected>` to also pass `--index-path`,
+    // while a workspace whose only versioned edge comes from
+    // `[patch]` still needs the index.
+    let seed = ResolutionSeed::compute(&SeedInputs {
+        graph: &initial_graph,
+        selection: &workspace_selection,
+        request: &fetch_request,
+        patched_names: &patched_names,
+        active_patches: &active_patches,
+        dev_for: &dev_for,
+    })?;
+    if !seed.has_versioned_deps() {
         emit_fetch_output(&[], args.format, &manifest_path)?;
         return Ok(());
     }
@@ -660,7 +535,6 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         false,
     )?;
 
-    let fetch_request = cabin_core::SelectionRequest::default();
     let pipeline = run_artifact_pipeline(&ArtifactPipelineRequest {
         manifest_path: &manifest_path,
         initial_graph: &initial_graph,
@@ -669,8 +543,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         policy: inputs.policy,
         cache_dir: &inputs.cache_dir,
         reporter,
-        selection: workspace_selection,
-        selection_request: &fetch_request,
+        seed: &seed,
         patched_names: &patched_names,
         active_patches: &active_patches,
         source_replacements: &effective_config.source_replacements,
@@ -765,46 +638,21 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // gather versioned deps from the selected primary
     // packages, including non-root workspace members.  Pure-workspace roots
     // (no `[package]`) work too - they take a synthetic identity.
-    let resolved_selection = selected_resolution_packages(&graph, &request.selection)?;
-    let features = compute_feature_resolution(
-        &graph,
-        &resolved_selection,
-        &request.selection_request,
-        &BTreeSet::new(),
-    )?;
-    let local_links = local_links_claims(&graph, &features);
+    // The seed folds the *referenced* patches' deps in so `cabin
+    // resolve` (and `--package` validation below) sees the same root
+    // set the artifact pipeline does; transitively-referenced patches
+    // join through the activation loop inside
+    // `resolve_with_patch_activation`.
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let closure_deps = collect_closure_versioned_deps_excluding_patches(
-        &graph,
-        &resolved_selection,
-        &features,
-        &patched_names,
-        &dev_for,
-    )?;
-    let base_root_deps = closure_deps.deps;
-    let mut root_deps = base_root_deps.clone();
-    // Patched manifests live outside the workspace graph, so
-    // their own versioned deps never reached the closure walk.
-    // Fold in the *referenced* patches' deps so `cabin resolve`
-    // (and `--package` validation below) sees the same root set
-    // the artifact pipeline does; dormant patches contribute
-    // nothing, and transitively-referenced patches join through
-    // the activation loop inside `resolve_with_patch_activation`.
-    let patched_root_deps = collect_patched_versioned_deps(
-        &active_patches,
-        &patched_names,
-        &closure_deps.referenced_excluded,
-    )?;
-    // Checked before the no-versioned-deps fast path below returns
-    // without resolving: a purely-local patched chain still links
-    // its forks.
-    enforce_seed_links_uniqueness(
-        &graph,
-        &features,
-        &active_patches,
-        &patched_root_deps.activated,
-    )?;
-    merge_versioned_deps(&mut root_deps, patched_root_deps.deps)?;
+    let seed = ResolutionSeed::compute(&SeedInputs {
+        graph: &graph,
+        selection: &request.selection,
+        request: &request.selection_request,
+        patched_names: &patched_names,
+        active_patches: &active_patches,
+        dev_for: &dev_for,
+    })?;
+    let root_deps = seed.root_deps()?;
     let (root_name, root_version) = match graph.root_package {
         Some(idx) => (
             graph.packages[idx].package.name.clone(),
@@ -834,7 +682,7 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         // `root_deps` was gathered from every *selected* package
         // (plus active patches), so the message names the actual
         // lookup scope rather than the workspace root.
-        let scope = match resolved_selection.packages.as_slice() {
+        let scope = match seed.resolved_selection.packages.as_slice() {
             [idx] => format!("`{}`", graph.packages[*idx].package.name.as_str()),
             _ => "any selected package".to_owned(),
         };
@@ -963,9 +811,9 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     // patched reload) then refuses, never one `allow` would have
     // avoided.
     input.consumer_standards = graph.consumer_standards(
-        &resolved_selection.closure(&graph),
-        &resolved_selection.packages,
-        &crate::cli::enabled_features_by_package(&features),
+        &seed.resolved_selection.closure(&graph),
+        &seed.resolved_selection.packages,
+        &crate::cli::enabled_features_by_package(&seed.features),
         &dev_for,
     );
     input.incompatible_standards =
@@ -977,12 +825,12 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         sparse_index.as_ref(),
         &PatchActivationContext {
             graph: &graph,
-            features: &features,
+            features: &seed.features,
             active_patches: &active_patches,
             patched_names: &patched_names,
-            base_root_deps: &base_root_deps,
-            closure_referenced: &closure_deps.referenced_excluded,
-            local_links: &local_links,
+            base_root_deps: &seed.closure_deps.deps,
+            closure_referenced: &seed.closure_deps.referenced_excluded,
+            local_links: &seed.local_links,
         },
         false,
     )?;
@@ -1115,107 +963,6 @@ fn print_resolve_json(output: &ResolveOutput) -> Result<()> {
     crate::print_pretty_json(&value, "failed to serialize resolve output as JSON")
 }
 
-/// Build the selection's closure once and adapt a
-/// [`cabin_feature::FeatureResolution`] handle into the
-/// `Fn(usize, &str) -> bool` optional-dep filter the workspace
-/// versioned-dep helpers consume.  Shared by the collect / has shims
-/// below so the closure build + filter adapter live in one place.
-///
-/// The edge closure is intersected with the feature resolver's
-/// `included` set: the raw closure follows optional path edges even
-/// when disabled, and a package reachable only through a disabled
-/// optional dependency must contribute nothing to resolution - its
-/// registry deps would otherwise resolve (over-fetching) and their
-/// index `links` claims would hard-fail graphs the build never
-/// links.
-fn closure_and_optional_filter<'a>(
-    graph: &PackageGraph,
-    selection: &cabin_workspace::ResolvedSelection,
-    features: &'a cabin_feature::FeatureResolution,
-) -> (BTreeSet<usize>, impl Fn(usize, &str) -> bool + 'a) {
-    let closure: BTreeSet<usize> = selection
-        .closure(graph)
-        .intersection(&features.included)
-        .copied()
-        .collect();
-    (closure, move |idx, name| {
-        features.is_optional_dep_enabled(idx, name)
-    })
-}
-
-/// Collect every versioned dependency reachable from `selection`
-/// after dropping patched names.  Thin shim around the typed API
-/// in `cabin-workspace`.
-pub(crate) fn collect_closure_versioned_deps_excluding_patches(
-    graph: &PackageGraph,
-    selection: &cabin_workspace::ResolvedSelection,
-    features: &cabin_feature::FeatureResolution,
-    patched_names: &BTreeSet<String>,
-    dev_for: &BTreeSet<String>,
-) -> Result<cabin_workspace::ClosureVersionedDeps> {
-    let (closure, is_optional_dep_enabled) =
-        closure_and_optional_filter(graph, selection, features);
-    cabin_workspace::collect_closure_versioned_deps_excluding_with_dev(
-        graph,
-        &closure,
-        is_optional_dep_enabled,
-        patched_names,
-        dev_for,
-    )
-    .map_err(Into::into)
-}
-
-/// Merge `extra` into `into`, joining version requirements for
-/// names that appear in both so the resolver sees a single
-/// requirement per package.  Mirrors the join-and-reparse pattern
-/// the workspace closure walker uses.
-fn merge_versioned_deps(
-    into: &mut BTreeMap<PackageName, semver::VersionReq>,
-    extra: BTreeMap<PackageName, semver::VersionReq>,
-) -> Result<()> {
-    for (name, req) in extra {
-        match into.entry(name.clone()) {
-            std::collections::btree_map::Entry::Vacant(slot) => {
-                slot.insert(req);
-            }
-            std::collections::btree_map::Entry::Occupied(mut slot) => {
-                // The manifest-level and island folds overlap on the
-                // forks' own deps; an identical requirement adds
-                // nothing and must not grow into ">=1, >=1".
-                if slot.get() == &req {
-                    continue;
-                }
-                let parsed = cabin_workspace::combine_version_reqs(&[
-                    slot.get().to_string(),
-                    req.to_string(),
-                ])
-                .map_err(|(joined, err)| {
-                    anyhow::anyhow!(
-                        "conflicting dependency requirements for {}: {}: {}",
-                        name.as_str(),
-                        joined,
-                        err
-                    )
-                })?;
-                slot.insert(parsed);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Pick the primary packages that contribute versioned
-/// deps to a resolve / fetch / update run.  When the user passed
-/// workspace-selection flags, only their selected packages
-/// contribute.  Otherwise the documented default applies (root
-/// package or every primary).
-fn selected_resolution_packages(
-    graph: &PackageGraph,
-    selection: &cabin_workspace::PackageSelection,
-) -> Result<cabin_workspace::ResolvedSelection> {
-    cabin_workspace::resolve_package_selection(graph, selection).map_err(std::convert::Into::into)
-}
-
 /// What kind of resolution the CLI is asking for, plus the write /
 /// network permissions that follow from it.  One value replaces the
 /// previously separate lock mode + `frozen` + `allow_write`
@@ -1288,13 +1035,11 @@ pub(crate) struct ArtifactPipelineRequest<'a> {
     pub(crate) policy: LockPolicy,
     pub(crate) cache_dir: &'a Path,
     pub(crate) reporter: Reporter,
-    /// Workspace selection that contributes versioned deps
-    /// to the resolution.  Defaults to every primary package when
-    /// the user passes no selection flags.
-    pub(crate) selection: cabin_workspace::PackageSelection,
-    /// Feature flags from the CLI.  Drives optional-dependency
-    /// inclusion.
-    pub(crate) selection_request: &'a cabin_core::SelectionRequest,
+    /// The pre-resolution seed computed over `initial_graph` with
+    /// the same patches and dev activation as the fields below - the
+    /// one the caller already gated its no-versioned-deps fast path
+    /// on.
+    pub(crate) seed: &'a ResolutionSeed,
     /// Names of patched packages - the pipeline must skip them
     /// because they ship from a local working copy and never need
     /// to be fetched from the index.
@@ -1372,46 +1117,13 @@ pub(crate) fn run_artifact_pipeline(
 ) -> Result<ArtifactPipeline> {
     let manifest_path = request.manifest_path;
     let graph = request.initial_graph;
-    let resolved_selection = selected_resolution_packages(graph, &request.selection)?;
-    let features = compute_feature_resolution(
-        graph,
-        &resolved_selection,
-        request.selection_request,
-        request.dev_for,
-    )?;
-    let local_links = local_links_claims(graph, &features);
-    let closure_deps = collect_closure_versioned_deps_excluding_patches(
-        graph,
-        &resolved_selection,
-        &features,
-        request.patched_names,
-        request.dev_for,
-    )?;
-    let base_root_deps = closure_deps.deps;
-    let mut root_deps = base_root_deps.clone();
-    // Patched manifests are not part of the workspace graph at
-    // this point, so their own `[dependencies]` never appeared
-    // in the closure walk.  Fold the *referenced* patches' deps in
-    // so a workspace whose only versioned dep is patched still
-    // resolves and fetches the patched manifest's transitive
-    // registry edges; dormant patches contribute nothing, and
+    let seed = request.seed;
+    // The seed already folded the *referenced* patches' deps in, so a
+    // workspace whose only versioned dep is patched still resolves
+    // and fetches the patched manifest's transitive registry edges;
     // transitively-referenced patches join through the activation
     // loop inside `resolve_with_patch_activation`.
-    let patched_root_deps = collect_patched_versioned_deps(
-        request.active_patches,
-        request.patched_names,
-        &closure_deps.referenced_excluded,
-    )?;
-    // Checked before the no-versioned-deps short-circuit below
-    // skips resolution: a purely-local patched chain still links
-    // its forks.
-    enforce_seed_links_uniqueness(
-        graph,
-        &features,
-        request.active_patches,
-        &patched_root_deps.activated,
-    )?;
-    merge_versioned_deps(&mut root_deps, patched_root_deps.deps)?;
+    let root_deps = seed.root_deps()?;
     // short-circuit when neither the selected closure nor the
     // active patch set introduces a versioned dependency.
     // Loading an index, walking the lockfile, and downloading
@@ -1420,7 +1132,7 @@ pub(crate) fn run_artifact_pipeline(
         return Ok(ArtifactPipeline {
             fetched: Vec::new(),
             lockfile_pinned: BTreeSet::new(),
-            activated_patches: patched_root_deps.activated,
+            activated_patches: seed.patched_deps.activated.clone(),
         });
     }
     // pick a stable synthetic root identity for pure
@@ -1477,9 +1189,9 @@ pub(crate) fn run_artifact_pipeline(
     // fresh `cabin build` writes the same lockfile.  Scoped to the
     // selected closure - an unselected member must not lower it.
     input.consumer_standards = graph.consumer_standards(
-        &resolved_selection.closure(graph),
-        &resolved_selection.packages,
-        &enabled_features_by_package(&features),
+        &seed.resolved_selection.closure(graph),
+        &seed.resolved_selection.packages,
+        &enabled_features_by_package(&seed.features),
         request.dev_for,
     );
     input.incompatible_standards = request.incompatible_standards;
@@ -1511,12 +1223,12 @@ pub(crate) fn run_artifact_pipeline(
         sparse_index.as_ref(),
         &PatchActivationContext {
             graph,
-            features: &features,
+            features: &seed.features,
             active_patches: request.active_patches,
             patched_names: request.patched_names,
-            base_root_deps: &base_root_deps,
-            closure_referenced: &closure_deps.referenced_excluded,
-            local_links: &local_links,
+            base_root_deps: &seed.closure_deps.deps,
+            closure_referenced: &seed.closure_deps.referenced_excluded,
+            local_links: &seed.local_links,
         },
         true,
     )?;

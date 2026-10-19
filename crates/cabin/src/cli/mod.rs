@@ -24,6 +24,7 @@ pub(crate) mod ninja;
 pub(crate) mod patch;
 pub(crate) mod remove;
 pub(crate) mod run;
+pub(crate) mod seed;
 pub(crate) mod source_tooling;
 pub(crate) mod standard_compat;
 pub(crate) mod system_deps;
