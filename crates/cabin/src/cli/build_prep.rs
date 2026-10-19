@@ -241,11 +241,8 @@ pub(crate) fn prepare_workspace(
     // detection and the artifact pipeline from it, so e.g. a dev
     // path dep's own registry dependency resolves and fetches like
     // any other.
-    let dev_probe: Option<(
-        cabin_workspace::PackageGraph,
-        cabin_workspace::ResolvedSelection,
-    )> = if include_dev {
-        let dev_probe_graph = cabin_workspace::load_workspace_with_options(
+    let dev_probe: Option<cabin_workspace::PackageGraph> = if include_dev {
+        Some(cabin_workspace::load_workspace_with_options(
             &manifest_path,
             &cabin_workspace::WorkspaceLoadOptions {
                 registry: &[],
@@ -253,48 +250,25 @@ pub(crate) fn prepare_workspace(
                 registry_policy: cabin_workspace::RegistryPolicy::StrictFor(&BTreeSet::new()),
                 include_dev_for: &dev_for,
             },
-        )?;
-        let probe_selection =
-            cabin_workspace::resolve_package_selection(&dev_probe_graph, &workspace_selection)?;
-        Some((dev_probe_graph, probe_selection))
+        )?)
     } else {
         None
     };
-    let (probe_graph, probe_selection) = match &dev_probe {
-        Some((graph, selection)) => (graph, selection),
-        None => (&initial_graph, &initial_resolved_selection),
-    };
+    let probe_graph = dev_probe.as_ref().unwrap_or(&initial_graph);
 
-    let initial_features = super::compute_feature_resolution(
-        probe_graph,
-        probe_selection,
-        &initial_request,
-        &dev_for,
-    )?;
-    let closure_deps_preview = super::resolve::collect_closure_versioned_deps_excluding_patches(
-        probe_graph,
-        probe_selection,
-        &initial_features,
-        &patched_names,
-        &dev_for,
-    )?;
-    let patched_root_deps_preview = super::collect_patched_versioned_deps(
-        &active_patches,
-        &patched_names,
-        &closure_deps_preview.referenced_excluded,
-    )?;
-    // Local-vs-local links claims - activated patch forks' included
-    // - must be checked here too: the `!has_versioned` arm below
+    // The seed checks local-vs-local links claims - activated patch
+    // forks' included - here too: the `!has_versioned` arm below
     // never reaches the artifact pipeline, so a local-only
     // workspace would otherwise skip the uniqueness check entirely.
-    super::resolve::enforce_seed_links_uniqueness(
-        probe_graph,
-        &initial_features,
-        &active_patches,
-        &patched_root_deps_preview.activated,
-    )?;
-    let has_versioned =
-        !patched_root_deps_preview.deps.is_empty() || !closure_deps_preview.deps.is_empty();
+    let seed = super::seed::ResolutionSeed::compute(&super::seed::SeedInputs {
+        graph: probe_graph,
+        selection: &workspace_selection,
+        request: &initial_request,
+        patched_names: &patched_names,
+        active_patches: &active_patches,
+        dev_for: &dev_for,
+    })?;
+    let has_versioned = seed.has_versioned_deps();
 
     let (registry, lockfile_pinned, activated_patches): (
         Vec<super::RegistryPackageSource>,
@@ -320,8 +294,7 @@ pub(crate) fn prepare_workspace(
             policy: inputs.policy,
             cache_dir: &inputs.cache_dir,
             reporter,
-            selection: super::build_workspace_selection(args.workspace_selection),
-            selection_request: &initial_request,
+            seed: &seed,
             patched_names: &patched_names,
             active_patches: &active_patches,
             source_replacements: &effective_config.source_replacements,
@@ -340,7 +313,7 @@ pub(crate) fn prepare_workspace(
         (
             Vec::new(),
             BTreeSet::new(),
-            patched_root_deps_preview.activated.clone(),
+            seed.patched_deps.activated.clone(),
         )
     };
 
@@ -433,7 +406,7 @@ pub(crate) fn prepare_workspace(
     // pipeline has already written the lockfile by now; that is
     // fine - the recorded resolution itself is valid, only this
     // command's feature-exact link plan is not.
-    super::resolve::enforce_local_links_uniqueness(&super::resolve::local_links_claims(
+    super::seed::enforce_local_links_uniqueness(&super::seed::local_links_claims(
         &graph,
         &feature_resolution,
     ))?;

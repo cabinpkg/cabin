@@ -37,12 +37,11 @@ use cabin_vendor::{
     DEFAULT_VENDOR_DIRNAME, VendorEntry, VendorOptions, VendorPlan,
     materialize as vendor_materialize,
 };
-use cabin_workspace::collect_patched_versioned_deps;
 
+use crate::cli::seed::{ResolutionSeed, SeedInputs};
 use crate::cli::{
     ArtifactPipelineRequest, WorkspaceSelectionArgs, absolutise, build_selection_request,
-    build_workspace_selection, compute_feature_resolution, resolve_invocation_manifest,
-    run_artifact_pipeline,
+    build_workspace_selection, resolve_invocation_manifest, run_artifact_pipeline,
 };
 use crate::plural;
 
@@ -134,45 +133,24 @@ pub(crate) fn vendor(
     } = crate::cli::workspace_prep::load_workspace_and_patches(&manifest_path, args.no_patches)?;
     let patched_names = active_patches.owned_patched_names();
 
-    // Compute the resolved selection so we can scope the index
-    // requirement to the user's chosen packages, exactly like
-    // `cabin fetch` does.
+    // The seed scopes the index requirement to the user's chosen
+    // packages, exactly like `cabin fetch` does, and validates local
+    // claims - activated patch forks' included - before the
+    // empty-plan arm below can short-circuit without ever reaching
+    // the artifact pipeline.
     let workspace_selection = build_workspace_selection(&args.workspace_selection);
-    let resolved_selection =
-        cabin_workspace::resolve_package_selection(&initial_graph, &workspace_selection)?;
     let selection_request =
         build_selection_request(&args.features, args.all_features, args.no_default_features);
-    let initial_features = compute_feature_resolution(
-        &initial_graph,
-        &resolved_selection,
-        &selection_request,
-        &BTreeSet::new(),
-    )?;
     let dev_for: BTreeSet<String> = BTreeSet::new();
-    let closure_deps_preview =
-        crate::cli::resolve::collect_closure_versioned_deps_excluding_patches(
-            &initial_graph,
-            &resolved_selection,
-            &initial_features,
-            &patched_names,
-            &dev_for,
-        )?;
-    let patched_root_deps_preview = collect_patched_versioned_deps(
-        &active_patches,
-        &patched_names,
-        &closure_deps_preview.referenced_excluded,
-    )?;
-    // The empty-plan arm below never reaches the artifact pipeline,
-    // so validate local claims - activated patch forks' included -
-    // before it can short-circuit.
-    crate::cli::resolve::enforce_seed_links_uniqueness(
-        &initial_graph,
-        &initial_features,
-        &active_patches,
-        &patched_root_deps_preview.activated,
-    )?;
-    let has_versioned =
-        !patched_root_deps_preview.deps.is_empty() || !closure_deps_preview.deps.is_empty();
+    let seed = ResolutionSeed::compute(&SeedInputs {
+        graph: &initial_graph,
+        selection: &workspace_selection,
+        request: &selection_request,
+        patched_names: &patched_names,
+        active_patches: &active_patches,
+        dev_for: &dev_for,
+    })?;
+    let has_versioned = seed.has_versioned_deps();
 
     let vendor_dir = resolve_vendor_dir(args, &manifest_path)?;
 
@@ -241,8 +219,7 @@ pub(crate) fn vendor(
         policy: inputs.policy,
         cache_dir: &inputs.cache_dir,
         reporter,
-        selection: workspace_selection,
-        selection_request: &selection_request,
+        seed: &seed,
         patched_names: &patched_names,
         active_patches: &active_patches,
         source_replacements: &effective_config.source_replacements,
