@@ -533,6 +533,38 @@ fn locked_fails_when_patch_policy_changed_after_lockfile() {
 /// running: the patch covers the only versioned dependency, so the
 /// artifact commands have nothing to resolve or fetch, yet `--locked`
 /// must still refuse - and leave the lockfile bytes alone.
+/// The remedy the `--locked` error names must work: an unlocked run
+/// with nothing to resolve settles the stale patch record itself.
+#[test]
+fn unlocked_commands_refresh_a_stale_patch_record_with_nothing_to_resolve() {
+    // `build` shares the helper and is pinned by the locked test
+    // below; the fixture's `app` has no target for it to build.
+    for command in ["resolve", "fetch", "vendor"] {
+        let parent = TempDir::new().unwrap();
+        let (root, index) = lockfile_then_add_covering_patch(parent.path());
+        let lockfile = root.join("cabin.lock");
+        let cache_dir = parent.path().join("cache");
+        for locked in [&[][..], &["--locked"][..]] {
+            let mut cmd = cabin();
+            cmd.args([command, "--manifest-path"])
+                .arg(root.join("cabin.toml"))
+                .arg("--index-path")
+                .arg(&index)
+                .args(locked);
+            if command != "resolve" {
+                cmd.arg("--cache-dir").arg(&cache_dir);
+            }
+            let assertion = cmd.assert().success();
+            let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+            let lock = fs::read_to_string(&lockfile).unwrap();
+            assert!(
+                lock.contains("[[patch]]") && !lock.contains("name = \"fmt\""),
+                "{command} {locked:?}: expected the refreshed record, got:\n{lock}\n{stderr}"
+            );
+        }
+    }
+}
+
 #[test]
 fn locked_artifact_commands_refuse_a_patch_policy_change_with_nothing_to_resolve() {
     let parent = TempDir::new().unwrap();

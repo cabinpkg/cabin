@@ -135,8 +135,10 @@ versioned dependencies)`), `--locked` still compares the recorded arrays against
 adding or removing a patch since the lockfile was written makes the lockfile stale, and `--locked`
 will refuse rather than silently succeed.  Every command that honors `--locked` enforces this -
 `cabin fetch`, `cabin vendor`, and `cabin build` / `run` / `test` included - even when the selected
-closure needs nothing from an index.  Comparison uses the same canonical (sorted) arrays the
-renderer emits, so it is deterministic.
+closure needs nothing from an index.  Without `--locked`, such a run refreshes a stale record
+instead: the lockfile keeps its other entries, drops the ones the active patches now supply, and
+records the active policy.  Comparison uses the same canonical (sorted) arrays the renderer emits,
+so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
