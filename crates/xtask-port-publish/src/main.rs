@@ -90,13 +90,33 @@ fn options(cli: Cli) -> Result<Options> {
         },
         work_dir: match cli.work_dir {
             Some(dir) => dir,
-            None => std::env::temp_dir().join(format!("xtask-port-publish-{}", std::process::id())),
+            None => default_work_dir()?,
         },
         cabin: match cli.cabin {
             Some(path) => path,
             None => default_cabin_path()?,
         },
     })
+}
+
+/// Exclusive, private, unguessable: a predictable name under a shared
+/// temp dir could be pre-created or symlinked by another local user
+/// before `run/` is cleared and published, and tempfile's default mode
+/// (`0777 & !umask`) would still let a group member swap the staged
+/// packages under a permissive umask, so the directory is created
+/// owner-only.
+fn default_work_dir() -> Result<PathBuf> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("xtask-port-publish-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(builder
+        .tempdir()
+        .context("creating the scratch directory")?
+        .keep())
 }
 
 /// The repository's ports directory, resolved from this crate's
@@ -136,4 +156,28 @@ fn default_cabin_path() -> Result<PathBuf> {
         .parent()
         .context("the tool's path has no parent directory")?;
     Ok(dir.join(format!("cabin{}", std::env::consts::EXE_SUFFIX)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Without `--work-dir` every run gets a fresh directory of its own
+    /// that only its owner can enter.
+    #[test]
+    fn the_default_work_dir_is_fresh_and_owner_only() {
+        let first = default_work_dir().unwrap();
+        let second = default_work_dir().unwrap();
+        assert_ne!(first, second);
+        for dir in [&first, &second] {
+            assert!(dir.is_dir());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(dir).unwrap().permissions().mode();
+                assert_eq!(mode & 0o777, 0o700, "mode {mode:o}");
+            }
+            std::fs::remove_dir(dir).unwrap();
+        }
+    }
 }
