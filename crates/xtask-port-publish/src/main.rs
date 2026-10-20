@@ -48,7 +48,9 @@ struct Cli {
 }
 
 fn main() -> ExitCode {
-    match options(Cli::parse()).and_then(|options| run_with_workdir_notice(&options)) {
+    match options(Cli::parse())
+        .and_then(|(options, scratch)| run_with_workdir_notice(&options, scratch))
+    {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:#}");
@@ -58,10 +60,15 @@ fn main() -> ExitCode {
 }
 
 /// Run, and on failure point at the kept scratch directory so the
-/// staged packages and registry can be inspected.
-fn run_with_workdir_notice(options: &Options) -> Result<()> {
+/// staged packages and registry can be inspected.  A default scratch
+/// directory (`scratch`) is otherwise removed with its guard once the
+/// run succeeds, as the `--work-dir` help promises.
+fn run_with_workdir_notice(options: &Options, scratch: Option<tempfile::TempDir>) -> Result<()> {
     let result = run(options);
     if result.is_err() {
+        if let Some(dir) = scratch {
+            let _ = dir.keep();
+        }
         eprintln!(
             "note: scratch directory kept at {}",
             options.work_dir.display()
@@ -70,7 +77,7 @@ fn run_with_workdir_notice(options: &Options) -> Result<()> {
     result
 }
 
-fn options(cli: Cli) -> Result<Options> {
+fn options(cli: Cli) -> Result<(Options, Option<tempfile::TempDir>)> {
     // Clap enforces the pairing: `--index-url` is present exactly when
     // `--publish` is.
     let mode = match cli.index_url {
@@ -78,7 +85,13 @@ fn options(cli: Cli) -> Result<Options> {
         None => Mode::DryRun,
     };
 
-    Ok(Options {
+    let (work_dir, scratch) = if let Some(dir) = cli.work_dir {
+        (dir, None)
+    } else {
+        let scratch = default_work_dir()?;
+        (scratch.path().to_path_buf(), Some(scratch))
+    };
+    let options = Options {
         mode,
         ports_dir: match cli.ports_dir {
             Some(dir) => dir,
@@ -88,15 +101,13 @@ fn options(cli: Cli) -> Result<Options> {
             Some(dir) => dir,
             None => default_cache_dir()?,
         },
-        work_dir: match cli.work_dir {
-            Some(dir) => dir,
-            None => default_work_dir()?,
-        },
+        work_dir,
         cabin: match cli.cabin {
             Some(path) => path,
             None => default_cabin_path()?,
         },
-    })
+    };
+    Ok((options, scratch))
 }
 
 /// Exclusive, private, unguessable: a predictable name under a shared
@@ -104,8 +115,9 @@ fn options(cli: Cli) -> Result<Options> {
 /// before `run/` is cleared and published, and tempfile's default mode
 /// (`0777 & !umask`) would still let a group member swap the staged
 /// packages under a permissive umask, so the directory is created
-/// owner-only.
-fn default_work_dir() -> Result<PathBuf> {
+/// owner-only.  The guard removes it when dropped; a failed run keeps
+/// it for inspection (`run_with_workdir_notice`).
+fn default_work_dir() -> Result<tempfile::TempDir> {
     let mut builder = tempfile::Builder::new();
     builder.prefix("xtask-port-publish-");
     #[cfg(unix)]
@@ -113,10 +125,7 @@ fn default_work_dir() -> Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         builder.permissions(std::fs::Permissions::from_mode(0o700));
     }
-    Ok(builder
-        .tempdir()
-        .context("creating the scratch directory")?
-        .keep())
+    builder.tempdir().context("creating the scratch directory")
 }
 
 /// The repository's ports directory, resolved from this crate's
@@ -163,21 +172,23 @@ mod tests {
     use super::*;
 
     /// Without `--work-dir` every run gets a fresh directory of its own
-    /// that only its owner can enter.
+    /// that only its owner can enter, gone again with its guard.
     #[test]
-    fn the_default_work_dir_is_fresh_and_owner_only() {
+    fn the_default_work_dir_is_fresh_owner_only_and_removed_with_its_guard() {
         let first = default_work_dir().unwrap();
         let second = default_work_dir().unwrap();
-        assert_ne!(first, second);
+        assert_ne!(first.path(), second.path());
         for dir in [&first, &second] {
-            assert!(dir.is_dir());
+            assert!(dir.path().is_dir());
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mode = std::fs::metadata(dir).unwrap().permissions().mode();
+                let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode();
                 assert_eq!(mode & 0o777, 0o700, "mode {mode:o}");
             }
-            std::fs::remove_dir(dir).unwrap();
         }
+        let path = first.path().to_path_buf();
+        drop(first);
+        assert!(!path.exists());
     }
 }
