@@ -455,15 +455,13 @@ version = "0.1.0"
     );
 }
 
-#[test]
-fn locked_fails_when_patch_policy_changed_after_lockfile() {
-    // Lock the package once with no patches, then add a
-    // `[patch]` table whose fork still satisfies the original
-    // requirement.  The package set is unchanged; only the
-    // patch state differs. `cabin resolve --locked` must
-    // detect that and refuse to proceed.
-    let parent = TempDir::new().unwrap();
-    let root = parent.path().join("app");
+/// Lock `app` (depending on `fmt`) once with no patches, then add a
+/// `[patch]` whose fork supplies `fmt` at the locked version.  The
+/// package set is unchanged and nothing is left to resolve; only
+/// the recorded patch state differs from the active policy.
+/// Returns the root and index directories.
+fn lockfile_then_add_covering_patch(parent: &Path) -> (PathBuf, PathBuf) {
+    let root = parent.join("app");
     write_root_manifest(
         &root,
         r#"[package]
@@ -474,7 +472,7 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 "#,
     );
-    let index = parent.path().join("index");
+    let index = parent.join("index");
     assert_fs::fixture::ChildPath::new(index.join("fmt.json"))
         .write_str(FMT_INDEX_TWO_VERSIONS)
         .unwrap();
@@ -487,10 +485,8 @@ fmt = ">=10.0.0 <11.0.0"
         .assert()
         .success();
 
-    // Add a manifest patch that supplies fmt at 10.2.0 - the
-    // same version the resolver picked from the index.  The locked
-    // package set is identical, but the `[[patch]]` array
-    // changed, so --locked must bail.
+    // The fork supplies fmt at 10.2.0 - the same version the
+    // resolver picked from the index.
     write_root_manifest(
         &root,
         r#"[package]
@@ -505,14 +501,20 @@ fmt = { path = "../fmt" }
 "#,
     );
     write_patched_fork(
-        parent.path(),
+        parent,
         "fmt",
         r#"[package]
 name = "fmt"
 version = "10.2.0"
 "#,
     );
+    (root, index)
+}
 
+#[test]
+fn locked_fails_when_patch_policy_changed_after_lockfile() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
     let assertion = cabin()
         .args(["resolve", "--locked", "--manifest-path"])
         .arg(root.join("cabin.toml"))
@@ -525,6 +527,39 @@ version = "10.2.0"
         stderr.contains("patch / source-replacement policy differs"),
         "expected patch staleness error, got: {stderr}"
     );
+}
+
+/// The patch-staleness check does not depend on the resolver
+/// running: the patch covers the only versioned dependency, so the
+/// artifact commands have nothing to resolve or fetch, yet `--locked`
+/// must still refuse - and leave the lockfile bytes alone.
+#[test]
+fn locked_artifact_commands_refuse_a_patch_policy_change_with_nothing_to_resolve() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
+    let lockfile = root.join("cabin.lock");
+    let before = fs::read(&lockfile).unwrap();
+    for command in ["fetch", "build", "vendor"] {
+        let assertion = cabin()
+            .args([command, "--locked", "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
+            .arg("--cache-dir")
+            .arg(parent.path().join("cache"))
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+        assert!(
+            stderr.contains("patch / source-replacement policy differs"),
+            "{command} --locked: expected patch staleness error, got: {stderr}"
+        );
+        assert_eq!(
+            fs::read(&lockfile).unwrap(),
+            before,
+            "{command} --locked must not rewrite the lockfile"
+        );
+    }
 }
 
 #[test]

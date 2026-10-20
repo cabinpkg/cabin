@@ -133,7 +133,9 @@ The patch-state staleness check is independent of whether the resolver itself ru
 active patches cover every versioned dependency (so the resolver has nothing to do and prints `(no
 versioned dependencies)`), `--locked` still compares the recorded arrays against the active policy:
 adding or removing a patch since the lockfile was written makes the lockfile stale, and `--locked`
-will refuse rather than silently succeed.  Comparison uses the same canonical (sorted) arrays the
+will refuse rather than silently succeed.  Every command that honors `--locked` enforces this -
+`cabin fetch`, `cabin vendor`, and `cabin build` / `run` / `test` included - even when the selected
+closure needs nothing from an index.  Comparison uses the same canonical (sorted) arrays the
 renderer emits, so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).

@@ -511,6 +511,13 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         dev_for: &dev_for,
     })?;
     if !seed.has_versioned_deps() {
+        enforce_locked_patch_state(
+            &manifest_path,
+            &LockPolicy::from_flags(args.locked, args.frozen),
+            &active_patches,
+            &effective_config.source_replacements,
+            args.no_patches,
+        )?;
         emit_fetch_output(&[], args.format, &manifest_path)?;
         return Ok(());
     }
@@ -719,12 +726,13 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
     );
     if request.policy.locked()
         && let Some(prev) = &existing_lockfile
-        && !prev.matches_patch_state(&active_patch_records, &active_replacement_records)
     {
-        bail!(
-            "--locked cannot be used because active patch / source-replacement policy differs from {}; re-run without --locked to refresh the lockfile",
-            lockfile_path.display()
-        );
+        ensure_patch_state_current(
+            prev,
+            &lockfile_path,
+            &active_patch_records,
+            &active_replacement_records,
+        )?;
     }
 
     if root_deps.is_empty() {
@@ -1206,12 +1214,13 @@ pub(crate) fn run_artifact_pipeline(
     );
     if request.policy.locked()
         && let Some(prev) = &existing_lockfile
-        && !prev.matches_patch_state(&active_patch_records, &active_replacement_records)
     {
-        bail!(
-            "--locked cannot be used because active patch / source-replacement policy differs from {}; re-run without --locked to refresh the lockfile",
-            lockfile_path.display()
-        );
+        ensure_patch_state_current(
+            prev,
+            &lockfile_path,
+            &active_patch_records,
+            &active_replacement_records,
+        )?;
     }
 
     // Build/run/test/vendor consume only the resolved graph (into the
@@ -1518,6 +1527,51 @@ pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lock
     } else {
         Ok(None)
     }
+}
+
+/// Under `--locked` the recorded `[[patch]]` / `[[source-replacement]]`
+/// arrays must match the active policy exactly.
+fn ensure_patch_state_current(
+    prev: &Lockfile,
+    lockfile_path: &Path,
+    active_patches: &[cabin_lockfile::LockedPatch],
+    active_replacements: &[cabin_lockfile::LockedSourceReplacement],
+) -> Result<()> {
+    if !prev.matches_patch_state(active_patches, active_replacements) {
+        bail!(
+            "--locked cannot be used because active patch / source-replacement policy differs from {}; re-run without --locked to refresh the lockfile",
+            lockfile_path.display()
+        );
+    }
+    Ok(())
+}
+
+/// The patch-state check for a command's no-versioned-deps fast path.
+/// A policy change can leave nothing to resolve (the new patch covers
+/// every versioned dependency), so the pipeline that normally runs
+/// the comparison is never reached; `--locked` must still refuse
+/// rather than silently succeed.  A missing lockfile is fine here,
+/// exactly as on the `cabin resolve` fast path.
+pub(crate) fn enforce_locked_patch_state(
+    manifest_path: &Path,
+    policy: &LockPolicy,
+    active_patches: &cabin_workspace::ActivePatchSet,
+    source_replacements: &cabin_core::SourceReplacementSettings,
+    no_patches: bool,
+) -> Result<()> {
+    if !policy.locked() {
+        return Ok(());
+    }
+    let lockfile_path = lockfile_path_for(manifest_path);
+    let Some(prev) = read_optional_lockfile(&lockfile_path)? else {
+        return Ok(());
+    };
+    ensure_patch_state_current(
+        &prev,
+        &lockfile_path,
+        &crate::cli::patch::lockfile_patches(active_patches),
+        &crate::cli::patch::lockfile_source_replacements(source_replacements, no_patches),
+    )
 }
 
 fn lockfile_from_resolution(
