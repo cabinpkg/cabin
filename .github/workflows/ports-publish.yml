@@ -182,10 +182,11 @@ jobs:
       # newer registry commit supersedes this SHA's run, its deploy
       # carries this SHA's schema changes, and inspecting only the
       # same-SHA run would deadlock every rerun on the permanently
-      # skipped step. A commit that triggers no Registry run - or
-      # whose Registry run skipped its registry jobs through the
-      # change gate - publishes
-      # against the already-deployed Worker unchanged (residual: an
+      # skipped step. A commit whose Registry run skipped its registry
+      # jobs through the change gate publishes against the
+      # already-deployed Worker unchanged; every main push registers
+      # a Registry run, so a SHA with none listed waits a few minutes
+      # for it to register and then fails closed (residual: an
       # *earlier* registry commit whose deploy was skipped is not
       # detected here; that commit's own failure surfaces are the
       # alert). Transient API errors retry on the next iteration; the

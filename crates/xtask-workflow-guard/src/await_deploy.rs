@@ -70,8 +70,8 @@
 //! leading comment, which is outside the `run:` body, stays in the
 //! workflow.
 //!
-//! Three deliberate post-port behavior changes (2026-08-15, run
-//! 31904670113; job-skip arm 2026-08-19):
+//! Four deliberate post-port behavior changes (2026-08-15, run
+//! 31904670113; job-skip arm 2026-08-19; no-run arm 2026-10-20):
 //!
 //! - A same-SHA Registry run whose `deploy-registry` JOB itself
 //!   concluded `skipped` - the workflow's change gate found no
@@ -109,6 +109,17 @@
 //!   pending listings, a head pushed after the fetch - resolves on
 //!   the second pass.  Anything less retries, where the original's
 //!   failure arm would exit 1 from a possibly-blind iteration.
+//! - L25's no-run arm no longer exits 0. `registry.yml` runs on
+//!   every main push and the dispatched SHA is a main push, so an
+//!   empty same-SHA listing means the push run is not registered
+//!   yet (the seconds after a merge-queue fast-forward, or API lag),
+//!   never that nothing needs deploying.  The iteration waits;
+//!   past `NO_RUN_PATIENCE` waits a verified empty listing Stops
+//!   (a run deleted by retention needs a fresh main push before a
+//!   re-dispatch).  The listing is also filtered to `branch=main`:
+//!   the merge queue's same-SHA `merge_group` run skips the deploy
+//!   job by event and would otherwise read as the change-gate skip
+//!   above.
 //!
 //! The remaining inherited properties, preserved rather than fixed.
 //! Each was pinned by running the original under `bash -e`, GitHub's
@@ -188,14 +199,21 @@ use std::time::Duration;
 const ITERATIONS: usize = 90;
 const WAIT: Duration = Duration::from_secs(40);
 
-/// L21, L34, L26 and L56, byte for byte; `echo` adds the newline.
+/// L21, L34 and L56, byte for byte; `echo` adds the newline.
 const TRANSIENT_RUNS: &str = "transient API error listing Registry runs; retrying";
 const TRANSIENT_PENDING: &str = "transient API error listing pending Registry runs; retrying";
 // Post-port (not one of the script's echoes): see the terminal
 // confirmation in `iteration`.
 const TRANSIENT_SCAN: &str = "could not confirm that no deploy containing this SHA has landed \
      (a transient fetch or API failure); retrying";
-const NO_RUN: &str = "no Registry run for this SHA; the deployed worker is already current";
+// Post-port (not one of the script's echoes): L26's arm, now a wait
+// with its own ceiling in iterations - see the module doc.
+const NO_RUN_PATIENCE: usize = 5;
+const NO_RUN_YET: &str = "no Registry run listed for this SHA yet (a main push registers one within \
+     seconds); waiting";
+const NO_RUN_STOP: &str = "no Registry run for this SHA was listed; not publishing against an \
+     unverified worker (every main push registers a run - one deleted by retention needs a fresh \
+     main push, then a re-dispatch)";
 // Post-port (not one of the script's echoes): the change-gated
 // same-SHA run shape - see `SameShaDeploy::JobSkipped`.
 const JOB_SKIPPED: &str = "Registry run for this SHA skipped its registry jobs (no \
@@ -302,8 +320,8 @@ impl Report {
 /// fall-through.
 fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &str) -> u8 {
     let mut provisional_stop = false;
-    for _ in 0..ITERATIONS {
-        let report = iteration(shell, sha, repository);
+    for n in 0..ITERATIONS {
+        let report = iteration(shell, sha, repository, n);
         if matches!(report, Some(Report::Stop(_))) && !provisional_stop {
             provisional_stop = true;
             shell.wait();
@@ -321,9 +339,9 @@ fn poll(shell: &mut dyn Shell, output: &mut dyn Output, sha: &str, repository: &
     1
 }
 
-/// One pass of L6..L54. `None` is the fall-through at L54, which waits
-/// without saying anything.
-fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Report> {
+/// One pass of L6..L54, the `n`th of the loop. `None` is the
+/// fall-through at L54, which waits without saying anything.
+fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str, n: usize) -> Option<Report> {
     // L6, with its status READ where the original discarded it
     // (post-port): a failed fetch leaves fresh heads unknown to the
     // local clone, so every `merge-base --is-ancestor` below answers
@@ -344,7 +362,11 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
         &[
             "gh",
             "api",
-            &runs_url(repository, &format!("head_sha={sha}")),
+            // `branch=main` like the two listings below: the merge
+            // queue fast-forwards main to the merge-group head, so the
+            // same SHA also has a `merge_group` run whose deploy job is
+            // skipped by event, not by the change gate.
+            &runs_url(repository, &format!("head_sha={sha}&branch=main")),
             "--jq",
             RUNS_JQ,
         ],
@@ -355,8 +377,18 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
     }
     let runs = crate::substitute(runs);
 
+    // Post-port: an empty listing is a push run not registered yet,
+    // never a deploy that is unnecessary (module doc).  Wait for it;
+    // past the patience a Stop needs the same verified absence as
+    // the arms below, then `poll`'s second consecutive pass.
     if empty_list(shell, &runs) {
-        return Some(Report::Done(NO_RUN.to_owned()));
+        return Some(if n < NO_RUN_PATIENCE {
+            Report::Retry(NO_RUN_YET.to_owned())
+        } else if !fetched || scan_blind {
+            Report::Retry(TRANSIENT_SCAN.to_owned())
+        } else {
+            Report::Stop(NO_RUN_STOP.to_owned())
+        });
     }
     // L29: the block's one substitution outside any condition, so a jq
     // that fails here killed the step under `set -e` (measured: the
@@ -375,7 +407,7 @@ fn iteration(shell: &mut dyn Shell, sha: &str, repository: &str) -> Option<Repor
     // change gate deciding this push touched nothing
     // registry-relevant - deterministic for the commit, so no deploy
     // can ever come and the deployed Worker is already current: exit
-    // 0 like the no-run arm above.  A job that ran but skipped its
+    // 0 at once.  A job that ran but skipped its
     // Deploy STEP (superseded, or a D1 migration awaiting its by-hand
     // apply - the pre-launch deploy freeze) takes the same
     // pending-descendant exit the failure path takes, with the reason
@@ -805,8 +837,8 @@ mod tests {
     #[test]
     fn the_urls_and_projections_match_the_originals() {
         assert_eq!(
-            runs_url("o/r", "head_sha=abc"),
-            "repos/o/r/actions/workflows/registry.yml/runs?head_sha=abc"
+            runs_url("o/r", "head_sha=abc&branch=main"),
+            "repos/o/r/actions/workflows/registry.yml/runs?head_sha=abc&branch=main"
         );
         assert_eq!(
             jobs_url("o/r", "77"),
@@ -828,7 +860,7 @@ mod tests {
         let mut shell = Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", true, "success\n")])
             .descending_from(&["head77"]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Done(
                 "registry deploy 77 (head head77) contains this SHA".to_owned()
             ))
@@ -844,7 +876,7 @@ mod tests {
                 .descending_from(&["head77"]);
         // Falls through to the same-SHA listing, which this fake fails.
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
     }
@@ -853,7 +885,7 @@ mod tests {
     fn a_candidate_that_is_not_an_ancestor_is_skipped() {
         let mut shell = Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", true, "success\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
         assert_eq!(shell.called("jobs?per_page=100"), 0);
@@ -864,7 +896,7 @@ mod tests {
         // The herestring's newline gives `read` one pass with empty
         // fields; the `[ -n "$rid" ]` guard is what makes it a no-op.
         let mut shell = Fake::answering(&[("status=success", true, "")]);
-        iteration(&mut shell, "abc", "o/r");
+        iteration(&mut shell, "abc", "o/r", 0);
         assert_eq!(shell.called("merge-base"), 0);
     }
 
@@ -872,7 +904,7 @@ mod tests {
     fn a_failed_candidate_listing_skips_the_scan_without_a_word() {
         let mut shell = Fake::answering(&[("status=success", false, "77 head77\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_RUNS.to_owned()))
         );
         assert_eq!(shell.called("merge-base"), 0);
@@ -887,12 +919,83 @@ mod tests {
         assert_eq!(read_two(""), ("", ""));
     }
 
+    /// The original's L26 exited 0 here; a main push always registers
+    /// a Registry run, so an empty listing is a run not yet registered.
     #[test]
-    fn no_registry_run_for_this_sha_exits_zero() {
+    fn no_registry_run_for_this_sha_waits() {
         let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0\n")]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
-            Some(Report::Done(NO_RUN.to_owned()))
+            iteration(&mut shell, "abc", "o/r", 0),
+            Some(Report::Retry(NO_RUN_YET.to_owned()))
+        );
+    }
+
+    /// The registration gap after a merge-queue fast-forward: the
+    /// same-SHA listing is empty on the first pass (the `merge_group`
+    /// run is filtered out, the push run not yet registered), then
+    /// shows the push run in progress, then a deploy containing the
+    /// SHA lands.  The wait ends on that deploy, not on the gap.
+    #[test]
+    fn the_registration_gap_waits_for_the_push_run_and_its_deploy() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, "77 head77\n"),
+            ("runs/77/jobs", true, "success\n"),
+            ("head_sha=abc&branch=main", true, "[{}]"),
+            ("jq length", true, "1"),
+            ("jq -r .[0].conclusion", true, "null"),
+        ])
+        .answering_once(&[
+            ("status=success", true, ""),
+            ("head_sha=abc&branch=main", true, "[]"),
+            ("jq length", true, "0"),
+            ("status=success", true, ""),
+        ])
+        .descending_from(&["head77"]);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 0);
+        assert_eq!(shell.waits, 2);
+        assert_eq!(
+            output.stdout,
+            [
+                NO_RUN_YET,
+                "registry deploy 77 (head head77) contains this SHA"
+            ]
+        );
+    }
+
+    /// A listing that stays empty past the patience fails closed in
+    /// minutes: neither the original's exit 0 nor an idle into the
+    /// hour ceiling.
+    #[test]
+    fn a_registry_run_still_missing_past_the_patience_stops() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", true, ""),
+            ("head_sha=abc&branch=main", true, "[]"),
+            ("jq length", true, "0"),
+        ]);
+        let mut output = FakeOutput::default();
+        assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 1);
+        // The patience, then the provisional Stop's confirmation wait.
+        assert_eq!(shell.waits, NO_RUN_PATIENCE + 1);
+        assert_eq!(output.stdout, vec![NO_RUN_YET; NO_RUN_PATIENCE]);
+        assert_eq!(output.stderr, [NO_RUN_STOP]);
+    }
+
+    /// Past the patience, an iteration that could not verify absence
+    /// defers like every other Stop.
+    #[test]
+    fn a_blind_scan_defers_the_missing_run_stop() {
+        let mut shell = Fake::answering(&[
+            FETCH_OK,
+            ("status=success", false, ""),
+            ("head_sha=abc&branch=main", true, "[]"),
+            ("jq length", true, "0"),
+        ]);
+        assert_eq!(
+            iteration(&mut shell, "abc", "o/r", NO_RUN_PATIENCE),
+            Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
 
@@ -902,7 +1005,7 @@ mod tests {
         // false, and the conclusion then reads empty, so the iteration
         // falls through to the wait.
         let mut shell = Fake::answering(&[("head_sha=", true, ""), ("jq ", true, "")]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), None);
+        assert_eq!(iteration(&mut shell, "abc", "o/r", 0), None);
     }
 
     #[test]
@@ -914,7 +1017,7 @@ mod tests {
             ("jq length", true, "1"),
             ("jq -r", false, ""),
         ]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(Report::Die));
+        assert_eq!(iteration(&mut shell, "abc", "o/r", 0), Some(Report::Die));
     }
 
     #[test]
@@ -930,7 +1033,7 @@ mod tests {
                 ("jq -r .[0].conclusion", true, conclusion),
                 ("jq -r .[0].id", true, "null"),
             ]);
-            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{conclusion}");
+            assert_eq!(iteration(&mut shell, "abc", "o/r", 0), None, "{conclusion}");
         }
     }
 
@@ -945,7 +1048,7 @@ mod tests {
             ])
             .descending_from(&["pending77"]);
             assert_eq!(
-                iteration(&mut shell, "abc", "o/r"),
+                iteration(&mut shell, "abc", "o/r", 0),
                 Some(Report::Retry(format!(
                     "Registry run for this SHA concluded '{conclusion}'; a pending run containing it may still deploy; waiting"
                 )))
@@ -967,7 +1070,7 @@ mod tests {
             "Registry run for this SHA concluded 'failure' and no deploy containing it has landed; not publishing against a stale worker"
                 .to_owned(),
         );
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), Some(stale));
+        assert_eq!(iteration(&mut shell, "abc", "o/r", 0), Some(stale));
     }
 
     /// The deploy-freeze fast-fail: a same-SHA run that SUCCEEDED
@@ -991,7 +1094,7 @@ mod tests {
             ("branch=main&per_page=100", true, "stale\n"),
         ])
         .descending_from(&["head88"]);
-        match iteration(&mut shell, "abc", "o/r") {
+        match iteration(&mut shell, "abc", "o/r", 0) {
             Some(Report::Stop(line)) => {
                 assert!(line.contains("skipped its Deploy"), "{line}");
                 assert!(line.contains("not publishing"), "{line}");
@@ -1015,7 +1118,7 @@ mod tests {
             ("branch=main&per_page=100", true, "pending99\n"),
         ])
         .descending_from(&["head88", "pending99"]);
-        match iteration(&mut shell, "abc", "o/r") {
+        match iteration(&mut shell, "abc", "o/r", 0) {
             Some(Report::Retry(line)) => {
                 assert!(line.contains("skipped its Deploy"), "{line}");
                 assert!(line.contains("waiting"), "{line}");
@@ -1042,7 +1145,7 @@ mod tests {
         ])
         .descending_from(&["head77", "head88"]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1060,7 +1163,7 @@ mod tests {
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1080,7 +1183,7 @@ mod tests {
             ("branch=main&per_page=100", true, "stale\n"),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_SCAN.to_owned()))
         );
     }
@@ -1108,7 +1211,7 @@ mod tests {
                 ("jq -r .[0].id", true, "88"),
                 ("runs/88/jobs", true, outcome),
             ]);
-            assert_eq!(iteration(&mut shell, "abc", "o/r"), None, "{outcome:?}");
+            assert_eq!(iteration(&mut shell, "abc", "o/r", 0), None, "{outcome:?}");
         }
     }
 
@@ -1116,8 +1219,8 @@ mod tests {
     /// `deploy-registry` job itself skipped - an empty steps array,
     /// which the outcome projection reads as `skipped null` (probed
     /// against the live jobs API) - so no deploy can ever come from
-    /// this push and the Worker is already current.  Immediate, like
-    /// the no-run arm: the change gate's answer is a deterministic
+    /// this push and the Worker is already current.  Immediate: the
+    /// change gate's answer is a deterministic
     /// property of the commit, so there is no sampling race for a
     /// confirmation pass to resolve.
     #[test]
@@ -1133,9 +1236,12 @@ mod tests {
         ];
         let mut shell = Fake::answering(&answers);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Done(JOB_SKIPPED.to_owned()))
         );
+        // Only a main-branch run may answer: the same SHA's
+        // `merge_group` run skips the deploy job by event.
+        assert_eq!(shell.called("head_sha=abc&branch=main"), 1);
         assert_eq!(shell.called("branch=main&per_page=100"), 0);
         let mut shell = Fake::answering(&answers);
         let mut output = FakeOutput::default();
@@ -1160,7 +1266,7 @@ mod tests {
             ("jq -r .[0].id", true, "88"),
         ])
         .descending_from(&["head88"]);
-        assert_eq!(iteration(&mut shell, "abc", "o/r"), None);
+        assert_eq!(iteration(&mut shell, "abc", "o/r", 0), None);
     }
 
     #[test]
@@ -1172,7 +1278,7 @@ mod tests {
             ("branch=main&per_page=100", false, ""),
         ]);
         assert_eq!(
-            iteration(&mut shell, "abc", "o/r"),
+            iteration(&mut shell, "abc", "o/r", 0),
             Some(Report::Retry(TRANSIENT_PENDING.to_owned()))
         );
     }
@@ -1238,7 +1344,8 @@ mod tests {
 
     #[test]
     fn an_early_answer_stops_the_loop_without_waiting() {
-        let mut shell = Fake::answering(&[("head_sha=", true, "[]"), ("jq length", true, "0")]);
+        let mut shell = Fake::answering(&[ONE_CANDIDATE, ("jobs?per_page=100", true, "success\n")])
+            .descending_from(&["head77"]);
         let mut output = FakeOutput::default();
         assert_eq!(poll(&mut shell, &mut output, "abc", "o/r"), 0);
         assert_eq!(shell.waits, 0);
