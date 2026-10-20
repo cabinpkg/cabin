@@ -1556,9 +1556,10 @@ fn ensure_patch_state_current(
 /// run that resolves nothing: the active patches cover every
 /// versioned dependency, so the comparison a resolving run makes is
 /// never reached.  `--locked` refuses a stale record rather than
-/// silently succeeding.  An unlocked run rewrites the lockfile with
-/// the active policy, dropping the entries the patches now supply
-/// and leaving the rest alone.  A missing lockfile is fine.
+/// silently succeeding.  An unlocked run records the active policy
+/// and keeps the `[[package]]` list verbatim: having resolved
+/// nothing, it cannot tell which entries another selection or
+/// dependency activation still needs.  A missing lockfile is fine.
 fn sync_patch_state_without_resolution(
     lockfile_path: &Path,
     policy: &LockPolicy,
@@ -1575,12 +1576,7 @@ fn sync_patch_state_without_resolution(
     if !prev.matches_patch_state(&patches, &source_replacements) {
         let refreshed = Lockfile {
             version: cabin_lockfile::LOCKFILE_VERSION,
-            packages: prev
-                .packages
-                .iter()
-                .filter(|locked| !patches.iter().any(|patch| patch.package == locked.name))
-                .cloned()
-                .collect(),
+            packages: prev.packages.clone(),
             patches,
             source_replacements,
         };

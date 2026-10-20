@@ -558,7 +558,7 @@ fn unlocked_commands_refresh_a_stale_patch_record_with_nothing_to_resolve() {
             let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
             let lock = fs::read_to_string(&lockfile).unwrap();
             assert!(
-                lock.contains("[[patch]]") && !lock.contains("name = \"fmt\""),
+                lock.contains("[[patch]]") && lock.contains("name = \"fmt\""),
                 "{command} {locked:?}: expected the refreshed record, got:\n{lock}\n{stderr}"
             );
         }
