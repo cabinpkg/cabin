@@ -965,19 +965,20 @@ fn stored_token_in(
     storage: &SessionStorage,
     origin: &str,
 ) -> Result<TokenLookup, CredentialsError> {
+    let load = storage.load(origin)?;
     // A token under a plain-http non-loopback key could never be
     // attached to that origin's reads, so handing it out would only
     // let the origin's unauthenticated `config.json` route it to an
     // `api` of its choosing. `cabin login` never stores such a key; a
-    // hand-written one is treated as absent.
+    // hand-written one is treated as absent. The store's own warning
+    // (an exposed or malformed `credentials.toml`) is kept.
     if origin.starts_with("http://") && !url_is_loopback(origin) {
         return Ok(TokenLookup {
             token: None,
             expired_at: None,
-            warning: None,
+            warning: load.warning,
         });
     }
-    let load = storage.load(origin)?;
     let (token, expired_at) = match load.session {
         Some(session) if session.expired_at(SystemTime::now()) => (None, Some(session.expires_at)),
         Some(session) => (Some(session.token), None),
@@ -1675,6 +1676,22 @@ mod tests {
                 .token
                 .is_some()
         );
+    }
+
+    /// Withholding the session leaves the file backend's own warning
+    /// about an exposed `credentials.toml` in place.
+    #[cfg(unix)]
+    #[test]
+    fn withholding_keeps_the_exposed_file_warning() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let store = CredentialStore::at(dir.path().join("credentials.toml"));
+        store.save(&Credentials::default()).unwrap();
+        std::fs::set_permissions(store.path(), std::fs::Permissions::from_mode(0o644)).unwrap();
+        let storage = SessionStorage::from_parts(None, Some(Box::new(store)));
+        let lookup = stored_token_in(&storage, "http://registry.example.com").unwrap();
+        assert!(lookup.token.is_none());
+        assert!(lookup.warning.unwrap().contains("chmod 600"));
     }
 
     #[test]
