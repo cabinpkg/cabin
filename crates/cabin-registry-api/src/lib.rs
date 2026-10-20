@@ -209,7 +209,12 @@ impl RegistryApi {
         Ok(PublishReceipt {
             outcome,
             verification: body.as_ref().and_then(|b| b.verification.clone()),
-            revision: body.and_then(|b| b.revision),
+            // Printed verbatim by `cabin publish`; a registry answer
+            // that is not a packaging revision is dropped rather than
+            // let onto the terminal.
+            revision: body
+                .and_then(|b| b.revision)
+                .filter(|r| cabin_core::registry::is_valid_packaging_revision(r)),
         })
     }
 
@@ -1558,6 +1563,19 @@ mod tests {
             captured.path,
             "/api/v1/packages/fmtlib/fmt/10.2.1?new-revision=true"
         );
+    }
+
+    /// A success body whose `"revision"` is not a packaging revision
+    /// (here, one carrying a terminal escape) is dropped, not printed.
+    #[test]
+    fn publish_drops_a_revision_that_is_not_a_packaging_revision() {
+        let mock = MockApi::respond_with(201, r#"{"ok":true,"revision":"\u001b[31mpwned"}"#);
+        let receipt = mock
+            .client(Some(token()))
+            .publish("fmtlib/fmt", &version("10.2.1"), b"{}", b"bytes", false)
+            .unwrap();
+        assert_eq!(receipt.outcome, PublishOutcome::Created);
+        assert_eq!(receipt.revision, None);
     }
 
     /// The 200 path: byte-identical re-publish reports the no-op.
