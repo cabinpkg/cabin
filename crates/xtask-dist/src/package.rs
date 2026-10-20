@@ -59,9 +59,11 @@
 //!   which is what the trailing `/` on the destination asks for.
 //! - **L12 accepts an existing directory**, and creates missing parents.
 //! - **L18's single quotes are the only quoting around `${package}`.**
-//!   A version carrying a `'` breaks out of the `Compress-Archive`
+//!   A version carrying a `'` broke out of the `Compress-Archive`
 //!   argument. The port builds the same string and passes the same
-//!   argv; closing that would be a behavior change, not a port.
+//!   argv, and is the one place that departs from the script: a tag
+//!   name with a character outside `[A-Za-z0-9._+-]` is refused before
+//!   anything is staged (`docs/architecture.md`, "xtask-dist").
 //!
 //! Stated ceilings:
 //!
@@ -166,6 +168,20 @@ fn package(
     windows: bool,
     archive: &mut dyn FnMut(&[String]) -> io::Result<bool>,
 ) -> Result<String> {
+    // L17/L18 splice the tag name into a PowerShell command string, so
+    // a tag like `1.2.3';<cmd>;'` would run `<cmd>` on the Windows
+    // legs; a version never needs more than these characters.
+    if arguments.ref_type == "tag"
+        && !arguments
+            .ref_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
+    {
+        bail!(
+            "refusing tag name with characters outside [A-Za-z0-9._+-]: {:?}",
+            arguments.ref_name
+        );
+    }
     let plan = plan(arguments, windows);
 
     // L12..L14.
@@ -424,6 +440,32 @@ mod tests {
             staged.child("README.md").assert("readme");
             staged.child("LICENSE").assert("license");
         }
+    }
+
+    #[test]
+    fn a_tag_name_that_could_escape_the_powershell_literal_is_refused() {
+        for windows in [false, true] {
+            let root = checkout(windows);
+            let error = package(
+                root.path(),
+                &arguments("triple", "1.2.3';calc;'", "tag", "abc"),
+                windows,
+                &mut |_: &[String]| panic!("the archiver ran"),
+            )
+            .expect_err("a refused tag name");
+            assert!(error.to_string().contains("1.2.3';calc;'"), "{error}");
+            assert!(!root.path().join("cabin-1.2.3';calc;'-triple").exists());
+        }
+        // Only a tag is a version: a branch of the same spelling is
+        // versioned by the SHA and never reaches the archiver's argv.
+        let root = checkout(false);
+        package(
+            root.path(),
+            &arguments("triple", "1.2.3';calc;'", "branch", "abc"),
+            false,
+            &mut archiver(Ok(true)),
+        )
+        .expect("a branch build");
     }
 
     #[test]
