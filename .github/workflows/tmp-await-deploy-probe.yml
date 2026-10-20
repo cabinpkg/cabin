@@ -1,0 +1,61 @@
+name: TEMP await-deploy probe
+
+# Temporary PR probe for the reworked deploy wait
+# (crates/xtask-workflow-guard/src/await_deploy.rs); removed before
+# merge. GITHUB_SHA is pinned per step with a command-prefix
+# assignment: a step `env:` cannot override a runner default.
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The newest main Registry run whose Deploy step itself succeeded
+      # (run 33139641584, 2026-08-28); it must still be inside the
+      # 100-run window the wait scans.
+      DEPLOYED_SHA: 276d1e4beffb13551bf950f16a2a62392cb00242
+      MISSING_SHA: "0000000000000000000000000000000000000000"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The wait walks main's history for its ancestor checks.
+          fetch-depth: 0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache-on-failure: false
+          rustflags: ""
+      - name: Build the deploy wait
+        run: cargo build --locked -p xtask-workflow-guard
+
+      - name: The command-prefix override reaches the tool's environment
+        run: env GITHUB_SHA="$MISSING_SHA" printenv GITHUB_SHA | grep -x "$MISSING_SHA"
+
+      - name: Filtered to main, a queue-merged main commit lists only its push run
+        run: gh api "repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs?head_sha=$(git rev-parse origin/main)&branch=main" --jq '[.workflow_runs[].event] | unique | join(",")' | grep -x push
+      - name: Unfiltered, the same listing also holds the merge_group run the filter removes
+        run: gh api "repos/$GITHUB_REPOSITORY/actions/workflows/registry.yml/runs?head_sha=$(git rev-parse origin/main)" --jq '[.workflow_runs[].event] | unique | join(",")' | grep merge_group
+
+      - name: A deployed main SHA ends the wait at once
+        timeout-minutes: 10
+        run: env GITHUB_SHA="$DEPLOYED_SHA" cargo workflow-await-deploy > deployed.log 2>&1
+      - name: It named the deploy that contains it
+        run: cat deployed.log && grep "registry deploy 33139641584 (head $DEPLOYED_SHA) contains this SHA" deployed.log
+
+      - name: A SHA with no Registry run fails closed within the bound
+        id: missing
+        continue-on-error: true
+        timeout-minutes: 8
+        run: env GITHUB_SHA="$MISSING_SHA" cargo workflow-await-deploy > missing.log 2>&1
+      - name: It waited the patience, then stopped with the fail-closed line
+        run: cat missing.log && test "$(grep -c 'no Registry run listed for this SHA yet' missing.log)" -eq 5 && grep -q 'no Registry run for this SHA was listed' missing.log
+      - name: And the step itself failed, neither a success nor the hour ceiling
+        if: steps.missing.outcome != 'failure'
+        run: false
