@@ -63,6 +63,15 @@ pub struct ResolvedSelection {
 }
 
 impl ResolvedSelection {
+    /// Whether every primary package of `graph` is selected, so a
+    /// run's resolution accounts for the whole workspace lockfile.
+    pub fn covers_all_primaries(&self, graph: &PackageGraph) -> bool {
+        graph
+            .primary_packages
+            .iter()
+            .all(|idx| self.packages.contains(idx))
+    }
+
     /// Closure of the selection over local
     /// path-dependency edges.  Includes every package reachable from
     /// `self.packages` by walking `WorkspacePackage::deps` transitively, in

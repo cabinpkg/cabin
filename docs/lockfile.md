@@ -186,7 +186,11 @@ the usual remedies.  A selection the resolver re-resolved past a stale pin carri
 
 Default mode.  Reads `cabin.lock` if it exists.  Resolves with the locked versions as preferences
 (newest compatible if the locked version no longer satisfies).  Writes the new lockfile if it
-differs from the existing one.
+differs from the existing one.  In a workspace, a run that selects only some members rewrites the
+entries its closure resolves and keeps every other entry verbatim; only a selection covering every
+member (and the root package, when the root manifest is one) prunes entries nothing needs.  The
+artifact commands (`cabin fetch`, `cabin vendor`, and `cabin build` / `run` / `test`) and `cabin
+update` write the lockfile the same way.
 
 ### `cabin resolve --locked`
 
@@ -208,7 +212,8 @@ populated - already-cached and already-extracted artifacts may still be reused, 
 
 ### `cabin update`
 
-Re-resolves everything, ignoring the locked map.  Writes the new lockfile.
+Re-resolves everything, ignoring the locked map.  Writes the new lockfile.  A member-scoped run
+keeps the unselected members' entries exactly as `cabin resolve` does.
 
 With nothing left to resolve - every versioned dependency of the selection is patched - `cabin
 update` only reconciles the recorded `[[patch]]` and `[[source-replacement]]` arrays with the active

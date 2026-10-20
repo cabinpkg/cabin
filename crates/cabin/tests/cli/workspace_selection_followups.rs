@@ -255,3 +255,208 @@ fn unsafe_dep_name_in_manifest_rejected_before_http_url() {
         "expected error mentioning unsafe dep name foo#bar; stderr was: {stderr}"
     );
 }
+
+/// Two members with distinct indexed versioned deps: `app` -> `fmt`
+/// (real archive, so `fetch -p app` succeeds end-to-end) and
+/// `other` -> `spdlog` (index entry only).  Writes the workspace-wide
+/// lockfile with `resolve --workspace` and returns its bytes.
+fn write_two_member_workspace_and_lock(root: &Path) -> Vec<u8> {
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            r#"[workspace]
+members = ["app", "other"]
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10.0.0 <11.0.0"
+"#,
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("other/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "other"
+version = "0.1.0"
+
+[dependencies]
+spdlog = "^1"
+"#,
+        )
+        .unwrap();
+    let hex = make_archive(
+        &root.join("artifacts/fmt-10.2.1.zip"),
+        &[
+            ("cabin.toml", FMT_PKG_MANIFEST),
+            ("include/fmt.h", FMT_HEADER),
+            ("src/fmt.cc", FMT_SRC),
+        ],
+    );
+    write_index_entry(
+        &root.join("index"),
+        "fmt",
+        "10.2.1",
+        "{}",
+        &hex,
+        "../artifacts/fmt-10.2.1.zip",
+    );
+    write_index_entry_no_source(&root.join("index"), "spdlog", "1.13.0", &"1".repeat(64));
+    cabin()
+        .args(["resolve", "--workspace", "--manifest-path"])
+        .arg(root.join("cabin.toml"))
+        .arg("--index-path")
+        .arg(root.join("index"))
+        .assert()
+        .success();
+    let lock = fs::read(root.join("cabin.lock")).unwrap();
+    assert!(
+        std::str::from_utf8(&lock).unwrap().contains("spdlog"),
+        "the workspace-wide lockfile must pin other's dep"
+    );
+    lock
+}
+
+/// A patched name another member reaches through a registry edge is
+/// still a registry entry: a member-scoped run carries its pin like
+/// any other, so the next whole-workspace `--locked` run still passes.
+#[test]
+fn member_scoped_resolve_keeps_a_patched_name_an_unselected_member_pins() {
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("ws");
+    assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+        .write_str(
+            "[workspace]\nmembers = [\"app\", \"other\"]\n\n[patch]\nfmt = { path = \"../fmt\" }\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("app/cabin.toml"))
+        .write_str(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nextra = \"^1\"\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(root.join("other/cabin.toml"))
+        .write_str(
+            "[package]\nname = \"other\"\nversion = \"0.1.0\"\n\n[dependencies]\nalpha = \"^1\"\n",
+        )
+        .unwrap();
+    assert_fs::fixture::ChildPath::new(parent.path().join("fmt/cabin.toml"))
+        .write_str("[package]\nname = \"fmt\"\nversion = \"10.2.0\"\n")
+        .unwrap();
+    let index = root.join("index");
+    write_index_entry_no_source(&index, "extra", "1.0.0", &"a".repeat(64));
+    write_index_entry_no_source(&index, "fmt", "10.2.0", &"c".repeat(64));
+    assert_fs::fixture::ChildPath::new(index.join("alpha.json"))
+        .write_str(
+            r#"{"schema":1,"name":"alpha","versions":{"1.0.0":{"dependencies":{"fmt":">=10.0.0 <11.0.0"},"yanked":false,"revision":"bbbbbbbbbbbbbbbb","revisions":{"bbbbbbbbbbbbbbbb":{"checksum":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","published-at":"2026-01-01T00:00:00Z","source":{"type":"archive","path":"unfetched.zip","format":"zip"}}}}}}"#,
+        )
+        .unwrap();
+    let resolve = |args: &[&str]| {
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
+            .args(args)
+            .assert()
+            .success();
+    };
+    resolve(&["--workspace"]);
+    let before = fs::read(root.join("cabin.lock")).unwrap();
+    assert!(
+        std::str::from_utf8(&before)
+            .unwrap()
+            .contains("name = \"fmt\""),
+        "other's transitive edge must pin the patched name"
+    );
+    resolve(&["-p", "app"]);
+    assert_eq!(fs::read(root.join("cabin.lock")).unwrap(), before);
+    resolve(&["--workspace", "--locked"]);
+}
+
+/// The lockfile is workspace-wide once produced: a run that selects
+/// only `app` neither drops `other`'s entry nor sees it as stale.
+#[test]
+fn member_scoped_resolve_keeps_unselected_members_entries() {
+    let dir = TempDir::new().unwrap();
+    let before = write_two_member_workspace_and_lock(dir.path());
+    for locked in [&[][..], &["--locked"][..]] {
+        cabin()
+            .args(["resolve", "--manifest-path"])
+            .arg(dir.path().join("cabin.toml"))
+            .args(["-p", "app", "--index-path"])
+            .arg(dir.path().join("index"))
+            .args(locked)
+            .assert()
+            .success();
+        assert_eq!(
+            fs::read(dir.path().join("cabin.lock")).unwrap(),
+            before,
+            "resolve -p app {locked:?} must leave the workspace lockfile as it was"
+        );
+    }
+}
+
+/// Same contract on the artifact pipeline (`fetch` / `build` / `vendor`
+/// share it): `fetch -p app` materializes `fmt` only and keeps
+/// `other`'s `spdlog` entry, so a whole-workspace `--locked` run still
+/// finds it.
+#[test]
+fn member_scoped_fetch_keeps_unselected_members_entries() {
+    let dir = TempDir::new().unwrap();
+    let before = write_two_member_workspace_and_lock(dir.path());
+    cabin()
+        .args(["fetch", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .args(["-p", "app", "--index-path"])
+        .arg(dir.path().join("index"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache"))
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read(dir.path().join("cabin.lock")).unwrap(),
+        before,
+        "fetch -p app must leave the workspace lockfile as it was"
+    );
+    cabin()
+        .args(["resolve", "--workspace", "--locked", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .success();
+}
+
+/// Only a selection covering every member is authoritative for the
+/// whole file: once `other` no longer needs `spdlog`, a
+/// whole-workspace run prunes the entry.
+#[test]
+fn whole_workspace_resolve_prunes_entries_no_member_needs() {
+    let dir = TempDir::new().unwrap();
+    write_two_member_workspace_and_lock(dir.path());
+    assert_fs::fixture::ChildPath::new(dir.path().join("other/cabin.toml"))
+        .write_str(
+            r#"[package]
+name = "other"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+    cabin()
+        .args(["resolve", "--workspace", "--manifest-path"])
+        .arg(dir.path().join("cabin.toml"))
+        .arg("--index-path")
+        .arg(dir.path().join("index"))
+        .assert()
+        .success();
+    let lock = fs::read_to_string(dir.path().join("cabin.lock")).unwrap();
+    assert!(
+        !lock.contains("spdlog"),
+        "obsolete entry must be pruned: {lock}"
+    );
+}
