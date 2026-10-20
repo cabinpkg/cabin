@@ -1,7 +1,7 @@
 //! Executed-semantics tests for `src/sql/scopes.rs`: the claim flow
 //! and membership management.
 
-use cabin_registry_worker::sql;
+use cabin_registry_worker::{names, sql};
 
 use crate::common::{count, migrated_connection, seed_scope_collision};
 
@@ -12,7 +12,8 @@ use crate::common::{count, migrated_connection, seed_scope_collision};
 /// is load-bearing: it is what makes the loser of a claim race roll
 /// back seedless. `Ok(applied)` mirrors the glue's zero-changed-rows
 /// read on the scope insert - an over-limit claim suppresses every
-/// statement and refuses in-band.
+/// statement and refuses in-band. The skeleton bind mirrors the
+/// glue's: the scope's fold, `NULL` when the operator exempted it.
 fn claim(
     conn: &rusqlite::Connection,
     scope: &str,
@@ -21,18 +22,38 @@ fn claim(
     now: &str,
     limit: i64,
 ) -> rusqlite::Result<bool> {
+    claim_with_skeleton(
+        conn,
+        scope,
+        Some(&names::skeleton(scope)),
+        account_id,
+        user_id,
+        now,
+        limit,
+    )
+}
+
+fn claim_with_skeleton(
+    conn: &rusqlite::Connection,
+    scope: &str,
+    skeleton: Option<&str>,
+    account_id: &str,
+    user_id: i64,
+    now: &str,
+    limit: i64,
+) -> rusqlite::Result<bool> {
     let tx = conn.unchecked_transaction()?;
     let applied = tx.execute(
         sql::CLAIM_SCOPE,
-        rusqlite::params![scope, "github", account_id, now, user_id, limit],
+        rusqlite::params![scope, "github", account_id, now, user_id, limit, skeleton],
     )?;
     tx.execute(
         sql::SEED_CLAIM_OWNER,
-        rusqlite::params![scope, user_id, limit],
+        rusqlite::params![scope, user_id, limit, skeleton],
     )?;
     tx.execute(
         sql::RECORD_SCOPE_CLAIM,
-        rusqlite::params![scope, user_id, now, limit],
+        rusqlite::params![scope, user_id, now, limit, skeleton],
     )?;
     tx.commit()?;
     Ok(applied > 0)
@@ -152,6 +173,74 @@ fn the_lifetime_claim_limit_counts_history_not_ownership() {
             .query_row(sql::USER_SCOPE_CLAIM_COUNT, [user], |row| row.get(0))
             .expect("claim count");
         assert_eq!(n, expected, "user: {user}");
+    }
+}
+
+/// The confusability guard runs inside the batch, so a claim whose
+/// skeleton matches an already-claimed scope refuses in-band however
+/// it got past the preflight read - the two-OAuth-roundtrip race -
+/// and writes nothing anywhere. The SQL fold is pinned to the Rust
+/// one through the same examples `names::skeleton` is tested with.
+#[test]
+fn a_confusable_claim_refuses_inside_the_batch() {
+    let conn = migrated_connection();
+    conn.execute_batch(
+        "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z'),
+                                                   (3, '2026-07-15T00:00:00.000Z');",
+    )
+    .expect("seed users");
+    let now = "2026-07-15T00:00:00.000Z";
+    assert!(claim(&conn, "fmtlib", "10", 2, now, 10).expect("first claim"));
+    assert!(claim(&conn, "zolog", "20", 2, now, 10).expect("second claim"));
+
+    for confusable in ["fmtl1b", "f-mt-lib", "fmtl-ib", "z0log"] {
+        assert!(
+            !claim(&conn, confusable, "30", 3, now, 10).expect("confusable claim executes"),
+            "scope: {confusable}"
+        );
+    }
+    for (table, expected) in [("scopes", 2), ("scope_members", 2), ("scope_claims", 2)] {
+        assert_eq!(count(&conn, table), expected, "table: {table}");
+    }
+    // A different skeleton is not confusable.
+    assert!(claim(&conn, "fmts", "40", 3, now, 10).expect("distinct claim"));
+    // The operator exemption binds no skeleton, which skips the guard.
+    assert!(claim_with_skeleton(&conn, "fmtl1b", None, "30", 3, now, 10).expect("exempt claim"));
+    assert_eq!(member_role(&conn, "fmtl1b", 3), Some("owner".to_owned()));
+}
+
+/// The reverse order pins the SQL fold itself: here the *stored* name
+/// carries the digit, hyphen or underscore, so only the `REPLACE`
+/// chain - not the Rust fold of the candidate - can connect the two.
+/// Each case starts from a fresh database, so an earlier refusal
+/// cannot mask a missing fold, and a refusal leaves every table as the
+/// stored claim left it.
+#[test]
+fn the_sql_fold_matches_stored_digits_hyphens_and_underscores() {
+    for (stored, candidate) in [
+        ("fmtl1b", "fmtlib"),
+        ("fmt-lib", "fmtlib"),
+        ("fmt_lib", "fmtlib"),
+        ("z0log", "zolog"),
+    ] {
+        let conn = migrated_connection();
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-07-15T00:00:00.000Z'),
+                                                       (3, '2026-07-15T00:00:00.000Z');",
+        )
+        .expect("seed users");
+        let now = "2026-07-15T00:00:00.000Z";
+        assert!(
+            claim(&conn, stored, "10", 2, now, 10).expect("stored claim"),
+            "stored: {stored}"
+        );
+        assert!(
+            !claim(&conn, candidate, "30", 3, now, 10).expect("confusable claim executes"),
+            "stored: {stored}, candidate: {candidate}"
+        );
+        for table in ["scopes", "scope_members", "scope_claims"] {
+            assert_eq!(count(&conn, table), 1, "stored: {stored}, table: {table}");
+        }
     }
 }
 

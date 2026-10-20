@@ -881,11 +881,11 @@ three layers, each calibrated by what a false positive costs:
    (`fmtl1b` vs `fmtlib`) with near-zero false positives. The
    operator escape hatch for a legitimate collision is
    `CLAIM_SKELETON_EXEMPT_SCOPES` (exact names; never bypasses the
-   reserved list or claim permanence). The check is a preflight read,
-   deliberately not an in-batch guard: closing the milliseconds-wide
-   race between two independent OAuth roundtrips would need the
-   skeleton fold mirrored into SQL, and claim disputes are handled
-   manually anyway ("Scopes").
+   reserved list or claim permanence). The preflight read answers
+   early, and the claim batch repeats the skeleton guard in SQL
+   (`CLAIM_SCOPE`, the fold mirrored as a `REPLACE` chain), so two
+   confusable claims racing through their independent OAuth
+   roundtrips cannot both land.
 
 Two implementation notes, recorded because they diverge from the
 obvious spelling. The worker cannot depend on `cabin-fs` (it is a

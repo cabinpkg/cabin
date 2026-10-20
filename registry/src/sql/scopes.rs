@@ -13,39 +13,60 @@ statements! {
     /// batch's last statement, so within the transaction the three
     /// always agree, and an over-limit claim suppresses every insert
     /// (zero changed rows; the glue answers the uniform denial).
-    /// Still an insert into the `name` primary key: the loser of a
-    /// claim race fails the statement, which rolls back its whole
-    /// batch - [`SEED_CLAIM_OWNER`] and [`RECORD_SCOPE_CLAIM`] must
-    /// run in that same batch, so a lost race can never seed the loser
-    /// as an owner of the winner's scope, and a failed claim can never
-    /// consume claim capacity.
+    ///
+    /// The second guard, repeated the same way, is the name-fidelity
+    /// refusal the primary key cannot give: `?7` is the requested
+    /// scope's skeleton (`crate::names::skeleton`, mirrored as the
+    /// `REPLACE` chain - the fold's outputs `l`/`o` are never later
+    /// inputs, so the sequential replaces equal the per-character
+    /// fold), and an existing *other* scope with that skeleton
+    /// suppresses the batch. Running inside the transaction, it closes
+    /// the race two confusable claims could otherwise win together
+    /// through the preflight read. `name != ?1` keeps the guard blind
+    /// to the row this statement inserts, so its repeats in the two
+    /// siblings still pass, and leaves an exact-name collision to the
+    /// primary key: the loser of a claim race fails the statement,
+    /// which rolls back its whole batch - [`SEED_CLAIM_OWNER`] and
+    /// [`RECORD_SCOPE_CLAIM`] must run in that same batch, so a lost
+    /// race can never seed the loser as an owner of the winner's
+    /// scope, and a failed claim can never consume claim capacity. The
+    /// glue binds `NULL` for an operator-exempted scope
+    /// (`CLAIM_SKELETON_EXEMPT_SCOPES`), which matches nothing.
     CLAIM_SCOPE =
         "INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at) \
          SELECT ?1, ?2, ?3, ?4 \
-         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?5) < ?6";
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?5) < ?6 \
+         AND NOT EXISTS (SELECT 1 FROM scopes WHERE name != ?1 AND \
+           REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(name, '-', ''), '_', ''), \
+                   '1', 'l'), 'i', 'l'), '0', 'o') = ?7)";
 
     /// Seeds the claiming user as the new scope's first owner, in the
-    /// same batch as [`CLAIM_SCOPE`] and under the same limit guard.
+    /// same batch as [`CLAIM_SCOPE`] and under the same two guards.
     SEED_CLAIM_OWNER =
         "INSERT INTO scope_members (scope_name, user_id, role) \
          SELECT ?1, ?2, 'owner' \
-         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?3";
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?3 \
+         AND NOT EXISTS (SELECT 1 FROM scopes WHERE name != ?1 AND \
+           REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(name, '-', ''), '_', ''), \
+                   '1', 'l'), 'i', 'l'), '0', 'o') = ?4)";
 
     /// Records the granted claim in the append-only history, last in
-    /// the claim batch (the guard must count the history *before* this
-    /// grant, like its two siblings'). Rows here are never updated or
-    /// deleted: the lifetime limit counts grants, not current
-    /// ownership.
+    /// the claim batch (the guards must count the history *before*
+    /// this grant, like its two siblings'). Rows here are never
+    /// updated or deleted: the lifetime limit counts grants, not
+    /// current ownership.
     RECORD_SCOPE_CLAIM =
         "INSERT INTO scope_claims (scope_name, claimed_by, claimed_at) \
          SELECT ?1, ?2, ?3 \
-         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?4";
+         WHERE (SELECT COUNT(*) FROM scope_claims WHERE claimed_by = ?2) < ?4 \
+         AND NOT EXISTS (SELECT 1 FROM scopes WHERE name != ?1 AND \
+           REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(name, '-', ''), '_', ''), \
+                   '1', 'l'), 'i', 'l'), '0', 'o') = ?5)";
 
-    /// Every claimed scope name, for the claim callback's skeleton
-    /// confusability refusal (`docs/architecture.md`, "Name
-    /// fidelity"): the fold runs in Rust (`crate::names::skeleton`),
-    /// so the map lives in one place per crate instead of a second
-    /// SQL spelling. Scopes are few; the breaker's `d1_rows_read_day`
+    /// Every claimed scope name, for the claim callback's preflight
+    /// skeleton confusability refusal (`docs/architecture.md`, "Name
+    /// fidelity"; the in-batch guard in [`CLAIM_SCOPE`] is what closes
+    /// the race). Scopes are few; the breaker's `d1_rows_read_day`
     /// budget is the tripwire if that stops holding.
     LIST_SCOPE_NAMES = "SELECT name FROM scopes ORDER BY name";
 
