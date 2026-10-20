@@ -850,8 +850,13 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
         false,
     )?;
 
-    let mut new_lockfile =
-        lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
+    let mut new_lockfile = lockfile_from_resolution(
+        &output,
+        &index,
+        existing_lockfile.as_ref(),
+        &input.mode,
+        !seed.resolved_selection.covers_all_primaries(&graph),
+    );
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -1249,8 +1254,13 @@ pub(crate) fn run_artifact_pipeline(
         true,
     )?;
 
-    let mut new_lockfile =
-        lockfile_from_resolution(&output, &index, existing_lockfile.as_ref(), &input.mode);
+    let mut new_lockfile = lockfile_from_resolution(
+        &output,
+        &index,
+        existing_lockfile.as_ref(),
+        &input.mode,
+        !seed.resolved_selection.covers_all_primaries(graph),
+    );
     new_lockfile.patches = active_patch_records;
     new_lockfile.source_replacements = active_replacement_records;
 
@@ -1614,11 +1624,19 @@ pub(crate) fn enforce_locked_patch_state(
     )
 }
 
+/// With `keep_unconsidered`, `previous` entries this resolution never
+/// reached are carried over verbatim: a selection that leaves
+/// workspace members out resolves only its own closure, and the
+/// lockfile stays workspace-wide.  Only a selection covering every
+/// member prunes entries nothing needs.  An entry for a patched name
+/// is carried too: an unselected member may still reach that name
+/// through a registry edge, which keeps it a registry entry.
 fn lockfile_from_resolution(
     output: &ResolveOutput,
     index: &cabin_index::PackageIndex,
     previous: Option<&Lockfile>,
     mode: &cabin_resolver::ResolveMode,
+    keep_unconsidered: bool,
 ) -> Lockfile {
     // We need each resolved package's transitive deps to write the
     // lockfile's `dependencies = [...]` field.  The resolver doesn't
@@ -1672,6 +1690,14 @@ fn lockfile_from_resolution(
             checksum: kept_pin.or_else(|| meta.checksum.clone()),
             dependencies: deps,
         });
+    }
+    if keep_unconsidered && let Some(prev) = previous {
+        packages.extend(
+            prev.packages
+                .iter()
+                .filter(|locked| !resolved_names.contains(locked.name.as_str()))
+                .cloned(),
+        );
     }
     packages.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
     Lockfile {

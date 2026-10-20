@@ -184,8 +184,9 @@ The same flag bundle applies to `cabin build`, `cabin metadata`, `cabin resolve`
   packages reachable from the selected closure.  Versioned deps of unrelated workspace members (or
   unrelated path-deps) are silently skipped, so `cabin resolve -p app` no longer requires the index
   to know about an unrelated member's dependency on `spdlog`.  The lockfile, by contrast, is still
-  workspace-wide once produced - selection only affects what the loader has to materialize *for this
-  command*.
+  workspace-wide once produced - a member-scoped run rewrites the entries its closure resolves and
+  keeps the rest (only a selection covering every member, root package included, prunes), so
+  selection only affects what the loader has to materialize *for this command*.
 
 Pure workspace roots (no `[package]`) work too: `cabin resolve --workspace` over a workspace root
 that only has members with `[dependencies]` produces a lockfile rooted at a synthetic
