@@ -8,6 +8,7 @@
 //! registry tokens are never logged.
 
 use serde::Deserialize;
+use worker::wasm_bindgen::JsValue;
 use worker::{
     D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
 };
@@ -520,12 +521,10 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     }
     // Name fidelity (`docs/architecture.md`, "Name fidelity"):
     // reserved vocabulary and skeleton-confusable scopes refuse
-    // exactly like every other claim failure. A preflight read, not
-    // an in-batch guard: two confusable claims racing through the
-    // millisecond window between this read and their inserts could
-    // both land, but each sits behind its own human OAuth roundtrip,
-    // and claim disputes are handled manually anyway ("Scopes") -
-    // not worth mirroring the skeleton fold into SQL.
+    // exactly like every other claim failure. This preflight read
+    // answers early; the batch below repeats the skeleton guard in
+    // SQL so two confusable claims racing through their separate
+    // OAuth roundtrips cannot both land.
     let exempt = names::parse_scope_list(
         &env.var("CLAIM_SKELETON_EXEMPT_SCOPES")
             .map(|value| value.to_string())
@@ -534,9 +533,14 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     if claim::scope_refusal(&scope, &claimed_scope_names(db).await?, &exempt) {
         return claim_denied(&[clear_state]);
     }
+    let skeleton = if exempt.contains(&scope) {
+        JsValue::NULL
+    } else {
+        names::skeleton(&scope).into()
+    };
 
     let account_id = proof_account_id.to_string();
-    if !persist_claim_grant(db, &scope, &account_id, &claimant).await? {
+    if !persist_claim_grant(db, &scope, skeleton, &account_id, &claimant).await? {
         return claim_denied(&[clear_state]);
     }
     redirect_response(302, CLAIM_GRANTED_REDIRECT, &[clear_state])
@@ -546,14 +550,18 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
 /// and the append-only history row - in one D1 batch. The claimant's
 /// lifetime claim limit rides inside the batch's guards rather than a
 /// preflight read, so two concurrent claims by the same user cannot
-/// both slip under it. `Ok(false)` refuses: either the limit guard
-/// suppressed the whole batch (each statement repeats it, so zero
-/// changed rows on the scope insert means nothing was written), or the
-/// claim race was lost - the primary-key insert fails and rolls the
-/// batch back, seeding no owner and consuming no claim capacity.
+/// both slip under it. `Ok(false)` refuses: either a guard suppressed
+/// the whole batch (each statement repeats the limit and skeleton
+/// guards, so zero changed rows on the scope insert means nothing was
+/// written), or an exact-name race was lost - the
+/// primary-key insert fails and rolls the batch back, seeding no owner
+/// and consuming no claim capacity. `skeleton` is the scope's
+/// confusability skeleton for the in-SQL fidelity guard, `NULL` for
+/// an operator-exempted scope.
 async fn persist_claim_grant(
     db: &D1Database,
     scope: &str,
+    skeleton: JsValue,
     account_id: &str,
     claimant: &UserRecord,
 ) -> worker::Result<bool> {
@@ -571,17 +579,20 @@ async fn persist_claim_grant(
                 claimed_at.as_str().into(),
                 js_int(claimant.user_id),
                 claim_limit.clone(),
+                skeleton.clone(),
             ])?,
             db.prepare(sql::SEED_CLAIM_OWNER).bind(&[
                 scope.into(),
                 js_int(claimant.user_id),
                 claim_limit.clone(),
+                skeleton.clone(),
             ])?,
             db.prepare(sql::RECORD_SCOPE_CLAIM).bind(&[
                 scope.into(),
                 js_int(claimant.user_id),
                 claimed_at.as_str().into(),
                 claim_limit,
+                skeleton,
             ])?,
         ])
         .await;
