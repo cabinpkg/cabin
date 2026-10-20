@@ -958,7 +958,26 @@ pub fn env_token(allow_env_override: bool) -> Result<Option<Token>, CredentialsE
 /// # Errors
 /// Propagates file-backend errors.
 pub fn stored_token(origin: &str) -> Result<TokenLookup, CredentialsError> {
-    let load = SessionStorage::from_env().load(origin)?;
+    stored_token_in(&SessionStorage::from_env(), origin)
+}
+
+fn stored_token_in(
+    storage: &SessionStorage,
+    origin: &str,
+) -> Result<TokenLookup, CredentialsError> {
+    // A token under a plain-http non-loopback key could never be
+    // attached to that origin's reads, so handing it out would only
+    // let the origin's unauthenticated `config.json` route it to an
+    // `api` of its choosing. `cabin login` never stores such a key; a
+    // hand-written one is treated as absent.
+    if origin.starts_with("http://") && !url_is_loopback(origin) {
+        return Ok(TokenLookup {
+            token: None,
+            expired_at: None,
+            warning: None,
+        });
+    }
+    let load = storage.load(origin)?;
     let (token, expired_at) = match load.session {
         Some(session) if session.expired_at(SystemTime::now()) => (None, Some(session.expires_at)),
         Some(session) => (Some(session.token), None),
@@ -1635,6 +1654,28 @@ mod tests {
     }
 
     const ORIGIN: &str = "https://registry.cabinpkg.com";
+
+    /// A session keyed to a plain-http non-loopback origin is never
+    /// handed out, whichever backend holds it; loopback keeps working.
+    #[test]
+    fn stored_token_withholds_plain_http_non_loopback_sessions() {
+        let storage = SessionStorage::from_parts(None, Some(Box::new(MemoryStore::new(false))));
+        for origin in ["http://registry.example.com", "http://127.0.0.1:8080"] {
+            storage.store(origin, &session()).unwrap();
+        }
+        assert!(
+            stored_token_in(&storage, "http://registry.example.com")
+                .unwrap()
+                .token
+                .is_none()
+        );
+        assert!(
+            stored_token_in(&storage, "http://127.0.0.1:8080")
+                .unwrap()
+                .token
+                .is_some()
+        );
+    }
 
     #[test]
     fn storage_prefers_an_available_keychain() {
