@@ -455,15 +455,13 @@ version = "0.1.0"
     );
 }
 
-#[test]
-fn locked_fails_when_patch_policy_changed_after_lockfile() {
-    // Lock the package once with no patches, then add a
-    // `[patch]` table whose fork still satisfies the original
-    // requirement.  The package set is unchanged; only the
-    // patch state differs. `cabin resolve --locked` must
-    // detect that and refuse to proceed.
-    let parent = TempDir::new().unwrap();
-    let root = parent.path().join("app");
+/// Lock `app` (depending on `fmt`) once with no patches, then add a
+/// `[patch]` whose fork supplies `fmt` at the locked version.  The
+/// package set is unchanged and nothing is left to resolve; only
+/// the recorded patch state differs from the active policy.
+/// Returns the root and index directories.
+fn lockfile_then_add_covering_patch(parent: &Path) -> (PathBuf, PathBuf) {
+    let root = parent.join("app");
     write_root_manifest(
         &root,
         r#"[package]
@@ -474,7 +472,7 @@ version = "0.1.0"
 fmt = ">=10.0.0 <11.0.0"
 "#,
     );
-    let index = parent.path().join("index");
+    let index = parent.join("index");
     assert_fs::fixture::ChildPath::new(index.join("fmt.json"))
         .write_str(FMT_INDEX_TWO_VERSIONS)
         .unwrap();
@@ -487,10 +485,8 @@ fmt = ">=10.0.0 <11.0.0"
         .assert()
         .success();
 
-    // Add a manifest patch that supplies fmt at 10.2.0 - the
-    // same version the resolver picked from the index.  The locked
-    // package set is identical, but the `[[patch]]` array
-    // changed, so --locked must bail.
+    // The fork supplies fmt at 10.2.0 - the same version the
+    // resolver picked from the index.
     write_root_manifest(
         &root,
         r#"[package]
@@ -505,14 +501,20 @@ fmt = { path = "../fmt" }
 "#,
     );
     write_patched_fork(
-        parent.path(),
+        parent,
         "fmt",
         r#"[package]
 name = "fmt"
 version = "10.2.0"
 "#,
     );
+    (root, index)
+}
 
+#[test]
+fn locked_fails_when_patch_policy_changed_after_lockfile() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
     let assertion = cabin()
         .args(["resolve", "--locked", "--manifest-path"])
         .arg(root.join("cabin.toml"))
@@ -525,6 +527,284 @@ version = "10.2.0"
         stderr.contains("patch / source-replacement policy differs"),
         "expected patch staleness error, got: {stderr}"
     );
+}
+
+/// The patch-staleness check does not depend on the resolver
+/// running: the patch covers the only versioned dependency, so the
+/// artifact commands have nothing to resolve or fetch, yet `--locked`
+/// must still refuse - and leave the lockfile bytes alone.
+fn parse_lock(path: &Path) -> cabin_lockfile::Lockfile {
+    cabin_lockfile::read_lockfile(path).unwrap()
+}
+
+/// Pins a known modification time so a later check can tell "not
+/// rewritten" from "rewritten with the same bytes".
+fn pin_mtime(path: &Path) -> std::time::SystemTime {
+    let stamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(stamp)
+        .unwrap();
+    stamp
+}
+
+/// Without `--locked`, a run with nothing to resolve leaves the
+/// lockfile alone, and the artifact commands never read it.
+#[test]
+fn unlocked_commands_leave_the_lockfile_alone_with_nothing_to_resolve() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
+    let lockfile = root.join("cabin.lock");
+    let cache_dir = parent.path().join("cache");
+    let stamp = pin_mtime(&lockfile);
+    // `build` shares the helper and is pinned by the locked test
+    // below; the fixture's `app` has no target for it to build.
+    for command in ["resolve", "fetch", "vendor"] {
+        let mut cmd = cabin();
+        cmd.args([command, "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index);
+        if command != "resolve" {
+            cmd.arg("--cache-dir").arg(&cache_dir);
+        }
+        cmd.assert().success();
+        assert_eq!(
+            fs::metadata(&lockfile).unwrap().modified().unwrap(),
+            stamp,
+            "{command} rewrote the lockfile"
+        );
+    }
+    fs::write(&lockfile, "not a lockfile").unwrap();
+    for command in ["fetch", "vendor"] {
+        cabin()
+            .args([command, "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
+            .arg("--cache-dir")
+            .arg(&cache_dir)
+            .assert()
+            .success();
+    }
+}
+
+/// The remedy the `--locked` error names must work: `cabin update`
+/// with nothing to resolve reconciles the stale patch record and
+/// keeps every `[[package]]` entry it cannot judge; a matching
+/// record is left untouched, as is a missing lockfile.
+#[test]
+fn update_refreshes_a_stale_patch_record_with_nothing_to_resolve() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
+    let lockfile = root.join("cabin.lock");
+    let update = || {
+        cabin()
+            .args(["update", "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
+            .assert()
+            .success();
+    };
+    let before = parse_lock(&lockfile);
+    update();
+    let refreshed = parse_lock(&lockfile);
+    assert_eq!(
+        refreshed.packages, before.packages,
+        "entries must be kept verbatim"
+    );
+    assert_eq!(
+        refreshed.patches.len(),
+        1,
+        "expected the patch record:\n{refreshed:?}"
+    );
+
+    let stamp = pin_mtime(&lockfile);
+    update();
+    for command in ["resolve", "fetch"] {
+        let mut cmd = cabin();
+        cmd.args([command, "--locked", "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index);
+        if command != "resolve" {
+            cmd.arg("--cache-dir").arg(parent.path().join("cache"));
+        }
+        cmd.assert().success();
+    }
+    assert_eq!(
+        fs::metadata(&lockfile).unwrap().modified().unwrap(),
+        stamp,
+        "a matching record must not be rewritten"
+    );
+
+    fs::remove_file(&lockfile).unwrap();
+    update();
+    assert!(!lockfile.exists(), "update must not create a lockfile here");
+}
+
+const FMT_INDEX_WITH_HELPER: &str = r#"{
+  "schema": 1,
+  "name": "fmt",
+  "versions": {
+    "10.2.0": { "dependencies": { "helper": "^1" }, "yanked": false, "revision": "bbbbbbbbbbbbbbbb", "revisions": { "bbbbbbbbbbbbbbbb": { "checksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "published-at": "2026-01-01T00:00:00Z", "source": { "type": "archive", "path": "unfetched.zip", "format": "zip" } } } }
+  }
+}"#;
+
+fn locked_names(lockfile: &Path) -> Vec<String> {
+    parse_lock(lockfile)
+        .packages
+        .iter()
+        .map(|locked| locked.name.to_string())
+        .collect()
+}
+
+/// The lockfile is workspace-wide.  A member-scoped `cabin update`
+/// with nothing to resolve reconciles the patch record only: every
+/// entry survives, the other member's pins included, and nothing
+/// promises a canonical workspace-wide lockfile - the selected
+/// member passes `--locked`, a whole-workspace `resolve --locked`
+/// still refuses.  `cabin update --workspace` resolves for real and
+/// writes the canonical lockfile; once patches cover every
+/// dependency of the workspace it, too, only reconciles the record.
+#[test]
+fn workspace_update_after_a_patch_covers_a_members_dependencies() {
+    let parent = TempDir::new().unwrap();
+    let root = parent.path().join("ws");
+    let workspace = "[workspace]\nmembers = [\"app\", \"other\"]\ndefault-members = [\"app\"]\n";
+    let write_workspace_manifest = |patches: &str| {
+        assert_fs::fixture::ChildPath::new(root.join("cabin.toml"))
+            .write_str(&format!("{workspace}{patches}"))
+            .unwrap();
+    };
+    write_workspace_manifest("");
+    write_root_manifest(
+        &root.join("app"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nfmt = \">=10.0.0 <11.0.0\"\n",
+    );
+    write_root_manifest(
+        &root.join("other"),
+        "[package]\nname = \"other\"\nversion = \"0.1.0\"\n\n[dependencies]\nspdlog = \"^1\"\n",
+    );
+    let index = parent.path().join("index");
+    assert_fs::fixture::ChildPath::new(index.join("fmt.json"))
+        .write_str(FMT_INDEX_WITH_HELPER)
+        .unwrap();
+    write_index_entry_no_source(&index, "helper", "1.0.0", &"d".repeat(64));
+    write_index_entry_no_source(&index, "spdlog", "1.13.0", &"1".repeat(64));
+    let run = |args: &[&str]| {
+        let mut cmd = cabin();
+        cmd.args(args)
+            .arg("--manifest-path")
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index);
+        cmd.assert()
+    };
+    let lockfile = root.join("cabin.lock");
+
+    run(&["resolve", "--workspace"]).success();
+    let original = parse_lock(&lockfile);
+    assert_eq!(locked_names(&lockfile), ["fmt", "helper", "spdlog"]);
+
+    // The fork drops fmt's registry dependency, so helper is now
+    // needed by nothing.
+    write_workspace_manifest("\n[patch]\nfmt = { path = \"../fmt\" }\n");
+    write_patched_fork(
+        parent.path(),
+        "fmt",
+        "[package]\nname = \"fmt\"\nversion = \"10.2.0\"\n",
+    );
+    run(&["update", "--default-members"]).success();
+    let scoped = parse_lock(&lockfile);
+    assert_eq!(
+        scoped.packages, original.packages,
+        "scoped update must keep every entry"
+    );
+    assert_eq!(scoped.patches.len(), 1, "{scoped:?}");
+    run(&["resolve", "--locked", "--default-members"]).success();
+    let stale = run(&["resolve", "--locked", "--workspace"]).failure();
+    assert!(
+        String::from_utf8_lossy(&stale.get_output().stderr).contains("is stale"),
+        "a whole-workspace --locked resolve must refuse the non-canonical lockfile"
+    );
+    assert_eq!(
+        scoped,
+        parse_lock(&lockfile),
+        "--locked must not modify the lockfile"
+    );
+
+    run(&["update", "--workspace"]).success();
+    assert_eq!(
+        locked_names(&lockfile),
+        ["spdlog"],
+        "obsolete entries must go"
+    );
+    assert_eq!(
+        parse_lock(&lockfile).packages[0],
+        original.packages[2],
+        "spdlog must stay pinned as before"
+    );
+    run(&["resolve", "--locked", "--workspace"]).success();
+
+    // Patches now cover every dependency of the workspace: a
+    // whole-workspace update has nothing to resolve either and
+    // reconciles the record only.
+    write_workspace_manifest(
+        "\n[patch]\nfmt = { path = \"../fmt\" }\nspdlog = { path = \"../spdlog\" }\n",
+    );
+    write_patched_fork(
+        parent.path(),
+        "spdlog",
+        "[package]\nname = \"spdlog\"\nversion = \"1.13.0\"\n",
+    );
+    run(&["update", "--workspace"]).success();
+    let all_patched = parse_lock(&lockfile);
+    assert_eq!(
+        locked_names(&lockfile),
+        ["spdlog"],
+        "nothing resolved, so nothing pruned"
+    );
+    assert_eq!(all_patched.patches.len(), 2, "{all_patched:?}");
+    run(&["resolve", "--locked", "--workspace"]).success();
+    assert_eq!(
+        all_patched,
+        parse_lock(&lockfile),
+        "--locked must not modify the lockfile"
+    );
+}
+
+#[test]
+fn locked_artifact_commands_refuse_a_patch_policy_change_with_nothing_to_resolve() {
+    let parent = TempDir::new().unwrap();
+    let (root, index) = lockfile_then_add_covering_patch(parent.path());
+    let lockfile = root.join("cabin.lock");
+    let before = fs::read(&lockfile).unwrap();
+    for command in ["fetch", "build", "vendor"] {
+        let assertion = cabin()
+            .args([command, "--locked", "--manifest-path"])
+            .arg(root.join("cabin.toml"))
+            .arg("--index-path")
+            .arg(&index)
+            .arg("--cache-dir")
+            .arg(parent.path().join("cache"))
+            .assert()
+            .failure();
+        let stderr = String::from_utf8_lossy(&assertion.get_output().stderr);
+        assert!(
+            stderr.contains("patch / source-replacement policy differs")
+                && stderr.contains("run cabin update"),
+            "{command} --locked: expected patch staleness error, got: {stderr}"
+        );
+        assert_eq!(
+            fs::read(&lockfile).unwrap(),
+            before,
+            "{command} --locked must not rewrite the lockfile"
+        );
+    }
 }
 
 #[test]

@@ -184,8 +184,9 @@ provenance = "user-config"
 
 Old lockfiles without these arrays remain valid (the parser treats the missing fields as empty).
 Under `--locked`, if the recorded arrays differ from the active policy, the resolver errors with
-`--locked cannot be used because active patch / source- replacement policy differs from <lockfile>;
-re-run without --locked to refresh the lockfile`.
+`--locked cannot be used because active patch / source-replacement policy differs from <lockfile>;
+re-run without --locked, or run cabin update when nothing is left to resolve, to refresh the
+record`.
 
 ## Metadata view
 

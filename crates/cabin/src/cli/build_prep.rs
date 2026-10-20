@@ -310,6 +310,13 @@ pub(crate) fn prepare_workspace(
             pipeline.activated_patches,
         )
     } else {
+        super::enforce_locked_patch_state(
+            &manifest_path,
+            &super::LockPolicy::from_flags(args.locked, args.frozen),
+            &active_patches,
+            &effective_config.source_replacements,
+            args.no_patches,
+        )?;
         (
             Vec::new(),
             BTreeSet::new(),
