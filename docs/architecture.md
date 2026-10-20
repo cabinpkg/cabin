@@ -701,6 +701,9 @@ claiming a release name.  The crate must:
   `Compress-Archive` on Windows stay child processes carrying the shell's exact argv, because
   `crates/cabin/Cargo.toml` declares `pkg-fmt = "txz"` and compressing in Rust would change the
   published bytes for no gain;
+- refuse a tag name with any character outside `[A-Za-z0-9._+-]` before staging anything: the
+  Windows leg splices the version into the PowerShell command string it runs, so a crafted tag
+  would otherwise execute on that runner;
 - read no `GITHUB_*` context and write no `$GITHUB_ENV` - that is `xtask-workflow-guard`'s
   reserved surface, so the run's version context arrives as arguments and the answer leaves on
   stdout for the step to record;
