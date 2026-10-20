@@ -41,8 +41,8 @@ use cabin_vendor::{
 use crate::cli::seed::{ResolutionSeed, SeedInputs};
 use crate::cli::{
     ArtifactPipelineRequest, LockPolicy, WorkspaceSelectionArgs, absolutise,
-    build_selection_request, build_workspace_selection, resolve_invocation_manifest,
-    run_artifact_pipeline, sync_fast_path_patch_state,
+    build_selection_request, build_workspace_selection, enforce_locked_patch_state,
+    resolve_invocation_manifest, run_artifact_pipeline,
 };
 use crate::plural;
 
@@ -156,7 +156,7 @@ pub(crate) fn vendor(
     let vendor_dir = resolve_vendor_dir(args, &manifest_path)?;
 
     if !has_versioned {
-        sync_fast_path_patch_state(
+        enforce_locked_patch_state(
             &manifest_path,
             &LockPolicy::from_flags(args.locked, args.frozen),
             &active_patches,

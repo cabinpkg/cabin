@@ -136,11 +136,9 @@ adding or removing a patch since the lockfile was written makes the lockfile sta
 will refuse rather than silently succeed.  Every command that honors `--locked` enforces this -
 `cabin fetch`, `cabin vendor`, and `cabin build` / `run` / `test` included - even when the selected
 closure needs nothing from an index; only `cabin test --allow-no-tests` with no test targets, which
-prepares no dependencies at all, skips it.  Without `--locked`, such a run refreshes a stale record
-instead: it records the active policy and keeps the `[[package]]` entries verbatim, since a run
-that resolved nothing cannot tell which of them another selection or dependency activation still
-needs.  Comparison uses the same canonical (sorted) arrays the renderer emits, so it is
-deterministic.
+prepares no dependencies at all, skips it.  Without `--locked`, such a run leaves the lockfile
+alone, as it always has; `cabin update` is the remedy (see below).  Comparison uses the same
+canonical (sorted) arrays the renderer emits, so it is deterministic.
 
 Full protocol in [`patch-overrides.md`](patch-overrides.md).
 
@@ -211,6 +209,14 @@ populated - already-cached and already-extracted artifacts may still be reused, 
 ### `cabin update`
 
 Re-resolves everything, ignoring the locked map.  Writes the new lockfile.
+
+With nothing left to resolve - every versioned dependency of the selection is patched - `cabin
+update` only reconciles the recorded `[[patch]]` and `[[source-replacement]]` arrays with the active
+policy.  That is metadata reconciliation, not resolution: every `[[package]]` entry is kept
+verbatim, obsolete ones included, because a run that resolved nothing cannot tell which entries
+another workspace member or a dev / optional dependency activation still needs; a later run that
+does resolve rewrites them.  A record that already matches is not rewritten, and a missing lockfile
+is not created.
 
 ### `cabin update --package <name>`
 

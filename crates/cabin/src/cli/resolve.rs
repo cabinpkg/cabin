@@ -511,7 +511,7 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
         dev_for: &dev_for,
     })?;
     if !seed.has_versioned_deps() {
-        sync_fast_path_patch_state(
+        enforce_locked_patch_state(
             &manifest_path,
             &LockPolicy::from_flags(args.locked, args.frozen),
             &active_patches,
@@ -727,8 +727,9 @@ fn run_resolution(request: &ResolutionRequest<'_>, reporter: Reporter) -> Result
 
     if root_deps.is_empty() {
         // No versioned deps to resolve: print a clear empty result.
-        // The lockfile is touched only to settle its patch record.
-        sync_patch_state_without_resolution(
+        // Only `cabin update` touches the lockfile here, to settle a
+        // stale patch record.
+        settle_fast_path_patch_state(
             &lockfile_path,
             &request.policy,
             existing_lockfile.as_ref(),
@@ -1521,9 +1522,9 @@ pub(crate) fn lockfile_path_for(manifest_path: &Path) -> PathBuf {
 /// Read the lockfile at `lockfile_path` if it exists, attaching a
 /// read-error context that names the path.  Returns `Ok(None)` when
 /// the file is absent.  Shared by the read-only inspection commands
-/// (`metadata` / `tree` / `explain`); the commands that enforce
-/// `--locked` keep their own bespoke read so the missing-lockfile
-/// case stays a hard error there.
+/// (`metadata` / `tree` / `explain`) and the no-versioned-deps fast
+/// paths; a resolving run under `--locked` keeps its own bespoke
+/// read so the missing-lockfile case stays a hard error there.
 pub(crate) fn read_optional_lockfile(lockfile_path: &Path) -> Result<Option<Lockfile>> {
     if lockfile_path.is_file() {
         Ok(Some(
@@ -1545,22 +1546,23 @@ fn ensure_patch_state_current(
 ) -> Result<()> {
     if !prev.matches_patch_state(active_patches, active_replacements) {
         bail!(
-            "--locked cannot be used because active patch / source-replacement policy differs from {}; re-run without --locked to refresh the lockfile",
+            "--locked cannot be used because active patch / source-replacement policy differs from {}; re-run without --locked, or run cabin update when nothing is left to resolve, to refresh the record",
             lockfile_path.display()
         );
     }
     Ok(())
 }
 
-/// Settles the lockfile's patch / source-replacement record for a
-/// run that resolves nothing: the active patches cover every
-/// versioned dependency, so the comparison a resolving run makes is
-/// never reached.  `--locked` refuses a stale record rather than
-/// silently succeeding.  An unlocked run records the active policy
-/// and keeps the `[[package]]` list verbatim: having resolved
-/// nothing, it cannot tell which entries another selection or
-/// dependency activation still needs.  A missing lockfile is fine.
-fn sync_patch_state_without_resolution(
+/// The patch / source-replacement check for a run that resolves
+/// nothing: the active patches cover every versioned dependency, so
+/// the comparison a resolving run makes is never reached.  `--locked`
+/// refuses a stale record rather than silently succeeding.  Only
+/// `cabin update` rewrites one, keeping the `[[package]]` list
+/// verbatim: having resolved nothing, it cannot tell which entries
+/// another selection or dependency activation still needs.  Every
+/// other run leaves the lockfile alone, and a missing lockfile is
+/// fine.
+fn settle_fast_path_patch_state(
     lockfile_path: &Path,
     policy: &LockPolicy,
     prev: Option<&Lockfile>,
@@ -1573,7 +1575,9 @@ fn sync_patch_state_without_resolution(
     if policy.locked() {
         return ensure_patch_state_current(prev, lockfile_path, &patches, &source_replacements);
     }
-    if !prev.matches_patch_state(&patches, &source_replacements) {
+    if matches!(policy, LockPolicy::UpdateAll)
+        && !prev.matches_patch_state(&patches, &source_replacements)
+    {
         let refreshed = Lockfile {
             version: cabin_lockfile::LOCKFILE_VERSION,
             packages: prev.packages.clone(),
@@ -1586,18 +1590,22 @@ fn sync_patch_state_without_resolution(
     Ok(())
 }
 
-/// [`sync_patch_state_without_resolution`] for the artifact commands'
-/// no-versioned-deps fast paths, which have not read the lockfile.
-pub(crate) fn sync_fast_path_patch_state(
+/// [`settle_fast_path_patch_state`] for the artifact commands'
+/// no-versioned-deps fast paths, which read the lockfile only under
+/// `--locked`: an unlocked run has no use for it.
+pub(crate) fn enforce_locked_patch_state(
     manifest_path: &Path,
     policy: &LockPolicy,
     active_patches: &cabin_workspace::ActivePatchSet,
     source_replacements: &cabin_core::SourceReplacementSettings,
     no_patches: bool,
 ) -> Result<()> {
+    if !policy.locked() {
+        return Ok(());
+    }
     let lockfile_path = lockfile_path_for(manifest_path);
     let prev = read_optional_lockfile(&lockfile_path)?;
-    sync_patch_state_without_resolution(
+    settle_fast_path_patch_state(
         &lockfile_path,
         policy,
         prev.as_ref(),

@@ -310,7 +310,7 @@ pub(crate) fn prepare_workspace(
             pipeline.activated_patches,
         )
     } else {
-        super::sync_fast_path_patch_state(
+        super::enforce_locked_patch_state(
             &manifest_path,
             &super::LockPolicy::from_flags(args.locked, args.frozen),
             &active_patches,
