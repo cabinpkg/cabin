@@ -432,15 +432,28 @@ pub struct PackageExplanation {
     pub name: String,
     pub version: String,
     pub source: SourceProvenance,
-    /// Every minimal path from a selected root to this package,
-    /// sorted by `(length, name sequence)` for stable
-    /// output.  Each element of the inner vec is one
-    /// `(name, version, edge_kind)` step; the first element is a
-    /// selected root and the last is the queried package.
+    /// Minimal paths from selected roots to this package, sorted by
+    /// `(length, name sequence)` for stable output.  Each element of
+    /// the inner vec is one `(name, version, edge_kind)` step; the
+    /// first element is a selected root and the last is the queried
+    /// package.  At most [`MAX_PATHS_PER_ROOT`] paths are kept per
+    /// root; `paths_truncated` says when more existed.
     pub paths: Vec<Vec<ExplainStep>>,
     /// Whether this package is itself a selected root.
     pub is_selected_root: bool,
+    /// `true` when some root reached this package over more than
+    /// [`MAX_PATHS_PER_ROOT`] shortest paths and only that many of them
+    /// are listed.  Omitted from JSON when `false`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub paths_truncated: bool,
 }
+
+/// Cap on the shortest paths reconstructed per selected root.  The
+/// number of shortest paths grows exponentially with diamond-shaped
+/// dependency graphs (two parallel deps per layer double it), so an
+/// unbounded reconstruction lets a 40-manifest checkout exhaust memory
+/// before anything is built; 64 keeps every realistic answer intact.
+pub const MAX_PATHS_PER_ROOT: usize = 64;
 
 /// One step in a [`PackageExplanation::paths`] chain.
 #[derive(Debug, Clone, Serialize)]
@@ -552,8 +565,11 @@ pub fn explain_package(
     let is_selected_root = effective_roots.contains(&target_idx);
 
     let mut paths: Vec<Vec<ExplainStep>> = Vec::new();
+    let mut paths_truncated = false;
     for &root in &effective_roots {
-        for path in shortest_paths_to(graph, root, target_idx) {
+        let (root_paths, truncated) = shortest_paths_to(graph, root, target_idx);
+        paths_truncated |= truncated;
+        for path in root_paths {
             paths.push(materialize_path(graph, &path));
         }
     }
@@ -582,6 +598,7 @@ pub fn explain_package(
         source,
         paths,
         is_selected_root,
+        paths_truncated,
     })
 }
 
@@ -632,13 +649,14 @@ fn known_package_names(graph: &PackageGraph) -> Vec<String> {
         .collect()
 }
 
-/// Walk the graph from `start` to `target` and return every
-/// shortest path of package indices.  Edge kinds are recorded by
-/// the caller through [`materialize_path`] so the resulting
+/// Walk the graph from `start` to `target` and return the shortest
+/// paths of package indices - at most [`MAX_PATHS_PER_ROOT`] of them,
+/// with the flag saying whether more existed.  Edge kinds are recorded
+/// by the caller through [`materialize_path`] so the resulting
 /// [`ExplainStep`]s carry the right edge label.
-fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<Vec<usize>> {
+fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> (Vec<Vec<usize>>, bool) {
     if start == target {
-        return vec![vec![start]];
+        return (vec![vec![start]], false);
     }
     // BFS by depth to find the *shortest* paths first; collect
     // every parent at the depth where the target was reached.
@@ -672,11 +690,13 @@ fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<V
         level += 1;
     }
     if !depth.contains_key(&target) {
-        return Vec::new();
+        return (Vec::new(), false);
     }
-    // Reconstruct every shortest path by walking parents
-    // backwards from target.
+    // Reconstruct the shortest paths by walking parents backwards
+    // from target, keeping the partial-path set under the cap at
+    // every level so the work stays bounded.
     let mut paths: Vec<Vec<usize>> = vec![vec![target]];
+    let mut truncated = false;
     loop {
         let mut next: Vec<Vec<usize>> = Vec::new();
         let mut grew = false;
@@ -696,15 +716,20 @@ fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> Vec<V
                 grew = true;
             }
         }
+        if next.len() > MAX_PATHS_PER_ROOT {
+            next.truncate(MAX_PATHS_PER_ROOT);
+            truncated = true;
+        }
         paths = next;
         if !grew {
             break;
         }
     }
-    paths
+    let paths = paths
         .into_iter()
         .filter(|p| p.first().copied() == Some(start))
-        .collect()
+        .collect();
+    (paths, truncated)
 }
 
 fn materialize_path(graph: &PackageGraph, path: &[usize]) -> Vec<ExplainStep> {
@@ -954,6 +979,12 @@ pub fn render_explanation_human(exp: &Explanation) -> String {
                         push_name_version_kind(&mut out, &step.name, &step.version, step.edge_kind);
                     }
                     out.push('\n');
+                }
+                if p.paths_truncated {
+                    let _ = writeln!(
+                        out,
+                        "    (more shortest paths exist; only {MAX_PATHS_PER_ROOT} per root are listed)"
+                    );
                 }
             }
             out
@@ -1241,6 +1272,76 @@ mod tests {
         );
         assert_eq!(path[1].edge_kind, Some("normal"));
         assert_eq!(path[2].edge_kind, Some("normal"));
+    }
+
+    /// A diamond lattice (two packages per layer, each depending on
+    /// both packages of the next layer) has `2^(layers - 2)` shortest
+    /// paths from the top to the bottom.  Reconstruction must stop at
+    /// the cap and say so, instead of materializing every path.
+    fn lattice_graph(layers: usize) -> PackageGraph {
+        let mut packages = Vec::new();
+        for layer in 0..layers {
+            for side in ["a", "b"] {
+                let name = format!("{side}{layer}");
+                let next = (layer + 1 < layers)
+                    .then(|| [format!("a{}", layer + 1), format!("b{}", layer + 1)]);
+                let dep_names: Vec<(&str, DependencyKind)> = next
+                    .iter()
+                    .flatten()
+                    .map(|n| (n.as_str(), DependencyKind::Normal))
+                    .collect();
+                let mut pkg = make_pkg(&name, "0.1.0", &dep_names);
+                if next.is_some() {
+                    let base = (layer + 1) * 2;
+                    pkg.deps = [base, base + 1]
+                        .map(|index| DependencyEdge {
+                            index,
+                            kind: DependencyKind::Normal,
+                            condition: None,
+                            ignore_interface_standard: false,
+                        })
+                        .to_vec();
+                }
+                packages.push(pkg);
+            }
+        }
+        PackageGraph {
+            root_manifest_path: PathBuf::from("/abs/cabin.toml"),
+            root_dir: PathBuf::from("/abs"),
+            is_workspace_root: true,
+            root_package: None,
+            root_settings: cabin_workspace::RootSettings::default(),
+            primary_packages: vec![0],
+            default_members: Vec::new(),
+            excluded_members: Vec::new(),
+            packages,
+        }
+    }
+
+    #[test]
+    fn explain_package_caps_the_shortest_paths_per_root() {
+        // 5 layers: 8 paths, under the cap - all listed, no flag.
+        let exp = explain_package(&lattice_graph(5), &[0], "a4", None, None).unwrap();
+        assert_eq!(exp.paths.len(), 8);
+        assert!(!exp.paths_truncated);
+        assert!(
+            !serde_json::to_string(&exp)
+                .unwrap()
+                .contains("paths_truncated")
+        );
+
+        // 12 layers: 1024 paths - capped, flagged, still shortest.
+        let exp = explain_package(&lattice_graph(12), &[0], "a11", None, None).unwrap();
+        assert_eq!(exp.paths.len(), MAX_PATHS_PER_ROOT);
+        assert!(exp.paths.iter().all(|p| p.len() == 12));
+        assert!(exp.paths_truncated);
+        assert!(
+            serde_json::to_string(&exp)
+                .unwrap()
+                .contains("\"paths_truncated\":true")
+        );
+        let human = render_explanation_human(&Explanation::Package(exp));
+        assert!(human.contains("more shortest paths exist"), "{human}");
     }
 
     #[test]

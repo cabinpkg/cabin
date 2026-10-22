@@ -89,13 +89,15 @@ Five subcommands:
 
 ### `cabin explain package <name>`
 
-Reports the resolved package's source provenance plus every minimal path from a selected root that
-reaches it.  Paths are sorted by `(length, joined name sequence)` so the answer is deterministic.
-The `is_selected_root` flag distinguishes "this package is itself a root" from "this package was
-pulled in by a root".
+Reports the resolved package's source provenance plus the minimal paths from selected roots that
+reach it.  Paths are sorted by `(length, joined name sequence)` so the answer is deterministic.  At
+most 64 shortest paths are kept per selected root (diamond-shaped graphs otherwise double the count
+with every layer); when a root had more, the human output says so and the JSON carries
+`"paths_truncated": true` (the field is omitted otherwise).  The `is_selected_root` flag
+distinguishes "this package is itself a root" from "this package was pulled in by a root".
 
 The JSON shape is `{ "kind": "package", "name", "version", "source", "paths": [ [ { "name",
-"version", "edge_kind" }, ... ] ], "is_selected_root" }`.
+"version", "edge_kind" }, ... ] ], "is_selected_root", "paths_truncated"? }`.
 
 ### `cabin explain target <name>`
 
