@@ -1,6 +1,7 @@
 use std::io;
 use std::path::PathBuf;
 
+use cabin_core::escape_control_chars as escape;
 use thiserror::Error;
 
 /// Errors produced by the artifact layer.
@@ -30,30 +31,37 @@ pub enum ArtifactError {
         actual: String,
     },
 
-    #[error("refusing to extract unsafe archive entry `{0}`")]
+    #[error("refusing to extract unsafe archive entry `{}`", escape(.0))]
     UnsafeArchiveEntry(String),
 
-    #[error("source archive does not contain the declared strip_prefix directory `{strip_prefix}`")]
+    #[error(
+        "source archive does not contain the declared strip_prefix directory `{}`",
+        escape(strip_prefix)
+    )]
     MissingStripPrefix { strip_prefix: String },
 
-    #[error("refusing to extract unsupported archive entry `{0}`")]
+    #[error("refusing to extract unsupported archive entry `{}`", escape(.0))]
     UnsupportedArchiveEntry(String),
 
     #[error(
-        "refusing to extract archive entry `{path}`: its path exceeds the {limit}-byte length limit"
+        "refusing to extract archive entry `{}`: its path exceeds the {limit}-byte length limit",
+        escape(path)
     )]
     ArchiveEntryPathTooLong { path: String, limit: usize },
 
-    #[error("refusing to extract duplicate archive entry `{0}`")]
+    #[error("refusing to extract duplicate archive entry `{}`", escape(.0))]
     DuplicateArchiveEntry(String),
 
     #[error(
-        "refusing to extract archive entry `{path}`: `{conflict}` cannot be both a regular file and a directory"
+        "refusing to extract archive entry `{}`: `{}` cannot be both a regular file and a directory",
+        escape(path),
+        escape(conflict)
     )]
     ConflictingArchiveEntry { path: String, conflict: String },
 
     #[error(
-        "refusing to extract archive entry `{path}`: its header declares {expected} bytes but the archive holds {actual}"
+        "refusing to extract archive entry `{}`: its header declares {expected} bytes but the archive holds {actual}",
+        escape(path)
     )]
     ArchiveEntryTruncated {
         path: String,
@@ -77,12 +85,14 @@ pub enum ArtifactError {
     ArchiveFileTooLarge { size: u64, limit: u64 },
 
     #[error(
-        "refusing to extract archive: two central-directory entries share the name `{name}` (a zip reader would keep only one, so which bytes land is ambiguous)"
+        "refusing to extract archive: two central-directory entries share the name `{}` (a zip reader would keep only one, so which bytes land is ambiguous)",
+        escape(name)
     )]
     ArchiveDuplicateNames { name: String },
 
     #[error(
-        "refusing to extract archive entry `{path}`: decompressed size exceeds the {limit}-byte per-entry limit (potential decompression bomb)"
+        "refusing to extract archive entry `{}`: decompressed size exceeds the {limit}-byte per-entry limit (potential decompression bomb)",
+        escape(path)
     )]
     ArchiveEntryTooLarge { path: String, limit: u64 },
 
@@ -114,19 +124,18 @@ pub enum ArtifactError {
     )]
     FrozenCacheMiss { name: String, version: String },
 
-    #[error("failed to read {path}: {source}", path = path.display())]
+    #[error("failed to read {}: {source}", escape(&path.display().to_string()))]
     Io {
         path: PathBuf,
         #[source]
         source: io::Error,
     },
 
-    #[error("failed to extract archive {}: {source}", path.display())]
-    Extract {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
+    /// The parser's message is kept as text rather than as a `#[source]`:
+    /// tar and zip readers quote entry names in it, and a source would be
+    /// re-appended verbatim by the CLI's error-chain rendering.
+    #[error("failed to extract archive {}: {}", path.display(), escape(detail))]
+    Extract { path: PathBuf, detail: String },
 
     #[error(
         "failed to parse extracted manifest at {}: {source}",
@@ -137,4 +146,63 @@ pub enum ArtifactError {
         #[source]
         source: Box<cabin_manifest::ManifestError>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Archive authors control entry names; a name carrying terminal
+    /// escapes or bidi controls must reach the terminal escaped.
+    #[test]
+    fn archive_entry_names_are_escaped_in_messages() {
+        let hostile = "ok\u{1b}[31m\u{202e}evil";
+        let errors = [
+            ArtifactError::UnsafeArchiveEntry(hostile.into()),
+            ArtifactError::MissingStripPrefix {
+                strip_prefix: hostile.into(),
+            },
+            ArtifactError::UnsupportedArchiveEntry(hostile.into()),
+            ArtifactError::ArchiveEntryPathTooLong {
+                path: hostile.into(),
+                limit: 1,
+            },
+            ArtifactError::DuplicateArchiveEntry(hostile.into()),
+            ArtifactError::ConflictingArchiveEntry {
+                path: hostile.into(),
+                conflict: hostile.into(),
+            },
+            ArtifactError::ArchiveEntryTruncated {
+                path: hostile.into(),
+                expected: 1,
+                actual: 0,
+            },
+            ArtifactError::ArchiveDuplicateNames {
+                name: hostile.into(),
+            },
+            ArtifactError::ArchiveEntryTooLarge {
+                path: hostile.into(),
+                limit: 1,
+            },
+            ArtifactError::Io {
+                path: PathBuf::from(hostile),
+                source: io::Error::other("disk"),
+            },
+            ArtifactError::Extract {
+                path: PathBuf::from("pkg.zip"),
+                detail: hostile.into(),
+            },
+        ];
+        for err in errors {
+            let message = err.to_string();
+            assert!(
+                !message.contains('\u{1b}') && !message.contains('\u{202e}'),
+                "{message:?}"
+            );
+            assert!(
+                message.contains("ok\\u{1b}[31m\\u{202e}evil"),
+                "{message:?}"
+            );
+        }
+    }
 }
