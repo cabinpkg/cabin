@@ -10,9 +10,10 @@ mod members;
 mod tests;
 mod topo;
 
+pub(crate) use self::members::{WorkspaceMembers, expand_workspace_members};
 use self::members::{
-    WorkspaceMembers, expand_workspace_members, parse_workspace_dep_source,
-    resolve_workspace_dependencies, resolve_workspace_standards, validate_workspace_pattern,
+    parse_workspace_dep_source, resolve_workspace_dependencies, resolve_workspace_standards,
+    validate_workspace_pattern,
 };
 use self::topo::topo_sort;
 
@@ -1030,7 +1031,7 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, WorkspaceError> {
 /// identity - dedup, nested-workspace detection, member lookup - shares
 /// the project's single Windows-safe canonical spelling (no `\\?\`
 /// verbatim prefix, which MSVC's front-end cannot open).
-pub(super) fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
+pub(crate) fn canonicalize(path: &Path) -> Result<PathBuf, WorkspaceError> {
     cabin_fs::canonicalize(path).map_err(|source| classify_manifest_io(path, source))
 }
 

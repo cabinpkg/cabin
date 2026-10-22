@@ -219,6 +219,32 @@ pub enum WorkspaceError {
     NestedWorkspaceDiscovery { nearest: PathBuf, outer: PathBuf },
 
     #[error(
+        "package manifest {package} is not a member of the workspace at {root} that encloses it",
+        package = package.display(),
+        root = root.display()
+    )]
+    #[diagnostic(
+        code(cabin::workspace::unclaimed_package),
+        help(
+            "add the package to `[workspace] members` (or, when a members glob already matches it, to `[workspace] exclude` so it builds standalone), or pass `--manifest-path` to select a manifest explicitly"
+        )
+    )]
+    UnclaimedPackage { package: PathBuf, root: PathBuf },
+
+    #[error(
+        "workspace root {root} found above {path} is owned by a different user, hard-linked, world-writable, or a symlink (the manifest, its `.cabin/config.toml`, or their directories)",
+        path = path.display(),
+        root = root.display()
+    )]
+    #[diagnostic(
+        code(cabin::workspace::untrusted_root),
+        help(
+            "a discovered workspace root is only honored when it has the same owner as the package (or directory) it was found above, its directory and `.cabin/config.toml` (when present) share that owner, and none of them is world-writable or a symlink; pass `--manifest-path` to select a manifest explicitly"
+        )
+    )]
+    UntrustedWorkspaceRoot { path: PathBuf, root: PathBuf },
+
+    #[error(
         "package `{package}` at {path} declares `[profile.*]` tables, but profile tables may only appear in the workspace root manifest",
         path = path.display()
     )]
