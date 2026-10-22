@@ -673,8 +673,12 @@ fn shortest_paths_to(graph: &PackageGraph, start: usize, target: usize) -> (Vec<
                 let child = edge.index;
                 let new_depth = level + 1;
                 if let Some(&existing) = depth.get(&child) {
-                    if existing == new_depth {
-                        parents.entry(child).or_default().push(node);
+                    // Parallel edges (the same dependency as both normal
+                    // and dev) are one parent, not two identical paths
+                    // that would both count against the cap.
+                    let known = parents.entry(child).or_default();
+                    if existing == new_depth && !known.contains(&node) {
+                        known.push(node);
                     }
                     continue;
                 }
@@ -1342,6 +1346,22 @@ mod tests {
         );
         let human = render_explanation_human(&Explanation::Package(exp));
         assert!(human.contains("more shortest paths exist"), "{human}");
+    }
+
+    /// A dependency active as both normal and dev is two edges to one
+    /// package; reconstruction must yield one path, not two identical
+    /// ones competing for the cap.
+    #[test]
+    fn parallel_edges_reconstruct_one_path() {
+        let mut graph = three_pkg_graph();
+        let dev_edge = DependencyEdge {
+            kind: DependencyKind::Dev,
+            ..graph.packages[0].deps[0].clone()
+        };
+        graph.packages[0].deps.push(dev_edge);
+        let (paths, truncated) = shortest_paths_to(&graph, 0, 2);
+        assert_eq!(paths, vec![vec![0, 1, 2]]);
+        assert!(!truncated);
     }
 
     #[test]
