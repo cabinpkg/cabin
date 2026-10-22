@@ -357,7 +357,8 @@ described under **Revisions** below.
 
 Server-side behavior is part of the contract:
 
-- **Validation.**  The server validates the framing, parses the metadata under the index schema
+- **Validation.**  The server validates the framing (the whole body is capped at 64 MiB and the
+  metadata frame at 1 MiB, both refused before anything is hashed or parsed), parses the metadata under the index schema
   (`schema` values other than `1` are refused - a document the
   [verifier](#the-verifiers-checks) cannot judge must never enter the pending queue), requires
   the URL's `<scope>/<name>` / `<version>` segments to match the metadata (the metadata's `name` field carries the full `<scope>/<name>` string), requires every key of the
@@ -943,7 +944,7 @@ a repeated `DELETE` idempotent - the same contract as the
 | `200` | Success that created no registry content: an idempotent no-op (byte-identical re-publish, or a yank set to the state the version already has), a granted [trusted-publishing exchange](#trusted-publishing) (which consumes the JWT's `jti` and mints its token, but publishes nothing), or a granted [login-session mint](#login-sessions). |
 | `201` | Publish that created a packaging revision - a first publish of the version, an opted-in respin, or the revival of a rejected revision. |
 | `204` | A [trusted-publishing](#revoking-the-exchanged-token) or [session](#revoking-a-session-token) revocation that deleted the presented token. |
-| `400` | Malformed request: bad framing, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
+| `400` | Malformed request: bad framing, an oversized body or metadata frame, invalid metadata, a version carrying build metadata, an invalid JSON body, or a `new-revision` query value other than `true`. |
 | `401` | An invalid token, or a missing token on a surface that requires one - the mutation routes, and every non-read-plane path of the index host (never reveals whether anything exists there) - and every [trusted-publishing](#trusted-publishing) exchange, [login-session](#login-sessions) mint, or revocation failure.  Carries the [login-URL challenge](#the-login-url-challenge). |
 | `403` | Valid token, but the scope the route requires is missing - or a per-user quota refusal, distinguished by the envelope's [`code`](#error-envelope) field. |
 | `404` | Request for an unknown package, version, or revision - including revisions that are not [verified](#verification-lifecycle), which are indistinguishable from unknown ones without the `verify` scope. |
