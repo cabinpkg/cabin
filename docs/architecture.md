@@ -1095,7 +1095,10 @@ cabin.toml  --> cabin_manifest::parse_manifest_str / load_manifest
 ```
 cwd or --manifest-path  --> cabin_workspace::discover_workspace_root
                               |  upward walk for cabin.toml with [workspace]
-                              |  (no walk when --manifest-path is explicit)
+                              |  (no walk when --manifest-path is explicit;
+                              |   a root above the cwd must share its owner,
+                              |   not be world-writable (file or directory),
+                              |   and list the nearest package as a member)
                               v
                             workspace root manifest
                               |

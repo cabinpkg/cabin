@@ -128,6 +128,27 @@ When the user runs `cabin <subcommand>` without an explicit `--manifest-path`, C
   rule means stacking workspaces is always surfaced to the user, regardless of how the outer's
   `[workspace]` table is configured.
 
+A root found **above the current directory** is the trust boundary for every setting discovery applies
+on the user's behalf (`[toolchain]`, `[patch]`, the root's `.cabin/config.toml`), so it is honored only
+under these rules:
+
+- On Unix, the root manifest (the file itself, not a symlink or hard-link target) and its directory
+  must have the same owner as the nearest package manifest below it, or as the current directory when
+  no package manifest lies between, and neither may be world-writable or a symlink; the root's
+  `.cabin/config.toml` and `.cabin/` directory, when present, pass the same owner, mode and
+  no-symlink checks.  Otherwise discovery errors with `owned by a different user,
+  hard-linked, world-writable, or a symlink`.  This stops a world-writable ancestor
+  such as `/tmp` or a shared drop directory from planting a root, and a world-writable manifest or
+  config file from being edited into one, whose toolchain would run for every package below it.  Group-writable team checkouts pass: anyone who can write to the root
+  directory is trusted as its owner is.  Windows has no owner or mode check.
+- A package the root lists as a member (directly or through a glob) adopts the root, from the package
+  directory or any subdirectory of it.
+- A package the root `exclude`s builds standalone, as if no root were above it.
+- A package the root neither lists nor excludes errors with `is not a member of the workspace`; add it
+  to `members` (or, when a `members` glob already matches it, to `exclude`), or pass `--manifest-path`.
+- A directory with no package manifest of its own (a workspace's `docs/`, say) adopts the nearest root
+  above it, subject to the owner rule.
+
 When discovery returns an error, the user is expected to disambiguate by passing `--manifest-path`
 explicitly.  A user-supplied `--manifest-path /some/path/cabin.toml` always wins - root discovery
 only triggers when the user did not pass `--manifest-path` at all.

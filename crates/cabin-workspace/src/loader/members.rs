@@ -10,12 +10,12 @@ use super::canonicalize;
 /// of canonical manifest paths. `excluded` is the list of relative
 /// paths (under `workspace_dir`) the loader removed from the
 /// candidate set, surfaced for metadata.
-pub(super) struct WorkspaceMembers {
-    pub(super) included: Vec<PathBuf>,
-    pub(super) excluded: Vec<PathBuf>,
+pub(crate) struct WorkspaceMembers {
+    pub(crate) included: Vec<PathBuf>,
+    pub(crate) excluded: Vec<PathBuf>,
 }
 
-pub(super) fn expand_workspace_members(
+pub(crate) fn expand_workspace_members(
     workspace_dir: &Path,
     members: &[String],
     exclude: &[String],
