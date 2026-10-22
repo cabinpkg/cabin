@@ -211,7 +211,7 @@ pub(crate) fn run_login_flow(index_url: &str, origin: &str, reporter: Reporter) 
         eprint!("press Enter to open that page in your browser (or open it yourself) ");
         let _ = std::io::stderr().flush();
         if prompt_answer(&mut std::io::stdin().lock()).is_some() {
-            open_browser(&granted.verification_uri);
+            open_browser(&granted.verification_uri, &github_url);
         } else {
             // EOF leaves the prompt line unterminated (no Enter echo).
             eprintln!();
@@ -363,30 +363,10 @@ fn github_oauth_url() -> String {
 
 /// Open `url` in the user's browser, best-effort: only ever called
 /// after explicit consent (Enter at the prompt), and a failure is
-/// silent - the URL is already printed for opening by hand.  The
-/// value is server-supplied, so only an `https` URL reaches process
-/// execution; anything else stays print-only.
-fn open_browser(url: &str) {
-    if !url.starts_with("https://") {
+/// silent - the URL is already printed for opening by hand.
+fn open_browser(url: &str, github_url: &str) {
+    let Some(mut command) = browser_command(url, github_url) else {
         return;
-    }
-    #[cfg(target_os = "macos")]
-    let mut command = {
-        let mut command = std::process::Command::new("open");
-        command.arg(url);
-        command
-    };
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/c", "start", "", url]);
-        command
-    };
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let mut command = {
-        let mut command = std::process::Command::new("xdg-open");
-        command.arg(url);
-        command
     };
     // Drop the credential env vars every other Cabin subprocess
     // drops: a browser helper has no business inheriting them.
@@ -397,6 +377,34 @@ fn open_browser(url: &str) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+}
+
+/// The browser-helper invocation for `url`, or `None` when the URL
+/// stays print-only.  The value is server-supplied, so a helper only
+/// receives an `https` page on the GitHub OAuth origin the device
+/// flow was started against - the one place the device page can
+/// live.  The URL is never interpolated into shell command text:
+/// `cmd /c start` would read `&`, `|`, `^`, `%` and `"` inside it as
+/// command syntax.
+fn browser_command(url: &str, github_url: &str) -> Option<std::process::Command> {
+    let on_oauth_origin = url
+        .strip_prefix(github_url.trim_end_matches('/'))
+        .is_some_and(|rest| rest.starts_with('/'));
+    if !url.starts_with("https://") || !on_oauth_origin {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(url);
+    Some(command)
 }
 
 /// Resolve the credential to attach to sparse-HTTP requests for
@@ -662,6 +670,31 @@ mod tests {
             prompt_answer(&mut &b"y"[..]).is_none(),
             "EOF mid-line is not an answer"
         );
+    }
+
+    /// The browser helper receives exactly one `https` URL on the
+    /// OAuth origin the flow was started against, verbatim and never
+    /// through a shell: a hostile device-code response can neither
+    /// pick another origin nor smuggle command syntax into `cmd /c start`.
+    #[test]
+    fn browser_helper_gets_only_the_oauth_origin_url_and_no_shell() {
+        let github = "https://github.com";
+        let device_page = "https://github.com/login/device";
+        let command = browser_command(device_page, github).expect("the device page opens");
+        assert_ne!(command.get_program(), "cmd");
+        assert_eq!(
+            command.get_args().filter(|arg| *arg == device_page).count(),
+            1
+        );
+        for hostile in [
+            "https://github.com.evil.example/login/device",
+            "https://evil.example/login/device&calc.exe",
+            "http://github.com/login/device",
+            "file:///C:/Windows/System32/calc.exe",
+            "https://github.com",
+        ] {
+            assert!(browser_command(hostile, github).is_none(), "{hostile}");
+        }
     }
 
     /// An explicit `--index-url` is used verbatim: no config
