@@ -408,12 +408,18 @@ mod tests {
         let hostile = entry(FetchSource::InMemoryArchive(b"not the archive".to_vec()));
 
         let done = AtomicBool::new(false);
+        // Rendezvous so the hostile writer is running before the
+        // honest copy starts; otherwise the loop could first be
+        // scheduled after `done` is set and exercise nothing.
+        let started = std::sync::Barrier::new(2);
         std::thread::scope(|scope| {
             scope.spawn(|| {
+                started.wait();
                 while !done.load(Ordering::Relaxed) {
                     let _ = ensure_archive(&hostile, &archive_path, &hex, false);
                 }
             });
+            started.wait();
             let result = ensure_archive(&honest, &archive_path, &hex, false);
             done.store(true, Ordering::Relaxed);
             result.expect("the honest population succeeds");
