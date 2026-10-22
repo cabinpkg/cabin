@@ -47,7 +47,7 @@ jobs:
         # Swapping the release action for a `gh release` script would
         # change release behavior; AGENTS.md forbids changing release
         # workflow behavior as part of unrelated work.
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with: # zizmor: ignore[superfluous-actions] -- AGENTS.md defers release-behavior changes; a gh-cli migration is separate release work
           draft: false
           generate_release_notes: true
