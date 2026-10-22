@@ -93,9 +93,10 @@ detects the mismatch and re-extracts.  These are liveness edges of a lockless co
 cache, not safety holes — no hostile archive escapes through them, and they predate this change.
 
 Zip archives - the registry package format, and some foundation-port upstreams - obey the same
-rules, including the header-size and duplicate checks.  They have no separate whole-stream ratio
-cap: zip decompresses per entry, so the per-entry
-caps already bound every decompressed byte.  Zip metadata is read from bytes the archive really
+rules, including the header-size and duplicate checks and the whole-stream ratio cap above, which
+bounds the total decompressed size of all entries together on top of the per-entry caps.  The symlink and
+special-file rejections apply to zip exactly as to tar, driven by the Unix mode field of the
+central-directory record; an entry without mode bits is a directory or a regular file by its name.  Zip metadata is read from bytes the archive really
 contains rather than from a compressed stream that can amplify, so its memory cost is bounded by the
 archive file size — which is itself capped at the aggregate limit, since the central directory
 cannot exceed the file.

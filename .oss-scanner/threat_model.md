@@ -21,8 +21,9 @@ and the module table in `registry/AGENTS.md`.
 environment, and toolchain; a dependency manifest driving the compiler is the
 same trust as building third-party code. Hostile: every byte from an index or
 registry (`crates/cabin-index-http`, `crates/cabin-registry-api`); registry and
-upstream archives, with the manifests and patch files inside them
-(`crates/cabin-artifact`); GitHub's responses during `cabin login`.
+upstream archives, with the manifests inside them (`crates/cabin-artifact`;
+upstream patch files are applied only by the verifier and the port-publish
+preflight, never by the `cabin` binary); GitHub's responses during `cabin login`.
 Semi-trusted: lockfiles and local indexes in a cloned project. Secrets: the
 keychain or `credentials.toml` (`crates/cabin-credentials`) and
 `CABIN_REGISTRY_TOKEN`.
@@ -35,7 +36,9 @@ session plane (`/api/v1/user`, including the source viewer); and stored rows
 read back later. Routes and the two credential planes are specified in
 `docs/remote-registry.md` and `registry/docs/architecture.md`; body caps are
 constants in `registry/src/`. `wrangler.jsonc` vars and secrets are operator
-input.
+input, and so is the deploy toolchain: the deploy job installs the pinned
+`wrangler` through npm at deploy time, so its dependency closure runs with the
+deploy token. That is an accepted boundary, not a hardened one.
 
 **Verifier.** `cargo registry-verify` (the driver, run by
 `.github/workflows/registry-verify.yml`) downloads each pending archive with a
