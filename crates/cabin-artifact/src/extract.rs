@@ -366,7 +366,7 @@ fn safe_extract_zip_with_limits(
     })?;
     let extract_err = |source: zip::result::ZipError| ArtifactError::Extract {
         path: archive.to_path_buf(),
-        source: io::Error::other(source),
+        detail: source.to_string(),
     };
     let mut zip = zip::ZipArchive::new(f).map_err(extract_err)?;
 
@@ -752,7 +752,7 @@ fn extract_tar_entries<R: Read>(
 ) -> Result<(), ArtifactError> {
     let entries = tar.entries().map_err(|source| ArtifactError::Extract {
         path: archive.to_path_buf(),
-        source,
+        detail: source.to_string(),
     })?;
 
     let mut total_bytes: u64 = 0;
@@ -770,7 +770,7 @@ fn extract_tar_entries<R: Read>(
 
         let mut entry = entry_result.map_err(|source| ArtifactError::Extract {
             path: archive.to_path_buf(),
-            source,
+            detail: source.to_string(),
         })?;
         let entry_kind = entry.header().entry_type();
         // Skip GNU/PAX metadata records (long-path markers, extended
@@ -809,7 +809,7 @@ fn extract_tar_entries<R: Read>(
             .path()
             .map_err(|source| ArtifactError::Extract {
                 path: archive.to_path_buf(),
-                source,
+                detail: source.to_string(),
             })?
             .into_owned();
         let display = entry_path.to_string_lossy().into_owned();
