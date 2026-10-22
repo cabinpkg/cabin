@@ -1,9 +1,10 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
 use cabin_core::PackageName;
 
-use crate::cache::{ArtifactCache, extraction_marker_path, partial_dir_sibling, partial_sibling};
+use crate::cache::{ArtifactCache, extraction_marker_path, partial_dir_sibling};
 use crate::error::ArtifactError;
 use crate::extract;
 
@@ -170,24 +171,44 @@ fn ensure_archive(
         })?;
     }
 
-    let tmp_target = partial_sibling(archive_path);
-    populate_archive(entry, &tmp_target, archive_path, expected_hex)?;
-    Ok(())
+    populate_archive(entry, archive_path, expected_hex)
 }
 
+/// Stream the entry's bytes into a staging file this call alone
+/// owns - a randomly named sibling of `final_target` - hashing them
+/// as they are written, and rename it into place only when the digest
+/// matches.  The staging file has no predictable path, so a second
+/// Cabin process populating the same entry (one whose index lies about
+/// the digest, say) can neither truncate nor swap the bytes this call
+/// verified before they are promoted; a mismatch discards the staging
+/// file.
 fn populate_archive(
     entry: &FetchEntry,
-    tmp_target: &Path,
     final_target: &Path,
     expected_hex: &str,
 ) -> Result<(), ArtifactError> {
-    let actual = match &entry.source {
-        FetchSource::LocalArchive(path) => stream_local_to_partial(path, tmp_target)?,
-        FetchSource::InMemoryArchive(bytes) => write_bytes_to_partial(bytes, tmp_target)?,
+    let io_error = |source| ArtifactError::Io {
+        path: final_target.to_path_buf(),
+        source,
     };
+    let mut staged = AtomicWriteFile::open(final_target).map_err(io_error)?;
+    let actual = match &entry.source {
+        FetchSource::LocalArchive(path) => {
+            let mut src = File::open(path).map_err(|source| ArtifactError::Io {
+                path: path.clone(),
+                source,
+            })?;
+            // Errors mapped to the cache target: a mid-stream failure
+            // is far more likely to be a write there than the local
+            // source going unreadable after a successful open.
+            cabin_core::hash::hash_copy(&mut src, &mut staged)
+        }
+        FetchSource::InMemoryArchive(bytes) => cabin_core::hash::hash_copy(&bytes[..], &mut staged),
+    }
+    .map_err(io_error)?;
 
     if actual != expected_hex {
-        let _ = fs::remove_file(tmp_target);
+        let _ = staged.discard();
         return Err(ArtifactError::ChecksumMismatch {
             name: entry.name.as_str().to_owned(),
             version: entry.version.to_string(),
@@ -195,42 +216,7 @@ fn populate_archive(
             actual,
         });
     }
-    fs::rename(tmp_target, final_target).map_err(|source| ArtifactError::Io {
-        path: final_target.to_path_buf(),
-        source,
-    })?;
-    Ok(())
-}
-
-/// Stream `source_path` into `tmp_target`, hashing as it goes.
-fn stream_local_to_partial(source_path: &Path, tmp_target: &Path) -> Result<String, ArtifactError> {
-    let mut src = File::open(source_path).map_err(|source| ArtifactError::Io {
-        path: source_path.to_path_buf(),
-        source,
-    })?;
-    let mut dst = File::create(tmp_target).map_err(|source| ArtifactError::Io {
-        path: tmp_target.to_path_buf(),
-        source,
-    })?;
-    // Errors mapped to `tmp_target`: a mid-stream failure is far more
-    // likely to be a write to the cache target than the local source
-    // going unreadable after a successful open.
-    cabin_core::hash::hash_copy(&mut src, &mut dst).map_err(|source| ArtifactError::Io {
-        path: tmp_target.to_path_buf(),
-        source,
-    })
-}
-
-/// Write `bytes` into `tmp_target`, hashing as it goes.
-fn write_bytes_to_partial(bytes: &[u8], tmp_target: &Path) -> Result<String, ArtifactError> {
-    let mut dst = File::create(tmp_target).map_err(|source| ArtifactError::Io {
-        path: tmp_target.to_path_buf(),
-        source,
-    })?;
-    cabin_core::hash::hash_copy(bytes, &mut dst).map_err(|source| ArtifactError::Io {
-        path: tmp_target.to_path_buf(),
-        source,
-    })
+    staged.commit().map_err(io_error)
 }
 
 fn ensure_source(
@@ -267,8 +253,8 @@ fn ensure_source(
     // Extract and validate in a sibling temp directory, renamed
     // into place only on success: a hostile archive rejected
     // mid-extraction (or a crash) never leaves a partial tree at
-    // the final path, mirroring the `.partial` + rename convention
-    // the archive download above uses.
+    // the final path, mirroring the stage-then-rename protocol the
+    // archive download above uses.
     let tmp_dir = partial_dir_sibling(source_dir);
     if tmp_dir.exists() {
         fs::remove_dir_all(&tmp_dir).map_err(|source| ArtifactError::Io {
@@ -384,6 +370,55 @@ mod tests {
         assert_eq!(pkg_result.archive_path, cache.archive_path(&hex));
         assert!(pkg_result.archive_path.is_file());
         assert!(pkg_result.source_dir.join("cabin.toml").is_file());
+    }
+
+    /// A concurrent population of the same cache entry whose index
+    /// lies about the digest (it serves other bytes under the honest
+    /// checksum) can neither corrupt nor remove the honest download:
+    /// the honest fetch succeeds and the promoted archive hashes to
+    /// the expected digest.
+    #[test]
+    fn concurrent_hostile_population_cannot_corrupt_the_honest_archive() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.child("artifacts/big.zip");
+        // Pseudo-random letters, large enough that hashing the archive
+        // takes long enough for the hostile loop below to overlap it.
+        let body: String = (0..6_000_000u32)
+            .map(|i| char::from(b'a' + (i.wrapping_mul(2_654_435_761) >> 27) as u8 % 26))
+            .collect();
+        let hex = write_archive(
+            &archive,
+            &[
+                ("cabin.toml", &manifest("big", "1.0.0")),
+                ("blob.txt", &body),
+            ],
+        );
+        let cache = cache_root(dir.path());
+        let archive_path = cache.archive_path(&hex);
+        fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
+        let entry = |source| FetchEntry {
+            name: pkg("big"),
+            version: ver("1.0.0"),
+            checksum: cabin_core::Checksum::parse(&format!("sha256:{hex}")).unwrap(),
+            source,
+        };
+        let honest = entry(FetchSource::LocalArchive(archive.to_path_buf()));
+        let hostile = entry(FetchSource::InMemoryArchive(b"not the archive".to_vec()));
+
+        let done = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !done.load(Ordering::Relaxed) {
+                    let _ = ensure_archive(&hostile, &archive_path, &hex, false);
+                }
+            });
+            let result = ensure_archive(&honest, &archive_path, &hex, false);
+            done.store(true, Ordering::Relaxed);
+            result.expect("the honest population succeeds");
+        });
+        assert_eq!(hash_file(&archive_path).unwrap(), hex);
     }
 
     #[test]
