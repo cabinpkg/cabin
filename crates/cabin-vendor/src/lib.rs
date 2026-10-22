@@ -493,9 +493,8 @@ fn copy_archive_if_changed(
         path: src.to_path_buf(),
         source,
     })?;
-    // Match the `.partial` convention used by `cabin-artifact`
-    // and `cabin-registry-file` so orphaned partial writes share
-    // a single recognizable suffix.  `Path::with_extension`
+    // Match the `.partial` convention used by `cabin-registry-file`
+    // so orphaned partial writes share a recognizable suffix.  `Path::with_extension`
     // would clobber the trailing `.zip` of `fmt-10.2.1.zip`,
     // so we append the suffix via `OsString` instead.
     let temp = {

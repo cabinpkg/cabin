@@ -44,17 +44,6 @@ impl ArtifactCache {
     }
 }
 
-/// Sibling `<path>.partial` used while streaming a download (or
-/// extracting a source tree) before the atomic rename into place.
-/// Built by appending `.partial` rather than via
-/// `Path::with_extension`, which would clobber the trailing `.zip`
-/// of `<name>-<version>.zip`.
-pub fn partial_sibling(archive_path: &Path) -> PathBuf {
-    let mut s: OsString = archive_path.as_os_str().to_owned();
-    s.push(".partial");
-    PathBuf::from(s)
-}
-
 /// Sibling `<dir>.partial.<pid>` scratch directory used while
 /// extracting a source tree before the atomic rename into place.
 ///

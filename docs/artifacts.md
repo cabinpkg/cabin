@@ -152,9 +152,11 @@ per resolved package in that run.
 
 - on a cache hit, the cached archive is hashed and compared against the expected `sha256` digest
   before being reused;
-- on a cache miss (and not `--frozen`), the source archive is copied into a `<hex>.zip.partial`
-  sibling while being hashed; if the bytes do not match the expected digest, the partial file is
-  removed and the run fails with `checksum mismatch for ...: expected ..., got ...`.
+- on a cache miss (and not `--frozen`), the source archive is copied into a randomly named staging
+  file beside `<hex>.zip` while being hashed, and renamed into place only when the bytes match the
+  expected digest.  The staging file belongs to that one run alone, so a concurrent run populating the
+  same entry from a different source cannot alter the bytes that were verified.  On a mismatch the
+  staging file is discarded and the run fails with `checksum mismatch for ...: expected ..., got ...`.
 
 There is no way to skip checksum verification.
 

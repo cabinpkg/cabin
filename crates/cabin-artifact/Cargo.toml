@@ -11,6 +11,7 @@ description = "Source-archive cache and safe extractor for Cabin"
 name = "cabin_artifact"
 
 [dependencies]
+atomic-write-file = { workspace = true }
 cabin-core = { workspace = true }
 cabin-fs = { workspace = true }
 cabin-manifest = { workspace = true }
