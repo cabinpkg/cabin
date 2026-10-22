@@ -623,8 +623,9 @@ Publish validates in a fixed order, stopping at the first failure:
 1. token scope (`403`);
 2. scope membership: the token's user must be a member of `<scope>`
    (`403`, uniform - below);
-3. body size (64 MiB cap) and the length-prefixed framing, which must
-   account for the body exactly (`400`);
+3. body size (64 MiB cap), the length-prefixed framing, which must
+   account for the body exactly, and the metadata frame size (1 MiB cap)
+   (`400`) - all before anything is hashed or parsed;
 4. the metadata parses as the canonical `cabin package` document under
    `deny_unknown_fields` - client drift is rejected, and the `400` details
    are fixed strings that never echo request bytes;

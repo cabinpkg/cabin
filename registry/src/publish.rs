@@ -13,6 +13,11 @@ use serde::Deserialize;
 /// Cap on the total request body (frame headers + metadata + archive).
 pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+/// Cap on the metadata frame.  A canonical `cabin package` document is a
+/// few KiB even for a dependency-heavy package; 1 MiB leaves ample
+/// headroom and stays under D1's 2,000,000-byte row/string limit.
+pub const MAX_METADATA_BYTES: usize = 1024 * 1024;
+
 /// A decoded publish body frame:
 /// `[u32 LE metadata_len][metadata][u32 LE archive_len][archive]`.
 #[derive(Debug, PartialEq, Eq)]
@@ -21,13 +26,15 @@ pub struct Frame<'a> {
     pub archive: &'a [u8],
 }
 
-/// Decodes the length-prefixed publish body, enforcing [`MAX_BODY_BYTES`]
-/// and that the frame lengths account for the body exactly.
+/// Decodes the length-prefixed publish body, enforcing [`MAX_BODY_BYTES`],
+/// [`MAX_METADATA_BYTES`] and that the frame lengths account for the body
+/// exactly.
 ///
 /// # Errors
 ///
-/// A fixed `400` detail string when the body is too large, truncated, or
-/// the frame lengths disagree with the actual body length.
+/// A fixed `400` detail string when the body or metadata frame is too
+/// large, the body is truncated, or the frame lengths disagree with the
+/// actual body length.
 pub fn decode_frame(body: &[u8]) -> Result<Frame<'_>, &'static str> {
     if body.len() > MAX_BODY_BYTES {
         return Err(BODY_TOO_LARGE);
@@ -36,6 +43,9 @@ pub fn decode_frame(body: &[u8]) -> Result<Frame<'_>, &'static str> {
     let (archive, rest) = split_frame(rest).ok_or(BAD_FRAMING)?;
     if !rest.is_empty() {
         return Err(BAD_FRAMING);
+    }
+    if metadata.len() > MAX_METADATA_BYTES {
+        return Err(METADATA_TOO_LARGE);
     }
     Ok(Frame { metadata, archive })
 }
@@ -48,6 +58,7 @@ fn split_frame(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 pub const BODY_TOO_LARGE: &str = "request body exceeds the 64 MiB limit";
+pub const METADATA_TOO_LARGE: &str = "metadata frame exceeds the 1 MiB limit";
 pub const BAD_FRAMING: &str = "malformed publish body framing";
 pub const METADATA_NOT_JSON: &str = "metadata is not valid JSON";
 pub const METADATA_NOT_CANONICAL: &str =
@@ -730,6 +741,14 @@ mod tests {
         // A body one byte over the cap; the frame lengths are irrelevant.
         let body = vec![0u8; MAX_BODY_BYTES + 1];
         assert_eq!(decode_frame(&body), Err(BODY_TOO_LARGE));
+    }
+
+    #[test]
+    fn decode_frame_enforces_the_metadata_cap() {
+        let at_cap = frame(&vec![b'{'; MAX_METADATA_BYTES], b"zip");
+        assert_eq!(decode_frame(&at_cap).unwrap().archive, b"zip");
+        let over = frame(&vec![b'{'; MAX_METADATA_BYTES + 1], b"zip");
+        assert_eq!(decode_frame(&over), Err(METADATA_TOO_LARGE));
     }
 
     #[test]
