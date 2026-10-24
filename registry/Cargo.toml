@@ -59,6 +59,10 @@ cabinpkg-fs = { path = "../crates/cabin-fs" }
 rand = { version = "0.10", features = ["chacha"] }
 rusqlite = { version = "0.40", features = ["bundled", "limits"] }
 
+[lints.rust]
+# `cargo kani` compiles `src/quota.rs`'s proof harness under `cfg(kani)`.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [lints.clippy]
 pedantic = { level = "deny", priority = -1 }
 must_use_candidate = "allow"
