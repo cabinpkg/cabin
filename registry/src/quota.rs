@@ -602,3 +602,162 @@ mod tests {
         }
     }
 }
+
+/// Kani proof harness for [`check_publish`] (`cargo kani` from
+/// `registry/`; the module is invisible to every other build). The
+/// specification below is written from the documented policy, not from
+/// the function body, and compares bytes in `u128` so the storage limit
+/// is the mathematical sum, never the `u64` expression under proof.
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// Any quota class, not just the two the map grants: the proof must
+    /// not depend on the constants' sizes.
+    fn any_quotas() -> ClassQuotas {
+        ClassQuotas {
+            max_archive_bytes: kani::any(),
+            max_total_bytes_per_user: kani::any(),
+            max_new_packages_per_day: kani::any(),
+            max_packages_total: kani::any(),
+            max_versions_per_package_per_day: kani::any(),
+            max_scope_claims_total: kani::any(),
+            publish_burst: kani::any(),
+            publish_refill_per_minute: kani::any(),
+            artifact_reads_per_day: kani::any(),
+            source_reads_per_day: kani::any(),
+        }
+    }
+
+    /// Every count the publish handler passes is a D1 `INTEGER`
+    /// aggregate mapped through `glue::non_negative` (`i64 -> u64`, so at
+    /// most `i64::MAX`); SQLite itself raises on an `i64` `SUM` overflow.
+    fn any_d1_count() -> u64 {
+        let n: u64 = kani::any();
+        kani::assume(n <= i64::MAX as u64);
+        n
+    }
+
+    /// The publish handler's actual input domain: the archive is a slice
+    /// of a body `publish::decode_frame` already capped at
+    /// [`crate::publish::MAX_BODY_BYTES`], and each count is a D1
+    /// aggregate. Quotas and `package_exists` are unconstrained.
+    // Comparing a `Denial` compares its `&str`s, a `memcmp` CBMC cannot
+    // bound on its own: the longest is 60 bytes, and the unwinding
+    // assertion fails verification if this bound ever gets too small.
+    #[kani::proof]
+    #[kani::unwind(64)]
+    fn check_publish_is_the_documented_policy() {
+        let quotas = any_quotas();
+        let archive_bytes: u64 = kani::any();
+        kani::assume(archive_bytes <= crate::publish::MAX_BODY_BYTES as u64);
+        let counts = PublishCounts {
+            user_stored_bytes: any_d1_count(),
+            user_package_count: any_d1_count(),
+            user_new_packages_today: any_d1_count(),
+            package_versions_today: any_d1_count(),
+            package_exists: kani::any(),
+        };
+
+        // The policy as [`check_publish`]'s contract states it: exact
+        // thresholds, package quotas only for a new package, denials in
+        // the documented order.
+        let stored_after = u128::from(counts.user_stored_bytes) + u128::from(archive_bytes);
+        let storage_ok = stored_after <= u128::from(quotas.max_total_bytes_per_user);
+        let daily_packages_ok = counts.user_new_packages_today < quotas.max_new_packages_per_day;
+        let total_packages_ok = counts.user_package_count < quotas.max_packages_total;
+        let versions_ok = counts.package_versions_today < quotas.max_versions_per_package_per_day;
+        let new_package = !counts.package_exists;
+
+        let result = check_publish(archive_bytes, &counts, &quotas);
+
+        match result {
+            // Soundness: success never authorizes a publish over any
+            // applicable limit.
+            Ok(()) => {
+                assert!(storage_ok, "success over the storage quota");
+                assert!(versions_ok, "success over the daily version quota");
+                assert!(
+                    counts.package_exists || (daily_packages_ok && total_packages_ok),
+                    "a new package over a package quota"
+                );
+            }
+            // Every denial names a limit that is really exceeded, keeps
+            // the documented precedence, and package denials only hit
+            // new packages.
+            Err(QUOTA_STORAGE) => assert!(!storage_ok),
+            Err(QUOTA_PACKAGES_DAILY) => {
+                assert!(new_package && !daily_packages_ok && storage_ok);
+            }
+            Err(QUOTA_PACKAGES_TOTAL) => {
+                assert!(new_package && !total_packages_ok && storage_ok && daily_packages_ok);
+            }
+            Err(QUOTA_VERSIONS_DAILY) => {
+                assert!(!versions_ok && storage_ok);
+                assert!(counts.package_exists || (daily_packages_ok && total_packages_ok));
+            }
+            Err(other) => panic!("undocumented denial {other:?}"),
+        }
+        // Completeness: a publish within every applicable limit is
+        // allowed.
+        if storage_ok
+            && versions_ok
+            && (counts.package_exists || (daily_packages_ok && total_packages_ok))
+        {
+            assert_eq!(result, Ok(()));
+        }
+
+        // Non-vacuity: the domain reaches each outcome, each exact
+        // boundary on both sides, and the edges of the input domain.
+        // Covers are reported, never enforced: Kani stays green on an
+        // unsatisfiable cover, so read the cover summary in the output.
+        kani::cover!(result == Ok(()));
+        kani::cover!(result == Err(QUOTA_STORAGE));
+        kani::cover!(result == Err(QUOTA_PACKAGES_DAILY));
+        kani::cover!(result == Err(QUOTA_PACKAGES_TOTAL));
+        kani::cover!(result == Err(QUOTA_VERSIONS_DAILY));
+        kani::cover!(
+            stored_after == u128::from(quotas.max_total_bytes_per_user) && result == Ok(())
+        );
+        kani::cover!(
+            stored_after == u128::from(quotas.max_total_bytes_per_user) + 1
+                && result == Err(QUOTA_STORAGE)
+        );
+        kani::cover!(
+            new_package
+                && counts.user_new_packages_today + 1 == quotas.max_new_packages_per_day
+                && result == Ok(())
+        );
+        kani::cover!(
+            new_package
+                && counts.user_new_packages_today == quotas.max_new_packages_per_day
+                && result == Err(QUOTA_PACKAGES_DAILY)
+        );
+        kani::cover!(
+            new_package
+                && counts.user_package_count + 1 == quotas.max_packages_total
+                && result == Ok(())
+        );
+        kani::cover!(
+            new_package
+                && counts.user_package_count == quotas.max_packages_total
+                && result == Err(QUOTA_PACKAGES_TOTAL)
+        );
+        kani::cover!(
+            counts.package_versions_today + 1 == quotas.max_versions_per_package_per_day
+                && result == Ok(())
+        );
+        kani::cover!(
+            counts.package_versions_today == quotas.max_versions_per_package_per_day
+                && result == Err(QUOTA_VERSIONS_DAILY)
+        );
+        // An existing package publishes past both package quotas.
+        kani::cover!(
+            counts.package_exists && !daily_packages_ok && !total_packages_ok && result == Ok(())
+        );
+        kani::cover!(
+            archive_bytes == crate::publish::MAX_BODY_BYTES as u64
+                && counts.user_stored_bytes == i64::MAX as u64
+        );
+    }
+}

@@ -108,10 +108,10 @@ jobs:
 
   # Branch protection pins this, not the work jobs: `always()`, never
   # `!cancelled()`, fails it closed on a failed or cancelled gate.
-  # Both validation jobs feed it: a conformance failure must block the
-  # merge, and with it the deploy the merged push performs.
+  # Every validation job feeds it: a conformance or proof failure must
+  # block the merge, and with it the deploy the merged push performs.
   registry-build:
-    needs: [changes, registry-build-work, conformance]
+    needs: [changes, registry-build-work, conformance, kani]
     if: always() && github.event_name != 'push'
     runs-on: ubuntu-slim
     steps:
@@ -131,6 +131,12 @@ jobs:
         uses: ./.github/actions/required-gate
         with:
           result: ${{ needs.conformance.result }}
+          gate-result: ${{ needs.changes.result }}
+          filter-values: ${{ needs.changes.outputs.registry }}
+      - name: Fail unless kani succeeded or the filter skipped it
+        uses: ./.github/actions/required-gate
+        with:
+          result: ${{ needs.kani.result }}
           gate-result: ${{ needs.changes.result }}
           filter-values: ${{ needs.changes.outputs.registry }}
 
@@ -164,6 +170,38 @@ jobs:
         env:
           CABIN_REGISTRY_FIXTURES: ${{ runner.temp }}/fixtures
           RUSTFLAGS: -D warnings
+
+  # Runs every Kani proof harness in the registry crate (the
+  # `#[cfg(kani)]` modules under registry/src). Kani brings its own
+  # pinned nightly and compiles the crate again, so it gets its own
+  # runner; the version matches the one the proofs were written against.
+  kani:
+    needs: changes
+    if: github.event_name != 'push' && needs.changes.outputs.registry == 'true'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: registry
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache-on-failure: false
+          cache-workspaces: registry
+          rustflags: ""
+
+      - name: Install Kani
+        run: |
+          cargo install -q "kani-verifier@=0.68.0" --locked
+          cargo kani setup
+
+      - name: Verify every proof harness
+        run: cargo kani
 
   # Ships the Worker on a registry-relevant main push. Validation ran
   # pre-merge (Merge Queue), so only the change gate runs here. No

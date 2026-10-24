@@ -89,6 +89,7 @@ package under the scope.
 cargo test                                # host-target unit tests
 cargo clippy --all-targets -- -D warnings
 cargo clippy --target wasm32-unknown-unknown -- -D warnings
+cargo kani                                # proof harnesses (`cargo install kani-verifier@=0.68.0 --locked && cargo kani setup`)
 (cd .. && CABIN_REGISTRY_SMOKE_TOKEN=cabin_smoke cargo registry-smoke)  # end-to-end, local
 ```
 
