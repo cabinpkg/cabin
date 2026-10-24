@@ -685,7 +685,9 @@ mod verification {
             // Every denial names a limit that is really exceeded, keeps
             // the documented precedence, and package denials only hit
             // new packages.
-            Err(QUOTA_STORAGE) => assert!(!storage_ok),
+            Err(QUOTA_STORAGE) => {
+                assert!(!storage_ok);
+            }
             Err(QUOTA_PACKAGES_DAILY) => {
                 assert!(new_package && !daily_packages_ok && storage_ok);
             }
@@ -759,5 +761,168 @@ mod verification {
             archive_bytes == crate::publish::MAX_BODY_BYTES as u64
                 && counts.user_stored_bytes == i64::MAX as u64
         );
+    }
+
+    /// The production clock (`glue::now_epoch_ms`) is an integer count of
+    /// Unix epoch milliseconds cast to `f64`, exact below 2^53; bounding
+    /// it at 2^52 (year 144,683) keeps the Retry-After addition exact too.
+    #[allow(clippy::cast_precision_loss)]
+    fn any_epoch_ms() -> f64 {
+        let ms: u64 = kani::any();
+        kani::assume(ms <= 1 << 52);
+        ms as f64
+    }
+
+    /// The bucket's production input domain. The class is one of the two
+    /// the map grants. A stored bucket was written by an *allowed* take
+    /// of this very function (`glue::cas_bucket`; NULL columns, the
+    /// documented operator reset, read as `None`), so its balance is a
+    /// non-negative balance under some class and its timestamp a past
+    /// clock reading - the balance bound is what the proof below
+    /// establishes for the next write, the inductive invariant. A row
+    /// edited by hand to other values is outside the domain.
+    #[kani::proof]
+    fn take_publish_token_is_the_documented_bucket() {
+        let quotas = if kani::any() { OPERATOR } else { DEFAULT };
+        let now_ms = any_epoch_ms();
+        let prev = if kani::any() {
+            let tokens: f64 = kani::any();
+            kani::assume(
+                tokens >= 0.0 && tokens <= DEFAULT.publish_burst.max(OPERATOR.publish_burst),
+            );
+            Some(Bucket {
+                tokens,
+                updated_at_ms: any_epoch_ms(),
+            })
+        } else {
+            None
+        };
+
+        let outcome = take_publish_token(prev, now_ms, &quotas);
+
+        // The returned state is stamped with this take's clock, and the
+        // balance is always a finite number (CBMC's NaN check covers the
+        // arithmetic itself).
+        assert!(outcome.bucket.updated_at_ms == now_ms);
+        assert!(outcome.bucket.tokens.is_finite());
+
+        match prev {
+            // A user who has never published gets exactly a full burst
+            // minus this take.
+            None => {
+                assert!(outcome.allowed);
+                assert!(outcome.bucket.tokens == quotas.publish_burst - 1.0);
+            }
+            Some(prev) => {
+                // Policy, in reals: refill never lowers a balance, the
+                // balance never exceeds the burst, and one take costs
+                // one token. The balance a demoted class inherits above
+                // its burst is clamped first.
+                let carried = prev.tokens.min(quotas.publish_burst);
+                if outcome.allowed {
+                    assert!(outcome.bucket.tokens >= carried - 1.0, "time lost tokens");
+                    assert!(
+                        outcome.bucket.tokens <= quotas.publish_burst - 1.0,
+                        "over burst"
+                    );
+                    assert!(outcome.bucket.tokens >= 0.0);
+                    // No elapsed time (or a clock that went backwards):
+                    // no refill, and the take is exact in IEEE 754.
+                    if now_ms <= prev.updated_at_ms {
+                        assert!(outcome.bucket.tokens == carried - 1.0);
+                    }
+                } else {
+                    // A bucket holding a whole token is never refused.
+                    assert!(carried < 1.0, "refused with a token in hand");
+                    assert!(outcome.bucket.tokens < 1.0);
+                }
+            }
+        }
+
+        if outcome.allowed {
+            assert!(outcome.retry_after_secs == 0);
+        } else {
+            // Retry-After: at least a second, at most one whole token's
+            // refill. Sufficiency - that the same stored bucket (a denial
+            // persists nothing) taken again once the wait has elapsed is
+            // allowed - is deliberately not asserted: proving it costs
+            // CBMC several minutes on the float arithmetic (8-15 min
+            // here), and it is false by one ulp in rare cases anyway, see
+            // the cover below.
+            assert!(outcome.retry_after_secs >= 1);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let one_token_secs = (60.0 / quotas.publish_refill_per_minute) as u64;
+            assert!(outcome.retry_after_secs <= one_token_secs);
+            // In reals, the advertised wait at the class rate refills at
+            // least the missing fraction of a token (rounding slack far
+            // below one refill second).
+            #[allow(clippy::cast_precision_loss)]
+            let retry_secs = outcome.retry_after_secs as f64;
+            assert!(
+                outcome.bucket.tokens + retry_secs / 60.0 * quotas.publish_refill_per_minute
+                    >= 1.0 - 1e-12,
+                "Retry-After does not cover the missing token"
+            );
+            let retry_ms = retry_secs * 1000.0;
+            let retried = take_publish_token(prev, now_ms + retry_ms, &quotas);
+            // The rounding shortfall is real: a balance a few ulps under
+            // 1/60, retried exactly 59 s later with the same clock,
+            // refills to 0.9999999999999999 and is refused once more
+            // with `Retry-After: 1`. Fail-safe, and below a second.
+            kani::cover!(!retried.allowed && prev.is_some_and(|prev| now_ms >= prev.updated_at_ms));
+        }
+
+        // Non-vacuity (reported, never enforced): the fresh bucket, both
+        // verdicts, refill, the burst cap, both Retry-After extremes of
+        // each class, and the backwards clock.
+        kani::cover!(outcome.allowed && prev.is_none());
+        kani::cover!(outcome.allowed && prev.is_some_and(|prev| now_ms > prev.updated_at_ms));
+        kani::cover!(
+            outcome.allowed
+                && prev.is_some_and(|prev| {
+                    prev.tokens < quotas.publish_burst - 1.0
+                        && outcome.bucket.tokens == quotas.publish_burst - 1.0
+                })
+        );
+        kani::cover!(outcome.allowed && prev.is_some_and(|prev| now_ms < prev.updated_at_ms));
+        kani::cover!(!outcome.allowed && outcome.retry_after_secs == 1);
+        kani::cover!(
+            !outcome.allowed
+                && outcome.retry_after_secs == 60
+                && quotas.publish_burst == DEFAULT.publish_burst
+        );
+        kani::cover!(
+            !outcome.allowed
+                && outcome.retry_after_secs == 12
+                && quotas.publish_burst == OPERATOR.publish_burst
+        );
+        kani::cover!(!outcome.allowed && prev.is_some_and(|prev| now_ms < prev.updated_at_ms));
+    }
+
+    /// The refill *rate*: the harness above bounds a balance but not how
+    /// fast it grows (a symbolic elapsed time costs CBMC many minutes), so
+    /// this pins the documented tokens-per-minute at exactly one minute
+    /// with a concrete clock - a bounded check of the rate, not a proof
+    /// over every elapsed time.
+    #[kani::proof]
+    fn take_publish_token_refills_the_class_rate_per_minute() {
+        let quotas = if kani::any() { OPERATOR } else { DEFAULT };
+        let tokens: f64 = kani::any();
+        kani::assume(tokens >= 0.0 && tokens <= quotas.publish_burst - 1.0);
+        let prev = Bucket {
+            tokens,
+            updated_at_ms: 0.0,
+        };
+        let outcome = take_publish_token(Some(prev), 60_000.0, &quotas);
+        // One minute refills one rate's worth (both classes refill at
+        // least a token a minute), capped at the burst, less this take.
+        let expected = (tokens + quotas.publish_refill_per_minute).min(quotas.publish_burst) - 1.0;
+        assert!(outcome.allowed);
+        assert!(
+            (outcome.bucket.tokens - expected).abs() <= 1e-12,
+            "wrong refill rate"
+        );
+        kani::cover!(outcome.bucket.tokens == quotas.publish_burst - 1.0);
+        kani::cover!(outcome.bucket.tokens < quotas.publish_burst - 1.0);
     }
 }
