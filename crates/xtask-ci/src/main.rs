@@ -364,9 +364,10 @@ fn merge_base(root: &std::path::Path) -> Option<String> {
 }
 
 /// Tracked changes since the base, plus untracked files: a new file
-/// the gate has never seen is exactly the kind that fails CI.
+/// the gate has never seen is exactly the kind that fails CI.  A
+/// rename lists both paths, so moving files out of a surface selects it.
 fn changed_paths(root: &std::path::Path, base: &str) -> Result<Vec<String>> {
-    let mut paths = git(root, &["diff", "--name-only", base, "--"])?;
+    let mut paths = git(root, &["diff", "--no-renames", "--name-only", base, "--"])?;
     paths.extend(git(root, &["ls-files", "--others", "--exclude-standard"])?);
     Ok(paths)
 }
@@ -484,6 +485,48 @@ mod tests {
                 "8",
                 "docs"
             ]
+        );
+    }
+
+    #[test]
+    fn a_committed_rename_lists_its_source_path() {
+        let scratch = assert_fs::TempDir::new().unwrap();
+        let repo = scratch.path();
+        // The machine's own git configuration (signing, identity) must
+        // not reach the fixture's commits, and a hook's exported
+        // `GIT_DIR` must not redirect them into the caller's repository.
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(repo)
+                .env_remove("GIT_DIR")
+                .env_remove("GIT_WORK_TREE")
+                .env_remove("GIT_INDEX_FILE")
+                .env_remove("GIT_CONFIG_COUNT")
+                .env_remove("GIT_TEMPLATE_DIR")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .env("GIT_AUTHOR_NAME", "cabin test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+                .env("GIT_COMMITTER_NAME", "cabin test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        git(&["init", "-q", "."]);
+        std::fs::create_dir(repo.join("docs")).unwrap();
+        std::fs::write(repo.join("docs/page.md"), "page\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "base"]);
+        let base = git(&["rev-parse", "HEAD"]);
+        git(&["mv", "docs", "elsewhere"]);
+        git(&["commit", "-q", "-m", "move"]);
+
+        assert_eq!(
+            changed_paths(repo, &base).unwrap(),
+            ["docs/page.md", "elsewhere/page.md"]
         );
     }
 }
