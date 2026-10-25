@@ -299,11 +299,13 @@ VerList(w) ==
 \* its own transaction first (a replayed PATCH is refused there and never
 \* reaches this read; not modeled), then the handler's VERDICT_TARGET
 \* read: verdict_binding_matches compares the listing's (checksum,
-\* published_at) against the row it just read, then the transition table
-\* (verify.rs) decides.  What the handler carries into its guarded UPDATE
-\* is the row's stamp as *it* read it - the SQL binds target.published_at,
-\* not the listing's - so the listing-to-row binding is enforced here, in
-\* Rust, and nowhere else.  A repeat rejection re-drives the reclaim.
+\* published_at) against the row it just read - the loud diagnostic for
+\* a stale or mismatched verdict - then the transition table (verify.rs)
+\* decides.  The guarded UPDATE binds the listing's binding (the body's
+\* checksum and published_at, equal to the row's here), so D1 refuses a
+\* stale verdict's application even without this check (a stale no-op
+\* or conflict answers as its transition says, changing no row either
+\* way).  A repeat rejection re-drives the reclaim.
 VerRead(w) ==
     /\ ver[w].phase = "decided"
     /\ LET v == ver[w].v
@@ -313,8 +315,7 @@ VerRead(w) ==
        IN IF pubAt[v][c] # ver[w].stamp
           THEN ver' = [ver EXCEPT ![w] = Idle] /\ UNCHANGED deletes
           ELSE CASE cur = "pending" ->
-                       \* the stamp carried on is the row's as read (equal here, by the check above)
-                       /\ ver' = [ver EXCEPT ![w].phase = "apply", ![w].stamp = pubAt[v][c]]
+                       /\ ver' = [ver EXCEPT ![w].phase = "apply"]
                        /\ UNCHANGED deletes
                  [] cur = verdict ->
                        /\ ver' = [ver EXCEPT ![w] = Idle]
@@ -325,8 +326,9 @@ VerRead(w) ==
     /\ UNCHANGED <<status, pubAt, clock, counter, blob, ledger, pub, gen, decided, basis>>
 
 \* One D1 batch: MARK_REVISION_VERIFIED, or REFUND_STORED_BYTES_ON_REJECTION
-\* then MARK_REVISION_REJECTED, guarded on the row still being pending with
-\* the stamp the handler read (the read-to-update race), evaluated now.
+\* then MARK_REVISION_REJECTED, guarded on the row still being pending at
+\* the listing's stamp (the read-to-update race and the listing binding
+\* in one guard), evaluated now.
 VerApply(w) ==
     /\ ver[w].phase = "apply"
     /\ LET v == ver[w].v

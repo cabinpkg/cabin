@@ -769,7 +769,8 @@ rules, the artifact read gate, and the verdict body live in
   delayed verdict of either direction could land on a generation it
   never judged,
   and the applying updates are guarded on the row still being pending
-  with the bytes the request read, so a verdict racing a conflicting
+  under that same binding, so D1 refuses a stale verdict's application
+  even without the handler's check, and a verdict racing a conflicting
   verdict or a replacement answers 409 instead of applying - the
   verified arm must never resurrect a row a concurrent rejection just
   reclaimed. Repeating the verdict a terminal version already carries

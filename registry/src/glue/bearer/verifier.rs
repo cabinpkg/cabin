@@ -166,8 +166,11 @@ fn verdict_binding_matches(
 /// zero-changed-rows answer is the replay refusal - with the lazy
 /// expiry prune alongside. Consuming the jti before the business logic
 /// is safe here, unlike the exchange's mint coupling: nothing hinges on
-/// this request succeeding afterwards, and the workflow retries a
-/// failed verdict with a freshly minted token. `false` means refused;
+/// this request succeeding afterwards: a request that fails before its
+/// verdict commits leaves the row pending, and the next run lists it
+/// again and `PATCH`es with a freshly minted token (one that fails after
+/// the commit changed the row as intended; a lost reclaim is the
+/// documented orphan). `false` means refused;
 /// the caller answers the uniform 401 while the real reason is logged
 /// here - no pin/signature/replay oracle.
 pub(super) async fn verdict_authn(
@@ -233,9 +236,9 @@ pub(super) async fn verdict_authn(
 /// verdict to the bytes the verifier actually inspected (and so to
 /// the revision those bytes name), and the
 /// applying updates are themselves guarded on the row still being
-/// pending with the bytes this request read - a verdict racing a
-/// conflicting verdict or a replacement answers 409 instead of landing
-/// on content it never saw. A rejection records the reason, refunds
+/// pending under that same binding - a verdict racing a conflicting
+/// verdict or a replacement answers 409 instead of landing on content
+/// it never saw. A rejection records the reason, refunds
 /// the archive's bytes from the storage self-accounting when the row
 /// was the blob's sole live reference (decided inside the same
 /// transaction that flips the row, so a duplicate concurrent verdict
@@ -308,11 +311,12 @@ pub(super) async fn verdict_response(
         verify::Transition::NoOp => {
             // A repeat rejection re-drives the blob reclaim: the first
             // rejection's row flip and refund commit in one D1
-            // transaction, but the R2 delete runs after it and can fail
-            // into the 500 the verifier is now retrying - reporting
-            // success here without retrying the delete would orphan the
-            // blob forever. Idempotent when the first attempt already
-            // reclaimed it.
+            // transaction, but the reclaim runs after it and can fail
+            // (a D1 error in its refcount read or queue retirement; the
+            // R2 delete itself is logged and swallowed) - the driver
+            // never re-lists a rejected row, so this is the operator's
+            // or a retrying client's path to the orphan. Idempotent
+            // when the first attempt already reclaimed it.
             if parsed.verdict == verify::Verdict::Rejected {
                 delete_blob_if_unreferenced(env, db, &target.checksum).await?;
             }
@@ -359,8 +363,11 @@ pub(super) async fn verdict_response(
 }
 
 /// Applies a verdict to a pending row under the transactional guards
-/// (still pending, still the checksum and `published_at` this request
-/// read); `false` means the row moved first and nothing was changed.
+/// (still pending, still the checksum and `published_at` the verifier
+/// listed - the body's binding, which `verdict_binding_matches` found
+/// equal to the row this request read, so D1 enforces the listing
+/// binding as well as the read-to-update race); `false` means the row
+/// moved first and nothing was changed.
 #[allow(clippy::too_many_arguments)] // the revision quad plus the verdict plumbing
 async fn apply_verdict(
     env: &Env,
@@ -387,16 +394,16 @@ async fn apply_verdict(
                         scope.into(),
                         name.into(),
                         version.into(),
-                        target.checksum.as_str().into(),
-                        target.published_at.as_str().into(),
+                        parsed.checksum.as_str().into(),
+                        parsed.published_at.as_str().into(),
                         revision.into(),
                     ])?,
                     db.prepare(sql::ENQUEUE_VERIFIED_BACKUP).bind(&[
                         scope.into(),
                         name.into(),
                         version.into(),
-                        target.checksum.as_str().into(),
-                        target.published_at.as_str().into(),
+                        parsed.checksum.as_str().into(),
+                        parsed.published_at.as_str().into(),
                         now.as_str().into(),
                         revision.into(),
                     ])?,
@@ -408,16 +415,8 @@ async fn apply_verdict(
             Ok(changed_rows(mark.meta()?) > 0)
         }
         verify::Verdict::Rejected => {
-            let applied = apply_rejection(
-                db,
-                scope,
-                name,
-                version,
-                revision,
-                parsed.reason.as_deref().unwrap_or_default(),
-                target,
-            )
-            .await?;
+            let applied =
+                apply_rejection(db, scope, name, version, revision, parsed, target).await?;
             if applied {
                 delete_blob_if_unreferenced(env, db, &target.checksum).await?;
             }
@@ -444,28 +443,28 @@ async fn apply_rejection(
     name: &str,
     version: &str,
     revision: &str,
-    reason: &str,
+    parsed: &verify::ParsedVerdict,
     target: &VerdictTargetRecord,
 ) -> worker::Result<bool> {
     let archive_size = js_int(target.archive_size);
     let results = db
         .batch(vec![
             db.prepare(sql::REFUND_STORED_BYTES_ON_REJECTION).bind(&[
-                target.checksum.as_str().into(),
+                parsed.checksum.as_str().into(),
                 scope.into(),
                 name.into(),
                 version.into(),
                 archive_size,
-                target.published_at.as_str().into(),
+                parsed.published_at.as_str().into(),
                 revision.into(),
             ])?,
             db.prepare(sql::MARK_REVISION_REJECTED).bind(&[
-                reason.into(),
+                parsed.reason.as_deref().unwrap_or_default().into(),
                 scope.into(),
                 name.into(),
                 version.into(),
-                target.checksum.as_str().into(),
-                target.published_at.as_str().into(),
+                parsed.checksum.as_str().into(),
+                parsed.published_at.as_str().into(),
                 revision.into(),
             ])?,
         ])

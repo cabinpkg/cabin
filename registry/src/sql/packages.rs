@@ -65,7 +65,9 @@ statements! {
          WHERE scope = ?1 AND name = ?2 AND version = ?3 AND revision = ?4";
 
     /// Applies a `verified` verdict, guarded on the revision row still
-    /// being the pending generation the verdict was read against.
+    /// being the pending generation the verdict names (the listing's
+    /// `checksum` and `published_at`, which the handler's own read agreed
+    /// with).
     MARK_REVISION_VERIFIED =
         "UPDATE revisions SET verification = 'verified', verified_at = ?1 \
          WHERE scope = ?2 AND name = ?3 AND version = ?4 AND revision = ?7 \
