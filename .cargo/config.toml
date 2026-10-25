@@ -13,7 +13,8 @@
 # root; the tools themselves locate what they operate on from their own
 # manifest directory, never from the working directory - except
 # `dist-package`, whose step works on the invoking run's repository
-# root by the same relative paths the shell it replaced used.
+# root by the same relative paths the shell it replaced used, and
+# `dist-check`, which unpacks the archive path it is given beside it.
 #
 # Scalar (whitespace-split) alias values, not arrays: cargo JOINS array
 # config values across layers instead of overriding them, so a same-named
@@ -26,6 +27,7 @@ check-deploy = "run --quiet --locked -p xtask-registry-guard -- check-deploy"
 check-r2 = "run --quiet --locked -p xtask-registry-guard -- check-r2"
 check-sql = "run --quiet --locked -p xtask-registry-guard -- check-sql"
 ci = "run --quiet --locked -p xtask-ci --"
+dist-check = "run --quiet --locked -p xtask-dist -- check"
 dist-package = "run --quiet --locked -p xtask-dist -- package"
 fuzz-seeds = "run --quiet --locked -p xtask-fuzz -- seeds"
 gen-fixtures = "run --quiet --locked -p xtask-registry-fixtures --"

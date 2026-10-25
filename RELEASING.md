@@ -62,8 +62,9 @@ version bump matches the registry filter, so it also deploys the registry Worker
 
 ## GitHub release
 
-Tags are bare semver with no `v` prefix, matching every prior release.  Tag the squash-merged
-release commit on updated `main`:
+Tags are bare semver with no `v` prefix, matching every prior release, and must equal the
+workspace version: the dist workflow refuses any other tag.  Tag the squash-merged release commit
+on updated `main`:
 
 ```sh
 git switch main && git pull
@@ -72,9 +73,9 @@ git push origin X.Y.Z
 ```
 
 Pushing the tag triggers `.github/workflows/release.yml`, which calls the dist workflow, builds the
-supported binary archives, attests them with GitHub artifact attestations (verifiable with
-`gh attestation verify`), and creates a published GitHub release with auto-generated notes, the
-binary archives, and `demo.gif`.
+supported binary archives, runs each archive's binary on its own platform, attests them with GitHub
+artifact attestations (verifiable with `gh attestation verify`), and creates a published GitHub
+release with auto-generated notes, the binary archives, and `demo.gif`.
 
 ## crates.io release
 

@@ -173,6 +173,12 @@ jobs:
 
           echo "PACKAGE_PATH=${package_path}" >> "$GITHUB_ENV"
 
+      # The archive must unpack to a binary that runs here and reports
+      # the workspace version, which a tag must equal.
+      - name: Run the packaged binary
+        shell: bash
+        run: cargo dist-check "$PACKAGE_PATH" --ref-name "$GITHUB_REF_NAME" --ref-type "${GITHUB_REF_TYPE:-}"
+
       - name: Upload binary archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

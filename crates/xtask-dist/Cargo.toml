@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Repository tool: release packaging step for dist.yml"
+description = "Repository tool: release packaging and archive check for dist.yml"
 # Repository-owned maintainer tooling (AGENTS.md, "Repository
 # automation"): the step stages a release archive out of the build
 # outputs of the run that invoked it, so a published copy would have
