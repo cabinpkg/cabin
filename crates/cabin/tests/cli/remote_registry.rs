@@ -681,11 +681,9 @@ fn login_ignores_project_config_when_choosing_the_registry() {
         .unwrap();
 
     let home = dir.path().join("config-home");
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["login"])
+    cabin_with_config()
+        .args(["login"])
         .current_dir(dir.path().join("proj"))
-        .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_NET_OFFLINE", "1")
         .assert()
@@ -840,10 +838,8 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str(&format!("[registry]\nindex-url = \"{base}/index/\"\n"))
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["-Z", "remote-registry", "login"])
-        .env_remove("CABIN_NO_CONFIG")
+    cabin_with_config()
+        .args(["-Z", "remote-registry", "login"])
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
@@ -856,11 +852,8 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str("[registry]\nindex-path = \"registry\"\n")
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    let assertion = cmd
+    let assertion = cabin_with_config()
         .args(["-Z", "remote-registry", "login"])
-        .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
@@ -884,10 +877,8 @@ fn login_resolves_the_registry_from_config_and_rejects_local_paths() {
              {{ index-url = \"{mirror}/index\" }}\n",
         ))
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["login"])
-        .env_remove("CABIN_NO_CONFIG")
+    cabin_with_config()
+        .args(["login"])
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
@@ -1799,10 +1790,8 @@ fn login_with_explicit_index_url_ignores_broken_config() {
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str("this is not toml [")
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["-Z", "remote-registry", "login", "--index-url", &base])
-        .env_remove("CABIN_NO_CONFIG")
+    cabin_with_config()
+        .args(["-Z", "remote-registry", "login", "--index-url", &base])
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()
@@ -2476,14 +2465,11 @@ fn publish_output_dir_without_dry_run_never_publishes_remotely() {
         ))
         .unwrap();
 
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    let assertion = cmd
+    let assertion = cabin_with_config()
         .args(["-Z", "remote-registry", "publish", "--output-dir"])
         .arg(dir.path().join("staging"))
         .args(["--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
-        .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
@@ -2683,11 +2669,8 @@ fn yank_rejects_a_local_index_path() {
     assert_fs::fixture::ChildPath::new(home.join("config.toml"))
         .write_str("[registry]\nindex-path = \"registry\"\n")
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    let assertion = cmd
+    let assertion = cabin_with_config()
         .args(["-Z", "remote-registry", "yank", "fmtlib/fmt@10.2.1"])
-        .env_remove("CABIN_NO_CONFIG")
         .env("CABIN_CONFIG_HOME", &home)
         .assert()
         .failure();
@@ -2747,10 +2730,8 @@ fn login_applies_source_replacement_to_the_config_registry() {
              {{ index-url = \"{mirror}/index\" }}\n",
         ))
         .unwrap();
-    let mut cmd = cabin();
-    super::pin_test_user_config_home_to_empty(&mut cmd);
-    cmd.args(["-Z", "remote-registry", "login"])
-        .env_remove("CABIN_NO_CONFIG")
+    cabin_with_config()
+        .args(["-Z", "remote-registry", "login"])
         .env("CABIN_CONFIG_HOME", &home)
         .env("CABIN_GITHUB_OAUTH_URL", &github.url)
         .assert()

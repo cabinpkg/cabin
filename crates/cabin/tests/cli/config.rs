@@ -672,9 +672,6 @@ cxx = "{cxx}"
         .arg(dir.path().join("cabin.toml"))
         .env("CABIN_CONFIG_HOME", user_home.path())
         .env("PATH", bin.path())
-        .env_remove("CXX")
-        .env_remove("CC")
-        .env_remove("AR")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
@@ -722,8 +719,6 @@ cxx = "{cxx}"
         .env("CABIN_CONFIG_HOME", user_home.path())
         .env("PATH", bin.path())
         .env("CXX", &env_cxx)
-        .env_remove("CC")
-        .env_remove("AR")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
@@ -753,10 +748,6 @@ compiler-wrapper = "ccache"
         .arg(dir.path().join("cabin.toml"))
         .env("CABIN_CONFIG_HOME", user_home.path())
         .env("PATH", bin.path())
-        .env_remove("CXX")
-        .env_remove("CC")
-        .env_remove("AR")
-        .env_remove("CABIN_COMPILER_WRAPPER")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);
@@ -790,10 +781,6 @@ compiler-wrapper = "ccache"
         .args(["--no-compiler-wrapper"])
         .env("CABIN_CONFIG_HOME", user_home.path())
         .env("PATH", bin.path())
-        .env_remove("CXX")
-        .env_remove("CC")
-        .env_remove("AR")
-        .env_remove("CABIN_COMPILER_WRAPPER")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout);

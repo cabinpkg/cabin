@@ -178,6 +178,8 @@ pub fn cabin() -> Command {
         // assertions.
         "CPPFLAGS",
         "LDFLAGS",
+        "CABIN_BUILD_DIR",
+        "CABIN_BUILD_JOBS",
         "CABIN_NET_OFFLINE",
         // Strip the resolver preference override so tests observe the
         // built-in `fallback` default; env-precedence tests opt back in
@@ -223,6 +225,8 @@ pub fn cabin() -> Command {
         "NO_COLOR",
         "CLICOLOR",
         "CLICOLOR_FORCE",
+        "CABIN_TERM_VERBOSE",
+        "CABIN_TERM_QUIET",
     ] {
         cmd.env_remove(key);
     }
