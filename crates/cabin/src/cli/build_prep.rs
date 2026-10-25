@@ -21,8 +21,10 @@
 //! post-plan standards gates - parameterized only on
 //! [`DevActivation`]; command-specific target selection and
 //! execution stay at the call sites.  `cabin metadata` is
-//! intentionally not a caller: it uses the fail-*soft* wrapper path
-//! (`resolve_compiler_wrapper`) and must keep it.
+//! intentionally not a caller of [`resolve_build_prep`]: it resolves
+//! the wrapper fail-*soft* and must keep it.  [`resolve_inspection_prep`]
+//! is the read-only commands' fail-soft profile / toolchain / detection
+//! step, shared by `cabin metadata` and `cabin explain build-config`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -114,6 +116,61 @@ pub(crate) fn resolve_build_prep(inputs: BuildConfigInputs) -> Result<BuildPrep>
         standard_flag_conflicts,
         compiler_wrapper,
         toolchain_summary,
+    })
+}
+
+/// The profile and toolchain `cabin metadata` and `cabin explain
+/// build-config` evaluate configurations against.
+pub(crate) struct InspectionPrep {
+    pub manifest_profiles: BTreeMap<cabin_core::ProfileName, cabin_core::ProfileDefinition>,
+    pub profile: cabin_core::ResolvedProfile,
+    pub host_platform: cabin_core::TargetPlatform,
+    pub toolchain: cabin_core::ResolvedToolchain,
+    /// `None` when detection failed: the read-only commands are
+    /// fail-soft so a misbehaving compiler does not block inspecting
+    /// the rest of the workspace, and compiler cfg conditions then
+    /// evaluate as `unknown` with no version.
+    pub detection: Option<cabin_core::ToolchainDetectionReport>,
+}
+
+/// Resolve the profile (`--profile`, no `--release` alias on the
+/// read-only commands, then config, then `dev`) and the layered
+/// toolchain, then detect it, downgrading a detection failure to a
+/// warning.  Compiler-wrapper resolution stays with the callers:
+/// `cabin metadata` tolerates its failure, `cabin explain
+/// build-config` does not.
+pub(crate) fn resolve_inspection_prep(
+    graph: &PackageGraph,
+    profile: Option<&str>,
+    toolchain_args: &super::ToolchainSelectionArgs,
+    effective_config: &cabin_config::EffectiveConfig,
+    reporter: Reporter,
+) -> Result<InspectionPrep> {
+    let manifest_profiles = workspace_profile_definitions(graph);
+    let profile_selection = profile_selection_from_flags(profile, false, effective_config)?;
+    let profile = cabin_core::resolve_profile(&profile_selection, &manifest_profiles)?;
+    let host_platform = cabin_core::TargetPlatform::current();
+    let toolchain_selection = toolchain_selection_from_args(toolchain_args)?;
+    let toolchain = resolve_toolchain_layered(
+        graph,
+        &toolchain_selection,
+        effective_config,
+        &host_platform,
+    )?;
+    let detection =
+        match cabin_toolchain::detect_toolchain(&toolchain, &cabin_toolchain::ProcessRunner) {
+            Ok(report) => Some(report),
+            Err(err) => {
+                reporter.warning(format_args!("toolchain detection failed: {err}"));
+                None
+            }
+        };
+    Ok(InspectionPrep {
+        manifest_profiles,
+        profile,
+        host_platform,
+        toolchain,
+        detection,
     })
 }
 
@@ -662,17 +719,6 @@ pub(crate) fn profile_selection_from_flags(
     Ok(cabin_core::ProfileSelection::default_dev())
 }
 
-/// `cabin metadata` accepts a `--profile` flag but no `--release`
-/// alias (metadata is read-only and doesn't need the legacy spelling).
-/// Falls back to a config-supplied default when the user did not
-/// pass `--profile`; otherwise the built-in `dev` profile applies.
-pub(crate) fn profile_selection_for_metadata(
-    name: Option<&str>,
-    config: &cabin_config::EffectiveConfig,
-) -> Result<cabin_core::ProfileSelection> {
-    profile_selection_from_flags(name, false, config)
-}
-
 /// Look up the profile-definition table that should drive
 /// resolution.  Profiles are workspace-wide: only the entry-point
 /// manifest's `[profile.*]` tables count, so we read them off the
@@ -764,8 +810,8 @@ pub(crate) fn compiler_wrapper_override_from_args(
 /// manifest's `[build]` setting, the optional config
 /// `[build] compiler-wrapper` layer, and process-detected
 /// version metadata.  Returns the typed resolution on success;
-/// callers that want fail-soft behavior (e.g. `cabin metadata`)
-/// call `resolve_compiler_wrapper` directly.
+/// a fail-soft caller (`cabin metadata`) downgrades the error to a
+/// warning.
 pub(crate) fn resolve_compiler_wrapper_layered(
     cli_override: Option<cabin_core::CompilerWrapperRequest>,
     manifest_request: Option<&cabin_core::CompilerWrapperRequest>,

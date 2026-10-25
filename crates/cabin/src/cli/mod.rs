@@ -58,9 +58,9 @@ use self::resolve::{fetch, resolve, update};
 // paths stay stable.
 pub(crate) use self::build_prep::{
     augment_build_flags, compiler_wrapper_override_from_args, profile_descriptor,
-    profile_selection_for_metadata, profile_selection_from_flags, resolve_build_configurations,
-    resolve_per_package_build_flags, resolve_per_package_language_standards,
-    resolve_toolchain_layered, toolchain_selection_from_args, workspace_compiler_wrapper_settings,
+    profile_selection_from_flags, resolve_build_configurations, resolve_per_package_build_flags,
+    resolve_per_package_language_standards, resolve_toolchain_layered,
+    toolchain_selection_from_args, workspace_compiler_wrapper_settings,
     workspace_profile_definitions,
 };
 pub(crate) use self::resolve::{
