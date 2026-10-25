@@ -54,9 +54,9 @@
 //! Ceilings, each either invisible on the ephemeral runner this is
 //! scheduled on or fail-safe:
 //!
-//! - the upstream budget is a whole-second clock anchored at process
-//!   start, charged as the difference of two reads of it rather than
-//!   as real elapsed time, so a transfer that straddles a second
+//! - the upstream budget is a whole-second clock anchored when the
+//!   pass starts, charged as the difference of two reads of it rather
+//!   than as real elapsed time, so a transfer that straddles a second
 //!   boundary is charged for it;
 //! - the CA roots are `ureq`'s compiled-in `webpki-roots`, never
 //!   `SSL_CERT_FILE` or the system store - the same environment
@@ -819,7 +819,7 @@ impl Pass {
         }
     }
 
-    /// Whole seconds since the process started.
+    /// Whole seconds since the pass started.
     fn seconds(&self) -> u64 {
         self.started.elapsed().as_secs()
     }
@@ -1426,7 +1426,7 @@ mod tests {
     /// Capturing edits exactly two things, and both change
     /// what reaches a PATCH body or a URL.
     #[test]
-    fn command_substitution_drops_nuls_and_trailing_newlines() {
+    fn capturing_drops_nuls_and_trailing_newlines() {
         assert_eq!(captured("plain"), "plain");
         assert_eq!(captured("trailing\n\n\n"), "trailing");
         assert_eq!(captured("a\0b"), "ab");

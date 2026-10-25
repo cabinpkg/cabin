@@ -429,8 +429,8 @@ struct Database {
 /// `||` is a *falsy* fallback, so an empty, null, zero or `false` `uuid`
 /// falls through to `database_id` exactly as a missing one does.  A found
 /// entry carrying neither yields the word `undefined`, which the id
-/// grammar refuses; `None` is only for no such database at all - the two
-/// take different refusals.
+/// grammar refuses; `None` is for no such database or an unparseable
+/// listing - the two take different refusals.
 fn listed_id(answer: &str) -> Option<String> {
     let databases: Vec<Database> = serde_json::from_str(answer).ok()?;
     let database = databases.into_iter().find(|database| {
@@ -842,7 +842,7 @@ mod tests {
             "",
         ] {
             let refusal = keys(refused)
-                .expect_err("an answer the script refused")
+                .expect_err("an unsuccessful or malformed answer")
                 .to_string();
             assert!(
                 refusal.starts_with("unexpected R2 list response: "),
