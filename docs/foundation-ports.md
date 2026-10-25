@@ -252,9 +252,14 @@ $ cargo port-publish --publish --index-url https://registry.cabinpkg.com
 ```
 
 `--dry-run` stops after the preflight.  `--publish` performs the same preflight and then uploads
-every package through the registry API in publication order.  It never skips a version based on
-the public index - pending (not yet verified) revisions are hidden there - and instead relies on
-the registry's idempotency rule: re-publishing byte-identical bytes is a no-op.  Every upload
+every package through the registry API in publication order, in consecutive batches of 50 (sized
+for the operator quota class's publish rate): each batch is one `cabin publish` invocation, which
+under GitHub Actions exchanges for its own trusted-publishing token and revokes it, best-effort, on
+exit, so a large set never rides one token's 30 minutes.  A failed batch - including one slow
+enough to outlive its token - stops the run before the next one and fails it; the rerun resumes by
+uploading every package again.  It never skips a version based on the public index - pending
+(not yet verified) revisions are hidden there - and instead relies on the registry's idempotency
+rule: re-publishing byte-identical bytes is a no-op.  Every upload
 passes `--new-revision`, because a change that has been merged to `main` *is* the deliberate
 respin (see [Packaging revisions](#packaging-revisions)) - which is why editing a port
 directory changes the published bytes; an unchanged tree still produces byte-identical

@@ -10,7 +10,8 @@
 //!
 //! - `--dry-run` stops after the preflight;
 //! - `--publish` additionally uploads every package through the
-//!   existing remote registry client, relying on the registry's
+//!   existing remote registry client, in consecutive batches of one
+//!   `cabin publish` invocation each, relying on the registry's
 //!   byte-identical idempotency instead of skipping versions (the
 //!   public index hides pending versions, so it cannot be used to
 //!   decide what is already published).

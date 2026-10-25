@@ -486,9 +486,10 @@ complete `[package.upstream]`), published verbatim and staged through
 composes existing layers instead of duplicating them: `cabin-artifact` for materialization,
 `cabin-package` + `cabin-publish` +
 `cabin-registry-file` for staging and the temporary preflight registry, and the real `cabin`
-binary for the preflight builds *and* the remote upload - one `-Z remote-registry publish`
-invocation carrying every package in publication order, so credentials (the trusted-publishing
-exchange included) live in the CLI, never in this tool.  The crate must:
+binary for the preflight builds *and* the remote upload - consecutive `-Z remote-registry
+publish` invocations of up to 50 packages each in publication order, stopping at the first that
+fails, so credentials (one trusted-publishing exchange per invocation included) live in the CLI,
+never in this tool.  The crate must:
 
 - never mutate the committed ports - every one materializes into a scratch directory;
 - never bypass the local preflight before a remote mutation;
