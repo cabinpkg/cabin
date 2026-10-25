@@ -2778,6 +2778,7 @@ dependencies = [
  "anyhow",
  "assert_fs",
  "cabinpkg-core",
+ "crc32fast",
  "libc",
  "serde_json",
  "sha2",

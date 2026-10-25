@@ -168,10 +168,6 @@ const MAX_REDIRECTS: usize = 50;
 /// wrote itself do not come back this way: they print bare and exit,
 /// so nothing prefixes them.
 pub fn run() -> Result<()> {
-    // bash anchors `$SECONDS` at shell start, before the first
-    // request, and the budget below is a difference of two reads of it.
-    let started = Instant::now();
-
     // L2-17: the privileged token travels to exactly two origins, and
     // neither `curl` nor `ureq` refuses cleartext on its own.
     let registry_origin = env("REGISTRY_ORIGIN");
@@ -186,7 +182,62 @@ pub fn run() -> Result<()> {
             "EXPECTED_API_ORIGIN must be https, got: {expected_api_origin}"
         ));
     }
-    let minter = minter();
+    let Minter {
+        url: mint_url,
+        request_token: mint_token,
+        ..
+    } = minter();
+    run_with(Endpoints {
+        registry_origin,
+        api_base: expected_api_origin.clone(),
+        expected_api_origin,
+        mint_url,
+        mint_token,
+        verifier: PathBuf::from(VERIFIER),
+    })
+}
+
+/// Where one pass reads, writes and inspects.  [`run`] fills it from
+/// the workflow's environment.
+pub struct Endpoints {
+    /// The index origin: `config.json` and the artifacts.
+    pub registry_origin: String,
+    /// The API origin `config.json` must declare.
+    pub expected_api_origin: String,
+    /// Where the admin plane is reached: the declared origin itself,
+    /// except where a local Worker serves it under another name.
+    pub api_base: String,
+    /// The OIDC mint, `ACTIONS_ID_TOKEN_REQUEST_URL` and `_TOKEN`.
+    pub mint_url: String,
+    pub mint_token: String,
+    /// The `cabin-registry-verify` binary.
+    pub verifier: PathBuf,
+}
+
+/// The pass against `endpoints` as given.  Only [`run`] pins them to
+/// https, so any other caller vouches for its own: the registry smoke
+/// points this at its loopback `wrangler dev`.
+///
+/// # Errors
+///
+/// As [`run`].
+pub fn run_with(endpoints: Endpoints) -> Result<()> {
+    // bash anchors `$SECONDS` at shell start, before the first
+    // request, and the budget below is a difference of two reads of it.
+    let started = Instant::now();
+    let Endpoints {
+        registry_origin,
+        expected_api_origin,
+        api_base,
+        mint_url,
+        mint_token,
+        verifier,
+    } = endpoints;
+    let minter = Minter {
+        agent: plane_agent(),
+        url: mint_url,
+        request_token: mint_token,
+    };
     let resolution = resolution();
 
     // The run's registry credential is minted, not configured: the
@@ -194,8 +245,8 @@ pub fn run() -> Result<()> {
     // secret, and its refusal fails the run before any listing is
     // read, so every version stays pending.
     let agent = plane_agent();
-    let token = exchange(&agent, &minter, &expected_api_origin)
-        .context("the trusted-publishing exchange failed")?;
+    let token =
+        exchange(&agent, &minter, &api_base).context("the trusted-publishing exchange failed")?;
     let plane = Plane { agent, token };
 
     // L19-29: one hostname, one role.  The index origin serves
@@ -220,16 +271,14 @@ pub fn run() -> Result<()> {
     // a listing that will not parse, a `versions` with no length -
     // aborts.
     let listing = plane
-        .get(&format!(
-            "{api_origin}/api/v1/admin/versions?status=pending"
-        ))
+        .get(&format!("{api_base}/api/v1/admin/versions?status=pending"))
         .context("the pending listing request failed")?;
     let documents = answer(&listing, "the pending listing")?.unwrap_or_default();
     let count = read_stream(&documents, |doc| length(&index(doc, "versions")?))?;
     if resolution.is_none() {
         if count.parse::<i64>().ok() == Some(0) {
             println!("nothing pending");
-            let _ = plane.revoke(&api_origin);
+            let _ = plane.revoke(&api_base);
             return Ok(());
         }
         println!("{count} pending version(s)");
@@ -245,10 +294,7 @@ pub fn run() -> Result<()> {
         let corpus =
             tempfile::NamedTempFile::new().context("open a temporary file for the corpus")?;
         plane
-            .download(
-                &format!("{api_origin}/api/v1/admin/packages"),
-                corpus.path(),
-            )
+            .download(&format!("{api_base}/api/v1/admin/packages"), corpus.path())
             .context("the package corpus request failed")?;
         Some(corpus)
     } else {
@@ -259,7 +305,8 @@ pub fn run() -> Result<()> {
         plane,
         minter,
         registry_origin,
-        api_origin,
+        api_origin: api_base,
+        verifier,
         corpus: corpus.as_ref().map(|corpus| corpus.path().to_owned()),
         started,
         budget: BUDGET,
@@ -577,6 +624,7 @@ struct Pass {
     minter: Minter,
     registry_origin: String,
     api_origin: String,
+    verifier: PathBuf,
     corpus: Option<PathBuf>,
     started: Instant,
     budget: i64,
@@ -646,7 +694,7 @@ impl Pass {
             Upstream::Downloaded(path) => Some(path),
         };
 
-        let mut inspect = Command::new(VERIFIER);
+        let mut inspect = Command::new(&self.verifier);
         inspect.arg(&archive).arg(&entry_path);
         if let Some(upstream) = &upstream {
             inspect.arg("--upstream").arg(upstream);
@@ -787,7 +835,7 @@ impl Pass {
             bail!("the name advisories need the package corpus, which a resolution never fetches");
         };
         let Some(advice_json) = capture(
-            Command::new(VERIFIER)
+            Command::new(&self.verifier)
                 .arg("--name-advisories")
                 .arg(entry_path)
                 .arg(corpus),
@@ -1860,6 +1908,7 @@ mod tests {
             },
             registry_origin: "https://".to_owned(),
             api_origin: "https://".to_owned(),
+            verifier: PathBuf::from(VERIFIER),
             corpus: None,
             started: Instant::now(),
             budget: 0,

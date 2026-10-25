@@ -151,6 +151,14 @@ impl Smoke {
             .with_context(|| format!("no jwt in the mint answer: {minted}"))
     }
 
+    /// The GitHub mock's Actions-shaped mint, as
+    /// `ACTIONS_ID_TOKEN_REQUEST_URL` carries it: query string included,
+    /// so the caller appends `&audience=`.
+    #[must_use]
+    pub fn actions_mint_url(&self) -> String {
+        format!("{}/__actions/token?api-version=2.0", self.github_base)
+    }
+
     /// The GitHub mock's count of `/.well-known/jwks` fetches
     /// (`/__jwks/hits`) - the upstream-cost observable the admission
     /// leg bounds.

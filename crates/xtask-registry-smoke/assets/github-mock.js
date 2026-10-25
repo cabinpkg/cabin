@@ -127,6 +127,17 @@ http.createServer((req, res) => {
     req.on("end", () => {
       res.end(JSON.stringify({ jwt: mintJwt(body ? JSON.parse(body) : {}) }));
     });
+  } else if (req.method === "GET" && req.url.startsWith("/__actions/token?")) {
+    // Actions' own mint, which the verification driver calls: the
+    // request token as the bearer (the harness's
+    // ACTIONS_REQUEST_TOKEN), the audience as a query parameter.
+    if (req.headers.authorization !== "Bearer smoke-actions-request") {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ message: "Bad credentials" }));
+      return;
+    }
+    const aud = new URL(req.url, "http://127.0.0.1").searchParams.get("audience");
+    res.end(JSON.stringify({ value: mintJwt({ aud }) }));
   } else if (req.method === "POST" && req.url === "/applications/Ov23liAgmw27EQavKC8H/token") {
     // The check-token endpoint the session mint proves identity with:
     // Basic auth with the app's own client credentials (the id is
