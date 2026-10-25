@@ -337,41 +337,19 @@ fn apply_package_layer(
     apply_layer(out, &safe);
 }
 
-/// Append every field of a [`ProfileFlags`] layer into a target
-/// whose fields are structurally identical to `ProfileFlags` -
-/// either a [`ProfileFlags`] accumulator (used by the
-/// inherits-chain merge in
-/// [`crate::profile::resolve_profile`]) or a
-/// [`ResolvedProfileFlags`] accumulator (used by
-/// [`resolve_build_flags`]'s package / conditional / profile
-/// layer chain).
-///
-/// One canonical field list lives here so a future array field
-/// added to [`ProfileFlags`] needs exactly one update site.
-/// Both [`ProfileFlags::append_layer`] and [`apply_layer`]
-/// delegate to this macro; do not duplicate the per-field walk
-/// elsewhere.
-macro_rules! append_profile_flag_layer {
-    ($target:expr, $layer:expr) => {{
-        let target = $target;
-        let layer = $layer;
-        // `defines` are appended verbatim here. `resolve_build_flags`'s
-        // `finalize` step sort-and-dedups them once at the end, so a
-        // second normalization path inside the per-layer append would
-        // be a double-pass on the resolved side and break the
-        // semantics expected by the inherits-chain merge accumulator,
-        // which is itself a layer for that same finalize step.
-        target.defines.extend(layer.defines.iter().cloned());
-        extend_dedup_first_occurrence(&mut target.include_dirs, &layer.include_dirs);
-        target.cflags.extend(layer.cflags.iter().cloned());
-        target.cxxflags.extend(layer.cxxflags.iter().cloned());
-        target.ldflags.extend(layer.ldflags.iter().cloned());
-        // Link libraries dedup by first occurrence and keep order:
-        // `-l` resolution is order-sensitive, and a duplicate `-lm`
-        // is noise, so we mirror the include-dir treatment rather
-        // than the append-verbatim used for the raw flag arrays.
-        extend_dedup_first_occurrence(&mut target.link_libs, &layer.link_libs);
-    }};
+fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
+    // `defines` are appended verbatim here; `finalize` sort-and-dedups
+    // them once at the end.
+    target.defines.extend(layer.defines.iter().cloned());
+    extend_dedup_first_occurrence(&mut target.include_dirs, &layer.include_dirs);
+    target.cflags.extend(layer.cflags.iter().cloned());
+    target.cxxflags.extend(layer.cxxflags.iter().cloned());
+    target.ldflags.extend(layer.ldflags.iter().cloned());
+    // Link libraries dedup by first occurrence and keep order:
+    // `-l` resolution is order-sensitive, and a duplicate `-lm`
+    // is noise, so we mirror the include-dir treatment rather
+    // than the append-verbatim used for the raw flag arrays.
+    extend_dedup_first_occurrence(&mut target.link_libs, &layer.link_libs);
 }
 
 /// Append `items` into `target`, skipping any item already present,
@@ -382,26 +360,6 @@ fn extend_dedup_first_occurrence<T: PartialEq + Clone>(target: &mut Vec<T>, item
             target.push(item.clone());
         }
     }
-}
-
-impl ProfileFlags {
-    /// Append every field of `layer` into `self`, using the
-    /// same per-field semantics as the package / conditional /
-    /// profile layer chain in [`resolve_build_flags`].
-    ///
-    /// The merged accumulator is what
-    /// [`crate::profile::resolve_profile`] builds when it walks
-    /// a custom profile's `inherits` chain root → selected.
-    /// [`resolve_build_flags`] walks the chain and original
-    /// definitions separately so named conditional overlays can
-    /// be interleaved at each profile step.
-    pub(crate) fn append_layer(&mut self, layer: &ProfileFlags) {
-        append_profile_flag_layer!(self, layer);
-    }
-}
-
-fn apply_layer(target: &mut ResolvedProfileFlags, layer: &ProfileFlags) {
-    append_profile_flag_layer!(target, layer);
 }
 
 fn finalize(target: &mut ResolvedProfileFlags) {
@@ -707,6 +665,51 @@ mod tests {
             true,
         );
         assert_eq!(resolved.ldflags, vec!["release", "linux", "x86_64"]);
+    }
+
+    #[test]
+    fn inherited_profile_flags_survive_a_flagless_leaf() {
+        let mut definitions = profile_definitions();
+        definitions.get_mut(&profile_name("static")).unwrap().build = None;
+        let selected = selected_profile("static", &definitions);
+        let resolved = resolve_build_flags(
+            &ProfileSettings::default(),
+            Some(&selected),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(resolved.ldflags, vec!["release"]);
+    }
+
+    #[test]
+    fn include_dirs_keep_first_occurrence_across_profile_chain() {
+        let mut definitions = profile_definitions();
+        for (name, dirs) in [
+            ("release", ["include", "vendor/include"]),
+            ("static", ["include", "third_party"]),
+        ] {
+            definitions.get_mut(&profile_name(name)).unwrap().build = Some(ProfileFlags {
+                include_dirs: dirs.into_iter().map(Utf8PathBuf::from).collect(),
+                ..Default::default()
+            });
+        }
+        let selected = selected_profile("static", &definitions);
+        let resolved = resolve_build_flags(
+            &ProfileSettings::default(),
+            Some(&selected),
+            &definitions,
+            &ConditionContext::platform_only(&host_for("linux")),
+            true,
+        );
+        assert_eq!(
+            resolved.include_dirs,
+            vec![
+                Utf8PathBuf::from("include"),
+                Utf8PathBuf::from("vendor/include"),
+                Utf8PathBuf::from("third_party"),
+            ],
+        );
     }
 
     #[test]
