@@ -1,0 +1,7 @@
+homepage: "https://cabinpkg.com"
+language: rust
+main_repo: "https://github.com/cabinpkg/cabin"
+sanitizers:
+  - address
+fuzzing_engines:
+  - libfuzzer
