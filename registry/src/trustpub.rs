@@ -1599,6 +1599,58 @@ mod tests {
         assert_eq!(repeat, 0);
     }
 
+    /// The ports flow as production runs it: the operator - user 1,
+    /// pre-promoted by the baseline migration - owns cabin-ports, so
+    /// the minted token carries the operator grant *and* draws on the
+    /// operator's own publish bucket. A default-class co-owner never
+    /// backs the token (the lowest owner id does), so it cannot shrink
+    /// the workflow's bucket to the default rate.
+    #[test]
+    fn the_operator_backed_ports_flow_publishes_on_the_operator_bucket() {
+        let conn = migrated_connection();
+        conn.execute_batch(
+            "INSERT INTO users (id, created_at) VALUES (2, '2026-08-15T00:00:00.000Z');
+             INSERT INTO scopes (name, proof_provider, proof_account_id, claimed_at)
+               VALUES ('cabin-ports', 'github', '35998702', '2026-08-15T00:00:00.000Z');
+             INSERT INTO scope_members (scope_name, user_id, role)
+               VALUES ('cabin-ports', 2, 'owner'), ('cabin-ports', 1, 'owner');",
+        )
+        .expect("seed the claimed scope");
+
+        let claims = parsed_claims();
+        let configs = load_configs(&conn, &claims);
+        let config = select_config(&claims, &configs).expect("the seeded config matches");
+        let owner: i64 = conn
+            .query_row(sql::TRUSTPUB_BACKING_OWNER, [&config.scope], |row| {
+                row.get(0)
+            })
+            .expect("the claimed scope backs the token");
+        assert_eq!(owner, 1);
+
+        let hash = auth::token_hash(&auth::format_trustpub_token(&[11; 32]));
+        exchange_batch(
+            &conn,
+            &claims,
+            "tok-tp-op",
+            &hash,
+            "2026-08-15T00:00:00.000Z",
+            "2026-08-15T00:30:00.000Z",
+            owner,
+            config,
+        )
+        .expect("the exchange batch commits");
+        // `(quota_class, user_quota_class)`: the publish quotas and the
+        // bucket's class, as `glue::authenticate` reads them.
+        let classes: (String, String) = conn
+            .query_row(
+                sql::AUTH_TOKEN_LOOKUP,
+                rusqlite::params![hash, "2026-08-15T00:15:00.000Z"],
+                |row| Ok((row.get(3)?, row.get(5)?)),
+            )
+            .expect("the token is live");
+        assert_eq!(classes, ("operator".to_owned(), "operator".to_owned()));
+    }
+
     /// The verifier arm at the same layer: the backing identity lookup
     /// resolves the operator's numeric account id, the verify-shape
     /// mint commits under the same jti guard, and the minted token

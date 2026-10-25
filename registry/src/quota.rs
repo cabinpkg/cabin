@@ -59,20 +59,21 @@ const DEFAULT: ClassQuotas = ClassQuotas {
 /// Bulk-publishing tier for the operator's own accounts, granted
 /// manually via `users.quota_class` (docs/architecture.md, "Per-user
 /// quotas"); the operator's own account is seeded pre-promoted by the
-/// baseline migration. Sized for the cabin-ports publish pipeline, which
-/// publishes the whole curated port set - currently 17 packages -
-/// in one serial run: the burst must cover a full set so a routine
-/// republish never waits on the refill, and the daily new-package cap
-/// must clear a from-scratch registry seeding.
+/// baseline migration. Sized so the cabin-ports publish pipeline can
+/// seed thousands of curated ports (whole library collections such as
+/// Boost) in serial runs without a per-user limit binding. The storage
+/// cap equals the governor's default primary pool, so the governor and
+/// the breaker - which no quota class raises - are what bound this
+/// tier's spend.
 const OPERATOR: ClassQuotas = ClassQuotas {
     max_archive_bytes: 16 * 1024 * 1024,
-    max_total_bytes_per_user: 128 * 1024 * 1024,
-    max_new_packages_per_day: 50,
-    max_packages_total: 100,
-    max_versions_per_package_per_day: 30,
+    max_total_bytes_per_user: 4 * 1024 * 1024 * 1024,
+    max_new_packages_per_day: 1_000,
+    max_packages_total: 10_000,
+    max_versions_per_package_per_day: 1_000,
     max_scope_claims_total: 30,
-    publish_burst: 20.0,
-    publish_refill_per_minute: 5.0,
+    publish_burst: 100.0,
+    publish_refill_per_minute: 60.0,
     artifact_reads_per_day: 5_000,
     source_reads_per_day: 2_000,
 };
@@ -334,35 +335,91 @@ mod tests {
         assert_eq!(quotas_for_class("Operator"), DEFAULT);
     }
 
+    /// The cabin-ports pipeline seeding an empty registry serially at
+    /// one publish a second: a thousand new packages in one UTC day go
+    /// through without a single 429 or 403, and only the next new
+    /// package is refused.
     #[test]
-    fn the_operator_class_covers_a_full_ports_republish() {
+    fn the_operator_class_seeds_a_thousand_new_ports_in_a_day() {
+        const ARCHIVE_BYTES: u64 = 1024 * 1024;
         let quotas = quotas_for_class("operator");
-        assert_eq!(quotas, OPERATOR);
-        // The curated foundation-port set (17 packages today) must fit
-        // a single burst, one day's new-package allowance, and the
-        // total-package cap with headroom.
-        assert!(quotas.publish_burst >= 17.0);
-        assert!(quotas.max_new_packages_per_day >= 17);
-        assert!(quotas.max_packages_total >= 17);
+        let mut bucket = None;
+        let mut now_ms = 0.0;
+        let mut counts = healthy_counts();
+        for n in 0..1_000 {
+            let take = take_publish_token(bucket, now_ms, &quotas);
+            assert!(take.allowed, "publish {n} was rate limited");
+            bucket = Some(take.bucket);
+            assert_eq!(
+                check_publish(ARCHIVE_BYTES, &counts, &quotas),
+                Ok(()),
+                "publish {n}"
+            );
+            counts.user_stored_bytes += ARCHIVE_BYTES;
+            counts.user_package_count += 1;
+            counts.user_new_packages_today += 1;
+            now_ms += 1_000.0;
+        }
+        assert_eq!(
+            check_publish(ARCHIVE_BYTES, &counts, &quotas),
+            Err(QUOTA_PACKAGES_DAILY)
+        );
         // The curated set publishes under the single `cabin-ports`
         // scope, but the bulk tier keeps claim headroom beyond the
         // default anti-squatting cap.
         assert!(quotas.max_scope_claims_total > DEFAULT.max_scope_claims_total);
     }
 
+    /// The operator's other raised limits at their exact boundaries: the
+    /// 10,000th package, the 1,000th version of one package in a day,
+    /// and the byte that lands on 4 GiB are allowed; one more is not.
+    #[test]
+    fn the_operator_limits_are_exact_at_the_raised_boundaries() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let quotas = quotas_for_class("operator");
+        let packages = |user_package_count| PublishCounts {
+            user_package_count,
+            ..healthy_counts()
+        };
+        assert_eq!(check_publish(1, &packages(9_999), &quotas), Ok(()));
+        assert_eq!(
+            check_publish(1, &packages(10_000), &quotas),
+            Err(QUOTA_PACKAGES_TOTAL)
+        );
+        let versions = |package_versions_today| PublishCounts {
+            package_exists: true,
+            package_versions_today,
+            ..healthy_counts()
+        };
+        assert_eq!(check_publish(1, &versions(999), &quotas), Ok(()));
+        assert_eq!(
+            check_publish(1, &versions(1_000), &quotas),
+            Err(QUOTA_VERSIONS_DAILY)
+        );
+        let stored = PublishCounts {
+            user_stored_bytes: 4 * GIB - 100,
+            ..healthy_counts()
+        };
+        assert_eq!(check_publish(100, &stored, &quotas), Ok(()));
+        assert_eq!(check_publish(101, &stored, &quotas), Err(QUOTA_STORAGE));
+    }
+
     #[test]
     fn fresh_bucket_allows_a_full_burst_then_denies() {
-        let quotas = quotas_for_class("default");
-        let mut bucket = None;
-        for take in 0..5 {
-            let outcome = take_publish_token(bucket, 1_000.0, &quotas);
-            assert!(outcome.allowed, "take {take}");
-            bucket = Some(outcome.bucket);
+        // The empty bucket's Retry-After is one token's refill: 60 s at
+        // 1 token/minute, 1 s at 60.
+        for (class, burst, retry_after_secs) in [("default", 5, 60), ("operator", 100, 1)] {
+            let quotas = quotas_for_class(class);
+            let mut bucket = None;
+            for take in 0..burst {
+                let outcome = take_publish_token(bucket, 1_000.0, &quotas);
+                assert!(outcome.allowed, "{class} take {take}");
+                bucket = Some(outcome.bucket);
+            }
+            let denied = take_publish_token(bucket, 1_000.0, &quotas);
+            assert!(!denied.allowed, "{class}");
+            assert_eq!(denied.retry_after_secs, retry_after_secs, "{class}");
         }
-        let denied = take_publish_token(bucket, 1_000.0, &quotas);
-        assert!(!denied.allowed);
-        // Empty bucket, 1 token/minute: a full token is 60 s away.
-        assert_eq!(denied.retry_after_secs, 60);
     }
 
     #[test]
@@ -874,7 +931,8 @@ mod verification {
 
         // Non-vacuity (reported, never enforced): the fresh bucket, both
         // verdicts, refill, the burst cap, both Retry-After extremes of
-        // each class, and the backwards clock.
+        // each class (the operator's coincide: one token refills in a
+        // second), and the backwards clock.
         kani::cover!(outcome.allowed && prev.is_none());
         kani::cover!(outcome.allowed && prev.is_some_and(|prev| now_ms > prev.updated_at_ms));
         kani::cover!(
@@ -893,7 +951,7 @@ mod verification {
         );
         kani::cover!(
             !outcome.allowed
-                && outcome.retry_after_secs == 12
+                && outcome.retry_after_secs == 1
                 && quotas.publish_burst == OPERATOR.publish_burst
         );
         kani::cover!(!outcome.allowed && prev.is_some_and(|prev| now_ms < prev.updated_at_ms));

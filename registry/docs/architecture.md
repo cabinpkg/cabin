@@ -982,8 +982,8 @@ Cost containment is two mechanisms with a deliberate division of labor:
   **independent auditor** of the governor's ledger, never as an
   authority that could grant allowance.
 
-**Per-user quotas** stop any single user from exhausting the shared free
-budget. Quota classes are quota tiers granted manually on need (in the
+**Per-user quotas** stop any single user below the operator tier from
+exhausting the shared free budget. Quota classes are quota tiers granted manually on need (in the
 spirit of crates.io's per-user limit increases); the hosted registry is
 free and has no billing path. `users.quota_class` (default `'default'`)
 selects a quota set from the map in
@@ -999,8 +999,16 @@ the governor's
 per-user daily read-fairness caps (charged artifact reads and
 source-viewer reads). Two classes exist: `default`, and `operator` -
 the bulk-publishing tier for the operator's own accounts, sized so the
-cabin-ports conversion pipeline can seed the entire curated port set in
-one serial run (values in `src/quota.rs`). The operator's own account
+cabin-ports conversion pipeline can seed thousands of curated ports in
+serial runs without a per-user limit binding (values in
+`src/quota.rs`). Its storage cap equals the governor's default primary
+pool, so the operator tier is the one class that may fill the shared
+budget: the governor's admission and the breaker, which no class
+raises, are what bound it. At that scale the D1 rows-read allowance
+binds before any operator quota: each new publish's quota counts read
+every package and revision the account holds, and the breaker's
+15-minute cron can lag a fast bulk run on a large account, so pace
+large seeding runs against the D1 budget. The operator's own account
 is seeded pre-promoted by the baseline migration, keyed by its immutable
 numeric GitHub id in the spirit of the trustpub seed, so a wipe never
 resets it to `default`. For anyone else, granting a class is a manual
