@@ -5,14 +5,10 @@
 # dependencies
 /node_modules
 
-# testing
-/coverage
-
 # astro
 /.astro/
 
 # production
-/build
 /dist
 
 # misc
@@ -21,13 +17,11 @@
 
 # debug
 npm-debug.log*
-.pnpm-debug.log*
 
 # local env files
 .env*.local
 
 # deployment state
-.vercel
 .wrangler
 
 # local Claude Code settings

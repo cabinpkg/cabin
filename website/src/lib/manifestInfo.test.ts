@@ -232,7 +232,7 @@ version = "12.2.0"
 `);
     assert.deepEqual(info.dependencies, []);
     // No [features] table is null - the page hides the section rather
-    // than claiming "no features" about metadata predating the field.
+    // than rendering an empty placeholder.
     assert.equal(info.features, null);
 });
 

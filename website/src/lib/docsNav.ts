@@ -1,5 +1,5 @@
 /**
- * Documentation navigation, ported from the repository-root `mkdocs.yml` nav.
+ * Documentation navigation.
  *
  * A page's `slug` is its `docs/<slug>.md` basename, except the docs home
  * (`docs/index.md`) whose slug is the empty string and renders at `/docs/`.
@@ -143,7 +143,7 @@ export function docPath(slug: string): string {
     return slug === "" ? "/docs/" : `/docs/${slug}/`;
 }
 
-/** "Edit this page on GitHub" target, mirroring the old `edit_uri`. */
+/** "Edit this page on GitHub" target. */
 export function docEditUrl(id: string): string {
     return `${DOCS_EDIT_BASE}/${id}.md`;
 }

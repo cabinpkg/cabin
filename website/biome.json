@@ -4,7 +4,6 @@
         "includes": [
             "**",
             "!.claude/**/*",
-            "!.next/**/*",
             "!.astro/**/*",
             "!dist/**/*",
             "!node_modules/**/*",
