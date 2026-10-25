@@ -715,6 +715,59 @@ version = "10.1.0"
     ));
 }
 
+#[test]
+fn patch_sharing_a_registry_manifest_path_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    dir.child("app/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+fmt = ">=10"
+"#,
+        )
+        .unwrap();
+    dir.child("registry/fmt/cabin.toml")
+        .write_str(
+            r#"[package]
+name = "fmt"
+version = "10.2.1"
+"#,
+        )
+        .unwrap();
+    // A caller bug hands the loader the same manifest as both a
+    // registry entry and a patch; it must not pick a kind silently.
+    let manifest_path = dir.path().join("registry/fmt/cabin.toml");
+    let registry = vec![RegistryPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path: manifest_path.clone(),
+    }];
+    let patches = vec![PatchedPackageSource {
+        name: pkg("fmt"),
+        version: ver("10.2.1"),
+        manifest_path,
+    }];
+    let err = load_workspace_with_options(
+        dir.path().join("app/cabin.toml"),
+        &WorkspaceLoadOptions {
+            registry: &registry,
+            patches: &patches,
+            registry_policy: RegistryPolicy::Strict,
+            include_dev_for: &BTreeSet::new(),
+        },
+    )
+    .unwrap_err();
+    match err {
+        WorkspaceError::PatchConflictsWithRegistry { package, .. } => {
+            assert_eq!(package, "fmt");
+        }
+        other => panic!("expected PatchConflictsWithRegistry, got {other:?}"),
+    }
+}
+
 // -----------------------------------------------------------------
 // workspace.exclude / default-members / dependency
 // inheritance / nested workspaces.
@@ -1486,13 +1539,7 @@ cxx-standard = { workspace = true }
     )
     .unwrap_err();
     match err {
-        WorkspaceError::ExternalPackageDeclaresWorkspaceStandard {
-            origin,
-            package,
-            field,
-            ..
-        } => {
-            assert_eq!(origin, "registry");
+        WorkspaceError::ExternalPackageDeclaresWorkspaceStandard { package, field, .. } => {
             assert_eq!(package, "fmt");
             assert_eq!(field, "cxx-standard");
         }
@@ -1552,12 +1599,8 @@ fmt = { workspace = true }
     .unwrap_err();
     match err {
         WorkspaceError::ExternalPackageDeclaresWorkspaceDependency {
-            origin,
-            package,
-            dep_name,
-            ..
+            package, dep_name, ..
         } => {
-            assert_eq!(origin, "registry");
             assert_eq!(package, "fmt");
             assert_eq!(dep_name, "fmt");
         }
