@@ -335,7 +335,6 @@ pub(crate) fn prepare_workspace(
         let inputs = super::config::resolve_pipeline_inputs(
             resolved_index_source.as_ref(),
             &effective_config,
-            args.cache_dir,
             resolved_cache_dir.as_ref(),
             offline,
             args.locked,

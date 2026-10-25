@@ -533,7 +533,6 @@ pub(super) fn fetch(args: &FetchArgs, reporter: Reporter) -> Result<()> {
     let inputs = crate::cli::config::resolve_pipeline_inputs(
         resolved_index_source.as_ref(),
         &effective_config,
-        args.cache_dir.as_deref(),
         resolved_cache_dir.as_ref(),
         offline,
         args.locked,

@@ -1419,69 +1419,44 @@ fn select_single_package_manifest(
     })
 }
 
-/// Resolve the cache directory using --cache-dir,
-/// `$CABIN_CACHE_DIR`, or the user-global platform fallback.
+/// Resolve the user-global cache directory, the fallback once
+/// [`config::resolve_cache_dir`]'s `--cache-dir` ▶
+/// `$CABIN_CACHE_DIR` ▶ `[paths] cache-dir` layers are all unset.
 ///
-/// Precedence: `--cache-dir` ▶ `$CABIN_CACHE_DIR` ▶
-/// `$CABIN_CACHE_HOME` ▶ the platform base cache directory with a
-/// `cabin` suffix (`$XDG_CACHE_HOME/cabin` / `~/.cache/cabin` on
-/// Linux and macOS, `%LOCALAPPDATA%\cabin` on Windows).  The
-/// fallback shape mirrors `cabin_config::discovery`
+/// Precedence: `$CABIN_CACHE_HOME` ▶ the platform base cache
+/// directory with a `cabin` suffix (`$XDG_CACHE_HOME/cabin` /
+/// `~/.cache/cabin` on Linux and macOS, `%LOCALAPPDATA%\cabin` on
+/// Windows).  The fallback shape mirrors `cabin_config::discovery`
 /// so the cache home and config home follow the same rule.
 ///
 /// The cache is content-addressed (registry archives land at
 /// `<cache>/archives/sha256/<hex>.zip`), so the user-global default
 /// lets two projects on the same machine share a single download.
-pub(crate) fn cache_dir_for(override_dir: Option<&Path>) -> Result<PathBuf> {
+pub(crate) fn user_cache_dir() -> Result<PathBuf> {
     use etcetera::{BaseStrategy, choose_base_strategy};
     let user_cache_home = choose_base_strategy()
         .ok()
         .map(|dirs| dirs.cache_dir().join("cabin"));
-    cache_dir_for_with_env(
-        override_dir,
-        &|key| std::env::var_os(key),
-        user_cache_home.as_deref(),
-    )
+    user_cache_dir_with_env(&|key| std::env::var_os(key), user_cache_home.as_deref())
 }
 
-/// Inner form of [`cache_dir_for`] with the env lookup and the
+/// Inner form of [`user_cache_dir`] with the env lookup and the
 /// platform user cache home injected so tests can drive the
-/// precedence chain without touching real process env.  Production
-/// code calls [`cache_dir_for`].
-fn cache_dir_for_with_env(
-    override_dir: Option<&Path>,
+/// precedence chain without touching real process env.  The
+/// `CABIN_CACHE_HOME` override is Cabin-specific and resolves
+/// directly to its value with no extra `cabin` component.
+fn user_cache_dir_with_env(
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
     xdg_cache_home: Option<&Path>,
 ) -> Result<PathBuf> {
-    if let Some(p) = override_dir {
-        return absolutise(p)
-            .with_context(|| format!("failed to resolve cache dir {}", p.display()));
+    if let Some(d) = env(cabin_env::CABIN_CACHE_HOME).filter(|v| !v.is_empty()) {
+        return Ok(PathBuf::from(d));
     }
-    if let Some(val) = env(cabin_env::CABIN_CACHE_DIR).filter(|v| !v.is_empty()) {
-        let p = PathBuf::from(val);
-        return absolutise(&p)
-            .with_context(|| format!("failed to resolve cache dir {}", p.display()));
-    }
-    user_cache_default(env, xdg_cache_home).ok_or_else(|| {
+    xdg_cache_home.map(Path::to_path_buf).ok_or_else(|| {
         anyhow::anyhow!(
             "no cache directory: set --cache-dir, CABIN_CACHE_DIR, CABIN_CACHE_HOME, XDG_CACHE_HOME, or HOME"
         )
     })
-}
-
-/// User-global cache root: `$CABIN_CACHE_HOME` if set, otherwise
-/// the platform user cache home with the `cabin` suffix already
-/// applied (see [`cache_dir_for`] for the per-OS shapes).  The
-/// `CABIN_CACHE_HOME` override is Cabin-specific and resolves
-/// directly to its value with no extra `cabin` component.
-fn user_cache_default(
-    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
-    xdg_cache_home: Option<&Path>,
-) -> Option<PathBuf> {
-    if let Some(d) = env(cabin_env::CABIN_CACHE_HOME).filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(d));
-    }
-    xdg_cache_home.map(Path::to_path_buf)
 }
 
 /// Resolve a path to an absolute one without requiring it to exist.
@@ -1518,7 +1493,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------
-    // cache_dir_for precedence (XDG user-global default)
+    // user_cache_dir precedence (XDG user-global default)
     // -------------------------------------------------------------
 
     type EnvFn = Box<dyn Fn(&str) -> Option<std::ffi::OsString>>;
@@ -1544,33 +1519,6 @@ mod tests {
     }
 
     #[test]
-    fn cache_dir_flag_wins_over_everything() {
-        let env = env_with(&[
-            ("CABIN_CACHE_DIR", "/tmp/from-env"),
-            ("CABIN_CACHE_HOME", "/tmp/cabin-home"),
-        ]);
-        let xdg = PathBuf::from("/tmp/xdg/cabin");
-        let out =
-            cache_dir_for_with_env(Some(Path::new("/tmp/from-flag")), &env, Some(&xdg)).unwrap();
-        // The `--cache-dir` and `CABIN_CACHE_DIR` arms absolutise
-        // their value; compare against the same absolutisation so the
-        // assertion holds on Windows (where `/tmp/from-flag` gains the
-        // current drive) as well as on Unix.
-        assert_eq!(out, absolutise(Path::new("/tmp/from-flag")).unwrap());
-    }
-
-    #[test]
-    fn cabin_cache_dir_env_wins_over_xdg() {
-        let env = env_with(&[
-            ("CABIN_CACHE_DIR", "/tmp/from-env"),
-            ("CABIN_CACHE_HOME", "/tmp/cabin-home"),
-        ]);
-        let xdg = PathBuf::from("/tmp/xdg/cabin");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
-        assert_eq!(out, absolutise(Path::new("/tmp/from-env")).unwrap());
-    }
-
-    #[test]
     fn cabin_cache_home_used_when_cabin_cache_dir_unset() {
         // CABIN_CACHE_HOME is a Cabin-specific override: it
         // resolves directly to its value with no `cabin`
@@ -1578,7 +1526,7 @@ mod tests {
         // path.
         let env = env_with(&[("CABIN_CACHE_HOME", "/tmp/cabin-home")]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
+        let out = user_cache_dir_with_env(&env, Some(&xdg)).unwrap();
         assert_eq!(out, PathBuf::from("/tmp/cabin-home"));
     }
 
@@ -1589,7 +1537,7 @@ mod tests {
         // Cabin uses it verbatim.
         let env = env_with(&[]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
+        let out = user_cache_dir_with_env(&env, Some(&xdg)).unwrap();
         assert_eq!(out, PathBuf::from("/tmp/xdg/cabin"));
     }
 
@@ -1599,38 +1547,27 @@ mod tests {
         // `$HOME/.cache`; the injected path simulates that.
         let env = env_with(&[]);
         let xdg = home_xdg_cache_home("/tmp/home");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
-        assert_eq!(out, PathBuf::from("/tmp/home/.cache/cabin"));
-    }
-
-    #[test]
-    fn empty_cabin_cache_dir_value_falls_through() {
-        // Empty-as-unset rule for CABIN_CACHE_DIR so a shell
-        // that exports the variable as empty doesn't
-        // short-circuit the XDG fallback.
-        let env = env_with(&[("CABIN_CACHE_DIR", "")]);
-        let xdg = home_xdg_cache_home("/tmp/home");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
+        let out = user_cache_dir_with_env(&env, Some(&xdg)).unwrap();
         assert_eq!(out, PathBuf::from("/tmp/home/.cache/cabin"));
     }
 
     #[test]
     fn empty_cabin_cache_home_value_falls_through_to_xdg() {
-        // Same empty-as-unset rule for CABIN_CACHE_HOME so a
-        // shell that exports the variable as empty doesn't
-        // short-circuit the XDG fallback.
+        // Empty-as-unset rule for CABIN_CACHE_HOME so a shell that
+        // exports the variable as empty doesn't short-circuit the
+        // XDG fallback.
         let env = env_with(&[("CABIN_CACHE_HOME", "")]);
         let xdg = PathBuf::from("/tmp/xdg/cabin");
-        let out = cache_dir_for_with_env(None, &env, Some(&xdg)).unwrap();
+        let out = user_cache_dir_with_env(&env, Some(&xdg)).unwrap();
         assert_eq!(out, PathBuf::from("/tmp/xdg/cabin"));
     }
 
     #[test]
     fn all_envs_unset_returns_error() {
-        // No CABIN_CACHE_HOME, no CABIN_CACHE_DIR, no xdg-resolved
-        // path (e.g.  HOME and XDG_CACHE_HOME both unset on the host).
+        // No CABIN_CACHE_HOME and no xdg-resolved path (e.g. HOME
+        // and XDG_CACHE_HOME both unset on the host).
         let env = env_with(&[]);
-        let err = cache_dir_for_with_env(None, &env, None).unwrap_err();
+        let err = user_cache_dir_with_env(&env, None).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("no cache directory"),
