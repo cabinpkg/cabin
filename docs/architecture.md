@@ -607,9 +607,11 @@ runs, fuzzes every target on the corpus the previous run kept and minimizes it. 
 
 - build seed archives through the real `cabin-package` staging path, so the seeds are what
   publish emits rather than hand-written bytes (the extraction seeds re-wrap those files under
-  one top directory, as an upstream release archive nests them);
+  one top directory, as an upstream release archive nests them), and seed patches through
+  `git diff`, which writes the upstream patches a port declares;
 - write only under `fuzz/seeds/` and `fuzz/corpus/`, apart from cargo-fuzz's `fuzz/artifacts/` and
-  private scratch directories (the generated package it stages, the campaign's logs and merge);
+  private scratch directories (the generated package it stages, the trees it diffs, the
+  campaign's logs and merge);
 - replay every target `cargo fuzz list` names, so none skips CI;
 - keep a fuzzed target's output off the console, past libFuzzer's numeric final stats, and drop a
   failed target's corpus before the workflow caches it: either can hold the input that crashed

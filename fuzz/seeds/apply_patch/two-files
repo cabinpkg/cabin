@@ -1,0 +1,21 @@
+diff --git a/src/demo.c b/src/demo.c
+index 520e1fb6cdfcbaffe2d6ac2d9f7ae582a0e84e37..cb345a63f17347e11a5176256c75cbb3704d415f 100644
+--- a/src/demo.c
++++ b/src/demo.c
+@@ -1,5 +1,3 @@
+-#include "demo.h"
+-
+ int demo(void) {
+     return 0;
+ }
+diff --git a/src/main.cpp b/src/main.cpp
+index ea448f1ca640b4412761758b16775a2c9f95a205..4c50d13b09a9fd116175e1422b6136a62275565f 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -1,5 +1,5 @@
+ #include "demo.h"
+ 
+ int main() {
+-    return demo();
++    return demo() + 1;
+ }

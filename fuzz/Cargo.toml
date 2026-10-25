@@ -29,6 +29,13 @@ tempfile = "3"
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 
 [[bin]]
+name = "apply_patch"
+path = "fuzz_targets/apply_patch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "extract_tar_gz"
 path = "fuzz_targets/extract_tar_gz.rs"
 test = false

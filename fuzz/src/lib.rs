@@ -6,7 +6,7 @@ use std::io::{self, Cursor, Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use cabin_artifact::{ArtifactError, SafeExtractOptions};
+use cabin_artifact::{ArtifactError, PatchInput, SafeExtractOptions};
 use cabin_core::Checksum;
 use cabin_registry_verify::{Limits, PendingVersion, Verdict, VerifyError, inspect_bytes};
 use flate2::Compression;
@@ -197,25 +197,165 @@ fn extract_in_scratch(
 }
 
 fn assert_files_and_dirs(dir: &Path) {
-    for entry in fs::read_dir(dir).expect("list an extracted directory") {
-        let path = entry.expect("list an extracted directory").path();
-        let metadata = fs::symlink_metadata(&path).expect("stat an extracted entry");
+    for entry in fs::read_dir(dir).expect("list a written directory") {
+        let path = entry.expect("list a written directory").path();
+        let metadata = fs::symlink_metadata(&path).expect("stat a written entry");
         if metadata.is_dir() {
             assert_files_and_dirs(&path);
         } else {
             assert!(
                 metadata.is_file(),
-                "an extraction left a link or special file: {path:?}"
+                "a tree holds a link or special file: {path:?}"
             );
             // A hard link is a regular file too, and may share its
-            // bytes with one outside the destination.
-            assert_eq!(
-                metadata.nlink(),
-                1,
-                "an extraction left a hard link: {path:?}"
-            );
+            // bytes with one outside the tree.
+            assert_eq!(metadata.nlink(), 1, "a tree holds a hard link: {path:?}");
         }
     }
+}
+
+/// The tree the patch target applies its input to: a C and C++
+/// package, one file without a trailing newline.  `cargo fuzz-seeds`
+/// writes its seed patches against a copy, and the harness's test
+/// checks that every one applies here.
+pub const PATCH_TREE: &[(&str, &str)] = &[
+    (
+        "cabin.toml",
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n",
+    ),
+    ("include/demo.h", "#pragma once\nint demo(void);"),
+    (
+        "src/demo.c",
+        "#include \"demo.h\"\n\nint demo(void) {\n    return 0;\n}\n",
+    ),
+    (
+        "src/main.cpp",
+        "#include \"demo.h\"\n\nint main() {\n    return demo();\n}\n",
+    ),
+];
+
+/// Apply `patch` to a fresh [`PATCH_TREE`], as the upstream
+/// materializer applies a declared patch, and require that whatever
+/// the applier decides, the tree stays directories and singly linked
+/// regular files and a file beside it stays as it was.  An accepted
+/// patch must also keep the grammar `cabin_artifact`'s patch module
+/// relies on: nothing before its first `@@` line opens a C or C++
+/// comment or raw string, splices lines, or starts a preprocessor
+/// directive, so nothing lexical hides `@@` from a compiler.
+///
+/// # Panics
+///
+/// When an application breaks any of that.
+pub fn assert_patch_contained(patch: &[u8]) {
+    let (scratch, result) = patch_in_scratch(patch);
+    let mut names: Vec<_> = fs::read_dir(scratch.path())
+        .expect("list the scratch directory")
+        .map(|entry| entry.expect("list the scratch directory").file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["root", "sentinel"], "a patch wrote beside its tree");
+    assert_eq!(
+        fs::read(scratch.path().join("sentinel")).expect("read the sentinel back"),
+        SENTINEL,
+        "a patch rewrote a file beside its tree"
+    );
+    assert_files_and_dirs(&scratch.path().join("root"));
+    if result.is_ok() {
+        assert_lexable_head(patch);
+    }
+}
+
+/// The file beside the patched tree.
+const SENTINEL: &[u8] = b"int sentinel;\n";
+
+/// A fresh scratch directory holding [`PATCH_TREE`] as `root` and
+/// [`SENTINEL`] beside it, with `patch` applied to `root`.
+fn patch_in_scratch(patch: &[u8]) -> (TempDir, Result<(), cabin_artifact::PatchError>) {
+    let scratch = tempfile::tempdir().expect("create a scratch directory");
+    let root = scratch.path().join("root");
+    for (path, text) in PATCH_TREE {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().expect("a tree path has a parent"))
+            .expect("create the tree");
+        fs::write(path, text).expect("write the tree");
+    }
+    fs::write(scratch.path().join("sentinel"), SENTINEL).expect("write the sentinel");
+    let input = PatchInput {
+        name: "fuzz.patch",
+        bytes: patch,
+    };
+    let result = cabin_artifact::apply_unified_patches(&root, &[input]);
+    (scratch, result)
+}
+
+/// What the patch module's grammar argument needs of an accepted patch:
+/// it has a hunk, and no line before the first `@@` opens a comment or
+/// raw string, splices lines, spells a trigraph, or starts a directive,
+/// so nothing lexical hides `@@` from a compiler; a construct that
+/// discards tokens needs code crafted around the diff, which this does
+/// not check. The checks are on bytes, inside string and character
+/// literals too, which spares lexing them: no other literal can span
+/// lines, and accepted header paths hold none of these bytes, quoted or
+/// not.
+fn assert_lexable_head(patch: &[u8]) {
+    // C's white space within a line, vertical tab included.
+    const C_BLANKS: &[u8] = b" \t\x0b\x0c";
+    // Compilers skip a leading byte order mark and end a line at a lone
+    // carriage return as well as at a newline.
+    let patch = patch.strip_prefix(b"\xef\xbb\xbf").unwrap_or(patch);
+    for line in patch.split(|byte| matches!(byte, b'\n' | b'\r')) {
+        if line.starts_with(b"@@") {
+            return;
+        }
+        let start = line
+            .iter()
+            .position(|byte| !C_BLANKS.contains(byte))
+            .unwrap_or(line.len());
+        let code = &line[start..];
+        assert!(
+            !code.starts_with(b"#") && !code.starts_with(b"%:"),
+            "an accepted patch can start a directive before its first hunk"
+        );
+        // A trigraph (`??/` is a backslash) is replaced before lexing.
+        assert!(
+            !line.contains(&b'?'),
+            "an accepted patch can spell a trigraph before its first hunk"
+        );
+        assert!(
+            !line.windows(2).any(|pair| pair == b"/*" || pair == b"//"),
+            "an accepted patch can open a comment before its first hunk"
+        );
+        // C++23 and GCC splice across white space after the backslash.
+        let end = line
+            .iter()
+            .rposition(|byte| !C_BLANKS.contains(byte))
+            .map_or(0, |at| at + 1);
+        assert!(
+            !line[..end].ends_with(b"\\"),
+            "an accepted patch can splice a line before its first hunk"
+        );
+        assert!(
+            !opens_raw_string(line),
+            "an accepted patch can open a raw string literal before its first hunk"
+        );
+    }
+    panic!("an accepted patch has no hunk");
+}
+
+/// Whether `line` holds a C++ raw string's opening `R"delim(`, which can
+/// span lines: at most 16 delimiter bytes, none a space, a control byte,
+/// a parenthesis, or a backslash.
+fn opens_raw_string(line: &[u8]) -> bool {
+    (0..line.len()).any(|at| {
+        let Some(rest) = line[at..].strip_prefix(b"R\"") else {
+            return false;
+        };
+        let delimiter = rest
+            .iter()
+            .take_while(|byte| byte.is_ascii_graphic() && !b"()\\".contains(byte))
+            .count();
+        delimiter <= 16 && rest.get(delimiter) == Some(&b'(')
+    })
 }
 
 #[cfg(test)]
@@ -237,7 +377,7 @@ mod tests {
     /// The oracle's own regression test: `is_file` alone passes a hard
     /// link.
     #[test]
-    #[should_panic(expected = "an extraction left a hard link")]
+    #[should_panic(expected = "a tree holds a hard link")]
     fn a_hard_linked_file_breaks_containment() {
         fn link_the_archive(
             archive: &Path,
@@ -269,6 +409,67 @@ mod tests {
             seen += 1;
         }
         assert!(seen > 0, "no seeds in {}", dir.display());
+    }
+
+    /// The grammar half of the patch oracle runs only on accepted
+    /// patches, so every patch seed must apply.
+    #[test]
+    fn every_patch_seed_applies() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("seeds/apply_patch");
+        let mut seen = 0;
+        for entry in fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let (_scratch, result) = patch_in_scratch(&fs::read(&path).unwrap());
+            assert!(result.is_ok(), "{}: {result:?}", path.display());
+            seen += 1;
+        }
+        assert!(seen > 0, "no seeds in {}", dir.display());
+    }
+
+    /// The oracle's own regression tests: each input it must flag hides
+    /// the first `@@` from a compiler, and the paths it must pass are
+    /// ones `git diff` writes.
+    #[test]
+    #[should_panic(expected = "an accepted patch can start a directive")]
+    fn a_directive_before_the_first_hunk_breaks_the_grammar() {
+        assert_lexable_head(b"#if 0\n@@ -1 +1 @@\n");
+    }
+
+    #[test]
+    fn quoted_and_apostrophe_paths_keep_the_grammar() {
+        assert_lexable_head(b"--- \"a/caf\\303\\251.c\"\n+++ \"b/caf\\303\\251.c\"\n@@ -1 +1 @@\n");
+        assert_lexable_head(b"--- a/it's.c\r\n+++ b/it's.c\r\n@@ -1 +1 @@\r\n");
+        assert_lexable_head(b"diff --git \"a/\\303\\251R\" \"b/\\303\\251R\"\n@@ -1 +1 @@\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "an accepted patch can open a comment")]
+    fn a_quote_in_a_literal_hides_no_comment() {
+        assert_lexable_head(b"int x = 1'0; int c = '\"'; /* \"\n@@ -1 +1 @@\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "an accepted patch can splice a line")]
+    fn white_space_after_a_backslash_still_splices() {
+        assert_lexable_head(b"char *s = \"\\ \x0b\n@@ -1 +1 @@\n\";\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "an accepted patch can start a directive")]
+    fn a_lone_carriage_return_starts_a_line() {
+        assert_lexable_head(b"int x;\r#if 0\n@@ -1 +1 @@\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "an accepted patch can start a directive")]
+    fn a_byte_order_mark_hides_no_directive() {
+        assert_lexable_head(b"\xef\xbb\xbf#if 0\n@@ -1 +1 @@\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "an accepted patch can open a raw string literal")]
+    fn a_raw_string_prefix_breaks_the_grammar() {
+        assert_lexable_head(b"--- R\"(a/x\n@@ -1 +1 @@\n");
     }
 
     /// The deep target's oracle is only exercised on verified archives,

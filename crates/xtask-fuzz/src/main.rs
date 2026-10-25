@@ -42,6 +42,70 @@ const MANIFEST_TREES: &[&str] = &["examples", "ports"];
 /// How long `cargo fuzz-campaign` fuzzes each target.
 const CAMPAIGN_SECONDS: u32 = 300;
 
+/// The harness's `PATCH_TREE` (`fuzz/src/lib.rs`), which the seed
+/// patches are diffs of; the harness's test checks that they apply.
+const PATCH_TREE: &[(&str, &str)] = &[
+    (
+        "cabin.toml",
+        "[package]\nname = \"demo\"\nversion = \"1.2.3\"\n",
+    ),
+    ("include/demo.h", "#pragma once\nint demo(void);"),
+    (
+        "src/demo.c",
+        "#include \"demo.h\"\n\nint demo(void) {\n    return 0;\n}\n",
+    ),
+    (
+        "src/main.cpp",
+        "#include \"demo.h\"\n\nint main() {\n    return demo();\n}\n",
+    ),
+];
+
+/// A path under [`PATCH_TREE`]'s root and its new contents, `None` deleting it.
+type Edit = (&'static str, Option<&'static str>);
+
+/// Each patch seed's edits to [`PATCH_TREE`].  The seed files carry no
+/// extension: global gitignores commonly ignore `*.patch` and `*.diff`.
+const PATCH_SEEDS: &[(&str, &[Edit])] = &[
+    (
+        "modify-c",
+        &[(
+            "src/demo.c",
+            Some("#include \"demo.h\"\n\nint demo(void) {\n    return 1;\n}\n"),
+        )],
+    ),
+    (
+        "modify-no-newline",
+        &[(
+            "include/demo.h",
+            Some("#pragma once\nint demo(void);\nint other(void);"),
+        )],
+    ),
+    (
+        "add-newline",
+        &[("include/demo.h", Some("#pragma once\nint demo(void);\n"))],
+    ),
+    (
+        "create",
+        &[("src/extra.c", Some("int extra(void) { return 2; }\n"))],
+    ),
+    // git quotes a non-ASCII path, as a C string literal.
+    (
+        "create-quoted",
+        &[("src/caf\u{e9}.c", Some("int cafe(void) { return 3; }\n"))],
+    ),
+    ("delete", &[("src/main.cpp", None)]),
+    (
+        "two-files",
+        &[
+            ("src/demo.c", Some("int demo(void) {\n    return 0;\n}\n")),
+            (
+                "src/main.cpp",
+                Some("#include \"demo.h\"\n\nint main() {\n    return demo() + 1;\n}\n"),
+            ),
+        ],
+    ),
+];
+
 #[derive(Parser)]
 enum Cli {
     /// Regenerate the seed corpora under `fuzz/seeds/`.
@@ -104,6 +168,8 @@ fn seeds(root: &Path) -> Result<()> {
     }
     write_seeds(&out.join("extract_zip"), &zips)?;
     write_seeds(&out.join("extract_tar_gz"), &tars)?;
+
+    write_seeds(&out.join("apply_patch"), &patch_seeds()?)?;
 
     let mut manifests = Vec::new();
     for tree in MANIFEST_TREES {
@@ -178,6 +244,64 @@ fn prefixed_tar(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
         )?;
     }
     Ok(tar.into_inner()?)
+}
+
+/// [`PATCH_SEEDS`] as `git diff` writes them, the producer upstream
+/// patches come from, plus the first without git's own header lines,
+/// the shape a plain `diff -u` writes.
+fn patch_seeds() -> Result<Vec<(String, Vec<u8>)>> {
+    let mut seeds = Vec::new();
+    for (name, edits) in PATCH_SEEDS {
+        let repo = tempfile::tempdir().context("creating a scratch directory")?;
+        let repo = repo.path();
+        for (path, text) in PATCH_TREE {
+            let path = repo.join(path);
+            fs::create_dir_all(path.parent().context("a tree path has a parent")?)?;
+            fs::write(path, text)?;
+        }
+        git(repo, &["init", "-q", "--object-format=sha1"])?;
+        git(repo, &["add", "."])?;
+        for (path, text) in *edits {
+            match text {
+                Some(text) => fs::write(repo.join(path), text)?,
+                None => fs::remove_file(repo.join(path))?,
+            }
+            // Intent to add, so the diff shows a created file.
+            if PATCH_TREE.iter().all(|(tree_path, _)| tree_path != path) {
+                git(repo, &["add", "-N", path])?;
+            }
+        }
+        let diff = git(repo, &["diff", "--full-index"])?;
+        ensure!(!diff.is_empty(), "the {name} patch seed is empty");
+        seeds.push(((*name).to_owned(), diff));
+    }
+    let plain = seeds[0]
+        .1
+        .split_inclusive(|byte| *byte == b'\n')
+        .filter(|line| !line.starts_with(b"diff --git ") && !line.starts_with(b"index "))
+        .flatten()
+        .copied()
+        .collect();
+    seeds.push(("plain-modify-c".to_owned(), plain));
+    Ok(seeds)
+}
+
+/// `git` in `repo`, without the user's or the system's config, which
+/// changes what `git diff` writes; its stdout.
+fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    // No inherited `GIT_*` variable, config, or attributes file shapes the seed bytes.
+    let output = Command::new("git")
+        .current_dir(repo)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_ATTR_NOSYSTEM", "1")
+        .args(args)
+        .output()
+        .with_context(|| format!("running `git {}`", args.join(" ")))?;
+    ensure!(output.status.success(), "`git {}` failed", args.join(" "));
+    Ok(output.stdout)
 }
 
 /// `examples/hello-c` -> `examples-hello-c`.

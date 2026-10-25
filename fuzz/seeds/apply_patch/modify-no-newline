@@ -1,0 +1,11 @@
+diff --git a/include/demo.h b/include/demo.h
+index 86cbbf60e98d7b3d4dec4740a9cf51058633a30d..6267f1d8ce96ff88b42ca4551fc1c9a8a78e30a8 100644
+--- a/include/demo.h
++++ b/include/demo.h
+@@ -1,2 +1,3 @@
+ #pragma once
+-int demo(void);
+\ No newline at end of file
++int demo(void);
++int other(void);
+\ No newline at end of file
