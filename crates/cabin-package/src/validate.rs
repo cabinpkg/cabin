@@ -208,12 +208,6 @@ pub fn validate_publishable(package: &Package) -> Result<(), PackageError> {
     Ok(())
 }
 
-/// Re-export the shared `cabin-core` predicate so
-/// existing callers that already pulled `cabin_package::is_path_safe_package_name`
-/// keep compiling.  New code should call `cabin_core::is_path_safe_package_name`
-/// directly.
-pub use cabin_core::is_path_safe_package_name;
-
 /// Verify that a manifest-relative path stays inside the package
 /// root, *lexically*.  Symlinks and other filesystem trickery are
 /// caught later, during archive enumeration.

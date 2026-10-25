@@ -5,7 +5,7 @@ use cabin_core::{
     LanguageStandardSettings, Package, ProfileDefinition, ProfileName, ProfileSettings,
     StandardsMetadata, SystemDependency, ToolchainSettings,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::error::PackageError;
 
@@ -88,7 +88,7 @@ pub struct PackageMetadata {
     /// so future resolver work can read requirements without
     /// extracting the archive; pkg-config-style local build state
     /// never lands here.  Omitted when the manifest declares none.
-    #[serde(default, skip_serializing_if = "LanguageStandardSettings::is_empty")]
+    #[serde(skip_serializing_if = "LanguageStandardSettings::is_empty")]
     pub language: LanguageStandardSettings,
     /// Declared per-target standard-compatibility table (spec D9
     /// `ReqOf`, header-only inference applied), mirroring the index
@@ -97,7 +97,7 @@ pub struct PackageMetadata {
     /// library-like targets (absence = unconstrained).  See
     /// [`cabin_core::StandardsMetadata`] and
     /// `docs/design/standard-compatibility/registry-index.md`.
-    #[serde(default, skip_serializing_if = "StandardsMetadata::is_empty")]
+    #[serde(skip_serializing_if = "StandardsMetadata::is_empty")]
     pub standards: StandardsMetadata,
     /// Declared per-target native-library identity claims
     /// (`[target.<name>] links = "z"`), keyed by target name, so the
@@ -107,7 +107,7 @@ pub struct PackageMetadata {
     /// are a subset of the `standards` table's rows.  Omitted when
     /// no target declares one so older documents stay byte-identical
     /// (absence = no claims).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<String, String>,
     /// Manifest-declared `[package.upstream]` provenance (the URL in
     /// its normalized `url`-crate serialization), preserved so the
@@ -115,7 +115,7 @@ pub struct PackageMetadata {
     /// against the pinned upstream archive.  Omitted when the
     /// manifest declares none so older readers and packages without
     /// provenance see the same shape they always have.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream: Option<cabin_core::UpstreamProvenance>,
     pub yanked: bool,
     pub checksum: cabin_core::Checksum,
@@ -123,17 +123,15 @@ pub struct PackageMetadata {
 }
 
 /// On-disk shape of one `system-dependencies` entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SystemDependencyEntry {
     pub version: String,
     /// Dependency table the system declaration came from.
-    /// Defaults to `normal` for older package metadata.
-    #[serde(default)]
     pub dependency_kind: DependencyKind,
     /// Canonical inner-expression form of an optional `cfg(...)`
     /// predicate.  Omitted from the JSON when absent so older
     /// readers see the same shape they always have.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
 }
 
@@ -156,37 +154,33 @@ impl SystemDependencyEntry {
 /// as a string so existing readers and existing on-disk metadata
 /// stay byte-identical.  Anything that needs the richer fields
 /// serializes as a table.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum PackageDependencyEntry {
     Bare(String),
     Rich(PackageDependencyTable),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackageDependencyTable {
     pub version: String,
     /// Whether this dependency is optional (only included when
     /// enabled by a feature).  Omitted when `false`.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "is_false")]
     pub optional: bool,
     /// Per-edge feature requests.  Omitted when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
     /// Whether this edge requests the dependency's `default`
     /// feature.  Defaults to `true`; the field is omitted when
     /// `true` so the on-disk shape stays compact.
-    #[serde(
-        default = "default_true",
-        rename = "default-features",
-        skip_serializing_if = "is_true"
-    )]
+    #[serde(rename = "default-features", skip_serializing_if = "is_true")]
     pub default_features: bool,
     /// Canonical inner-expression form of an optional `cfg(...)`
-    /// predicate (e.g. `os = "linux"`).  Round-tripped through
+    /// predicate (e.g. `os = "linux"`).  Serialized through
     /// `Condition`'s string serde.  Omitted when absent so older
     /// metadata stays byte-identical.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<Condition>,
 }
 
@@ -201,9 +195,6 @@ fn is_false(value: &bool) -> bool {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_true(value: &bool) -> bool {
     *value
-}
-fn default_true() -> bool {
-    true
 }
 
 impl PackageDependencyEntry {
@@ -230,14 +221,6 @@ impl PackageDependencyEntry {
             default_features: dep.default_features,
             target: dep.condition.clone(),
         }))
-    }
-
-    /// The version requirement string this entry encodes.
-    pub fn version(&self) -> &str {
-        match self {
-            PackageDependencyEntry::Bare(v) => v.as_str(),
-            PackageDependencyEntry::Rich(t) => t.version.as_str(),
-        }
     }
 }
 
