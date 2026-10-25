@@ -258,19 +258,7 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
     }
     for step in &upstream.copy {
         for path in [step.from.as_str(), step.to.as_str()] {
-            // 256 / 255 mirror the client's archive-path and
-            // `NAME_MAX` component caps.
-            let unsafe_shape = path.is_empty()
-                || path.len() > 256
-                || path.starts_with('/')
-                || path.contains('\\')
-                || path.split('/').any(|component| {
-                    component.is_empty()
-                        || component.len() > 255
-                        || component == "."
-                        || component == ".."
-                });
-            if unsafe_shape {
+            if unsafe_relative_path(path) {
                 return Err(INVALID_UPSTREAM_COPY_PATH);
             }
         }
@@ -302,11 +290,7 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
             if first == second {
                 continue;
             }
-            let (first_folded, second_folded) = (collision_fold(first), collision_fold(second));
-            let conflicting = first_folded == second_folded
-                || second_folded.starts_with(&format!("{first_folded}/"))
-                || first_folded.starts_with(&format!("{second_folded}/"));
-            if conflicting {
+            if folded_paths_conflict(&collision_fold(first), &collision_fold(second)) {
                 return Err(INVALID_UPSTREAM_COPY_PATH);
             }
         }
@@ -314,11 +298,6 @@ fn validate_upstream(upstream: &UpstreamMetadata) -> Result<(), &'static str> {
     validate_upstream_patches(&upstream.patches, &plan_paths)
 }
 
-/// Lexical mirror of the client's patch-path rules: the same path
-/// shape as copy paths, and the guaranteed-dead-end conflict set - a
-/// patch path is excluded from the verifier's tree comparison, so
-/// any collision (byte-identical, case-folded, or nesting) with a
-/// copy path, another patch, or the root manifest is rejected.
 /// The collision fold shared with the client (`cabin-core`'s
 /// `collision_fold`): full Unicode lowercase plus NFC normalization,
 /// so declarations whose spellings alias on a case- or
@@ -332,24 +311,38 @@ fn collision_fold(value: &str) -> String {
     }
 }
 
+/// The lexical shape shared by copy and patch paths. 256 / 255 mirror
+/// the client's archive-path and `NAME_MAX` component caps; the finer
+/// portability rules stay client-side.
+fn unsafe_relative_path(path: &str) -> bool {
+    path.is_empty()
+        || path.len() > 256
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path.split('/').any(|component| {
+            component.is_empty() || component.len() > 255 || component == "." || component == ".."
+        })
+}
+
+/// Whether two [`collision_fold`]ed paths alias or one is a parent
+/// directory of the other.
+fn folded_paths_conflict(first: &str, second: &str) -> bool {
+    first == second
+        || second.starts_with(&format!("{first}/"))
+        || first.starts_with(&format!("{second}/"))
+}
+
+/// Lexical mirror of the client's patch-path rules: the same path
+/// shape as copy paths, and the guaranteed-dead-end conflict set - a
+/// patch path is excluded from the verifier's tree comparison, so
+/// any collision (byte-identical, case-folded, or nesting) with a
+/// copy path, another patch, or the root manifest is rejected.
 fn validate_upstream_patches(patches: &[String], plan_paths: &[&str]) -> Result<(), &'static str> {
     if patches.len() > MAX_UPSTREAM_PATCH_FILES {
         return Err(TOO_MANY_UPSTREAM_PATCHES);
     }
     for (index, patch) in patches.iter().enumerate() {
-        // Same lexical path shape as copy paths (256 / 255 caps, no
-        // escapes); portability finer points stay client-side.
-        let unsafe_shape = patch.is_empty()
-            || patch.len() > 256
-            || patch.starts_with('/')
-            || patch.contains('\\')
-            || patch.split('/').any(|component| {
-                component.is_empty()
-                    || component.len() > 255
-                    || component == "."
-                    || component == ".."
-            });
-        if unsafe_shape {
+        if unsafe_relative_path(patch) {
             return Err(INVALID_UPSTREAM_PATCH_PATH);
         }
         let patch_folded = collision_fold(patch);
@@ -359,11 +352,7 @@ fn validate_upstream_patches(patches: &[String], plan_paths: &[&str]) -> Result<
             .chain(plan_paths.iter().copied())
             .chain(std::iter::once("cabin.toml"));
         for other in others {
-            let other_folded = collision_fold(other);
-            let conflicting = patch_folded == other_folded
-                || other_folded.starts_with(&format!("{patch_folded}/"))
-                || patch_folded.starts_with(&format!("{other_folded}/"));
-            if conflicting {
+            if folded_paths_conflict(&patch_folded, &collision_fold(other)) {
                 return Err(INVALID_UPSTREAM_PATCH_PATH);
             }
         }
@@ -1085,6 +1074,7 @@ mod tests {
             r#"[{"from": "a", "to": "README"}, {"from": "b", "to": "readme"}]"#,
             r#"[{"from": "README", "to": "a"}, {"from": "readme", "to": "b"}]"#,
             r#"[{"from": "a", "to": "generated"}, {"from": "b", "to": "generated/config.h"}]"#,
+            r#"[{"from": "a", "to": "generated/config.h"}, {"from": "b", "to": "generated"}]"#,
         ] {
             let body = upstream_metadata_json(&format!(
                 r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "copy": {copies}}}"#
@@ -1124,12 +1114,18 @@ mod tests {
 
     #[test]
     fn validate_metadata_rejects_unsafe_upstream_patch_paths() {
+        let overlong_component = "a".repeat(256);
+        let overlong_path = format!("{}/{}", "d".repeat(200), "f".repeat(60));
         for patch in [
             "",
             "../escape.patch",
             "/abs.patch",
             "patches\\a.patch",
             "a/../b.patch",
+            "./a.patch",
+            "patches//a.patch",
+            overlong_component.as_str(),
+            overlong_path.as_str(),
         ] {
             let body = upstream_metadata_json(&format!(
                 r#"{{"url": "https://example.com/a.zip", "checksum": "sha256:{UPSTREAM_SHA}", "format": "zip", "patches": [{patch:?}]}}"#
@@ -1157,6 +1153,7 @@ mod tests {
             r#""patches": ["scripts"], "copy": [{"from": "scripts/config.h.prebuilt", "to": "config.h"}]"#,
             r#""patches": ["cabin.toml"]"#,
             r#""patches": ["patches", "patches/a.patch"]"#,
+            r#""patches": ["patches/a.patch", "patches"]"#,
         ];
         for case in cases {
             let body = upstream_metadata_json(&format!(
