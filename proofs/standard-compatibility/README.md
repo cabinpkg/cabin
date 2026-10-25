@@ -10,13 +10,13 @@ weaken either side silently.
 
 The project is a standalone Lake package.  It is not part of the Cargo workspace or the main
 build; CI checks it through the dedicated `Proofs` workflow
-(`.github/workflows/proofs.yml`), which runs `lake build` when `docs/proofs/` or the spec
+(`.github/workflows/proofs.yml`), which runs `lake build` when `proofs/` or the spec
 changes.
 
 ## Checking the proofs
 
 ```sh
-cd docs/proofs/standard-compatibility
+cd proofs/standard-compatibility
 lake build
 ```
 

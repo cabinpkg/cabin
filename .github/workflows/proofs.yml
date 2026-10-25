@@ -1,6 +1,6 @@
 name: Proofs
 
-# Checks the Lean mechanization under docs/proofs/standard-compatibility.
+# Checks the Lean mechanization under proofs/standard-compatibility.
 
 # No job here backs a required check, so scoping happens at the
 # trigger: a filtered-out run blocks nothing. There is no merge_group
@@ -10,12 +10,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/proofs/**"
+      - "proofs/**"
       - "docs/design/standard-compatibility/**"
       - ".github/workflows/proofs.yml"
   pull_request:
     paths:
-      - "docs/proofs/**"
+      - "proofs/**"
       - "docs/design/standard-compatibility/**"
       - ".github/workflows/proofs.yml"
 
@@ -40,4 +40,4 @@ jobs:
 
       - uses: leanprover/lean-action@24581d74d674803a25a81b10b059c5c0cdd344c6 # v1.6.2
         with:
-          lake-package-directory: docs/proofs/standard-compatibility
+          lake-package-directory: proofs/standard-compatibility
