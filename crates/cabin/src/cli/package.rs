@@ -468,6 +468,10 @@ fn publish_batch_to_remote_registry(
             None => bail!(no_api()),
         },
     };
+    reporter.aux_verbose(format_args!(
+        "cabin: registry api = {}",
+        cabin_core::escape_control_chars(api)
+    ));
 
     // Baselines and publish lints for the WHOLE batch before the
     // first upload: a lint rejection (or a broken baseline read)

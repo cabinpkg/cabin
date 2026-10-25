@@ -288,6 +288,8 @@ except loopback hosts (`127.0.0.0/8`, `::1`, `localhost`), which keeps local tes
 The [trusted-publishing](#publishing-from-github-actions) leg is the one variation: there the
 client discovers `api` from an *unauthenticated* `config.json` read (it has no token yet) and
 presents the run's OIDC token to that origin's exchange route to obtain one.
+`cabin publish -v` and `cabin yank -v` name the `api` URL they send the mutation to
+(`cabin: registry api = <api>`, on stderr).
 Client-side error mapping: a `401` without a stored credential advises
 `cabin login --index-url <origin>` (the actionable path to a working read); a `401` despite one
 reports the token as rejected (revoked or expired); a `403` reports a missing scope.  On an

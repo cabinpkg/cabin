@@ -2294,14 +2294,20 @@ fn publish_sends_the_token_to_the_config_declared_api_origin() {
     let home = dir.path().join("config-home");
     write_session_credentials(&home, &index_server.url, TEST_TOKEN);
 
+    // `-v` names the discovered api origin, so the destination is
+    // visible from the client side too.
     cabin()
-        .args(["-Z", "remote-registry", "publish", "--index-url"])
+        .args(["-v", "-Z", "remote-registry", "publish", "--index-url"])
         .arg(&index_server.url)
         .args(["--manifest-path"])
         .arg(dir.path().join("cabin.toml"))
         .env("CABIN_CONFIG_HOME", &home)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "cabin: registry api = {}",
+            api_server.url
+        )));
 
     let api_puts = api_server.puts.lock().unwrap();
     assert_eq!(api_puts.len(), 1, "exactly one publish, on the api origin");
@@ -2582,6 +2588,7 @@ fn yank_and_undo_patch_the_yank_route() {
 
     let assertion = cabin()
         .args([
+            "-v",
             "-Z",
             "remote-registry",
             "yank",
@@ -2591,7 +2598,11 @@ fn yank_and_undo_patch_the_yank_route() {
         .arg(&server.url)
         .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "cabin: registry api = {}",
+            server.url
+        )));
     let stdout = String::from_utf8_lossy(&assertion.get_output().stdout).to_string();
     assert!(
         stdout.contains("fmtlib/fmt@10.2.1 is now yanked"),
@@ -2632,6 +2643,39 @@ fn yank_and_undo_patch_the_yank_route() {
             "the yank must carry the bearer credential"
         );
     }
+}
+
+/// The `-v` api line quotes the registry's own `config.json`, so a
+/// control character in `api` is escaped, not written to the terminal.
+#[test]
+fn yank_verbose_escapes_the_registry_declared_api() {
+    let dir = TempDir::new().unwrap();
+    // `\u001b` decodes to ESC, and `ESC [ 2 K` erases the terminal line.
+    write_registry(
+        dir.path(),
+        r#",
+    "api": "http://127.0.0.1:9/\u001b[2Khidden""#,
+    );
+    let server = AuthRegistryServer::serve(dir.path().to_path_buf(), TEST_TOKEN);
+    let assertion = cabin()
+        .args([
+            "-v",
+            "-Z",
+            "remote-registry",
+            "yank",
+            "fmtlib/fmt@10.2.1",
+            "--index-url",
+        ])
+        .arg(&server.url)
+        .env("CABIN_REGISTRY_TOKEN", TEST_TOKEN)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("\u{1b}").not());
+    let stderr = String::from_utf8_lossy(&assertion.get_output().stderr).to_string();
+    assert!(
+        stderr.contains(r"cabin: registry api = http://127.0.0.1:9/\u{1b}[2Khidden"),
+        "expected the escaped api in: {stderr}"
+    );
 }
 
 /// A `404` from the yank route maps to the not-published error.
