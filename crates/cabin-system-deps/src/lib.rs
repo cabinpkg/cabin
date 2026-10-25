@@ -120,27 +120,7 @@ impl PkgConfigTool {
     /// `pkg-config --version` fails with `NotFound`, and
     /// [`PkgConfigError::InvocationFailed`] for any other spawn error.
     pub fn check_available(&self) -> Result<(), PkgConfigError> {
-        let mut cmd = Command::new(&self.executable);
-        // The registry credential is Cabin's input, not
-        // pkg-config's: scrub it so the spawned tool can never
-        // read the token.
-        cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
-        cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-        cmd.arg("--version");
-        self.apply_extra_env(&mut cmd);
-        match cmd.output() {
-            Ok(_) => Ok(()),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Err(PkgConfigError::ExecutableNotFound {
-                    executable: self.executable.to_string_lossy().into_owned(),
-                })
-            }
-            Err(err) => Err(PkgConfigError::InvocationFailed {
-                executable: self.executable.to_string_lossy().into_owned(),
-                stage: "--version".to_owned(),
-                detail: err.to_string(),
-            }),
-        }
+        run_pkg_config(self, "--version", [OsString::from("--version")]).map(|_| ())
     }
 
     fn apply_extra_env(&self, cmd: &mut Command) {
@@ -794,8 +774,9 @@ where
     I: IntoIterator<Item = OsString>,
 {
     let mut cmd = Command::new(&tool.executable);
-    // Same scrub as `check_available`: the spawned pkg-config must
-    // never see the registry credential.
+    // The registry credential is Cabin's input, not
+    // pkg-config's: scrub it so the spawned tool can never
+    // read the token.
     cmd.env_remove(cabin_env::CABIN_REGISTRY_TOKEN);
     cmd.env_remove(cabin_env::ACTIONS_ID_TOKEN_REQUEST_TOKEN);
     cmd.args(args);
