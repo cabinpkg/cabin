@@ -27,32 +27,12 @@ use cabin_registry_worker::sql;
 
 use crate::common::migrated_connection;
 
-/// Statements `rusqlite` cannot prepare because they need a D1-only
-/// construct. Deliberately empty - D1 speaks `SQLite`'s dialect for
-/// everything the service executes today - and every future entry must
-/// carry a rationale comment plus its own dedicated test.
-const EXCLUDED_D1_ONLY: &[&str] = &[];
-
 #[test]
 fn every_executed_statement_prepares_against_the_migrated_schema() {
     let conn = migrated_connection();
     for statement in sql::ALL.iter().flat_map(|group| group.iter()) {
-        if EXCLUDED_D1_ONLY.contains(statement) {
-            continue;
-        }
         if let Err(err) = conn.prepare(statement) {
             panic!("statement does not prepare against the migrated schema: {err}\n  {statement}");
         }
-    }
-}
-
-#[test]
-fn exclusions_are_executed_statements() {
-    // A stale or misspelled exclusion would silently weaken coverage.
-    for excluded in EXCLUDED_D1_ONLY {
-        assert!(
-            sql::ALL.iter().any(|group| group.contains(excluded)),
-            "EXCLUDED_D1_ONLY entry is not in sql::ALL: {excluded}"
-        );
     }
 }

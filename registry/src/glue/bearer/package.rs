@@ -1008,7 +1008,7 @@ async fn cas_bucket(
         ])?
         .run()
         .await?;
-    Ok(result.meta()?.and_then(|meta| meta.changes).unwrap_or(0) > 0)
+    Ok(changed_rows(result.meta()?) > 0)
 }
 
 /// Gathers the [`quota::PublishCounts`] for one prospective publish in a

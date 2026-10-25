@@ -85,7 +85,7 @@ statements! {
     /// existing revision of `(scope, name, version)`, deterministic
     /// for the re-read after a lost in-batch race.
     EXISTING_REVISIONS =
-        "SELECT revision, checksum, verification, published_at FROM revisions \
+        "SELECT revision, checksum, verification FROM revisions \
          WHERE scope = ?1 AND name = ?2 AND version = ?3 ORDER BY revision";
 
     /// One live (pending or verified) sibling's stored document, for
