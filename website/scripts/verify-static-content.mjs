@@ -167,6 +167,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
             ),
             "server-renders at least one usable /packages/ link",
         );
+        // scripts/search.ts re-paginates into this element, even when
+        // the static render has a single page.
+        search.expect(
+            search.html.includes('id="pagination"'),
+            "ships the #pagination element the search script fills",
+        );
     }
     {
         // Expected package pages come from the ports tree - the same
