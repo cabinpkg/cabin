@@ -120,6 +120,8 @@ export type FetchLike = (
     init?: RequestInit,
 ) => Promise<Response>;
 
+export const browserFetch: FetchLike = (input, init) => fetch(input, init);
+
 export type ApiResult<T> =
     | { ok: true; data: T }
     // status 0 means the fetch itself failed (registry unreachable).
@@ -216,6 +218,11 @@ export function searchPackages(
     );
 }
 
+// The `<scope>/<name>` grammar, mirrored from the registry's route
+// validation: everything it admits is URL-path-safe verbatim.
+export const PACKAGE_NAME_PATTERN =
+    /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/[a-z0-9][a-z0-9_-]*$/;
+
 // The scope and name ride the path unencoded: callers validate them
 // against the registry grammars first (percent-escapes would fail the
 // server's charset checks), exactly like the source viewer's route.
@@ -283,6 +290,6 @@ export function asOutcome<T>(result: ApiResult<T>): Outcome<T> {
 let sharedAuthState: Promise<AuthState> | undefined;
 
 export function sharedAuth(): Promise<AuthState> {
-    sharedAuthState ??= resolveAuth((input, init) => fetch(input, init));
+    sharedAuthState ??= resolveAuth(browserFetch);
     return sharedAuthState;
 }

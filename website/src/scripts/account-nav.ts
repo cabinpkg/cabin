@@ -3,10 +3,8 @@
 // account menu (a disclosure: Dashboard / Profile / Sign out) when the
 // session-cookie probe answers signed-in. On error or with
 // the registry unreachable the static default stays.
-import { type FetchLike, sharedAuth, signOut } from "../lib/account.ts";
+import { browserFetch, sharedAuth, signOut } from "../lib/account.ts";
 import { loadAvatar } from "../lib/avatar.ts";
-
-const doFetch: FetchLike = (input, init) => fetch(input, init);
 
 function wireMenu(nav: HTMLElement): void {
     const button = nav.querySelector("[data-account-menu-button]");
@@ -44,7 +42,7 @@ function wireMenu(nav: HTMLElement): void {
     if (signout instanceof HTMLButtonElement) {
         signout.addEventListener("click", async () => {
             signout.disabled = true;
-            const result = await signOut(doFetch);
+            const result = await signOut(browserFetch);
             // A 401 means the session is already gone - that IS signed
             // out. Anything else failed; let the user retry.
             if (result.ok || result.status === 401) {

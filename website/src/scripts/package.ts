@@ -4,37 +4,22 @@
 // routes. Everything renders via textContent - never markup.
 import {
     asOutcome,
-    type FetchLike,
+    browserFetch,
     getPackageDetail,
     getReverseDependencies,
+    PACKAGE_NAME_PATTERN,
     type PackageDetail,
     type ReverseDependent,
 } from "../lib/account.ts";
-import { bootAccountShell } from "../lib/accountShell";
+import { bootAccountShell, setText } from "../lib/accountShell";
 import { ACCOUNT_URLS } from "../lib/constants";
 import { formatCount, formatRelativeTime } from "../lib/format";
-
-// The package-name grammar, mirrored from the registry's route
-// validation: everything it admits is URL-path-safe verbatim, so the
-// API paths are interpolated unencoded (percent-escapes would fail the
-// server's charset checks).
-const NAME_PATTERN =
-    /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?\/[a-z0-9][a-z0-9_-]*$/;
-
-const doFetch: FetchLike = (input, init) => fetch(input, init);
 
 const params = new URLSearchParams(window.location.search);
 const packageName = params.get("name") ?? "";
 
 function detailHref(full: string): string {
     return `${ACCOUNT_URLS.package}?name=${encodeURIComponent(full)}`;
-}
-
-function setText(root: HTMLElement, selector: string, text: string): void {
-    const target = root.querySelector(selector);
-    if (target instanceof HTMLElement) {
-        target.textContent = text;
-    }
 }
 
 function renderVersions(root: HTMLElement, detail: PackageDetail): void {
@@ -105,7 +90,7 @@ function renderDependencies(root: HTMLElement, detail: PackageDetail): void {
         const row = template.content.cloneNode(true) as DocumentFragment;
         // Only a canonical scoped name has a detail page to link to; a
         // key outside the grammar renders as plain text.
-        const slot = NAME_PATTERN.test(name) ? "link" : "name";
+        const slot = PACKAGE_NAME_PATTERN.test(name) ? "link" : "name";
         const target = row.querySelector(`[data-slot="${slot}"]`);
         if (target instanceof HTMLElement) {
             target.textContent = name;
@@ -159,7 +144,7 @@ function renderDependents(
 }
 
 bootAccountShell(async (shell) => {
-    if (!NAME_PATTERN.test(packageName)) {
+    if (!PACKAGE_NAME_PATTERN.test(packageName)) {
         shell.show("error", "missing or malformed package name");
         return;
     }
@@ -168,8 +153,8 @@ bootAccountShell(async (shell) => {
     const scope = packageName.slice(0, slash);
     const name = packageName.slice(slash + 1);
     const [detail, dependents] = await Promise.all([
-        getPackageDetail(doFetch, scope, name),
-        getReverseDependencies(doFetch, scope, name),
+        getPackageDetail(browserFetch, scope, name),
+        getReverseDependencies(browserFetch, scope, name),
     ]);
     const detailOutcome = asOutcome(detail);
     const dependentsOutcome = asOutcome(dependents);
