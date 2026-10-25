@@ -30,7 +30,15 @@ CREATE TABLE users (
     -- take. One bucket per user: every token the user holds draws on
     -- it, so minting more tokens buys no more burst.
     rl_tokens REAL,
-    rl_updated_at TEXT
+    rl_updated_at TEXT,
+    -- Exact tallies of the rows the per-user quotas count: packages
+    -- with created_by = id, and archive_size summed over revisions with
+    -- published_by = id that are not rejected. Every batch that writes
+    -- such a row adjusts them in the same transaction (src/sql/quota.rs),
+    -- so the publish preflight reads one row instead of the account's
+    -- whole history (docs/runbook.md, "Quota tallies").
+    package_count INTEGER NOT NULL DEFAULT 0,
+    stored_bytes INTEGER NOT NULL DEFAULT 0
 );
 
 -- One row per external account that ever signed in. The numeric
@@ -292,7 +300,13 @@ CREATE TABLE packages (
     created_by INTEGER NOT NULL REFERENCES users,
     PRIMARY KEY (scope, name)
 );
-CREATE INDEX packages_created_by ON packages (created_by);
+-- created_at serves the created-today quota count as a range scan.
+CREATE INDEX packages_created_by ON packages (created_by, created_at);
+-- The `-`/`_` twin guards' lookup; the expression must stay identical
+-- to theirs (src/sql/quota.rs, src/sql/packages.rs) to be used, and
+-- `name` makes it covering, without which the planner prefers scanning
+-- the whole scope through the primary key.
+CREATE INDEX packages_folded_name ON packages (scope, REPLACE(name, '_', '-'), name);
 
 -- The resolution-level unit: one row per published version string.
 -- Yank state and the download counter are version-level concepts

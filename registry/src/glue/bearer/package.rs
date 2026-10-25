@@ -524,6 +524,8 @@ async fn persist_new_revision(
                 new.published_at.into(),
                 js_int(new.user_id),
             ])?,
+            db.prepare(sql::COUNT_USER_PACKAGE)
+                .bind(&[js_int(new.user_id)])?,
             db.prepare(sql::INSERT_VERSION_ROW).bind(&[
                 new.scope.into(),
                 new.name.into(),
@@ -547,10 +549,12 @@ async fn persist_new_revision(
                 new.checksum.into(),
                 new.metadata_text.into(),
                 new.published_at.into(),
-                archive_size,
+                archive_size.clone(),
                 js_int(new.user_id),
                 opt_in,
             ])?,
+            db.prepare(sql::COUNT_USER_STORED_BYTES)
+                .bind(&[js_int(new.user_id), archive_size])?,
         ])
         .await?;
     // The revision insert changes zero rows under the in-batch guards
@@ -559,11 +563,12 @@ async fn persist_new_revision(
     // revision key first, or the opt-in guard refused an unflagged
     // respin racing a live sibling; the accounting statement ran
     // just before it against the same pre-insert state under the
-    // same guards, so it added nothing then either.  The caller
+    // same guards, so it added nothing then either, and the per-user
+    // tally after it reads the insert's own `changes()`.  The caller
     // re-reads to tell the cases apart.
     let revision_insert = results
-        .get(3)
-        .ok_or_else(|| worker::Error::RustError("missing batch result 3".to_owned()))?;
+        .get(4)
+        .ok_or_else(|| worker::Error::RustError("missing batch result 4".to_owned()))?;
     if changed_rows(revision_insert.meta()?) == 0 {
         return Ok(Persist::Lost);
     }
@@ -708,7 +713,7 @@ async fn revive_rejected_revision(
                 new.version.into(),
                 new.checksum.into(),
                 new.checksum.into(),
-                archive_size,
+                archive_size.clone(),
                 new.revision.into(),
                 opt_in.clone(),
                 new.metadata_text.into(),
@@ -725,6 +730,8 @@ async fn revive_rejected_revision(
                 new.revision.into(),
                 new.checksum.into(),
             ])?,
+            db.prepare(sql::COUNT_USER_STORED_BYTES)
+                .bind(&[js_int(new.user_id), archive_size])?,
         ])
         .await?;
     let row_flip = results
@@ -1012,8 +1019,9 @@ async fn cas_bucket(
 }
 
 /// Gathers the [`quota::PublishCounts`] for one prospective publish in a
-/// single D1 batch - every statement is a point lookup or an aggregate
-/// over an indexed column - plus whether the name has a `-`/`_` twin in
+/// single D1 batch - point lookups and index ranges over one package or
+/// today's rows, never a scan of the account's or the scope's history
+/// (`docs/runbook.md`, "Quota tallies") - plus whether the name has a `-`/`_` twin in
 /// the scope (the deterministic reject the caller renders when the
 /// package would be new; a preflight only - the persistence batch
 /// repeats the guard transactionally).
@@ -1033,8 +1041,12 @@ async fn publish_counts(
             // Both package quotas key on creation (`created_by`), so a
             // version published into someone else's package never counts
             // against the publisher's package quotas.
-            db.prepare(sql::USER_PACKAGE_COUNTS)
-                .bind(&[js_int(user_id), day_prefix.into()])?,
+            db.prepare(sql::USER_PACKAGE_COUNTS).bind(&[
+                js_int(user_id),
+                day_prefix.into(),
+                scope.into(),
+                name.into(),
+            ])?,
             db.prepare(sql::COUNT_PACKAGE_VERSIONS_SINCE).bind(&[
                 scope.into(),
                 name.into(),
@@ -1061,7 +1073,7 @@ async fn publish_counts(
     Ok((counts, twin_rows.n > 0))
 }
 
-/// The single row of one aggregate statement in a batch result.
+/// The single row of one statement in a batch result.
 fn first_row<T: serde::de::DeserializeOwned>(
     results: &[worker::D1Result],
     index: usize,

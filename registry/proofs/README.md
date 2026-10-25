@@ -75,12 +75,12 @@ State:
 | `PubStart` | `package.rs` `revision_disposition` | `EXISTING_REVISIONS`; decides no-op `200`, `409` new-revision-required, revive, or new |
 | `PubAnswer` | the `Answered` arms; `heal_blobs_on_retry` on the `200` | no D1 write; the no-op heads and re-puts its blob |
 | `PubStore` | `now_iso8601()` sampled (before the quota reads and the storage work; a revival may sample its row's current stamp again, the clock-skew case `ReviveGuard` refuses), then `persist_new_revision` head-then-put or `revive_rejected_revision` unconditional put; or the governor refuses admission or the reservation, or the put fails | governor reserve (idempotent per key), `bucket.put`; a reservation taken before a failed put stays |
-| `PubBatch` | the `db.batch` in both write paths, `changed_rows == 0` as `Persist::Lost`; a failed batch or a request that dies after the upload | `INSERT_PACKAGE`, `INSERT_VERSION_ROW`, `COUNT_STORED_BYTES_ON_PUBLISH`, `INSERT_REVISION`; or `COUNT_STORED_BYTES_ON_REVIVAL`, `REVIVE_REJECTED_REVISION` (`published_at < ?`: the stamp must advance) - one transaction, guards evaluated against the rows as they are then |
+| `PubBatch` | the `db.batch` in both write paths, `changed_rows == 0` as `Persist::Lost`; a failed batch or a request that dies after the upload | `INSERT_PACKAGE`, `COUNT_USER_PACKAGE`, `INSERT_VERSION_ROW`, `COUNT_STORED_BYTES_ON_PUBLISH`, `INSERT_REVISION`, `COUNT_USER_STORED_BYTES`; or `COUNT_STORED_BYTES_ON_REVIVAL`, `REVIVE_REJECTED_REVISION` (`published_at < ?`: the stamp must advance), `COUNT_USER_STORED_BYTES` - one transaction, guards evaluated against the rows as they are then |
 | `PubReread` | the `Persist::Lost` re-read | `EXISTING_REVISIONS` again; `200` (healing) or `409` |
 | `PubFinish` | `governor_client::settle` (best-effort), `heal_blob_if_reclaimed` | ledger commit; head, reserve, re-put if the blob is gone - or the reservation is refused and the repair skipped |
 | `VerList` | one verifier run over one listed entry: `admin_versions_response`, then the driver's `Pass::version` or `Pass::resolve` ("The verifier" below) | `REVISIONS_BY_VERIFICATION_STATUS('pending')`: snapshots `(checksum, published_at)`; the artifact download reads the blob |
 | `VerRead` | the `PATCH` arrives: `verdict_authn` (the run's OIDC JWT, single-use `jti`; not modeled), then `verdict_response`: `verdict_binding_matches` compares the listing's `(checksum, published_at)` with the row just read, then `verify::transition`; a repeat rejection re-drives `delete_blob_if_unreferenced` | `VERDICT_TARGET` |
-| `VerApply` | `apply_verdict` / `apply_rejection`, `changed_rows == 0` as the lost race; a failed batch | `MARK_REVISION_VERIFIED` (+ `ENQUEUE_VERIFIED_BACKUP`), or `REFUND_STORED_BYTES_ON_REJECTION` then `MARK_REVISION_REJECTED` - one transaction, `checksum = ?` and `published_at = ?` bound to the body's values (the listing's binding, which the check at the read found equal to the row's) |
+| `VerApply` | `apply_verdict` / `apply_rejection`, `changed_rows == 0` as the lost race; a failed batch | `MARK_REVISION_VERIFIED` (+ `ENQUEUE_VERIFIED_BACKUP`), or `REFUND_STORED_BYTES_ON_REJECTION` then `MARK_REVISION_REJECTED` then `REFUND_USER_STORED_BYTES` - one transaction, `checksum = ?` and `published_at = ?` bound to the body's values (the listing's binding, which the check at the read found equal to the row's) |
 | `VerReclaim` | `delete_blob_if_unreferenced` after the rejection batch; or the request dying first | `COUNT_LIVE_BLOB_REFERENCES`, then the delete is in flight |
 | `LandDelete`, `DropDelete` | the R2 delete landing, or failing into an orphan | `bucket.delete` |
 
@@ -168,6 +168,11 @@ their outcomes as given.
 - Resolver-metadata invariance (`dependencies`, `features`, `standards`,
   `links`) is not modeled: the model's `409`s are the opt-in and
   immutability refusals only.
+- The per-user quota tallies (`COUNT_USER_PACKAGE`,
+  `COUNT_USER_STORED_BYTES`, `REFUND_USER_STORED_BYTES`) are not
+  modeled: they write only `users` columns no guard reads, and only the
+  quota preflight reads them (`tests/sql_validation/quota.rs` checks
+  them against the rows they count).
 - Governor refusals, the breaker's write gate, scope membership, rate
   limiting, and the quota preflight are not distinguished: each ends a
   publish before any revision or stored-bytes write (the preflight's own
