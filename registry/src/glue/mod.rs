@@ -22,7 +22,7 @@ use worker::{
 use crate::auth::{self, AuthContext, Scope};
 use crate::error;
 use crate::governor::{self, Consume, Decision, OpPool, Refusal, StoragePool};
-use crate::{breaker, quota, sql};
+use crate::{allowlist, breaker, quota, sql};
 
 use bearer::handle_website;
 use cron::{evaluate_budgets, reconcile_governor};
@@ -238,15 +238,24 @@ pub(crate) fn changed_rows(meta: Option<worker::D1ResultMeta>) -> usize {
     meta.and_then(|meta| meta.changes).unwrap_or(0)
 }
 
-/// Reads `meta.registry_generation`; best-effort (the header is a debug
-/// aid, not part of the client contract).
-async fn registry_generation(db: &D1Database) -> Option<String> {
+/// Stamps `meta.registry_generation` on the response; best-effort (the
+/// header is a debug aid, not part of the client contract).
+async fn stamp_generation(db: &D1Database, response: &mut Response) -> worker::Result<()> {
     let record: Option<MetaRecord> = db
         .prepare(sql::REGISTRY_GENERATION)
         .first(None)
         .await
-        .ok()?;
-    record.map(|record| record.value)
+        .ok()
+        .flatten();
+    if let Some(MetaRecord { value: generation }) = record {
+        response.headers_mut().set(GENERATION_HEADER, &generation)?;
+    }
+    Ok(())
+}
+
+/// Whether `id` is on the `ALLOWED_GITHUB_IDS` sign-in allowlist.
+pub(crate) fn github_id_allowed(env: &Env, id: i64) -> worker::Result<bool> {
+    Ok(allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string()).contains(&id))
 }
 
 #[derive(Deserialize)]

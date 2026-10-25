@@ -13,14 +13,14 @@ use worker::{
     D1Database, Env, Fetch, Headers, Method, Request, RequestInit, Response, console_error,
 };
 
-use crate::glue::{changed_rows, js_int, non_negative, now_iso8601};
+use crate::glue::{changed_rows, github_id_allowed, js_int, non_negative, now_iso8601};
 use crate::routes::{
     CLAIM_DENIED_REDIRECT, CLAIM_GRANTED_REDIRECT, LOGIN_DENIED_ACCOUNT_AGE_PREFIX,
     LOGIN_DENIED_REDIRECT, POST_LOGIN_REDIRECT, STATS_PATH, SessionRoute, WebRoute,
 };
 use crate::{
-    allowlist, auth, breaker, claim, error, governor, governor_client, names, quota, session,
-    signup, source, sql, stats, user_api,
+    auth, breaker, claim, error, governor, governor_client, names, quota, session, signup, source,
+    sql, stats, user_api,
 };
 
 /// The one identity provider policy admits today; the `identities`
@@ -370,8 +370,7 @@ async fn callback(req: &Request, env: &Env, db: &D1Database) -> worker::Result<R
         return denied(&[clear_state]);
     };
     // The numeric id is the identity; the login name is display-only.
-    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
-    if !allowed.contains(&user.id) {
+    if !github_id_allowed(env, user.id)? {
         return denied(&[clear_state]);
     }
     // A first sign-in is also account creation, which the sign-up gate
@@ -478,8 +477,7 @@ async fn claim_callback(req: &Request, env: &Env, db: &D1Database) -> worker::Re
     // Claiming is for signed-up users: the allowlist gate mirrors
     // sign-in, and the claimant must already have a registry account -
     // the seeded owner row needs its registry-native user id.
-    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
-    if !allowed.contains(&user.id) {
+    if !github_id_allowed(env, user.id)? {
         return claim_denied(&[clear_state]);
     }
     let Some(claimant) = user_record(db, user.id).await? else {
@@ -1320,8 +1318,7 @@ fn session_from_request(req: &Request, env: &Env) -> worker::Result<Option<sessi
     let Some(current) = session::open_session(&session_secret(env)?, sealed, now_secs()) else {
         return Ok(None);
     };
-    let allowed = allowlist::parse_allowed_ids(&env.var("ALLOWED_GITHUB_IDS")?.to_string());
-    Ok(allowed.contains(&current.github_id).then_some(current))
+    Ok(github_id_allowed(env, current.github_id)?.then_some(current))
 }
 
 /// The registry-native user a GitHub id resolves to through
