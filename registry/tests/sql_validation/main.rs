@@ -19,6 +19,7 @@ mod backup;
 mod common;
 mod downloads;
 mod packages;
+mod quota;
 mod scopes;
 mod trustpub;
 
