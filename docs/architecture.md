@@ -145,9 +145,9 @@ graph-composition recursion `R_L` is a graph algorithm and therefore lives in
 `cabin_workspace::standards`, not here).  The registry contract constants and predicates every
 client and server surface must agree on live in `cabin_core::registry`: the file-registry
 `config.json` discriminants, the default index origin, and the packaging-revision grammar
-(`PACKAGING_REVISION_HEX_LEN`, `is_valid_packaging_revision`,
-`packaging_revision_from_sha256_hex`), so index loading, publishing, fetching, and vendoring all
-derive a revision id from a checksum the same way.  The serialized checksum spelling those surfaces
+(`PACKAGING_REVISION_HEX_LEN`, `is_valid_packaging_revision`); index loading, publishing,
+fetching, and vendoring all derive a revision id from a checksum the same way, through
+`cabin_core::checksum::Checksum::revision_id`.  The serialized checksum spelling those surfaces
 share is `sha256:<64 lowercase hex>`; its typed owner is `cabin_core::checksum::Checksum`
 (strictly parsed, canonically displayed, hashing constructors over the `cabin_core::hash`
 primitives), carried end to end: `[package.upstream]` provenance, the packaging and publish
